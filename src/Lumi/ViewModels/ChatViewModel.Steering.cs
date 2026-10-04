@@ -56,13 +56,7 @@ public partial class ChatViewModel
             && !hasQueuedSends
             && !IsCachedSessionProviderConsistentWithSelection(chatId, session);
 
-        if (hasQueuedSends
-            || session is null
-            || runtime is null
-            || !CanSteerImmediately(runtime)
-            || sessionProviderMismatch
-            || HasPendingMcpCatalogRecovery(chatId)
-            || HasMcpCatalogDegradation(chatId))
+        if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime) || sessionProviderMismatch)
         {
             QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths);
             if (consumeComposerPrompt)
@@ -98,7 +92,8 @@ public partial class ChatViewModel
             Role = "user",
             Content = prompt,
             Author = authorOverride ?? _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
+            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
+            ReplyTo = consumeComposerPrompt ? TakePendingReply(chatId) : null
         };
 
         if (attachments is { Count: > 0 })
@@ -162,7 +157,7 @@ public partial class ChatViewModel
 
             var sendOptions = new MessageOptions
             {
-                Prompt = skillDirectives + prompt + BuildSendPromptAdditions(targetChat: activeChat),
+                Prompt = skillDirectives + ComposeModelPrompt(prompt, userMsg) + BuildSendPromptAdditions(targetChat: activeChat),
                 Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
             };
             ApplyMessageAttachments(sendOptions, attachments);
@@ -182,18 +177,6 @@ public partial class ChatViewModel
             // slot. If so, do NOT inject into the now-stale session — unregister the pending steer,
             // restore its state, and requeue the prompt for a fresh turn.
             if (!IsCachedSessionProviderConsistentWithSelection(chatId, session!))
-            {
-                RequeueMaterializedSteer(chatId, prompt, userMsg, messageViewModel);
-                return true;
-            }
-
-            await AwaitMcpCatalogRecoveryAsync(chatId, token);
-            if (HasPendingMcpCatalogRecoveryReplay(chatId))
-            {
-                RequeueMaterializedSteerAfterMcpRecovery(chatId, prompt, userMsg, messageViewModel);
-                return true;
-            }
-            if (HasMcpCatalogDegradation(chatId))
             {
                 RequeueMaterializedSteer(chatId, prompt, userMsg, messageViewModel);
                 return true;
@@ -348,16 +331,6 @@ public partial class ChatViewModel
         QueueBusySendPrompt(chatId, prompt, userMessage);
     }
 
-    private bool RequeueMaterializedSteerAfterMcpRecovery(
-        Guid chatId,
-        string prompt,
-        ChatMessage userMessage,
-        ChatMessageViewModel messageViewModel)
-    {
-        RequeueMaterializedSteer(chatId, prompt, userMessage, messageViewModel);
-        return ScheduleQueuedBusySendDrain(chatId);
-    }
-
     /// <summary>
     /// Returns true when the provider of the session that WOULD carry an immediate steer matches the
     /// provider of the currently selected model route. Used by <see cref="SteerActiveTurnAsync"/> to
@@ -452,11 +425,14 @@ public partial class ChatViewModel
 
     private static bool CanSteerImmediately(ChatRuntimeState runtime)
         => !runtime.IsStopping
+           && runtime.Chat?.IsPaused != true
            && !runtime.SendQueuedNowWhenTurnStarts
            && HasSubmittedCopilotTurn(runtime);
 
     private static bool HasSubmittedCopilotTurn(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => runtime.IsContinuationTurn
+           || Volatile.Read(ref runtime.AssistantTurnStarted)
+           || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
            || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
            || runtime.HasPendingBackgroundWork;
@@ -508,6 +484,7 @@ public partial class ChatViewModel
             return;
 
         if (CurrentChat is not { } chat
+            || chat.IsPaused
             || !chat.Messages.Contains(message.Message)
             || !IsChatRuntimeActive(chat.Id))
         {

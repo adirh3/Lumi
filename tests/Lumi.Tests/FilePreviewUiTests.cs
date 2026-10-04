@@ -32,28 +32,23 @@ public sealed class FilePreviewUiTests
                 var store = new DataStore(new AppData());
                 var chat = new Chat();
                 using var vm = new ChatViewModel(store, TestCopilot.Shared) { CurrentChat = chat };
-                var browserPanel = new Border { IsVisible = false };
-                var filePanel = new Border { IsVisible = false };
-                var fileHost = new ContentControl();
-                using var controller = new ChatPreviewPanelController(
-                    new Border(), store, vm, new Grid(), new Border(), null,
-                    browserPanel, new ContentControl(),
-                    new Border { IsVisible = false }, new ContentControl(), new TextBlock(),
-                    new Border { IsVisible = false }, new Border { IsVisible = false },
-                    new Border { IsVisible = false }, filePanel, fileHost);
+                var pageHost = new ContentControl();
+                using var controller = new WorkspacePanelController(
+                    new Border(), store, vm,
+                    new WorkspacePanelParts(new Grid(), new Border(), null, new Border(), new Border(), pageHost));
 
                 // There is deliberately no native window for WebView2 in this headless test.
-                var show = typeof(ChatPreviewPanelController).GetMethod(
-                    "ShowFilePreviewPanelAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var show = typeof(WorkspacePanelController).GetMethod(
+                    "ShowFilePreviewAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
                 await ((Task)show.Invoke(controller, [path, null])!).WaitAsync(TimeSpan.FromSeconds(10));
 
                 Assert.True(vm.HasUsedBrowser);
                 Assert.NotNull(vm.GetBrowserServiceForChat(chat.Id));
-                Assert.False(browserPanel.IsVisible);
-                Assert.True(filePanel.IsVisible);
+                Assert.Equal(WorkspacePage.FilePreview, controller.Page);
+                Assert.False(vm.IsBrowserOpen);
                 Assert.True(vm.IsFilePreviewOpen);
                 Assert.Equal(path, vm.PreviewFilePath);
-                var view = Assert.IsType<FilePreviewView>(fileHost.Content);
+                var view = Assert.IsType<FilePreviewView>(pageHost.Content);
                 var content = Assert.IsType<StackPanel>(
                     view.FindControl<ContentControl>("FilePreviewContentHost")!.Content);
                 Assert.Contains(content.Children.OfType<SelectableTextBlock>(),
@@ -276,29 +271,28 @@ public sealed class FilePreviewUiTests
     }
 
     [Fact]
-    public async Task ReopeningCompanionPanelRestoresVisibilityAfterAnimationCancellation()
+    public async Task ReopeningTheWorkspaceRestoresVisibilityAfterAnimationCancellation()
     {
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(() =>
         {
             var store = new DataStore(new AppData());
             using var vm = new ChatViewModel(store, TestCopilot.Shared);
-            var subagent = new Border
+            // The panel was left mid-slide by a cancelled animation.
+            var panel = new Border
             {
                 IsVisible = true, Opacity = 0,
                 RenderTransform = new Avalonia.Media.TranslateTransform(40, 0)
             };
-            using var controller = new ChatPreviewPanelController(
-                new Border(), store, vm, new Grid(), new Border(), null,
-                new Border { IsVisible = false }, new ContentControl(),
-                new Border { IsVisible = false }, new ContentControl(), new TextBlock(),
-                new Border { IsVisible = false }, new Border { IsVisible = false }, subagent,
-                new Border { IsVisible = false }, new ContentControl());
-            controller.ShowSubagentPanel();
-            Assert.True(subagent.IsVisible);
-            Assert.Equal(1, subagent.Opacity);
-            Assert.Null(subagent.RenderTransform);
-            Assert.True(vm.IsSubagentRunOpen);
+            using var controller = new WorkspacePanelController(
+                new Border(), store, vm,
+                new WorkspacePanelParts(new Grid(), new Border(), null, panel, new Border(), new ContentControl()));
+            controller.ShowAgents();
+            Assert.True(panel.IsVisible);
+            Assert.Equal(1, panel.Opacity);
+            Assert.Null(panel.RenderTransform);
+            Assert.Equal(WorkspacePage.Agents, vm.WorkspacePage);
+            Assert.True(vm.IsWorkspacePanelOpen);
         }, CancellationToken.None);
     }
 }

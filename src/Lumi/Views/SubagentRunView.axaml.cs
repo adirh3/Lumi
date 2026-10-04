@@ -12,7 +12,7 @@ using Lumi.ViewModels;
 namespace Lumi.Views;
 
 /// <summary>
-/// Read-only transcript of a delegated sub-agent's run, hosted in the right-hand split-view island.
+/// Read-only transcript of a delegated sub-agent's run, hosted as the Workspace's Agents page.
 /// Shows either the index of every agent in the chat or one agent's full run rendered like a normal
 /// chat, and follows the tail while that agent is still working.
 /// </summary>
@@ -32,6 +32,15 @@ public partial class SubagentRunView : UserControl
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
+        _observedRunId = null; // another chat's runs start at the top
+        Rebind();
+    }
+
+    // The Workspace re-hosts the same page each time the Agents page opens; coming back to the
+    // same run keeps the reader's place.
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
         Rebind();
     }
 
@@ -62,7 +71,6 @@ public partial class SubagentRunView : UserControl
         }
 
         UnobserveTurns();
-        _observedRunId = null;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

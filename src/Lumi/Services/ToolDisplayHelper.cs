@@ -50,7 +50,7 @@ public static partial class ToolDisplayHelper
             or BrowserOpenToolName or BrowserLookToolName or BrowserFindToolName or BrowserDoToolName or BrowserJsToolName => "🌐",
         "web_search" or "search" => "🔎",
         "web_fetch" or "lumi_fetch" => "📚",
-        "ui_inspect" or "ui_find" or "ui_click" or "ui_type" or "ui_read" => "🖥",
+        "ui_inspect" or "ui_do" or "ui_find" or "ui_click" or "ui_type" or "ui_read" or "ui_screenshot" or "ui_click_at" => "🖥",
         "save_memory" or "update_memory" or "recall_memory" or "delete_memory" => "🧠",
         "fetch_skill" or "skill" => "⚡",
         "manage_projects" => "📁",
@@ -228,6 +228,12 @@ public static partial class ToolDisplayHelper
                 return (Loc.Tool_AskingQuestion, null);
             case "ui_inspect":
                 return (Loc.Tool_InspectingWindow, ExtractJsonField(argsJson, "title"));
+            case "ui_do":
+                return (Loc.Tool_AutomatingWindow, ExtractJsonField(argsJson, "title"));
+            case "ui_screenshot":
+                return (Loc.Tool_TakingScreenshot, ExtractJsonField(argsJson, "title"));
+            case "ui_click_at":
+                return (Loc.Tool_ClickingControl, ExtractJsonField(argsJson, "captureId"));
             case "ui_find":
                 return (Loc.Tool_FindingElement, ExtractJsonField(argsJson, "query"));
             case "ui_click":

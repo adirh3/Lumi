@@ -183,6 +183,7 @@ public partial class ChatViewModel
 
     public bool CanCompactContext
         => CurrentChat is { } chat
+           && !chat.IsPaused
            && !string.IsNullOrWhiteSpace(chat.CopilotSessionId)
            && !HasPendingSessionRefresh(CurrentChat.Id)
            && HasContextUsage

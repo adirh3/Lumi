@@ -244,10 +244,10 @@ public sealed class BrowserToggleAfterChatSwitchTests
         Assert.True(visibleAfterToggleOpen, "Clicking the toggle should reopen the browser after returning.");
     }
 
-    // Faithful test-double of the browser panel view: the single shared BrowserIsland panel follows
-    // whichever ChatViewModel surface is active (ChatWorkspaceView re-subscribes its controller on swap),
-    // MainWindow hides it on every ActiveChatId change, and the controller's HideBrowserPanel early-returns
-    // (leaving IsBrowserOpen untouched) when the panel is already hidden.
+    // Faithful test-double of the browser page view: the single shared Workspace panel follows whichever
+    // ChatViewModel surface is active (ChatWorkspaceView recreates its controller on swap), MainWindow
+    // closes Workspace pages on every ActiveChatId change, and closing a browser page that isn't showing
+    // leaves IsBrowserOpen untouched.
     private sealed class BrowserPanelProbe : IDisposable
     {
         private readonly MainViewModel _vm;
@@ -292,7 +292,7 @@ public sealed class BrowserToggleAfterChatSwitchTests
 
         private void OnShow(Guid chatId)
         {
-            if (_vm.ActiveChatId != chatId) // ChatPreviewPanelController._canShowBrowserPanel gate
+            if (_vm.ActiveChatId != chatId) // WorkspacePanelController canShowBrowserPanel gate
                 return;
 
             IsVisible = true;
@@ -304,7 +304,7 @@ public sealed class BrowserToggleAfterChatSwitchTests
 
         private void Hide()
         {
-            if (!IsVisible) // HideBrowserPanelAsync early-return: leaves IsBrowserOpen as-is
+            if (!IsVisible) // closing a browser page that isn't showing leaves IsBrowserOpen as-is
                 return;
 
             IsVisible = false;

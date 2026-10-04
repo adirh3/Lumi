@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 
 namespace Lumi.Services;
@@ -49,6 +50,79 @@ public static class ClipboardHelper
         catch
         {
             /* clipboard can be transiently locked by another process — ignore */
+        }
+    }
+
+    /// <summary>
+    /// Copies text together with an HTML rendering of it, so rich editors (Teams, Outlook, Slack)
+    /// paste the formatted version — for example a real code block — and everything else gets the
+    /// plain text. <paramref name="htmlFragment"/> is body content, not a full document.
+    /// </summary>
+    public static async Task CopyTextAndHtmlAsync(string text, string htmlFragment)
+    {
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        var clipboard = ActiveTopLevel()?.Clipboard;
+        if (clipboard is null)
+            return;
+
+        try
+        {
+            var item = DataTransferItem.CreateText(text);
+            if (OperatingSystem.IsWindows())
+                item.Set(DataFormat.CreateBytesPlatformFormat("HTML Format"), BuildWindowsHtmlClipboard(htmlFragment));
+            else if (OperatingSystem.IsMacOS())
+                item.Set(DataFormat.CreateStringPlatformFormat("public.html"), htmlFragment);
+            else
+                item.Set(DataFormat.CreateBytesPlatformFormat("text/html"), System.Text.Encoding.UTF8.GetBytes(htmlFragment));
+
+            var data = new DataTransfer();
+            data.Add(item);
+            await clipboard.SetDataAsync(data);
+        }
+        catch
+        {
+            // A rich copy that fails (clipboard locked, format refused) still leaves the user able to copy text.
+            await CopyTextAsync(text);
+        }
+    }
+
+    /// <summary>
+    /// Windows' CF_HTML clipboard format: a header of byte offsets (UTF-8) around the fragment, as
+    /// every Windows editor expects when it reads "HTML Format".
+    /// </summary>
+    internal static byte[] BuildWindowsHtmlClipboard(string fragment)
+    {
+        const string headerTemplate = "Version:0.9\r\nStartHTML:{0:D10}\r\nEndHTML:{1:D10}\r\nStartFragment:{2:D10}\r\nEndFragment:{3:D10}\r\n";
+        const string documentStart = "<html><body>\r\n<!--StartFragment-->";
+        const string documentEnd = "<!--EndFragment-->\r\n</body></html>";
+
+        var utf8 = System.Text.Encoding.UTF8;
+        var startHtml = utf8.GetByteCount(string.Format(System.Globalization.CultureInfo.InvariantCulture, headerTemplate, 0, 0, 0, 0));
+        var startFragment = startHtml + utf8.GetByteCount(documentStart);
+        var endFragment = startFragment + utf8.GetByteCount(fragment);
+        var endHtml = endFragment + utf8.GetByteCount(documentEnd);
+
+        var header = string.Format(System.Globalization.CultureInfo.InvariantCulture, headerTemplate, startHtml, endHtml, startFragment, endFragment);
+        return utf8.GetBytes(header + documentStart + fragment + documentEnd);
+    }
+
+    /// <summary>Reads plain text from the system clipboard; null when it has none or cannot be read.</summary>
+    public static async Task<string?> GetTextAsync()
+    {
+        var clipboard = ActiveTopLevel()?.Clipboard;
+        if (clipboard is null)
+            return null;
+
+        try
+        {
+            return await ClipboardExtensions.TryGetTextAsync(clipboard);
+        }
+        catch
+        {
+            /* clipboard can be transiently locked by another process — treat as empty */
+            return null;
         }
     }
 

@@ -79,15 +79,35 @@ public class ChatMessage
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
     /// <summary>
+    /// The earlier assistant message (or the excerpt of it) this user message replies to, or null for
+    /// an ordinary message. The quote travels with the message so the model receives it on every
+    /// send, resend, and transcript replay.
+    /// </summary>
+    public MessageReply? ReplyTo { get; set; }
+    /// <summary>
     /// Recovery decision captured from a structured session error. Persisted so reopening a chat
     /// does not have to infer behavior from localized display text.
     /// </summary>
     public SessionFailureDisposition? FailureDisposition { get; set; }
 
+    /// <summary>A local send held by Pause, restored to the FIFO when this chat is loaded.</summary>
+    public bool IsPendingPausedSend { get; set; }
+
+    private MessageSteerState _steerDelivery;
+
     /// <summary>Session-only steer delivery status (not serialized). Set when this message is steered
     /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
     [JsonIgnore]
-    public MessageSteerState SteerDelivery { get; set; }
+    public MessageSteerState SteerDelivery
+    {
+        get => _steerDelivery;
+        set
+        {
+            _steerDelivery = value;
+            if (value != MessageSteerState.Queued)
+                IsPendingPausedSend = false;
+        }
+    }
 
     /// <summary>
     /// Session-only availability for requesting immediate delivery of a locally queued message.
@@ -140,6 +160,8 @@ public class ChatMessage
         HasMcpSelection = HasMcpSelection,
         Attachments = [..Attachments],
         FailureDisposition = FailureDisposition,
+        IsPendingPausedSend = IsPendingPausedSend,
+        ReplyTo = ReplyTo?.Clone(),
         ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
         {
             Name = s.Name,
@@ -170,6 +192,34 @@ public class ChatMessage
         ToolDurationMs = Math.Max(0, (finishedAt - startedAt).TotalMilliseconds);
         return true;
     }
+}
+
+/// <summary>
+/// Links a user message to the earlier assistant message it replies to. <see cref="Quote"/> is the
+/// excerpt the user selected (<see cref="IsSelection"/>), or the opening of the whole message when
+/// the reply targets the message itself.
+/// </summary>
+public sealed class MessageReply
+{
+    /// <summary>Id of the assistant message being replied to.</summary>
+    public Guid MessageId { get; set; }
+
+    /// <summary>The quoted text shown with the reply and sent to the model.</summary>
+    public string Quote { get; set; } = "";
+
+    /// <summary>True when <see cref="Quote"/> is a user-selected excerpt rather than the whole message.</summary>
+    public bool IsSelection { get; set; }
+
+    /// <summary>Display name of the replied-to message's author (e.g. "Lumi" or an agent name).</summary>
+    public string? Author { get; set; }
+
+    public MessageReply Clone() => new()
+    {
+        MessageId = MessageId,
+        Quote = Quote,
+        IsSelection = IsSelection,
+        Author = Author
+    };
 }
 
 public class SkillReference
@@ -467,6 +517,9 @@ public class Chat : INotifyPropertyChanged
     private ChatTag? _tag;
     private bool _isRunning;
     private bool _isSessionActive;
+    private bool _isAwaitingInput;
+    private bool _isPaused;
+    private bool _isPausePending;
     private bool _hasUnreadMessages;
     private bool _isPinned;
     private bool _showProjectBadge;
@@ -526,6 +579,7 @@ public class Chat : INotifyPropertyChanged
     }
 
     public string? CopilotSessionId { get; set; }
+    public bool PauseNeedsContinuation { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     /// <summary>
@@ -649,6 +703,8 @@ public class Chat : INotifyPropertyChanged
             _isRunning = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowRunningIndicator)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
         }
     }
 
@@ -663,11 +719,58 @@ public class Chat : INotifyPropertyChanged
             _isSessionActive = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSessionActive)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
         }
     }
 
     [JsonIgnore]
-    public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
+    public bool HasBackgroundActivity => IsSessionActive && !IsRunning && !IsPaused;
+
+    /// <summary>User intent to hold the next safe session step, retained across app restarts.</summary>
+    public bool IsPaused
+    {
+        get => _isPaused;
+        set
+        {
+            if (_isPaused == value) return;
+            _isPaused = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsPaused)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowRunningIndicator)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsPausePending
+    {
+        get => _isPausePending;
+        set
+        {
+            if (_isPausePending == value) return;
+            _isPausePending = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsPausePending)));
+        }
+    }
+
+    [JsonIgnore]
+    public bool ShowRunningIndicator => IsRunning && !IsPaused;
+
+    [JsonIgnore]
+    public bool CanPause => (IsRunning || IsSessionActive) && !IsPaused;
+
+    /// <summary>Runtime-only: the assistant is blocked on a question it asked the user.</summary>
+    [JsonIgnore]
+    public bool IsAwaitingInput
+    {
+        get => _isAwaitingInput;
+        set
+        {
+            if (_isAwaitingInput == value) return;
+            _isAwaitingInput = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsAwaitingInput)));
+        }
+    }
 
     /// <summary>Runtime-only flag for an unseen reply or a chat manually marked as unread.</summary>
     [JsonIgnore]
@@ -699,6 +802,7 @@ public class Chat : INotifyPropertyChanged
 public class Project : INotifyPropertyChanged
 {
     private bool _isRunning;
+    private int _chatCount;
     private List<string> _additionalContextDirectories = [];
 
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -723,6 +827,14 @@ public class Project : INotifyPropertyChanged
     {
         get => _isRunning;
         set { if (_isRunning == value) return; _isRunning = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning))); }
+    }
+
+    /// <summary>Runtime-only number of chats in this project, shown next to it in the Projects sidebar.</summary>
+    [JsonIgnore]
+    public int ChatCount
+    {
+        get => _chatCount;
+        set { if (_chatCount == value) return; _chatCount = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ChatCount))); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -1141,6 +1253,13 @@ public class UserSettings
     public bool MinimizeToTray { get; set; }
     public string GlobalHotkey { get; set; } = "";
     public bool NotificationsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Look on the clipboard for something to import when Lumi is activated (Lumi codes and packs) or
+    /// the Import sheet opens, and offer a preview. Off by default on macOS, which can warn the user
+    /// whenever an app reads the clipboard on its own.
+    /// </summary>
+    public bool OfferCopiedCapabilities { get; set; } = !OperatingSystem.IsMacOS();
     public string DismissedUpdateBannerToken { get; set; } = "";
 
     // ── Appearance ──

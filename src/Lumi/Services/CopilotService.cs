@@ -1632,6 +1632,15 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// The backend retained input-item references from a different connection. Resending that native
+    /// history cannot recover; rebuild from Lumi's saved transcript without the foreign item IDs.
+    /// </summary>
+    internal static bool IsForeignConnectionInputItemError(string? message)
+        => message?.Contains(
+            "input item ID does not belong to this connection",
+            StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
     /// The message thrown by <c>ChatViewModel.EnsureSessionAsync</c> when session setup
     /// (create/resume + MCP initialization) exceeds its bound because the chat has MCP servers.
     /// Centralized so the throw sites and <see cref="IsMcpSetupTimeoutError"/> can never drift.
@@ -1677,14 +1686,30 @@ public class CopilotService : IAsyncDisposable
             return new SendFailureClassification(SessionFailureDisposition.Fatal, IsImageError: false);
 
         // Rebuilding loses native turn/tool history, so it is allow-listed to the cases where reusing
-        // the session cannot work: a known image poison or a session that no longer exists. Every
-        // other recoverable failure, including local persistence and lifecycle errors, retries the
-        // same resumable session.
+        // the session cannot work: poisoned image/input-item history or a missing session. Every other
+        // recoverable failure, including local persistence and lifecycle errors, retries the same session.
         var isImageError = IsUnprocessableImageError(statusCode, errorType, message);
-        var disposition = isImageError || IsMissingSessionError(errorType, message)
+        var disposition = isImageError
+            || IsMissingSessionError(errorType, message)
+            || IsForeignConnectionInputItemError(message)
             ? SessionFailureDisposition.RebuildSession
             : SessionFailureDisposition.RetrySameSession;
         return new SendFailureClassification(disposition, isImageError);
+    }
+
+    internal static SendFailureClassification ClassifyPersistedSendFailure(
+        SessionFailureDisposition? disposition, string? message)
+    {
+        // Older Lumi versions persisted this connection-history error as a same-session retry.
+        // Upgrade only that known mistake; structured fatal/rebuild decisions remain authoritative.
+        if (disposition is null
+            || (disposition == SessionFailureDisposition.RetrySameSession
+                && IsForeignConnectionInputItemError(message)))
+        {
+            return ClassifySendFailure(null, null, message, hasTerminalOverride: false);
+        }
+
+        return new SendFailureClassification(disposition.Value, IsImageError: false);
     }
 
     internal static string? TryGetGitHubTokenForMcp()

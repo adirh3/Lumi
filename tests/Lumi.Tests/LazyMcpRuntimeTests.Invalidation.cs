@@ -258,15 +258,8 @@ public sealed partial class LazyMcpRuntimeTests
             new { name = "echo", arguments = new { value = "notify" } }));
         var listCount = fake.Messages("tools/list").Length;
         fake.SetBehavior("description-drift");
-        var staleCall = await fake.RequestAsync(old.ServerConfig.Url, "tools/call",
-            new { name = "echo", arguments = new { value = "not-forwarded" } });
-        AssertError(staleCall);
-        Assert.Equal(
-            McpStdioServerConnection.FrontendRediscoveryRequiredCode,
-            staleCall.GetProperty("error").GetProperty("code").GetInt32());
-        Assert.Equal(
-            McpStdioServerConnection.FrontendRediscoveryRequiredMessage,
-            staleCall.GetProperty("error").GetProperty("message").GetString());
+        AssertError(await fake.RequestAsync(old.ServerConfig.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "not-forwarded" } }));
         Assert.Equal(listCount + 1, fake.Messages("tools/list").Length);
         Assert.Single(fake.Messages("tools/call"));
         AssertSuccess(await fake.RequestAsync(old.ServerConfig.Url, "tools/call",

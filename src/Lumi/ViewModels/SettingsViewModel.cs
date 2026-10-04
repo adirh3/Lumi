@@ -80,6 +80,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _minimizeToTray;
     [ObservableProperty] private string _globalHotkey;
     [ObservableProperty] private bool _notificationsEnabled;
+    [ObservableProperty] private bool _offerCopiedCapabilities;
 
     // ── Appearance ──
     [ObservableProperty] private bool _isDarkTheme;
@@ -479,7 +480,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public event Action? SettingsChanged;
     public event Action? SystemPromptSettingsChanged;
     public event Action? McpDiscoveryRefreshRequested;
-    public event Action? McpRuntimeConfigurationChanged;
     public event Action? CookieImportDialogRequested;
 
     /// <summary>Raised when the BYOK endpoint/model configuration changes. Consumers re-inject picker tokens and clear stale selections.</summary>
@@ -522,6 +522,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _minimizeToTray = s.MinimizeToTray;
         _globalHotkey = s.GlobalHotkey;
         _notificationsEnabled = s.NotificationsEnabled;
+        _offerCopiedCapabilities = s.OfferCopiedCapabilities;
 
         // Appearance
         _isDarkTheme = s.IsDarkTheme;
@@ -835,6 +836,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             app.UpdateGlobalHotkey(value);
     }
     partial void OnNotificationsEnabledChanged(bool value) { _dataStore.Data.Settings.NotificationsEnabled = value; Save(); NotifyModified(); }
+    partial void OnOfferCopiedCapabilitiesChanged(bool value) { _dataStore.Data.Settings.OfferCopiedCapabilities = value; Save(); NotifyModified(); }
 
     partial void OnIsDarkThemeChanged(bool value) { _dataStore.Data.Settings.IsDarkTheme = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnIsCompactDensityChanged(bool value) { _dataStore.Data.Settings.IsCompactDensity = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
@@ -1073,21 +1075,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         NotifyModified();
     }
 
-    partial void OnUseMcpProxyChanged(bool value)
-    {
-        _dataStore.Data.Settings.UseMcpProxy = value;
-        Save();
-        NotifyModified();
-        McpRuntimeConfigurationChanged?.Invoke();
-    }
-
-    partial void OnUseLazyMcpInitializationChanged(bool value)
-    {
-        _dataStore.Data.Settings.UseLazyMcpInitialization = value;
-        Save();
-        NotifyModified();
-        McpRuntimeConfigurationChanged?.Invoke();
-    }
+    partial void OnUseMcpProxyChanged(bool value) { _dataStore.Data.Settings.UseMcpProxy = value; Save(); NotifyModified(); }
+    partial void OnUseLazyMcpInitializationChanged(bool value) { _dataStore.Data.Settings.UseLazyMcpInitialization = value; Save(); NotifyModified(); }
 
     private bool CanRefreshMcpTools() => UseMcpProxy;
 
@@ -1749,6 +1738,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsMinimizeToTrayModified => MinimizeToTray != _defaults.MinimizeToTray;
     public bool IsGlobalHotkeyModified => GlobalHotkey != _defaults.GlobalHotkey;
     public bool IsNotificationsEnabledModified => NotificationsEnabled != _defaults.NotificationsEnabled;
+    public bool IsOfferCopiedCapabilitiesModified => OfferCopiedCapabilities != _defaults.OfferCopiedCapabilities;
     public bool IsDarkThemeModified => IsDarkTheme != _defaults.IsDarkTheme;
     public bool IsCompactDensityModified => IsCompactDensity != _defaults.IsCompactDensity;
     public bool IsUiScaleModified => UiScalePercent != _defaults.UiScalePercent;
@@ -1782,6 +1772,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsMinimizeToTrayModified));
         OnPropertyChanged(nameof(IsGlobalHotkeyModified));
         OnPropertyChanged(nameof(IsNotificationsEnabledModified));
+        OnPropertyChanged(nameof(IsOfferCopiedCapabilitiesModified));
         OnPropertyChanged(nameof(IsDarkThemeModified));
         OnPropertyChanged(nameof(IsCompactDensityModified));
         OnPropertyChanged(nameof(IsUiScaleModified));
@@ -1830,6 +1821,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertMinimizeToTray() => MinimizeToTray = _defaults.MinimizeToTray;
     [RelayCommand] private void RevertGlobalHotkey() => GlobalHotkey = _defaults.GlobalHotkey;
     [RelayCommand] private void RevertNotificationsEnabled() => NotificationsEnabled = _defaults.NotificationsEnabled;
+    [RelayCommand] private void RevertOfferCopiedCapabilities() => OfferCopiedCapabilities = _defaults.OfferCopiedCapabilities;
     [RelayCommand] private void RevertIsDarkTheme() => IsDarkTheme = _defaults.IsDarkTheme;
     [RelayCommand] private void RevertIsCompactDensity() => IsCompactDensity = _defaults.IsCompactDensity;
     [RelayCommand] private void RevertUiScale() => UiScalePercent = _defaults.UiScalePercent;
@@ -1974,6 +1966,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         MinimizeToTray = defaults.MinimizeToTray;
         GlobalHotkey = defaults.GlobalHotkey;
         NotificationsEnabled = defaults.NotificationsEnabled;
+        OfferCopiedCapabilities = defaults.OfferCopiedCapabilities;
         IsDarkTheme = defaults.IsDarkTheme;
         IsCompactDensity = defaults.IsCompactDensity;
         UiScalePercent = defaults.UiScalePercent;

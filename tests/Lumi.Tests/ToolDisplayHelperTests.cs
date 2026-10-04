@@ -7,6 +7,16 @@ namespace Lumi.Tests;
 public class ToolDisplayHelperTests
 {
     [Fact]
+    public void DesktopBatch_UsesLocalizedDisplayAndKeepsDetailsExpandable()
+    {
+        Assert.Equal(("Automating window", "Benchmark"),
+            ToolDisplayHelper.GetFriendlyToolDisplay("ui_do", null, """{"title":"Benchmark","steps":[]}"""));
+        Assert.Equal("Automating window", ToolDisplayHelper.FormatToolStatusName("ui_do"));
+        Assert.Equal(ToolDisplayHelper.GetToolGlyph("ui_inspect"), ToolDisplayHelper.GetToolGlyph("ui_do"));
+        Assert.False(ToolDisplayHelper.IsCompactEligible("ui_do"));
+    }
+
+    [Fact]
     public void ToRuntimeToolNames_NormalizesLegacyBrowserToolsForSdk()
     {
         var normalized = ToolDisplayHelper.ToRuntimeToolNames(

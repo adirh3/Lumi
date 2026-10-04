@@ -38,17 +38,17 @@ public sealed partial class McpProxyRuntime : IAsyncDisposable
         public McpStdioServerConnection Connection { get; } = new(definition, discoveryCache);
 
         // These methods and route lookup run under the runtime gate.
-        public string AddClient(bool useLazyInitialization)
+        public string AddClient()
         {
             var token = Guid.NewGuid().ToString("N");
-            _clients.Add(token, new McpDiscoverySession(useLazyInitialization));
+            _clients.Add(token, new McpDiscoverySession(true));
             return token;
         }
 
-        public string GetPersistentClientToken(long revision, bool useLazyInitialization)
+        public string GetPersistentClientToken(long revision)
         {
             if (_persistentClientToken is null || _clients[_persistentClientToken].NeedsRediscovery(revision))
-                _persistentClientToken = AddClient(useLazyInitialization);
+                _persistentClientToken = AddClient();
             return _persistentClientToken;
         }
 

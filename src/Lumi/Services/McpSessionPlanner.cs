@@ -28,8 +28,7 @@ namespace Lumi.Services;
 public sealed record McpSessionPlan(
     Dictionary<string, McpServerConfig> Servers,
     IReadOnlyList<string> DisabledServerNames,
-    IReadOnlyDictionary<string, string>? RuntimeKeysByName = null,
-    IReadOnlySet<string>? SelectedRuntimeServerNames = null) : IDisposable
+    IReadOnlyDictionary<string, string>? RuntimeKeysByName = null) : IDisposable
 {
     private McpProxySessionLease? _proxyLease;
     private bool _usesProxy;
@@ -44,10 +43,6 @@ public sealed record McpSessionPlan(
         => RuntimeKeysByName is not null && RuntimeKeysByName.TryGetValue(serverName, out var key)
             ? key
             : serverName;
-
-    public IReadOnlySet<string> GetSelectedRuntimeServerNames()
-        => SelectedRuntimeServerNames
-           ?? (IReadOnlySet<string>)Servers.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     internal bool UsesProxy => _usesProxy;
     internal McpProxySessionLease? ProxyLease => Volatile.Read(ref _proxyLease);
@@ -66,14 +61,11 @@ public sealed record McpSessionPlan(
 }
 
 internal sealed class McpProxySessionLease(
-    IReadOnlyList<McpProxyRuntime.SessionRegistrationLease> registrations,
-    bool usesLazyInitialization = false) : IDisposable, IAsyncDisposable
+    IReadOnlyList<McpProxyRuntime.SessionRegistrationLease> registrations) : IDisposable, IAsyncDisposable
 {
     private readonly object _releaseGate = new();
     private IReadOnlyList<McpProxyRuntime.SessionRegistrationLease>? _registrations = registrations;
     private Task? _releaseTask;
-
-    internal bool UsesLazyInitialization { get; } = usesLazyInitialization;
 
     public void Dispose()
     {
@@ -231,29 +223,10 @@ public static class McpSessionPlanner
                 .Distinct(NameComparer)
                 .ToArray();
 
-            var selectedRuntimeServerNames = result.Keys.ToHashSet(NameComparer);
-            if (!agentRestrictsMcp)
-            {
-                foreach (var discovered in capabilities.McpServers
-                             .Where(server => !server.Origin.IsLumi)
-                             .Where(server => selectedNames.Contains(server.Name))
-                             .Where(server => !supplied.Contains(server.Name)))
-                {
-                    selectedRuntimeServerNames.Add(discovered.Name);
-                }
-            }
-
-            var plan = new McpSessionPlan(
-                result,
-                disabled,
-                runtimeKeysByName,
-                selectedRuntimeServerNames);
+            var plan = new McpSessionPlan(result, disabled, runtimeKeysByName);
             if (proxyRegistrations is { Count: > 0 })
             {
-                plan.AttachProxyLease(
-                    new McpProxySessionLease(
-                        proxyRegistrations,
-                        data.Settings.UseLazyMcpInitialization));
+                plan.AttachProxyLease(new McpProxySessionLease(proxyRegistrations));
                 proxyRegistrations = null;
             }
 
@@ -356,30 +329,12 @@ public static class McpSessionPlanner
                 proxyKey,
                 server.Name,
                 local,
-                useLazyInitialization,
-                GetToolCallPreflightPolicy(local.Command, local.Args)));
+                useLazyInitialization));
             proxyRegistrations!.Add(registration);
             return registration.ServerConfig;
         }
 
         return local;
-    }
-
-    internal static McpToolCallPreflightPolicy GetToolCallPreflightPolicy(
-        string? command,
-        IList<string>? args)
-    {
-        var executableName = Path.GetFileName(command?.Trim());
-        if (!string.Equals(executableName, "agency", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(executableName, "agency.exe", StringComparison.OrdinalIgnoreCase))
-        {
-            return McpToolCallPreflightPolicy.None;
-        }
-
-        return args is { Count: >= 2 }
-            && string.Equals(args[0], "mcp", StringComparison.OrdinalIgnoreCase)
-                ? AgencyMcpSessionRecovery.Policy
-                : McpToolCallPreflightPolicy.None;
     }
 
     private static List<string> NormalizeTools(IEnumerable<string>? tools)

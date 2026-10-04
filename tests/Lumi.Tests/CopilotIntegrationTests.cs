@@ -689,6 +689,72 @@ public class CopilotIntegrationTests : IAsyncLifetime
     // ═══════════════════════════════════════════════════════════════════════
 
     [SkippableFact]
+    public async Task ChatPause_EmptyBatchContinuesAfterAbort_WithoutAnotherUserMessage()
+    {
+        SkipIfDisabled();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var tool = AIFunctionFactory.Create(async (CancellationToken cancellationToken) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                started.TrySetResult();
+                try { await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken); }
+                catch (OperationCanceledException)
+                {
+                    canceled.TrySetResult();
+                    throw;
+                }
+            }
+            return "NATIVE_RESUME_COMPLETE";
+        }, "resume_probe", "Get the completion marker. Retry this tool if it was interrupted.");
+        var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            Model = "gpt-5-mini",
+            SystemPrompt = "Call resume_probe and reply with its returned marker. Retry if interrupted.",
+            Tools = [tool],
+            Streaming = true
+        });
+        var session = await _service.CreateSessionAsync(config);
+        var userMessages = 0;
+        var assistantMessages = new List<string>();
+        using var subscription = session.On<SessionEvent>(evt =>
+        {
+            if (evt is UserMessageEvent)
+                Interlocked.Increment(ref userMessages);
+            else if (evt is AssistantMessageEvent message)
+                assistantMessages.Add(message.Data.Content ?? "");
+        });
+        try
+        {
+            await session.SendAsync(new MessageOptions { Prompt = "Run the tool and report its marker." });
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(60));
+#pragma warning disable GHCP001
+            await session.Rpc.Queue.SetDrainPausedAsync(true);
+            var abort = await session.Rpc.AbortAsync();
+            Assert.True(abort.Success, abort.Error);
+            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            _output.WriteLine("Abort accepted.");
+            Assert.Equal(1, calls);
+            await session.Rpc.Queue.SetDrainPausedAsync(false);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            await session.Rpc.SendMessagesAsync([], wait: true, cancellationToken: timeout.Token);
+#pragma warning restore GHCP001
+            _output.WriteLine($"Calls: {calls}; user messages: {userMessages}; assistant responses: " +
+                              string.Join(" | ", assistantMessages));
+            Assert.True(calls >= 2);
+            Assert.Equal(1, userMessages);
+            Assert.Contains(assistantMessages, message => message.Contains("NATIVE_RESUME_COMPLETE"));
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(session.SessionId);
+        }
+    }
+
+    [SkippableFact]
     public async Task CustomTool_IsInvoked_WithEventsAndHook()
     {
         SkipIfDisabled();
@@ -851,6 +917,96 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var session = await _service.CreateSessionAsync(config);
         Assert.NotEmpty(session.SessionId);
         await session.DisposeAsync();
+    }
+
+    [SkippableFact]
+    public async Task NativeMcpSessionLoss_RealCliRestartKeepsSessionAndDoesNotReplay()
+    {
+        SkipIfDisabled();
+        using var failedServer = new LazyMcpRuntimeTests.FakeMcp("call-session-stuck");
+        using var unaffectedServer = new LazyMcpRuntimeTests.FakeMcp();
+        const string serverName = "native-session-loss";
+        var configDirectory = Directory.CreateDirectory(Path.Combine(failedServer.Root, "cli-config")).FullName;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var session = await _service.CreateSessionAsync(new SessionConfig
+        {
+            WorkingDirectory = failedServer.Root,
+            ConfigDirectory = configDirectory,
+            EnableConfigDiscovery = false,
+            EnableSessionStore = false,
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            McpServers = new Dictionary<string, McpServerConfig>
+            {
+                [serverName] = failedServer.Definition(lazy: false).Config,
+                ["unaffected-server"] = unaffectedServer.Definition(lazy: false).Config
+            }
+        }, timeout.Token);
+        var sessionId = session.SessionId;
+        var nativeCalls = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var restartTimes = new Dictionary<string, long>(StringComparer.Ordinal);
+        var restartCount = 0;
+        try
+        {
+            await session.Rpc.Mcp.ListAsync(timeout.Token);
+            await session.Rpc.Tools.InitializeAndValidateAsync(timeout.Token);
+            var metadata = await session.Rpc.Tools.GetCurrentMetadataAsync(timeout.Token);
+            Assert.NotNull(metadata.Tools);
+            var tool = Assert.Single(metadata.Tools,
+                item => item.McpServerName == serverName && item.McpToolName == "echo");
+            var marker = Guid.NewGuid().ToString("N");
+            var arguments = JsonSerializer.SerializeToElement(new { value = marker });
+            Assert.Contains("MCP error -32001: Session not found",
+                (await session.Rpc.Tools.ExecuteAsync(
+                    tool.Name, arguments, "baseline-first", timeout.Token)).GetRawText(), StringComparison.Ordinal);
+            Assert.Contains("MCP error -32001: Session not found",
+                (await session.Rpc.Tools.ExecuteAsync(
+                    tool.Name, arguments, "baseline-second", timeout.Token)).GetRawText(), StringComparison.Ordinal);
+            Assert.Single(failedServer.Starts);
+            Assert.Equal(2, failedServer.Messages("tools/call").Length);
+
+            var failure = await session.Rpc.Tools.ExecuteAsync(
+                tool.Name, arguments, "expired-call", timeout.Token);
+            Assert.NotEqual("success", failure.GetProperty("resultType").GetString());
+            var completion = new ToolExecutionCompleteData
+            {
+                ToolCallId = "expired-call",
+                Success = false,
+                Error = new ToolExecutionCompleteError { Message = failure.GetProperty("error").GetString() }
+            };
+            Assert.True(McpStdioServerConnection.IsRecoverableSessionLossMessage(completion.Error.Message));
+            nativeCalls[completion.ToolCallId] = serverName;
+            // Direct tool RPCs do not emit assistant-turn events. Feed their actual failure
+            // through the subscription's helper; unit tests cover event provenance separately.
+            await ChatViewModel.RestartNativeMcpServerAfterSessionLossAsync(
+                completion, nativeCalls, restartTimes, async name =>
+                {
+                    Assert.Equal(serverName, name);
+                    Interlocked.Increment(ref restartCount);
+                    await session.Rpc.Mcp.RestartServerAsync(name, null, timeout.Token);
+                });
+
+            Assert.Equal(1, restartCount);
+            Assert.Equal(2, failedServer.Starts.Length);
+            Assert.Single(unaffectedServer.Starts);
+            Assert.Equal(3, failedServer.Messages("tools/call").Length);
+            Assert.Equal(sessionId, session.SessionId);
+            Assert.Contains((await session.Rpc.Mcp.ListToolsAsync(serverName, timeout.Token)).Tools,
+                item => item.Name == "echo");
+
+            // Direct RPC calls must refresh the offered set before their next invocation.
+            await session.Rpc.Tools.InitializeAndValidateAsync(timeout.Token);
+            var result = await session.Rpc.Tools.ExecuteAsync(tool.Name, arguments, "explicit-next-call", timeout.Token);
+            _output.WriteLine("Post-restart synthetic tool result: " + result.GetRawText());
+            Assert.Contains(marker, result.GetRawText(), StringComparison.Ordinal);
+            Assert.Equal(4, failedServer.Messages("tools/call").Length);
+            Assert.Equal(1, restartCount);
+            Assert.Equal(sessionId, session.SessionId);
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(sessionId);
+        }
     }
 
     [SkippableFact]

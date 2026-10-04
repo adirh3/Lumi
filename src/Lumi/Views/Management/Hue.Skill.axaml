@@ -1,0 +1,22 @@
+<!-- Page hue for Skills: ochre. Deliberately muted: it only tints identity glyphs (page tile, item
+     tiles, empty states) and a barely-there header wash; everything else on the page stays neutral
+     and uses Lumi's own accent for selection and focus. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#CDAE70" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0DCDAE70" />
+        <GradientStop Offset="1" Color="#00CDAE70" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#8F6A22" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0A8F6A22" />
+        <GradientStop Offset="1" Color="#008F6A22" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

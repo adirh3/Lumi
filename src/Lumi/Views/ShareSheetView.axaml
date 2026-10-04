@@ -1,0 +1,357 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:views="using:Lumi.Views"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.ShareSheetView"
+             x:DataType="vm:ShareSheetViewModel"
+             x:CompileBindings="True">
+
+  <UserControl.Resources>
+    <SolidColorBrush x:Key="Tint.Safe" Color="{DynamicResource Palette.Success500}" Opacity="0.10" />
+    <SolidColorBrush x:Key="Tint.SafeBorder" Color="{DynamicResource Palette.Success500}" Opacity="0.32" />
+    <SolidColorBrush x:Key="Tint.Caution" Color="{DynamicResource Palette.Warning500}" Opacity="0.12" />
+    <SolidColorBrush x:Key="Tint.CautionBorder" Color="{DynamicResource Palette.Warning500}" Opacity="0.45" />
+    <StreamGeometry x:Key="Share.Copy">M8 3h9a2 2 0 0 1 2 2v11h-2V5H8V3zm-3 4h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v10h9V9H5z</StreamGeometry>
+    <StreamGeometry x:Key="Share.Chat">M4 4H20A1 1 0 0 1 21 5V16A1 1 0 0 1 20 17H9L5 20.5V17H4A1 1 0 0 1 3 16V5A1 1 0 0 1 4 4ZM5 6V15H7V16.5L8.7 15H19V6Z</StreamGeometry>
+    <StreamGeometry x:Key="Share.Check">M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z</StreamGeometry>
+    <StreamGeometry x:Key="Share.Save">M12 3a1 1 0 0 1 1 1v8.6l2.3-2.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4l2.3 2.3V4a1 1 0 0 1 1-1zM5 17a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1z</StreamGeometry>
+    <StreamGeometry x:Key="Share.Folder">M3 6a2 2 0 0 1 2-2h4.2l2 2H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6zm2 0v12h14V8h-8.6l-2-2H5z</StreamGeometry>
+    <StreamGeometry x:Key="Share.Send">M3.4 11.1L19.6 4a.9.9 0 0 1 1.2 1.2L13.7 21.4a.9.9 0 0 1-1.7-.1l-1.9-6.2-6.2-1.9a.9.9 0 0 1-.5-1.7zM10.9 13l1 3.3 4.3-9.8-9.8 4.3 3.3 1 3-1.8-1.8 3z</StreamGeometry>
+    <StreamGeometry x:Key="Share.Refresh">F1 M9.06 3.92 A8.6 8.6 0 1 0 19.45 7.7 L17.2 9 A6 6 0 1 1 9.95 6.36 Z M8.34 1.95 L15.14 3.09 L10.67 8.34 Z</StreamGeometry>
+    <StreamGeometry x:Key="Share.Braces">M8 4a3 3 0 0 0-3 3v2a1 1 0 0 1-1 1H3v2h1a1 1 0 0 1 1 1v2a3 3 0 0 0 3 3h1v-2H8a1 1 0 0 1-1-1v-2a3 3 0 0 0-.8-2A3 3 0 0 0 7 9V7a1 1 0 0 1 1-1h1V4H8zm8 0h-1v2h1a1 1 0 0 1 1 1v2a3 3 0 0 0 .8 2 3 3 0 0 0-.8 2v2a1 1 0 0 1-1 1h-1v2h1a3 3 0 0 0 3-3v-2a1 1 0 0 1 1-1h1v-2h-1a1 1 0 0 1-1-1V7a3 3 0 0 0-3-3z</StreamGeometry>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <Style Selector="TextBlock.sheet-section">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="0.4" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="2,0,0,6" />
+    </Style>
+
+    <Style Selector="Border.receipt-row">
+      <Setter Property="Padding" Value="10,8" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+
+    <!-- One calm, reassuring panel for everything that stayed behind -->
+    <Style Selector="Border.privacy-panel">
+      <Setter Property="Background" Value="{DynamicResource Tint.Safe}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Tint.SafeBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="12,6" />
+    </Style>
+    <Style Selector="Border.privacy-line">
+      <Setter Property="Padding" Value="0,6" />
+    </Style>
+    <Style Selector="Border.privacy-line.caution">
+      <Setter Property="Background" Value="{DynamicResource Tint.Caution}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Tint.CautionBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="Margin" Value="-4,4" />
+    </Style>
+
+    <Style Selector="Border.code-chip">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8,5" />
+      <Setter Property="Margin" Value="0,5,0,0" />
+    </Style>
+
+    <Style Selector="Button.target-chip">
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Margin" Value="0,0,8,8" />
+    </Style>
+
+    <Style Selector="Button.copy-primary">
+      <Setter Property="Padding" Value="18,9" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+
+    <!-- Confirmation glyphs spring in when they appear (copied, sent). -->
+    <Style Selector="PathIcon.pop">
+      <Setter Property="RenderTransform" Value="scale(0.4)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.28" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="PathIcon.pop.shown">
+      <Setter Property="RenderTransform" Value="scale(1)" />
+    </Style>
+
+    <Style Selector="TextBlock#ShareStatus">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="TextBlock#ShareStatus.error">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+  </UserControl.Styles>
+
+  <sc:StrataDialog x:Name="ShareDialog"
+                   Title="{Binding Title}"
+                   IsDialogOpen="{Binding IsOpen, Mode=TwoWay}"
+                   CloseCommand="{Binding CloseCommand}"
+                   MaxDialogWidth="560">
+    <sc:StrataDialog.DialogContent>
+      <StackPanel x:Name="ShareSheetContent" Spacing="18" MinWidth="440">
+
+        <!-- The editor beside the Share button has edits that are not saved, so they are not in this share -->
+        <Border x:Name="ShareUnsavedNotice"
+                IsVisible="{Binding HasUnsavedEdits}"
+                Background="{DynamicResource Tint.Caution}"
+                BorderBrush="{DynamicResource Tint.CautionBorder}"
+                BorderThickness="1"
+                CornerRadius="10"
+                Padding="12,9">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Left" Text="⚠" FontSize="13" Margin="0,0,9,0" VerticalAlignment="Top" />
+            <TextBlock Text="{loc:Str Share_UnsavedEdits}" TextWrapping="Wrap" FontSize="{DynamicResource Font.SizeCaption}" />
+          </DockPanel>
+        </Border>
+
+        <views:CapabilityCardView x:Name="ShareCard" DataContext="{Binding Card}" />
+
+        <!-- Send the skill straight into other agent tools found on this computer -->
+        <StackPanel IsVisible="{Binding HasTargets}">
+          <TextBlock Classes="sheet-section" Text="{loc:Str Share_SendTo}" />
+          <ItemsControl x:Name="ShareTargets" ItemsSource="{Binding Targets}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SkillTargetViewModel">
+                <Button x:Name="ShareTargetButton"
+                        Classes="target-chip"
+                        Classes.subtle="{Binding IsInstalled}"
+                        IsEnabled="{Binding CanSend}"
+                        Command="{Binding $parent[ItemsControl].((vm:ShareSheetViewModel)DataContext).SendToTargetCommand}"
+                        CommandParameter="{Binding}"
+                        ToolTip.Tip="{Binding ToolTip}"
+                        ToolTip.ShowOnDisabled="True">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Data="{StaticResource Share.Send}" Width="12" Height="12"
+                              IsVisible="{Binding !IsInstalled}" />
+                    <PathIcon Classes="pop" Classes.shown="{Binding IsInstalled}" Data="{StaticResource Share.Check}"
+                              Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.SuccessDefault}"
+                              IsVisible="{Binding IsInstalled}" />
+                    <TextBlock Text="{Binding DisplayName}" />
+                    <PathIcon Data="{StaticResource Share.Refresh}" Width="10" Height="10" Opacity="0.7"
+                              IsVisible="{Binding NeedsUpdate}" />
+                  </StackPanel>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- Kept private: what was removed, and what deserves a second look -->
+        <StackPanel IsVisible="{Binding HasPrivacyNotes}">
+          <TextBlock Classes="sheet-section" Text="{loc:Str Share_KeptPrivate}" />
+          <Border x:Name="SharePrivacyPanel" Classes="privacy-panel">
+            <ItemsControl x:Name="SharePrivacyNotes" ItemsSource="{Binding PrivacyNotes}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ReceiptNoteViewModel">
+                  <Border Classes="privacy-line" Classes.caution="{Binding IsCaution}">
+                    <DockPanel>
+                      <TextBlock DockPanel.Dock="Left" Text="{Binding Glyph}" FontSize="12" Width="20"
+                                 VerticalAlignment="Top" Margin="0,1,6,0" />
+                      <StackPanel Spacing="1">
+                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="{DynamicResource Font.SizeCaption}" />
+                        <Border Classes="code-chip" IsVisible="{Binding HasCode}">
+                          <SelectableTextBlock Text="{Binding Code}" FontFamily="{DynamicResource Font.FamilyMono}"
+                                               FontSize="11" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                        </Border>
+                      </StackPanel>
+                    </DockPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
+        </StackPanel>
+
+        <!-- What's inside a bundle (a single skill or server is already the card) -->
+        <StackPanel IsVisible="{Binding HasManyContents}">
+          <TextBlock Classes="sheet-section" Text="{loc:Str Share_WhatsInside}" />
+          <ItemsControl x:Name="ShareContents" ItemsSource="{Binding Contents}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ReceiptNoteViewModel">
+                <Border Classes="receipt-row">
+                  <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding Glyph}" FontSize="15"
+                               VerticalAlignment="Top" Margin="0,1,10,0" />
+                    <StackPanel Spacing="1">
+                      <TextBlock Text="{Binding Text}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding Detail}" IsVisible="{Binding HasDetail}"
+                                 Classes="caption secondary" TextWrapping="Wrap" />
+                      <Border Classes="code-chip" IsVisible="{Binding HasCode}">
+                        <SelectableTextBlock Text="{Binding Code}" FontFamily="{DynamicResource Font.FamilyMono}"
+                                             FontSize="11.5" TextWrapping="Wrap"
+                                             Foreground="{DynamicResource Brush.TextPrimary}" />
+                      </Border>
+                    </StackPanel>
+                  </DockPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- The literal text, so nothing about a share is hidden from the person sending it -->
+        <StackPanel Spacing="8">
+          <Button x:Name="SharePeekButton"
+                  Classes="subtle"
+                  HorizontalAlignment="Left"
+                  Padding="8,5"
+                  MinHeight="0"
+                  Command="{Binding TogglePreviewCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <PathIcon Data="{StaticResource Share.Braces}" Width="12" Height="12"
+                        Foreground="{DynamicResource Brush.TextTertiary}" />
+              <Panel>
+                <TextBlock Text="{loc:Str Share_Peek}" Classes="caption secondary" IsVisible="{Binding !IsPreviewExpanded}" />
+                <TextBlock Text="{loc:Str Share_HidePeek}" Classes="caption secondary" IsVisible="{Binding IsPreviewExpanded}" />
+              </Panel>
+            </StackPanel>
+          </Button>
+          <Border IsVisible="{Binding IsPreviewExpanded}"
+                  Background="{DynamicResource Brush.Surface0}"
+                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                  BorderThickness="1"
+                  CornerRadius="{DynamicResource Radius.Base}"
+                  Padding="12,10"
+                  MaxHeight="260">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <SelectableTextBlock x:Name="SharePreviewText"
+                                   Text="{Binding PreviewText}"
+                                   FontFamily="{DynamicResource Font.FamilyMono}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+            </ScrollViewer>
+          </Border>
+        </StackPanel>
+      </StackPanel>
+    </sc:StrataDialog.DialogContent>
+
+    <!-- Pinned hand-off: always reachable, however long the receipt grows -->
+    <sc:StrataDialog.DialogFooter>
+      <StackPanel Spacing="4">
+        <WrapPanel Orientation="Horizontal">
+          <!-- The everyday hand-off: a compact code in a code block, for Teams, Slack or any chat -->
+          <Button x:Name="ShareCopyForChatButton"
+                  Classes="accent copy-primary"
+                  Command="{Binding CopyForChatCommand}"
+                  ToolTip.Tip="{loc:Str Share_CopyForChatTooltip}"
+                  AutomationProperties.Name="{loc:Str Share_CopyForChat}"
+                  Margin="0,0,8,6">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <Panel Width="14" Height="14">
+                <PathIcon Data="{StaticResource Share.Chat}" Width="14" Height="14" IsVisible="{Binding !IsChatCopied}" />
+                <PathIcon Classes="pop" Classes.shown="{Binding IsChatCopied}" Data="{StaticResource Share.Check}"
+                          Width="14" Height="14" IsVisible="{Binding IsChatCopied}" />
+              </Panel>
+              <Panel>
+                <TextBlock Text="{loc:Str Share_CopyForChat}" IsVisible="{Binding !IsChatCopied}" />
+                <TextBlock Text="{loc:Str Share_Copied}" IsVisible="{Binding IsChatCopied}" />
+              </Panel>
+            </StackPanel>
+          </Button>
+
+          <Button x:Name="ShareCopyButton"
+                  Classes="copy-primary"
+                  Command="{Binding CopyCommand}"
+                  AutomationProperties.Name="{Binding CopyTextLabel}"
+                  Margin="0,0,8,6">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <Panel Width="14" Height="14">
+                <PathIcon Data="{StaticResource Share.Copy}" Width="14" Height="14" IsVisible="{Binding !IsCopied}" />
+                <PathIcon Classes="pop" Classes.shown="{Binding IsCopied}" Data="{StaticResource Share.Check}"
+                          Width="14" Height="14" IsVisible="{Binding IsCopied}" />
+              </Panel>
+              <Panel>
+                <TextBlock Text="{Binding CopyTextLabel}" IsVisible="{Binding !IsCopied}" />
+                <TextBlock Text="{loc:Str Share_Copied}" IsVisible="{Binding IsCopied}" />
+              </Panel>
+            </StackPanel>
+          </Button>
+
+          <Button x:Name="ShareSaveFileButton"
+                  Classes="copy-primary"
+                  IsVisible="{Binding !IsSkill}"
+                  Click="OnSaveFileClick"
+                  Margin="0,0,8,6">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <PathIcon Data="{StaticResource Share.Save}" Width="14" Height="14" />
+              <TextBlock Text="{loc:Str Share_SaveFile}" />
+            </StackPanel>
+          </Button>
+
+          <Button x:Name="ShareSaveFolderButton"
+                  Classes="copy-primary"
+                  IsVisible="{Binding IsSkill}"
+                  Click="OnSaveFolderClick"
+                  ToolTip.Tip="{loc:Str Share_SaveToFolderTooltip}"
+                  Margin="0,0,8,6">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <PathIcon Data="{StaticResource Share.Folder}" Width="14" Height="14" />
+              <TextBlock Text="{loc:Str Share_SaveToFolder}" />
+            </StackPanel>
+          </Button>
+
+          <Button x:Name="ShareCopyConfigButton"
+                  Classes="subtle copy-primary"
+                  IsVisible="{Binding IsMcpServer}"
+                  Command="{Binding CopyConfigCommand}"
+                  ToolTip.Tip="{loc:Str Share_CopyConfigTooltip}"
+                  Margin="0,0,0,6">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <PathIcon Data="{StaticResource Share.Braces}" Width="14" Height="14" />
+              <Panel>
+                <TextBlock Text="{loc:Str Share_CopyConfig}" IsVisible="{Binding !IsConfigCopied}" />
+                <TextBlock Text="{loc:Str Share_ConfigCopied}" IsVisible="{Binding IsConfigCopied}" />
+              </Panel>
+            </StackPanel>
+          </Button>
+        </WrapPanel>
+
+        <DockPanel x:Name="ShareChatCodeNote" IsVisible="{Binding IsChatCodeLong}">
+          <TextBlock DockPanel.Dock="Left" Text="⚠" Classes="caption" Margin="0,0,6,0"
+                     Foreground="{DynamicResource Brush.WarningDefault}" />
+          <TextBlock Text="{Binding ChatCodeNote}" Classes="caption secondary" TextWrapping="Wrap" />
+        </DockPanel>
+        <TextBlock x:Name="ShareStatus"
+                   Text="{Binding StatusMessage}"
+                   IsVisible="{Binding HasStatus}"
+                   Classes="caption"
+                   Classes.error="{Binding IsStatusError}"
+                   TextWrapping="Wrap" />
+        <TextBlock Text="{Binding InteropText}"
+                   IsVisible="{Binding !HasStatus}"
+                   Classes="caption tertiary"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+    </sc:StrataDialog.DialogFooter>
+  </sc:StrataDialog>
+</UserControl>

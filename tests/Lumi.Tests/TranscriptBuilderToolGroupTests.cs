@@ -14,6 +14,52 @@ namespace Lumi.Tests;
 
 public sealed class TranscriptBuilderToolGroupTests
 {
+    [Fact]
+    public void InterruptedCompletedLaunch_RefreshesItsAlreadyFlattenedPill()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("async-flattened", "powershell", "Completed", "{}");
+        builder.ProcessMessageToTranscript(message);
+        builder.CloseCurrentToolGroup();
+        var pill = Assert.IsType<SingleToolItem>(Assert.Single(turns[0].Items));
+        var notifications = new List<string?>();
+        pill.PropertyChanged += (_, args) => notifications.Add(args.PropertyName);
+
+        builder.SetTerminalRunningInBackground("async-flattened", false, 1500, finalStatus: "Stopped");
+
+        Assert.Contains("Command interrupted", pill.Label);
+        Assert.Equal("1.5s", pill.Meta);
+        Assert.Contains(nameof(SingleToolItem.Label), notifications);
+        Assert.Contains(nameof(SingleToolItem.Meta), notifications);
+        Assert.Contains(nameof(SingleToolItem.IsActive), notifications);
+        Assert.False(pill.IsActive);
+    }
+
+    [Theory]
+    [InlineData("Stopped", "Command interrupted")]
+    [InlineData("Completed", "Ran command")]
+    [InlineData("Failed", "Command failed")]
+    public void FinishedCommand_NeverKeepsARunningLabel(string status, string label)
+    {
+        Lumi.Localization.Loc.Load("en");
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("terminal-pause", "powershell", "InProgress", "{}");
+        builder.ProcessMessageToTranscript(message);
+        message.Message.ToolStatus = status;
+        message.NotifyToolStatusChanged();
+        builder.CloseCurrentToolGroup();
+
+        var single = Assert.IsType<SingleToolItem>(Assert.Single(turns[0].Items));
+        Assert.Contains(label, single.Label);
+        Assert.DoesNotContain("Running", single.Label);
+        Assert.False(single.IsActive);
+    }
+
     [Theory]
     [InlineData("Failed", "External tool request received no response within 1800 seconds.", false)]
     [InlineData("Stopped", null, false)]

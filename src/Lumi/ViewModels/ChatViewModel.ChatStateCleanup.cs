@@ -146,6 +146,8 @@ public partial class ChatViewModel
             return;
 
         _isDisposed = true;
+        ResetDesktopPreview();
+        _uiAutomation.Dispose();
         if (_ownsCapabilityCatalog)
             _capabilityCatalog.Dispose();
         _copilotService.Reconnected -= OnCopilotReconnected;
@@ -161,6 +163,9 @@ public partial class ChatViewModel
             _currentChatTitleSource.PropertyChanged -= OnCurrentChatPropertyChanged;
             _currentChatTitleSource = null;
         }
+
+        // The launchpad watches shared chats and the event hub while shown; release them for the same reason.
+        _launchpad?.Shutdown();
 
         lock (_chatLoadSync)
         {
@@ -290,6 +295,23 @@ public partial class ChatViewModel
     private ChatMessageViewModel? ResolveQueuedViewModel(ChatMessage message)
         => Messages.FirstOrDefault(viewModel => ReferenceEquals(viewModel.Message, message));
 
+    private void RestorePausedSendQueue(Chat chat)
+    {
+        if (_queuedBusySendPrompts.ContainsKey(chat.Id))
+            return;
+
+        var pending = chat.Messages.Where(message => message.Role == "user" && message.IsPendingPausedSend).ToList();
+        if (pending.Count == 0)
+            return;
+
+        foreach (var message in pending)
+        {
+            message.SteerDelivery = MessageSteerState.Queued;
+            message.CanSendNowWhenQueued = !chat.IsPaused && IsChatRuntimeActive(chat.Id);
+        }
+        _queuedBusySendPrompts[chat.Id] = pending;
+    }
+
     /// <summary>
     /// Defers a send that could not be steered into a live turn. FIFO, so a second deferred message
     /// cannot overwrite the first. Pass <paramref name="existing"/> to re-defer an already-shown
@@ -310,7 +332,8 @@ public partial class ChatViewModel
 
         if (existing is not null)
         {
-            var canSendNow = IsChatRuntimeActive(chatId);
+            var canSendNow = IsChatRuntimeActive(chatId)
+                             && _dataStore.Data.Chats.Find(chat => chat.Id == chatId)?.IsPaused != true;
             message.CanSendNowWhenQueued = canSendNow;
             if (ResolveQueuedViewModel(message) is { } viewModel)
                 viewModel.CanSendNowWhenQueued = canSendNow;
@@ -358,7 +381,11 @@ public partial class ChatViewModel
                 : [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
             SteerDelivery = MessageSteerState.Queued,
-            CanSendNowWhenQueued = IsChatRuntimeActive(chatId)
+            IsPendingPausedSend = chat.IsPaused,
+            CanSendNowWhenQueued = IsChatRuntimeActive(chatId) && !chat.IsPaused,
+            // Composer sends carry no author override (remote and orchestrated ones always do), so
+            // only they take the composer's pending reply.
+            ReplyTo = authorOverride is null ? TakePendingReply(chatId) : null
         };
 
         if (CurrentChat?.Id == chatId)
@@ -412,6 +439,10 @@ public partial class ChatViewModel
         if (!_queuedBusySendPrompts.ContainsKey(chatId))
             return;
 
+        if (_dataStore.Data.Chats.Find(chat => chat.Id == chatId)?.IsPaused == true
+            || (CurrentChat?.Id == chatId && IsPaused))
+            return;
+
         if (CurrentChat?.Id != chatId)
         {
             // A send can only be dispatched for the chat on screen.
@@ -437,10 +468,10 @@ public partial class ChatViewModel
     /// handler. A single Stop schedules two drains (the stop and the session.idle it causes), so drains
     /// are coalesced per chat — two overlapping sends would fight over the same cancellation token.
     /// </summary>
-    private bool ScheduleQueuedBusySendDrain(Guid chatId)
+    private void ScheduleQueuedBusySendDrain(Guid chatId)
     {
         if (_isDisposed)
-            return false;
+            return;
 
         Dispatcher.UIThread.Post(() =>
         {
@@ -453,7 +484,6 @@ public partial class ChatViewModel
 
             _ = DrainQueuedBusySendSafeAsync(chatId);
         });
-        return true;
     }
 
     private async Task DrainQueuedBusySendSafeAsync(Guid chatId)
@@ -512,11 +542,16 @@ public partial class ChatViewModel
         if (message.SteerDelivery != MessageSteerState.Queued)
             return;
 
+        var wasPendingPausedSend = message.IsPendingPausedSend;
         // The view model mirrors its state onto the model; without one, the model is all there is.
         if (ResolveQueuedViewModel(message) is { } viewModel)
             viewModel.SteerState = MessageSteerState.Failed;
         else
             message.SteerDelivery = MessageSteerState.Failed;
+
+        if (wasPendingPausedSend
+            && _dataStore.Data.Chats.Find(chat => chat.Messages.Contains(message)) is { } chat)
+            QueueSaveChat(chat, saveIndex: false);
     }
 
     /// <summary>
@@ -721,6 +756,7 @@ public partial class ChatViewModel
         foreach (var pendingQuestion in pendingQuestions)
             pendingQuestion.TrySetCanceled();
 
+        chat.IsAwaitingInput = false;
         return ExpireUnansweredQuestions(chat);
     }
 
@@ -764,17 +800,34 @@ public partial class ChatViewModel
     }
 
     private bool MarkInProgressToolsStopped(Chat chat)
+        => MarkToolsStopped(chat, _runtimeStates.TryGetValue(chat.Id, out var runtime)
+            ? runtime.RunningBackgroundShells
+            : EmptyRunningBackgroundShells);
+
+    private bool MarkToolsStopped(Chat chat, IReadOnlyDictionary<string, DateTimeOffset> runningBackgroundShells)
     {
         List<Guid>? stoppedMessageIds = null;
         var stoppedAt = DateTimeOffset.UtcNow;
 
         foreach (var message in chat.Messages)
         {
-            if (message.ToolStatus != "InProgress" || string.IsNullOrWhiteSpace(message.ToolName))
+            DateTimeOffset shellStartedAt = default;
+            var isRunningShell = message.ToolCallId is { } toolCallId
+                                 && runningBackgroundShells.TryGetValue(toolCallId, out shellStartedAt);
+            if ((message.ToolStatus != "InProgress" && !isRunningShell) || string.IsNullOrWhiteSpace(message.ToolName))
                 continue;
 
-            message.MarkToolFinished(stoppedAt);
+            if (isRunningShell)
+            {
+                message.ToolStartedAt = shellStartedAt;
+                message.ToolDurationMs = Math.Max(0, (stoppedAt - shellStartedAt).TotalMilliseconds);
+            }
+            else
+                message.MarkToolFinished(stoppedAt);
             message.ToolStatus = "Stopped";
+            if (CurrentChat?.Id == chat.Id && message.ToolCallId is { } stoppedToolCallId)
+                _transcriptBuilder.SetTerminalRunningInBackground(
+                    stoppedToolCallId, false, message.ToolDurationMs, finalStatus: message.ToolStatus);
             (stoppedMessageIds ??= []).Add(message.Id);
         }
 
@@ -793,7 +846,8 @@ public partial class ChatViewModel
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)
     {
-        CancelMcpCatalogRecovery(chatId);
+        if (_runtimeStates.TryGetValue(chatId, out var runtime))
+            runtime.PauseGate.CancelWaiters();
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
         // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
         // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the
@@ -1010,16 +1064,15 @@ public partial class ChatViewModel
                     workDir,
                     releaseTask => failedPublicationRelease = releaseTask))
             {
-                RestoreDisplayedSessionFromCache();
+                _activeSession = null;
                 return false;
             }
 
-            // The cache owns this chat's session. The active pointer is presentation state and must
-            // continue to represent whichever chat is displayed while background work publishes.
-            RestoreDisplayedSessionFromCache();
+            _activeSession = session;
             afterSubscribe?.Invoke();
             return true;
         }
+        if (pendingPlan is null)
         if (pendingPlan is null)
             return Publish();
 
