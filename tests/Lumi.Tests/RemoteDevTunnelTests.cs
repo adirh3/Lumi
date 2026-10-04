@@ -49,6 +49,73 @@ public sealed class RemoteDevTunnelTests
     }
 
     [Fact]
+    public async Task RejectedRelocatedTunnelIsDeletedWithoutBeingUsed()
+    {
+        const string baseId = "lumi-0123456789abcdef0123456789abcdef";
+        const string requestedRoute = baseId + ".uks1";
+        const string returnedRoute = baseId + ".euw";
+        var calls = new List<string[]>();
+        var used = false;
+        Task<string> Run(string[] arguments, CancellationToken token)
+        {
+            calls.Add(arguments);
+            return Task.FromResult(arguments[0] == "create"
+                ? JsonSerializer.Serialize(new { tunnel = new { tunnelId = returnedRoute } })
+                : "{}");
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.RunWithCreatedTunnelAsync(
+                requestedRoute, Run,
+                (_, _) => { used = true; return Task.CompletedTask; },
+                CancellationToken.None));
+
+        Assert.False(used);
+        Assert.Equal(2, calls.Count);
+        Assert.Equal(RemoteDevTunnelHost.CreateArguments(requestedRoute), calls[0]);
+        Assert.Equal(["delete", returnedRoute], calls[1]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreatedTunnelIsDeletedAfterUseEvenWhenCanceled(bool cancel)
+    {
+        const string route = "lumi-0123456789abcdef0123456789abcdef.uks1";
+        using var cancellation = new CancellationTokenSource();
+        var steps = new List<string>();
+        Task<string> Run(string[] arguments, CancellationToken token)
+        {
+            steps.Add(arguments[0]);
+            if (arguments[0] == "delete")
+            {
+                Assert.Equal(["delete", route], arguments);
+                Assert.False(token.CanBeCanceled);
+            }
+            return Task.FromResult(JsonSerializer.Serialize(new { tunnel = new { tunnelId = route } }));
+        }
+        Task Use(string tunnelId, CancellationToken token)
+        {
+            steps.Add("use");
+            Assert.Equal(route, tunnelId);
+            Assert.Equal(cancellation.Token, token);
+            if (cancel)
+                cancellation.Cancel();
+            token.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+
+        var operation = RemoteDevTunnelHost.RunWithCreatedTunnelAsync(
+            route, Run, Use, cancellation.Token);
+        if (cancel)
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+        else
+            await operation;
+
+        Assert.Equal(["create", "use", "delete"], steps);
+    }
+
+    [Fact]
     public void ProfileTunnelIdIsStableFormatAndOnlyMatchesLumiOwnedTunnel()
     {
         var requestedTunnelId = RemoteDevTunnelHost.CreateProfileTunnelId();
