@@ -62,6 +62,10 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 await browser.OpenAndSnapshotAsync(url);
                 browser.WebView!.Profile.DefaultDownloadFolderPath = root;
 
+                await VerifyKeyboardAndClickTargets(browser);
+                output.WriteLine("PASS: separate/batched type-Enter retains focus and submits; natural clicks prefer Search buttons; explicit field targets remain valid.");
+                await VerifyMultilineEdits(browser);
+                output.WriteLine("PASS: LF/CRLF textarea type/fill retain normalized values and continue batches; genuine reset/replacement edits still stop.");
                 await VerifyActionSettling(browser);
                 output.WriteLine("PASS: delayed results appear, continuous updates preserve successful actions, and clicks are never retried.");
                 await browser.OpenAndSnapshotAsync(url);
@@ -146,6 +150,80 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         return completion.Task;
+    }
+
+    private async Task VerifyKeyboardAndClickTargets(BrowserService browser)
+    {
+        await browser.EvaluateAsync("""
+            document.getElementById('query').blur = function() {
+                window.queryBlurs++;
+                HTMLElement.prototype.blur.call(this);
+            }
+            """);
+        Assert.DoesNotContain("Error:", await browser.DoAsync("type", "#query", "local query"));
+        Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
+        Assert.DoesNotContain("Error:", await browser.DoAsync("press", "Enter"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.searches)"));
+
+        var batch = await browser.DoAsync("steps", value: """
+            [{"action":"type","target":"#query","value":"batched query"},
+             {"action":"press","target":"Enter"}]
+            """);
+        Assert.Contains("Completed 2 of 2 steps", batch);
+        Assert.DoesNotContain("Error:", batch);
+        Assert.Equal("2", await EvaluateString(browser, "String(window.searches)"));
+        Assert.Equal("2", await EvaluateString(browser, "String(window.queryBlurs)"));
+
+        var natural = await browser.DoAsync("click", "Search");
+        Assert.Contains("button", natural);
+        Assert.Equal("3", await EvaluateString(browser, "String(window.searches)"));
+
+        Assert.DoesNotContain("Error:", await browser.DoAsync("click", "#query"));
+        Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
+        var queryRef = Reference(await browser.LookAsync(), "name=\"search\"");
+        Assert.DoesNotContain("Error:", await browser.DoAsync("click", queryRef));
+        Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
+        Assert.DoesNotContain("Error:", await browser.DoAsync("click", "query"));
+        Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
+        Assert.Equal("3", await EvaluateString(browser, "String(window.searches)"));
+        output.WriteLine("Search form submitted exactly three times; native blur was invoked and explicit CSS/numeric input clicks preserved focus.");
+    }
+
+    private async Task VerifyMultilineEdits(BrowserService browser)
+    {
+        var confirmations = 0;
+        foreach (var newline in new[] { "\n", "\r\n" })
+        {
+            var text = "First line" + newline + "Second line";
+            foreach (var action in new[] { "type", "fill" })
+            {
+                var value = action == "type" ? text : new System.Text.Json.Nodes.JsonObject { ["#notes"] = text }.ToJsonString();
+                var steps = new System.Text.Json.Nodes.JsonArray
+                {
+                    new System.Text.Json.Nodes.JsonObject { ["action"] = action, ["target"] = "#notes", ["value"] = value },
+                    new System.Text.Json.Nodes.JsonObject { ["action"] = "click", ["target"] = "#confirm-notes" }
+                };
+                var result = await browser.DoAsync("steps", value: steps.ToJsonString());
+                Assert.Contains("Completed 2 of 2 steps", result);
+                Assert.DoesNotContain("Error:", result);
+                Assert.Equal("First line\nSecond line", await EvaluateString(browser, "document.getElementById('notes').value"));
+                Assert.Equal((++confirmations).ToString(), await EvaluateString(browser, "String(window.confirmations)"));
+            }
+        }
+
+        foreach (var behavior in new[] { "reset", "replace" })
+        {
+            await browser.EvaluateAsync(behavior == "reset"
+                ? "document.getElementById('notes').oninput = function() { this.value = 'rejected'; }"
+                : "document.getElementById('notes').oninput = function() { this.replaceWith(this.cloneNode(true)); }");
+            var failed = await browser.DoAsync("steps", value: """
+                [{"action":"type","target":"#notes","value":"must not be accepted"},
+                 {"action":"click","target":"#confirm-notes"}]
+                """);
+            AssertError(failed);
+            Assert.Equal("4", await EvaluateString(browser, "String(window.confirmations)"));
+        }
+        output.WriteLine("All four LF/CRLF type/fill batches confirmed once; reset/replacement failures prevented later confirmation.");
     }
 
     private async Task VerifyActionSettling(BrowserService browser)
@@ -305,10 +383,14 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         await UntilAsync(() => browser.Tabs.Count == 1 && browser.ActiveTabId == first);
     }
 
-    private static async Task VerifyCaptureAndDownloads(BrowserService browser, string url, string root)
+    private async Task VerifyCaptureAndDownloads(BrowserService browser, string url, string root)
     {
         var first = browser.ActiveTabId;
+        output.WriteLine("Screenshot fixture scroll before setup: " + await EvaluateString(browser, "String(window.scrollY)"));
+        Assert.DoesNotContain("Error:", await browser.DoAsync("scroll", "up", "10000"));
+        Assert.Equal("0", await EvaluateString(browser, "String(window.scrollY)"));
         var image = await browser.CaptureScreenshotAsync();
+        Assert.Equal("0", await EvaluateString(browser, "String(window.scrollY)"));
         Assert.Equal(first, image.TabId);
         Assert.True(image.Width > 100 && image.Height > 100);
         Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, image.PngBytes[..8]);
@@ -411,6 +493,11 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         <input id="locked" value="read only" readonly>
         <button id="submit" type="submit">Submit fixture</button></form>
         <button id="alpha-help" type="button">Alpha help</button>
+        <form onsubmit="event.preventDefault();window.searches++">
+        <input id="query" type="search" name="search" placeholder="Search">
+        <button id="search-submit" type="submit">Search</button></form>
+        <textarea id="notes"></textarea>
+        <button id="confirm-notes" type="button" onclick="window.confirmations++">Confirm notes</button>
         <button id="delayed" type="button" onclick="window.delayedClicks++;setTimeout(()=>document.getElementById('delayed-result').textContent='Result arrived',500)">Delayed result</button>
         <output id="delayed-result">Result pending</output>
         <button id="tick" type="button" onclick="window.tickClicks++">Count click</button>
@@ -421,6 +508,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         <dialog id="dialog"><button id="dialog-action" type="button">Dialog action</button></dialog>
         </main><script>
         window.submits=0;window.popupReply='';window.delayedClicks=0;window.tickClicks=0;window.followups=0;
+        window.searches=0;window.queryBlurs=0;window.confirmations=0;
         window.addEventListener('message', e => window.popupReply=e.data);
         function downloadFixture(){
           const a=document.createElement('a');

@@ -34,6 +34,7 @@ internal static class BrowserDomScript
         class AutomationError extends Error {}
         const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
         const selector = 'a[href],button,input,select,textarea,summary,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="radio"],[role="checkbox"],[role="switch"],[role="combobox"],[role="option"],[role="gridcell"],[role="spinbutton"],[role="slider"],[onclick],[tabindex],[contenteditable],[data-tooltip]';
+        const clickSelector = 'a[href],button,summary,input[type="button"],input[type="submit"],input[type="reset"],input[type="image"],input[type="checkbox"],input[type="radio"],[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="radio"],[role="checkbox"],[role="switch"],[role="option"],[onclick]';
         const dialogSelector = 'dialog[open],[role="dialog"],[aria-modal="true"]';
         const fieldSelector = 'input,select,textarea,[contenteditable="true"],[role="textbox"],[role="combobox"]';
         const visible = el => {
@@ -119,7 +120,7 @@ internal static class BrowserDomScript
             if (el.closest(dialogSelector)) line += ' [dialog]';
             return line;
         };
-        const resolve = (query, fieldsOnly = false) => {
+        const resolve = (query, fieldsOnly = false, forClick = false) => {
             query = String(query).trim();
             if (/^#?\d+$/.test(query)) {
                 const key = query.replace(/^#/, '');
@@ -131,7 +132,8 @@ internal static class BrowserDomScript
             }
             if (!query) throw new AutomationError('A target is required.');
             const all = collect();
-            const candidates = fieldsOnly ? all.filter(el => el.matches(fieldSelector)) : all;
+            const candidates = fieldsOnly ? all.filter(el => el.matches(fieldSelector)) :
+                forClick ? all.filter(el => el.matches(clickSelector)).concat(all.filter(el => !el.matches(clickSelector))) : all;
             // A valid CSS locator still observes the same dialog/visibility ordering.
             try {
                 for (const root of roots()) for (const el of root.querySelectorAll(query)) {
@@ -139,6 +141,15 @@ internal static class BrowserDomScript
                 }
             } catch {}
             const lower = query.toLowerCase();
+            if (forClick) {
+                for (const exact of [true, false]) for (const el of candidates) {
+                    const text = [el.getAttribute('aria-label'), el.getAttribute('data-tooltip'),
+                        el.title, label(el), el.textContent,
+                        ['button','submit','reset'].includes(el.type) ? el.value : ''].map(norm);
+                    if (text.some(s => exact ? s.toLowerCase() === lower : s.toLowerCase().includes(lower)))
+                        return el;
+                }
+            }
             for (const exact of [true, false]) for (const el of candidates) {
                 if (searchable(el).some(s => exact ? s.toLowerCase() === lower : s.toLowerCase().includes(lower)))
                     return el;
@@ -181,7 +192,7 @@ internal static class BrowserDomScript
             if (el.type === 'password' && text) registry.secrets.add(text);
             if (el.type === 'file') throw new AutomationError('Use upload for file inputs.');
             el.focus();
-            let property = 'value', expected = text;
+            let property = 'value', expected = el.tagName === 'TEXTAREA' ? text.replace(/\r\n?/g, '\n') : text;
             if (el.type === 'checkbox' || el.type === 'radio') {
                 if (![true,false,'true','false','on','off'].includes(next)) throw new AutomationError('Checkbox/radio value must be true or false.');
                 const want = next === true || next === 'true' || next === 'on';
@@ -213,6 +224,8 @@ internal static class BrowserDomScript
             const edit = {node:new WeakRef(el), property, expected, checkValidity};
             registry.edited.push(edit);
             validateEdit(edit);
+            // Keep blur-driven validation while preserving ordinary type-then-Enter continuation.
+            if (document.activeElement === document.body && visible(el)) el.focus();
         };
         try {
             rememberSecrets();
@@ -316,7 +329,8 @@ internal static class BrowserDomScript
                 return ok('Pressed key.');
             }
             let el;
-            try { el = resolve(target, ['type','clear','select'].includes(operation === 'probe' ? value : operation)); }
+            try { el = resolve(target, ['type','clear','select'].includes(operation === 'probe' ? value : operation),
+                operation === 'click' || operation === 'probe' && value === 'click'); }
             catch (error) {
                 if (['wait','probe'].includes(operation) && error instanceof AutomationError && !/^#?\d+$/.test(target.trim()))
                     return pending('Waiting for a matching visible element.');
