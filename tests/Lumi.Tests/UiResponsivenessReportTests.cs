@@ -26,6 +26,7 @@ public class UiResponsivenessReportTests
         samples.LatenciesMs.AddRange(latencies);
         samples.RunDurationsMs.Add(runMs);
         samples.PostActionDurationsMs.Add(postMs);
+        samples.InteractionDurationsMs.Add(runMs + postMs);
         samples.IterationMaxMs.Add(latencies.Length > 0 ? latencies.Max() : 0d);
         samples.Iterations = 1;
         return samples;
@@ -64,6 +65,7 @@ public class UiResponsivenessReportTests
         Assert.Equal(100d, action.MeanRunMs, 3);
         Assert.Equal(50d, action.MeanPostActionMs, 3);
         Assert.Equal(50d, action.MaxPostActionMs, 3);
+        Assert.Equal(150d, action.Interaction.P95Ms, 3);
         Assert.Equal(3, action.Latency.Count);
         Assert.Equal(3, report.Overall.Count);
     }
@@ -209,5 +211,76 @@ public class UiResponsivenessReportTests
         Assert.Equal(50d, action.GetProperty("meanPostActionMs").GetDouble(), 3);
         Assert.Equal(50d, action.GetProperty("maxPostActionMs").GetDouble(), 3);
         Assert.True(action.TryGetProperty("iterationsWithStall", out _));
+    }
+
+    [Fact]
+    public void Build_SkippedOrPartiallyFailedActionsCannotPassTheGate()
+    {
+        var options = UiHarnessOptions.Parse(new[] { "--ui-perf-harness", "--ui-perf-fail-on", "high" });
+        var sample = Samples("a", "Unread inbox", "Open unread", new[] { 1d });
+        sample.FailedIterations = 1;
+        var partial = UiResponsivenessReport.Build(options, new[] { sample });
+        var skipped = UiResponsivenessReport.Build(options, new[] { Samples("b", "Navigation", "Open", new[] { 1d }) }, new[] { "missing-button" });
+        var empty = UiResponsivenessReport.Build(options, System.Array.Empty<UiActionSamples>());
+
+        foreach (var report in new[] { partial, skipped, empty })
+        {
+            Assert.False(report.IsComplete);
+            Assert.True(report.GateFailed);
+            Assert.Contains("INCOMPLETE", report.ToConsole());
+            Assert.Contains("GATE: FAIL", report.ToConsole());
+        }
+    }
+
+    [Fact]
+    public void ToJson_RecordsLoadCoverageAndInteractionDurations()
+    {
+        var options = UiHarnessOptions.Parse(new[]
+        {
+            "--ui-perf-harness", "--ui-perf-filter", "unread-inbox", "--ui-perf-running-chats", "4"
+        });
+        var report = UiResponsivenessReport.Build(options,
+            new[] { Samples("a", "Unread inbox", "Click reply", new[] { 2d }, runMs: 12d, postMs: 8d) });
+        using var doc = JsonDocument.Parse(report.ToJson());
+        var root = doc.RootElement;
+
+        Assert.Equal(4, root.GetProperty("runningChats").GetInt32());
+        Assert.Equal("unread-inbox", root.GetProperty("requestedCategories")[0].GetString());
+        Assert.True(root.GetProperty("summary").GetProperty("complete").GetBoolean());
+        Assert.Equal(20d, root.GetProperty("actions")[0].GetProperty("interaction").GetProperty("p95Ms").GetDouble());
+        Assert.Equal(0, root.GetProperty("failedActions").GetArrayLength());
+    }
+
+    [Fact]
+    public void Build_ReportsIterationStallsAllocationsAndMajorCollections()
+    {
+        var samples = Samples("a", "Chat list", "Refresh", new[] { 1d, 2d, 300d });
+        samples.IterationMaxMs.Clear();
+        samples.IterationMaxMs.AddRange(new[] { 2d, 300d });
+        samples.UiAllocatedBytes.AddRange(new[] { 1024L, 3072L });
+        samples.Gen2CollectionsByIteration.AddRange(new[] { 0, 1 });
+        samples.Iterations = 2;
+        var report = UiResponsivenessReport.Build(
+            UiHarnessOptions.Parse(new[] { "--ui-perf-harness" }), new[] { samples });
+        var result = Assert.Single(report.Actions);
+
+        Assert.Equal(2d, result.IterationStalls.P50Ms);
+        Assert.Equal(2048d, result.MeanUiAllocatedBytes);
+        using var doc = JsonDocument.Parse(report.ToJson());
+        var action = doc.RootElement.GetProperty("actions")[0];
+        Assert.Equal(2, action.GetProperty("iterationMaxMs").GetArrayLength());
+        Assert.Equal(1, action.GetProperty("gen2CollectionsByIteration")[1].GetInt32());
+        Assert.Equal(2048d, action.GetProperty("meanUiAllocatedBytes").GetDouble());
+    }
+
+    [Fact]
+    public void Build_UnsampledActionsCannotPassTheGate()
+    {
+        var report = UiResponsivenessReport.Build(
+            UiHarnessOptions.Parse(new[] { "--ui-perf-harness", "--ui-perf-fail-on", "high" }),
+            new[] { Samples("a", "Chat list", "Refresh", System.Array.Empty<double>()) });
+
+        Assert.False(report.IsComplete);
+        Assert.True(report.GateFailed);
     }
 }

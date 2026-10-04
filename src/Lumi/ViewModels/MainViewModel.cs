@@ -1334,8 +1334,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var yesterday = today.AddDays(-1);
         var weekAgo = today.AddDays(-7);
 
-        ChatGroups.Clear();
-
         var pinnedChats = ordered.Where(c => c.IsPinned).ToList();
         var unpinnedChats = ordered.Where(c => !c.IsPinned).ToList();
         var todayChats = unpinnedChats.Where(c => c.UpdatedAt.Date == today).ToList();
@@ -1343,16 +1341,55 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var weekChats = unpinnedChats.Where(c => c.UpdatedAt.Date < yesterday && c.UpdatedAt.Date >= weekAgo).ToList();
         var olderChats = unpinnedChats.Where(c => c.UpdatedAt.Date < weekAgo).ToList();
 
-        if (pinnedChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Pinned, Chats = new(pinnedChats) });
-        if (todayChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Today, Chats = new(todayChats) });
-        if (yesterdayChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Yesterday, Chats = new(yesterdayChats) });
-        if (weekChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Previous7Days, Chats = new(weekChats) });
-        if (olderChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Older, Chats = new(olderChats) });
+        var groups = new List<ChatGroup>(5);
+        var rowsChanged = false;
+        AddGroup(Loc.ChatGroup_Pinned, pinnedChats);
+        AddGroup(Loc.ChatGroup_Today, todayChats);
+        AddGroup(Loc.ChatGroup_Yesterday, yesterdayChats);
+        AddGroup(Loc.ChatGroup_Previous7Days, weekChats);
+        AddGroup(Loc.ChatGroup_Older, olderChats);
+        SynchronizeCollection(ChatGroups, groups);
+        // Retained groups can change their rows without an outer collection notification.
+        if (rowsChanged)
+            ChatSelectionSyncRequested?.Invoke(ActiveChatId);
+
+        void AddGroup(string label, List<Chat> items)
+        {
+            if (items.Count == 0)
+                return;
+
+            var group = ChatGroups.FirstOrDefault(candidate => candidate.Label == label)
+                ?? new ChatGroup { Label = label };
+            rowsChanged |= SynchronizeCollection(group.Chats, items);
+            groups.Add(group);
+        }
+    }
+
+    private static bool SynchronizeCollection<T>(ObservableCollection<T> target, IReadOnlyList<T> desired)
+        where T : class
+    {
+        if (target.SequenceEqual(desired))
+            return false;
+
+        var retained = desired.ToHashSet();
+        for (var i = target.Count - 1; i >= 0; i--)
+        {
+            if (!retained.Contains(target[i]))
+                target.RemoveAt(i);
+        }
+
+        for (var i = 0; i < desired.Count; i++)
+        {
+            if (i < target.Count && ReferenceEquals(target[i], desired[i]))
+                continue;
+
+            var existingIndex = target.IndexOf(desired[i]);
+            if (existingIndex >= 0)
+                target.Move(existingIndex, i);
+            else
+                target.Insert(i, desired[i]);
+        }
+        return true;
     }
 
     private void OnChatTitleChanged(Guid chatId, string newTitle)

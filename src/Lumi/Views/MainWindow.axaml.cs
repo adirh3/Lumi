@@ -80,6 +80,8 @@ public partial class MainWindow : Window
     private ScrollViewer? _chatListScroller;
     private readonly List<(Project Project, PropertyChangedEventHandler Handler)> _projectFilterHandlers = [];
     private int _projectSwitcherRefreshQueued;
+    private int _chatListSyncQueued;
+    private bool _revealAfterChatListSync;
     private ChatWorkspaceView? _chatWorkspace;
     private ChatView? _chatView;
     private ContentControl? _jobsHost;
@@ -1075,10 +1077,7 @@ public partial class MainWindow : Window
             {
                 Dispatcher.UIThread.Post(() => AnimateSidebarTitle(chatId, newTitle));
             };
-            vm.ChatSelectionSyncRequested += activeChatId =>
-            {
-                Dispatcher.UIThread.Post(() => SyncListBoxSelection(activeChatId), DispatcherPriority.Loaded);
-            };
+            vm.ChatSelectionSyncRequested += _ => QueueChatListSync(vm);
 
             // Wire search overlay result selection
             vm.SearchOverlayVM.ResultSelected += result => OnSearchResultSelected(vm, result);
@@ -1132,12 +1131,8 @@ public partial class MainWindow : Window
                         vm.ChatVM.RefreshComposerCatalogs();
                         _chatWorkspace?.RestoreDesktopPanel();
 
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            AttachListBoxHandlers();
-                            SyncListBoxSelection(vm.ActiveChatId);
-                            _chatView?.FocusComposer();
-                        }, DispatcherPriority.Loaded);
+                        QueueChatListSync(vm);
+                        Dispatcher.UIThread.Post(() => _chatView?.FocusComposer(), DispatcherPriority.Loaded);
                     }
                 }
                 else if (args.PropertyName == nameof(MainViewModel.ActiveChatId))
@@ -1145,8 +1140,7 @@ public partial class MainWindow : Window
                     // Switching chats closes any Workspace page (the overview follows the preference)
                     _chatWorkspace?.CloseWorkspacePages();
                     _chatWorkspace?.RestoreDesktopPanel();
-                    Dispatcher.UIThread.Post(() => SyncListBoxSelection(vm.ActiveChatId),
-                        DispatcherPriority.Loaded);
+                    QueueChatListSync(vm);
                 }
                 else if (args.PropertyName == nameof(MainViewModel.ChatVM))
                 {
@@ -1168,9 +1162,12 @@ public partial class MainWindow : Window
                 }
                 else if (args.PropertyName == nameof(MainViewModel.SelectedProjectFilter))
                 {
-                    RefreshProjectSwitcher(vm);
+                    UpdateProjectSwitcherSummary(vm);
+                    QueueProjectSwitcherRefresh(vm);
+                    QueueChatListSync(vm);
                     if (!_isProjectChatListRevealQueued)
                         QueueProjectChatListReveal();
+                    _isProjectChatListRevealArmed = false;
                     _isProjectChatListRevealQueued = false;
                 }
                 else if (args.PropertyName == nameof(MainViewModel.IsUnreadPanelOpen))
@@ -1197,7 +1194,6 @@ public partial class MainWindow : Window
                     QueueProjectSwitcherRefresh(vm);
             };
 
-            // When chat groups are rebuilt, re-attach ListBox handlers, sync selection, and set project labels
             vm.ChatGroups.CollectionChanged += (_, _) =>
             {
                 var shouldRevealChats = _isProjectChatListRevealArmed;
@@ -1207,13 +1203,7 @@ public partial class MainWindow : Window
                     _isProjectChatListRevealQueued = true;
                 }
 
-                Dispatcher.UIThread.Post(() =>
-                {
-                    AttachListBoxHandlers();
-                    SyncListBoxSelection(vm.ActiveChatId);
-                    if (shouldRevealChats)
-                        QueueProjectChatListReveal();
-                }, DispatcherPriority.Loaded);
+                QueueChatListSync(vm, shouldRevealChats);
             };
         }
     }
@@ -2063,6 +2053,26 @@ public partial class MainWindow : Window
         {
             _suppressSelectionSync = false;
         }
+    }
+
+    private void QueueChatListSync(MainViewModel vm, bool revealChats = false)
+    {
+        _revealAfterChatListSync |= revealChats;
+        if (Interlocked.Exchange(ref _chatListSyncQueued, 1) != 0)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            Interlocked.Exchange(ref _chatListSyncQueued, 0);
+            var shouldReveal = _revealAfterChatListSync;
+            _revealAfterChatListSync = false;
+            if (!ReferenceEquals(DataContext, vm))
+                return;
+
+            SyncListBoxSelection(vm.ActiveChatId);
+            if (shouldReveal)
+                QueueProjectChatListReveal();
+        }, DispatcherPriority.Loaded);
     }
 
     private CancellationTokenSource? _titleAnimCts;

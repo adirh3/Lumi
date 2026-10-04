@@ -117,18 +117,29 @@ public partial class MainViewModel
             ? unread.Count(chat => chat.ProjectId != filter.Value)
             : 0;
 
-        UnreadChats.Clear();
+        var entries = new List<UnreadChatEntry>(UnreadListLimit);
         foreach (var chat in unread.Take(UnreadListLimit))
         {
-            UnreadChats.Add(new UnreadChatEntry
+            var title = string.IsNullOrWhiteSpace(chat.Title) ? Loc.Library_UntitledChat : chat.Title;
+            var projectName = GetProjectName(chat.ProjectId);
+            var isOutsideFilter = filter.HasValue && chat.ProjectId != filter.Value;
+            var timeLabel = LibraryViewModel.FormatRelativeTime(chat.UpdatedAt);
+            var existing = UnreadChats.FirstOrDefault(entry =>
+                ReferenceEquals(entry.Chat, chat)
+                && entry.Title == title
+                && entry.ProjectName == projectName
+                && entry.IsOutsideActiveFilter == isOutsideFilter
+                && entry.TimeLabel == timeLabel);
+            entries.Add(existing ?? new UnreadChatEntry
             {
                 Chat = chat,
-                Title = string.IsNullOrWhiteSpace(chat.Title) ? Loc.Library_UntitledChat : chat.Title,
-                ProjectName = GetProjectName(chat.ProjectId),
-                IsOutsideActiveFilter = filter.HasValue && chat.ProjectId != filter.Value,
-                TimeLabel = LibraryViewModel.FormatRelativeTime(chat.UpdatedAt),
+                Title = title,
+                ProjectName = projectName,
+                IsOutsideActiveFilter = isOutsideFilter,
+                TimeLabel = timeLabel,
             });
         }
+        SynchronizeCollection(UnreadChats, entries);
 
         var overflow = unread.Count - UnreadChats.Count;
         HasUnreadOverflow = overflow > 0;
