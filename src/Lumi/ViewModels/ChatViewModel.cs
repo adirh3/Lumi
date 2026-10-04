@@ -132,7 +132,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             && configuredServers.Values.Any(config => config is McpHttpServerConfig);
 
     internal static TimeSpan ResolveMcpSessionSetupTimeout(bool usesProxy)
-        => usesProxy ? TimeSpan.FromSeconds(60) : McpSessionSetupTimeout;
+        // A cold proxy still has to start its stdio backends within the overall setup budget.
+        => McpSessionSetupTimeout;
 
     internal static TimeSpan ResolveMcpSettleBudget(bool usesProxy)
         => usesProxy ? ProxyMcpSettleBudget : NativeMcpSettleBudget;

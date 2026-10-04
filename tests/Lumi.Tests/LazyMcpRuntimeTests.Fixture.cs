@@ -44,6 +44,7 @@ public sealed partial class LazyMcpRuntimeTests
                     [Console]::Out.Flush()
                 }
                 $startupMode = [System.IO.File]::ReadAllText($env:MCP_TEST_BEHAVIOR)
+                $sessionExpiresOnCall = $startupMode -eq "call-session-stuck" -and -not [System.IO.File]::Exists("session-lost")
                 if ($startupMode -in @("startup-logs", "startup-logs-timeout")) {
                     [Console]::Out.WriteLine("[NuGet Manager] [Info] Credential provider ready token=startup-secret")
                     [Console]::Out.Flush()
@@ -124,6 +125,11 @@ public sealed partial class LazyMcpRuntimeTests
                         if ($mode -eq "paginated") { $result.nextCursor = "page-2" }
                         Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = $result }
                     } elseif ($msg.method -eq "tools/call") {
+                        if ($mode -eq "call-session-stuck" -and $sessionExpiresOnCall) {
+                            [System.IO.File]::WriteAllText("session-lost", "")
+                            Write-Json @{ jsonrpc = "2.0"; id = $msg.id; error = @{ code = -32001; message = "Session not found" } }
+                            continue
+                        }
                         if ($mode -eq "call-session-lost" -and -not [System.IO.File]::Exists("session-lost")) {
                             [System.IO.File]::WriteAllText("session-lost", "")
                             Write-Json @{ jsonrpc = "2.0"; id = $msg.id; error = @{ code = -32001; message = "Session not found" } }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -48,6 +49,56 @@ internal sealed class AssistantTurnBoundaryTracker
 public partial class ChatViewModel
 {
     private const int StreamingUiUpdateThrottleMs = 50;
+
+    internal static string? GetNativeMcpServerName(ToolExecutionStartData tool)
+    {
+        if (tool.McpTransport != McpServerTransport.Stdio)
+            return null;
+
+        var name = string.IsNullOrWhiteSpace(tool.McpConfigServerName)
+            ? tool.McpServerName
+            : tool.McpConfigServerName;
+        return string.IsNullOrWhiteSpace(name) ? null : name;
+    }
+
+    internal static async Task RestartNativeMcpServerAfterSessionLossAsync(
+        ToolExecutionCompleteData tool,
+        ConcurrentDictionary<string, string> nativeServersByToolCallId,
+        Dictionary<string, long> restartTimes,
+        Func<string, Task> restartServerAsync)
+    {
+        if (!nativeServersByToolCallId.TryRemove(tool.ToolCallId, out var serverName)
+            || tool.Success == true
+            || !McpStdioServerConnection.IsRecoverableSessionLossMessage(tool.Error?.Message))
+        {
+            return;
+        }
+
+        lock (restartTimes)
+        {
+            var now = Environment.TickCount64;
+            if (restartTimes.TryGetValue(serverName, out var lastRestart)
+                && now - lastRestart < 30_000)
+            {
+                return;
+            }
+
+            restartTimes[serverName] = now;
+        }
+
+        try
+        {
+            // Repair the bridge, never replay the failed business call or replace the chat session.
+            await restartServerAsync(serverName).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                "[Chat] Native MCP server '{0}' restart after session loss failed: {1}",
+                serverName,
+                ex.Message);
+        }
+    }
 
     internal static string? CaptureTurnModelId(string? currentTurnModelId, string? selectedModelId)
         => currentTurnModelId ?? selectedModelId;
@@ -284,6 +335,8 @@ public partial class ChatViewModel
         var runtime = GetOrCreateRuntimeState(chat.Id);
         var sessionTurnSequence = runtime.LifecycleTurnSequence;
         var capabilities = GetCapabilities(chat, workDir);
+        var nativeMcpServersByToolCallId = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var nativeMcpRestartTimes = new Dictionary<string, long>(StringComparer.Ordinal);
         var toolParentById = new Dictionary<string, string?>(StringComparer.Ordinal);
         var terminalRootByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
         var externalToolCallIdByRequestId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1134,6 +1187,8 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionStartEvent toolStart:
+                    if (GetNativeMcpServerName(toolStart.Data) is { } nativeMcpServerName)
+                        nativeMcpServersByToolCallId[toolStart.Data.ToolCallId] = nativeMcpServerName;
                     if (IsRootAgentEvent(toolStart))
                         AdjustPendingToolCount(chat.Id, 1);
                     // Stamp the start on the event thread, before the UI dispatch: queuing latency
@@ -1284,6 +1339,11 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionCompleteEvent toolEnd:
+                    _ = RestartNativeMcpServerAfterSessionLossAsync(
+                        toolEnd.Data,
+                        nativeMcpServersByToolCallId,
+                        nativeMcpRestartTimes,
+                        serverName => session.Rpc.Mcp.RestartServerAsync(serverName, null));
                     var shouldReconcileAfterTool = IsRootAgentEvent(toolEnd)
                         && AdjustPendingToolCount(chat.Id, -1);
                     if (shouldReconcileAfterTool)
