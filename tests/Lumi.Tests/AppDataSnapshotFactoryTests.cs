@@ -42,6 +42,7 @@ public class AppDataSnapshotFactoryTests
                 RemoteAccessEnabled = true,
                 RemoteAllowInsecureLan = true,
                 RemoteAccessPort = 47653,
+                RemoteDevTunnelId = "lumi-11111111111111111111111111111111",
                 RemotePairedDevices =
                 [
                     new RemotePairedDevice { DeviceId = "stale", Token = "stale-token" }
@@ -53,6 +54,7 @@ public class AppDataSnapshotFactoryTests
             RemoteAccessEnabled = false,
             RemoteAllowInsecureLan = false,
             RemoteAccessPort = 49000,
+            RemoteDevTunnelId = "lumi-22222222222222222222222222222222",
             RemotePairedDevices =
             [
                 new RemotePairedDevice { DeviceId = "current", Token = "current-token" }
@@ -64,6 +66,7 @@ public class AppDataSnapshotFactoryTests
         Assert.False(store.Data.Settings.RemoteAccessEnabled);
         Assert.False(store.Data.Settings.RemoteAllowInsecureLan);
         Assert.Equal(49000, store.Data.Settings.RemoteAccessPort);
+        Assert.Equal(persisted.RemoteDevTunnelId, store.Data.Settings.RemoteDevTunnelId);
         Assert.Equal("current", Assert.Single(store.Data.Settings.RemotePairedDevices).DeviceId);
     }
 
@@ -1106,6 +1109,7 @@ public class AppDataSnapshotFactoryTests
             {
                 RemoteAccessEnabled = true,
                 RemoteAccessPort = 47653,
+                RemoteDevTunnelId = "lumi-0123456789abcdef0123456789abcdef",
                 RemotePairedDevices =
                 [
                     new RemotePairedDevice
@@ -1124,6 +1128,7 @@ public class AppDataSnapshotFactoryTests
 
         Assert.True(snapshot.Settings.RemoteAccessEnabled);
         Assert.Equal(47653, snapshot.Settings.RemoteAccessPort);
+        Assert.Equal(source.Settings.RemoteDevTunnelId, snapshot.Settings.RemoteDevTunnelId);
 
         var device = Assert.Single(snapshot.Settings.RemotePairedDevices);
         Assert.Equal("device-1", device.DeviceId);

@@ -18,6 +18,8 @@ internal sealed record RemoteDevTunnelState(
 
 internal sealed class RemoteDevTunnelHost : IAsyncDisposable
 {
+    internal const string TunnelDescription = "Lumi private web app";
+
     private readonly object _gate = new();
     private CancellationTokenSource? _lifetime;
     private TaskCompletionSource<bool>? _installApproval;
@@ -27,19 +29,51 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
     public RemoteDevTunnelState State => Volatile.Read(ref _state);
     public event Action? StateChanged;
 
-    internal static string[] CreateArguments =>
-    [
-        "create", "--expiration", "1d", "--description", "Lumi private web app",
-        "--host-header", "localhost", "--origin-header", "unchanged", "--json"
-    ];
+    internal static string[] CreateArguments(string requestedTunnelId)
+    {
+        if (!IsValidProfileTunnelId(requestedTunnelId))
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+
+        var separator = requestedTunnelId.IndexOf('.');
+        var baseId = separator < 0 ? requestedTunnelId : requestedTunnelId[..separator];
+        var arguments = new List<string> { "create", baseId };
+        if (separator >= 0)
+        {
+            var clusterId = requestedTunnelId[(separator + 1)..];
+            arguments.AddRange([
+                "--service-uri", $"https://{clusterId}.rel.tunnels.api.visualstudio.com"
+            ]);
+        }
+        arguments.AddRange([
+            "--expiration", "1d", "--description", TunnelDescription,
+            "--host-header", "localhost", "--origin-header", "unchanged", "--json"
+        ]);
+        return arguments.ToArray();
+    }
 
     internal static string[] HostArguments(string tunnelId) =>
         ["host", tunnelId, "--host-header", "localhost", "--origin-header", "unchanged"];
 
-    internal static string[] SignInArguments =>
+    internal static string[] BrowserSignInArguments =>
         ["user", "login", "--entra", "--use-browser-auth", "--json"];
 
-    public void Start(int port)
+    internal static string[] IntegratedWindowsSignInArguments =>
+        ["user", "login", "--entra", "--use-integrated-windows-auth", "--json"];
+
+    internal static string CreateProfileTunnelId() =>
+        $"lumi-{Guid.NewGuid():N}";
+
+    internal static bool IsValidProfileTunnelId(string? tunnelId) =>
+        tunnelId is not null
+        && Regex.IsMatch(
+            tunnelId,
+            "^lumi-[0-9a-f]{32}(?:\\.[a-z0-9]+)?$",
+            RegexOptions.CultureInvariant);
+
+    public void Start(
+        int port,
+        string requestedTunnelId,
+        Func<string, CancellationToken, Task> persistTunnelId)
     {
         Stop();
         lock (_gate)
@@ -51,7 +85,7 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             _worker = Task.Run(async () =>
             {
                 await previous.ConfigureAwait(false);
-                await RunAsync(port, lifetime).ConfigureAwait(false);
+                await RunAsync(port, requestedTunnelId, persistTunnelId, lifetime).ConfigureAwait(false);
             });
         }
         StateChanged?.Invoke();
@@ -107,16 +141,18 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         }
     }
 
-    private async Task RunAsync(int port, CancellationTokenSource lifetime)
+    private async Task RunAsync(
+        int port,
+        string requestedTunnelId,
+        Func<string, CancellationToken, Task> persistTunnelId,
+        CancellationTokenSource lifetime)
     {
-        string? tunnelId = null;
         string? account = null;
-        string? executablePath = null;
         try
         {
             var token = lifetime.Token;
             token.ThrowIfCancellationRequested();
-            executablePath = await RemoteDevTunnelCli.EnsureAvailableAsync(
+            var executablePath = await RemoteDevTunnelCli.EnsureAvailableAsync(
                     _ => RequestInstallConfirmationAsync(lifetime),
                     message => Publish(lifetime, new RemoteDevTunnelState(IsStarting: true, SetupMessage: message)),
                     token)
@@ -131,46 +167,57 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                     (arguments, ct) => RemoteDevTunnelCli.RunAsync(executablePath, arguments, ct),
                     () => Publish(lifetime, new RemoteDevTunnelState(
                         IsStarting: true, SetupMessage: Loc.Get("Remote_DevTunnelSigningIn"))),
-                    token)
+                    token,
+                    preferIntegratedWindowsAuth: OperatingSystem.IsWindows())
                 .ConfigureAwait(false);
             account = identity.Username;
             Publish(lifetime, new RemoteDevTunnelState(IsStarting: true, Account: account));
 
-            // Always create a new owner-only tunnel. Never reuse a last-used tunnel or grant an ACE.
-            using (var created = JsonDocument.Parse(
-                       await RemoteDevTunnelCli.RunAsync(executablePath, CreateArguments, token).ConfigureAwait(false)))
+            var existingTunnelId = FindExistingProfileTunnelId(
+                await RemoteDevTunnelCli.RunAsync(
+                    executablePath, ["list", "--json"], token).ConfigureAwait(false),
+                requestedTunnelId);
+            if (existingTunnelId is not null)
             {
-                if (!created.RootElement.TryGetProperty("tunnel", out var tunnel)
-                    || !tunnel.TryGetProperty("tunnelId", out var id)
-                    || id.ValueKind != JsonValueKind.String
-                    || id.GetString() is not { Length: > 0 } value)
-                {
-                    throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
-                }
-                tunnelId = value;
+                await RemoteDevTunnelCli.RunAsync(
+                        executablePath, ["delete", existingTunnelId], token)
+                    .ConfigureAwait(false);
             }
 
-            await RemoteDevTunnelCli.RunAsync(executablePath,
-                    ["port", "create", tunnelId, "-p", port.ToString(CultureInfo.InvariantCulture),
-                        "--protocol", "http", "--host-header", "localhost",
-                        "--origin-header", "unchanged", "--json"],
-                    token)
-                .ConfigureAwait(false);
-            RequireOwnerOnlyAccess(
-                await RemoteDevTunnelCli.RunAsync(
-                    executablePath, ["access", "list", tunnelId, "--json"], token).ConfigureAwait(false));
-            RequireOwnerOnlyAccess(
-                await RemoteDevTunnelCli.RunAsync(executablePath,
-                        ["access", "list", tunnelId, "-p", port.ToString(CultureInfo.InvariantCulture), "--json"],
-                        token)
-                    .ConfigureAwait(false));
+            var requestedRoute = existingTunnelId ?? requestedTunnelId;
 
-            var currentIdentity = ParseMicrosoftIdentity(
-                await RemoteDevTunnelCli.RunAsync(executablePath, ["user", "show", "--json"], token).ConfigureAwait(false));
-            if (currentIdentity.ObjectId != identity.ObjectId || currentIdentity.TenantId != identity.TenantId)
-                throw new InvalidOperationException(Loc.Get("Remote_DevTunnelAccountChanged"));
+            // Recreate the profile-owned route from scratch so stale relay state cannot survive a
+            // reboot. The cluster is pinned, but ACLs and ports are verified anew on every launch.
+            await RunWithCreatedTunnelAsync(
+                requestedRoute,
+                (arguments, ct) => RemoteDevTunnelCli.RunAsync(executablePath, arguments, ct),
+                async (tunnelId, ct) =>
+                {
+                    await persistTunnelId(tunnelId, ct).ConfigureAwait(false);
 
-            await HostAsync(executablePath, tunnelId, port, account, lifetime).ConfigureAwait(false);
+                    await RemoteDevTunnelCli.RunAsync(executablePath,
+                            ["port", "create", tunnelId, "-p", port.ToString(CultureInfo.InvariantCulture),
+                                "--protocol", "http", "--host-header", "localhost",
+                                "--origin-header", "unchanged", "--json"],
+                            ct)
+                        .ConfigureAwait(false);
+                    RequireOwnerOnlyAccess(
+                        await RemoteDevTunnelCli.RunAsync(
+                            executablePath, ["access", "list", tunnelId, "--json"], ct).ConfigureAwait(false));
+                    RequireOwnerOnlyAccess(
+                        await RemoteDevTunnelCli.RunAsync(executablePath,
+                                ["access", "list", tunnelId, "-p", port.ToString(CultureInfo.InvariantCulture), "--json"],
+                                ct)
+                            .ConfigureAwait(false));
+
+                    var currentIdentity = ParseMicrosoftIdentity(
+                        await RemoteDevTunnelCli.RunAsync(executablePath, ["user", "show", "--json"], ct).ConfigureAwait(false));
+                    if (currentIdentity.ObjectId != identity.ObjectId || currentIdentity.TenantId != identity.TenantId)
+                        throw new InvalidOperationException(Loc.Get("Remote_DevTunnelAccountChanged"));
+
+                    await HostAsync(executablePath, tunnelId, port, account, lifetime).ConfigureAwait(false);
+                },
+                token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
@@ -192,11 +239,46 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         }
         finally
         {
-            if (tunnelId is not null && executablePath is not null)
+            lock (_gate)
+            {
+                if (ReferenceEquals(_lifetime, lifetime))
+                    _lifetime = null;
+                lifetime.Dispose();
+            }
+        }
+    }
+
+    internal static async Task RunWithCreatedTunnelAsync(
+        string requestedRoute,
+        Func<string[], CancellationToken, Task<string>> runCli,
+        Func<string, CancellationToken, Task> useTunnel,
+        CancellationToken cancellationToken)
+    {
+        string? tunnelId = null;
+        try
+        {
+            using (var created = JsonDocument.Parse(
+                       await runCli(CreateArguments(requestedRoute), cancellationToken).ConfigureAwait(false)))
+            {
+                if (!created.RootElement.TryGetProperty("tunnel", out var tunnel)
+                    || !tunnel.TryGetProperty("tunnelId", out var id)
+                    || id.ValueKind != JsonValueKind.String
+                    || id.GetString() is not { Length: > 0 } value)
+                {
+                    throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+                }
+                tunnelId = value;
+                RequireExpectedTunnelId(tunnelId, requestedRoute);
+            }
+            await useTunnel(tunnelId, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (tunnelId is not null)
             {
                 try
                 {
-                    await RemoteDevTunnelCli.RunAsync(executablePath, ["delete", tunnelId], CancellationToken.None)
+                    await runCli(["delete", tunnelId], CancellationToken.None)
                         .ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException
@@ -205,12 +287,6 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                     // The relay has already stopped; an undeleted private tunnel also expires after a day.
                     Trace.TraceWarning($"[Remote] Could not remove private Dev Tunnel {tunnelId}: {ex.Message}");
                 }
-            }
-            lock (_gate)
-            {
-                if (ReferenceEquals(_lifetime, lifetime))
-                    _lifetime = null;
-                lifetime.Dispose();
             }
         }
     }
@@ -262,7 +338,8 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
     internal static async Task<(string Username, string ObjectId, string TenantId)> EnsureMicrosoftIdentityAsync(
         Func<string[], CancellationToken, Task<string>> runCli,
         Action reportSigningIn,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool preferIntegratedWindowsAuth = false)
     {
         var json = await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false);
         using (var document = JsonDocument.Parse(json))
@@ -275,7 +352,25 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             if (signedOut || github)
             {
                 reportSigningIn();
-                await runCli(SignInArguments, cancellationToken).ConfigureAwait(false);
+                if (preferIntegratedWindowsAuth)
+                {
+                    try
+                    {
+                        await runCli(IntegratedWindowsSignInArguments, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        await runCli(BrowserSignInArguments, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        await runCli(BrowserSignInArguments, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    await runCli(BrowserSignInArguments, cancellationToken).ConfigureAwait(false);
+                }
                 json = await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false);
             }
         }
@@ -295,6 +390,62 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             throw new InvalidOperationException(Loc.Get("Remote_DevTunnelSignIn"));
         }
         return (name, id, tenant);
+    }
+
+    internal static string? FindExistingProfileTunnelId(string json, string requestedTunnelId)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("tunnels", out var tunnels)
+            || tunnels.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+        }
+
+        foreach (var tunnel in tunnels.EnumerateArray())
+        {
+            if (!tunnel.TryGetProperty("tunnelId", out var id)
+                || id.GetString() is not { Length: > 0 } tunnelId
+                || !tunnel.TryGetProperty("description", out var description)
+                || description.GetString() != TunnelDescription)
+            {
+                continue;
+            }
+
+            var requestedHasCluster = requestedTunnelId.IndexOf('.') >= 0;
+            var separator = tunnelId.IndexOf('.');
+            var baseId = separator < 0 ? tunnelId : tunnelId[..separator];
+            if (IsValidProfileTunnelId(tunnelId)
+                && (requestedHasCluster
+                    ? string.Equals(tunnelId, requestedTunnelId, StringComparison.Ordinal)
+                    : string.Equals(baseId, requestedTunnelId, StringComparison.Ordinal)))
+                return tunnelId;
+        }
+
+        return null;
+    }
+
+    internal static string RequireExpectedTunnelId(string createdTunnelId, string requestedTunnelId)
+    {
+        if (!IsValidProfileTunnelId(createdTunnelId)
+            || !IsValidProfileTunnelId(requestedTunnelId))
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+
+        var requestedSeparator = requestedTunnelId.IndexOf('.');
+        var requestedBaseId = requestedSeparator < 0
+            ? requestedTunnelId
+            : requestedTunnelId[..requestedSeparator];
+        var createdSeparator = createdTunnelId.IndexOf('.');
+        var createdBaseId = createdSeparator < 0
+            ? createdTunnelId
+            : createdTunnelId[..createdSeparator];
+        if (!string.Equals(createdBaseId, requestedBaseId, StringComparison.Ordinal)
+            || requestedSeparator >= 0
+            && !string.Equals(createdTunnelId, requestedTunnelId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+        }
+
+        return createdTunnelId;
     }
 
     internal static void RequireOwnerOnlyAccess(string json)
