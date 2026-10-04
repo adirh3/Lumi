@@ -1,110 +1,442 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:sa="using:StrataTheme.Animation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
-             xmlns:models="using:Lumi.Models"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.SkillsView"
              x:DataType="vm:SkillsViewModel"
              x:CompileBindings="True">
 
-  <UserControl.Styles>
-    <Style Selector="ScrollViewer.motion-surface, StackPanel.motion-surface">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="ScrollViewer.motion-surface[IsVisible=true], StackPanel.motion-surface[IsVisible=true]">
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-    <Style Selector="Button.motion-action">
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
-          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
-          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
-        </Transitions>
-      </Setter>
-    </Style>
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Skill.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
 
-    <Style Selector="TextBlock.field-label">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-      <Setter Property="FontWeight" Value="Medium" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-      <Setter Property="Margin" Value="0,0,0,4" />
-    </Style>
+  <UserControl.Styles>
+    <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
   </UserControl.Styles>
 
   <Panel>
-      <!-- Editor form -->
-      <ScrollViewer Classes="motion-surface"
-                    IsVisible="{Binding IsEditing}"
-                    HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="0" Margin="24,20,24,28">
 
-          <!-- Header + actions row -->
-          <DockPanel Margin="0,0,0,16">
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-              <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
-                      Command="{Binding SaveSkillCommand}" />
-              <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
-                      Command="{Binding CancelEditCommand}" />
-              <Button Classes="subtle motion-action" Padding="10,7" MinHeight="0"
-                      Command="{Binding DeleteSkillCommand}"
-                      CommandParameter="{Binding SelectedSkill}"
-                      IsVisible="{Binding SelectedSkill, Converter={x:Static ObjectConverters.IsNotNull}}"
-                      ToolTip.Tip="{loc:Str Menu_Delete}">
-                <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14"
-                          Foreground="{DynamicResource Brush.TextTertiary}" />
+    <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
+    <Panel x:Name="SkillsOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}">
+      <Border Classes="mg-wash" />
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,30,32,40" Spacing="24">
+
+          <!-- Header -->
+          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+            <Border Grid.RowSpan="2" Classes="mg-tile" Width="48" Height="48" CornerRadius="14" Margin="0,0,16,0" VerticalAlignment="Top">
+              <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Bolt}" Width="22" Height="22" />
+            </Border>
+            <DockPanel Grid.Column="1" MinHeight="48">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
+                <Button x:Name="SkillsImportButton" Classes="mg-button" Command="{Binding ImportCommand}"
+                        ToolTip.Tip="{loc:Str Import_Tooltip}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Import}" />
+                    <TextBlock Text="{loc:Str Mg_Import}" />
+                  </StackPanel>
+                </Button>
+                <Button x:Name="SkillsNewButton" Classes="mg-button accent" Command="{Binding NewSkillCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Plus}" />
+                    <TextBlock Text="{loc:Str Skills_New}" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+              <TextBlock Classes="mg-page-title" Text="{loc:Str Skills_Title}" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="mg-page-lede" Margin="0,2,0,0" Text="{loc:Str Skills_Lede}" />
+          </Grid>
+
+          <!-- Stats + sort -->
+          <DockPanel IsVisible="{Binding HasAnySkills}">
+            <Border DockPanel.Dock="Right" Classes="mg-segmented" VerticalAlignment="Bottom">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="mg-segment" Classes.selected="{Binding IsSortedByName}"
+                        Command="{Binding SortByNameCommand}" Content="{loc:Str Mg_SortName}" />
+                <Button Classes="mg-segment" Classes.selected="{Binding IsSortedByRecent}"
+                        Command="{Binding SortByRecentCommand}" Content="{loc:Str Mg_SortRecent}" />
+              </StackPanel>
+            </Border>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Border Classes="mg-stat">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-stat-value" Text="{Binding TotalCountText}" />
+                  <TextBlock Classes="mg-stat-label" Text="{loc:Str Skills_StatTotal}" />
+                </StackPanel>
+              </Border>
+              <Border Classes="mg-stat">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-stat-value" Text="{Binding InUseCountText}" />
+                  <TextBlock Classes="mg-stat-label" Text="{loc:Str Skills_StatInUse}" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </DockPanel>
+
+          <!-- Active search -->
+          <Border Classes="mg-chip hue" HorizontalAlignment="Left" IsVisible="{Binding IsSearching}" Padding="12,5,6,5">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Data="{StaticResource Icon.Search}" />
+              <TextBlock Text="{Binding SearchQuery}" MaxWidth="320" TextTrimming="CharacterEllipsis" />
+              <Button Classes="subtle" Padding="4" MinHeight="0" CornerRadius="{DynamicResource Radius.Full}"
+                      Command="{Binding ClearSearchCommand}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+                <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
               </Button>
             </StackPanel>
-            <TextBlock Text="{loc:Str Editor_Skill}" Classes="subtitle" VerticalAlignment="Center" />
-          </DockPanel>
+          </Border>
 
-          <!-- Icon + Name row -->
-          <DockPanel Margin="0,0,0,10">
-            <Button x:Name="SkillIconPickerButton" DockPanel.Dock="Left" Classes="subtle" Margin="0,0,10,0"
-                    Padding="0" MinHeight="0" MinWidth="0" CornerRadius="{DynamicResource Radius.Base}"
-                    Width="36" Height="36" Cursor="Hand"
-                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-              <Button.Flyout>
-                <Flyout Placement="BottomEdgeAlignedLeft">
-                  <sc:StrataIconPicker SelectedIcon="{Binding EditIconGlyph, Mode=TwoWay}"
-                                       IconSelected="OnIconSelected" />
-                </Flyout>
-              </Button.Flyout>
-              <TextBlock Text="{Binding EditIconGlyph, FallbackValue=⚡}" FontSize="18"
-                         HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Button>
-            <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_SkillName}" />
-          </DockPanel>
+          <!-- Gallery -->
+          <ItemsControl x:Name="SkillsGallery" ItemsSource="{Binding SkillCards}" IsVisible="{Binding HasResults}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <controls:AdaptiveGridPanel MinItemWidth="240" ColumnSpacing="14" RowSpacing="14" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SkillCard">
+                <Button Classes="mg-card" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding Name}">
+                  <Border Classes="mg-card-frame">
+                    <DockPanel>
+                      <StackPanel DockPanel.Dock="Bottom">
+                        <Border Classes="mg-card-divider" />
+                        <DockPanel>
+                          <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Text="{Binding SizeLabel}" Margin="10,0,0,0" />
+                          <DockPanel>
+                            <PathIcon DockPanel.Dock="Left" Margin="0,0,6,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Sparkle}" />
+                            <TextBlock Classes="mg-meta" Text="{Binding UsedByLabel}" />
+                          </DockPanel>
+                        </DockPanel>
+                      </StackPanel>
+                      <DockPanel DockPanel.Dock="Top">
+                        <PathIcon DockPanel.Dock="Right" Classes="mg-card-arrow" Data="{StaticResource Icon.ChevronRight}" VerticalAlignment="Top" Margin="0,4,0,0" />
+                        <Border Classes="mg-tile">
+                          <TextBlock Classes="mg-glyph" Text="{Binding Glyph}" />
+                        </Border>
+                      </DockPanel>
+                      <StackPanel Spacing="5" Margin="0,12,0,0">
+                        <DockPanel>
+                          <Border DockPanel.Dock="Right" Classes="mg-chip" Padding="7,1,7,2" Margin="8,0,0,0"
+                                  IsVisible="{Binding IsBuiltIn}">
+                            <TextBlock Text="{loc:Str Mg_BuiltIn}" FontSize="10.5" />
+                          </Border>
+                          <TextBlock Classes="mg-card-title" Text="{Binding Name}" />
+                        </DockPanel>
+                        <TextBlock Classes="mg-card-text" Text="{Binding Summary}" IsVisible="{Binding HasSummary}" />
+                        <TextBlock Classes="mg-card-text placeholder" Text="{loc:Str Mg_NoDescription}" IsVisible="{Binding !HasSummary}" />
+                      </StackPanel>
+                    </DockPanel>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
 
-          <!-- Description -->
-          <TextBox Text="{Binding EditDescription}" Margin="0,0,0,14"
-                   PlaceholderText="{loc:Str Watermark_SkillDescription}" />
+          <!-- No results -->
+          <StackPanel IsVisible="{Binding ShowNoResults}" Spacing="8" Margin="0,40,0,0" HorizontalAlignment="Center">
+            <TextBlock Classes="mg-empty-title" Text="{Binding NoResultsText}" />
+            <TextBlock Classes="mg-empty-text" Text="{loc:Str Mg_NoResultsHint}" />
+            <Button Classes="mg-button" HorizontalAlignment="Center" Margin="0,6,0,0"
+                    Command="{Binding ClearSearchCommand}" Content="{loc:Str Mg_ClearSearch}" />
+          </StackPanel>
 
-          <!-- Instructions -->
-          <TextBlock Text="{loc:Str Field_Instructions}" Classes="field-label" />
-          <TextBox Text="{Binding EditContent}" AcceptsReturn="True" TextWrapping="Wrap"
-                   MinHeight="200" MaxHeight="480"
-                   VerticalContentAlignment="Top"
-                   PlaceholderText="{loc:Str Watermark_SkillInstructions}" />
-
+          <!-- First run -->
+          <StackPanel IsVisible="{Binding ShowEmptyState}" Spacing="12" Margin="0,48,0,0" HorizontalAlignment="Center">
+            <Border Classes="mg-empty-hero">
+              <PathIcon Data="{StaticResource Icon.Bolt}" />
+            </Border>
+            <TextBlock Classes="mg-empty-title" Text="{loc:Str Skills_EmptyTitle}" Margin="0,6,0,0" />
+            <TextBlock Classes="mg-empty-text" Text="{loc:Str Skills_EmptyText}" />
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,8,0,0">
+              <Button x:Name="SkillsEmptyImportButton" Classes="mg-button" Command="{Binding ImportCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Import}" />
+                  <TextBlock Text="{loc:Str Import_EmptyHint}" />
+                </StackPanel>
+              </Button>
+              <Button Classes="mg-button accent" Command="{Binding NewSkillCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Plus}" />
+                  <TextBlock Text="{loc:Str Skills_New}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+          </StackPanel>
         </StackPanel>
       </ScrollViewer>
+    </Panel>
 
-      <!-- Empty state -->
-      <StackPanel Classes="motion-surface"
-                  IsVisible="{Binding !IsEditing}"
-                  HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
-        <TextBlock Text="⚡" FontSize="32" HorizontalAlignment="Center" />
-        <TextBlock Text="{loc:Str Empty_SelectSkill}" FontSize="{DynamicResource Font.SizeBody}"
-                   HorizontalAlignment="Center" />
-      </StackPanel>
+    <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
+    <Panel x:Name="SkillDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="mg-topbar">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6"
+                        IsVisible="{Binding !IsNewSkill}">
+              <Button x:Name="CopySkillForChatButton" Classes="mg-button"
+                      Command="{Binding CopySkillForChatCommand}"
+                      CommandParameter="{Binding SelectedSkill}"
+                      ToolTip.Tip="{loc:Str Share_CopyForChatTooltip}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.CopyForChat}" />
+                  <TextBlock Text="{loc:Str Share_CopyForChat}" />
+                </StackPanel>
+              </Button>
+              <Button x:Name="ShareSkillButton" Classes="mg-button"
+                      Command="{Binding ShareSkillCommand}"
+                      CommandParameter="{Binding SelectedSkill}"
+                      ToolTip.Tip="{loc:Str Share_ButtonTooltip}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Share}" />
+                  <TextBlock Text="{loc:Str Share_Button}" />
+                </StackPanel>
+              </Button>
+              <Button x:Name="DeleteSkillButton" Classes="mg-icon-button subtle"
+                      Command="{Binding RequestDeleteCommand}"
+                      ToolTip.Tip="{loc:Str Menu_Delete}">
+                <PathIcon Data="{StaticResource Icon.Trash}" />
+              </Button>
+            </StackPanel>
+            <DockPanel>
+              <Button DockPanel.Dock="Left" x:Name="SkillBackButton" Classes="subtle mg-back" Command="{Binding CloseDetailCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
+                  <TextBlock Text="{loc:Str Skills_Title}" />
+                </StackPanel>
+              </Button>
+              <TextBlock DockPanel.Dock="Left" Classes="mg-crumb" Text="/" Margin="2,0,6,0" />
+              <TextBlock Classes="mg-crumb current" Text="{Binding DetailTitle}" />
+            </DockPanel>
+          </DockPanel>
+        </Border>
+
+        <ScrollViewer x:Name="SkillDetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="40,32,40,120" MaxWidth="900" Spacing="20">
+
+            <!-- Hero -->
+            <DockPanel>
+              <Button x:Name="SkillIconPickerButton" DockPanel.Dock="Left" Classes="mg-tile-button"
+                      Margin="0,0,22,0" ToolTip.Tip="{loc:Str Mg_ChangeIcon}">
+                <Button.Flyout>
+                  <Flyout Placement="BottomEdgeAlignedLeft">
+                    <sc:StrataIconPicker SelectedIcon="{Binding EditIconGlyph, Mode=TwoWay}"
+                                         IconSelected="OnIconSelected" />
+                  </Flyout>
+                </Button.Flyout>
+                <Panel>
+                  <Border Classes="mg-tile lg">
+                    <TextBlock Classes="mg-glyph" Text="{Binding EditIconGlyph, FallbackValue=⚡}" />
+                  </Border>
+                  <Border Classes="mg-tile-edit" Width="24" Height="24" CornerRadius="12"
+                          HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-4,-4"
+                          Background="{DynamicResource Brush.SurfaceOverlay}"
+                          BorderBrush="{DynamicResource Brush.BorderDefault}" BorderThickness="1">
+                    <PathIcon Data="{StaticResource Icon.Rename}" Width="11" Height="11"
+                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                  </Border>
+                </Panel>
+              </Button>
+              <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBox x:Name="SkillNameInput" Classes="mg-title-input" Text="{Binding EditName}"
+                         PlaceholderText="{loc:Str Skills_NamePlaceholder}" />
+                <TextBox Classes="mg-lede-input" Text="{Binding EditDescription}"
+                         PlaceholderText="{loc:Str Skills_DescriptionPlaceholder}" />
+                <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,8,0,0"
+                           IsVisible="{Binding !IsNewSkill}">
+                  <Border Classes="mg-chip accent" IsVisible="{Binding IsBuiltInSkill}">
+                    <TextBlock Text="{loc:Str Mg_BuiltIn}" />
+                  </Border>
+                  <Border Classes="mg-chip hue">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Sparkle}" />
+                      <TextBlock Text="{Binding UsedByLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip" IsVisible="{Binding HasActiveChats}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Chat}" />
+                      <TextBlock Text="{Binding ActiveChatsLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Clock}" />
+                      <TextBlock Text="{Binding CreatedLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip">
+                    <TextBlock Text="{Binding ContentSizeLabel}" />
+                  </Border>
+                </WrapPanel>
+              </StackPanel>
+            </DockPanel>
+
+            <!-- Instructions -->
+            <Border Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Right" Classes="mg-segmented" Margin="12,0,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Button x:Name="SkillPreviewButton" Classes="mg-segment" Classes.selected="{Binding IsPreviewingContent}"
+                              Command="{Binding ShowPreviewCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.Eye}" />
+                          <TextBlock Text="{loc:Str Mg_Preview}" />
+                        </StackPanel>
+                      </Button>
+                      <Button x:Name="SkillEditButton" Classes="mg-segment" Classes.selected="{Binding !IsPreviewingContent}"
+                              Command="{Binding ShowEditorCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.Rename}" />
+                          <TextBlock Text="{loc:Str Mg_Edit}" />
+                        </StackPanel>
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Document}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Skills_Instructions}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Skills_InstructionsCaption}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+
+                <Panel IsVisible="{Binding IsPreviewingContent}">
+                  <StackPanel Spacing="10" IsVisible="{Binding HasContent}">
+                    <Panel>
+                      <Border Classes="mg-inset" Padding="20,16" Classes.mg-clipped="{Binding IsPreviewClipped}">
+                        <sc:StrataMarkdown Markdown="{Binding PreviewContent}" IsInline="True" />
+                      </Border>
+                      <Border Classes="mg-fade" IsVisible="{Binding IsPreviewClipped}" />
+                    </Panel>
+                    <Button Classes="subtle mg-text-button" HorizontalAlignment="Center" IsVisible="{Binding IsPreviewLong}"
+                            Command="{Binding TogglePreviewExpandedCommand}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding PreviewToggleText}" />
+                        <PathIcon Classes="mg-chevron" Classes.flipped="{Binding IsPreviewExpanded}" Data="{StaticResource Icon.ChevronDown}" />
+                      </StackPanel>
+                    </Button>
+                  </StackPanel>
+                  <Button Classes="mg-pill-link" HorizontalAlignment="Stretch" IsVisible="{Binding !HasContent}"
+                          Command="{Binding ShowEditorCommand}">
+                    <Border Classes="mg-empty-note">
+                      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <PathIcon Data="{StaticResource Icon.Rename}" Width="12" Height="12"
+                                  Foreground="{DynamicResource Brush.TextTertiary}" />
+                        <TextBlock Classes="mg-section-caption" Text="{loc:Str Skills_EmptyInstructions}" />
+                      </StackPanel>
+                    </Border>
+                  </Button>
+                </Panel>
+                <TextBox x:Name="SkillContentEditor" Classes="mg-editor" IsVisible="{Binding !IsPreviewingContent}"
+                         Text="{Binding EditContent}" MinHeight="320"
+                         PlaceholderText="{loc:Str Watermark_SkillInstructions}" />
+              </StackPanel>
+            </Border>
+
+            <!-- Used by -->
+            <Border Classes="mg-section" IsVisible="{Binding !IsNewSkill}">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <PathIcon Data="{StaticResource Icon.Sparkle}" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Skills_UsedBySection}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Skills_UsedByCaption}" />
+                  </StackPanel>
+                </DockPanel>
+                <ItemsControl ItemsSource="{Binding UsedByAgents}" IsVisible="{Binding HasUsedBy}">
+                  <ItemsControl.Resources>
+                    <ResourceDictionary>
+                      <ResourceDictionary.MergedDictionaries>
+                        <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Lumi.axaml" />
+                      </ResourceDictionary.MergedDictionaries>
+                    </ResourceDictionary>
+                  </ItemsControl.Resources>
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RelatedItem">
+                      <Button Classes="mg-pill-link"
+                              Command="{Binding $parent[UserControl].((vm:SkillsViewModel)DataContext).OpenAgentCommand}"
+                              CommandParameter="{Binding}"
+                              ToolTip.Tip="{loc:Str Mg_OpenLumi}">
+                        <Border Classes="mg-chip" Padding="5,4,12,4">
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Border Classes="mg-tile sm" Width="24" Height="24" CornerRadius="12">
+                              <TextBlock Classes="mg-glyph" Text="{Binding Glyph}" FontSize="12" />
+                            </Border>
+                            <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="Medium"
+                                       Foreground="{DynamicResource Brush.TextPrimary}" />
+                          </StackPanel>
+                        </Border>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Classes="mg-empty-note" IsVisible="{Binding !HasUsedBy}">
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Skills_UsedByEmpty}" />
+                </Border>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+
+      <!-- Save bar -->
+      <Border x:Name="SkillSaveBar" Classes="mg-floatbar" IsVisible="{Binding ShowSaveBar}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <Ellipse DockPanel.Dock="Left" Classes="mg-dot" Fill="{DynamicResource Brush.AccentDefault}" Margin="0,0,9,0" />
+            <TextBlock DockPanel.Dock="Right" x:Name="SkillSaveHint" Classes="mg-floatbar-hint" Text="Ctrl+S" Margin="9,0,0,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{Binding SaveBarText}" TextTrimming="CharacterEllipsis" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{Binding DiscardButtonText}" Command="{Binding DiscardChangesCommand}" />
+            <Button x:Name="SaveSkillButton" Classes="accent mg-button" Content="{Binding SaveButtonText}"
+                    Command="{Binding SaveSkillCommand}" IsEnabled="{Binding CanSave}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <!-- Delete confirmation -->
+      <Border Classes="mg-floatbar danger" IsVisible="{Binding IsConfirmingDelete}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Trash}" Width="13" Height="13"
+                      Foreground="{DynamicResource Brush.DangerDefault}" Margin="0,0,9,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{Binding DeleteConfirmText}" MaxWidth="420"
+                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DeleteConfirmText}" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{loc:Str Common_Cancel}" Command="{Binding CancelDeleteCommand}" />
+            <Button x:Name="ConfirmDeleteSkillButton" Classes="danger mg-button" Content="{loc:Str Mg_Delete}"
+                    Command="{Binding ConfirmDeleteCommand}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Classes="mg-saved-toast" IsVisible="{Binding ShowSavedToast}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12"
+                    Foreground="{DynamicResource Brush.SuccessDefault}" />
+          <TextBlock Text="{loc:Str Mg_Saved}" FontSize="12.5" FontWeight="Medium"
+                     Foreground="{DynamicResource Brush.TextPrimary}" />
+        </StackPanel>
+      </Border>
+    </Panel>
   </Panel>
 </UserControl>

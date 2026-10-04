@@ -1,0 +1,22 @@
+<!-- Page hue for Lumis: lavender. Deliberately muted: it only tints identity glyphs (page tile, item
+     tiles, empty states) and a barely-there header wash; everything else on the page stays neutral
+     and uses Lumi's own accent for selection and focus. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#A59BDD" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0DA59BDD" />
+        <GradientStop Offset="1" Color="#00A59BDD" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#5E50B5" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0A5E50B5" />
+        <GradientStop Offset="1" Color="#005E50B5" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

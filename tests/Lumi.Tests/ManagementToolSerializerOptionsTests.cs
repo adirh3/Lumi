@@ -17,6 +17,26 @@ namespace Lumi.Tests;
 public sealed class ManagementToolSerializerOptionsTests
 {
     [Fact]
+    public void DesktopBatchTool_PassesSourceGeneratedSerializerOptions()
+    {
+        var source = ReadToolsSource();
+        var index = source.IndexOf("\"ui_do\"", StringComparison.Ordinal);
+        Assert.True(index >= 0, "ui_do tool registration not found.");
+        Assert.Contains("AppDataJsonContext.Default.Options",
+            source.Substring(index, Math.Min(1600, source.Length - index)));
+    }
+
+    [Fact]
+    public void DesktopScreenshotTool_PassesSourceGeneratedSerializerOptions()
+    {
+        var source = ReadToolsSource();
+        var index = source.IndexOf("\"ui_screenshot\"", StringComparison.Ordinal);
+        Assert.True(index >= 0, "ui_screenshot tool registration not found.");
+        Assert.Contains("AppDataJsonContext.Default.Options",
+            source.Substring(index, Math.Min(1400, source.Length - index)));
+    }
+
+    [Fact]
     public void ManageChatsTool_PassesSourceGeneratedSerializerOptions()
     {
         var source = ReadToolsSource();

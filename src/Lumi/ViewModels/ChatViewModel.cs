@@ -885,7 +885,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? ChatLastReasoningEffortUsed,
         string? ChatLastContextWindowTierUsed,
         List<Guid> PendingSkillInjections,
-        List<string> PendingExternalSkillInjections);
+        List<string> PendingExternalSkillInjections,
+        MessageReply? PendingReply);
 
     private ComposerEditSnapshot? _preEditComposerSnapshot;
     private ChatMessage? _editingUserMessage;
@@ -936,7 +937,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private string? _promptText;
     [ObservableProperty] private bool _isBusy;
-    [ObservableProperty] private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsTranscriptStreaming))]
+    private bool _isStreaming;
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
@@ -950,13 +953,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivityNotice))]
     private string? _backgroundActivityNotice = Loc.Get("Chat_BackgroundActivityLoading");
 
-    public bool HasBackgroundActivity => IsSessionActive && !IsBusy;
+    public bool HasBackgroundActivity => IsSessionActive && !IsBusy && !IsPaused;
     public bool HasRunningSessionActivities => RunningSessionActivities.Count > 0;
     public bool HasBackgroundActivityNotice => !string.IsNullOrEmpty(BackgroundActivityNotice);
     [ObservableProperty] private string? _selectedModel;
     [ObservableProperty] private bool _isEditingMessage;
     [ObservableProperty] private string _editingMessageStatusText = "";
-    public string ComposerPlaceholder => IsEditingMessage ? Loc.Get("Chat_EditPlaceholder") : Loc.Chat_Placeholder;
+    public string ComposerPlaceholder => IsEditingMessage
+        ? Loc.Get("Chat_EditPlaceholder")
+        : IsPaused ? Loc.Get("Chat_PausedPlaceholder")
+        : HasPendingReply ? Loc.Chat_ReplyPlaceholder : Loc.Chat_Placeholder;
 
     partial void OnIsBusyChanging(bool value)
     {
@@ -977,7 +983,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private long _contextTokenLimit;
 
     public bool HasTokenUsage => HasContextUsage || CurrentChat is { Messages.Count: > 0 };
-    public bool ShowInfoStrip => IsCodingProject || HasTokenUsage || HasBackgroundActivity;
+    public bool ShowInfoStrip => IsCodingProject || HasTokenUsage || HasBackgroundActivity || CanPauseChat;
     public string TokenUsageSummary => HasContextUsage
         ? $"{ContextUsagePercent}%"
         : HasTokenUsage ? Loc.Get("Chat_ContextWindow_ChipLabel") : "";
@@ -1371,21 +1377,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public event Action<Guid, string>? ChatTitleChanged;
      public event Action? BrowserHideRequested;
 
-    /// <summary>Raised when a file-edit tool wants to show a diff in the preview island.</summary>
+    /// <summary>Raised when a file-edit tool wants to show a diff in the Workspace.</summary>
     public event Action<FileChangeItem>? DiffShowRequested;
-    /// <summary>Raised to hide the diff preview island.</summary>
+    /// <summary>Raised to close the Workspace's diff and git changes pages.</summary>
     public event Action? DiffHideRequested;
-    /// <summary>Raised when the user clicks the plan card to open it in the right panel.</summary>
+    /// <summary>Raised when the plan should open in the Workspace (plan card, plan created/updated).</summary>
     public event Action? PlanShowRequested;
 
     /// <summary>Raised when a model/effort change in a new chat updates the global default selection.</summary>
     public event Action<string, string?, string?>? DefaultModelSelectionChanged;
-    /// <summary>Raised to hide the plan preview island.</summary>
+    /// <summary>Raised to close the Workspace's plan page.</summary>
     public event Action? PlanHideRequested;
 
-    /// <summary>Raised when the user clicks a transcript skill chip to open it in the right panel.</summary>
+    /// <summary>Raised when the user clicks a skill chip to open it in the Workspace.</summary>
     public event Action? SkillShowRequested;
-    /// <summary>Raised to hide the skill preview island.</summary>
+    /// <summary>Raised to close the Workspace's skill page.</summary>
     public event Action? SkillHideRequested;
 
     /// <summary>Raised when the LLM calls ask_question. Args: questionId, question, options (JSON array string), allowFreeText.</summary>
@@ -1449,10 +1455,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         Dispatcher.UIThread.Post(() =>
         {
+            // Mirror first: even a surface disposed meanwhile must not leave the chat flagged as waiting.
+            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+            if (chat is not null)
+                chat.IsAwaitingInput = HasPendingQuestion(chatId);
+
             if (_isDisposed)
                 return;
 
-            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
             if (chat is not null
                 && completion?.Task.IsCompletedSuccessfully != true
                 && ExpireUnansweredQuestions(chat, questionId))
@@ -1468,11 +1478,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void ClearPendingQuestionTracking()
     {
+        List<Guid> waitingChatIds;
         lock (_pendingQuestionsSync)
         {
+            waitingChatIds = _pendingQuestionChatIds.Values.Distinct().ToList();
             _pendingQuestions.Clear();
             _pendingQuestionChatIds.Clear();
         }
+
+        foreach (var chat in _dataStore.Data.Chats.Where(chat => waitingChatIds.Contains(chat.Id)))
+            chat.IsAwaitingInput = false;
     }
 
     /// <summary>Raised when the view should rebuild DataTemplates (e.g. settings changed).</summary>
@@ -1480,9 +1495,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     /// <summary>Raised when a Workspace activity item asks to scroll the transcript to a turn (by StableId).</summary>
     public event Action<string>? WorkspaceJumpToTurnRequested;
-
-    /// <summary>Raised when the Workspace panel open/closed preference changes so the view re-evaluates visibility.</summary>
-    public event Action? WorkspacePanelPreferenceChanged;
 
     public ChatViewModel(
         DataStore dataStore,
@@ -1520,7 +1532,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             subagentRunsChanged: RefreshSubagentRunState,
             resolveFilePath: path => CurrentChat is { } chat
                 ? ResolveWorkspaceFileChangedPath(chat, path)
-                : path);
+                : path,
+            openReplySourceAction: RequestReplySourceJump);
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -1571,6 +1584,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _copilotService.SessionDeletedRemotely += OnSessionDeletedRemotely;
 
         InitializeMvvmUiState();
+        InitializeWorkspace();
     }
 
     internal ChatEventHub ChatEvents => _chatEvents;
@@ -1647,11 +1661,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnIsBusyChanged(bool value)
     {
+        OnPropertyChanged(nameof(CanPauseChat));
+        OnPropertyChanged(nameof(IsComposerBusy));
         OnPropertyChanged(nameof(HasBackgroundActivity));
         OnPropertyChanged(nameof(ShowInfoStrip));
         UpdateUserMessageEditState();
         NotifyContextActionAvailabilityChanged();
-        if (value)
+        if (value && !IsPaused)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
         else
         {
@@ -1666,6 +1682,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnIsSessionActiveChanged(bool value)
     {
+        OnPropertyChanged(nameof(CanPauseChat));
+        if (CurrentChat is { } chat && _runtimeStates.TryGetValue(chat.Id, out var runtime))
+            RefreshChatPauseState(runtime);
         NotifyContextActionAvailabilityChanged();
         if (!value)
         {
@@ -1682,7 +1701,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnStatusTextChanged(string value)
     {
-        if (IsBusy)
+        if (IsBusy && !IsPaused)
             _transcriptBuilder.UpdateTypingIndicatorLabel(value);
     }
 
@@ -1718,12 +1737,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin());
         UpdateUserMessageEditState();
+        UpdateReplySourceHighlight();
         _transcriptWindow.BindTranscript(TranscriptTurns, "rebuild");
         _transcriptWindow.ResetToLatest(TranscriptWindowController.DefaultInitialViewportHeight, "rebuild");
 
         // Rebuild() calls ResetState() which clears the typing indicator.
         // Re-show it if this chat is still busy (e.g. switching to a streaming chat).
-        if (IsBusy)
+        if (IsBusy && !IsPaused)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
 
         // Re-arm the background-shell monitor when switching to a chat that left an async shell
@@ -1744,13 +1764,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// If the displayed chat is idle and ends on a recoverable error, attach a one-click Retry to the
-    /// trailing error card. Retry keeps the same session by default; only a known poisoned image or a
+    /// trailing error card. Retry keeps the same session by default; only known poisoned history or a
     /// confirmed missing session arms a text-replay rebuild. Fatal errors get no false-hope Retry, and
     /// a card that already carries a retry command is left untouched.
     /// </summary>
     /// <param name="classificationOverride">The authoritative structured classification from the live
-    /// error handler. The reopen path uses the persisted disposition and only reclassifies legacy
-    /// messages that predate it.</param>
+    /// error handler. The reopen path preserves stored decisions except known legacy misclassifications.</param>
     private void UpdateStuckChatRetryAffordance(SendFailureClassification? classificationOverride = null)
     {
         if (CurrentChat is null || IsBusy || IsStreaming)
@@ -1765,13 +1784,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
 
         var classification = classificationOverride
-            ?? (lastError.FailureDisposition is { } persistedDisposition
-                ? new SendFailureClassification(persistedDisposition, IsImageError: false)
-                : CopilotService.ClassifySendFailure(
-                    statusCode: null,
-                    errorType: null,
-                    message: lastError.Content,
-                    hasTerminalOverride: false));
+            ?? CopilotService.ClassifyPersistedSendFailure(lastError.FailureDisposition, lastError.Content);
         if (!classification.Recoverable)
             return;
 
@@ -2282,26 +2295,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         };
 
         // Session hooks for lifecycle events
-        var hooks = new GitHub.Copilot.SessionHooks
-        {
-            OnPreToolUse = async (input, invocation) =>
-            {
-                // Auto-allow all tools (permission UI can be added later)
-                return new GitHub.Copilot.PreToolUseHookOutput { PermissionDecision = "allow" };
-            },
-            OnErrorOccurred = async (input, invocation) =>
-            {
-                // Retry transient errors, abort on persistent ones. Besides the SDK's own
-                // Recoverable flag, GitHub's backend occasionally wraps an internal RPC failure
-                // (twirp/usersd "failed to do request") in a 401 on long sessions; the CLI marks it
-                // non-recoverable but a plain resend recovers, so retry those too. Bare/ambiguous
-                // 401/403s are deliberately NOT matched — they may be a genuine logout and must
-                // surface (abort) so the user can re-authenticate.
-                if (input.Recoverable || CopilotService.IsTransientServerAuthError(input.Error))
-                    return new GitHub.Copilot.ErrorOccurredHookOutput { ErrorHandling = "retry", RetryCount = 3 };
-                return new GitHub.Copilot.ErrorOccurredHookOutput { ErrorHandling = "abort" };
-            }
-        };
+        var hooks = BuildSessionHooks();
 
         // When MCP servers are configured, apply a timeout so a broken server
         // doesn't block the UI indefinitely.
@@ -2566,6 +2560,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
                 _suggestionDisplayChatId = chat.Id;
                 chat.HasUnreadMessages = false;
+                RestorePausedSendQueue(chat);
                 SynchronizeDisplayedMessagesFromChat(chat, forceRebuild: true);
                 RestoreSuggestionsForChat(chat);
                 SweepInactiveChatStates();
@@ -2614,6 +2609,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
                 return;
+
+            RestorePausedSendQueue(chat);
 
             // Yield so the UI thread can render the loading overlay before heavy synchronous work
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
@@ -2835,7 +2832,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Opens a loaded skill's markdown in the right-side preview island (same surface as the plan).
+    /// Opens a loaded skill's markdown as the Workspace's skill page.
     /// Invoked when the user clicks a skill chip in the transcript.
     /// </summary>
     public void OpenSkillPreview(SkillReference? skill)
@@ -2913,6 +2910,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         SubagentRunHideRequested?.Invoke();
         CloseFilePreview();
         HasUsedBrowser = false;
+        WorkspaceCategory = WorkspaceCategory.All;
 
         // Detach from the visible chat; inactive chat state is released later when it is safe.
         _activeSession = null;
@@ -2966,8 +2964,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Reset plan/SDK agent state
         HasPlan = false;
         PlanContent = null;
-        IsPlanOpen = false;
-        IsSkillOpen = false;
         SkillPreviewContent = null;
         ResetSubagentRunState();
         SelectedSdkAgentName = null;
@@ -3080,6 +3076,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _activeSession = null;
     }
 
+    private void ScheduleStoredSessionRecovery(Chat chat, IReadOnlyList<ChatMessage> retainedContext)
+    {
+        // A canceled pre-send recovery can leave user bubbles after the saved error.
+        var retainedTail = retainedContext.LastOrDefault(static message => message.Role != "user");
+        if (retainedTail is { Role: "error" }
+            && CopilotService.ClassifyPersistedSendFailure(
+                retainedTail.FailureDisposition, retainedTail.Content).RequiresSessionRebuild)
+        {
+            _pendingSessionInvalidations.Add(chat.Id);
+        }
+    }
+
     private bool ConsumePendingSessionInvalidation(Chat chat)
     {
         if (_pendingSessionInvalidations.Remove(chat.Id))
@@ -3152,7 +3160,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         => HasPendingAssistantWork(chatId) || IsExternalSendReserved(chatId);
 
     private bool HasPendingAssistantWork(Guid chatId)
-        => IsAssistantBusy(chatId)
+        => _dataStore.Data.Chats.Find(chat => chat.Id == chatId)?.IsPaused == true
+           || IsAssistantBusy(chatId)
            || (_runtimeStates.TryGetValue(chatId, out var runtime) && runtime.IsStopping)
            || HasPendingQuestion(chatId)
            || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0);
@@ -3373,6 +3382,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ArgumentNullException.ThrowIfNull(targetChat);
             validateBeforeSend?.Invoke();
 
+        if (targetChat.IsPaused)
+            throw new InvalidOperationException(Loc.Get("Chat_PausedSendBlocked"));
         if (HasPendingAssistantWork(targetChat.Id)
             || IsExternalSendReservedByAnother(targetChat.Id, reservationToken))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
@@ -3563,6 +3574,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             onAccepted?.Invoke();
 
             var needsSessionSetup = NeedsSessionSetup(targetChat);
+            ScheduleStoredSessionRecovery(targetChat, retainedContext);
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
 
@@ -3676,7 +3688,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
             validateBeforeSend?.Invoke();
             PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
-            await sendSession.SendAsync(sendOptions, cts.Token);
+            await SendPauseAwareAsync(targetChat, sendSession, sendOptions, cts.Token);
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && cts is not null && sendOptions is not null)
         {
@@ -3705,7 +3717,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     verifyWithLiveEvents: true);
                 validateBeforeSend?.Invoke();
                 PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
-                await sendSession.SendAsync(sendOptions, cts.Token);
+                await SendPauseAwareAsync(targetChat, sendSession, sendOptions, cts.Token);
             }
             catch (BackgroundJobDeliveryInvalidatedException)
             {
@@ -3844,6 +3856,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ClearSuggestions();
 
         PromptText = userMessage.Content;
+        // A reply being edited shows its quote in the composer, where it can be kept or dismissed.
+        PendingReply = userMessage.ReplyTo?.Clone();
         ReplacePendingAttachments(userMessage.Attachments);
         ReplaceActiveSkillsFromMessage(userMessage, syncToChat: false);
         ApplyMessageAgentSelection(userMessage, syncToChatAndSession: false);
@@ -3880,7 +3894,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             CurrentChat?.LastReasoningEffortUsed,
             CurrentChat?.LastContextWindowTierUsed,
             _pendingSkillInjections.ToList(),
-            _pendingExternalSkillInjections.ToList());
+            _pendingExternalSkillInjections.ToList(),
+            PendingReply);
 
     /// <summary>
     /// True when the composer's CURRENT selection (agent, MCP servers, or active skills) differs from
@@ -3927,6 +3942,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private void RestoreComposerEditSnapshot(ComposerEditSnapshot snapshot)
     {
         PromptText = snapshot.PromptText;
+        PendingReply = snapshot.PendingReply;
         ReplacePendingAttachments(snapshot.PendingAttachments);
         ReplaceActiveSkills(snapshot.ActiveSkillIds, snapshot.ActiveExternalSkillNames, syncToChat: true);
         // Restore the visible/persisted selection without treating the draft agent as live routing.
@@ -4027,6 +4043,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             .OfType<AttachmentFile>()
             .Select(static attachment => attachment.Path)
             .ToList();
+        // The composer's reply (kept, changed, or dismissed while editing) becomes the edited turn's reply.
+        userMessage.ReplyTo = PendingReply;
         ApplyCurrentComposerSelectionsToMessage(userMessage, selectedReasoningEffort);
         ApplyCurrentComposerSelectionsToChat(CurrentChat, selectedReasoningEffort);
 
@@ -4041,6 +4059,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         IsEditingMessage = false;
         EditingMessageStatusText = string.Empty;
         PromptText = string.Empty;
+        PendingReply = null;
         _chatDrafts.Remove(CurrentChat.Id);
 
         await ResendFromMessageAsync(
@@ -4349,6 +4368,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task SendMessage()
     {
+        if (IsPaused && _editingUserMessage is not null)
+        {
+            StatusText = Loc.Get("Chat_Paused");
+            return;
+        }
         if (_editingUserMessage is not null)
         {
             await SendEditedMessage();
@@ -4371,6 +4395,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(prompt))
             return;
 
+        if (IsPaused)
+        {
+            await SendMessageCore(prompt, consumeComposerPrompt: true);
+            return;
+        }
         // No live turn to abort — nothing to stop, so send normally as a fresh turn.
         if (CurrentChat is not { } chat || !IsChatRuntimeActive(chat.Id))
         {
@@ -4410,6 +4439,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             : SelectedModel;
         if (BlockSendForByokOnly(guardChat, selectedModelForSend, prompt, consumeComposerPrompt))
             return;
+
+        if (CurrentChat is { IsPaused: true } pausedChat)
+        {
+            if (queuedMessage is null)
+                QueueBusySendPrompt(pausedChat.Id, prompt);
+            if (consumeComposerPrompt)
+            {
+                PromptText = "";
+                _chatDrafts.Remove(pausedChat.Id);
+            }
+            return;
+        }
 
         if (CurrentChat is { } activeChat
             && IsChatRuntimeActive(activeChat.Id)
@@ -4570,7 +4611,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
                 HasMcpSelection = true,
                 Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
-                ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
+                ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
+                ReplyTo = consumeComposerPrompt ? TakePendingReply(targetChat.Id) : null
             };
             targetChat.Messages.Add(userMsg);
             Messages.Add(new ChatMessageViewModel(userMsg));
@@ -4590,6 +4632,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var retainedContext = targetChat.Messages
             .TakeWhile(message => !ReferenceEquals(message, userMsg))
             .ToList();
+        // What the model receives for this message: the typed text, framed with its quote when it is a reply.
+        var modelPrompt = ComposeModelPrompt(prompt, userMsg);
         var promptAdditions = BuildSendPromptAdditions(targetChat: targetChat);
         // Hoisted so the stale-session recovery path below re-applies the same skill directives:
         // the directive text is session-independent, but the recreated session still needs it.
@@ -4626,6 +4670,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // pointer and can be temporarily null or point elsewhere while the cached session is still
             // valid. Using it here unnecessarily resumed healthy sessions and reconnected their MCPs.
             var needsSessionSetup = NeedsSessionSetup(targetChat);
+            ScheduleStoredSessionRecovery(targetChat, retainedContext);
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
 
@@ -4735,8 +4780,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 sessionLostSkillLoads,
                 cts.Token);
             var basePrompt = needsReplayPrompt
-                ? BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
-                : prompt;
+                ? BuildSessionRecoveryReplayPrompt(retainedContext, modelPrompt)
+                : modelPrompt;
             sendOptions = new MessageOptions { Prompt = skillDirectives + basePrompt + promptAdditions };
             localUserMessageCount = targetChat.Messages.Count(m => m.Role == "user");
             localAssistantMessageCount = CountCompletedAssistantMessages(targetChat);
@@ -4759,7 +4804,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // prompt. Mark it so the steer-confirmation logic skips that first echo instead of mistaking it
             // for a steer being consumed (steers are only injected once the turn is already running).
             runtime.ExpectTurnStartUserEcho = true;
-            await sendSession.SendAsync(sendOptions, cts.Token);
+            await SendPauseAwareAsync(targetChat, sendSession, sendOptions, cts.Token);
             ClearPendingExternalSkillInjections();
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && cts is not null && sendOptions is not null)
@@ -4792,7 +4837,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     targetChat,
                     sessionLostHistory: true,
                     cts.Token);
-                sendOptions.Prompt = skillDirectives + BuildSessionRecoveryReplayPrompt(retainedContext, prompt) + promptAdditions;
+                sendOptions.Prompt = skillDirectives + BuildSessionRecoveryReplayPrompt(retainedContext, modelPrompt) + promptAdditions;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
@@ -4805,7 +4850,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // Recovery replay is also a turn-start send: expect (and skip) its one turn-start echo.
                 // `runtime` is scoped to the try above, so re-fetch the same cached per-chat state here.
                 GetOrCreateRuntimeState(targetChat.Id).ExpectTurnStartUserEcho = true;
-                await sendSession.SendAsync(sendOptions, cts.Token);
+                await SendPauseAwareAsync(targetChat, sendSession, sendOptions, cts.Token);
                 ClearPendingExternalSkillInjections();
             }
             catch (Exception retryEx)
@@ -4994,7 +5039,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 recoveredTurnCts.Token,
                 verifyWithLiveEvents: true);
             SetPendingSessionUserMessageCount(chat.Id, expectedSessionUserMessageCount);
-            await recoveredSession.SendAsync(sendOptions.Clone(), recoveredTurnCts.Token);
+            await SendPauseAwareAsync(chat, recoveredSession, sendOptions.Clone(), recoveredTurnCts.Token);
             return (true, null);
         }
 
@@ -5088,7 +5133,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         => chatId.HasValue && _ctsSources.GetValueOrDefault(chatId.Value)?.IsCancellationRequested == true;
 
     private bool CanStartTurnOnReadySession(Chat chat)
-        => !IsAssistantBusy(chat.Id)
+        => !chat.IsPaused
+           && !IsAssistantBusy(chat.Id)
            && (!_runtimeStates.TryGetValue(chat.Id, out var runtime) || !runtime.IsStopping)
            && !HasPendingQuestion(chat.Id)
            && _sessionCache.TryGetValue(chat.Id, out var session)
@@ -5737,10 +5783,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         bool resolvePendingSteersAsFailed)
     {
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        return runtime.PauseResumeOperation is { IsCompleted: false } pending
+            ? StopAfterPauseTransitionAsync(chat, resolvePendingSteersAsFailed, pending)
+            : StopGenerationWithIntentAsync(chat, resolvePendingSteersAsFailed, preservePause: false);
+    }
+
+    private async Task<string?> StopAfterPauseTransitionAsync(
+        Chat chat, bool resolvePendingSteersAsFailed, Task<string?> pending)
+    {
+        ReleaseChatCancellation(chat.Id, cancel: true);
+        await pending;
+        return await StopGenerationWithIntentAsync(chat, resolvePendingSteersAsFailed, preservePause: false);
+    }
+
+    private Task<string?> StopGenerationWithIntentAsync(
+        Chat chat,
+        bool resolvePendingSteersAsFailed,
+        bool preservePause)
+    {
+        var runtime = GetOrCreateRuntimeState(chat.Id);
         if (runtime.StopOperation is { IsCompleted: false } pending)
             return pending;
 
-        var operation = runtime.StopOperation = StopGenerationCoreAsync(chat, resolvePendingSteersAsFailed);
+        var operation = runtime.StopOperation = StopGenerationCoreAsync(chat, resolvePendingSteersAsFailed, preservePause);
         _ = operation.ContinueWith(
             _ => Dispatcher.UIThread.Post(() =>
             {
@@ -5756,7 +5821,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private async Task<string?> StopGenerationCoreAsync(
         Chat chat,
-        bool resolvePendingSteersAsFailed)
+        bool resolvePendingSteersAsFailed,
+        bool preservePause)
     {
         var chatId = chat.Id;
         if (await TryStopManualContextCompactionAsync(chat))
@@ -5767,10 +5833,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         var wasActiveTurn = IsChatRuntimeActive(chatId) || _ctsSources.ContainsKey(chatId);
         var runtime = GetOrCreateRuntimeState(chatId);
+        // Idle events may clear the live shell map before the cancellation RPC acknowledges.
+        var runningBackgroundShells = new Dictionary<string, DateTimeOffset>(
+            runtime.RunningBackgroundShells, StringComparer.Ordinal);
 
         // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
         // Those handlers read this flag to distinguish a user stop from a broken session.
         SetManualStopRequested(chatId, true);
+        runtime.PauseGate.CancelWaiters();
 
         // ask_question waits on a Lumi-owned TaskCompletionSource rather than the SDK turn token.
         // Cancel it synchronously before the queued-send drain is scheduled; otherwise the stopped
@@ -5790,7 +5860,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             await AbortCachedTurnAsync(chat);
             MarkAssistantIdle(runtime);
             if (_sessionCache.TryGetValue(chatId, out var session))
-                await StopRemainingSessionTasksAsync(session, runtime);
+            {
+                await StopRemainingSessionTasksAsync(session, runtime, confirmStopped: preservePause);
+                if (!preservePause && chat.IsPaused)
+                {
+#pragma warning disable GHCP001
+                    await session.Rpc.Queue.SetDrainPausedAsync(false);
+#pragma warning restore GHCP001
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -5814,9 +5892,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return error;
         }
 
-        var stoppedTools = MarkInProgressToolsStopped(chat);
-        MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
-        if (wasActiveTurn)
+        var stoppedTools = MarkToolsStopped(chat, runningBackgroundShells);
+        var settledStatus = preservePause ? Loc.Get("Chat_Paused") : Loc.Status_Stopped;
+        MarkRuntimeTerminal(runtime, settledStatus);
+        if (!preservePause)
+        {
+            chat.PauseNeedsContinuation = false;
+            SetChatPaused(chat, paused: false);
+        }
+        if (wasActiveTurn && !preservePause)
         {
             PublishTerminalChatLifecycleEventOnce(
                 chat,
@@ -5834,7 +5918,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             IsBusy = false;
             IsStreaming = false;
-            StatusText = Loc.Status_Stopped;
+            StatusText = settledStatus;
             _transcriptBuilder.HideTypingIndicator();
             _transcriptBuilder.CloseCurrentToolGroup();
             _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
@@ -6540,6 +6624,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         bool requiresSessionReconfiguration = false)
     {
         if (CurrentChat is null) return;
+        if (IsPaused)
+        {
+            StatusText = Loc.Get("Chat_Paused");
+            return;
+        }
 
         // ── Non-BYOK block ──
         // Enforce before doing any transcript/session work, independent of session caching.
@@ -6567,6 +6656,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (idx < 0) return;
 
         var prompt = userMessage.Content;
+        // The resent turn keeps its reply: the model gets the same quoted framing as the original send.
+        var modelPrompt = ComposeModelPrompt(prompt, userMessage);
         var attachments = attachmentsOverride ?? BuildUserMessageAttachments(userMessage.Attachments);
         var selectedReasoningEffort = userMessage.ReasoningEffort ?? GetPersistedReasoningEffortPreference();
         var selectedContextWindowTier =
@@ -6631,7 +6722,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     Glyph = skill.Glyph,
                     Description = skill.Description
                 })
-                .ToList()
+                .ToList(),
+            ReplyTo = userMessage.ReplyTo?.Clone()
         };
         CurrentChat.Messages.Add(newUserMsg);
         BeginChatLifecycleTurn(CurrentChat);
@@ -6689,6 +6781,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 return;
 
             var needsSessionSetup = NeedsSessionSetup(resendChat);
+            ScheduleStoredSessionRecovery(resendChat, retainedContext);
             if (ConsumePendingSessionInvalidation(resendChat))
                 needsSessionSetup = true;
 
@@ -6828,7 +6921,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var resendPrompt = BuildResendPrompt(
                 retainedContext,
-                prompt,
+                modelPrompt,
                 wasEdited && !historyRewound,
                 shouldReplayPrompt,
                 promptAdditions);
@@ -6851,7 +6944,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 CurrentChat,
                 expectedSessionUserMessageCount,
                 localAssistantMessageCount);
-            await resendSession.SendAsync(resendOptions, cts.Token);
+            await SendPauseAwareAsync(CurrentChat, resendSession, resendOptions, cts.Token);
             ClearPendingExternalSkillInjections();
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && CurrentChat is not null)
@@ -6875,7 +6968,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 }
                 var resendPrompt2 = BuildResendPrompt(
                     retainedContext,
-                    prompt,
+                    modelPrompt,
                     wasEdited,
                     shouldReplayPrompt: !wasEdited,
                     promptAdditions);
@@ -6899,7 +6992,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     CurrentChat,
                     expectedSessionUserMessageCount,
                     localAssistantMessageCount);
-                await _activeSession!.SendAsync(resendOptions, cts.Token);
+                await SendPauseAwareAsync(CurrentChat, _activeSession!, resendOptions, cts.Token);
                 ClearPendingExternalSkillInjections();
             }
             catch (Exception retryEx)
@@ -7087,7 +7180,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             };
 
             if (msg.Role is "user" or "assistant" or "system")
-                lines.Add($"{role}: {msg.Content.Trim()}");
+            {
+                var replyMarker = msg.Role == "user"
+                    ? MessageReplyFormatter.DescribeForTranscript(msg.ReplyTo)
+                    : "";
+                lines.Add($"{role}: {replyMarker}{msg.Content.Trim()}");
+            }
         }
 
         lines.Add("");

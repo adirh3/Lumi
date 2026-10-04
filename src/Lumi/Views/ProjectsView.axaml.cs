@@ -1,8 +1,10 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Lumi.ViewModels;
+using Lumi.Views.Management;
 using System.Linq;
 
 namespace Lumi.Views;
@@ -12,6 +14,9 @@ public partial class ProjectsView : UserControl
     public ProjectsView()
     {
         InitializeComponent();
+        if (this.FindControl<TextBlock>("ProjectSaveHint") is { } hint)
+            hint.Text = ManagementPage.SaveHint;
+        ManagementPage.ResetScrollOn(this, "ProjectDetailScroll", nameof(ProjectsViewModel.SelectedProject));
     }
 
     private void InitializeComponent()
@@ -19,16 +24,24 @@ public partial class ProjectsView : UserControl
         AvaloniaXamlLoader.Load(this);
     }
 
-    protected override void OnLoaded(RoutedEventArgs e)
+    protected override void OnKeyDown(KeyEventArgs e)
     {
-        base.OnLoaded(e);
-        var browseBtn = this.FindControl<Button>("BrowseFolderButton");
-        if (browseBtn is not null)
-            browseBtn.Click += OnBrowseFolderClick;
+        if (ManagementPage.IsSaveGesture(e)
+            && DataContext is ProjectsViewModel { IsEditing: true } vm
+            && vm.CanSave)
+        {
+            vm.SaveProjectCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
 
-        var browseAdditionalBtn = this.FindControl<Button>("BrowseAdditionalFoldersButton");
-        if (browseAdditionalBtn is not null)
-            browseAdditionalBtn.Click += OnBrowseAdditionalFoldersClick;
+        if (DataContext is ProjectsViewModel page
+            && ManagementPage.TryHandleEscape(e, page.IsEditing, page.IsConfirmingDelete,
+                page.HasUnsavedChanges || page.IsNewProject,
+                () => page.CancelDeleteCommand.Execute(null), () => page.CloseDetailCommand.Execute(null)))
+            return;
+
+        base.OnKeyDown(e);
     }
 
     private async void OnBrowseFolderClick(object? sender, RoutedEventArgs e)

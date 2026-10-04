@@ -1,0 +1,22 @@
+<!-- Page hue for Memories: mauve. Deliberately muted: it only tints identity glyphs (page tile, item
+     tiles, empty states) and a barely-there header wash; everything else on the page stays neutral
+     and uses Lumi's own accent for selection and focus. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#CC9AB3" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0DCC9AB3" />
+        <GradientStop Offset="1" Color="#00CC9AB3" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#98506F" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0A98506F" />
+        <GradientStop Offset="1" Color="#0098506F" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

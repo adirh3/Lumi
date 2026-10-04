@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
@@ -10,6 +11,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using StrataSearch;
@@ -30,6 +32,26 @@ public partial class McpServersViewModel : ObservableObject
     /// <summary>Raised when MCP server config changes (add/edit/delete/toggle) so chat sessions can be invalidated.</summary>
     public event Action? McpConfigChanged;
 
+    /// <summary>
+    /// Raised to open the share sheet for a server; the shell owns the sheet. The flag is true when the
+    /// open editor holds edits that the shared (saved) version does not include.
+    /// </summary>
+    public event Action<McpServer, bool>? ShareRequested;
+
+    /// <summary>Raised for one-click "Copy for chat"; the flag has the same meaning as for <see cref="ShareRequested"/>.</summary>
+    public event Action<McpServer, bool>? CopyForChatRequested;
+
+    /// <summary>Raised when a Lumi in "Used by" is clicked; the shell switches to the Lumis page.</summary>
+    public event Action<Guid>? OpenAgentRequested;
+
+    private string? _editorBaseline;
+    private bool _restoringSelection;
+    private bool _syncingEditor;
+    private int _savedToastVersion;
+
+    /// <summary>Raised to open the import sheet; the shell owns the sheet.</summary>
+    public event Action? ImportRequested;
+
     [ObservableProperty] private McpServer? _selectedServer;
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty] private bool _isBrowsing;
@@ -48,6 +70,15 @@ public partial class McpServersViewModel : ObservableObject
     [ObservableProperty] private bool _editIsEnabled = true;
     [ObservableProperty] private string _searchQuery = "";
 
+    /// <summary>The open server differs from what is stored.</summary>
+    [ObservableProperty] private bool _hasUnsavedChanges;
+
+    [ObservableProperty] private bool _isConfirmingDelete;
+    [ObservableProperty] private bool _showSavedToast;
+
+    /// <summary>0 sorts by name, 1 puts the newest first.</summary>
+    [ObservableProperty] private int _sortIndex;
+
     [RelayCommand]
     private void ClearSearch() => SearchQuery = "";
 
@@ -56,6 +87,12 @@ public partial class McpServersViewModel : ObservableObject
     public ObservableCollection<McpServer> Servers { get; } = [];
     public ObservableCollection<McpCatalogEntry> CatalogEntries { get; } = [];
 
+    /// <summary>The overview gallery: the same filtered list as <see cref="Servers"/>, with usage.</summary>
+    public ObservableCollection<McpServerCard> ServerCards { get; } = [];
+
+    /// <summary>Lumis that pick the open server.</summary>
+    public ObservableCollection<RelatedItem> UsedByAgents { get; } = [];
+
      public McpServersViewModel(DataStore dataStore)
      {
          _dataStore = dataStore;
@@ -63,29 +100,109 @@ public partial class McpServersViewModel : ObservableObject
          ShowFeaturedCatalog();
      }
 
+    public bool ShowOverview => !IsEditing && !IsBrowsing;
+    public bool IsNewServer => IsEditing && SelectedServer is null;
+    public bool ShowSaveBar => IsEditing && (HasUnsavedChanges || IsNewServer) && !IsConfirmingDelete;
+    public bool IsLocal => EditServerTypeIndex == 0;
+    public bool IsRemote => EditServerTypeIndex == 1;
+    public bool CanSave => !string.IsNullOrWhiteSpace(EditName)
+        && (IsLocal ? !string.IsNullOrWhiteSpace(EditCommand) : !string.IsNullOrWhiteSpace(EditUrl));
+    public string SaveButtonText => IsNewServer ? Loc.Mcp_Create : Loc.Mg_SaveChanges;
+    public string SaveBarText => IsNewServer ? Loc.Mg_NotSavedYet : Loc.Mg_Unsaved;
+    public string DiscardButtonText => IsNewServer ? Loc.Common_Cancel : Loc.Mg_Discard;
+    public string DetailTitle => string.IsNullOrWhiteSpace(EditName) ? Loc.Mcp_NewTitle : EditName;
+    public string DeleteConfirmText => string.Format(CultureInfo.CurrentCulture, Loc.Mg_DeleteConfirm, DetailTitle);
+    public bool HasAnyServers => _dataStore.Data.McpServers.Count > 0;
+    public bool HasResults => ServerCards.Count > 0;
+    public bool IsSearching => !string.IsNullOrWhiteSpace(SearchQuery);
+    public bool ShowNoResults => HasAnyServers && !HasResults;
+    public bool ShowEmptyState => !HasAnyServers;
+    public string NoResultsText => string.Format(CultureInfo.CurrentCulture, Loc.Mg_NoResults, SearchQuery.Trim());
+    public string TotalCountText => _dataStore.Data.McpServers.Count.ToString(CultureInfo.CurrentCulture);
+    public string EnabledCountText => _dataStore.Data.McpServers.Count(server => server.IsEnabled).ToString(CultureInfo.CurrentCulture);
+    public bool IsSortedByName => SortIndex == 0;
+    public bool IsSortedByRecent => SortIndex == 1;
+    public bool HasUsedBy => UsedByAgents.Count > 0;
+    public string UsedByLabel => HasUsedBy
+        ? ManagementText.Count(UsedByAgents.Count, Loc.Skills_UsedByOne, Loc.Skills_UsedByMany)
+        : Loc.Skills_NotUsed;
+    public string CreatedLabel => SelectedServer is { } server
+        ? string.Format(CultureInfo.CurrentCulture, Loc.Mg_Created, ManagementText.Date(server.CreatedAt))
+        : "";
+    public string EnabledLabel => EditIsEnabled ? Loc.Mcp_StatusOn : Loc.Mcp_StatusOff;
+
+    /// <summary>What will run or be contacted, exactly as it would be launched.</summary>
+    public string CommandPreview
+    {
+        get
+        {
+            if (IsRemote)
+                return EditUrl.Trim();
+
+            var args = IsNpxCommand && !string.IsNullOrWhiteSpace(EditNpxPackage)
+                ? new[] { "-y", EditNpxPackage.Trim() }.Concat(SplitLines(EditServerArgs))
+                : SplitLines(EditArgs);
+            return string.Join(' ', new[] { EditCommand.Trim() }.Concat(args.Select(QuoteArgument)).Where(part => part.Length > 0));
+        }
+    }
+
+    public bool HasCommandPreview => !string.IsNullOrWhiteSpace(CommandPreview);
+
+    private static IEnumerable<string> SplitLines(string text)
+        => text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string QuoteArgument(string argument)
+        => argument.Contains(' ') && !argument.StartsWith('"') ? $"\"{argument}\"" : argument;
+
+    /// <summary>"npx -y @scope/server" for a local server, the host for a remote one.</summary>
+    internal static string DescribeEndpoint(McpServer server)
+    {
+        if (string.Equals(server.ServerType, "remote", StringComparison.OrdinalIgnoreCase))
+            return Uri.TryCreate(server.Url, UriKind.Absolute, out var uri) ? uri.Host + uri.AbsolutePath.TrimEnd('/') : server.Url;
+
+        var command = System.IO.Path.GetFileNameWithoutExtension(server.Command);
+        var package = server.Args.FirstOrDefault(arg => !arg.StartsWith('-'));
+        return string.IsNullOrWhiteSpace(package) ? command : $"{command} {package}";
+    }
+
      public void RefreshFromStore()
      {
+         // Rebuilding the list clears the sidebar's selection, and through its two-way binding the
+         // open server. Put it back quietly afterwards: the editor stays attached, the page stays in
+         // the editor or the catalog as it was, and edits in progress are kept.
+         var open = SelectedServer;
+         var hasUnsavedEdits = IsEditing && CaptureEditor() != _editorBaseline;
          RefreshList();
          RefreshCatalogInstallState();
 
-         if (SelectedServer is null)
+         if (open is null)
              return;
 
-         var selectedServer = _dataStore.Data.McpServers.FirstOrDefault(server => server.Id == SelectedServer.Id);
-         if (selectedServer is null)
+         var stored = _dataStore.Data.McpServers.FirstOrDefault(server => server.Id == open.Id);
+         if (stored is null)
          {
              SelectedServer = null;
              IsEditing = false;
              return;
          }
 
-         if (!ReferenceEquals(SelectedServer, selectedServer))
-         {
-             SelectedServer = selectedServer;
-             return;
-         }
+         RestoreSelection(stored);
+         if (!hasUnsavedEdits)
+             SyncEditorFromServer(stored);
+         RefreshRelations(stored);
+     }
 
-         SyncEditorFromServer(selectedServer);
+     private void RestoreSelection(McpServer server)
+     {
+         _restoringSelection = true;
+         try
+         {
+             SelectedServer = server;
+         }
+         finally
+         {
+             _restoringSelection = false;
+         }
      }
 
     private void RefreshList()
@@ -106,30 +223,64 @@ public partial class McpServersViewModel : ObservableObject
                     new SearchField(string.Join(' ', server.Tools), 0.85)
                 ],
                 static server => new SearchSortMetadata(Text: server.Name))
-            : _dataStore.Data.McpServers.OrderBy(server => server.Name).ToArray();
+            : SortIndex == 1
+                ? _dataStore.Data.McpServers.OrderByDescending(server => server.CreatedAt).ToArray()
+                : _dataStore.Data.McpServers.OrderBy(server => server.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
 
         foreach (var server in items)
             Servers.Add(server);
+
+        ServerCards.Clear();
+        foreach (var server in Servers)
+        {
+            var usedBy = _dataStore.Data.Agents.Count(agent => agent.McpServerIds.Contains(server.Id));
+            ServerCards.Add(new McpServerCard(server, usedBy, EditServer, ToggleServer));
+        }
+
+        // The sidebar follows the open server one way; re-announcing it re-selects the row after a rebuild.
+        OnPropertyChanged(nameof(SelectedServer));
+        OnPropertyChanged(nameof(HasAnyServers));
+        OnPropertyChanged(nameof(HasResults));
+        OnPropertyChanged(nameof(IsSearching));
+        OnPropertyChanged(nameof(ShowNoResults));
+        OnPropertyChanged(nameof(ShowEmptyState));
+        OnPropertyChanged(nameof(NoResultsText));
+        OnPropertyChanged(nameof(TotalCountText));
+        OnPropertyChanged(nameof(EnabledCountText));
     }
 
     [RelayCommand]
     private void NewServer()
     {
         SelectedServer = null;
-        EditName = "";
-        EditDescription = "";
-        EditServerTypeIndex = 0;
-        EditCommand = "";
-        EditArgs = "";
-        EditNpxPackage = "";
-        EditServerArgs = "";
-        IsNpxCommand = false;
-        EditUrl = "";
-        EditEnvVars = "";
-        EditHeaders = "";
-        EditIsEnabled = true;
+        _syncingEditor = true;
+        try
+        {
+            EditName = "";
+            EditDescription = "";
+            EditServerTypeIndex = 0;
+            EditCommand = "";
+            EditArgs = "";
+            EditNpxPackage = "";
+            EditServerArgs = "";
+            IsNpxCommand = false;
+            EditUrl = "";
+            EditEnvVars = "";
+            EditHeaders = "";
+            EditIsEnabled = true;
+        }
+        finally
+        {
+            _syncingEditor = false;
+        }
+
+        _editorBaseline = CaptureEditor();
+        UsedByAgents.Clear();
+        IsConfirmingDelete = false;
         IsBrowsing = false;
         IsEditing = true;
+        UpdateDirtyState();
+        RefreshRelationFacts();
     }
 
     [RelayCommand]
@@ -138,35 +289,74 @@ public partial class McpServersViewModel : ObservableObject
         SelectedServer = server;
     }
 
+    /// <summary>Opens a server by id, clearing a search that would hide it from the list.</summary>
+    public void OpenById(Guid id)
+    {
+        if (_dataStore.Data.McpServers.FirstOrDefault(server => server.Id == id) is not { } server)
+            return;
+
+        if (!Servers.Contains(server))
+            SearchQuery = "";
+        if (ReferenceEquals(SelectedServer, server))
+        {
+            IsBrowsing = false;
+            IsEditing = true;
+            return;
+        }
+
+        SelectedServer = server;
+    }
+
+    /// <summary>Back to the overview, from a server or from the catalog.</summary>
+    [RelayCommand]
+    private void CloseDetail()
+    {
+        IsConfirmingDelete = false;
+        SelectedServer = null;
+        IsEditing = false;
+        IsBrowsing = false;
+    }
+
      partial void OnSelectedServerChanged(McpServer? value)
      {
-         if (value is null) return;
+         if (value is null || _restoringSelection) return;
          SyncEditorFromServer(value);
+         RefreshRelations(value);
 
+         IsConfirmingDelete = false;
          IsBrowsing = false;
          IsEditing = true;
      }
 
      private void SyncEditorFromServer(McpServer server)
      {
-         EditName = server.Name;
-         EditDescription = server.Description;
-         EditServerTypeIndex = server.ServerType == "remote" ? 1 : 0;
-         EditCommand = server.Command;
-         EditArgs = string.Join("\n", server.Args);
-         EditUrl = server.Url;
-         EditEnvVars = string.Join("\n", server.Env.Select(kv => $"{kv.Key}={kv.Value}"));
-         EditHeaders = string.Join("\n", server.Headers.Select(kv => $"{kv.Key}={kv.Value}"));
-         EditIsEnabled = server.IsEnabled;
-
-         IsNpxCommand = server.Command is "npx" or "npx.cmd";
-         if (IsNpxCommand)
+         _syncingEditor = true;
+         try
          {
-             var packageIndex = server.Args.FindIndex(arg => !arg.StartsWith('-'));
-             if (packageIndex >= 0)
+             EditName = server.Name;
+             EditDescription = server.Description;
+             EditServerTypeIndex = server.ServerType == "remote" ? 1 : 0;
+             EditCommand = server.Command;
+             EditArgs = string.Join("\n", server.Args);
+             EditUrl = server.Url;
+             EditEnvVars = string.Join("\n", server.Env.Select(kv => $"{kv.Key}={kv.Value}"));
+             EditHeaders = string.Join("\n", server.Headers.Select(kv => $"{kv.Key}={kv.Value}"));
+             EditIsEnabled = server.IsEnabled;
+
+             IsNpxCommand = server.Command is "npx" or "npx.cmd";
+             if (IsNpxCommand)
              {
-                 EditNpxPackage = server.Args[packageIndex];
-                 EditServerArgs = string.Join("\n", server.Args.Skip(packageIndex + 1));
+                 var packageIndex = server.Args.FindIndex(arg => !arg.StartsWith('-'));
+                 if (packageIndex >= 0)
+                 {
+                     EditNpxPackage = server.Args[packageIndex];
+                     EditServerArgs = string.Join("\n", server.Args.Skip(packageIndex + 1));
+                 }
+                 else
+                 {
+                     EditNpxPackage = "";
+                     EditServerArgs = "";
+                 }
              }
              else
              {
@@ -174,12 +364,159 @@ public partial class McpServersViewModel : ObservableObject
                  EditServerArgs = "";
              }
          }
-         else
+         finally
          {
-             EditNpxPackage = "";
-             EditServerArgs = "";
+             _syncingEditor = false;
          }
+
+         _editorBaseline = CaptureEditor();
+         UpdateDirtyState();
      }
+
+    private void RefreshRelations(McpServer server)
+    {
+        UsedByAgents.Clear();
+        foreach (var agent in _dataStore.Data.Agents
+                     .Where(agent => agent.McpServerIds.Contains(server.Id))
+                     .OrderBy(agent => agent.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            UsedByAgents.Add(new RelatedItem(agent.Id, agent.Name, string.IsNullOrWhiteSpace(agent.IconGlyph) ? "✦" : agent.IconGlyph));
+        }
+
+        RefreshRelationFacts();
+    }
+
+    private void RefreshRelationFacts()
+    {
+        OnPropertyChanged(nameof(HasUsedBy));
+        OnPropertyChanged(nameof(UsedByLabel));
+        OnPropertyChanged(nameof(CreatedLabel));
+    }
+
+    private void UpdateDirtyState()
+    {
+        if (_syncingEditor)
+            return;
+
+        HasUnsavedChanges = IsEditing && CaptureEditor() != _editorBaseline;
+        OnPropertyChanged(nameof(IsNewServer));
+        OnPropertyChanged(nameof(ShowSaveBar));
+        OnPropertyChanged(nameof(CanSave));
+        OnPropertyChanged(nameof(SaveButtonText));
+        OnPropertyChanged(nameof(SaveBarText));
+        OnPropertyChanged(nameof(DiscardButtonText));
+        OnPropertyChanged(nameof(DetailTitle));
+        OnPropertyChanged(nameof(IsLocal));
+        OnPropertyChanged(nameof(IsRemote));
+        OnPropertyChanged(nameof(CommandPreview));
+        OnPropertyChanged(nameof(HasCommandPreview));
+        OnPropertyChanged(nameof(EnabledLabel));
+    }
+
+    partial void OnEditNameChanged(string value) => UpdateDirtyState();
+    partial void OnEditDescriptionChanged(string value) => UpdateDirtyState();
+    partial void OnEditServerTypeIndexChanged(int value) => UpdateDirtyState();
+    partial void OnEditArgsChanged(string value) => UpdateDirtyState();
+    partial void OnEditNpxPackageChanged(string value) => UpdateDirtyState();
+    partial void OnEditServerArgsChanged(string value) => UpdateDirtyState();
+    partial void OnEditUrlChanged(string value) => UpdateDirtyState();
+    partial void OnEditEnvVarsChanged(string value) => UpdateDirtyState();
+    partial void OnEditHeadersChanged(string value) => UpdateDirtyState();
+    partial void OnEditIsEnabledChanged(bool value) => UpdateDirtyState();
+    partial void OnIsEditingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowOverview));
+        UpdateDirtyState();
+    }
+
+    partial void OnIsBrowsingChanged(bool value) => OnPropertyChanged(nameof(ShowOverview));
+    partial void OnHasUnsavedChangesChanged(bool value) => OnPropertyChanged(nameof(ShowSaveBar));
+    partial void OnIsConfirmingDeleteChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowSaveBar));
+        OnPropertyChanged(nameof(DeleteConfirmText));
+    }
+
+    partial void OnSortIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsSortedByName));
+        OnPropertyChanged(nameof(IsSortedByRecent));
+        RefreshList();
+    }
+
+    [RelayCommand]
+    private void SortByName() => SortIndex = 0;
+
+    [RelayCommand]
+    private void SortByRecent() => SortIndex = 1;
+
+    [RelayCommand]
+    private void UseLocal() => EditServerTypeIndex = 0;
+
+    [RelayCommand]
+    private void UseRemote() => EditServerTypeIndex = 1;
+
+    [RelayCommand]
+    private void OpenAgent(RelatedItem? item)
+    {
+        if (item is not null)
+            OpenAgentRequested?.Invoke(item.Id);
+    }
+
+    [RelayCommand]
+    private void RequestDelete()
+    {
+        if (SelectedServer is not null)
+            IsConfirmingDelete = true;
+    }
+
+    [RelayCommand]
+    private void CancelDelete() => IsConfirmingDelete = false;
+
+    [RelayCommand]
+    private void ConfirmDelete()
+    {
+        IsConfirmingDelete = false;
+        if (SelectedServer is { } server)
+            DeleteServer(server);
+    }
+
+    /// <summary>Throws away edits: an existing server goes back to what is stored, a new one is dropped.</summary>
+    [RelayCommand]
+    private void DiscardChanges()
+    {
+        if (SelectedServer is null)
+        {
+            IsEditing = false;
+            return;
+        }
+
+        SyncEditorFromServer(SelectedServer);
+    }
+
+    private async void FlashSaved()
+    {
+        var version = ++_savedToastVersion;
+        ShowSavedToast = true;
+        await Task.Delay(1800);
+        if (version == _savedToastVersion)
+            ShowSavedToast = false;
+    }
+
+    private string CaptureEditor()
+        => string.Join(
+            '\u001F',
+            EditName,
+            EditDescription,
+            EditServerTypeIndex,
+            EditCommand,
+            EditArgs,
+            EditNpxPackage,
+            EditServerArgs,
+            EditUrl,
+            EditEnvVars,
+            EditHeaders,
+            EditIsEnabled);
 
      private void RefreshCatalogInstallState()
      {
@@ -194,6 +531,7 @@ public partial class McpServersViewModel : ObservableObject
     partial void OnEditCommandChanged(string value)
     {
         IsNpxCommand = value is "npx" or "npx.cmd";
+        UpdateDirtyState();
     }
 
     [RelayCommand]
@@ -218,6 +556,7 @@ public partial class McpServersViewModel : ObservableObject
         }
         var envEntries = EditEnvVars.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var headerEntries = EditHeaders.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var existingIds = _dataStore.Data.McpServers.Select(static server => server.Id).ToHashSet();
         var result = new LumiFeatureManager(_dataStore).ManageMcps(
             action: SelectedServer is null ? "create" : "update",
             identifier: SelectedServer?.Id.ToString(),
@@ -234,8 +573,26 @@ public partial class McpServersViewModel : ObservableObject
             return;
 
         _ = _dataStore.SaveAsync();
-        IsEditing = false;
+
+        // Saving keeps the server open: the page now shows what was stored.
+        var saved = SelectedServer is { } open
+            ? _dataStore.Data.McpServers.FirstOrDefault(server => server.Id == open.Id)
+            : _dataStore.Data.McpServers.FirstOrDefault(server => !existingIds.Contains(server.Id));
         RefreshList();
+        if (saved is null)
+        {
+            IsEditing = false;
+        }
+        else
+        {
+            RestoreSelection(saved);
+            SyncEditorFromServer(saved);
+            RefreshRelations(saved);
+            IsEditing = true;
+            UpdateDirtyState();
+            FlashSaved();
+        }
+
         McpConfigChanged?.Invoke();
     }
 
@@ -283,6 +640,31 @@ public partial class McpServersViewModel : ObservableObject
         McpConfigChanged?.Invoke();
     }
 
+    [RelayCommand]
+    private void ShareServer(McpServer? server)
+    {
+        server ??= SelectedServer;
+        if (server is null)
+            return;
+
+        var hasUnsavedEdits = IsEditing && ReferenceEquals(server, SelectedServer) && CaptureEditor() != _editorBaseline;
+        ShareRequested?.Invoke(server, hasUnsavedEdits);
+    }
+
+    [RelayCommand]
+    private void CopyServerForChat(McpServer? server)
+    {
+        server ??= SelectedServer;
+        if (server is null)
+            return;
+
+        var hasUnsavedEdits = IsEditing && ReferenceEquals(server, SelectedServer) && CaptureEditor() != _editorBaseline;
+        CopyForChatRequested?.Invoke(server, hasUnsavedEdits);
+    }
+
+    [RelayCommand]
+    private void Import() => ImportRequested?.Invoke();
+
     partial void OnSearchQueryChanged(string value) => RefreshList();
 
     partial void OnBrowseSearchQueryChanged(string value)
@@ -310,6 +692,8 @@ public partial class McpServersViewModel : ObservableObject
     [RelayCommand]
     private void BrowseCatalog()
     {
+        IsConfirmingDelete = false;
+        SelectedServer = null;
         IsBrowsing = true;
         IsEditing = false;
         BrowseSearchQuery = "";
@@ -364,7 +748,7 @@ public partial class McpServersViewModel : ObservableObject
             .SelectMany(s => s.Args)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var entry in FeaturedCatalog)
+        foreach (var entry in _featuredCatalog)
         {
             entry.IsInstalled = installedPackages.Contains(entry.NpmPackage);
             CatalogEntries.Add(entry);
@@ -379,7 +763,7 @@ public partial class McpServersViewModel : ObservableObject
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var entry in SearchPipeline.Rank(
-                     FeaturedCatalog.OrderByDescending(static entry => entry.MonthlyDownloads),
+                     _featuredCatalog.OrderByDescending(static entry => entry.MonthlyDownloads),
                      query,
                      static entry =>
                      [
@@ -512,6 +896,10 @@ public partial class McpServersViewModel : ObservableObject
         return "Tool";
     }
 
+    // Each page gets its own entries: their install state is bound in the view, so a shared
+    // instance would be updated by every view model that exists at the same time.
+    private readonly McpCatalogEntry[] _featuredCatalog = FeaturedCatalog.Select(static entry => entry.Copy()).ToArray();
+
     private static readonly McpCatalogEntry[] FeaturedCatalog =
     [
         new("Memory", "Persistent knowledge graph for long-term memory across sessions",
@@ -635,6 +1023,9 @@ public partial class McpCatalogEntry : ObservableObject
         MonthlyDownloads = monthlyDownloads;
         RequiredEnvVars = requiredEnvVars ?? [];
     }
+
+    internal McpCatalogEntry Copy()
+        => new(Name, Description, NpmPackage, Icon, Category, MonthlyDownloads, new Dictionary<string, string>(RequiredEnvVars));
 
     public bool HasRequiredEnvVars => RequiredEnvVars.Count > 0;
     public string EnvVarHint => RequiredEnvVars.Count > 0

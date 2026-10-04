@@ -1,11 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:sa="using:StrataTheme.Animation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:views="using:Lumi.Views"
-             xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
-             xmlns:sys="using:System"
              x:Class="Lumi.Views.ChatWorkspaceView"
              x:DataType="vm:ChatViewModel"
              x:CompileBindings="True"
@@ -37,141 +34,51 @@
       <Setter Property="ClipToBounds" Value="False" />
     </Style>
 
-    <!-- Companion workspace panel: rows + tabs -->
-    <Style Selector="Button.rail-row">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Padding" Value="8" />
+    <!-- Workspace header buttons: quiet icons that light up on hover -->
+    <Style Selector="Button.ws-header-button">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="Template">
-        <ControlTemplate>
-          <ContentPresenter Name="PART_ContentPresenter"
-                            Background="{TemplateBinding Background}"
-                            CornerRadius="{TemplateBinding CornerRadius}"
-                            Padding="{TemplateBinding Padding}"
-                            Content="{TemplateBinding Content}"
-                            ContentTemplate="{TemplateBinding ContentTemplate}"
-                            HorizontalContentAlignment="Stretch"
-                            VerticalContentAlignment="Center">
-            <ContentPresenter.Transitions>
-              <Transitions>
-                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
-              </Transitions>
-            </ContentPresenter.Transitions>
-          </ContentPresenter>
-        </ControlTemplate>
-      </Setter>
     </Style>
-    <Style Selector="Button.rail-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    <Style Selector="Button.ws-header-button PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.rail-row:pressed /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-    </Style>
-    <Style Selector="Button.rail-row:disabled">
-      <Setter Property="Cursor" Value="Arrow" />
-      <Setter Property="Opacity" Value="0.6" />
+    <Style Selector="Button.ws-header-button:pointerover PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
 
-    <!-- Companion workspace panel: tab segments -->
-    <Style Selector="Button.ws-tab">
+    <!-- The gutter between chat and workspace is the resize handle: invisible at rest, a soft
+         accent hairline while hovered or dragged. -->
+    <Style Selector="GridSplitter#WorkspaceSplitter">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-      <Setter Property="Cursor" Value="Hand" />
       <Setter Property="Template">
         <ControlTemplate>
-          <ContentPresenter Name="PART_ContentPresenter"
-                            Background="{TemplateBinding Background}"
-                            CornerRadius="{DynamicResource Radius.Full}"
-                            Padding="11,5"
-                            Content="{TemplateBinding Content}"
-                            Foreground="{TemplateBinding Foreground}"
-                            VerticalContentAlignment="Center">
-            <ContentPresenter.Transitions>
-              <Transitions>
-                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
-              </Transitions>
-            </ContentPresenter.Transitions>
-          </ContentPresenter>
+          <Border Background="Transparent">
+            <Border Name="PART_Grip" Width="2" Height="44" CornerRadius="1"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="{DynamicResource Brush.AccentDefault}" Opacity="0">
+              <Border.Transitions>
+                <Transitions>
+                  <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                </Transitions>
+              </Border.Transitions>
+            </Border>
+          </Border>
         </ControlTemplate>
       </Setter>
     </Style>
-    <Style Selector="Button.ws-tab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-    </Style>
-    <Style Selector="Button.ws-tab.active /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    </Style>
-    <Style Selector="Button.ws-tab.active">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-
-    <!-- Activity kind filter chips -->
-    <Style Selector="Button.ws-chip">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Template">
-        <ControlTemplate>
-          <ContentPresenter Name="PART_ContentPresenter"
-                            Background="{TemplateBinding Background}"
-                            CornerRadius="{DynamicResource Radius.Full}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="1"
-                            Padding="9,4"
-                            Content="{TemplateBinding Content}"
-                            Foreground="{TemplateBinding Foreground}"
-                            VerticalContentAlignment="Center">
-            <ContentPresenter.Transitions>
-              <Transitions>
-                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
-              </Transitions>
-            </ContentPresenter.Transitions>
-          </ContentPresenter>
-        </ControlTemplate>
-      </Setter>
-      <Setter Property="BorderBrush" Value="Transparent" />
-    </Style>
-    <Style Selector="Button.ws-chip /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    </Style>
-    <Style Selector="Button.ws-chip:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-    </Style>
-    <Style Selector="Button.ws-chip.active /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="BorderBrush" Value="Transparent" />
-    </Style>
-    <Style Selector="Button.ws-chip.active">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-
-    <!-- Activity tile: icon/tile colors resolve from theme tokens via DynamicResource, so they
-         track live light/dark switches. Neutral by default; semantic color only where it carries
-         meaning (intent / question / error). -->
-    <Style Selector="Border.ws-act-tile">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
-    </Style>
-    <Style Selector="Border.ws-act-tile PathIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-    <Style Selector="Border.ws-act-tile.intent PathIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Border.ws-act-tile.question PathIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
-    </Style>
-    <Style Selector="Border.ws-act-tile.error PathIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
-    </Style>
-    <Style Selector="Border.ws-act-tile.error">
-      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+    <Style Selector="GridSplitter#WorkspaceSplitter:pointerover /template/ Border#PART_Grip">
+      <Setter Property="Opacity" Value="0.55" />
     </Style>
   </UserControl.Styles>
 
-  <Grid x:Name="WorkspaceGrid" ColumnDefinitions="1*,Auto,0,Auto">
+  <Grid x:Name="WorkspaceGrid" ColumnDefinitions="1*,0,0">
     <Border x:Name="ChatIsland"
             Grid.Column="0"
             Classes="workspace-island"
@@ -198,253 +105,20 @@
       </Grid>
     </Border>
 
-    <GridSplitter x:Name="PreviewSplitter"
+    <GridSplitter x:Name="WorkspaceSplitter"
                   Grid.Column="1"
                   IsVisible="False"
-                  Width="6"
-                  Background="Transparent"
+                  Width="8"
                   ResizeDirection="Columns" />
 
-    <Border x:Name="FilePreviewIsland"
+    <!-- ===== Workspace =====
+         The one panel beside the chat: an at-a-glance overview of everything Lumi did, and every
+         focused page (plan, agents, git changes, diffs, skills, file previews, the browser) with a
+         shared header and back history. Pages, sizing and motion are driven by WorkspacePanelController. -->
+    <Border x:Name="WorkspacePanel"
             Grid.Column="2"
             IsVisible="False"
-            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
-            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
-            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
-            CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.Surface1Glass}"
-            BorderBrush="{DynamicResource Brush.BorderSubtle}"
-            BorderThickness="1"
-            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
-            ClipToBounds="True">
-      <ContentControl x:Name="FilePreviewHost" />
-    </Border>
-
-    <Border x:Name="BrowserIsland"
-            Grid.Column="2"
-            IsVisible="False"
-            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
-            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
-            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
-            CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.Surface1Glass}"
-            BorderBrush="{DynamicResource Brush.BorderSubtle}"
-            BorderThickness="1"
-            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
-            ClipToBounds="True">
-      <DockPanel>
-        <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
-          <Button DockPanel.Dock="Right"
-                  x:Name="CloseBrowserButton"
-                  Classes="subtle"
-                  Padding="6"
-                  MinHeight="0"
-                  MinWidth="0"
-                  ToolTip.Tip="{loc:Str Browser_Close}">
-            <PathIcon Width="14"
-                      Height="14"
-                      Foreground="{DynamicResource Brush.TextPrimary}"
-                      Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </Button>
-          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-            <PathIcon Width="14"
-                      Height="14"
-                      Foreground="{DynamicResource Brush.AccentDefault}"
-                      Data="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 4h2v2h-2V6zm0 4h2v8h-2v-8z" />
-            <TextBlock Text="{loc:Str Browser_Title}" Classes="body-strong" FontWeight="SemiBold" />
-          </StackPanel>
-        </DockPanel>
-        <ContentControl x:Name="BrowserHost" />
-      </DockPanel>
-    </Border>
-
-    <Border x:Name="DiffIsland"
-            Grid.Column="2"
-            IsVisible="False"
-            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
-            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
-            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
-            CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.Surface1Glass}"
-            BorderBrush="{DynamicResource Brush.BorderSubtle}"
-            BorderThickness="1"
-            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
-            ClipToBounds="True">
-      <DockPanel>
-        <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
-          <Button DockPanel.Dock="Right"
-                  x:Name="CloseDiffButton"
-                  Classes="subtle"
-                  Padding="6"
-                  MinHeight="0"
-                  MinWidth="0"
-                  ToolTip.Tip="{loc:Str Diff_Close}">
-            <PathIcon Width="14"
-                      Height="14"
-                      Foreground="{DynamicResource Brush.TextPrimary}"
-                      Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </Button>
-          <Button DockPanel.Dock="Left"
-                  x:Name="DiffBackButton"
-                  Classes="subtle"
-                  IsVisible="False"
-                  Padding="5"
-                  MinHeight="0"
-                  MinWidth="0"
-                  Margin="0,0,6,0"
-                  VerticalAlignment="Center"
-                  Cursor="Hand"
-                  ToolTip.Tip="{loc:Str Git_BackToChanges}">
-            <PathIcon Width="13"
-                      Height="13"
-                      Foreground="{DynamicResource Brush.TextSecondary}"
-                      Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-          </Button>
-          <!-- Grid, not StackPanel: a horizontal StackPanel measures children unbounded, so the
-               breadcrumb would never trim and would slide under the close button. -->
-          <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
-            <PathIcon Grid.Column="0"
-                      Width="14"
-                      Height="14"
-                      Margin="0,0,8,0"
-                      Foreground="{DynamicResource Brush.AccentDefault}"
-                      Data="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z" />
-            <TextBlock Grid.Column="1"
-                       x:Name="DiffFileNameText"
-                       Text="{loc:Str Diff_Title}"
-                       Classes="body-strong"
-                       FontWeight="SemiBold"
-                       VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" />
-          </Grid>
-        </DockPanel>
-        <ContentControl x:Name="DiffHost" />
-      </DockPanel>
-    </Border>
-
-    <Border x:Name="PlanIsland"
-            Grid.Column="2"
-            IsVisible="False"
-            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
-            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
-            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
-            CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.Surface1Glass}"
-            BorderBrush="{DynamicResource Brush.BorderSubtle}"
-            BorderThickness="1"
-            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
-            ClipToBounds="True">
-      <DockPanel>
-        <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
-          <Button DockPanel.Dock="Right"
-                  x:Name="ClosePlanButton"
-                  Classes="subtle"
-                  Padding="6"
-                  MinHeight="0"
-                  MinWidth="0"
-                  ToolTip.Tip="{loc:Str Plan_Close}">
-            <PathIcon Width="14"
-                      Height="14"
-                      Foreground="{DynamicResource Brush.TextPrimary}"
-                      Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </Button>
-          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-            <PathIcon Width="14"
-                      Height="14"
-                      Foreground="{DynamicResource Brush.AccentDefault}"
-                      Data="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM17.99 9l-1.41-1.42-6.59 6.59-2.58-2.57-1.42 1.41 4 3.99z" />
-            <TextBlock Text="{loc:Str Plan_Title}" Classes="body-strong" FontWeight="SemiBold" />
-          </StackPanel>
-        </DockPanel>
-        <ScrollViewer Margin="12,8,12,12"
-                      HorizontalScrollBarVisibility="Disabled"
-                      VerticalScrollBarVisibility="Auto">
-          <sc:StrataMarkdown x:Name="PlanMarkdown"
-                             IsInline="True"
-                             Markdown="{Binding PlanContent}" />
-        </ScrollViewer>
-      </DockPanel>
-    </Border>
-
-    <Border x:Name="SkillIsland"
-            Grid.Column="2"
-            IsVisible="False"
-            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
-            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
-            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
-            CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.Surface1Glass}"
-            BorderBrush="{DynamicResource Brush.BorderSubtle}"
-            BorderThickness="1"
-            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
-            ClipToBounds="True">
-      <DockPanel>
-        <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
-          <Button DockPanel.Dock="Right"
-                  x:Name="CloseSkillButton"
-                  Classes="subtle"
-                  Padding="6"
-                  MinHeight="0"
-                  MinWidth="0"
-                  ToolTip.Tip="{loc:Str Skill_Close}">
-            <PathIcon Width="14"
-                      Height="14"
-                      Foreground="{DynamicResource Brush.TextPrimary}"
-                      Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </Button>
-          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-            <Border Width="22"
-                    Height="22"
-                    CornerRadius="7"
-                    Background="{DynamicResource Brush.AccentSubtle}"
-                    VerticalAlignment="Center">
-              <PathIcon Width="12"
-                        Height="12"
-                        Foreground="{DynamicResource Brush.AccentDefault}"
-                        Data="M7 2v11h3v9l7-12h-4l4-8z" />
-            </Border>
-            <TextBlock Text="{Binding SkillPreviewTitle}"
-                       Classes="body-strong"
-                       FontWeight="SemiBold"
-                       VerticalAlignment="Center" />
-          </StackPanel>
-        </DockPanel>
-        <ScrollViewer Margin="12,8,12,12"
-                      HorizontalScrollBarVisibility="Disabled"
-                      VerticalScrollBarVisibility="Auto">
-          <sc:StrataMarkdown x:Name="SkillMarkdown"
-                             IsInline="True"
-                             Markdown="{Binding SkillPreviewContent}" />
-        </ScrollViewer>
-      </DockPanel>
-    </Border>
-
-    <!-- Read-only sub-agent run island: the agent index, or one agent's full run as a chat. -->
-    <Border x:Name="SubagentIsland"
-            Grid.Column="2"
-            IsVisible="False"
-            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
-            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
-            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
-            CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.Surface1Glass}"
-            BorderBrush="{DynamicResource Brush.BorderSubtle}"
-            BorderThickness="1"
-            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
-            ClipToBounds="True">
-      <views:SubagentRunView x:Name="SubagentRunHost" DataContext="{Binding}" />
-    </Border>
-
-    <!-- ===== Companion Workspace panel =====
-         A first-class, tabbed, searchable index of chat landmarks and what Lumi produced/referenced:
-         Messages, Deliverables, Links, Sources, Activity (intents + searches, jump-to-transcript) and Changes.
-         Lives in appended column 3 so the preview-panel controller (cols 0-2) is unaffected.
-         Surface blends with the chat island (translucent); visibility is owned by the code-behind. -->
-    <Border x:Name="WorkspaceRail"
-            Grid.Column="3"
-            IsVisible="False"
-            Width="340"
-            Margin="12,0,0,0"
+            Margin="{Binding WorkspacePanelMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
             CornerRadius="{DynamicResource Radius.Overlay}"
             Background="{DynamicResource Brush.Surface1Glass}"
             BorderThickness="1"
@@ -453,486 +127,78 @@
       <Border.BorderBrush>
         <SolidColorBrush Color="{DynamicResource Color.TextPrimary}" Opacity="0.08" />
       </Border.BorderBrush>
-      <Grid>
-        <DockPanel ZIndex="1">
-        <!-- Header -->
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="15,12,9,11">
-          <PathIcon Grid.Column="0" Width="15" Height="15" VerticalAlignment="Center"
-                    Foreground="{DynamicResource Brush.AccentDefault}"
-                    Data="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />
-          <TextBlock Grid.Column="1" Margin="9,0,0,0" Text="Workspace"
-                     Classes="body-strong" FontWeight="SemiBold" VerticalAlignment="Center" />
-          <Button Grid.Column="2" Classes="subtle" Padding="6" MinHeight="0" MinWidth="0"
-                  VerticalAlignment="Center"
-                  Command="{Binding ToggleWorkspacePanelCommand}"
-                  ToolTip.Tip="Hide workspace">
-            <PathIcon Width="13" Height="13" Foreground="{DynamicResource Brush.TextSecondary}"
-                      Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </Button>
-        </Grid>
-
-        <Grid>
-          <!-- Empty state (panel opened with nothing produced yet) -->
-          <StackPanel IsVisible="{Binding !HasWorkspaceContent}"
-                      VerticalAlignment="Center" HorizontalAlignment="Center"
-                      Spacing="11" Margin="28,0">
-            <Border Width="46" Height="46" HorizontalAlignment="Center"
-                    CornerRadius="{DynamicResource Radius.Interactive}"
-                    Background="{DynamicResource Brush.Surface2}">
-              <PathIcon Width="22" Height="22" Foreground="{DynamicResource Brush.TextTertiary}"
-                        Data="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />
+      <DockPanel>
+        <!-- Header: back · page · actions · close. Bound to this view's own WorkspaceHeader (set from
+             code), so two windows showing the same chat keep their own page headers. -->
+        <StackPanel x:Name="WorkspaceHeaderBar" DockPanel.Dock="Top"
+                    x:DataType="vm:WorkspaceHeader" DataContext="{x:Null}">
+          <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+                MinHeight="36" Margin="10,10,8,9">
+            <Button x:Name="WorkspaceBackButton" Grid.Column="0"
+                    Classes="subtle ws-header-button" Margin="0,0,4,0"
+                    IsVisible="{Binding !IsOverview}"
+                    Click="OnWorkspaceBackClick"
+                    ToolTip.Tip="{loc:Str Workspace_Back}"
+                    AutomationProperties.Name="{loc:Str Workspace_Back}">
+              <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.Back}" />
+            </Button>
+            <Border Grid.Column="1" Width="26" Height="26" CornerRadius="8" VerticalAlignment="Center"
+                    Background="{DynamicResource Brush.AccentSubtle}">
+              <PathIcon Width="16" Height="16" Foreground="{DynamicResource Brush.AccentDefault}"
+                        Data="{Binding Icon}" />
             </Border>
-            <TextBlock Text="Nothing here yet" Classes="body-strong" HorizontalAlignment="Center" />
-            <TextBlock Text="Messages, files, links, sources, activity and changes from this chat will collect here as Lumi works."
-                       Classes="caption" Foreground="{DynamicResource Brush.TextTertiary}"
-                       TextAlignment="Center" TextWrapping="Wrap" MaxWidth="230" />
-          </StackPanel>
-
-          <!-- Populated state: search + tabs + the active tab's list -->
-          <DockPanel IsVisible="{Binding HasWorkspaceContent}">
-            <StackPanel DockPanel.Dock="Top" Margin="12,2,12,9" Spacing="9">
-              <!-- Search -->
-              <Border CornerRadius="{DynamicResource Radius.Base}"
-                      Background="{DynamicResource Brush.Surface0}"
-                      BorderThickness="1" Padding="9,0" Height="34">
-                <Border.BorderBrush>
-                  <SolidColorBrush Color="{DynamicResource Color.TextPrimary}" Opacity="0.06" />
-                </Border.BorderBrush>
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                  <PathIcon Grid.Column="0" Width="14" Height="14" VerticalAlignment="Center"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            Data="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z" />
-                  <TextBox Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center"
-                           x:Name="WsSearchBox"
-                           Background="Transparent" BorderThickness="0" Padding="0" MinHeight="0"
-                           FontSize="12.5"
-                           PlaceholderText="Search workspace…"
-                           Text="{Binding WorkspaceSearchText}" />
-                  <Button Grid.Column="2" Classes="subtle" Padding="4" MinHeight="0" MinWidth="0"
-                          x:Name="WsClearSearch"
-                          VerticalAlignment="Center"
-                          IsVisible="{Binding HasWorkspaceSearch}"
-                          Command="{Binding ClearWorkspaceSearchCommand}">
-                    <PathIcon Width="11" Height="11" Foreground="{DynamicResource Brush.TextTertiary}"
-                              Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-                  </Button>
-                </Grid>
-              </Border>
-
-              <!-- Tabs -->
-              <WrapPanel Orientation="Horizontal">
-                <Button Classes="ws-tab" Classes.active="{Binding IsDeliverablesTabSelected}"
-                        x:Name="WsTabFiles"
-                        Margin="0,0,4,0" IsVisible="{Binding HasWorkspaceDeliverables}"
-                        Command="{Binding SelectWorkspaceTabCommand}">
-                  <Button.CommandParameter><sys:Int32>0</sys:Int32></Button.CommandParameter>
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="Files" FontSize="12" FontWeight="Medium" />
-                    <TextBlock Text="{Binding WorkspaceDeliverablesCountLabel}" FontSize="12" Opacity="0.6" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="ws-tab" Classes.active="{Binding IsSourcesTabSelected}"
-                        x:Name="WsTabSources"
-                        Margin="0,0,4,0" IsVisible="{Binding HasWorkspaceSources}"
-                        Command="{Binding SelectWorkspaceTabCommand}">
-                  <Button.CommandParameter><sys:Int32>1</sys:Int32></Button.CommandParameter>
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="Sources" FontSize="12" FontWeight="Medium" />
-                    <TextBlock Text="{Binding WorkspaceSourcesCountLabel}" FontSize="12" Opacity="0.6" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="ws-tab" Classes.active="{Binding IsLinksTabSelected}"
-                        x:Name="WsTabLinks"
-                        Margin="0,0,4,0" IsVisible="{Binding HasWorkspaceLinks}"
-                        Command="{Binding SelectWorkspaceTabCommand}">
-                  <Button.CommandParameter><sys:Int32>5</sys:Int32></Button.CommandParameter>
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="Links" FontSize="12" FontWeight="Medium" />
-                    <TextBlock Text="{Binding WorkspaceLinksCountLabel}" FontSize="12" Opacity="0.6" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="ws-tab" Classes.active="{Binding IsMessagesTabSelected}"
-                        x:Name="WsTabMessages"
-                        Margin="0,0,4,0" IsVisible="{Binding HasWorkspaceUserMessages}"
-                        Command="{Binding SelectWorkspaceTabCommand}">
-                  <Button.CommandParameter><sys:Int32>4</sys:Int32></Button.CommandParameter>
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="Messages" FontSize="12" FontWeight="Medium" />
-                    <TextBlock Text="{Binding WorkspaceUserMessagesCountLabel}" FontSize="12" Opacity="0.6" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="ws-tab" Classes.active="{Binding IsActivityTabSelected}"
-                        x:Name="WsTabActivity"
-                        Margin="0,0,4,0" IsVisible="{Binding HasWorkspaceActivities}"
-                        Command="{Binding SelectWorkspaceTabCommand}">
-                  <Button.CommandParameter><sys:Int32>2</sys:Int32></Button.CommandParameter>
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="Activity" FontSize="12" FontWeight="Medium" />
-                    <TextBlock Text="{Binding WorkspaceActivitiesCountLabel}" FontSize="12" Opacity="0.6" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="ws-tab" Classes.active="{Binding IsChangesTabSelected}"
-                        x:Name="WsTabChanges"
-                        IsVisible="{Binding HasWorkspaceChanges}"
-                        Command="{Binding SelectWorkspaceTabCommand}">
-                  <Button.CommandParameter><sys:Int32>3</sys:Int32></Button.CommandParameter>
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="Changes" FontSize="12" FontWeight="Medium" />
-                    <TextBlock Text="{Binding WorkspaceChangesCountLabel}" FontSize="12" Opacity="0.6" />
-                  </StackPanel>
-                </Button>
-              </WrapPanel>
+            <StackPanel Grid.Column="2" Margin="10,0,8,0" VerticalAlignment="Center">
+              <TextBlock x:Name="WorkspaceTitleText"
+                         Text="{Binding Title}"
+                         ToolTip.Tip="{Binding Title}"
+                         FontSize="13" FontWeight="SemiBold"
+                         TextTrimming="CharacterEllipsis"
+                         Foreground="{DynamicResource Brush.TextPrimary}" />
+              <TextBlock x:Name="WorkspaceSubtitleText"
+                         Text="{Binding Subtitle}"
+                         IsVisible="{Binding HasSubtitle}"
+                         FontSize="11"
+                         TextTrimming="CharacterEllipsis"
+                         Foreground="{DynamicResource Brush.TextTertiary}" />
             </StackPanel>
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2"
+                        IsVisible="{Binding IsFilePreview}">
+              <Button x:Name="WorkspaceRefreshPreviewButton" Classes="subtle ws-header-button"
+                      Click="OnRefreshFilePreviewClick"
+                      ToolTip.Tip="{loc:Str Preview_Refresh}"
+                      AutomationProperties.Name="{loc:Str Preview_Refresh}">
+                <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.Refresh}" />
+              </Button>
+              <Button x:Name="WorkspaceOpenPreviewButton" Classes="subtle ws-header-button"
+                      Click="OnOpenFilePreviewClick"
+                      ToolTip.Tip="{loc:Str FileMenu_Open}"
+                      AutomationProperties.Name="{loc:Str FileMenu_Open}">
+                <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.OpenExternal}" />
+              </Button>
+            </StackPanel>
+            <Button x:Name="WorkspaceCloseButton" Grid.Column="4"
+                    Classes="subtle ws-header-button" Margin="2,0,0,0"
+                    Click="OnWorkspaceCloseClick"
+                    ToolTip.Tip="{loc:Str Workspace_Close}"
+                    AutomationProperties.Name="{loc:Str Workspace_Close}">
+              <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.Dismiss}" />
+            </Button>
+          </Grid>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-              <StackPanel Margin="10,2,10,14">
+          <!-- Pages get a hairline under the header; the overview flows straight into its search. -->
+          <Border Height="1" Opacity="0.7"
+                  Background="{DynamicResource Brush.BorderSubtle}"
+                  IsVisible="{Binding !IsOverview}" />
+        </StackPanel>
 
-                <!-- Deliverables -->
-                <ItemsControl IsVisible="{Binding IsDeliverablesTabSelected}"
-                              ItemsSource="{Binding WorkspaceDeliverables}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Spacing="3" /></ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="vm:FileAttachmentItem">
-                      <Grid ColumnDefinitions="*,Auto,Auto">
-                      <Button Classes="rail-row" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding FilePath}"
-                              views:FileDrag.FilePath="{Binding FilePath}">
-                        <Button.ContextMenu>
-                          <ContextMenu x:CompileBindings="False">
-                            <MenuItem Header="{loc:Str FileMenu_Open}" Command="{Binding OpenCommand}">
-                              <MenuItem.Icon>
-                                <PathIcon Width="14" Height="14" Data="M14 3h7v7h-2V6.41l-8.29 8.3-1.42-1.42L17.59 5H14V3zM5 5h5v2H5v12h12v-5h2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                            <MenuItem Header="{loc:Str FileMenu_ShowInFolder}" Command="{Binding ShowInFolderCommand}">
-                              <MenuItem.Icon>
-                                <PathIcon Width="14" Height="14" Data="M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                            <Separator />
-                            <MenuItem Header="{loc:Str FileMenu_Copy}" Command="{Binding CopyCommand}">
-                              <MenuItem.Icon>
-                                <PathIcon Width="14" Height="14" Data="M16 1H4a2 2 0 0 0-2 2v12a1 1 0 0 0 2 0V3h12a1 1 0 0 0 0-2zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                            <MenuItem Header="{loc:Str FileMenu_CopyPath}" Command="{Binding CopyPathCommand}">
-                              <MenuItem.Icon>
-                                <PathIcon Width="14" Height="14" Data="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm5-6h4a5 5 0 0 1 0 10h-4v-1.9h4a3.1 3.1 0 0 0 0-6.2h-4V7z" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                            <MenuItem Header="{loc:Str FileMenu_CopyName}" Command="{Binding CopyNameCommand}">
-                              <MenuItem.Icon>
-                                <PathIcon Width="14" Height="14" Data="M21.41 11.58l-9-9A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 .59 1.42l9 9a2 2 0 0 0 2.82 0l7-7a2 2 0 0 0 0-2.84zM6.5 8A1.5 1.5 0 1 1 8 6.5 1.5 1.5 0 0 1 6.5 8z" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                          </ContextMenu>
-                        </Button.ContextMenu>
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                          <Border Width="34" Height="34" VerticalAlignment="Center"
-                                  CornerRadius="{DynamicResource Radius.Interactive}"
-                                  Background="{DynamicResource Brush.Surface0}" ClipToBounds="True">
-                            <Image Width="20" Height="20" Source="{Binding IconImage}" Stretch="Uniform" />
-                          </Border>
-                          <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="{Binding FileName}" Classes="body-strong" FontSize="13"
-                                       TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding FileSize}" Classes="caption"
-                                       Foreground="{DynamicResource Brush.TextTertiary}" />
-                          </StackPanel>
-                          <PathIcon Grid.Column="2" Width="14" Height="14" VerticalAlignment="Center"
-                                    Foreground="{DynamicResource Brush.TextTertiary}"
-                                    Data="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z" />
-                        </Grid>
-                      </Button>
-                      <Border Grid.Column="1" Width="1" Height="20" Margin="4,0,3,0"
-                              VerticalAlignment="Center" Background="{DynamicResource Brush.BorderDefault}"
-                              Opacity="0.6" IsHitTestVisible="False" />
-                      <Button Grid.Column="2" Classes="file-preview-action" Padding="6" Margin="0,0,4,0"
-                              Width="30" Height="28"
-                              VerticalAlignment="Center" MinWidth="0" MinHeight="0"
-                              Click="OnDeliverablePreviewClick"
-                              ToolTip.Tip="{loc:Str Preview_Open}" AutomationProperties.Name="{loc:Str Preview_Open}">
-                        <Viewbox Width="16" Height="16">
-                          <Canvas Width="16" Height="16" IsHitTestVisible="False">
-                            <Path Data="{DynamicResource Icon.FilePreview}"
-                                 StrokeThickness="1.4" StrokeLineCap="Round"
-                                 Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                          </Canvas>
-                        </Viewbox>
-                      </Button>
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <!-- Sources -->
-                <ItemsControl IsVisible="{Binding IsSourcesTabSelected}"
-                              ItemsSource="{Binding WorkspaceSources}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="vm:SourceItem">
-                      <Button Classes="rail-row" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding Url}">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                          <Border Width="26" Height="26" VerticalAlignment="Center"
-                                  CornerRadius="{DynamicResource Radius.Full}" Background="{Binding AccentBrush}">
-                            <TextBlock Text="{Binding InitialLetter}" FontSize="12" FontWeight="Bold" Foreground="White"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                          </Border>
-                          <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="{Binding Title}" FontSize="12.5"
-                                       Foreground="{DynamicResource Brush.TextPrimary}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding Domain}" FontSize="11"
-                                       Foreground="{DynamicResource Brush.TextTertiary}" />
-                          </StackPanel>
-                          <PathIcon Grid.Column="2" Width="13" Height="13" VerticalAlignment="Center"
-                                    Foreground="{DynamicResource Brush.TextTertiary}"
-                                    Data="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z" />
-                        </Grid>
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <!-- Links attached in assistant output -->
-                <ItemsControl x:Name="WsLinksList"
-                              IsVisible="{Binding IsLinksTabSelected}"
-                              ItemsSource="{Binding WorkspaceLinks}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="vm:SourceItem">
-                      <Button Classes="rail-row" x:Name="WsLinkRow"
-                              Command="{Binding OpenCommand}" ToolTip.Tip="{Binding Url}">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                          <Border Width="28" Height="28" VerticalAlignment="Center"
-                                  CornerRadius="{DynamicResource Radius.Interactive}"
-                                  Background="{DynamicResource Brush.Surface0}"
-                                  BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1">
-                            <PathIcon Width="14" Height="14"
-                                      Foreground="{DynamicResource Brush.AccentDefault}"
-                                      Data="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm5-6h4a5 5 0 0 1 0 10h-4v-1.9h4a3.1 3.1 0 0 0 0-6.2h-4V7z" />
-                          </Border>
-                          <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="{Binding Title}" FontSize="12.5"
-                                       Foreground="{DynamicResource Brush.TextPrimary}"
-                                       TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding Domain}" FontSize="11"
-                                       Foreground="{DynamicResource Brush.TextTertiary}" />
-                          </StackPanel>
-                          <PathIcon Grid.Column="2" Width="13" Height="13" VerticalAlignment="Center"
-                                    Foreground="{DynamicResource Brush.TextTertiary}"
-                                    Data="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z" />
-                        </Grid>
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <!-- User messages (jump between prompts in long chats) -->
-                <ItemsControl IsVisible="{Binding IsMessagesTabSelected}"
-                              ItemsSource="{Binding WorkspaceUserMessages}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="vm:WorkspaceUserMessageItem">
-                      <Button Classes="rail-row" x:Name="WsMessageRow" Command="{Binding JumpCommand}" IsEnabled="{Binding CanJump}"
-                              ToolTip.Tip="Jump to this user message">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                          <Border Width="32" Height="32" VerticalAlignment="Center"
-                                  CornerRadius="{DynamicResource Radius.Interactive}"
-                                  Background="{DynamicResource Brush.AccentSubtle}"
-                                  BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1">
-                            <TextBlock Text="{Binding NumberLabel}" FontSize="11" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Brush.AccentDefault}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                          </Border>
-                          <StackPanel Grid.Column="1" Margin="11,0,8,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="{Binding MetaText}" FontSize="10.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Brush.TextTertiary}" />
-                            <TextBlock Text="{Binding Preview}" FontSize="12.5"
-                                       Foreground="{DynamicResource Brush.TextPrimary}"
-                                       TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
-                          </StackPanel>
-                          <PathIcon Grid.Column="2" Width="13" Height="13" VerticalAlignment="Center"
-                                    IsVisible="{Binding CanJump}"
-                                    Foreground="{DynamicResource Brush.TextTertiary}"
-                                    Data="M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5z" />
-                        </Grid>
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <!-- Activity (intents, searches, subagents, questions, errors — jump to transcript) -->
-                <StackPanel IsVisible="{Binding IsActivityTabSelected}" Spacing="8">
-                  <!-- Kind filter chips -->
-                  <WrapPanel IsVisible="{Binding ShowActivityFilters}" Orientation="Horizontal" Margin="2,0,0,0">
-                    <Button Classes="ws-chip" Classes.active="{Binding IsActivityFilterAll}"
-                            x:Name="WsFilterAll"
-                            Margin="0,0,5,5" Command="{Binding SelectActivityFilterCommand}">
-                      <Button.CommandParameter><sys:Int32>-1</sys:Int32></Button.CommandParameter>
-                      <TextBlock Text="All" FontSize="11.5" />
-                    </Button>
-                    <Button Classes="ws-chip" Classes.active="{Binding IsActivityFilterIntent}"
-                            x:Name="WsFilterIntents"
-                            IsVisible="{Binding HasIntentActivities}"
-                            Margin="0,0,5,5" Command="{Binding SelectActivityFilterCommand}">
-                      <Button.CommandParameter><sys:Int32>0</sys:Int32></Button.CommandParameter>
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Border Width="7" Height="7" VerticalAlignment="Center"
-                                CornerRadius="{DynamicResource Radius.Full}" Background="{DynamicResource Brush.AccentDefault}" />
-                        <TextBlock Text="Intents" FontSize="11.5" />
-                      </StackPanel>
-                    </Button>
-                    <Button Classes="ws-chip" Classes.active="{Binding IsActivityFilterSearch}"
-                            x:Name="WsFilterSearches"
-                            IsVisible="{Binding HasSearchActivities}"
-                            Margin="0,0,5,5" Command="{Binding SelectActivityFilterCommand}">
-                      <Button.CommandParameter><sys:Int32>1</sys:Int32></Button.CommandParameter>
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Border Width="7" Height="7" VerticalAlignment="Center"
-                                CornerRadius="{DynamicResource Radius.Full}" Background="{DynamicResource Brush.TextTertiary}" />
-                        <TextBlock Text="Searches" FontSize="11.5" />
-                      </StackPanel>
-                    </Button>
-                    <Button Classes="ws-chip" Classes.active="{Binding IsActivityFilterSubagent}"
-                            x:Name="WsFilterSubagents"
-                            IsVisible="{Binding HasSubagentActivities}"
-                            Margin="0,0,5,5" Command="{Binding SelectActivityFilterCommand}">
-                      <Button.CommandParameter><sys:Int32>2</sys:Int32></Button.CommandParameter>
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Border Width="7" Height="7" VerticalAlignment="Center"
-                                CornerRadius="{DynamicResource Radius.Full}" Background="{DynamicResource Brush.TextTertiary}" />
-                        <TextBlock Text="Subagents" FontSize="11.5" />
-                      </StackPanel>
-                    </Button>
-                    <Button Classes="ws-chip" Classes.active="{Binding IsActivityFilterQuestion}"
-                            x:Name="WsFilterQuestions"
-                            IsVisible="{Binding HasQuestionActivities}"
-                            Margin="0,0,5,5" Command="{Binding SelectActivityFilterCommand}">
-                      <Button.CommandParameter><sys:Int32>3</sys:Int32></Button.CommandParameter>
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Border Width="7" Height="7" VerticalAlignment="Center"
-                                CornerRadius="{DynamicResource Radius.Full}" Background="{DynamicResource Brush.WarningDefault}" />
-                        <TextBlock Text="Questions" FontSize="11.5" />
-                      </StackPanel>
-                    </Button>
-                    <Button Classes="ws-chip" Classes.active="{Binding IsActivityFilterError}"
-                            x:Name="WsFilterErrors"
-                            IsVisible="{Binding HasErrorActivities}"
-                            Margin="0,0,5,5" Command="{Binding SelectActivityFilterCommand}">
-                      <Button.CommandParameter><sys:Int32>4</sys:Int32></Button.CommandParameter>
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <Border Width="7" Height="7" VerticalAlignment="Center"
-                                CornerRadius="{DynamicResource Radius.Full}" Background="{DynamicResource Brush.DangerDefault}" />
-                        <TextBlock Text="Errors" FontSize="11.5" />
-                      </StackPanel>
-                    </Button>
-                  </WrapPanel>
-
-                  <ItemsControl ItemsSource="{Binding WorkspaceActivities}">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate DataType="vm:WorkspaceActivityItem">
-                        <Button Classes="rail-row" x:Name="WsActivityRow" Command="{Binding JumpCommand}" IsEnabled="{Binding CanJump}"
-                                ToolTip.Tip="Jump to this point in the chat">
-                          <Grid ColumnDefinitions="Auto,*,Auto">
-                            <!-- Calm uniform tile + monochrome icon; semantic color only where it carries meaning -->
-                            <Border Width="32" Height="32" VerticalAlignment="Center"
-                                    Classes="ws-act-tile"
-                                    Classes.intent="{Binding IsIntent}"
-                                    Classes.question="{Binding IsQuestion}"
-                                    Classes.error="{Binding IsError}"
-                                    CornerRadius="{DynamicResource Radius.Interactive}"
-                                    BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1">
-                              <PathIcon Width="16" Height="16"
-                                        Data="{Binding KindGeometry}" />
-                            </Border>
-                            <StackPanel Grid.Column="1" Margin="11,0,8,0" VerticalAlignment="Center" Spacing="2">
-                              <TextBlock Text="{Binding Subtitle}" FontSize="10.5" FontWeight="SemiBold"
-                                         Foreground="{DynamicResource Brush.TextTertiary}" />
-                              <TextBlock Text="{Binding Title}" FontSize="12.5"
-                                         Foreground="{DynamicResource Brush.TextPrimary}"
-                                         TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                            <PathIcon Grid.Column="2" Width="13" Height="13" VerticalAlignment="Center"
-                                      IsVisible="{Binding CanJump}"
-                                      Foreground="{DynamicResource Brush.TextTertiary}"
-                                      Data="M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5z" />
-                          </Grid>
-                        </Button>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-
-                <!-- Changes (open the diff view) -->
-                <ItemsControl IsVisible="{Binding IsChangesTabSelected}"
-                              ItemsSource="{Binding WorkspaceChanges}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Spacing="3" /></ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="vm:FileChangeItem">
-                      <Button Classes="rail-row" x:Name="WsChangeRow"
-                              Command="{Binding ShowDiffCommand}"
-                              views:FileDrag.FilePath="{Binding FilePath}"
-                              ToolTip.Tip="{Binding FilePath}">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                          <Border Width="34" Height="34" VerticalAlignment="Center"
-                                  CornerRadius="{DynamicResource Radius.Interactive}"
-                                  Background="{DynamicResource Brush.Surface0}">
-                            <Panel>
-                              <PathIcon Width="16" Height="16" IsVisible="{Binding IsCreate}"
-                                        Foreground="{DynamicResource Brush.SuccessDefault}"
-                                        Data="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-                              <PathIcon Width="15" Height="15" IsVisible="{Binding !IsCreate}"
-                                        Foreground="{DynamicResource Brush.TextSecondary}"
-                                        Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                            </Panel>
-                          </Border>
-                          <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="{Binding FileName}" Classes="body-strong" FontSize="13"
-                                       TextTrimming="CharacterEllipsis" />
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                              <TextBlock Text="{Binding ActionLabel}" FontSize="11"
-                                         Foreground="{DynamicResource Brush.TextTertiary}" />
-                              <TextBlock Text="{Binding StatsAdded}" FontSize="11" FontWeight="SemiBold"
-                                         Foreground="#3FB950" />
-                              <TextBlock Text="{Binding StatsRemoved}" FontSize="11" FontWeight="SemiBold"
-                                         Foreground="#F85149" IsVisible="{Binding HasRemovals}" />
-                            </StackPanel>
-                          </StackPanel>
-                          <PathIcon Grid.Column="2" Width="14" Height="14" VerticalAlignment="Center"
-                                    Foreground="{DynamicResource Brush.TextTertiary}"
-                                    Data="M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zm5.98-1v-3H22V8h-7.01V5L11 9l3.99 4z" />
-                        </Grid>
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <!-- No search matches -->
-                <StackPanel IsVisible="{Binding WorkspaceSearchHasNoMatches}"
-                            HorizontalAlignment="Center" Margin="0,28,0,0" Spacing="4">
-                  <TextBlock Text="No matches" Classes="body-strong" HorizontalAlignment="Center" />
-                  <TextBlock Text="Try a different search term." Classes="caption"
-                             Foreground="{DynamicResource Brush.TextTertiary}" HorizontalAlignment="Center" />
-                </StackPanel>
-
-              </StackPanel>
-            </ScrollViewer>
-          </DockPanel>
-        </Grid>
-        </DockPanel>
-      </Grid>
+        <Panel x:Name="WorkspaceBody">
+          <views:WorkspaceOverview x:Name="WorkspaceOverview" />
+          <ContentControl x:Name="WorkspacePageHost"
+                          IsVisible="False"
+                          HorizontalContentAlignment="Stretch"
+                          VerticalContentAlignment="Stretch" />
+        </Panel>
+      </DockPanel>
     </Border>
   </Grid>
 </UserControl>

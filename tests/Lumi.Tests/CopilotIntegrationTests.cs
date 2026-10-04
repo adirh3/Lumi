@@ -689,6 +689,72 @@ public class CopilotIntegrationTests : IAsyncLifetime
     // ═══════════════════════════════════════════════════════════════════════
 
     [SkippableFact]
+    public async Task ChatPause_EmptyBatchContinuesAfterAbort_WithoutAnotherUserMessage()
+    {
+        SkipIfDisabled();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var tool = AIFunctionFactory.Create(async (CancellationToken cancellationToken) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                started.TrySetResult();
+                try { await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken); }
+                catch (OperationCanceledException)
+                {
+                    canceled.TrySetResult();
+                    throw;
+                }
+            }
+            return "NATIVE_RESUME_COMPLETE";
+        }, "resume_probe", "Get the completion marker. Retry this tool if it was interrupted.");
+        var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            Model = "gpt-5-mini",
+            SystemPrompt = "Call resume_probe and reply with its returned marker. Retry if interrupted.",
+            Tools = [tool],
+            Streaming = true
+        });
+        var session = await _service.CreateSessionAsync(config);
+        var userMessages = 0;
+        var assistantMessages = new List<string>();
+        using var subscription = session.On<SessionEvent>(evt =>
+        {
+            if (evt is UserMessageEvent)
+                Interlocked.Increment(ref userMessages);
+            else if (evt is AssistantMessageEvent message)
+                assistantMessages.Add(message.Data.Content ?? "");
+        });
+        try
+        {
+            await session.SendAsync(new MessageOptions { Prompt = "Run the tool and report its marker." });
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(60));
+#pragma warning disable GHCP001
+            await session.Rpc.Queue.SetDrainPausedAsync(true);
+            var abort = await session.Rpc.AbortAsync();
+            Assert.True(abort.Success, abort.Error);
+            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            _output.WriteLine("Abort accepted.");
+            Assert.Equal(1, calls);
+            await session.Rpc.Queue.SetDrainPausedAsync(false);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            await session.Rpc.SendMessagesAsync([], wait: true, cancellationToken: timeout.Token);
+#pragma warning restore GHCP001
+            _output.WriteLine($"Calls: {calls}; user messages: {userMessages}; assistant responses: " +
+                              string.Join(" | ", assistantMessages));
+            Assert.True(calls >= 2);
+            Assert.Equal(1, userMessages);
+            Assert.Contains(assistantMessages, message => message.Contains("NATIVE_RESUME_COMPLETE"));
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(session.SessionId);
+        }
+    }
+
+    [SkippableFact]
     public async Task CustomTool_IsInvoked_WithEventsAndHook()
     {
         SkipIfDisabled();

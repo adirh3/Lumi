@@ -16,6 +16,8 @@ internal sealed class ChatRuntimeState
 
     public Chat? Chat { get; init; }
 
+    public ChatPauseGate PauseGate { get; } = new();
+
     /// <summary>Main-assistant activity only. Background work never makes the assistant busy.</summary>
     public bool IsBusy
     {
@@ -55,6 +57,7 @@ internal sealed class ChatRuntimeState
     /// compaction. Child-agent turn boundaries must not clear the main turn's state.
     /// </summary>
     public bool TurnInProgress { get; set; }
+    public bool IsContinuationTurn { get; set; }
 
     public string StatusText { get; set; } = string.Empty;
 
@@ -134,16 +137,21 @@ internal sealed class ChatRuntimeState
            || HasPendingBackgroundWork
            || ActiveToolCount > 0
            || ActiveSubagentExecutionDepth > 0
-           || PendingSessionUserMessageCount > 0;
+           || PendingSessionUserMessageCount > 0
+           || PauseGate.IsWaiting;
 
     /// <summary>
     /// The interrupt request and its UI cleanup own this barrier, not session events.
     /// A successful SDK abort need not emit session.idle (notably for background-only work).
     /// </summary>
     public bool IsStopping
-        => StopOperation is { IsCompleted: false } || AbortOperation is { IsCompleted: false };
+        => StopOperation is { IsCompleted: false }
+           || AbortOperation is { IsCompleted: false }
+           || PauseResumeOperation is { IsCompleted: false };
 
     public Task<string?>? StopOperation { get; set; }
+
+    public Task<string?>? PauseResumeOperation { get; set; }
 
     public Task<bool>? AbortOperation { get; set; }
 

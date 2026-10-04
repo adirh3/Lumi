@@ -15,6 +15,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
+using Lumi.Services.Sharing;
 
 namespace Lumi.ViewModels;
 
@@ -149,6 +150,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Nav index of the Library page. It is reached from the chat sidebar, not the nav pill.</summary>
     public const int LibraryNavIndex = 8;
 
+    /// <summary>Nav index of the Jobs (automations) page.</summary>
+    private const int JobsNavIndex = 1;
+
     [RelayCommand]
     private void OpenLibrary() => SelectedNavIndex = LibraryNavIndex;
 
@@ -193,6 +197,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ProjectsViewModel ProjectsVM { get; }
     public MemoriesViewModel MemoriesVM { get; }
     public McpServersViewModel McpServersVM { get; }
+
+    /// <summary>The share sheet for skills, Lumis and MCP servers (one per window).</summary>
+    public ShareSheetViewModel ShareVM { get; }
+
+    /// <summary>The import sheet: SKILL.md, Lumi packs and MCP configs, with a receipt before anything is added.</summary>
+    public ImportSheetViewModel ImportVM { get; }
+
+    /// <summary>"Copied for chat" confirmations and the offer to preview a Lumi code found on the clipboard.</summary>
+    public CapabilityNoticeViewModel NoticeVM { get; }
+
     public ChatTagsViewModel ChatTagsVM { get; }
     public LibraryViewModel LibraryVM { get; }
     public SettingsViewModel SettingsVM { get; }
@@ -304,6 +318,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
         MemoriesVM = new MemoriesViewModel(dataStore);
         McpServersVM = new McpServersViewModel(dataStore);
+        ShareVM = new ShareSheetViewModel(dataStore);
+        ImportVM = new ImportSheetViewModel(dataStore);
+        NoticeVM = new CapabilityNoticeViewModel(
+            dataStore,
+            ClipboardHelper.GetTextAsync,
+            () => IsOnboarded && !ImportVM.IsOpen && !ShareVM.IsOpen);
         LibraryVM = new LibraryViewModel(
             dataStore,
             async chatId => await OpenChatByIdAsync(chatId),
@@ -434,6 +454,39 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _chatSessionStore.ApplyMcpConfigurationChange();
             RefreshFeatureManagementUi();
         };
+
+        SkillsVM.ShareRequested += ShareVM.OpenFor;
+        AgentsVM.ShareRequested += ShareVM.OpenFor;
+        McpServersVM.ShareRequested += ShareVM.OpenFor;
+        SkillsVM.ImportRequested += ImportVM.Open;
+        AgentsVM.ImportRequested += ImportVM.Open;
+        McpServersVM.ImportRequested += ImportVM.Open;
+        ImportVM.Imported += OnCapabilitiesImported;
+        ImportVM.OpenItemRequested += OpenImportedCapability;
+        ImportVM.ChatWithLumiRequested += StartChatWithImportedLumi;
+        AgentsVM.ChatRequested += agent => StartChatWithImportedLumi(agent.Id);
+        ProjectsVM.NewChatRequested += StartChatInProject;
+        SkillsVM.OpenAgentRequested += OpenLumiPage;
+        McpServersVM.OpenAgentRequested += OpenLumiPage;
+        AgentsVM.OpenSkillRequested += id =>
+        {
+            SelectedNavIndex = 3;
+            SkillsVM.OpenById(id);
+        };
+        AgentsVM.OpenMcpServerRequested += id =>
+        {
+            SelectedNavIndex = 6;
+            McpServersVM.OpenById(id);
+        };
+        MemoriesVM.OpenProjectRequested += id =>
+        {
+            SelectedNavIndex = 2;
+            ProjectsVM.OpenById(id);
+        };
+        SkillsVM.CopyForChatRequested += (skill, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(skill, unsaved));
+        AgentsVM.CopyForChatRequested += (agent, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(agent, unsaved));
+        McpServersVM.CopyForChatRequested += (server, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(server, unsaved));
+        NoticeVM.PreviewRequested += text => ImportVM.OpenWithText(text, Loc.Import_FromClipboard);
         LoadProjects();
         SubscribeChatRunningState();
         RefreshChatList();
@@ -479,6 +532,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.PropertyChanged += OnChatViewModelPropertyChanged;
         chatVm.ComposerProjectFilterRequested += OnComposerProjectFilterRequested;
         chatVm.OpenChatRequested += OnChatOpenChatRequested;
+        chatVm.RevealChatRequested += OnChatRevealChatRequested;
+        chatVm.OpenAutomationsRequested += OnChatOpenAutomationsRequested;
         chatVm.ForkChatRequested += OnChatForkRequested;
     }
 
@@ -490,10 +545,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.PropertyChanged -= OnChatViewModelPropertyChanged;
         chatVm.ComposerProjectFilterRequested -= OnComposerProjectFilterRequested;
         chatVm.OpenChatRequested -= OnChatOpenChatRequested;
+        chatVm.RevealChatRequested -= OnChatRevealChatRequested;
+        chatVm.OpenAutomationsRequested -= OnChatOpenAutomationsRequested;
         chatVm.ForkChatRequested -= OnChatForkRequested;
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
+
+    private void OnChatRevealChatRequested(Guid chatId)
+    {
+        var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+        if (chat is not null)
+            _ = RevealChatAsync(chat);
+    }
+
+    private void OnChatOpenAutomationsRequested() => ShowAutomations();
+
+    /// <summary>Shows the Jobs page, where the user's automations live.</summary>
+    public void ShowAutomations() => SelectedNavIndex = JobsNavIndex;
 
     private void OnChatForkRequested(Chat chat, Guid throughMessageId)
         => _ = ForkChatAsync(chat, throughMessageId);
@@ -1032,6 +1101,80 @@ public partial class MainViewModel : ObservableObject, IDisposable
             Projects.Add(p);
     }
 
+    /// <summary>
+    /// An import can add skills, a Lumi and MCP servers in one step; refresh every chat surface the
+    /// same way the individual editors do when they save one of those.
+    /// </summary>
+    private void OnCapabilitiesImported(ImportOutcome outcome)
+    {
+        _chatSessionStore.ApplyToSurfaces(surface =>
+        {
+            if (outcome.AddedSkills.Count > 0)
+                surface.InvalidateSystemPromptSession();
+            if (outcome.AddedLumi is not null)
+                surface.InvalidateAgentSession();
+            surface.RefreshComposerCatalogs();
+        });
+
+        if (outcome.AddedMcpServers.Count > 0)
+            _chatSessionStore.ApplyMcpConfigurationChange();
+
+        // An offer for what is on the clipboard is stale now: it was just imported, or passed over.
+        NoticeVM.HideOffer();
+        RefreshFeatureManagementUi();
+    }
+
+    private void OpenImportedCapability(SharedCapabilityKind kind, Guid id)
+    {
+        switch (kind)
+        {
+            case SharedCapabilityKind.Skill when _dataStore.Data.Skills.FirstOrDefault(skill => skill.Id == id) is { } skill:
+                SelectedNavIndex = 3;
+                if (!SkillsVM.Skills.Contains(skill))
+                    SkillsVM.SearchQuery = "";
+                SkillsVM.SelectedSkill = skill;
+                break;
+
+            case SharedCapabilityKind.McpServer when _dataStore.Data.McpServers.FirstOrDefault(server => server.Id == id) is { } server:
+                SelectedNavIndex = 6;
+                if (!McpServersVM.Servers.Contains(server))
+                    McpServersVM.SearchQuery = "";
+                McpServersVM.SelectedServer = server;
+                break;
+        }
+    }
+
+    private async Task CopyForChatAsync(Task<CapabilityPack?> copy)
+    {
+        if (await copy is not { } pack)
+            return;
+
+        NoticeVM.ShowCopied(CapabilityCardViewModel.ForPack(pack, ""));
+    }
+
+    private void StartChatWithImportedLumi(Guid agentId)
+    {
+        if (_dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == agentId) is not { } agent)
+            return;
+
+        NewChatCommand.Execute(null);
+        ChatVM.SelectedSdkAgentName = null;
+        ChatVM.SetActiveAgent(agent);
+    }
+
+    private void OpenLumiPage(Guid agentId)
+    {
+        SelectedNavIndex = 4;
+        AgentsVM.OpenById(agentId);
+    }
+
+    /// <summary>"New chat" on a project: the chat list narrows to the project and the draft joins it.</summary>
+    private void StartChatInProject(Project project)
+    {
+        SelectProjectFilter(project);
+        NewChat();
+    }
+
     private void RefreshFeatureManagementUi(bool refreshJobs = true, bool preserveJobsEditor = false)
     {
         LoadProjects();
@@ -1065,6 +1208,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (_runningStateSubscriptions.Add(chat))
                 chat.PropertyChanged += OnChatRunningChanged;
         }
+        RefreshChatPauseCommands();
     }
 
     private void UnsubscribeChatRunningState()
@@ -1107,13 +1251,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_isDisposed)
             return;
 
-        if (e.PropertyName == nameof(Chat.IsRunning))
+        if (e.PropertyName is nameof(Chat.IsRunning) or nameof(Chat.IsPaused))
             RefreshProjectRunningState();
         else if (e.PropertyName == nameof(Chat.HasUnreadMessages))
             RefreshUnreadState();
-        else if (e.PropertyName != nameof(Chat.IsSessionActive))
+        else if (e.PropertyName is not (nameof(Chat.IsSessionActive)
+            or nameof(Chat.IsPaused) or nameof(Chat.IsPausePending)))
             return;
 
+        RefreshChatPauseCommands();
         if (sender is Chat chat)
             ChatActivityOrReadStateChanged?.Invoke(chat.Id);
     }
@@ -1125,7 +1271,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         var chats = _dataStore.Data.Chats;
         foreach (var project in Projects)
-            project.IsRunning = chats.Any(c => c.ProjectId == project.Id && c.IsRunning);
+            project.IsRunning = chats.Any(c => c.ProjectId == project.Id && c.ShowRunningIndicator);
 
         ProjectRunningStateChanged?.Invoke();
     }
@@ -1141,6 +1287,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public void RefreshChatList()
     {
+        SubscribeChatRunningState();
         _chatLoadLimit = ChatPageSize;
         RebuildChatGroups();
         RefreshUnreadState();
@@ -1631,7 +1778,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // editable draft. Set after navigation, and only if the fork is what actually opened —
             // otherwise the draft would land in whichever chat is on screen.
             if (opened && plan.ComposerPrefill is { Length: > 0 } draft)
-                ChatVM.SetComposerDraft(draft);
+                ChatVM.SetComposerDraft(draft, plan.ComposerReply);
 
             return fork;
         }

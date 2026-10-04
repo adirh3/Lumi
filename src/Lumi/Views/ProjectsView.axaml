@@ -1,315 +1,577 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:sa="using:StrataTheme.Animation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:models="using:Lumi.Models"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.ProjectsView"
              x:DataType="vm:ProjectsViewModel"
              x:CompileBindings="True">
 
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Project.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
   <UserControl.Styles>
-    <Style Selector="ScrollViewer.motion-surface, StackPanel.motion-surface">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="ScrollViewer.motion-surface[IsVisible=true], StackPanel.motion-surface[IsVisible=true]">
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-    <Style Selector="Button.motion-action">
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
-          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
-          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Button.motion-list-row">
-      <Setter Property="Opacity" Value="0.95" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
-          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Button.motion-list-row:pointerover">
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-
-    <Style Selector="TextBlock.field-label">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-      <Setter Property="FontWeight" Value="Medium" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-      <Setter Property="Margin" Value="0,0,0,4" />
-    </Style>
-
-    <Style Selector="TextBlock.section-label">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
+    <!-- Projects wear their initial, like a workspace avatar. -->
+    <Style Selector="Border.mg-tile TextBlock.mg-initial">
+      <Setter Property="FontSize" Value="17" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="Margin" Value="0,0,0,6" />
-      <Setter Property="LetterSpacing" Value="0.5" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
     </Style>
-
-    <Style Selector="Border.workflow-card">
-      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceRaised}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
-      <Setter Property="ClipToBounds" Value="True" />
+    <Style Selector="Border.mg-tile.lg TextBlock.mg-initial">
+      <Setter Property="FontSize" Value="30" />
     </Style>
-
-    <Style Selector="Border.workflow-row">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Padding" Value="14,11" />
+    <Style Selector="Border.mg-setting-row">
+      <Setter Property="Padding" Value="16,13" />
     </Style>
-
-    <Style Selector="Border.workflow-row:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
-    </Style>
-
-    <Style Selector="Border.branch-pill">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="CornerRadius" Value="999" />
-      <Setter Property="Padding" Value="8,3" />
-    </Style>
-
-    <Style Selector="TextBlock.workflow-title">
+    <Style Selector="TextBlock.mg-setting-title">
+      <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Border.mg-branch-pill">
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+      <Setter Property="Padding" Value="9,3,11,4" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
   </UserControl.Styles>
 
   <Panel>
-      <!-- Editor form -->
-      <ScrollViewer Classes="motion-surface"
-                    IsVisible="{Binding IsEditing}"
-                    HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="0" Margin="24,20,24,28">
 
-          <!-- Header + actions row -->
-          <DockPanel Margin="0,0,0,16">
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-              <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
-                      Command="{Binding SaveProjectCommand}" />
-              <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
-                      Command="{Binding CancelEditCommand}" />
-              <Button Classes="subtle motion-action" Padding="10,7" MinHeight="0"
-                      Command="{Binding DeleteProjectCommand}"
-                      CommandParameter="{Binding SelectedProject}"
-                      IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}"
-                      ToolTip.Tip="{loc:Str Menu_Delete}">
-                <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14"
-                          Foreground="{DynamicResource Brush.TextTertiary}" />
-              </Button>
-            </StackPanel>
-            <TextBlock Text="{loc:Str Editor_Project}" Classes="subtitle" VerticalAlignment="Center" />
-          </DockPanel>
+    <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
+    <Panel x:Name="ProjectsOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}">
+      <Border Classes="mg-wash" />
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,30,32,40" Spacing="24">
 
-          <!-- Name -->
-          <TextBlock Text="{loc:Str Field_Name}" Classes="field-label" />
-          <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_ProjectName}" Margin="0,0,0,10" />
+          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+            <Border Grid.RowSpan="2" Classes="mg-tile" Width="48" Height="48" CornerRadius="14" Margin="0,0,16,0" VerticalAlignment="Top">
+              <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Folder}" Width="22" Height="22" />
+            </Border>
+            <DockPanel Grid.Column="1" MinHeight="48">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
+                <Button x:Name="ProjectsNewButton" Classes="mg-button accent" Command="{Binding NewProjectCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Plus}" />
+                    <TextBlock Text="{loc:Str Projects_New}" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+              <TextBlock Classes="mg-page-title" Text="{loc:Str Projects_Title}" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="mg-page-lede" Margin="0,2,0,0" Text="{loc:Str Projects_Lede}" />
+          </Grid>
 
-          <!-- Working Directory -->
-          <TextBlock Text="{loc:Str Field_WorkingDirectory}" Classes="field-label" />
-          <DockPanel Margin="0,0,0,2">
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0">
-              <Button Name="BrowseFolderButton" Classes="subtle motion-action" Padding="8,6" MinHeight="0"
-                      CornerRadius="6" ToolTip.Tip="{loc:Str Project_Browse}">
-                <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14"
-                          Foreground="{DynamicResource Brush.TextTertiary}" />
-              </Button>
-              <Button Classes="subtle motion-action" Padding="8,6" MinHeight="0" CornerRadius="6"
-                      Command="{Binding ClearWorkingDirectoryCommand}"
-                      IsVisible="{Binding EditWorkingDirectory, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                      ToolTip.Tip="Clear">
-                <TextBlock Text="✕" FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
-              </Button>
-            </StackPanel>
-            <TextBox Text="{Binding EditWorkingDirectory}" PlaceholderText="{Binding WorkingDirectoryPlaceholder}" />
-          </DockPanel>
-
-          <!-- Coding project indicator -->
-          <StackPanel Name="ProjectCodingIndicator"
-                      Orientation="Horizontal"
-                      Spacing="7"
-                      IsVisible="{Binding IsCodingProject}"
-                      Margin="2,6,0,0">
-            <Border Width="6" Height="6" CornerRadius="3"
-                    Background="{DynamicResource Brush.AccentDefault}"
-                    VerticalAlignment="Center" />
-            <TextBlock Text="{loc:Str Project_CodingProjectDetected}"
-                       FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextSecondary}"
-                       VerticalAlignment="Center"
-                       TextWrapping="Wrap" />
-          </StackPanel>
-
-          <!-- Coding workflow settings -->
-          <StackPanel Name="ProjectGitWorkflowPanel"
-                      IsVisible="{Binding IsGitProject}"
-                      Margin="0,16,0,0"
-                      Spacing="8">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <TextBlock Text="{loc:Str Project_CodingWorkflow}"
-                         FontWeight="SemiBold"
-                         VerticalAlignment="Center" />
-              <Border Name="ProjectDefaultBranchPill"
-                      Grid.Column="1"
-                      Classes="branch-pill"
-                      MaxWidth="230"
-                      VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <Border Width="5" Height="5" CornerRadius="3"
-                          Background="{DynamicResource Brush.AccentDefault}"
-                          VerticalAlignment="Center" />
-                  <TextBlock Text="{Binding DefaultBranchSummary}"
-                             Classes="caption"
-                             Foreground="{DynamicResource Brush.AccentDefault}"
-                             TextTrimming="CharacterEllipsis"
-                             ToolTip.Tip="{Binding DefaultBranchSummary}" />
+          <DockPanel IsVisible="{Binding HasAnyProjects}">
+            <Border DockPanel.Dock="Right" Classes="mg-segmented" VerticalAlignment="Bottom">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="mg-segment" Classes.selected="{Binding IsSortedByName}"
+                        Command="{Binding SortByNameCommand}" Content="{loc:Str Mg_SortName}" />
+                <Button Classes="mg-segment" Classes.selected="{Binding IsSortedByRecent}"
+                        Command="{Binding SortByRecentCommand}" Content="{loc:Str Projects_SortActive}" />
+              </StackPanel>
+            </Border>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Border Classes="mg-stat">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-stat-value" Text="{Binding TotalCountText}" />
+                  <TextBlock Classes="mg-stat-label" Text="{loc:Str Projects_StatTotal}" />
                 </StackPanel>
               </Border>
-            </Grid>
-
-            <Border Classes="workflow-card">
-              <StackPanel Spacing="0">
-                <Border Classes="workflow-row">
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                    <StackPanel Spacing="2">
-                      <TextBlock Text="{loc:Str Project_AutoSyncMainBranch}"
-                                 Classes="workflow-title" />
-                      <TextBlock Text="{loc:Str Project_AutoSyncMainBranchDescription}"
-                                 Classes="caption tertiary"
-                                 TextWrapping="Wrap" />
-                    </StackPanel>
-                    <ToggleSwitch Name="ProjectAutoSyncToggle"
-                                  Grid.Column="1"
-                                  VerticalAlignment="Center"
-                                  IsChecked="{Binding EditAutoSyncMainBranchDaily}" />
-                  </Grid>
-                </Border>
-
-                <Separator Margin="14,0" />
-
-                <Border Classes="workflow-row">
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                    <StackPanel Spacing="2">
-                      <TextBlock Text="{loc:Str Project_DefaultNewChatsWorktree}"
-                                 Classes="workflow-title" />
-                      <TextBlock Text="{loc:Str Project_DefaultNewChatsWorktreeDescription}"
-                                 Classes="caption tertiary"
-                                 TextWrapping="Wrap" />
-                    </StackPanel>
-                    <ToggleSwitch Name="ProjectDefaultWorktreeToggle"
-                                  Grid.Column="1"
-                                  VerticalAlignment="Center"
-                                  IsChecked="{Binding EditDefaultNewChatsUseWorktree}" />
-                  </Grid>
-                </Border>
-              </StackPanel>
-            </Border>
-          </StackPanel>
-
-          <!-- Additional context folders -->
-          <DockPanel Margin="0,12,0,4">
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0">
-              <Button Name="BrowseAdditionalFoldersButton" Classes="subtle motion-action" Padding="8,6" MinHeight="0"
-                      CornerRadius="6" ToolTip.Tip="{loc:Str Project_AddFolders}">
-                <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14"
-                          Foreground="{DynamicResource Brush.TextTertiary}" />
-              </Button>
-              <Button Classes="subtle motion-action" Padding="8,6" MinHeight="0" CornerRadius="6"
-                      Command="{Binding ClearAdditionalContextDirectoriesCommand}"
-                      IsVisible="{Binding EditAdditionalContextDirectories, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                      ToolTip.Tip="Clear">
-                <TextBlock Text="✕" FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
-              </Button>
-            </StackPanel>
-            <StackPanel Spacing="2">
-              <TextBlock Text="{loc:Str Field_AdditionalContextFolders}" Classes="field-label" Margin="0" />
-              <TextBlock Text="{loc:Str Project_AdditionalContextFoldersHint}"
-                         Classes="caption tertiary"
-                         TextWrapping="Wrap" />
+              <Border Classes="mg-stat">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-stat-value" Text="{Binding ChatsInProjectsText}" />
+                  <TextBlock Classes="mg-stat-label" Text="{loc:Str Projects_StatChats}" />
+                </StackPanel>
+              </Border>
             </StackPanel>
           </DockPanel>
-          <TextBox Text="{Binding EditAdditionalContextDirectories}"
-                   AcceptsReturn="True"
-                   TextWrapping="NoWrap"
-                   MinHeight="62"
-                   MaxHeight="140"
-                   VerticalContentAlignment="Top"
-                   PlaceholderText="{Binding AdditionalContextDirsPlaceholder}" />
 
-          <!-- Instructions -->
-          <TextBlock Text="{loc:Str Field_Instructions}" Classes="field-label" Margin="0,12,0,4" />
-          <TextBox Text="{Binding EditInstructions}" AcceptsReturn="True" TextWrapping="Wrap"
-                   MinHeight="100" MaxHeight="360" VerticalContentAlignment="Top"
-                   PlaceholderText="{loc:Str Watermark_ProjectInstructions}" />
+          <Border Classes="mg-chip hue" HorizontalAlignment="Left" IsVisible="{Binding IsSearching}" Padding="12,5,6,5">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Data="{StaticResource Icon.Search}" />
+              <TextBlock Text="{Binding SearchQuery}" MaxWidth="320" TextTrimming="CharacterEllipsis" />
+              <Button Classes="subtle" Padding="4" MinHeight="0" CornerRadius="{DynamicResource Radius.Full}"
+                      Command="{Binding ClearSearchCommand}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+                <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
+              </Button>
+            </StackPanel>
+          </Border>
 
-          <!-- Chats in this project -->
-          <StackPanel IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}">
-            <Separator Margin="0,16,0,12" />
-            <TextBlock Text="{loc:Str Field_Chats}" Classes="section-label" />
-
-            <Border IsVisible="{Binding !ProjectChats.Count}"
-                    Background="{DynamicResource Brush.SurfaceRaised}" CornerRadius="{DynamicResource Radius.Base}"
-                    Padding="16,14">
-              <StackPanel Spacing="4" HorizontalAlignment="Center" Opacity="0.5">
-                <PathIcon Data="{StaticResource Icon.Chat}" Width="18" Height="18" HorizontalAlignment="Center" />
-                <TextBlock Text="{loc:Str Empty_NoProjectChats}" Classes="caption" HorizontalAlignment="Center" />
-              </StackPanel>
-            </Border>
-
-            <ItemsControl ItemsSource="{Binding ProjectChats}" IsVisible="{Binding ProjectChats.Count}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="models:Chat" x:CompileBindings="False">
-                  <Button Classes="subtle motion-list-row" HorizontalAlignment="Stretch"
-                          HorizontalContentAlignment="Left"
-                          Padding="8,7" MinHeight="0" Margin="0,1"
-                          CornerRadius="{DynamicResource Radius.Base}"
-                          Command="{Binding $parent[UserControl].DataContext.OpenChatCommand}"
-                          CommandParameter="{Binding}">
+          <ItemsControl x:Name="ProjectsGallery" ItemsSource="{Binding ProjectCards}" IsVisible="{Binding HasResults}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <controls:AdaptiveGridPanel MinItemWidth="260" ColumnSpacing="14" RowSpacing="14" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ProjectCard">
+                <Button Classes="mg-card" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding Name}">
+                  <Border Classes="mg-card-frame">
                     <DockPanel>
-                      <TextBlock DockPanel.Dock="Right" FontSize="{DynamicResource Font.SizeCaption}"
-                                 Foreground="{DynamicResource Brush.TextTertiary}"
-                                 VerticalAlignment="Center" Margin="12,0,0,0"
-                                 Text="{Binding UpdatedAt, StringFormat='{}{0:MMM d}'}" />
-                      <PathIcon DockPanel.Dock="Right" Data="{StaticResource Icon.Pin}"
-                                Width="12" Height="12" VerticalAlignment="Center"
-                                Foreground="{DynamicResource Brush.AccentDefault}"
-                                Margin="8,0,0,0"
-                                Opacity="0.9"
-                                IsVisible="{Binding IsPinned}"
-                                ToolTip.Tip="{loc:Str Chat_PinnedTooltip}" />
-                      <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Chat}"
-                                Width="13" Height="13" VerticalAlignment="Center"
-                                Foreground="{DynamicResource Brush.TextTertiary}" Margin="0,0,8,0" />
-                      <TextBlock Text="{Binding Title}" FontSize="{DynamicResource Font.SizeBody}"
-                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                      <StackPanel DockPanel.Dock="Bottom">
+                        <Border Classes="mg-card-divider" />
+                        <DockPanel>
+                          <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Text="{Binding ActivityLabel}" Margin="10,0,0,0" />
+                          <DockPanel>
+                            <PathIcon DockPanel.Dock="Left" Margin="0,0,6,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Chat}" />
+                            <TextBlock Classes="mg-meta" Text="{Binding ChatCountLabel}" />
+                          </DockPanel>
+                        </DockPanel>
+                      </StackPanel>
+                      <DockPanel DockPanel.Dock="Top">
+                        <Button DockPanel.Dock="Right" Classes="mg-button subtle" Padding="10,5" VerticalAlignment="Top"
+                                Command="{Binding NewChatCommand}" ToolTip.Tip="{loc:Str Projects_NewChat}">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource Icon.Compose}" Width="12" Height="12" />
+                            <TextBlock Text="{loc:Str Projects_NewChat}" FontSize="12" />
+                          </StackPanel>
+                        </Button>
+                        <Border Classes="mg-tile">
+                          <TextBlock Classes="mg-initial" Text="{Binding Initial}" />
+                        </Border>
+                      </DockPanel>
+                      <StackPanel Spacing="5" Margin="0,12,0,0">
+                        <TextBlock Classes="mg-card-title" Text="{Binding Name}" />
+                        <DockPanel>
+                          <PathIcon DockPanel.Dock="Left" Margin="0,0,6,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Folder}" />
+                          <TextBlock Classes="mg-meta mg-mono" Text="{Binding FolderLabel}" FontSize="11.5" />
+                        </DockPanel>
+                        <TextBlock Classes="mg-card-text" Text="{Binding InstructionsPreview}" IsVisible="{Binding HasInstructions}" Margin="0,2,0,0" />
+                        <TextBlock Classes="mg-card-text placeholder" Text="{loc:Str Projects_NoInstructions}" IsVisible="{Binding !HasInstructions}" Margin="0,2,0,0" />
+                      </StackPanel>
                     </DockPanel>
-                  </Button>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <StackPanel IsVisible="{Binding ShowNoResults}" Spacing="8" Margin="0,40,0,0" HorizontalAlignment="Center">
+            <TextBlock Classes="mg-empty-title" Text="{Binding NoResultsText}" />
+            <TextBlock Classes="mg-empty-text" Text="{loc:Str Mg_NoResultsHint}" />
+            <Button Classes="mg-button" HorizontalAlignment="Center" Margin="0,6,0,0"
+                    Command="{Binding ClearSearchCommand}" Content="{loc:Str Mg_ClearSearch}" />
+          </StackPanel>
+
+          <StackPanel IsVisible="{Binding ShowEmptyState}" Spacing="12" Margin="0,48,0,0" HorizontalAlignment="Center">
+            <Border Classes="mg-empty-hero">
+              <PathIcon Data="{StaticResource Icon.Folder}" />
+            </Border>
+            <TextBlock Classes="mg-empty-title" Text="{loc:Str Projects_EmptyTitle}" Margin="0,6,0,0" />
+            <TextBlock Classes="mg-empty-text" Text="{loc:Str Projects_EmptyText}" />
+            <Button Classes="mg-button accent" HorizontalAlignment="Center" Margin="0,8,0,0" Command="{Binding NewProjectCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <PathIcon Data="{StaticResource Icon.Plus}" />
+                <TextBlock Text="{loc:Str Projects_New}" />
+              </StackPanel>
+            </Button>
           </StackPanel>
         </StackPanel>
       </ScrollViewer>
+    </Panel>
 
-      <!-- Empty state -->
-      <StackPanel Classes="motion-surface"
-                  IsVisible="{Binding !IsEditing}"
-                  HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
-        <TextBlock Text="📁" FontSize="32" HorizontalAlignment="Center" />
-        <TextBlock Text="{loc:Str Empty_SelectProject}" FontSize="{DynamicResource Font.SizeBody}"
-                   HorizontalAlignment="Center" />
-      </StackPanel>
+    <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
+    <Panel x:Name="ProjectDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="mg-topbar">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding !IsNewProject}">
+              <Button x:Name="ProjectNewChatButton" Classes="mg-button accent" Command="{Binding NewChatInProjectCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Compose}" />
+                  <TextBlock Text="{loc:Str Projects_NewChat}" />
+                </StackPanel>
+              </Button>
+              <Button x:Name="DeleteProjectButton" Classes="mg-icon-button subtle"
+                      Command="{Binding RequestDeleteCommand}" ToolTip.Tip="{loc:Str Menu_Delete}">
+                <PathIcon Data="{StaticResource Icon.Trash}" />
+              </Button>
+            </StackPanel>
+            <DockPanel>
+              <Button DockPanel.Dock="Left" x:Name="ProjectBackButton" Classes="subtle mg-back" Command="{Binding CloseDetailCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
+                  <TextBlock Text="{loc:Str Projects_Title}" />
+                </StackPanel>
+              </Button>
+              <TextBlock DockPanel.Dock="Left" Classes="mg-crumb" Text="/" Margin="2,0,6,0" />
+              <TextBlock Classes="mg-crumb current" Text="{Binding DetailTitle}" />
+            </DockPanel>
+          </DockPanel>
+        </Border>
+
+        <ScrollViewer x:Name="ProjectDetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="40,32,40,120" MaxWidth="940" Spacing="20">
+
+            <!-- Hero -->
+            <DockPanel>
+              <Border DockPanel.Dock="Left" Classes="mg-tile lg" Margin="0,0,22,0">
+                <TextBlock Classes="mg-initial" Text="{Binding DetailInitial}" />
+              </Border>
+              <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBox x:Name="ProjectNameInput" Classes="mg-title-input" Text="{Binding EditName}"
+                         PlaceholderText="{loc:Str Projects_NamePlaceholder}" />
+                <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,8,0,0">
+                  <Border Name="ProjectCodingIndicator" Classes="mg-chip accent" IsVisible="{Binding IsCodingProject}"
+                          ToolTip.Tip="{loc:Str Project_CodingProjectDetected}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Terminal}" />
+                      <TextBlock Text="{loc:Str Projects_Coding}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip hue" IsVisible="{Binding !IsNewProject}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Chat}" />
+                      <TextBlock Text="{Binding ChatCountLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip" IsVisible="{Binding HasProjectChats}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Clock}" />
+                      <TextBlock Text="{Binding LastActiveLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip" IsVisible="{Binding HasProjectMemories}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Memory}" />
+                      <TextBlock Text="{Binding ProjectMemoryLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip" IsVisible="{Binding !IsNewProject}">
+                    <TextBlock Text="{Binding CreatedLabel}" />
+                  </Border>
+                </WrapPanel>
+              </StackPanel>
+            </DockPanel>
+
+            <!-- Working folder -->
+            <Border Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <PathIcon Data="{StaticResource Icon.FolderOpen}" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Projects_Workspace}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_FolderCaption}" />
+                  </StackPanel>
+                </DockPanel>
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="8,0,0,0">
+                    <Button Name="BrowseFolderButton" Classes="mg-button" Click="OnBrowseFolderClick"
+                            ToolTip.Tip="{loc:Str Project_Browse}">
+                      <StackPanel Orientation="Horizontal" Spacing="7">
+                        <PathIcon Data="{StaticResource Icon.FolderOpen}" />
+                        <TextBlock Text="{loc:Str Projects_ChooseFolder}" IsVisible="{Binding !HasWorkingDirectory}" />
+                        <TextBlock Text="{loc:Str Projects_ChangeFolder}" IsVisible="{Binding HasWorkingDirectory}" />
+                      </StackPanel>
+                    </Button>
+                    <Button Classes="mg-icon-button" Command="{Binding OpenWorkingDirectoryCommand}"
+                            IsVisible="{Binding HasWorkingDirectory}" ToolTip.Tip="{loc:Str Projects_OpenFolder}">
+                      <PathIcon Data="{StaticResource Icon.External}" />
+                    </Button>
+                    <Button Classes="mg-icon-button subtle" Command="{Binding ClearWorkingDirectoryCommand}"
+                            IsVisible="{Binding HasWorkingDirectory}" ToolTip.Tip="{loc:Str Projects_ClearFolder}">
+                      <PathIcon Data="{StaticResource Icon.Close}" Width="10" Height="10" />
+                    </Button>
+                  </StackPanel>
+                  <TextBox Classes="mg-field mono" Text="{Binding EditWorkingDirectory}"
+                           PlaceholderText="{Binding WorkingDirectoryPlaceholder}" />
+                </DockPanel>
+                <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_ChooseFolderHint}"
+                           IsVisible="{Binding !HasWorkingDirectory}" />
+              </StackPanel>
+            </Border>
+
+            <!-- Git workflow -->
+            <Border Name="ProjectGitWorkflowPanel" Classes="mg-section" IsVisible="{Binding IsGitProject}">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border Name="ProjectDefaultBranchPill" DockPanel.Dock="Right" Classes="mg-branch-pill" MaxWidth="260">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Branch}" Width="11" Height="11"
+                                Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding DefaultBranchSummary}"
+                                 FontSize="11.5" FontWeight="Medium"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 TextTrimming="CharacterEllipsis"
+                                 ToolTip.Tip="{Binding DefaultBranchSummary}" />
+                    </StackPanel>
+                  </Border>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Branch}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Project_CodingWorkflow}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_GitCaption}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <Border Classes="mg-inset" Padding="0">
+                  <StackPanel>
+                    <Border Classes="mg-setting-row">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel Spacing="2">
+                          <TextBlock Classes="mg-setting-title" Text="{loc:Str Project_AutoSyncMainBranch}" />
+                          <TextBlock Classes="mg-section-caption" Text="{loc:Str Project_AutoSyncMainBranchDescription}" />
+                        </StackPanel>
+                        <ToggleSwitch Name="ProjectAutoSyncToggle" Grid.Column="1" VerticalAlignment="Center"
+                                      OnContent="" OffContent=""
+                                      IsChecked="{Binding EditAutoSyncMainBranchDaily}" />
+                      </Grid>
+                    </Border>
+                    <Border Height="1" Background="{DynamicResource Mg.Divider}" Margin="16,0" />
+                    <Border Classes="mg-setting-row">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel Spacing="2">
+                          <TextBlock Classes="mg-setting-title" Text="{loc:Str Project_DefaultNewChatsWorktree}" />
+                          <TextBlock Classes="mg-section-caption" Text="{loc:Str Project_DefaultNewChatsWorktreeDescription}" />
+                        </StackPanel>
+                        <ToggleSwitch Name="ProjectDefaultWorktreeToggle" Grid.Column="1" VerticalAlignment="Center"
+                                      OnContent="" OffContent=""
+                                      IsChecked="{Binding EditDefaultNewChatsUseWorktree}" />
+                      </Grid>
+                    </Border>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+
+            <!-- Instructions -->
+            <Border Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Right" Classes="mg-segmented" Margin="12,0,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Button Classes="mg-segment" Classes.selected="{Binding IsPreviewingInstructions}" Command="{Binding ShowPreviewCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.Eye}" />
+                          <TextBlock Text="{loc:Str Mg_Preview}" />
+                        </StackPanel>
+                      </Button>
+                      <Button Classes="mg-segment" Classes.selected="{Binding !IsPreviewingInstructions}" Command="{Binding ShowEditorCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.Rename}" />
+                          <TextBlock Text="{loc:Str Mg_Edit}" />
+                        </StackPanel>
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Document}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Projects_Instructions}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_InstructionsCaption}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <Panel IsVisible="{Binding IsPreviewingInstructions}">
+                  <StackPanel Spacing="10" IsVisible="{Binding HasInstructions}">
+                    <Panel>
+                      <Border Classes="mg-inset" Padding="20,16" Classes.mg-clipped="{Binding IsPreviewClipped}">
+                        <sc:StrataMarkdown Markdown="{Binding PreviewInstructions}" IsInline="True" />
+                      </Border>
+                      <Border Classes="mg-fade" IsVisible="{Binding IsPreviewClipped}" />
+                    </Panel>
+                    <Button Classes="subtle mg-text-button" HorizontalAlignment="Center" IsVisible="{Binding IsPreviewLong}"
+                            Command="{Binding TogglePreviewExpandedCommand}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding PreviewToggleText}" />
+                        <PathIcon Classes="mg-chevron" Classes.flipped="{Binding IsPreviewExpanded}" Data="{StaticResource Icon.ChevronDown}" />
+                      </StackPanel>
+                    </Button>
+                  </StackPanel>
+                  <Button Classes="mg-pill-link" HorizontalAlignment="Stretch" IsVisible="{Binding !HasInstructions}"
+                          Command="{Binding ShowEditorCommand}">
+                    <Border Classes="mg-empty-note">
+                      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <PathIcon Data="{StaticResource Icon.Rename}" Width="12" Height="12"
+                                  Foreground="{DynamicResource Brush.TextTertiary}" />
+                        <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_EmptyInstructions}" />
+                      </StackPanel>
+                    </Border>
+                  </Button>
+                </Panel>
+                <TextBox x:Name="ProjectInstructionsEditor" Classes="mg-editor" IsVisible="{Binding !IsPreviewingInstructions}"
+                         Text="{Binding EditInstructions}" MinHeight="180"
+                         PlaceholderText="{loc:Str Watermark_ProjectInstructions}" />
+              </StackPanel>
+            </Border>
+
+            <!-- Context folders -->
+            <Border Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Button Name="BrowseAdditionalFoldersButton" DockPanel.Dock="Right" Classes="mg-button" VerticalAlignment="Center"
+                          Margin="12,0,0,0" Click="OnBrowseAdditionalFoldersClick" ToolTip.Tip="{loc:Str Project_AddFolders}">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <PathIcon Data="{StaticResource Icon.Plus}" />
+                      <TextBlock Text="{loc:Str Projects_AddFolder}" />
+                    </StackPanel>
+                  </Button>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Layers}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Projects_ContextFolders}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Project_AdditionalContextFoldersHint}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <ItemsControl ItemsSource="{Binding ContextFolders}" IsVisible="{Binding HasContextFolders}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Spacing="6" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ContextFolderItem">
+                      <Border Classes="mg-inset" Padding="12,9">
+                        <DockPanel>
+                          <Button DockPanel.Dock="Right" Classes="mg-icon-button subtle" Width="26" Height="26"
+                                  Command="{Binding RemoveCommand}" ToolTip.Tip="{loc:Str Projects_RemoveFromList}">
+                            <PathIcon Data="{StaticResource Icon.Close}" Width="9" Height="9" />
+                          </Button>
+                          <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Folder}" Width="14" Height="14"
+                                    Foreground="{DynamicResource Brush.TextTertiary}" Margin="0,0,11,0" VerticalAlignment="Center" />
+                          <StackPanel Spacing="1" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium"
+                                       Foreground="{DynamicResource Brush.TextPrimary}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="mg-meta mg-mono" Text="{Binding Path}" FontSize="11" ToolTip.Tip="{Binding Path}" />
+                          </StackPanel>
+                        </DockPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="mg-button subtle" Margin="8,0,0,0"
+                          Command="{Binding AddContextFolderCommand}" Content="{loc:Str Projects_Add}" />
+                  <TextBox Classes="mg-field mono" Text="{Binding NewContextFolderPath}"
+                           PlaceholderText="{loc:Str Projects_PastePath}">
+                    <TextBox.KeyBindings>
+                      <KeyBinding Gesture="Enter" Command="{Binding AddContextFolderCommand}" />
+                    </TextBox.KeyBindings>
+                  </TextBox>
+                </DockPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- Chats -->
+            <Border Classes="mg-section" IsVisible="{Binding !IsNewProject}">
+              <StackPanel Spacing="12">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="mg-button" VerticalAlignment="Center" Margin="12,0,0,0"
+                          Command="{Binding NewChatInProjectCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <PathIcon Data="{StaticResource Icon.Compose}" />
+                      <TextBlock Text="{loc:Str Projects_NewChat}" />
+                    </StackPanel>
+                  </Button>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Chat}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Projects_Chats}" />
+                      <TextBlock Classes="mg-section-caption" Text="{Binding ChatCountLabel}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <ItemsControl x:Name="ProjectChatsList" ItemsSource="{Binding VisibleProjectChats}" IsVisible="{Binding HasProjectChats}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:Chat">
+                      <Button Classes="mg-row"
+                              Command="{Binding $parent[UserControl].((vm:ProjectsViewModel)DataContext).OpenChatCommand}"
+                              CommandParameter="{Binding}">
+                        <Border Classes="mg-row-frame">
+                          <DockPanel>
+                            <PathIcon DockPanel.Dock="Right" Classes="mg-row-chevron" Data="{StaticResource Icon.ChevronRight}" Margin="10,0,0,0" />
+                            <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Margin="12,0,0,0"
+                                       Text="{Binding UpdatedAt, StringFormat='{}{0:MMM d}'}" />
+                            <PathIcon DockPanel.Dock="Right" Data="{StaticResource Icon.Pin}"
+                                      Width="12" Height="12" VerticalAlignment="Center"
+                                      Foreground="{DynamicResource Brush.TextTertiary}" Margin="10,0,0,0"
+                                      IsVisible="{Binding IsPinned}" ToolTip.Tip="{loc:Str Chat_PinnedTooltip}" />
+                            <Panel DockPanel.Dock="Left" Margin="0,0,11,0" VerticalAlignment="Center">
+                              <PathIcon Data="{StaticResource Icon.Chat}" Width="13" Height="13"
+                                        Foreground="{DynamicResource Brush.TextTertiary}" />
+                              <Ellipse Width="6" Height="6" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-3,0"
+                                       Fill="{DynamicResource Brush.AccentDefault}" IsVisible="{Binding IsRunning}" />
+                            </Panel>
+                            <TextBlock Text="{Binding Title}" FontSize="13"
+                                       Foreground="{DynamicResource Brush.TextPrimary}"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                          </DockPanel>
+                        </Border>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Classes="subtle mg-button" HorizontalAlignment="Left" IsVisible="{Binding HasMoreChats}"
+                        Command="{Binding ToggleShowAllChatsCommand}" Content="{Binding ShowAllChatsText}" />
+                <Border Classes="mg-empty-note" IsVisible="{Binding !HasProjectChats}">
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Empty_NoProjectChats}" />
+                </Border>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+
+      <Border x:Name="ProjectSaveBar" Classes="mg-floatbar" IsVisible="{Binding ShowSaveBar}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <Ellipse DockPanel.Dock="Left" Classes="mg-dot" Fill="{DynamicResource Brush.AccentDefault}" Margin="0,0,9,0" />
+            <TextBlock DockPanel.Dock="Right" x:Name="ProjectSaveHint" Classes="mg-floatbar-hint" Text="Ctrl+S" Margin="9,0,0,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{Binding SaveBarText}" TextTrimming="CharacterEllipsis" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{Binding DiscardButtonText}" Command="{Binding DiscardChangesCommand}" />
+            <Button x:Name="SaveProjectButton" Classes="accent mg-button" Content="{Binding SaveButtonText}"
+                    Command="{Binding SaveProjectCommand}" IsEnabled="{Binding CanSave}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Classes="mg-floatbar danger" IsVisible="{Binding IsConfirmingDelete}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Trash}" Width="13" Height="13"
+                      Foreground="{DynamicResource Brush.DangerDefault}" Margin="0,0,9,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{Binding DeleteConfirmText}" MaxWidth="420"
+                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DeleteConfirmText}" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{loc:Str Common_Cancel}" Command="{Binding CancelDeleteCommand}" />
+            <Button Classes="danger mg-button" Content="{loc:Str Mg_Delete}" Command="{Binding ConfirmDeleteCommand}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Classes="mg-saved-toast" IsVisible="{Binding ShowSavedToast}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12"
+                    Foreground="{DynamicResource Brush.SuccessDefault}" />
+          <TextBlock Text="{loc:Str Mg_Saved}" FontSize="12.5" FontWeight="Medium"
+                     Foreground="{DynamicResource Brush.TextPrimary}" />
+        </StackPanel>
+      </Border>
+    </Panel>
   </Panel>
 </UserControl>

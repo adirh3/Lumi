@@ -55,6 +55,10 @@ public partial class MainWindow : Window
     private Border? _windowContentRoot;
     private Control?[] _pages = [];
     private Panel?[] _sidebarPanels = [];
+    private Border? _capabilityDropOverlay;
+
+    /// <summary>Skills, Lumis and MCP Servers: the pages that accept a dropped capability to import.</summary>
+    private static readonly int[] CapabilityPageIndices = [3, 4, 6];
     private Button?[] _navButtons = [];
     private Button?[] _railNavButtons = [];
     private Panel? _renameOverlay;
@@ -298,6 +302,13 @@ public partial class MainWindow : Window
 
         ApplyAgentAutomationLandmarks();
 
+        _capabilityDropOverlay = this.FindControl<Border>("CapabilityDropOverlay");
+        foreach (var index in CapabilityPageIndices)
+        {
+            WireCapabilityDropTarget(_pages[index]);
+            WireCapabilityDropTarget(_sidebarPanels[index]);
+        }
+
         AddHandler(PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         WireNavHoverEvents();
@@ -407,6 +418,53 @@ public partial class MainWindow : Window
                 AutomationProperties.SetHelpText(control, "Stable Lumi page landmark for coding agents and MCP diagnostics.");
             }
         }
+    }
+
+    // ── Drop a SKILL.md, Lumi pack or MCP config onto Skills / Lumis / MCP Servers to import it ──
+
+    private void WireCapabilityDropTarget(Control? target)
+    {
+        if (target is null)
+            return;
+
+        DragDrop.SetAllowDrop(target, true);
+        target.AddHandler(DragDrop.DragEnterEvent, OnCapabilityDragOver);
+        target.AddHandler(DragDrop.DragOverEvent, OnCapabilityDragOver);
+        target.AddHandler(DragDrop.DragLeaveEvent, OnCapabilityDragLeave);
+        target.AddHandler(DragDrop.DropEvent, OnCapabilityDrop);
+    }
+
+    private bool CanImportDrop(DragEventArgs e)
+        => DataContext is MainViewModel { ImportVM.IsOpen: false } vm
+           && CapabilityPageIndices.Contains(vm.SelectedNavIndex)
+           && CapabilityDropSupport.CanAccept(e);
+
+    private void OnCapabilityDragOver(object? sender, DragEventArgs e)
+    {
+        var accepted = CanImportDrop(e);
+        e.DragEffects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
+        if (_capabilityDropOverlay is not null)
+            _capabilityDropOverlay.IsVisible = accepted;
+    }
+
+    private void OnCapabilityDragLeave(object? sender, DragEventArgs e)
+    {
+        if (_capabilityDropOverlay is not null && sender is Control target && !CapabilityDropSupport.IsInside(target, e))
+            _capabilityDropOverlay.IsVisible = false;
+    }
+
+    private async void OnCapabilityDrop(object? sender, DragEventArgs e)
+    {
+        if (_capabilityDropOverlay is not null)
+            _capabilityDropOverlay.IsVisible = false;
+        if (!CanImportDrop(e) || DataContext is not MainViewModel vm)
+            return;
+
+        e.Handled = true;
+        if (CapabilityDropSupport.GetItem(e) is { } item)
+            await vm.ImportVM.OpenWithStorageItemAsync(item);
+        else if (CapabilityDropSupport.GetText(e) is { } text)
+            vm.ImportVM.OpenWithText(text, Loc.Import_FromDrop);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -970,6 +1028,7 @@ public partial class MainWindow : Window
                 vm.SelectedNavIndex = 0;
         };
         _chatWorkspace.CanShowBrowserPanel = chatId => vm.ActiveChatId == chatId;
+        _chatWorkspace.CanShowDesktopPanel = chatId => vm.ActiveChatId == chatId && vm.SelectedNavIndex == 0;
         _chatWorkspace.DataStore = vm.DataStore;
 
         if (!ReferenceEquals(_chatWorkspace.DataContext, vm.ChatVM))
@@ -978,12 +1037,7 @@ public partial class MainWindow : Window
         _chatView = _chatWorkspace.ChatView;
         foreach (var svc in vm.ChatVM.ChatBrowserServices.Values)
             svc.SetTheme(vm.IsDarkTheme);
-        HideBrowserPanel();
-        HideDiffPanel();
-        HidePlanPanel();
-        HideSkillPanel();
-        _chatWorkspace?.HideFilePreviewPanel();
-        HideSubagentPanel();
+        _chatWorkspace?.CloseWorkspacePages();
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -1029,6 +1083,9 @@ public partial class MainWindow : Window
             // Wire search overlay result selection
             vm.SearchOverlayVM.ResultSelected += result => OnSearchResultSelected(vm, result);
 
+            // Coming back to Lumi with a teammate's Lumi code on the clipboard offers a preview.
+            Activated += (_, _) => _ = vm.NoticeVM.CheckClipboardAsync();
+
             // Keep native title-bar geometry aligned with the layout-scaled content.
             vm.SettingsVM.PropertyChanged += (_, args) =>
             {
@@ -1073,6 +1130,7 @@ public partial class MainWindow : Window
                     if (vm.SelectedNavIndex == 0)
                     {
                         vm.ChatVM.RefreshComposerCatalogs();
+                        _chatWorkspace?.RestoreDesktopPanel();
 
                         Dispatcher.UIThread.Post(() =>
                         {
@@ -1084,13 +1142,9 @@ public partial class MainWindow : Window
                 }
                 else if (args.PropertyName == nameof(MainViewModel.ActiveChatId))
                 {
-                    // Hide browser/diff/plan when switching chats
-                    HideBrowserPanel();
-                    HideDiffPanel();
-                    HidePlanPanel();
-                    HideSkillPanel();
-                    _chatWorkspace?.HideFilePreviewPanel();
-                    HideSubagentPanel();
+                    // Switching chats closes any Workspace page (the overview follows the preference)
+                    _chatWorkspace?.CloseWorkspacePages();
+                    _chatWorkspace?.RestoreDesktopPanel();
                     Dispatcher.UIThread.Post(() => SyncListBoxSelection(vm.ActiveChatId),
                         DispatcherPriority.Loaded);
                 }
@@ -1197,16 +1251,10 @@ public partial class MainWindow : Window
                 _sidebarPanels[i]!.IsVisible = i == index;
         }
 
-        // Hide/show browser/diff when navigating away from / back to chat
+        // Leaving the chat closes Workspace pages: the native browser can't float over other pages
         if (index != 0)
         {
-            // Leaving chat — fully close preview panels
-            HideBrowserPanel();
-            HideDiffPanel();
-            HidePlanPanel();
-            HideSkillPanel();
-            _chatWorkspace?.HideFilePreviewPanel();
-            HideSubagentPanel();
+            _chatWorkspace?.CloseWorkspacePages();
         }
         else if (_chatWorkspace?.IsBrowserOpen == true)
         {
@@ -1214,12 +1262,9 @@ public partial class MainWindow : Window
             _chatWorkspace.ShowCurrentBrowserController();
         }
 
-        // When projects tab is shown, update chat counts and refresh selected project chats
-        if (index == 1 && DataContext is MainViewModel vm)
-        {
+        // When projects tab is shown, refresh chat counts and the selected project's chats
+        if (index == 2 && DataContext is MainViewModel vm)
             vm.ProjectsVM.RefreshSelectedProjectChats();
-            Dispatcher.UIThread.Post(() => ApplyProjectChatCounts(vm), DispatcherPriority.Loaded);
-        }
 
         // When settings tab is shown, refresh stats
         if (index == 6 && DataContext is MainViewModel svm)
@@ -1227,13 +1272,6 @@ public partial class MainWindow : Window
             if (svm.SettingsVM.SelectedPageIndex < 0)
                 svm.SettingsVM.SelectedPageIndex = 0;
             svm.SettingsVM.RefreshStats();
-        }
-
-        // When MCP tab is shown and no server is selected/editing, auto-open browse catalog
-        if (index == 5 && DataContext is MainViewModel mcpvm)
-        {
-            if (!mcpvm.McpServersVM.IsEditing && mcpvm.McpServersVM.SelectedServer is null)
-                mcpvm.McpServersVM.BrowseCatalogCommand.Execute(null);
         }
 
         if (sectionChanged && _mainPanel?.IsVisible == true)
@@ -3227,21 +3265,32 @@ public partial class MainWindow : Window
         return geometry is null ? null : new PathIcon { Data = geometry, Width = 14, Height = 14 };
     }
 
-    /// <summary>Sets the chat count TextBlock for each project in the sidebar.</summary>
-    private void ApplyProjectChatCounts(MainViewModel vm)
+    /// <summary>
+    /// The management sidebars follow their page's open item one way, so rebuilding a list or
+    /// filtering it never closes the page. A row the user picks opens that item.
+    /// </summary>
+    private void OnManagementListSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        var sidebarProjects = _sidebarPanels.Length > 2 ? _sidebarPanels[2] : null;
-        if (sidebarProjects is null) return;
+        if (sender is not ListBox list || e.AddedItems.Count != 1)
+            return;
 
-        foreach (var item in sidebarProjects.GetVisualDescendants().OfType<ListBoxItem>())
+        switch (list.DataContext, e.AddedItems[0])
         {
-            if (item.DataContext is not Project project) continue;
-            var countLabel = item.GetVisualDescendants().OfType<TextBlock>()
-                .FirstOrDefault(t => t.Name == "ProjectChatCount");
-            if (countLabel is null) continue;
-
-            var count = vm.ProjectsVM.GetChatCount(project.Id);
-            countLabel.Text = count > 0 ? (count == 1 ? string.Format(Loc.Project_ChatCount, count) : string.Format(Loc.Project_ChatCounts, count)) : "";
+            case (ProjectsViewModel vm, Project project) when !ReferenceEquals(vm.SelectedProject, project):
+                vm.SelectedProject = project;
+                break;
+            case (SkillsViewModel vm, Skill skill) when !ReferenceEquals(vm.SelectedSkill, skill):
+                vm.SelectedSkill = skill;
+                break;
+            case (AgentsViewModel vm, LumiAgent agent) when !ReferenceEquals(vm.SelectedAgent, agent):
+                vm.SelectedAgent = agent;
+                break;
+            case (MemoriesViewModel vm, Memory memory) when !ReferenceEquals(vm.SelectedMemory, memory):
+                vm.SelectedMemory = memory;
+                break;
+            case (McpServersViewModel vm, McpServer server) when !ReferenceEquals(vm.SelectedServer, server):
+                vm.SelectedServer = server;
+                break;
         }
     }
 
@@ -3364,25 +3413,4 @@ public partial class MainWindow : Window
                 break;
         }
     }
-
-    private void ShowBrowserPanel(Guid chatId) => _chatWorkspace?.ShowBrowserPanel(chatId);
-    private void HideBrowserPanel() => _chatWorkspace?.HideBrowserPanel();
-
-    /// <summary>Whether the diff panel is currently visible.</summary>
-    private bool IsDiffOpen => _chatWorkspace?.IsDiffOpen == true;
-
-    private void ShowDiffPanel(FileChangeItem fileChange) => _chatWorkspace?.ShowDiffPanel(fileChange);
-    private void HideDiffPanel() => _chatWorkspace?.HideDiffPanel();
-    private void ShowGitChangesPanel(GitChangesViewModel changes)
-        => _chatWorkspace?.ShowGitChangesPanel(changes);
-
-    private bool IsPlanOpen => _chatWorkspace?.IsPlanOpen == true;
-    private void ShowPlanPanel() => _chatWorkspace?.ShowPlanPanel();
-    private void HidePlanPanel() => _chatWorkspace?.HidePlanPanel();
-
-    private bool IsSkillOpen => _chatWorkspace?.IsSkillOpen == true;
-    private void ShowSkillPanel() => _chatWorkspace?.ShowSkillPanel();
-    private void HideSkillPanel() => _chatWorkspace?.HideSkillPanel();
-
-    private void HideSubagentPanel() => _chatWorkspace?.HideSubagentPanel();
 }

@@ -92,7 +92,8 @@ public partial class ChatViewModel
             Role = "user",
             Content = prompt,
             Author = authorOverride ?? _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
+            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
+            ReplyTo = consumeComposerPrompt ? TakePendingReply(chatId) : null
         };
 
         if (attachments is { Count: > 0 })
@@ -156,7 +157,7 @@ public partial class ChatViewModel
 
             var sendOptions = new MessageOptions
             {
-                Prompt = skillDirectives + prompt + BuildSendPromptAdditions(targetChat: activeChat),
+                Prompt = skillDirectives + ComposeModelPrompt(prompt, userMsg) + BuildSendPromptAdditions(targetChat: activeChat),
                 Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
             };
             ApplyMessageAttachments(sendOptions, attachments);
@@ -424,11 +425,14 @@ public partial class ChatViewModel
 
     private static bool CanSteerImmediately(ChatRuntimeState runtime)
         => !runtime.IsStopping
+           && runtime.Chat?.IsPaused != true
            && !runtime.SendQueuedNowWhenTurnStarts
            && HasSubmittedCopilotTurn(runtime);
 
     private static bool HasSubmittedCopilotTurn(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => runtime.IsContinuationTurn
+           || Volatile.Read(ref runtime.AssistantTurnStarted)
+           || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
            || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
            || runtime.HasPendingBackgroundWork;
@@ -480,6 +484,7 @@ public partial class ChatViewModel
             return;
 
         if (CurrentChat is not { } chat
+            || chat.IsPaused
             || !chat.Messages.Contains(message.Message)
             || !IsChatRuntimeActive(chat.Id))
         {

@@ -11,20 +11,19 @@ namespace Lumi.ViewModels;
 
 /// <summary>
 /// Sub-agent run inspection: the chat-wide index of every agent Lumi delegated to, and the
-/// read-only run transcript shown in the right-hand split-view island.
+/// read-only run transcript shown on the Workspace's Agents page.
 /// </summary>
 public partial class ChatViewModel
 {
-    /// <summary>Raised when a sub-agent run (or the run index) should open in the right island.</summary>
+    /// <summary>Raised when a sub-agent run (or the run index) should open in the Workspace.</summary>
     public event Action? SubagentRunShowRequested;
 
-    /// <summary>Raised to hide the sub-agent run island.</summary>
+    /// <summary>Raised to close the Workspace's Agents page.</summary>
     public event Action? SubagentRunHideRequested;
 
     /// <summary>Every sub-agent run in the open chat, oldest first.</summary>
     public ObservableCollection<SubagentToolCallItem> SubagentRuns => _transcriptBuilder.SubagentRuns;
 
-    [ObservableProperty] private bool _isSubagentRunOpen;
     [ObservableProperty] private SubagentToolCallItem? _selectedSubagentRun;
     [ObservableProperty] private int _subagentRunCount;
     [ObservableProperty] private int _runningSubagentCount;
@@ -38,7 +37,7 @@ public partial class ChatViewModel
     private SubagentRunTranscript? _subagentRunTranscript;
     private UiThrottler? _subagentRunRebuild;
 
-    /// <summary>True while the island shows the index of all runs rather than a single run.</summary>
+    /// <summary>True while the Agents page shows the index of all runs rather than a single run.</summary>
     public bool IsSubagentIndexVisible => SelectedSubagentRun is null;
 
     public bool HasSubagentRuns => SubagentRunCount > 0;
@@ -80,7 +79,7 @@ public partial class ChatViewModel
 
     /// <summary>
     /// Coalesces the run rebuild. A streaming agent changes its text many times a second, and each
-    /// rebuild re-creates the run's transcript items, so the island refreshes on a short interval
+    /// rebuild re-creates the run's transcript items, so the Agents page refreshes on a short interval
     /// instead of per token.
     /// </summary>
     private void RequestSubagentRunRebuild()
@@ -112,12 +111,14 @@ public partial class ChatViewModel
     {
         OnPropertyChanged(nameof(HasSubagentRuns));
         OnPropertyChanged(nameof(SubagentRunsSummary));
+        OnPropertyChanged(nameof(WorkspaceToggleToolTip));
     }
 
     partial void OnRunningSubagentCountChanged(int value)
     {
         OnPropertyChanged(nameof(HasRunningSubagents));
         OnPropertyChanged(nameof(SubagentRunsSummary));
+        OnPropertyChanged(nameof(WorkspaceToggleToolTip));
     }
 
     /// <summary>
@@ -138,6 +139,8 @@ public partial class ChatViewModel
         if (_transcriptBuilder.IsRebuildingTranscript)
             return;
 
+        RefreshWorkspaceAgents();
+
         if (SelectedSubagentRun is not { } selected || runs.Contains(selected))
             return;
 
@@ -145,12 +148,12 @@ public partial class ChatViewModel
     }
 
     /// <summary>Re-points a selection at the rebuilt instance of the same run (stable ids survive
-    /// transcript rebuilds), so an open run island keeps showing the same agent.</summary>
+    /// transcript rebuilds), so an open Agents page keeps showing the same agent.</summary>
     private SubagentToolCallItem? ResolveReplacementRun(SubagentToolCallItem previous)
         => _transcriptBuilder.SubagentRuns
             .FirstOrDefault(run => string.Equals(run.StableId, previous.StableId, StringComparison.Ordinal));
 
-    /// <summary>Opens one sub-agent's run as a read-only transcript in the right island.</summary>
+    /// <summary>Opens one sub-agent's run as a read-only transcript in the Workspace.</summary>
     [RelayCommand]
     private void OpenSubagentRun(SubagentToolCallItem? run)
     {
@@ -158,7 +161,6 @@ public partial class ChatViewModel
             return;
 
         SelectedSubagentRun = run;
-        IsSubagentRunOpen = true;
         SubagentRunShowRequested?.Invoke();
     }
 
@@ -166,42 +168,23 @@ public partial class ChatViewModel
     private void ShowSubagentIndex()
     {
         SelectedSubagentRun = null;
-        IsSubagentRunOpen = true;
         SubagentRunShowRequested?.Invoke();
-    }
-
-    /// <summary>Header toggle: opens the agent index, or closes the island when it is already open.</summary>
-    [RelayCommand]
-    private void ToggleSubagentPanel()
-    {
-        if (IsSubagentRunOpen)
-            CloseSubagentRun();
-        else
-            ShowSubagentIndex();
     }
 
     /// <summary>Returns from a single run to the full agent index.</summary>
     [RelayCommand]
     private void BackToSubagentIndex() => SelectedSubagentRun = null;
 
-    [RelayCommand]
-    private void CloseSubagentRun()
-    {
-        IsSubagentRunOpen = false;
-        SubagentRunHideRequested?.Invoke();
-    }
-
     /// <summary>Clears run inspection state when the surface detaches from a chat.</summary>
     private void ResetSubagentRunState()
     {
         SelectedSubagentRun = null;
-        IsSubagentRunOpen = false;
         SubagentRunCount = 0;
         RunningSubagentCount = 0;
         _subagentRunRebuild?.CancelPending();
     }
 
-    /// <summary>Releases the run island's listeners when the chat surface is torn down.</summary>
+    /// <summary>Releases the run transcript's listeners when the chat surface is torn down.</summary>
     private void DisposeSubagentRunState()
     {
         SelectedSubagentRun = null;

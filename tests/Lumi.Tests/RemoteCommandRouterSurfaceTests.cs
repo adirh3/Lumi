@@ -16,6 +16,32 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class RemoteCommandRouterSurfaceTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public Task PausedChatRejectsSendSteerAndStopAndSend(bool steer, bool stopAndSend) => RunAsync(async () =>
+    {
+        Loc.Load("en");
+        var chat = new Chat { IsPaused = true };
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(
+            store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        var router = new RemoteCommandRouter(store, main);
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            .With("chatId", chat.Id.ToString())
+            .With("message", "must wait")
+            .With("steer", steer.ToString())
+            .With("stopAndSend", stopAndSend.ToString());
+
+        var result = await router.ExecuteAsync(command, CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.Equal(Loc.Get("Chat_PausedSendBlocked"), result.Error);
+        Assert.True(chat.IsPaused);
+        Assert.Empty(chat.Messages);
+    });
+
     [Fact]
     public Task PersistedRemoteReceiptShortCircuitsARetryAfterRestart() => RunAsync(async () =>
     {
