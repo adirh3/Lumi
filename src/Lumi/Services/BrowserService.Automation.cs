@@ -82,15 +82,21 @@ public sealed partial class BrowserService
 
     private async Task<BrowserActionResult> WaitForContentSettleAsync(int maxWaitMs = 4000, int pollMs = 100)
     {
-        var deadline = Environment.TickCount64 + maxWaitMs;
+        var started = Environment.TickCount64;
+        var deadline = started + maxWaitMs;
         do
         {
             var result = await RunDomActionAsync("ready");
-            if (!result.Pending) return result;
+            if (!result.Succeeded && !result.Pending) return result;
+            // A brief quiet gap before a delayed update is not evidence that the action has settled.
+            if (result.Succeeded && Environment.TickCount64 - started >= 750) return result;
             if (Environment.TickCount64 >= deadline) break;
             await Task.Delay(pollMs);
         } while (true);
-        return BrowserActionResult.Failure("Readiness timed out: the page is still loading, busy, or changing.");
+        return new(false,
+            "Observation note: page settling reached its time limit; the latest observation may still be changing. " +
+            "Use wait for the next expected element before continuing.",
+            Pending: true);
     }
 
     private async Task<BrowserActionResult> ExecuteActionAsync(BrowserAutomationStep step)
@@ -143,7 +149,7 @@ public sealed partial class BrowserService
             if (!result.Succeeded || action is "read_form" or "wait" or "download")
                 return result;
             var readiness = await WaitForContentSettleAsync(maxWaitMs: 2500);
-            if (!readiness.Succeeded)
+            if (!readiness.Succeeded && !readiness.Pending)
                 return BrowserActionResult.Failure(result.Message + "\nAction executed; " + readiness.Message + " It was not retried.");
             if (action is "type" or "select" or "fill" or "clear")
             {
@@ -151,7 +157,9 @@ public sealed partial class BrowserService
                 if (!validation.Succeeded)
                     return BrowserActionResult.Failure(result.Message + "\n" + validation.Message);
             }
-            return result;
+            return readiness.Pending
+                ? BrowserActionResult.Success(result.Message + "\nThe action completed and was not retried.\n" + readiness.Message)
+                : result;
         }
         catch (Exception ex) { return BrowserActionResult.FromException(ex); }
     }

@@ -1,4 +1,5 @@
 #if WINDOWS
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -61,6 +62,9 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 await browser.OpenAndSnapshotAsync(url);
                 browser.WebView!.Profile.DefaultDownloadFolderPath = root;
 
+                await VerifyActionSettling(browser);
+                output.WriteLine("PASS: delayed results appear, continuous updates preserve successful actions, and clicks are never retried.");
+                await browser.OpenAndSnapshotAsync(url);
                 await VerifyReferences(browser, url);
                 output.WriteLine("PASS: filtered/ranked/limited identities, dialog order, replacement/navigation stale references.");
                 await browser.OpenAndSnapshotAsync(url);
@@ -102,8 +106,8 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         {
             Exception? error = null;
             var bodyCompleted = false;
-            // Same scoped-locator/reset isolation as Avalonia's unit-test session, but unlike its
-            // worker thread this one is STA. The collection excludes concurrent Avalonia tests.
+            // The batch runner gives this STA fixture a fresh host: a prior headless dispatcher
+            // cannot be reset here. The collection also excludes concurrent Avalonia tests.
             var reset = typeof(Dispatcher).GetMethod("ResetForUnitTests",
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
             var enterScope = typeof(AvaloniaLocator).GetMethod("EnterScope",
@@ -142,6 +146,51 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         return completion.Task;
+    }
+
+    private async Task VerifyActionSettling(BrowserService browser)
+    {
+        var timer = Stopwatch.StartNew();
+        var delayed = await browser.DoAsync("click", "#delayed");
+        var delayedMs = timer.ElapsedMilliseconds;
+        var delayedClicks = await EvaluateString(browser, "String(window.delayedClicks)");
+
+        await browser.EvaluateAsync("""
+            window.noise = setInterval(() => document.getElementById('marker').dataset.tick = String(performance.now()), 50)
+            """);
+        timer.Restart();
+        var noisy = await browser.DoAsync("steps", value: """
+            [{"action":"click","target":"#tick quiet"},{"action":"click","target":"#followup quiet"}]
+            """);
+        var noisyMs = timer.ElapsedMilliseconds;
+        var tickClicks = await EvaluateString(browser, "String(window.tickClicks)");
+        var followups = await EvaluateString(browser, "String(window.followups)");
+        await browser.EvaluateAsync("clearInterval(window.noise)");
+
+        await browser.EvaluateAsync("""
+            window.animation = setInterval(() => document.getElementById('live-result').textContent = String(performance.now()), 50)
+            """);
+        timer.Restart();
+        var changing = await browser.DoAsync("click", "#tick");
+        var changingMs = timer.ElapsedMilliseconds;
+        var totalTickClicks = await EvaluateString(browser, "String(window.tickClicks)");
+        await browser.EvaluateAsync("clearInterval(window.animation)");
+
+        output.WriteLine($"Delayed click ({delayedMs} ms): {delayed}");
+        output.WriteLine($"Attribute-noise batch ({noisyMs} ms): {noisy}");
+        output.WriteLine($"Continuously changing page ({changingMs} ms): {changing}");
+        Assert.Contains("Result arrived", delayed);
+        Assert.DoesNotContain("Error:", delayed);
+        Assert.Equal("1", delayedClicks);
+        Assert.Contains("Completed 2 of 2 steps", noisy);
+        Assert.DoesNotContain("Error:", noisy);
+        Assert.Equal("1", tickClicks);
+        Assert.Equal("1", followups);
+        Assert.DoesNotContain("Error:", changing);
+        Assert.Contains("may still be changing", changing);
+        Assert.Contains("not retried", changing);
+        Assert.Equal("2", totalTickClicks);
+        Assert.InRange(changingMs, 0, 5000);
     }
 
     private static async Task VerifyReferences(BrowserService browser, string url)
@@ -334,7 +383,8 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         Assert.Contains("Error", result, StringComparison.OrdinalIgnoreCase);
 
     private static async Task<string> EvaluateString(BrowserService browser, string expression) =>
-        JsonSerializer.Deserialize<string>(await browser.WebView!.ExecuteScriptAsync(expression))!;
+        JsonSerializer.Deserialize(await browser.WebView!.ExecuteScriptAsync(expression),
+            Lumi.Models.AppDataJsonContext.Default.String)!;
 
     private static Task UntilAsync(Func<bool> condition) => UntilAsync(() => Task.FromResult(condition()));
 
@@ -361,11 +411,16 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         <input id="locked" value="read only" readonly>
         <button id="submit" type="submit">Submit fixture</button></form>
         <button id="alpha-help" type="button">Alpha help</button>
+        <button id="delayed" type="button" onclick="window.delayedClicks++;setTimeout(()=>document.getElementById('delayed-result').textContent='Result arrived',500)">Delayed result</button>
+        <output id="delayed-result">Result pending</output>
+        <button id="tick" type="button" onclick="window.tickClicks++">Count click</button>
+        <button id="followup" type="button" onclick="window.followups++">Follow-up</button>
+        <output id="live-result"></output>
         <button id="popup" type="button" onclick="window.open('about:blank','related-popup')">Open related popup</button>
         <button id="download" type="button" onclick="downloadFixture()">Download isolated file</button>
         <dialog id="dialog"><button id="dialog-action" type="button">Dialog action</button></dialog>
         </main><script>
-        window.submits=0;window.popupReply='';
+        window.submits=0;window.popupReply='';window.delayedClicks=0;window.tickClicks=0;window.followups=0;
         window.addEventListener('message', e => window.popupReply=e.data);
         function downloadFixture(){
           const a=document.createElement('a');

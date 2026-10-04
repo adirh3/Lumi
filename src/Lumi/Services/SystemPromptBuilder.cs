@@ -639,6 +639,7 @@ public static class SystemPromptBuilder
 
         **Tab identity:** Browser actions default to the active tab. Each operation stays with the tab it started on, even if the user switches tabs while it runs. After switching tabs, use look/find before reusing element numbers; numbers belong to a tab's page state, not to every tab. Screenshots show pixels, not clickable element numbers.
         **Quiet mode:** Append ` quiet` to the target or set value to `quiet` on click/press/scroll to skip the auto-snapshot. Use when you already know the next action.
+        **Settling:** Post-action observations wait for a bounded settling window, not every possible asynchronous update. A settling note does not mean the completed action failed: do not repeat a completed click or submit. Use `wait` for the next expected element and inspect again when the page may still be changing.
         **Steps action example:** `lumi_browser_do("steps", null, '[{"action":"click","target":"Next month"},{"action":"click","target":"Next month"},{"action":"click","target":"25"}]')`
 
         **Fill action example:** `lumi_browser_do("fill", null, '{"3": "John", "email": "john@example.com", "agree": true}')`

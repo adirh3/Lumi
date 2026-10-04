@@ -127,7 +127,7 @@ public sealed class BrowserScreenshotToolTests
     [InlineData("create")]
     [InlineData("resume")]
     [InlineData("lightweight")]
-    public void ScreenshotTool_CanBeRegisteredAndPreloadedWithoutReflectionMetadata(string sessionKind)
+    public void ScreenshotTool_CanBeRegisteredAndPreloadedWithoutInferringReturnSchema(string sessionKind)
     {
         var screenshot = ChatViewModel.BuildBrowserScreenshotTool(
             _ => throw new InvalidOperationException("Session setup must not capture."));
@@ -148,7 +148,7 @@ public sealed class BrowserScreenshotToolTests
 
         // The app disables reflection. Its binary SDK envelope needs no JSON return schema,
         // even though the input schema must remain available during every session setup.
-        Assert.Throws<NotSupportedException>(() => tool.JsonSerializerOptions!.GetTypeInfo(typeof(ToolResultAIContent)));
+        Assert.Same(screenshot.JsonSerializerOptions, tool.JsonSerializerOptions);
         Assert.Null(tool.ReturnJsonSchema);
         Assert.Equal(ToolDisplayHelper.BrowserScreenshotToolName, tool.Name);
         Assert.Equal(["tabId"], tool.JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name));

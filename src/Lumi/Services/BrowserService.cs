@@ -949,7 +949,8 @@ public sealed partial class BrowserService : IAsyncDisposable
                 return $"Tab: {TabId}\n" + result.ToDisplayText();
             var readiness = await WaitForContentSettleAsync();
             var snapshot = await LookCoreAsync();
-            return readiness.Succeeded ? snapshot : readiness.ToDisplayText() + "\n\n" + snapshot;
+            return readiness.Succeeded ? snapshot :
+                (readiness.Pending ? readiness.Message : readiness.ToDisplayText()) + "\n\n" + snapshot;
         }
         catch (Exception ex) { return $"Tab: {TabId}\n" + BrowserActionResult.FromException(ex).ToDisplayText(); }
     }

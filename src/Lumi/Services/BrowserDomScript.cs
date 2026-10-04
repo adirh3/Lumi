@@ -52,7 +52,12 @@ internal static class BrowserDomScript
             registry = {scope, next:0, ids:new WeakMap(), nodes:new Map(), secrets:new Set(), changed:performance.now()};
             Object.defineProperty(document, slot, {value:registry, configurable:true});
             registry.observer = new MutationObserver(() => { registry.changed = performance.now(); });
-            registry.observer.observe(document, {subtree:true, childList:true, attributes:true, characterData:true});
+            registry.observer.observe(document, {
+                subtree:true, childList:true, characterData:true, attributes:true,
+                attributeFilter:['class','style','hidden','inert','open','disabled','readonly',
+                    'aria-busy','aria-disabled','aria-hidden','aria-expanded','aria-invalid',
+                    'aria-label','aria-modal','role','value','checked','selected','href','title','placeholder','data-tooltip']
+            });
             // A restored document gets new references, even though its JS heap survived navigation.
             const restored = event => {
                 if (!event.persisted) return;
@@ -220,7 +225,7 @@ internal static class BrowserDomScript
             if (operation === 'ready') {
                 if (document.readyState === 'loading' || !document.body ||
                     [...document.querySelectorAll('[aria-busy="true"],[role="progressbar"]')].some(visible) ||
-                    performance.now() - registry.changed < 120)
+                    performance.now() - registry.changed < 250)
                     return pending('The page is still loading or updating.');
                 return ok('Page ready.');
             }

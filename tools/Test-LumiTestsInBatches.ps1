@@ -41,6 +41,8 @@ if ($classes.Count -eq 0) {
 
 $isolatedClasses = @(
     "Lumi.Tests.AnimationLifecycleRegressionTests",
+    # Its native STA dispatcher must not reset dispatcher state owned by earlier headless tests.
+    "Lumi.Tests.BrowserServiceIntegrationTests",
     "Lumi.Tests.ChatViewClipboardTests",
     "Lumi.Tests.ChatViewScrollBehaviorTests",
     "Lumi.Tests.DesktopPreviewUiTests",
