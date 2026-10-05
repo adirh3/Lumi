@@ -62,6 +62,8 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 await browser.OpenAndSnapshotAsync(url);
                 browser.WebView!.Profile.DefaultDownloadFolderPath = root;
 
+                await VerifyBlurNotifications(browser);
+                output.WriteLine("PASS: unfocused edits notify blur validation once, commit model state, and preserve page-managed focus.");
                 await VerifyKeyboardAndClickTargets(browser);
                 output.WriteLine("PASS: separate/batched type-Enter retains focus and submits; natural clicks prefer Search buttons; explicit field targets remain valid.");
                 await VerifyMultilineEdits(browser);
@@ -152,14 +154,65 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         return completion.Task;
     }
 
-    private async Task VerifyKeyboardAndClickTargets(BrowserService browser)
+    private async Task VerifyBlurNotifications(BrowserService browser)
     {
+        Assert.Equal("false", await EvaluateString(browser, "String(document.hasFocus())"));
+        var result = await browser.DoAsync("steps", value: """
+            [{"action":"type","target":"#query","value":"validated query"},
+             {"action":"click","target":"#commit-validation"}]
+            """);
+        output.WriteLine(result);
+        Assert.Equal("1", await EvaluateString(browser, "String(window.queryBlurs)"));
+        Assert.Equal("validated query", await EvaluateString(browser, "window.validatedQuery"));
+        Assert.Contains("Completed 2 of 2 steps", result);
+        Assert.Equal("1", await EvaluateString(browser, "String(window.queryConfirmations)"));
+        Assert.Equal("false", await EvaluateString(browser, "String(document.hasFocus())"));
+
+        var filled = await browser.DoAsync("steps", value: """
+            [{"action":"fill","value":"{\"#query\":\"filled query\"}"},
+             {"action":"click","target":"#commit-validation"}]
+            """);
+        Assert.Contains("Completed 2 of 2 steps", filled);
+        Assert.Equal("2", await EvaluateString(browser, "String(window.queryBlurs)"));
+        Assert.Equal("filled query", await EvaluateString(browser, "window.validatedQuery"));
+        Assert.Equal("2", await EvaluateString(browser, "String(window.queryConfirmations)"));
+
+        await browser.EvaluateAsync("""
+            document.getElementById('query').addEventListener('blur', () => document.getElementById('alpha').focus(), {once:true})
+            """);
+        Assert.DoesNotContain("Error:", await browser.DoAsync("type", "#query", "redirected query"));
+        Assert.Equal("alpha", await EvaluateString(browser, "document.activeElement.id"));
+        Assert.Equal("3", await EvaluateString(browser, "String(window.queryBlurs)"));
+        Assert.Equal("redirected query", await EvaluateString(browser, "window.validatedQuery"));
+
+        // Exercise the already-notified branch without activating the host window.
         await browser.EvaluateAsync("""
             document.getElementById('query').blur = function() {
-                window.queryBlurs++;
                 HTMLElement.prototype.blur.call(this);
+                this.dispatchEvent(new FocusEvent('blur'));
             }
             """);
+        Assert.DoesNotContain("Error:", await browser.DoAsync("type", "#query", "already notified"));
+        Assert.Equal("4", await EvaluateString(browser, "String(window.queryBlurs)"));
+        Assert.Equal("already notified", await EvaluateString(browser, "window.validatedQuery"));
+        await browser.EvaluateAsync("""
+            delete document.getElementById('query').blur;
+            document.getElementById('query').addEventListener('blur', function() { this.value='rejected'; }, {once:true})
+            """);
+        var rejected = await browser.DoAsync("steps", value: """
+            [{"action":"type","target":"#query","value":"must not be accepted"},
+             {"action":"click","target":"#commit-validation"}]
+            """);
+        AssertError(rejected);
+        Assert.Equal("5", await EvaluateString(browser, "String(window.queryBlurs)"));
+        Assert.Equal("2", await EvaluateString(browser, "String(window.queryConfirmations)"));
+        Assert.Equal("false", await EvaluateString(browser, "String(document.hasFocus())"));
+        await browser.EvaluateAsync("window.queryBlurs=0");
+        output.WriteLine("Actual blur listeners committed type/fill values exactly once, enabled confirmation, redirected logical focus, and rejected edits without activating the document. Already-delivered event simulation did not duplicate notification.");
+    }
+
+    private async Task VerifyKeyboardAndClickTargets(BrowserService browser)
+    {
         Assert.DoesNotContain("Error:", await browser.DoAsync("type", "#query", "local query"));
         Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
         Assert.DoesNotContain("Error:", await browser.DoAsync("press", "Enter"));
@@ -186,7 +239,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         Assert.DoesNotContain("Error:", await browser.DoAsync("click", "query"));
         Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
         Assert.Equal("3", await EvaluateString(browser, "String(window.searches)"));
-        output.WriteLine("Search form submitted exactly three times; native blur was invoked and explicit CSS/numeric input clicks preserved focus.");
+        output.WriteLine("Search form submitted exactly three times; blur listeners ran once per edit and explicit CSS/numeric input clicks preserved focus.");
     }
 
     private async Task VerifyMultilineEdits(BrowserService browser)
@@ -496,6 +549,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         <form onsubmit="event.preventDefault();window.searches++">
         <input id="query" type="search" name="search" placeholder="Search">
         <button id="search-submit" type="submit">Search</button></form>
+        <button id="commit-validation" type="button" disabled onclick="window.queryConfirmations++">Accept validation</button>
         <textarea id="notes"></textarea>
         <button id="confirm-notes" type="button" onclick="window.confirmations++">Confirm notes</button>
         <button id="delayed" type="button" onclick="window.delayedClicks++;setTimeout(()=>document.getElementById('delayed-result').textContent='Result arrived',500)">Delayed result</button>
@@ -509,6 +563,11 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         </main><script>
         window.submits=0;window.popupReply='';window.delayedClicks=0;window.tickClicks=0;window.followups=0;
         window.searches=0;window.queryBlurs=0;window.confirmations=0;
+        window.validatedQuery='';window.queryConfirmations=0;
+        document.getElementById('query').addEventListener('blur', function() {
+          window.queryBlurs++;window.validatedQuery=this.value;
+          document.getElementById('commit-validation').disabled=false;
+        });
         window.addEventListener('message', e => window.popupReply=e.data);
         function downloadFixture(){
           const a=document.createElement('a');

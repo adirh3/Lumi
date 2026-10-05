@@ -220,7 +220,13 @@ internal static class BrowserDomScript
                 el.dispatchEvent(new InputEvent('input', {bubbles:true, data:text, inputType:'insertText'}));
                 el.dispatchEvent(new Event('change', {bubbles:true}));
             }
-            el.blur();
+            let blurNotified = false;
+            const onBlur = () => { blurNotified = true; };
+            el.addEventListener('blur', onBlur, {capture:true, once:true});
+            try { el.blur(); }
+            finally { el.removeEventListener('blur', onBlur, true); }
+            // An unfocused WebView can change logical focus without notifying page validation.
+            if (!blurNotified) el.dispatchEvent(new FocusEvent('blur', {bubbles:true}));
             const edit = {node:new WeakRef(el), property, expected, checkValidity};
             registry.edited.push(edit);
             validateEdit(edit);
