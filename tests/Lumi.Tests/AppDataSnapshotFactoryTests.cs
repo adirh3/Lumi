@@ -691,6 +691,8 @@ public class AppDataSnapshotFactoryTests
                     ChatId = chatId,
                     Name = "Hotel monitor",
                     Prompt = "Watch London hotel prices.",
+                    IconGlyph = "\U0001F4A1",
+                    UseIconInChatTitles = true,
                     TriggerType = BackgroundJobTriggerTypes.ChatEvent,
                     SourceChatId = sourceChatId,
                     ChatEventTypes = [ChatLifecycleEventTypes.Idle],
@@ -707,6 +709,11 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal("Hotel monitor", job.GetProperty("name").GetString());
         Assert.Equal(sourceChatId, job.GetProperty("sourceChatId").GetGuid());
         Assert.Equal("idle", job.GetProperty("chatEventTypes")[0].GetString());
+        Assert.Equal("\U0001F4A1", job.GetProperty("iconGlyph").GetString());
+        Assert.True(job.GetProperty("useIconInChatTitles").GetBoolean());
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
+        Assert.Equal("\U0001F4A1", Assert.Single(restored.BackgroundJobs).IconGlyph);
+        Assert.True(restored.BackgroundJobs[0].UseIconInChatTitles);
     }
 
     [Fact]
@@ -724,6 +731,8 @@ public class AppDataSnapshotFactoryTests
                     Id = jobId,
                     ChatId = chatId,
                     Name = "PR watcher",
+                    IconGlyph = "\U0001F50E",
+                    UseIconInChatTitles = true,
                     Description = "Wait for a PR check.",
                     Prompt = "Wake when CI finishes.",
                     TriggerType = BackgroundJobTriggerTypes.Script,
@@ -746,6 +755,8 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal(jobId, job.Id);
         Assert.Equal(chatId, job.ChatId);
         Assert.Equal("PR watcher", job.Name);
+        Assert.Equal("\U0001F50E", job.IconGlyph);
+        Assert.True(job.UseIconInChatTitles);
         Assert.Equal(BackgroundJobTriggerTypes.Script, job.TriggerType);
         Assert.Equal("Write-Output done", job.ScriptContent);
         Assert.Equal(sourceChatId, job.SourceChatId);

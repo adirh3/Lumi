@@ -1003,6 +1003,8 @@ public static class BackgroundJobRunStatuses
 
 public class BackgroundJob : INotifyPropertyChanged
 {
+    public const string DefaultIconGlyph = "\u23F0";
+
     private bool _isRunning;
     private long _configurationVersion;
 
@@ -1020,6 +1022,32 @@ public class BackgroundJob : INotifyPropertyChanged
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
     public string Prompt { get; set; } = "";
+    public string IconGlyph { get; set; } = DefaultIconGlyph;
+    public bool UseIconInChatTitles { get; set; }
+
+    internal bool HasSameRunConfiguration(BackgroundJob other)
+        => ChatId == other.ChatId
+           && Name == other.Name
+           && Description == other.Description
+           && Prompt == other.Prompt
+           && TriggerType == other.TriggerType
+           && ScheduleType == other.ScheduleType
+           && IntervalMinutes == other.IntervalMinutes
+           && DailyTime == other.DailyTime
+           && DaysOfWeek == other.DaysOfWeek
+           && MonthlyDay == other.MonthlyDay
+           && CronExpression == other.CronExpression
+           && RunAt == other.RunAt
+           && ScriptContent == other.ScriptContent
+           && ScriptLanguage == other.ScriptLanguage
+           && SourceChatId == other.SourceChatId
+           && ChatEventTypes.SequenceEqual(other.ChatEventTypes)
+           && IsEnabled == other.IsEnabled
+           && IsTemporary == other.IsTemporary;
+
+    [JsonIgnore]
+    public string DisplayIconGlyph => string.IsNullOrWhiteSpace(IconGlyph) ? DefaultIconGlyph : IconGlyph.Trim();
+
     public string TriggerType { get; set; } = BackgroundJobTriggerTypes.Time;
     public string ScheduleType { get; set; } = BackgroundJobScheduleTypes.Interval;
     public int IntervalMinutes { get; set; } = 1440;
@@ -1184,6 +1212,7 @@ public class BackgroundJob : INotifyPropertyChanged
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Description)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayIconGlyph)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEnabled)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TriggerDisplay)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ActivationDisplay)));

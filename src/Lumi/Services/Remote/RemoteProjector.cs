@@ -403,6 +403,8 @@ internal static class RemoteProjector
             Jobs = dataStore.SnapshotBackgroundJobs().Select(job => new RemoteJob
             {
                 Id = job.Id,
+                IconGlyph = BoundRequired(job.DisplayIconGlyph, RemoteProtocol.MobileMetadataTextLimit),
+                UseIconInChatTitles = job.UseIconInChatTitles,
                 Name = BoundRequired(job.Name, RemoteProtocol.MobileMetadataTextLimit),
                 Description = BoundOptional(job.Description, RemoteProtocol.MobileMetadataTextLimit),
                 ChatId = job.ChatId,

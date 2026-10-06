@@ -58,6 +58,25 @@ opening it. Closed/open envelope icons distinguish the two actions. Opening the
 chat or choosing **Mark all as read** also clears the mark. Like automatic unread
 indicators, these marks last for the current app session.
 
+### Background job icons
+
+Open **Jobs**, select a job, and choose its **Job icon** with the emoji picker
+or paste your own glyph. Jobs without a custom icon use the alarm clock.
+The icon is saved with the job and shown in the desktop and mobile job lists.
+
+Enable **Use icon in job chat titles** to include title guidance in future job
+runs. This asks Lumi to prefix the linked chat and already-authorized result
+chats; it is agent guidance, not an automatic bulk rename. Existing jobs keep
+this option off. Explicit title policies, result-only conditions, deduplication,
+and urgency/clearing rules take priority; unrelated chats are not included.
+
+The `manage_jobs` tool also accepts `iconGlyph` and `useIconInChatTitles`.
+Omitting them during an update preserves the saved values; an empty
+`iconGlyph` restores the clock. For example, use a magnifier for PR reviews,
+an incoming envelope for email, or a light bulb for an innovation digest.
+Keep conditional urgency criteria in the job instructions rather than using
+an always-on category icon as an urgency signal.
+
 ### Resuming chats after backend history errors
 
 For `400 input item ID does not belong to this connection`, click **Try again** or send

@@ -1069,7 +1069,9 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 GetString(args, "query"),
                 _mainViewModel.ChatVM.CurrentChat?.Id,
                 GetString(args, "sourceChatIdentifier"),
-                GetStringArrayOrNull(args, "chatEventTypes")),
+                GetStringArrayOrNull(args, "chatEventTypes"),
+                GetString(args, "iconGlyph"),
+                GetBool(args, "useIconInChatTitles")),
             _ => throw new InvalidOperationException($"Unknown feature resource '{resource}'.")
         };
 
@@ -1933,6 +1935,8 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             job.Description,
             job.ChatId,
             job.SourceChatId,
+            iconGlyph = job.DisplayIconGlyph,
+            job.UseIconInChatTitles,
             job.TriggerType,
             chatEventTypes = job.ChatEventTypes,
             job.ScheduleType,

@@ -58,6 +58,8 @@ public sealed class RemoteMcpServer
 public sealed class RemoteJob
 {
     public Guid Id { get; set; }
+    public string IconGlyph { get; set; } = "\u23F0";
+    public bool UseIconInChatTitles { get; set; }
     public string Name { get; set; } = "";
     public string? Description { get; set; }
     public Guid ChatId { get; set; }
