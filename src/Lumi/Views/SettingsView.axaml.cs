@@ -343,6 +343,8 @@ public partial class SettingsView : UserControl
                     ApplySearch(vm.SearchQuery);
                 else if (args.PropertyName == nameof(SettingsViewModel.GlobalHotkey))
                     UpdateHotkeyButtonText();
+                else if (args.PropertyName == nameof(SettingsViewModel.IsMobileSetupReady))
+                    RevealMobileSetup();
             };
 
             // Wire the shared login component
@@ -392,6 +394,20 @@ public partial class SettingsView : UserControl
         }
 
         _mainScrollViewer?.ScrollToHome();
+        if (index == 2)
+            RevealMobileSetup();
+    }
+
+    private void RevealMobileSetup()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (IsEffectivelyVisible
+                && DataContext is SettingsViewModel
+                    { SelectedPageIndex: 2, UseDevTunnelForMobile: true, IsMobileSetupReady: true } vm
+                && string.IsNullOrWhiteSpace(vm.SearchQuery))
+                this.FindControl<Border>("MobileSetupPanel")?.BringIntoView();
+        }, DispatcherPriority.Loaded);
     }
 
     private void ApplySearch(string? query)

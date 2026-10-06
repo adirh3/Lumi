@@ -770,7 +770,9 @@ public sealed partial class MobileShellViewModel :
             if (!IsConnected)
             {
                 var host = string.IsNullOrWhiteSpace(HostName) ? "your PC" : HostName;
-                return $"Reconnecting to {host}...";
+                return string.IsNullOrWhiteSpace(ConnectionMessage)
+                    ? $"Reconnecting to {host}..."
+                    : $"Reconnecting to {host}... {ConnectionMessage}";
             }
 
             return string.IsNullOrWhiteSpace(ConnectionMessage)

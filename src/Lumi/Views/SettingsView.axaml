@@ -313,22 +313,85 @@
                 </Grid>
               </Button>
             </Grid>
-            <Border IsVisible="{Binding UseDevTunnelForMobile}"
+            <Border x:Name="MobileDevTunnelSetupCard"
+                    IsVisible="{Binding IsDevTunnelSetupVisible}"
                     Background="{DynamicResource Brush.Surface2}"
                     CornerRadius="{DynamicResource Radius.Interactive}" Padding="12">
-              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel Spacing="12">
+                <TextBlock x:Name="MobileDevTunnelSetupTitle"
+                           Text="{Binding DevTunnelSetupTitle}"
+                           FontWeight="SemiBold" />
                 <TextBlock x:Name="MobileDevTunnelStatus"
                            Text="{Binding DevTunnelStatusText}"
                            VerticalAlignment="Center" TextWrapping="Wrap"
                            FontSize="{DynamicResource Font.SizeCaption}"
                            Foreground="{DynamicResource Brush.TextSecondary}" />
-                <Button x:Name="MobileDevTunnelRetryButton" Grid.Column="1"
-                        Classes="subtle motion-action"
-                        IsVisible="{Binding CanRetryMobileDevTunnel}"
-                        VerticalAlignment="Center"
-                        Command="{Binding RetryMobileDevTunnelCommand}"
-                        Content="{loc:Str Remote_DevTunnelRetry}" />
-              </Grid>
+                <ProgressBar x:Name="MobileDevTunnelProgress"
+                             IsVisible="{Binding IsDevTunnelSetupBusy}"
+                             IsIndeterminate="True" Height="2" MinHeight="2" />
+                <StackPanel x:Name="MobileDevTunnelSignInPanel"
+                            IsVisible="{Binding HasDevTunnelSignInCode}" Spacing="8">
+                  <TextBlock Text="{loc:Str Remote_DevTunnelSignInCodeLabel}"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                  <SelectableTextBlock x:Name="MobileDevTunnelSignInCode"
+                                       Text="{Binding DevTunnelSignInCode}"
+                                       FontSize="{DynamicResource Font.SizeTitle}"
+                                       FontWeight="SemiBold" LetterSpacing="3" />
+                  <SelectableTextBlock Text="{Binding DevTunnelSignInUrl}" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Brush.AccentDefault}" />
+                  <TextBlock Text="{loc:Str Remote_DevTunnelSignInHelp}" TextWrapping="Wrap"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock IsVisible="{Binding DevTunnelBrowserMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                             Text="{Binding DevTunnelBrowserMessage}" TextWrapping="Wrap"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <WrapPanel Orientation="Horizontal">
+                    <Button x:Name="MobileDevTunnelOpenSignInButton"
+                            Classes="accent motion-action" MinHeight="48" Margin="0,0,8,8"
+                            Command="{Binding OpenDevTunnelSignInCommand}"
+                            Content="{loc:Str Remote_DevTunnelOpenSignIn}" />
+                    <Button x:Name="MobileDevTunnelCopySignInCodeButton"
+                            Classes="subtle motion-action" MinHeight="48" Margin="0,0,8,8"
+                            Command="{Binding CopyDevTunnelSignInCodeCommand}"
+                            Content="{loc:Str Remote_DevTunnelCopySignInCode}" />
+                  </WrapPanel>
+                </StackPanel>
+                <WrapPanel Orientation="Horizontal">
+                  <Button x:Name="MobileDevTunnelSignInButton"
+                          Classes="accent motion-action" MinHeight="48" Margin="0,0,8,0"
+                          IsVisible="{Binding CanSignInMobileDevTunnel}"
+                          Command="{Binding SignInMobileDevTunnelCommand}"
+                          Content="{loc:Str Remote_DevTunnelSignInButton}" />
+                  <Button x:Name="MobileDevTunnelRetryButton"
+                          Classes="subtle motion-action" MinHeight="48" Margin="0,0,8,0"
+                          IsVisible="{Binding CanRetryMobileDevTunnel}"
+                          Command="{Binding RetryMobileDevTunnelCommand}"
+                          Content="{Binding DevTunnelRetryActionText}" />
+                  <Button x:Name="MobileDevTunnelCancelSetupButton"
+                          Classes="subtle motion-action" MinHeight="48"
+                          IsVisible="{Binding CanCancelMobileDevTunnelSetup}"
+                          Command="{Binding CancelMobileDevTunnelSetupCommand}"
+                          Content="{loc:Str Remote_DevTunnelCancelSetup}" />
+                </WrapPanel>
+                <Expander x:Name="MobileDevTunnelSignInHelp"
+                          IsVisible="{Binding CanUseDevTunnelBrowserSignIn}"
+                          Header="{loc:Str Remote_DevTunnelSignInTrouble}">
+                  <Button x:Name="MobileDevTunnelBrowserSignInButton"
+                          Classes="subtle motion-action" MinHeight="48" Margin="0,8,0,0"
+                          Command="{Binding UseDevTunnelBrowserSignInCommand}"
+                          Content="{loc:Str Remote_DevTunnelUseBrowserSignIn}" />
+                </Expander>
+                <Expander x:Name="MobileDevTunnelErrorDetails"
+                          IsVisible="{Binding HasDevTunnelErrorDetails}"
+                          Header="{loc:Str Remote_DevTunnelDetails}">
+                  <SelectableTextBlock Text="{Binding DevTunnelErrorDetails}" TextWrapping="Wrap"
+                                       Margin="0,8,0,0"
+                                       FontSize="{DynamicResource Font.SizeCaption}"
+                                       Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Expander>
+              </StackPanel>
             </Border>
             <TextBlock IsVisible="{Binding IsMobileLocalNetworkSelected}"
                        Text="{loc:Str Remote_TransportLocalWarning}"
@@ -337,11 +400,12 @@
             </StackPanel>
           </sc:StrataSetting>
           <sc:StrataSetting Classes="stacked-content"
-                           Header="{loc:Str Setting_MobileChoose}"
+                           Header="{Binding MobileExperienceTitle}"
                            Description="{Binding MobileExperienceDescription}"
-                           IsVisible="{Binding RemoteAccessEnabled}">
+                           IsVisible="{Binding IsMobileExperienceSectionVisible}">
             <StackPanel Spacing="14">
-              <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+              <Grid x:Name="MobileAppChoices" ColumnDefinitions="*,*" ColumnSpacing="10"
+                    IsVisible="{Binding !UseDevTunnelForMobile}">
                 <Button x:Name="MobileWebSetupButton"
                         Grid.Column="0"
                         Classes="subtle motion-action mobile-experience"
@@ -407,7 +471,8 @@
 
                   <StackPanel IsVisible="{Binding IsMobileSetupReady}"
                              Spacing="10">
-                    <TextBlock Text="{loc:Str Remote_SetupScan}"
+                    <TextBlock IsVisible="{Binding !UseDevTunnelForMobile}"
+                              Text="{loc:Str Remote_SetupScan}"
                               HorizontalAlignment="Center"
                               FontWeight="SemiBold" />
                     <Border Width="216" Height="216"
@@ -439,13 +504,15 @@
                              Command="{Binding CopyMobileSetupLinkCommand}"
                              Content="{loc:Str Remote_SetupCopyLink}" />
                     </Grid>
-                    <TextBlock Text="{Binding MobileSetupInstructions}"
+                    <TextBlock x:Name="MobileSetupInstructionsText"
+                              Text="{Binding MobileSetupInstructions}"
                               TextWrapping="Wrap"
                               FontSize="{DynamicResource Font.SizeCaption}"
                               Foreground="{DynamicResource Brush.TextSecondary}" />
                   </StackPanel>
 
-                  <Border Background="{DynamicResource Brush.Surface1}"
+                  <Border IsVisible="{Binding IsMobileSetupReady}"
+                          Background="{DynamicResource Brush.Surface1}"
                           CornerRadius="{DynamicResource Radius.Interactive}"
                           Padding="12">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
@@ -474,6 +541,14 @@
                              Content="{Binding RemotePairActionText}" />
                     </Grid>
                   </Border>
+                  <Expander x:Name="MobileDevTunnelPhoneTips"
+                            IsVisible="{Binding UseDevTunnelForMobile}"
+                            Header="{loc:Str Remote_DevTunnelPhoneTips}">
+                    <TextBlock Text="{loc:Str Remote_DevTunnelPhoneTipsDescription}"
+                               Margin="0,8,0,0" TextWrapping="Wrap"
+                               FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                  </Expander>
                 </StackPanel>
               </Border>
             </StackPanel>

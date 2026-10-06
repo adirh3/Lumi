@@ -7,10 +7,18 @@ using Lumi.Localization;
 
 namespace Lumi.Services.Remote;
 
+internal sealed class RemoteDevTunnelCliException(
+    string message, bool requiresSignIn = false, bool canRetry = true)
+    : InvalidOperationException(message)
+{
+    public bool RequiresSignIn { get; } = requiresSignIn;
+    public bool CanRetry { get; } = canRetry;
+}
+
 internal static class RemoteDevTunnelCli
 {
     internal const long MaximumDownloadBytes = 128L * 1024 * 1024;
-    internal static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(5);
     private const string DownloadRoot = "https://tunnelsassetsprod.blob.core.windows.net/cli/";
@@ -225,10 +233,11 @@ internal static class RemoteDevTunnelCli
                 throw 'The downloaded CLI does not have a valid Microsoft signature.'
             }
             """;
-        var info = CreateStartInfo(
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
-                "WindowsPowerShell", "v1.0", "powershell.exe"),
+        var windowsPowerShell = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0");
+        var info = CreateStartInfo(Path.Combine(windowsPowerShell, "powershell.exe"),
             ["-NoProfile", "-NonInteractive", "-Command", script]);
+        info.Environment["PSModulePath"] = Path.Combine(windowsPowerShell, "Modules");
         info.Environment["LUMI_DEVTUNNEL_DOWNLOAD"] = path;
         var result = await RunProcessAsync(info, TimeSpan.FromSeconds(45), cancellationToken).ConfigureAwait(false);
         if (result.ExitCode != 0)
@@ -253,19 +262,62 @@ internal static class RemoteDevTunnelCli
     }
 
     internal static async Task<string> RunAsync(
-        string executablePath, string[] arguments, CancellationToken cancellationToken)
+        string executablePath,
+        string[] arguments,
+        CancellationToken cancellationToken,
+        Action<string>? reportOutput = null)
     {
         var isSignIn = arguments.Length >= 2 && arguments[0] == "user" && arguments[1] == "login";
-        var result = await RunProcessAsync(
-                CreateStartInfo(executablePath, arguments),
-                isSignIn ? SignInTimeout : CommandTimeout,
-                cancellationToken,
-                killEntireProcessTree: !isSignIn)
-            .ConfigureAwait(false);
+        (int ExitCode, string Output, string Error) result;
+        try
+        {
+            result = await RunProcessAsync(
+                    CreateCommandStartInfo(executablePath, arguments),
+                    isSignIn ? SignInTimeout : CommandTimeout,
+                    cancellationToken,
+                    killEntireProcessTree: !isSignIn,
+                    reportOutput)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!isSignIn && !cancellationToken.IsCancellationRequested)
+        {
+            throw new RemoteDevTunnelCliException(Loc.Get("Remote_DevTunnelTimeout"));
+        }
         if (result.ExitCode != 0)
-            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelCliFailed", result.Error.Trim()));
+        {
+            var error = string.IsNullOrWhiteSpace(result.Error) ? result.Output.Trim() : result.Error.Trim();
+            throw new RemoteDevTunnelCliException(
+                Loc.Get("Remote_DevTunnelCliFailed", error),
+                IsAuthenticationFailure(error), IsTransientFailure(error));
+        }
         return NormalizeOutput(result.Output);
     }
+
+    internal static ProcessStartInfo CreateCommandStartInfo(string executablePath, string[] arguments)
+    {
+        var info = CreateStartInfo(executablePath, arguments);
+        if (OperatingSystem.IsWindows() && arguments is ["user", "login", ..])
+        {
+            // The CLI's Windows broker locates its parent through the console process.
+            info.CreateNoWindow = false;
+            info.WindowStyle = ProcessWindowStyle.Hidden;
+        }
+        return info;
+    }
+
+    internal static bool IsAuthenticationFailure(string error) =>
+        System.Text.RegularExpressions.Regex.IsMatch(
+            error,
+            @"\b(?:AADSTS\d+|401|unauthorized|not logged in|login required|authentication required|(?:login|token|authentication)[^\r\n]{0,80}expired|(?:log|sign) in again)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    internal static bool IsTransientFailure(string error) =>
+        System.Text.RegularExpressions.Regex.IsMatch(
+            error,
+            @"\b(?:408|429|5\d\d|TooManyRequests|ServiceUnavailable|GatewayTimeout|timeout|timed out|network|socket|unavailable|no such host|name resolution|failed to connect|connection (?:refused|reset|closed|aborted))\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     internal static string NormalizeOutput(string output)
     {
@@ -280,11 +332,12 @@ internal static class RemoteDevTunnelCli
         return text[(end + bannerEnd.Length)..].TrimStart();
     }
 
-    private static async Task<(int ExitCode, string Output, string Error)> RunProcessAsync(
+    internal static async Task<(int ExitCode, string Output, string Error)> RunProcessAsync(
         ProcessStartInfo info,
         TimeSpan deadline,
         CancellationToken cancellationToken,
-        bool killEntireProcessTree = true)
+        bool killEntireProcessTree = true,
+        Action<string>? reportOutput = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(deadline);
@@ -293,8 +346,10 @@ internal static class RemoteDevTunnelCli
         if (!process.Start())
             throw new InvalidOperationException(Loc.Get("Remote_DevTunnelStartFailed"));
         using var registration = timeout.Token.Register(() => StopProcess(process, killEntireProcessTree));
-        var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
-        var errors = ReadErrorsAsync(process.StandardError, timeout.Token);
+        var output = reportOutput is null
+            ? process.StandardOutput.ReadToEndAsync(timeout.Token)
+            : ReadOutputAsync(process.StandardOutput, reportOutput, timeout.Token);
+        var errors = ReadErrorsAsync(process.StandardError, timeout.Token, reportOutput);
         try
         {
             await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
@@ -303,11 +358,43 @@ internal static class RemoteDevTunnelCli
         finally
         {
             StopProcess(process, killEntireProcessTree);
+            try
+            {
+                await Task.WhenAll(output, errors).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
         }
     }
 
-    internal static async Task<string> ReadErrorsAsync(StreamReader reader, CancellationToken cancellationToken)
+    private static async Task<string> ReadOutputAsync(
+        StreamReader reader,
+        Action<string> reportOutput,
+        CancellationToken cancellationToken,
+        int? maximumCharacters = null)
     {
+        var output = new StringBuilder();
+        var buffer = new char[1024];
+        while (await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false) is var count
+               && count > 0)
+        {
+            var chunk = new string(buffer, 0, count);
+            output.Append(chunk);
+            reportOutput(chunk);
+            if (maximumCharacters is { } maximum && output.Length > maximum)
+                output.Remove(0, output.Length - maximum);
+        }
+        return output.ToString();
+    }
+
+    internal static async Task<string> ReadErrorsAsync(
+        StreamReader reader,
+        CancellationToken cancellationToken,
+        Action<string>? reportOutput = null)
+    {
+        if (reportOutput is not null)
+            return await ReadOutputAsync(reader, reportOutput, cancellationToken, 2000).ConfigureAwait(false);
         var tail = new StringBuilder();
         while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
         {

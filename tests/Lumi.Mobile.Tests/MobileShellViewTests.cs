@@ -365,6 +365,9 @@ public sealed class MobileShellViewTests
             Assert.True(banner.IsEffectivelyVisible);
             Assert.Contains("Reconnecting", shell.ConnectionBannerText);
             Assert.Contains(Pc, shell.ConnectionBannerText);
+            shell.ConnectionMessage = "Microsoft sign-in needs attention. Reopen this web app.";
+            Pump(window);
+            Assert.Contains("Microsoft sign-in needs attention", shell.ConnectionBannerText);
 
             shell.IsConnected = true;
             shell.IsHostReady = true;

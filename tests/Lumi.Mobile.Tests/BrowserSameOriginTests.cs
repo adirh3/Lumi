@@ -1,5 +1,6 @@
 using System.Net;
 using Lumi.Mobile.Browser;
+using Lumi.Mobile.Services;
 using Lumi.Remote.Protocol;
 using Xunit;
 
@@ -47,7 +48,42 @@ public sealed class BrowserSameOriginTests
         Assert.Equal(1, transport.RequestCount);
     }
 
-    private sealed class CaptureHandler : HttpMessageHandler
+    [Theory]
+    [InlineData(HttpStatusCode.Redirect, "text/html")]
+    [InlineData(HttpStatusCode.Unauthorized, "text/html")]
+    [InlineData(HttpStatusCode.Forbidden, "text/html")]
+    [InlineData(HttpStatusCode.Unauthorized, "application/json")]
+    [InlineData(HttpStatusCode.Forbidden, "application/json")]
+    [InlineData((HttpStatusCode)0, "application/octet-stream")]
+    public async Task MicrosoftGatewaySignInIsNotMistakenForRevokedLumiPairing(
+        HttpStatusCode status, string contentType)
+    {
+        var transport = new CaptureHandler(status, contentType);
+        await using var client = new LumiRemoteClient("test-device", "Web fixture",
+            new BrowserSameOriginHandler(new Uri("https://private-47654.uks1.devtunnels.ms"), transport));
+        client.Configure("https://private-47654.uks1.devtunnels.ms", "test-pairing-token");
+        Assert.Null(await client.HelloAsync(client.BaseUrl!, CancellationToken.None));
+        Assert.Equal(RemoteLinkState.Error, client.State);
+        Assert.Equal("test-pairing-token", client.Token);
+        Assert.Contains("Microsoft sign-in", client.StateMessage);
+        Assert.Contains("pairing is kept", client.StateMessage);
+        Assert.Equal(1, transport.RequestCount);
+    }
+
+    [Fact]
+    public async Task ActualLumiUnauthorizedJsonStillRequestsPairing()
+    {
+        var transport = new CaptureHandler(HttpStatusCode.Unauthorized, "application/json", isLumiResponse: true);
+        using var client = new HttpClient(new BrowserSameOriginHandler(
+            new Uri("https://private-47654.uks1.devtunnels.ms"), transport));
+        using var response = await client.GetAsync("https://private-47654.uks1.devtunnels.ms/api/hello");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    private sealed class CaptureHandler(
+        HttpStatusCode status = HttpStatusCode.OK, string contentType = "application/json",
+        bool isLumiResponse = false) : HttpMessageHandler
     {
         public int RequestCount { get; private set; }
 
@@ -55,7 +91,13 @@ public sealed class BrowserSameOriginTests
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestCount++;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+            var response = new HttpResponseMessage(status)
+            {
+                Content = new StringContent("{}", System.Text.Encoding.UTF8, contentType)
+            };
+            if (isLumiResponse)
+                response.Headers.Add(RemoteProtocol.ServerResponseHeader, RemoteProtocol.ServerResponseValue);
+            return Task.FromResult(response);
         }
     }
 }

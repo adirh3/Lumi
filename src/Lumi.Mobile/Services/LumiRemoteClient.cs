@@ -20,6 +20,8 @@ public enum RemoteLinkState
     Error
 }
 
+public sealed class RemoteGatewaySignInException(string message) : HttpRequestException(message);
+
 /// <summary>
 /// The phone's half of the Lumi remote protocol: request/response over HTTP plus a resilient
 /// Server-Sent Events subscription for live push. Everything is funnelled through
@@ -1655,6 +1657,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     private static string Describe(Exception ex) => ex switch
     {
+        RemoteGatewaySignInException => ex.Message,
         HttpRequestException => "Can't reach Lumi. Check that your PC is awake and on the same Wi-Fi.",
         TaskCanceledException => RequestTimeoutMessage,
         _ => ex.Message

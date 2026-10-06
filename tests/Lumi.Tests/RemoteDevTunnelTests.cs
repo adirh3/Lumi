@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Remote;
+using Lumi.ViewModels;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -16,9 +19,9 @@ public sealed class RemoteDevTunnelTests
     {
         const string requestedTunnelId = "lumi-0123456789abcdef0123456789abcdef";
         Assert.Equal(
-            ["create", requestedTunnelId, "--expiration", "1d", "--description",
+            ["create", requestedTunnelId, "--expiration", "30d", "--description",
                 RemoteDevTunnelHost.TunnelDescription,
-                "--host-header", "localhost", "--origin-header", "unchanged", "--json"],
+                "--host-header", "localhost", "--origin-header", "unchanged", "--request-timeout", "0", "--json"],
             RemoteDevTunnelHost.CreateArguments(requestedTunnelId));
         Assert.Equal(
             ["host", "owned-tunnel.uks1", "--host-header", "localhost", "--origin-header", "unchanged"],
@@ -33,8 +36,8 @@ public sealed class RemoteDevTunnelTests
         const string routedId = baseId + ".uks1";
         Assert.Equal(
             ["create", baseId, "--service-uri", "https://uks1.rel.tunnels.api.visualstudio.com",
-                "--expiration", "1d", "--description", RemoteDevTunnelHost.TunnelDescription,
-                "--host-header", "localhost", "--origin-header", "unchanged", "--json"],
+                "--expiration", "30d", "--description", RemoteDevTunnelHost.TunnelDescription,
+                "--host-header", "localhost", "--origin-header", "unchanged", "--request-timeout", "0", "--json"],
             RemoteDevTunnelHost.CreateArguments(routedId));
         Assert.Equal(routedId, RemoteDevTunnelHost.RequireExpectedTunnelId(routedId, routedId));
         Assert.Throws<InvalidOperationException>(() =>
@@ -55,7 +58,6 @@ public sealed class RemoteDevTunnelTests
         const string requestedRoute = baseId + ".uks1";
         const string returnedRoute = baseId + ".euw";
         var calls = new List<string[]>();
-        var used = false;
         Task<string> Run(string[] arguments, CancellationToken token)
         {
             calls.Add(arguments);
@@ -65,12 +67,8 @@ public sealed class RemoteDevTunnelTests
         }
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            RemoteDevTunnelHost.RunWithCreatedTunnelAsync(
-                requestedRoute, Run,
-                (_, _) => { used = true; return Task.CompletedTask; },
-                CancellationToken.None));
+            RemoteDevTunnelHost.CreateProfileTunnelAsync(requestedRoute, Run, CancellationToken.None));
 
-        Assert.False(used);
         Assert.Equal(2, calls.Count);
         Assert.Equal(RemoteDevTunnelHost.CreateArguments(requestedRoute), calls[0]);
         Assert.Equal(["delete", returnedRoute], calls[1]);
@@ -79,7 +77,7 @@ public sealed class RemoteDevTunnelTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task CreatedTunnelIsDeletedAfterUseEvenWhenCanceled(bool cancel)
+    public async Task ValidProfileTunnelSurvivesStoppingAndCancellation(bool cancel)
     {
         const string route = "lumi-0123456789abcdef0123456789abcdef.uks1";
         using var cancellation = new CancellationTokenSource();
@@ -87,16 +85,18 @@ public sealed class RemoteDevTunnelTests
         Task<string> Run(string[] arguments, CancellationToken token)
         {
             steps.Add(arguments[0]);
-            if (arguments[0] == "delete")
+            return Task.FromResult(arguments[0] switch
             {
-                Assert.Equal(["delete", route], arguments);
-                Assert.False(token.CanBeCanceled);
-            }
-            return Task.FromResult(JsonSerializer.Serialize(new { tunnel = new { tunnelId = route } }));
+                "list" => """{"tunnels":[]}""",
+                "create" => JsonSerializer.Serialize(new { tunnel = new { tunnelId = route } }),
+                "access" => """{"accessControlEntries":[]}""",
+                "port" when arguments[1] == "list" => """{"ports":[]}""",
+                _ => "{}"
+            });
         }
         Task Use(string tunnelId, CancellationToken token)
         {
-            steps.Add("use");
+            steps.Add("persist");
             Assert.Equal(route, tunnelId);
             Assert.Equal(cancellation.Token, token);
             if (cancel)
@@ -105,14 +105,489 @@ public sealed class RemoteDevTunnelTests
             return Task.CompletedTask;
         }
 
-        var operation = RemoteDevTunnelHost.RunWithCreatedTunnelAsync(
-            route, Run, Use, cancellation.Token);
+        var operation = RemoteDevTunnelHost.PrepareProfileTunnelAsync(
+            route, 47654, Run, Use, cancellation.Token);
         if (cancel)
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
         else
             await operation;
 
-        Assert.Equal(["create", "use", "delete"], steps);
+        Assert.Contains("create", steps);
+        Assert.Contains("persist", steps);
+        Assert.DoesNotContain("delete", steps);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProfilePreparationReusesTheRouteAndVerifiesBothAccessPolicies(bool exists)
+    {
+        const string route = "lumi-0123456789abcdef0123456789abcdef.uks1";
+        var calls = new List<string[]>();
+        var persisted = new List<string>();
+        Task<string> Run(string[] args, CancellationToken token)
+        {
+            calls.Add(args);
+            return Task.FromResult(args[0] switch
+            {
+                "list" => exists
+                    ? $$"""{"tunnels":[{"tunnelId":"{{route}}","description":"Lumi private web app"}]}"""
+                    : """{"tunnels":[]}""",
+                "create" => JsonSerializer.Serialize(new { tunnel = new { tunnelId = route } }),
+                "access" => """{"accessControlEntries":[]}""",
+                "port" when args[1] == "list" => exists
+                    ? """{"ports":[{"portNumber":47654,"protocol":"http"}]}"""
+                    : """{"ports":[]}""",
+                _ => "{}"
+            });
+        }
+        var actual = await RemoteDevTunnelHost.PrepareProfileTunnelAsync(
+            route, 47654, Run,
+            (id, _) => { persisted.Add(id); return Task.CompletedTask; },
+            CancellationToken.None);
+        Assert.Equal(route, actual);
+        Assert.Equal([route], persisted);
+        Assert.DoesNotContain(calls, args => args[0] == "delete");
+        Assert.Equal(exists ? 0 : 1, calls.Count(args => args[0] == "create"));
+        Assert.Contains(calls, args =>
+            args[0] == "port" && args[1] == (exists ? "update" : "create")
+            && args.Contains("--request-timeout") && args.Contains("0"));
+        Assert.Contains(calls, args => args.SequenceEqual(RemoteDevTunnelHost.RefreshArguments(route)));
+        Assert.True(calls.Count(args => args[0] == "access" && args.Contains("-p")) >= 1);
+        Assert.True(calls.Count(args => args[0] == "access" && !args.Contains("-p")) >= 1);
+        Assert.DoesNotContain(calls.SelectMany(args => args), arg =>
+            arg is "--allow-anonymous" or "--access-token");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExistingTunnelOrPortGrantsCannotBeRepairedIntoAHostedTunnel(bool portGrant)
+    {
+        const string route = "lumi-0123456789abcdef0123456789abcdef.uks1";
+        var mutatedPort = false;
+        Task<string> Run(string[] args, CancellationToken token)
+        {
+            if (args[0] == "access")
+                return Task.FromResult(args.Contains("-p") == portGrant
+                    ? """{"accessControlEntries":[{"type":"Anonymous","scopes":["connect"]}]}"""
+                    : """{"accessControlEntries":[]}""");
+            if (args[0] == "port" && args[1] != "list")
+                mutatedPort = true;
+            return Task.FromResult(args[0] == "list"
+                ? $$"""{"tunnels":[{"tunnelId":"{{route}}","description":"Lumi private web app"}]}"""
+                : """{"ports":[{"portNumber":47654,"protocol":"http"}]}""");
+        }
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.PrepareProfileTunnelAsync(
+                route, 47654, Run, (_, _) => Task.CompletedTask, CancellationToken.None));
+        Assert.False(mutatedPort);
+    }
+
+    [Theory]
+    [InlineData("""{"ports":[{"portNumber":1234,"protocol":"http"}]}""")]
+    [InlineData("""{"ports":[{"portNumber":47654,"protocol":"https"}]}""")]
+    [InlineData("""{"ports":[{"portNumber":47654,"protocol":"http"},{"portNumber":1234,"protocol":"http"}]}""")]
+    [InlineData("{}")]
+    public void UnexpectedPortsNeverReachTheHost(string json) =>
+        Assert.Throws<InvalidOperationException>(() => RemoteDevTunnelHost.HasExpectedPort(json, 47654));
+
+    [Fact]
+    public void OfficialEmptyListWarningsAreRecognizedOnlyForTheirExactCommandAndRoute()
+    {
+        const string route = "lumi-0123456789abcdef0123456789abcdef.uks1";
+        Assert.Null(RemoteDevTunnelHost.FindExistingProfileTunnelId(
+            """{"warning":"No tunnels found."}""", route));
+        Assert.False(RemoteDevTunnelHost.HasExpectedPort(
+            """{"warning":"No ports found for tunnel lumi-0123456789abcdef0123456789abcdef."}""",
+            47654, route));
+        Assert.Throws<InvalidOperationException>(() => RemoteDevTunnelHost.FindExistingProfileTunnelId(
+            """{"warning":"Authentication unavailable."}""", route));
+        Assert.Throws<InvalidOperationException>(() => RemoteDevTunnelHost.HasExpectedPort(
+            """{"warning":"No ports found for tunnel somebody-else."}""", 47654, route));
+        Assert.Throws<InvalidOperationException>(() => RemoteDevTunnelHost.FindExistingProfileTunnelId(
+            """{"warning":"No tunnels found.","error":"Permission denied."}""", route));
+        Assert.Throws<InvalidOperationException>(() => RemoteDevTunnelHost.RequireOwnerOnlyAccess(
+            """{"warning":"No access grants."}"""));
+    }
+
+    [Fact]
+    public async Task TransientFailuresReconnectWithBoundedBackoff()
+    {
+        var attempts = 0;
+        var delays = new List<TimeSpan>();
+        await RemoteDevTunnelHost.RunWithRecoveryAsync(
+            _ => ++attempts < 8
+                ? Task.FromException(new RemoteDevTunnelCliException("Relay unavailable."))
+                : Task.CompletedTask,
+            (_, delay) => delays.Add(delay), CancellationToken.None,
+            (_, _) => Task.CompletedTask);
+        Assert.Equal(8, attempts);
+        Assert.Equal([5, 10, 20, 40, 60, 60, 60], delays.Select(delay => (int)delay.TotalSeconds));
+    }
+
+    [Fact]
+    public async Task CancelingReconnectCannotStartAnotherHost()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var attempts = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            RemoteDevTunnelHost.RunWithRecoveryAsync(
+                _ => { attempts++; throw new IOException("Disconnected."); },
+                (_, _) => { }, cancellation.Token,
+                (_, _) => { cancellation.Cancel(); return Task.CompletedTask; }));
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task PolicyAndAuthenticationFailuresNeverAutomaticallySignInOrRetry()
+    {
+        Task Delay(TimeSpan delay, CancellationToken token) =>
+            throw new InvalidOperationException("A fatal failure must not retry.");
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.RunWithRecoveryAsync(
+                _ => throw new InvalidOperationException("Owner access could not be verified."),
+                (_, _) => { }, CancellationToken.None, Delay));
+        await Assert.ThrowsAsync<RemoteDevTunnelCliException>(() =>
+            RemoteDevTunnelHost.RunWithRecoveryAsync(
+                _ => throw new RemoteDevTunnelCliException("Sign in again.", requiresSignIn: true),
+                (_, _) => { }, CancellationToken.None, Delay));
+        await Assert.ThrowsAsync<RemoteDevTunnelCliException>(() =>
+            RemoteDevTunnelHost.RunWithRecoveryAsync(
+                _ => throw new RemoteDevTunnelCliException("Unsupported CLI option.", canRetry: false),
+                (_, _) => { }, CancellationToken.None, Delay));
+    }
+
+    [Fact]
+    public async Task StartingAReplacementPublishesOnlyStartingAndCancelsItsPredecessor()
+    {
+        var host = new RemoteDevTunnelHost();
+        var states = new ConcurrentQueue<bool>();
+        var firstStarted = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondStarted = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.StateChanged += () => states.Enqueue(host.State.IsStarting);
+        try
+        {
+            host.Start(lifetime =>
+            {
+                firstStarted.SetResult(lifetime.Token);
+                return Task.Delay(Timeout.InfiniteTimeSpan, lifetime.Token);
+            });
+            var first = await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal([true], states.ToArray());
+            states.Clear();
+
+            host.Start(lifetime =>
+            {
+                secondStarted.SetResult(lifetime.Token);
+                return Task.Delay(Timeout.InfiniteTimeSpan, lifetime.Token);
+            });
+            var second = await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(first.IsCancellationRequested);
+            Assert.Equal([true], states.ToArray());
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(second.IsCancellationRequested);
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentReconnectsCannotOrphanAWorkerOrBlockShutdown()
+    {
+        var host = new RemoteDevTunnelHost();
+        using var overlappingStops = new Barrier(2);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var shuttingDown = false;
+        var active = 0;
+        host.StateChanged += () =>
+        {
+            if (!Volatile.Read(ref shuttingDown) && !host.State.IsStarting)
+                Assert.True(overlappingStops.SignalAndWait(TimeSpan.FromSeconds(5)));
+        };
+        async Task Run(CancellationTokenSource lifetime)
+        {
+            Interlocked.Increment(ref active);
+            started.TrySetResult();
+            try
+            {
+                await release.Task.WaitAsync(lifetime.Token);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref active);
+            }
+        }
+        Task? shutdown = null;
+        try
+        {
+            await Task.WhenAll(Task.Run(() => host.Start(Run)), Task.Run(() => host.Start(Run)))
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Volatile.Write(ref shuttingDown, true);
+            shutdown = host.DisposeAsync().AsTask();
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal(0, Volatile.Read(ref active));
+        }
+        finally
+        {
+            Volatile.Write(ref shuttingDown, true);
+            release.TrySetResult();
+            await (shutdown ?? host.DisposeAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task HostingUsesTheCliReportedUrlAndStopsItsOwnedProcess()
+    {
+        const string origin = "https://bright-river-47654.uks1.devtunnels.ms";
+        var host = new RemoteDevTunnelHost();
+        var ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.StateChanged += () =>
+        {
+            if (host.State.Origin is { } value)
+                ready.TrySetResult(value);
+        };
+        try
+        {
+            host.Start(lifetime => host.HostAsync(
+                HostedProcessFixture(origin, exitAfterReady: false),
+                47654, "Fixture owner", lifetime, lifetime.Token));
+            Assert.Equal(origin, await ready.Task.WaitAsync(TimeSpan.FromSeconds(15)));
+            Assert.False(host.State.IsStarting);
+            Assert.Equal("Fixture owner", host.State.Account);
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(host.State.Origin);
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task UnexpectedHostingProcessExitReconnectsThroughTheProductionWorker()
+    {
+        const string origin = "https://bright-river-47654.uks1.devtunnels.ms";
+        var host = new RemoteDevTunnelHost();
+        var secondReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readyCount = 0;
+        var attempts = 0;
+        var retryCount = 0;
+        host.StateChanged += () =>
+        {
+            if (host.State.Origin is not null && Interlocked.Increment(ref readyCount) == 2)
+                secondReady.TrySetResult();
+        };
+        try
+        {
+            host.Start(lifetime => RemoteDevTunnelHost.RunWithRecoveryAsync(
+                token => host.HostAsync(
+                    HostedProcessFixture(origin, exitAfterReady: Interlocked.Increment(ref attempts) == 1),
+                    47654, "Fixture owner", lifetime, token),
+                (_, _) => Interlocked.Increment(ref retryCount),
+                lifetime.Token,
+                (_, _) => Task.CompletedTask));
+            await secondReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(2, attempts);
+            Assert.Equal(1, retryCount);
+            Assert.Equal(origin, host.State.Origin);
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static ProcessStartInfo HostedProcessFixture(string origin, bool exitAfterReady)
+    {
+        var executable = OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "WindowsPowerShell", "v1.0", "powershell.exe")
+            : "/bin/sh";
+        var arguments = OperatingSystem.IsWindows()
+            ? new[] { "-NoProfile", "-NonInteractive", "-Command",
+                "[Console]::Out.WriteLine('Hosting port 47654 at ' + $env:LUMI_TEST_HOST_ORIGIN + '/'); " +
+                "[Console]::Out.WriteLine('Ready to accept connections for tunnel: lumi-profile.uks1'); " +
+                (exitAfterReady
+                    ? "[Console]::Error.WriteLine('Connection reset by peer.'); exit 1"
+                    : "while ($true) { Start-Sleep -Milliseconds 50 }") }
+            : ["-c", "printf 'Hosting port 47654 at %s/\\n' \"$LUMI_TEST_HOST_ORIGIN\"; " +
+                "printf 'Ready to accept connections for tunnel: lumi-profile.uks1\\n'; " +
+                (exitAfterReady
+                    ? "printf 'Connection reset by peer.\\n' >&2; exit 1"
+                    : "while true; do sleep 1; done")];
+        var info = RemoteDevTunnelCli.CreateStartInfo(executable, arguments);
+        info.Environment["LUMI_TEST_HOST_ORIGIN"] = origin;
+        return info;
+    }
+
+    [Fact]
+    public async Task EffectiveListenerPortIsPersistedEvenWhenTunnelIdIsAlreadyKnown()
+    {
+        const string route = "lumi-0123456789abcdef0123456789abcdef.uks1";
+        var data = new AppData { Settings = new UserSettings { RemoteDevTunnelId = route } };
+        var store = new DataStore(data);
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            initializeCopilotOnStartup: false, startBackgroundJobs: false);
+        await using var server = new LumiRemoteServer(store, main);
+        await server.PersistDevTunnelRouteAsync(route, 53421, CancellationToken.None);
+        Assert.Equal(route, data.Settings.RemoteDevTunnelId);
+        Assert.Equal(53421, data.Settings.RemoteAccessPort);
+        Assert.Equal(53421, AppDataSnapshotFactory.CreateIndexSnapshot(data).Settings.RemoteAccessPort);
+    }
+
+    [Fact]
+    public async Task FailedRouteSaveMustBeRetriedBeforeTheSameRouteCanBeUsed()
+    {
+        const string route = "lumi-0123456789abcdef0123456789abcdef.uks1";
+        var store = new DataStore(new AppData());
+        var saves = 0;
+        store.IndexSaved += () =>
+        {
+            if (++saves == 1)
+                throw new IOException("Fixture save failed.");
+        };
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            initializeCopilotOnStartup: false, startBackgroundJobs: false);
+        await using var server = new LumiRemoteServer(store, main);
+        var reconnects = 0;
+        var hosted = false;
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.RunWithRecoveryAsync(
+                async token =>
+                {
+                    await server.PersistDevTunnelRouteAsync(route, 53421, token);
+                    hosted = true;
+                },
+                (_, _) => reconnects++,
+                CancellationToken.None,
+                (_, _) => Task.CompletedTask));
+        Assert.IsType<IOException>(error.InnerException);
+        Assert.Contains("Fixture save failed.", error.Message);
+        Assert.False(hosted);
+        Assert.Equal(0, reconnects);
+        await server.PersistDevTunnelRouteAsync(route, 53421, CancellationToken.None);
+        Assert.Equal(2, saves);
+    }
+
+    [Fact]
+    public async Task OccupiedSavedPortIsActionableAndNeverChangesThePhoneUrl()
+    {
+        using var occupied = new TcpListener(IPAddress.Loopback, 0);
+        occupied.Start();
+        var port = ((IPEndPoint)occupied.LocalEndpoint).Port;
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteUseDevTunnel = true,
+                RemoteAccessPort = port,
+                RemoteDevTunnelId = "lumi-0123456789abcdef0123456789abcdef.uks1"
+            }
+        };
+        var store = new DataStore(data);
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            initializeCopilotOnStartup: false, startBackgroundJobs: false);
+        await using var server = new LumiRemoteServer(store, main);
+        server.Start();
+        Assert.False(server.IsRunning);
+        Assert.Contains(port.ToString(), server.StartError);
+        Assert.Equal(port, data.Settings.RemoteAccessPort);
+        Assert.Empty(server.ListenAddresses);
+    }
+
+    [SkippableFact]
+    public async Task RealPrivateRelayKeepsItsUrlAndOwnerGateAcrossRehosting()
+    {
+        var cli = Environment.GetEnvironmentVariable("LUMI_DEVTUNNEL_TEST_CLI");
+        Skip.If(string.IsNullOrWhiteSpace(cli) || !File.Exists(cli),
+            "Set LUMI_DEVTUNNEL_TEST_CLI to an authenticated Microsoft CLI to run the isolated relay smoke test.");
+        using (var identity = JsonDocument.Parse(
+                   await RemoteDevTunnelCli.RunAsync(cli!, ["user", "show", "--json"], CancellationToken.None)))
+        {
+            Skip.If(identity.RootElement.GetProperty("status").GetString() != "Logged in"
+                || identity.RootElement.GetProperty("provider").GetString() != "microsoft",
+                "Cached Microsoft sign-in is unavailable. This smoke test never starts a login.");
+        }
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        using var listener = new RemoteHttpListener(
+            (context, token) => context.WriteTextAsync("lumi-private-relay-fixture", token));
+        listener.Start(0, loopbackOnly: true);
+        var requested = RemoteDevTunnelHost.CreateProfileTunnelId();
+        string? ownedRoute = null;
+        string? previousOrigin = null;
+        Task<string> Run(string[] args, CancellationToken token) => RemoteDevTunnelCli.RunAsync(cli!, args, token);
+        try
+        {
+            for (var iteration = 0; iteration < 2; iteration++)
+            {
+                var route = await RemoteDevTunnelHost.PrepareProfileTunnelAsync(
+                    ownedRoute ?? requested, listener.Port, Run,
+                    (id, _) => { ownedRoute = id; return Task.CompletedTask; },
+                    deadline.Token);
+                using (var metadata = JsonDocument.Parse(await Run(["show", route, "--json"], deadline.Token)))
+                {
+                    var expirationText = metadata.RootElement.GetProperty("tunnel")
+                        .GetProperty("tunnelExpiration").GetString();
+                    Assert.Equal("30 days", expirationText);
+                }
+                var host = new RemoteDevTunnelHost();
+                var ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                host.StateChanged += () =>
+                {
+                    if (host.State.Origin is { } value)
+                        ready.TrySetResult(value);
+                };
+                try
+                {
+                    host.Start(async lifetime =>
+                    {
+                        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                            lifetime.Token, deadline.Token);
+                        try
+                        {
+                            await host.HostAsync(
+                                RemoteDevTunnelCli.CreateStartInfo(cli!, RemoteDevTunnelHost.HostArguments(route)),
+                                listener.Port, "Relay smoke fixture", lifetime, linked.Token);
+                        }
+                        catch (Exception ex)
+                        {
+                            ready.TrySetException(ex);
+                            throw;
+                        }
+                    });
+                    var origin = await ready.Task.WaitAsync(deadline.Token);
+                    if (previousOrigin is not null)
+                        Assert.Equal(previousOrigin, origin);
+                    previousOrigin = origin;
+                    using var http = new HttpClient(new HttpClientHandler
+                    {
+                        AllowAutoRedirect = false,
+                        UseProxy = false,
+                        UseCookies = false
+                    });
+                    http.DefaultRequestHeaders.Add("X-Tunnel-Skip-AntiPhishing-Page", "true");
+                    using var response = await http.GetAsync(origin + "/app/", deadline.Token);
+                    Assert.True(response.StatusCode is HttpStatusCode.Redirect
+                        or HttpStatusCode.SeeOther or HttpStatusCode.TemporaryRedirect
+                        or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
+                        $"The gateway must require owner authentication, not return the fixture ({response.StatusCode}).");
+                }
+                finally
+                {
+                    await host.DisposeAsync();
+                }
+            }
+        }
+        finally
+        {
+            if (ownedRoute is not null)
+                await Run(["delete", ownedRoute], CancellationToken.None);
+        }
     }
 
     [Fact]

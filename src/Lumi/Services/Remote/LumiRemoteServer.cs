@@ -14,6 +14,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
@@ -127,11 +128,17 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     internal RemoteEventHub? EventHub => _hub;
 
     public bool IsRunning { get; private set; }
+    public string? StartError { get; private set; }
 
     public bool CanManageSecurityState => _ownsPersistentSecurityState;
     public bool IsSecurityStateReady => _securityStateReady;
     public bool IsWebAppAvailable => _webApp.IsAvailable;
     public bool IsDevTunnelStarting => _devTunnel.State.IsStarting;
+    public bool IsDevTunnelSigningIn => _devTunnel.State.IsSigningIn;
+    public bool IsDevTunnelReconnecting => _devTunnel.State.IsReconnecting;
+    public bool RequiresDevTunnelSignIn => _devTunnel.State.RequiresSignIn;
+    public string? DevTunnelSignInUrl => _devTunnel.State.SignIn?.Url;
+    public string? DevTunnelSignInCode => _devTunnel.State.SignIn?.Code;
     public string? DevTunnelAccount => _devTunnel.State.Account;
     public string? DevTunnelOrigin => _devTunnel.State.Origin;
     public string? DevTunnelError => _devTunnel.State.Error;
@@ -140,6 +147,18 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
     public void RespondToDevTunnelInstallConfirmation(bool approved) =>
         _devTunnel.RespondToInstallConfirmation(approved);
+
+    public void RestartDevTunnel(bool signIn = false, bool useDeviceCode = false)
+    {
+        if (!IsRunning || _disposed || !_dataStore.Data.Settings.RemoteUseDevTunnel)
+            return;
+        var port = Port;
+        _devTunnel.Start(port, EnsureDevTunnelId(),
+            (id, ct) => PersistDevTunnelRouteAsync(id, port, ct), signIn, useDeviceCode);
+    }
+
+    public void CancelDevTunnelSetup() => _devTunnel.CancelSetup();
+
     public bool IsTailscaleAvailable => VerifiedTailscaleAddresses.Count > 0;
     internal IReadOnlySet<IPAddress> VerifiedTailscaleAddresses => Volatile.Read(ref _tailscaleAddresses);
 
@@ -225,6 +244,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         if (!_securityStateReady)
             return;
 
+        StartError = null;
         _instanceId = Guid.NewGuid().ToString("N");
         var configured = _dataStore.Data.Settings.RemoteAccessPort;
         var port = configured > 0 ? configured : RemoteProtocol.DefaultPort;
@@ -243,9 +263,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 _listener.Start(0, _dataStore.Data.Settings.RemoteUseDevTunnel);
             }
         }
-        catch
+        catch (SocketException ex)
         {
-            throw;
+            Trace.TraceWarning($"[Remote] Could not listen on the saved Lumi port {port}: {ex.Message}");
+            StartError = Loc.Get("Remote_ListenerPortInUse", port);
+            StateChanged?.Invoke();
+            return;
         }
 
         Port = _listener.Port;
@@ -258,7 +281,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         RefreshDiscovery();
         IsRunning = true;
         if (_dataStore.Data.Settings.RemoteUseDevTunnel)
-            _devTunnel.Start(Port, EnsureDevTunnelId(), PersistDevTunnelIdAsync);
+            RestartDevTunnel();
         WatchNetworkChanges();
         StateChanged?.Invoke();
         _ = InitializeRuntimeStateAsync();
@@ -274,25 +297,40 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         return _dataStore.Data.Settings.RemoteDevTunnelId;
     }
 
-    private async Task PersistDevTunnelIdAsync(string tunnelId, CancellationToken cancellationToken)
+    internal async Task PersistDevTunnelRouteAsync(
+        string tunnelId, int port, CancellationToken cancellationToken)
     {
-        if (string.Equals(
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!string.Equals(
                 _dataStore.Data.Settings.RemoteDevTunnelId,
                 tunnelId,
-                StringComparison.Ordinal))
+                StringComparison.Ordinal)
+            || _dataStore.Data.Settings.RemoteAccessPort != port)
         {
-            return;
+            _dataStore.Data.Settings.RemoteDevTunnelId = tunnelId;
+            _dataStore.Data.Settings.RemoteAccessPort = port;
+            _dataStore.MarkRemoteSecurityChanged();
         }
 
-        _dataStore.Data.Settings.RemoteDevTunnelId = tunnelId;
-        _dataStore.MarkRemoteSecurityChanged();
-        await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Trace.TraceWarning($"[Remote] Could not save the Dev Tunnel route: {ex.Message}");
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelSaveFailed", ex.Message), ex);
+        }
     }
 
     public void Stop()
     {
+        StartError = null;
         if (!IsRunning)
+        {
+            StateChanged?.Invoke();
             return;
+        }
         IsRunning = false;
         _devTunnel.Stop();
         StopWatchingNetworkChanges();
@@ -382,6 +420,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         {
             var tailscaleChanged = await RefreshTailscaleAddressesAsync(cancellationToken).ConfigureAwait(false);
             var localChanged = RefreshSelectedLocalNetworkAddress();
+            if (IsRunning && !_disposed && _dataStore.Data.Settings.RemoteUseDevTunnel
+                && DevTunnelOrigin is not null)
+            {
+                RestartDevTunnel();
+                return;
+            }
             if ((!tailscaleChanged && !localChanged) || !IsRunning || _disposed)
                 return;
 

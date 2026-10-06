@@ -1413,6 +1413,53 @@ public sealed class RemoteEndToEndTests
     });
 
     [Fact]
+    public async Task DeferredMobileSetupKeepsItsPairingExpiryTimer()
+    {
+        var webRoot = NewTempDir();
+        Directory.CreateDirectory(webRoot);
+        File.WriteAllText(Path.Combine(webRoot, "index.html"), "<html>Lumi test</html>");
+        var previousWebRoot = Environment.GetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT");
+        Environment.SetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT", webRoot);
+        IReadOnlySet<IPAddress> available = new HashSet<IPAddress>();
+        try
+        {
+            await RunAsync(async rig =>
+            {
+                var settings = rig.Main.SettingsVM;
+                await rig.Server.RefreshNetworkAddressesNowAsync();
+                settings.StartMobileWebSetupCommand.Execute(null);
+                Assert.True(settings.IsMobileSetupActive);
+                Assert.False(settings.IsMobileSetupReady);
+                Assert.Null(rig.Server.ActivePairingCode);
+
+                var shortened = false;
+                rig.Server.StateChanged += () =>
+                {
+                    if (shortened || rig.Server.ActivePairingCode is null)
+                        return;
+                    shortened = true;
+                    typeof(LumiRemoteServer).GetField("_pairingCodeExpiresAt",
+                            BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .SetValue(rig.Server, DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(500));
+                    settings.RefreshRemoteState(DateTimeOffset.UtcNow);
+                };
+                available = new HashSet<IPAddress> { IPAddress.Parse("100.64.0.10") };
+                await rig.Server.RefreshNetworkAddressesNowAsync();
+                await WaitAsync(() => settings.IsRemotePairing, "Deferred setup to generate its pairing code");
+                Assert.True(settings.IsMobileSetupReady);
+                await WaitAsync(() => !settings.IsRemotePairing, "The scheduled pairing expiry to clear the code");
+                Assert.Empty(settings.RemotePairingCode);
+                Assert.Equal(Loc.Get("Remote_PairButton"), settings.RemotePairActionText);
+            }, tailscaleAddressProvider: () => available);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT", previousWebRoot);
+            Directory.Delete(webRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public Task OversizedOrdinaryRequestReceivesAJson413Response() => RunAsync(async rig =>
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));

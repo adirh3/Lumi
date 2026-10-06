@@ -166,19 +166,51 @@ Desktop setup is guided after selecting **Dev Tunnel**:
    After approval, the matching Microsoft binary is downloaded into
    `tools\devtunnel` under Lumi's user-data directory. No administrator access,
    system installation, or PATH changes are needed.
-2. If Microsoft sign-in is missing, Lumi opens the CLI's Microsoft browser
-   sign-in flow. Complete sign-in with the account you want to use on the phone.
+2. If Microsoft sign-in is missing or expired, choose **Sign in with Microsoft**.
+   Lumi runs the CLI's normal interactive login. On Windows, this uses Microsoft's
+   account broker, as `devtunnel login` does in a terminal. The sign-in process
+   retains a hidden console context so the CLI can locate Lumi's visible parent
+   window; management and hosting commands remain windowless. No terminal is shown.
+   Complete sign-in with the account you want to use on the phone.
    Personal Microsoft and Microsoft Entra accounts work; GitHub authentication
-   is not accepted for this connection.
-3. Setup continues automatically and displays the verified account. Choose
-   **Web app** to get the HTTPS link and QR code.
+   is not accepted for this connection. Lumi does not wait for silent Windows
+   authentication or launch an interactive login during unattended startup.
+   If the desktop sign-in cannot open, expand **Having trouble signing in?** and
+   choose **Use browser instead**. This explicitly requests a device-code flow;
+   the trusted Microsoft address and code are then shown with Open/Copy actions.
+   The CLI can also fall back to this flow itself if its native broker is unavailable.
+   Device codes are not forced as the primary method, which also preserves support
+   for organizations that block device-code authentication.
+   Sign-in is requested only when needed, not offered as an unnecessary re-login
+   on a working connection. Microsoft's CLI replaces its cached login when a new
+   sign-in starts; canceling that operation leaves sign-in pending, while the saved
+   link and Lumi device pairing remain intact.
+   The visible sign-in flow allows up to 15 minutes for account selection and MFA,
+   rather than canceling a still-valid Microsoft code after five minutes.
+   **Cancel setup** cancels the owned operation without closing your browser.
+3. Setup continues automatically and displays the verified account, HTTPS link,
+   and QR code. The Web app setup opens automatically when you select Dev Tunnel.
+   Lumi generates its separate pairing code only once the link is ready.
 4. Open that link on your phone, sign in with **the same account**, and enter the
    separate, single-use Lumi pairing code displayed on the PC.
+
+Only the current setup step is shown. Browser fallbacks and error details stay
+collapsed until needed. Once connected, the setup card is replaced by the phone
+QR code and pairing code; the redundant Web/Android chooser is hidden for this
+web-only transport. This handoff is automatic on startup and when phone access
+is re-enabled, not only when the connection method is first selected.
+The open Mobile settings page brings the QR and pairing-code panel into view
+when it is ready; background setup does not navigate away from another page.
+If the web assets are missing, setup shows that error rather than hiding the
+panel behind a connected relay state. Installation and connection tips are
+available on demand.
 
 Downloads use fixed HTTPS URLs from Microsoft's official Dev Tunnel distribution
 account, with redirects disabled, size/time limits, and an executable-format check.
 On Windows, a valid Microsoft Authenticode signature is also required before the
-download is installed or executed. Other platforms authenticate the distribution
+download is installed or executed. The verifier uses Windows PowerShell's built-in
+security module, not inherited PowerShell Core or user module paths.
+Other platforms authenticate the distribution
 through Microsoft's HTTPS endpoint; they do not claim Windows signature verification.
 The executable is published only after verification; canceled or failed downloads
 are discarded. Turning off phone access cancels download/sign-in, without closing
@@ -190,8 +222,11 @@ the system credential-store dependencies required by Microsoft's CLI (such as
 `libsecret`); Lumi does not install system packages with administrator privileges.
 For other systems, an existing CLI on `PATH` remains usable.
 
-Lumi creates its own new tunnel and verifies that **both the tunnel and its port
-have no additional access grants before hosting**. It never enables anonymous,
+Lumi creates or reuses only its own profile-specific tunnel and verifies that
+**both the tunnel and its HTTP port have no additional access grants before
+hosting**. Unexpected ports, protocols, permissions, account changes, or cluster
+relocation stop setup rather than silently changing the access policy.
+It never enables anonymous,
 organization/tenant-wide, or shared-token access, and never reuses an existing
 tunnel with unknown permissions. All PWA assets and API routes are behind
 Microsoft's sign-in gate; paired-device bearer authentication, expiry/attempt
@@ -225,10 +260,36 @@ accessible**: Microsoft authenticates and authorizes the tunnel owner first.
 HTTPS terminates at Microsoft's gateway and the relay connection to the PC is
 encrypted; this is not Tailscale's device-to-device WireGuard trust model.
 Do not manually broaden the managed tunnel's access rules or issue/share tunnel
-access tokens. Keep the PC and Lumi running. Turning off phone access or switching
-transport stops the owned relay and removes its tunnel; unused tunnel resources
-expire after one day if cleanup cannot reach Microsoft. Restarting creates a new
-link, which also requires fresh browser pairing for that origin.
+access tokens. Keep the PC awake and Lumi running; the phone cannot reach a sleeping
+or powered-off PC.
+
+The tunnel ID, Microsoft service cluster, and actual listener port are saved, so
+reconnecting and restarting keep the same link and browser pairing. A saved port
+conflict is shown explicitly instead of silently publishing a different URL.
+Lumi enables the access link only after saving the route and port. A local save
+failure asks you to check disk space and folder access; it is not treated as a
+relay outage, and a manual retry saves again before hosting.
+Turning off phone access or switching transport stops the owned relay immediately
+but retains the private tunnel resource for reuse. Its idle expiration is configured
+to 30 days. Microsoft automatically extends this inactivity window with activity;
+Lumi does not run a separate renewal timer. If the PC remains inactive long enough
+for Microsoft to expire the resource, Lumi recreates the saved route in its original
+cluster when available.
+
+Transient relay failures are retried automatically with capped, cancellable
+backoff, and network changes rehost the same route. Settings show **Reconnecting**
+instead of a usable link while the relay is down; **Reconnect** retries without
+rebinding the local listener. Expired desktop credentials ask for an explicit
+Microsoft sign-in. On the phone, Microsoft's gateway session can expire separately
+from Lumi pairing: reopen the same `/app/` link and sign in again with the owner
+account. This does not revoke or replace the phone's Lumi pairing token.
+The web client identifies gateway sign-in redirects and non-Lumi authentication
+errors separately from Lumi's marked JSON pairing errors, so an expired Microsoft browser
+session does not accidentally unpair the device. Its reconnect banner exposes the
+sign-in guidance rather than hiding every error behind **Reconnecting**.
+Copy any unsent draft before reloading the web app.
+Long-lived web requests use the CLI's disabled relay request timeout; Lumi's own
+request/body limits and SSE silence deadlines remain in force.
 
 Dev Tunnels is a Microsoft preview service without a production SLA. This mode
 is for the **PWA**, not the native Android transport. Existing Tailscale and
