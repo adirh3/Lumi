@@ -934,7 +934,7 @@
   "Remote_SetupWebPanelTitle": "פתח את לומי בדפדפן",
   "Remote_SetupWebPanelDesc": "סרוק את הקוד ולומי ייפתח ישירות. אין צורך בהורדה מ-App Store או מ-Play Store.",
   "Remote_SetupAndroidPanelTitle": "התקן את לומי ל-Android",
-  "Remote_SetupAndroidPanelDesc": "סרוק את הקוד כדי להוריד את יישום Android התואם ולחבר אותו למחשב הזה.",
+  "Remote_SetupAndroidPanelDesc": "סרוק את הקוד כדי להוריד מ-GitHub את קובץ ה-APK הרשמי התואם ולחבר אותו למחשב הזה. לומי אינו מופץ בחנויות אפליקציות.",
   "Remote_SetupScan": "סרוק באמצעות מצלמת הטלפון",
   "Remote_SetupCopyLink": "העתק קישור",
   "Remote_SetupCopied": "קישור ההגדרה הועתק.",

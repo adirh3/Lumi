@@ -39,6 +39,12 @@
     <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\index.html"
              Link="BrowserAssets\index.html"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\android.html"
+             Link="BrowserAssets\android.html"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\android-install.js"
+             Link="BrowserAssets\android-install.js"
+             CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\manifest.webmanifest"
              Link="BrowserAssets\manifest.webmanifest"
              CopyToOutputDirectory="PreserveNewest" />

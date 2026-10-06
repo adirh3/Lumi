@@ -113,6 +113,13 @@ composer focus motion; the static underline remains visible.
 
 ### Mobile conversations
 
+Lumi's native Android app is distributed as an official APK on
+[GitHub Releases](https://github.com/adirh3/Lumi/releases/latest), not through Google Play
+or any other app store. In **Settings > Mobile**, choose **Android app** and scan the
+setup code to download the APK matching your desktop release. Install it, return to
+the setup page, and tap **Open Lumi**. If the app is not installed, **Open Lumi**
+falls back to the official APK download, never an app-store listing.
+
 Announced files appear as readable attachment cards after the reply for their turn,
 including file-only replies, without changing transcript paging or download permissions.
 New chats show the desktop-resolved reasoning effort and context-window selection for
