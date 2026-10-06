@@ -13,6 +13,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -30,11 +31,44 @@ internal readonly record struct WorkspacePanelParts(
     ContentControl PageHost);
 
 /// <summary>
+/// A host remembers its Desktop choice while its controller is replaced on chat switches. Explicit
+/// chat-wide requests still reach this state while cached, without retaining a view or a bitmap.
+/// </summary>
+internal sealed class DesktopPreviewHostState : IDisposable
+{
+    private readonly ChatViewModel _vm;
+
+    public DesktopPreviewHostState(ChatViewModel viewModel)
+    {
+        _vm = viewModel;
+        IsOpen = viewModel.IsDesktopOpen;
+        _vm.DesktopShowRequested += OnShowRequested;
+        _vm.DesktopHideRequested += OnHideRequested;
+    }
+
+    public bool IsOpen { get; set; }
+
+    private void OnShowRequested(Guid chatId)
+    {
+        if (_vm.CurrentChat?.Id == chatId)
+            IsOpen = true;
+    }
+
+    private void OnHideRequested() => IsOpen = false;
+
+    public void Dispose()
+    {
+        _vm.DesktopShowRequested -= OnShowRequested;
+        _vm.DesktopHideRequested -= OnHideRequested;
+    }
+}
+
+/// <summary>
 /// Drives the chat's Workspace — the one panel beside the chat. It hosts the at-a-glance overview
-/// and every focused page (plan, agents, git changes, diffs, skills, file previews, the browser),
+/// and every focused page (plan, agents, git changes, diffs, skills, file previews, browser, desktop),
 /// turns the view-model's show/hide requests into navigation with a back history, sizes the panel
 /// (a compact rail for the overview, a split view for pages), plays its motion, and owns the
-/// lifecycle of pages backed by native windows.
+/// lifecycle of pages holding native windows or decoded images.
 /// <para>A new page is a <see cref="WorkspacePage"/> value, a Show method that calls
 /// <see cref="Navigate"/>, and a header line in <see cref="RefreshHeader"/>.</para>
 /// </summary>
@@ -59,6 +93,11 @@ internal sealed class WorkspacePanelController : IDisposable
     private readonly WorkspacePanelParts _parts;
     private readonly Action? _ensureChatVisible;
     private readonly Func<Guid, bool>? _canShowBrowserPanel;
+    private readonly Func<Guid, bool>? _canShowDesktopPanel;
+    private readonly DesktopPreviewHostState _desktopState;
+    private readonly bool _ownsDesktopState;
+    private TopLevel? _desktopTopLevel;
+    private bool _isDesktopHostRegistered;
 
     // Navigation. _page is the logical page; the visuals follow it immediately while the panel is
     // open, or once a closing panel has finished sliding away (so its content never swaps mid-exit).
@@ -98,6 +137,7 @@ internal sealed class WorkspacePanelController : IDisposable
     private FilePreviewView? _fileView;
     private string? _filePath;
     private BrowserView? _browserView;
+    private DesktopPreviewView? _desktopView;
 
     public WorkspacePanelController(
         Control host,
@@ -105,7 +145,9 @@ internal sealed class WorkspacePanelController : IDisposable
         ChatViewModel viewModel,
         WorkspacePanelParts parts,
         Action? ensureChatVisible = null,
-        Func<Guid, bool>? canShowBrowserPanel = null)
+        Func<Guid, bool>? canShowBrowserPanel = null,
+        Func<Guid, bool>? canShowDesktopPanel = null,
+        DesktopPreviewHostState? desktopState = null)
     {
         _host = host;
         _dataStore = dataStore;
@@ -113,10 +155,17 @@ internal sealed class WorkspacePanelController : IDisposable
         _parts = parts;
         _ensureChatVisible = ensureChatVisible;
         _canShowBrowserPanel = canShowBrowserPanel;
+        _canShowDesktopPanel = canShowDesktopPanel;
+        _ownsDesktopState = desktopState is null;
+        _desktopState = desktopState ?? new DesktopPreviewHostState(viewModel);
 
         WireViewModel();
         SyncPageContent();
         _ = ApplyPanelState();
+        _parts.Panel.AttachedToVisualTree += OnDesktopPanelAttached;
+        _parts.Panel.DetachedFromVisualTree += OnDesktopPanelDetached;
+        _parts.Panel.PropertyChanged += OnDesktopVisibilityChanged;
+        AttachDesktopVisibility();
     }
 
     public WorkspacePage Page => _page;
@@ -135,6 +184,13 @@ internal sealed class WorkspacePanelController : IDisposable
 
         _isDisposed = true;
         UnwireViewModel();
+        _parts.Panel.AttachedToVisualTree -= OnDesktopPanelAttached;
+        _parts.Panel.DetachedFromVisualTree -= OnDesktopPanelDetached;
+        _parts.Panel.PropertyChanged -= OnDesktopVisibilityChanged;
+        DetachDesktopVisibility();
+        ReleaseDesktopView();
+        if (_ownsDesktopState)
+            _desktopState.Dispose();
         DisposeCancellationTokenSource(ref _panelAnimCts);
         StopPageEntrance();
 
@@ -210,6 +266,33 @@ internal sealed class WorkspacePanelController : IDisposable
             _ = ShowBrowserAsync(chatId);
     }
 
+    /// <summary>Restores this host's remembered page, without navigating or capturing in another host.</summary>
+    public void RestoreDesktop()
+    {
+        if (_vm.CurrentChat is not { } chat)
+            return;
+
+        var chatId = chat.Id;
+        PostIfActive(() =>
+        {
+            if (_desktopState.IsOpen && _page == WorkspacePage.Overview)
+                ShowDesktop(chatId);
+        });
+    }
+
+    private bool ShowDesktop(Guid chatId)
+    {
+        if (_isDisposed || _vm.CurrentChat?.Id != chatId || _canShowDesktopPanel?.Invoke(chatId) == false)
+            return false;
+
+        _desktopState.IsOpen = true;
+        _vm.IsDesktopOpen = true;
+        _desktopView ??= new DesktopPreviewView { DataContext = _vm };
+        _ = Navigate(WorkspacePage.Desktop, _desktopView, ensureChatVisible: false);
+        UpdateDesktopHostRegistration();
+        return true;
+    }
+
     /// <summary>Back: up one level inside a page (a git file, an agent run), else the previous page.</summary>
     public void GoBack()
     {
@@ -254,7 +337,7 @@ internal sealed class WorkspacePanelController : IDisposable
     }
 
     /// <summary>Returns to the overview and forgets transient pages (chat switch, leaving the chat).</summary>
-    public void ClosePages() => HidePanel();
+    public void ClosePages() => HidePanel(preserveDesktopIntent: true);
 
     /// <summary>Re-resolves visibility after the content, the host size or the preference changed.</summary>
     public void RefreshVisibility() => _ = ApplyPanelState();
@@ -288,6 +371,8 @@ internal sealed class WorkspacePanelController : IDisposable
     {
         _vm.BrowserShowRequested += OnBrowserShowRequested;
         _vm.BrowserHideRequested += OnBrowserHideRequested;
+        _vm.DesktopShowRequested += OnDesktopShowRequested;
+        _vm.DesktopHideRequested += OnDesktopHideRequested;
         _vm.DiffShowRequested += OnDiffShowRequested;
         _vm.DiffHideRequested += OnDiffHideRequested;
         _vm.GitChangesShowRequested += OnGitChangesShowRequested;
@@ -308,6 +393,8 @@ internal sealed class WorkspacePanelController : IDisposable
     {
         _vm.BrowserShowRequested -= OnBrowserShowRequested;
         _vm.BrowserHideRequested -= OnBrowserHideRequested;
+        _vm.DesktopShowRequested -= OnDesktopShowRequested;
+        _vm.DesktopHideRequested -= OnDesktopHideRequested;
         _vm.DiffShowRequested -= OnDiffShowRequested;
         _vm.DiffHideRequested -= OnDiffHideRequested;
         _vm.GitChangesShowRequested -= OnGitChangesShowRequested;
@@ -335,6 +422,16 @@ internal sealed class WorkspacePanelController : IDisposable
 
     private void OnBrowserShowRequested(Guid chatId) => PostIfActive(() => ShowBrowser(chatId));
     private void OnBrowserHideRequested() => PostIfActive(() => ClosePage(WorkspacePage.Browser));
+    private void OnDesktopShowRequested(Guid chatId) => PostIfActive(() =>
+    {
+        if (_desktopState.IsOpen)
+            ShowDesktop(chatId);
+    });
+    private void OnDesktopHideRequested() => PostIfActive(() =>
+    {
+        if (!_desktopState.IsOpen)
+            ClosePage(WorkspacePage.Desktop);
+    });
     private void OnDiffShowRequested(FileChangeItem item) => PostIfActive(() => ShowDiff(item));
     private void OnGitChangesShowRequested(GitChangesViewModel changes) => PostIfActive(() => ShowGitChanges(changes));
     private void OnPlanShowRequested() => PostIfActive(ShowPlan);
@@ -395,7 +492,7 @@ internal sealed class WorkspacePanelController : IDisposable
     /// completes (true) once the panel is fully on screen — native pages attach only then, because
     /// native windows cannot ride the slide.
     /// </summary>
-    private Task<bool> Navigate(WorkspacePage page, Control content)
+    private Task<bool> Navigate(WorkspacePage page, Control content, bool ensureChatVisible = true)
     {
         var previous = _page;
         var wasOpen = IsOpen;
@@ -415,6 +512,9 @@ internal sealed class WorkspacePanelController : IDisposable
             _transientOpen = !ResolvePreferenceVisible();
         }
 
+        if (page != WorkspacePage.Desktop)
+            DismissDesktopForThisHost();
+
         // A file preview is the only page that keeps the view-model's preview request open.
         if (page != WorkspacePage.FilePreview && _vm.IsFilePreviewOpen)
         {
@@ -424,7 +524,8 @@ internal sealed class WorkspacePanelController : IDisposable
 
         _page = page;
         _pageContent = content;
-        _ensureChatVisible?.Invoke();
+        if (ensureChatVisible)
+            _ensureChatVisible?.Invoke();
         var shown = ApplyPanelState();
 
         if (wasOpen && previous != page && !IsNativePage(page))
@@ -515,6 +616,11 @@ internal sealed class WorkspacePanelController : IDisposable
             case WorkspacePage.Browser when _vm.CurrentChat is { } chat && _vm.GetBrowserServiceForChat(chat.Id) is not null:
                 _ = ShowBrowserAsync(chat.Id);
                 return true;
+            case WorkspacePage.Desktop when _vm.HasDesktopPreview && _vm.CurrentChat is { } desktopChat:
+                if (!ShowDesktop(desktopChat.Id))
+                    return false;
+                _ = _vm.RefreshDesktopPreviewCommand.ExecuteAsync(null);
+                return true;
             default:
                 return false;
         }
@@ -524,15 +630,17 @@ internal sealed class WorkspacePanelController : IDisposable
     /// Drops every page and closes the panel, unless the user keeps the workspace open (then the
     /// overview stays). A closing panel keeps its content while it slides away, then resets.
     /// </summary>
-    private void HidePanel()
+    private void HidePanel(bool preserveDesktopIntent = false)
     {
         _transientOpen = false;
-        ResetToOverview();
+        ResetToOverview(preserveDesktopIntent);
     }
 
-    private void ResetToOverview()
+    private void ResetToOverview(bool preserveDesktopIntent = false)
     {
         LeavePage(_page);
+        if (!preserveDesktopIntent)
+            DismissDesktopForThisHost();
         _history.Clear();
         _page = WorkspacePage.Overview;
         _pageContent = null;
@@ -549,6 +657,9 @@ internal sealed class WorkspacePanelController : IDisposable
                 _browserView?.ClearBrowserService();
                 _vm.IsBrowserOpen = false;
                 break;
+            case WorkspacePage.Desktop:
+                ReleaseDesktopView();
+                break;
             case WorkspacePage.FilePreview:
                 _fileView?.Clear();
                 _vm.IsFilePreviewOpen = false;
@@ -560,6 +671,80 @@ internal sealed class WorkspacePanelController : IDisposable
                 _gitFile = null;
                 break;
         }
+    }
+
+    private void DismissDesktopForThisHost()
+    {
+        if (!_desktopState.IsOpen)
+            return;
+
+        _desktopState.IsOpen = false;
+        if (!_vm.HasVisibleDesktopPreviewHost)
+            _vm.IsDesktopOpen = false;
+    }
+
+    private void ReleaseDesktopView()
+    {
+        SetDesktopHostRegistered(false);
+        _desktopView?.Dispose();
+        _desktopView = null;
+    }
+
+    private void OnDesktopPanelAttached(object? sender, VisualTreeAttachmentEventArgs e)
+        => AttachDesktopVisibility();
+
+    private void OnDesktopPanelDetached(object? sender, VisualTreeAttachmentEventArgs e)
+        => DetachDesktopVisibility();
+
+    private void AttachDesktopVisibility()
+    {
+        var topLevel = TopLevel.GetTopLevel(_parts.Panel);
+        if (!ReferenceEquals(_desktopTopLevel, topLevel))
+        {
+            if (_desktopTopLevel is not null)
+                _desktopTopLevel.PropertyChanged -= OnDesktopVisibilityChanged;
+            _desktopTopLevel = topLevel;
+            if (_desktopTopLevel is not null)
+                _desktopTopLevel.PropertyChanged += OnDesktopVisibilityChanged;
+        }
+        UpdateDesktopHostRegistration();
+    }
+
+    private void DetachDesktopVisibility()
+    {
+        if (_desktopTopLevel is not null)
+            _desktopTopLevel.PropertyChanged -= OnDesktopVisibilityChanged;
+        _desktopTopLevel = null;
+        SetDesktopHostRegistered(false);
+    }
+
+    private void OnDesktopVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == Visual.IsVisibleProperty || e.Property == Window.WindowStateProperty)
+            UpdateDesktopHostRegistration();
+    }
+
+    private void UpdateDesktopHostRegistration()
+        => SetDesktopHostRegistered(!_isDisposed && IsOpen && _page == WorkspacePage.Desktop
+            && _desktopView is not null && _parts.Panel.IsAttachedToVisualTree() && _parts.Panel.IsEffectivelyVisible
+            && _desktopTopLevel is { IsVisible: true }
+            && _desktopTopLevel is not Window { WindowState: WindowState.Minimized });
+
+    private void SetDesktopHostRegistered(bool registered)
+    {
+        if (_isDesktopHostRegistered == registered)
+            return;
+
+        _isDesktopHostRegistered = registered;
+        if (registered)
+        {
+            _vm.AddVisibleDesktopPreviewHost();
+            // Another host can dismiss the last visible page while this one is minimized.
+            if (_desktopState.IsOpen)
+                _vm.IsDesktopOpen = true;
+        }
+        else
+            _vm.RemoveVisibleDesktopPreviewHost();
     }
 
     private static bool IsNativePage(WorkspacePage page)
@@ -600,6 +785,7 @@ internal sealed class WorkspacePanelController : IDisposable
             WorkspacePage.Skill => (_vm.SkillPreviewTitle ?? Loc.Workspace_Skill, (string?)Loc.Workspace_Skill),
             WorkspacePage.FilePreview => (Path.GetFileName(_filePath) ?? Loc.Preview_Title, (string?)Loc.Preview_Title),
             WorkspacePage.Browser => (Loc.Browser_Title, (string?)null),
+            WorkspacePage.Desktop => (Loc.Desktop_Title, (string?)null),
             _ => (Loc.Workspace_Title, (string?)null),
         };
 

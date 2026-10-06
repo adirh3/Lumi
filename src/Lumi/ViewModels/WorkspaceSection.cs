@@ -27,6 +27,7 @@ public enum WorkspaceCategory
     Messages,
     Activity,
     Browser,
+    Desktop,
 }
 
 /// <summary>What every Workspace overview section exposes, whatever its row type — enough for the

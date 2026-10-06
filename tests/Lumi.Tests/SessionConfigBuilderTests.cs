@@ -133,6 +133,7 @@ public sealed class SessionConfigBuilderTests
             skillProvider: provider);
 
 #pragma warning disable GHCP001 // The trial intentionally exercises the SDK's experimental provider binding.
+        Assert.IsAssignableFrom<ISkillProvider>(provider);
         Assert.Same(provider, created.SkillProvider);
         Assert.Same(provider, resumed.SkillProvider);
 #pragma warning restore GHCP001

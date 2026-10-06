@@ -544,12 +544,13 @@ public partial class ChatViewModel
     /// the wrapping <c>task</c> tool completes immediately, so <see cref="ChatRuntimeState.ActiveToolCount"/>
     /// alone does not reflect sub-agent work and would otherwise let recovery mark the turn terminal early.</summary>
     private static bool IsPostToolReconciliationEligible(ChatRuntimeState runtime, bool treatCompletedTurnAsIdle)
-        => treatCompletedTurnAsIdle
+        => runtime.Chat?.IsPaused != true
+           && (treatCompletedTurnAsIdle
             ? ShouldRecoverCompletedTurnIfIdleIsMissing(runtime)
             : runtime.PendingSessionUserMessageCount > 0
               && runtime.ActiveToolCount == 0
               && runtime.ActiveSubagentExecutionDepth == 0
-              && !runtime.IsStreaming;
+              && !runtime.IsStreaming);
 
     private static bool CanTreatCompletedTurnAsIdle(PendingTurnRecoveryAnalysis analysis)
         => analysis.UserMessageObserved

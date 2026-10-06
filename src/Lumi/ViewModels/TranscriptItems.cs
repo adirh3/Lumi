@@ -107,6 +107,18 @@ public partial class UserMessageItem : TranscriptItem
     /// steering badge — forces the still-pending message through as a fresh turn.</summary>
     public IAsyncRelayCommand SendNowCommand { get; }
 
+    /// <summary>What this message replies to, when it was sent as a reply.</summary>
+    public MessageReply? Reply => _source.Message.ReplyTo;
+    public bool HasReply => Reply is { Quote.Length: > 0 };
+    public string ReplyAuthor => Reply?.Author ?? Loc.Author_Lumi;
+    public string ReplyPreview => MessageReplyFormatter.BuildPreview(Reply);
+
+    /// <summary>Non-null only for replies, so the quote block is built only for messages that have one.</summary>
+    public UserMessageItem? DisplayReply => HasReply ? this : null;
+
+    /// <summary>Scrolls to the replied-to message and highlights the quoted text.</summary>
+    public IRelayCommand OpenReplySourceCommand { get; }
+
     public UserMessageItem(
         ChatMessageViewModel source,
         bool showTimestamps,
@@ -114,7 +126,8 @@ public partial class UserMessageItem : TranscriptItem
         Action<ChatMessage>? beginEditAction = null,
         Action<ChatMessage, bool>? resendAction = null,
         Action<SkillReference>? openSkillAction = null,
-        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null)
+        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null,
+        Action<MessageReply>? openReplySourceAction = null)
         : base($"message:user:{source.Message.Id}")
     {
         _source = source;
@@ -133,6 +146,11 @@ public partial class UserMessageItem : TranscriptItem
         ResendCommand = new RelayCommand(ResendFromMessage);
         SendNowCommand = new AsyncRelayCommand(
             () => sendSteeredNowAsync?.Invoke(_source) ?? Task.CompletedTask);
+        OpenReplySourceCommand = new RelayCommand(() =>
+        {
+            if (Reply is { } reply)
+                openReplySourceAction?.Invoke(reply);
+        });
     }
 
     public void ResendFromMessage() => _resendAction?.Invoke(_source.Message, false);
@@ -378,9 +396,17 @@ public partial class AssistantMessageItem : TranscriptItem
     private readonly ChatMessageViewModel _source;
     private readonly Action<SkillReference>? _openSkillAction;
 
-    [ObservableProperty] private string _content;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanReply))]
+    private string _content;
     [ObservableProperty] private string _timestampText;
     [ObservableProperty] private bool _isStreaming;
+
+    /// <summary>True while the composer holds a reply to this message.</summary>
+    [ObservableProperty] private bool _isReplySource;
+
+    /// <summary>Only an answer with text can be quoted; a bubble that just carries files cannot.</summary>
+    public bool CanReply => !string.IsNullOrWhiteSpace(Content);
 
     // Extras — populated when streaming ends
     [ObservableProperty] private bool _hasSkills;
@@ -767,6 +793,13 @@ public partial class SingleToolItem : TranscriptItem
     {
         _source = source;
     }
+
+    internal void NotifyTerminalPresentationChanged()
+    {
+        OnPropertyChanged(nameof(Label));
+        OnPropertyChanged(nameof(IsActive));
+        OnPropertyChanged(nameof(Meta));
+    }
 }
 
 // ── Base for items inside a tool group ───────────────
@@ -1110,6 +1143,7 @@ public partial class ToolCallItem : ToolCallItemBase
 
 public partial class TerminalPreviewItem : ToolCallItemBase
 {
+    private readonly string _runningToolName;
     [ObservableProperty] private string _toolName;
     [ObservableProperty] private string _command;
     [ObservableProperty] private string _output = "";
@@ -1133,9 +1167,26 @@ public partial class TerminalPreviewItem : ToolCallItemBase
     public TerminalPreviewItem(string toolName, string command, StrataAiToolCallStatus status, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("terminal"))
     {
+        _runningToolName = toolName;
         _toolName = toolName;
         _command = command;
         _status = status;
+        UpdateToolName();
+    }
+
+    partial void OnStatusChanged(StrataAiToolCallStatus value) => UpdateToolName();
+    partial void OnIsRunningInBackgroundChanged(bool value) => UpdateToolName();
+
+    private void UpdateToolName()
+    {
+        var key = Status switch
+        {
+            StrataAiToolCallStatus.Stopped => "Chat_CommandInterrupted",
+            StrataAiToolCallStatus.Failed => "Chat_CommandFailed",
+            StrataAiToolCallStatus.Completed when !IsRunningInBackground => "Chat_CommandCompleted",
+            _ => null
+        };
+        ToolName = key is null ? _runningToolName : $"{ToolDisplayHelper.GetToolGlyph("powershell")} {Loc.Get(key)}";
     }
 }
 

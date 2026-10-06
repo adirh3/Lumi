@@ -15,18 +15,24 @@ public sealed class UiActionSamples
     public required string DisplayName { get; init; }
     public string? Note { get; init; }
     public int Iterations { get; set; }
+    public int FailedIterations { get; set; }
 
     /// <summary>Wall-clock duration of the action delegate per iteration (ms).</summary>
     public List<double> RunDurationsMs { get; } = new();
 
     /// <summary>
-    /// Per-iteration post-action work time (ms): how long the UI thread stayed busy draining
-    /// deferred work after the action delegate returned. Excludes the fixed quiet padding.
+    /// Per-iteration post-action layout/dispatcher settle time (ms).
+    /// Excludes animation-tick waits and the fixed preparation quiet padding.
     /// </summary>
     public List<double> PostActionDurationsMs { get; } = new();
 
+    /// <summary>Action start through completion and dispatcher drain, including awaited animations/I/O.</summary>
+    public List<double> InteractionDurationsMs { get; } = new();
+
     /// <summary>Per-iteration worst stall (ms) — the largest single latency sample in that run.</summary>
     public List<double> IterationMaxMs { get; } = new();
+    public List<long> UiAllocatedBytes { get; } = new();
+    public List<int> Gen2CollectionsByIteration { get; } = new();
 
     /// <summary>UI-thread latency samples captured from action start through the post-action drain.</summary>
     public List<double> LatenciesMs { get; } = new();
@@ -40,9 +46,15 @@ public sealed class UiActionResult
     public required string DisplayName { get; init; }
     public string? Note { get; init; }
     public int Iterations { get; init; }
+    public int FailedIterations { get; init; }
     public double MeanRunMs { get; init; }
+    public LatencyStats Interaction { get; init; } = LatencyStats.Empty;
+    public LatencyStats IterationStalls { get; init; } = LatencyStats.Empty;
+    public IReadOnlyList<double> IterationMaxMs { get; init; } = Array.Empty<double>();
+    public double MeanUiAllocatedBytes { get; init; }
+    public IReadOnlyList<int> Gen2CollectionsByIteration { get; init; } = Array.Empty<int>();
 
-    /// <summary>Mean post-action drain time (ms): UI work that kept running after the action returned.</summary>
+    /// <summary>Mean post-action layout/dispatcher settle time (ms), without fixed quiet padding.</summary>
     public double MeanPostActionMs { get; init; }
     public double MaxPostActionMs { get; init; }
 
@@ -74,6 +86,9 @@ public sealed class UiResponsivenessReport
     public int WarmupIterations { get; init; }
     public int SampleIntervalMs { get; init; }
     public int SettleQuietMs { get; init; }
+    public int RunningChats { get; init; }
+    public IReadOnlyList<string> RequestedCategories { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> FailedActions { get; init; } = Array.Empty<string>();
     public IReadOnlyList<UiActionResult> Actions { get; init; } = Array.Empty<UiActionResult>();
     public IReadOnlyList<UiCategoryRollup> Categories { get; init; } = Array.Empty<UiCategoryRollup>();
     public LatencyStats Overall { get; init; } = LatencyStats.Empty;
@@ -89,9 +104,15 @@ public sealed class UiResponsivenessReport
     public int GateOffenderCount { get; init; }
 
     /// <summary>True when a gate is configured and at least one action breached it.</summary>
-    public bool GateFailed => FailOnLevel is not null && GateOffenderCount > 0;
+    public bool IsComplete => Actions.Count > 0 && FailedActions.Count == 0
+        && Actions.All(action => action.FailedIterations == 0 && action.Iterations > 0 && action.Latency.Count > 0);
 
-    public static UiResponsivenessReport Build(UiHarnessOptions options, IEnumerable<UiActionSamples> samples)
+    public bool GateFailed => FailOnLevel is not null && (GateOffenderCount > 0 || !IsComplete);
+
+    public static UiResponsivenessReport Build(
+        UiHarnessOptions options,
+        IEnumerable<UiActionSamples> samples,
+        IReadOnlyList<string>? failedActions = null)
     {
         var samplesList = samples?.ToList() ?? new List<UiActionSamples>();
         var allLatencies = new List<double>();
@@ -108,7 +129,13 @@ public sealed class UiResponsivenessReport
                 DisplayName = sample.DisplayName,
                 Note = sample.Note,
                 Iterations = sample.Iterations,
+                FailedIterations = sample.FailedIterations,
                 MeanRunMs = Mean(sample.RunDurationsMs),
+                Interaction = LatencyStats.FromLatencies(sample.InteractionDurationsMs),
+                IterationStalls = LatencyStats.FromLatencies(sample.IterationMaxMs),
+                IterationMaxMs = sample.IterationMaxMs.ToArray(),
+                MeanUiAllocatedBytes = sample.UiAllocatedBytes.Count > 0 ? sample.UiAllocatedBytes.Average() : 0d,
+                Gen2CollectionsByIteration = sample.Gen2CollectionsByIteration.ToArray(),
                 MeanPostActionMs = Mean(sample.PostActionDurationsMs),
                 MaxPostActionMs = sample.PostActionDurationsMs.Count > 0 ? sample.PostActionDurationsMs.Max() : 0d,
                 IterationsWithStall = sample.IterationMaxMs.Count(m => m >= UiResponsivenessThresholds.HighStallMs),
@@ -160,6 +187,9 @@ public sealed class UiResponsivenessReport
             WarmupIterations = options?.WarmupIterations ?? 0,
             SampleIntervalMs = options?.SampleIntervalMs ?? 0,
             SettleQuietMs = options?.SettleQuietMs ?? 0,
+            RunningChats = options?.RunningChats ?? 0,
+            RequestedCategories = options?.RequestedCategories.ToArray() ?? Array.Empty<string>(),
+            FailedActions = failedActions?.ToArray() ?? Array.Empty<string>(),
             Actions = actions,
             Categories = categories,
             Overall = LatencyStats.FromLatencies(allLatencies),
@@ -180,12 +210,15 @@ public sealed class UiResponsivenessReport
         sb.AppendLine(" Lumi UI Responsiveness Report");
         sb.AppendLine($" Generated : {GeneratedAt:yyyy-MM-dd HH:mm:ss}    Mode: {Mode}    Iterations: {Iterations} (warmup {WarmupIterations})");
         sb.AppendLine($" Probe     : {SampleIntervalMs}ms sampling of Background-priority dispatcher latency.");
+        sb.AppendLine(" Window    : Action through pending layout and a dispatcher drain; no fixed quiet padding.");
+        sb.AppendLine($" Load      : {RunningChats} streaming chats    Categories: {(RequestedCategories.Count == 0 ? "all" : string.Join(", ", RequestedCategories))}");
         sb.AppendLine("             Higher = UI thread busy / less idle headroom — a proxy for lag and freezes.");
         sb.AppendLine("             Debug build: absolute ms are pessimistic; use for ranking/regressions, not UX certification.");
         sb.AppendLine(rule);
         sb.AppendLine();
         sb.AppendLine(" SUMMARY");
         sb.AppendLine($"   Actions measured : {Actions.Count}");
+        sb.AppendLine($"   Coverage         : {(IsComplete ? "COMPLETE" : "INCOMPLETE")} ({FailedActions.Count} skipped actions, {Actions.Sum(action => action.FailedIterations)} failed iterations)");
         sb.AppendLine($"   Critical / High / Moderate / Good : {CriticalCount} / {HighCount} / {ModerateCount} / {GoodCount}");
         sb.AppendLine($"   Overall latency  : p95 {F(Overall.P95Ms)}ms   p99 {F(Overall.P99Ms)}ms   worst stall {F(Overall.MaxMs)}ms");
         sb.AppendLine($"   Impact scale     : Good <{F(UiResponsivenessThresholds.ModerateP99Ms)}  " +
@@ -195,16 +228,19 @@ public sealed class UiResponsivenessReport
         sb.AppendLine();
 
         sb.AppendLine(" WORST UX ACTIONS (ranked by responsiveness impact)");
-        sb.AppendLine($"   {"#",-3} {"IMPACT",-9} {"p99(ms)",9} {"max(ms)",9} {"run(ms)",9} {"post(ms)",9}  action [category]");
+        sb.AppendLine($"   {"#",-3} {"IMPACT",-9} {"p99(ms)",9} {"stall50",9} {"run(ms)",9} {"post(ms)",9} {"response95",10} {"UI(KiB)",9}  action [category]");
         sb.AppendLine($"   {new string('-', 78)}");
         var rank = 1;
         foreach (var action in Actions)
         {
             sb.AppendLine(
-                $"   {rank,-3} {UiImpactClassifier.Label(action.Impact),-9} {F(action.Latency.P99Ms),9} {F(action.Latency.MaxMs),9} " +
-                $"{F(action.MeanRunMs),9} {F(action.MeanPostActionMs),9}  {action.DisplayName} [{action.Category}]");
+                $"   {rank,-3} {UiImpactClassifier.Label(action.Impact),-9} {F(action.Latency.P99Ms),9} {F(action.IterationStalls.P50Ms),9} " +
+                $"{F(action.MeanRunMs),9} {F(action.MeanPostActionMs),9} {F(action.Interaction.P95Ms),10} {F(action.MeanUiAllocatedBytes / 1024d),9}  {action.DisplayName} [{action.Category}]");
             rank++;
         }
+        sb.AppendLine();
+        sb.AppendLine("   response95 = action-start-to-completion/drain p95; includes awaited animations/I/O, not a UI-stall metric.");
+        sb.AppendLine("   stall50 = median per-iteration worst dispatcher stall; UI(KiB) includes all UI-thread work in the window.");
         sb.AppendLine();
 
         sb.AppendLine(" BY CATEGORY (worst action drives the rating)");
@@ -234,7 +270,9 @@ public sealed class UiResponsivenessReport
 
         if (FailOnLevel is { } gateLevel)
         {
-            sb.AppendLine(GateFailed
+            sb.AppendLine(!IsComplete
+                ? " GATE: FAIL — benchmark coverage is incomplete."
+                : GateFailed
                 ? $" GATE: FAIL — {GateOffenderCount} action(s) at or above {UiImpactClassifier.Label(gateLevel)} " +
                   $"(--ui-perf-fail-on {gateLevel.ToString().ToLowerInvariant()})"
                 : $" GATE: PASS — no action at or above {UiImpactClassifier.Label(gateLevel)}");
@@ -250,14 +288,20 @@ public sealed class UiResponsivenessReport
         var root = new JsonObject
         {
             ["generatedAt"] = GeneratedAt.ToString("o", CultureInfo.InvariantCulture),
+            ["measurementWindow"] = "action-through-layout-and-background-drain",
             ["mode"] = Mode,
             ["iterations"] = Iterations,
             ["warmupIterations"] = WarmupIterations,
             ["sampleIntervalMs"] = SampleIntervalMs,
             ["settleQuietMs"] = SettleQuietMs,
+            ["runningChats"] = RunningChats,
+            ["requestedCategories"] = new JsonArray(RequestedCategories.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
+            ["failedActions"] = new JsonArray(FailedActions.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
             ["summary"] = new JsonObject
             {
                 ["actionsMeasured"] = Actions.Count,
+                ["complete"] = IsComplete,
+                ["failedIterations"] = Actions.Sum(action => action.FailedIterations),
                 ["critical"] = CriticalCount,
                 ["high"] = HighCount,
                 ["moderate"] = ModerateCount,
@@ -302,9 +346,15 @@ public sealed class UiResponsivenessReport
                 ["displayName"] = action.DisplayName,
                 ["note"] = action.Note,
                 ["iterations"] = action.Iterations,
+                ["failedIterations"] = action.FailedIterations,
                 ["impact"] = UiImpactClassifier.Label(action.Impact),
                 ["impactScore"] = Round(action.ImpactScore),
                 ["meanRunMs"] = Round(action.MeanRunMs),
+                ["interaction"] = StatsToJson(action.Interaction),
+                ["iterationStalls"] = StatsToJson(action.IterationStalls),
+                ["iterationMaxMs"] = new JsonArray(action.IterationMaxMs.Select(value => (JsonNode?)JsonValue.Create(Round(value))).ToArray()),
+                ["meanUiAllocatedBytes"] = Round(action.MeanUiAllocatedBytes),
+                ["gen2CollectionsByIteration"] = new JsonArray(action.Gen2CollectionsByIteration.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
                 ["meanPostActionMs"] = Round(action.MeanPostActionMs),
                 ["maxPostActionMs"] = Round(action.MaxPostActionMs),
                 ["iterationsWithStall"] = action.IterationsWithStall,

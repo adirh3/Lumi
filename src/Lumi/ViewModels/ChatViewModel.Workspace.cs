@@ -27,6 +27,7 @@ public enum WorkspacePage
     Skill,
     FilePreview,
     Browser,
+    Desktop,
 }
 
 /// <summary>
@@ -88,8 +89,8 @@ public partial class ChatViewModel
     /// <summary>True when this chat produced anything the overview lists (drives auto-open).</summary>
     public bool HasWorkspaceContent => HasPlan || ChatContentSections.Any(static section => section.TotalCount > 0);
 
-    /// <summary>Nothing to show at all: not from this chat, not from the repository, no browser.</summary>
-    public bool ShowWorkspaceEmptyState => !HasWorkspaceContent && !HasWorkspaceGit && !ShowBrowserToggle;
+    /// <summary>Nothing to show from this chat, the repository, the browser or the desktop.</summary>
+    public bool ShowWorkspaceEmptyState => !HasWorkspaceContent && !HasWorkspaceGit && !ShowBrowserToggle && !ShowDesktopToggle;
 
     /// <summary>True when an error was recorded this chat (the presence layer answers new errors).</summary>
     [ObservableProperty] private bool _hasErrorActivities;
@@ -115,6 +116,7 @@ public partial class ChatViewModel
         new(WorkspaceCategory.Messages, Loc.Workspace_Messages),
         new(WorkspaceCategory.Activity, Loc.Workspace_Activity),
         new(WorkspaceCategory.Browser, Loc.Browser_Title, opensPage: true),
+        new(WorkspaceCategory.Desktop, Loc.Desktop_Title, opensPage: true),
     ];
 
     /// <summary>The kind the overview is narrowed to; <see cref="WorkspaceCategory.All"/> shows everything.</summary>
@@ -128,7 +130,7 @@ public partial class ChatViewModel
         NotifyWorkspaceVisibilityChanged();
     }
 
-    /// <summary>A chip click: narrow to that kind (again for everything), or open the plan / browser.</summary>
+    /// <summary>A chip click: narrow to that kind, or open its focused plan / browser / desktop page.</summary>
     [RelayCommand]
     private void SelectWorkspaceCategory(WorkspaceCategory category)
     {
@@ -139,6 +141,9 @@ public partial class ChatViewModel
                 break;
             case WorkspaceCategory.Browser:
                 RequestShowBrowser();
+                break;
+            case WorkspaceCategory.Desktop:
+                RequestShowDesktop();
                 break;
             default:
                 WorkspaceCategory = category == WorkspaceCategory ? WorkspaceCategory.All : category;
@@ -170,6 +175,7 @@ public partial class ChatViewModel
         WorkspaceCategory.Plan => HasPlan,
         WorkspaceCategory.Changes => HasWorkspaceGit,
         WorkspaceCategory.Browser => ShowBrowserToggle,
+        WorkspaceCategory.Desktop => ShowDesktopToggle,
         _ => SectionFor(category)?.TotalCount > 0,
     };
 

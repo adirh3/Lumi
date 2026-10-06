@@ -26,6 +26,7 @@ internal static class AppDataSnapshotFactory
                 MinimizeToTray = settings.MinimizeToTray,
                 GlobalHotkey = settings.GlobalHotkey,
                 NotificationsEnabled = settings.NotificationsEnabled,
+                OfferCopiedCapabilities = settings.OfferCopiedCapabilities,
                 DismissedUpdateBannerToken = settings.DismissedUpdateBannerToken,
                 IsDarkTheme = settings.IsDarkTheme,
                 IsCompactDensity = settings.IsCompactDensity,
@@ -105,6 +106,7 @@ internal static class AppDataSnapshotFactory
                 RemoteAccessPort = settings.RemoteAccessPort,
                 RemoteAllowInsecureLan = settings.RemoteAllowInsecureLan,
                 RemoteUseDevTunnel = settings.RemoteUseDevTunnel,
+                RemoteDevTunnelId = settings.RemoteDevTunnelId,
                 RemotePairedDevices = settings.RemotePairedDevices
                     .Select(CloneRemotePairedDevice)
                     .ToList(),
@@ -227,6 +229,7 @@ internal static class AppDataSnapshotFactory
                 currentSnapshot.Settings.RemoteAccessPort = persistedSnapshot.Settings.RemoteAccessPort;
                 currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
                 currentSnapshot.Settings.RemoteUseDevTunnel = persistedSnapshot.Settings.RemoteUseDevTunnel;
+                currentSnapshot.Settings.RemoteDevTunnelId = persistedSnapshot.Settings.RemoteDevTunnelId;
                 currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
                     .Select(CloneRemotePairedDevice)
                     .ToList();
@@ -277,6 +280,7 @@ internal static class AppDataSnapshotFactory
             currentSnapshot.Settings.RemoteAccessPort = persistedSnapshot.Settings.RemoteAccessPort;
             currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
             currentSnapshot.Settings.RemoteUseDevTunnel = persistedSnapshot.Settings.RemoteUseDevTunnel;
+            currentSnapshot.Settings.RemoteDevTunnelId = persistedSnapshot.Settings.RemoteDevTunnelId;
             currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
                 .Select(CloneRemotePairedDevice)
                 .ToList();
@@ -370,6 +374,8 @@ internal static class AppDataSnapshotFactory
             ForkedFromTitle = source.ForkedFromTitle,
             ForkedFromMessage = source.ForkedFromMessage,
             IsPinned = source.IsPinned,
+            IsPaused = source.IsPaused,
+            PauseNeedsContinuation = source.PauseNeedsContinuation,
         };
     }
 }

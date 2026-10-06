@@ -262,6 +262,20 @@ public class ChatForkFactoryTests
     }
 
     [Fact]
+    public void CreateFork_DoesNotInheritTheSourcesPendingPausedSends()
+    {
+        var source = CreateSourceChat();
+        source.IsPaused = true;
+        var message = new ChatMessage { Role = "user", Content = "pending", IsPendingPausedSend = true };
+
+        var fork = ChatForkFactory.CreateFork(source, [message]).Chat;
+
+        Assert.False(fork.IsPaused);
+        Assert.False(Assert.Single(fork.Messages).IsPendingPausedSend);
+        Assert.True(message.IsPendingPausedSend);
+    }
+
+    [Fact]
     public void CreateFork_DropsEmptyStreamingMessageAndClearsStreamingFlag()
     {
         var source = CreateSourceChat();

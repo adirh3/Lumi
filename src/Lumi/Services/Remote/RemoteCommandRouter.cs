@@ -301,6 +301,9 @@ internal sealed class RemoteCommandRouter
             if (owner.CurrentChat?.Id != chat.Id)
                 return Fail("Lumi could not activate that chat's surface.", chat.Id);
 
+            if (chat.IsPaused)
+                return Fail(Loc.Get("Chat_PausedSendBlocked"), chat.Id);
+
             if (owner.IsExternalSendReserved(chat.Id))
                 return Fail("That chat is already starting a turn.", chat.Id);
 

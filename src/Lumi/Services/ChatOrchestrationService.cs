@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using Lumi.Models;
+using Lumi.Localization;
 using Lumi.ViewModels;
 
 namespace Lumi.Services;
@@ -476,6 +477,11 @@ public sealed class ChatOrchestrationService : IDisposable
 
         await InvokeUiAsync(async () =>
         {
+            if (chat.IsPaused)
+            {
+                error = Loc.Get("Chat_PausedSendBlocked");
+                return true;
+            }
             if (IsBusy(chat.Id))
             {
                 error = $"Chat {Quote(chat.Title)} is already running — check it with manage_chats action=status before sending again.";

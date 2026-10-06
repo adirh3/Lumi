@@ -825,6 +825,10 @@ public partial class ChatViewModel
 
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
+            // Tuning a launchpad setup must not overwrite global defaults.
+            if (IsLaunchpadSetupApplied)
+                return;
+
             var shouldSave = false;
             if (_dataStore.Data.Settings.ReasoningEffort != persistedEffort)
             {
@@ -878,6 +882,9 @@ public partial class ChatViewModel
 
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
+            if (IsLaunchpadSetupApplied)
+                return;
+
             if (_dataStore.Data.Settings.ContextWindowTier != contextTier)
             {
                 _dataStore.Data.Settings.ContextWindowTier = contextTier;
@@ -1186,8 +1193,10 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        _launchpadBaseline = null;
         ResetContextDetailsForChatChange(value);
         IsSessionActive = value?.IsSessionActive == true;
+        NotifyChatPausePropertiesChanged();
         BackgroundActivityText = Loc.Get("Chat_BackgroundActivity");
         ResetBackgroundActivityItems();
 
@@ -1223,7 +1232,17 @@ public partial class ChatViewModel
         if (e.PropertyName == nameof(Chat.Title))
             OnPropertyChanged(nameof(CurrentChatTitle));
         else if (e.PropertyName == nameof(Chat.IsSessionActive))
+        {
             IsSessionActive = CurrentChat?.IsSessionActive == true;
+            if (CurrentChat is { } chat && _runtimeStates.TryGetValue(chat.Id, out var runtime))
+                RefreshChatPauseState(runtime);
+        }
+        else if (e.PropertyName is nameof(Chat.IsPaused) or nameof(Chat.IsPausePending))
+        {
+            if (CurrentChat is { } chat && _runtimeStates.TryGetValue(chat.Id, out var runtime))
+                runtime.PauseGate.SetPaused(chat.IsPaused);
+            NotifyChatPausePropertiesChanged();
+        }
     }
 
     partial void OnActiveAgentChanged(LumiAgent? value)

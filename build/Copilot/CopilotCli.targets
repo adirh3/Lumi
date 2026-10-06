@@ -1,0 +1,64 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)CopilotCliPins.props" />
+
+  <!-- The official SDK owns copying and publishing; Lumi supplies its full-CLI override for login. -->
+  <PropertyGroup Condition="'$(CopilotCliBinaryPath)' == '' And '$(CopilotSkipCliDownload)' != 'true'">
+    <_LumiAcquireFullCli>true</_LumiAcquireFullCli>
+    <_LumiCliRequestedRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_LumiCliRequestedRid>
+    <_LumiCliRequestedRid Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_LumiCliRequestedRid>
+    <_LumiCliOs Condition="$(_LumiCliRequestedRid.StartsWith('win'))">win</_LumiCliOs>
+    <_LumiCliOs Condition="$(_LumiCliRequestedRid.StartsWith('osx')) Or $(_LumiCliRequestedRid.StartsWith('maccatalyst'))">osx</_LumiCliOs>
+    <_LumiCliOs Condition="$(_LumiCliRequestedRid.StartsWith('linux'))">linux</_LumiCliOs>
+    <_LumiCliOs Condition="$(_LumiCliRequestedRid.StartsWith('linux-musl'))">linux-musl</_LumiCliOs>
+    <_LumiCliArch Condition="$(_LumiCliRequestedRid.EndsWith('-x64'))">x64</_LumiCliArch>
+    <_LumiCliArch Condition="$(_LumiCliRequestedRid.EndsWith('-arm64'))">arm64</_LumiCliArch>
+    <_LumiCliRid>$(_LumiCliOs)-$(_LumiCliArch)</_LumiCliRid>
+    <_LumiCliName Condition="'$(_LumiCliOs)' == 'win'">copilot.exe</_LumiCliName>
+    <_LumiCliName Condition="'$(_LumiCliOs)' != 'win'">copilot</_LumiCliName>
+    <_LumiCliCache>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(BaseIntermediateOutputPath)', 'copilot-full', '$(CopilotCliVersion)', '$(_LumiCliRid)'))</_LumiCliCache>
+    <CopilotCliBinaryPath>$(_LumiCliCache)/$(_LumiCliName)</CopilotCliBinaryPath>
+  </PropertyGroup>
+
+  <UsingTask TaskName="Lumi.Build.AcquireFullCopilotCli"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Version ParameterType="System.String" Required="true" />
+      <AssetName ParameterType="System.String" Required="true" />
+      <ArchiveSha256 ParameterType="System.String" Required="true" />
+      <ExecutableSha256 ParameterType="System.String" Required="true" />
+      <CacheDirectory ParameterType="System.String" Required="true" />
+      <DownloadTimeoutSeconds ParameterType="System.Int32" />
+      <CliPath ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)AcquireFullCopilotCli.cs" />
+    </Task>
+  </UsingTask>
+
+  <Target Name="_AcquireLumiCopilotFullCli"
+          BeforeTargets="BeforeBuild;_DownloadCopilotCli;_CopyCopilotCliToOutput;_RegisterCopilotCliForCopy"
+          Condition="'$(TargetFramework)' != '' And '$(DesignTimeBuild)' != 'true' And '$(_LumiAcquireFullCli)' == 'true'">
+    <Error Condition="'$(CopilotCliVersion)' == ''"
+           Text="The official SDK's CopilotCliVersion is missing. Restore GitHub.Copilot.SDK before building." />
+    <Error Condition="'$(_LumiCliOs)' == '' Or '$(_LumiCliArch)' == ''"
+           Text="Unsupported full Copilot CLI RID '$(_LumiCliRequestedRid)'." />
+    <ItemGroup>
+      <_LumiCliPin Include="@(LumiCopilotCliPin)"
+                   Condition="'%(Identity)' == '$(CopilotCliVersion)/$(_LumiCliRid)'" />
+    </ItemGroup>
+    <Error Condition="'@(_LumiCliPin->Count())' != '1'"
+           Text="No reviewed full CLI pin for $(CopilotCliVersion)/$(_LumiCliRid). Update build/Copilot/CopilotCliPins.props with the SDK upgrade." />
+    <PropertyGroup>
+      <_LumiCliDownloadTimeout Condition="'$(CopilotCliDownloadTimeout)' != ''">$(CopilotCliDownloadTimeout)</_LumiCliDownloadTimeout>
+      <_LumiCliDownloadTimeout Condition="'$(_LumiCliDownloadTimeout)' == ''">600</_LumiCliDownloadTimeout>
+    </PropertyGroup>
+    <Lumi.Build.AcquireFullCopilotCli
+        Version="$(CopilotCliVersion)"
+        AssetName="@(_LumiCliPin->'%(AssetName)')"
+        ArchiveSha256="@(_LumiCliPin->'%(ArchiveSha256)')"
+        ExecutableSha256="@(_LumiCliPin->'%(ExecutableSha256)')"
+        CacheDirectory="$(_LumiCliCache)"
+        DownloadTimeoutSeconds="$(_LumiCliDownloadTimeout)" />
+  </Target>
+</Project>

@@ -848,6 +848,13 @@ public partial class App : Application
         void OnDetachedOpenChatRequested(Guid requestedChatId) => ShowMainWindow(requestedChatId);
         chatVm.OpenChatRequested += OnDetachedOpenChatRequested;
 
+        void OnDetachedOpenAutomationsRequested()
+        {
+            ShowMainWindow();
+            (_mainWindow?.DataContext as MainViewModel)?.ShowAutomations();
+        }
+        chatVm.OpenAutomationsRequested += OnDetachedOpenAutomationsRequested;
+
         Guid? trackedChatId = initialChatId;
         ChatWindow? window = null;
         void TrackCurrentChat()
@@ -894,6 +901,7 @@ public partial class App : Application
             chatVm.ChatTitleChanged -= OnDetachedChatTitleChanged;
             chatVm.DefaultModelSelectionChanged -= OnDetachedDefaultModelSelectionChanged;
             chatVm.OpenChatRequested -= OnDetachedOpenChatRequested;
+            chatVm.OpenAutomationsRequested -= OnDetachedOpenAutomationsRequested;
             windowVm.Dispose();
             request.ReleaseSurface();
         };

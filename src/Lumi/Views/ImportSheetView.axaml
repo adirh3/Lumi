@@ -1,0 +1,473 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:views="using:Lumi.Views"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.ImportSheetView"
+             x:DataType="vm:ImportSheetViewModel"
+             x:CompileBindings="True">
+
+  <UserControl.Resources>
+    <SolidColorBrush x:Key="Tint.Safe" Color="{DynamicResource Palette.Success500}" Opacity="0.10" />
+    <SolidColorBrush x:Key="Tint.SafeBorder" Color="{DynamicResource Palette.Success500}" Opacity="0.32" />
+    <SolidColorBrush x:Key="Tint.Caution" Color="{DynamicResource Palette.Warning500}" Opacity="0.12" />
+    <SolidColorBrush x:Key="Tint.CautionBorder" Color="{DynamicResource Palette.Warning500}" Opacity="0.45" />
+    <SolidColorBrush x:Key="Tint.Info" Color="{DynamicResource Color.AccentDefault}" Opacity="0.10" />
+    <SolidColorBrush x:Key="Tint.InfoBorder" Color="{DynamicResource Color.AccentDefault}" Opacity="0.32" />
+    <StreamGeometry x:Key="Import.Arrow">M12 3a1 1 0 0 1 1 1v9.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.4l3.3 3.3V4a1 1 0 0 1 1-1zM5 19h14a1 1 0 1 1 0 2H5a1 1 0 1 1 0-2z</StreamGeometry>
+    <StreamGeometry x:Key="Import.Paste">M9 2h6a1 1 0 0 1 1 1v1h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V3a1 1 0 0 1 1-1zm1 2v2h4V4h-4zM6 6v14h12V6h-2v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V6H6z</StreamGeometry>
+    <StreamGeometry x:Key="Import.File">M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5L13 3.5zM6 4v16h12V11h-7V4H6z</StreamGeometry>
+    <StreamGeometry x:Key="Import.Check">M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z</StreamGeometry>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <Style Selector="TextBlock.sheet-section">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="0.4" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="2,0,0,6" />
+    </Style>
+
+    <!-- Drop zone -->
+    <Style Selector="Border.drop-zone">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.drop-zone.active">
+      <Setter Property="Background" Value="{DynamicResource Tint.Info}" />
+    </Style>
+    <Style Selector="Rectangle.drop-outline">
+      <Setter Property="Stroke" Value="{DynamicResource Brush.BorderStrong}" />
+    </Style>
+    <Style Selector="Border.drop-zone.active Rectangle.drop-outline">
+      <Setter Property="Stroke" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border.drop-glyph">
+      <Setter Property="RenderTransform" Value="translateY(0px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.drop-zone.active Border.drop-glyph">
+      <Setter Property="RenderTransform" Value="translateY(4px)" />
+    </Style>
+
+    <!-- Trust banner -->
+    <Style Selector="Border.risk-banner">
+      <Setter Property="Padding" Value="14,12" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.risk-banner.safe">
+      <Setter Property="Background" Value="{DynamicResource Tint.Safe}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Tint.SafeBorder}" />
+    </Style>
+    <Style Selector="Border.risk-banner.info">
+      <Setter Property="Background" Value="{DynamicResource Tint.Info}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Tint.InfoBorder}" />
+    </Style>
+    <Style Selector="Border.risk-banner.caution">
+      <Setter Property="Background" Value="{DynamicResource Tint.Caution}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Tint.CautionBorder}" />
+    </Style>
+
+    <!-- Receipt items -->
+    <Style Selector="Border.import-item">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="12,11" />
+      <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+    <Style Selector="Border.status-pill">
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Padding" Value="9,2,9,3" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Background" Value="{DynamicResource Tint.Info}" />
+    </Style>
+    <Style Selector="Border.status-pill TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border.status-pill.reused">
+      <Setter Property="Background" Value="{DynamicResource Tint.Safe}" />
+    </Style>
+    <Style Selector="Border.status-pill.reused TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="Border.status-pill.renamed">
+      <Setter Property="Background" Value="{DynamicResource Tint.Caution}" />
+    </Style>
+    <Style Selector="Border.status-pill.renamed TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+    </Style>
+
+    <Style Selector="Border.fact">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="9,6" />
+      <Setter Property="Margin" Value="0,0,0,5" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
+    </Style>
+    <Style Selector="Border.fact.safe">
+      <Setter Property="Background" Value="{DynamicResource Tint.Safe}" />
+    </Style>
+    <Style Selector="Border.fact.info">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.fact.caution">
+      <Setter Property="Background" Value="{DynamicResource Tint.Caution}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Tint.CautionBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.code-chip">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Background}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8,5" />
+      <Setter Property="Margin" Value="0,5,0,0" />
+    </Style>
+
+    <!-- Done badge springs in -->
+    <Style Selector="Border#ImportDoneBadge">
+      <Setter Property="RenderTransform" Value="scale(0.5)" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.42" Easing="BackEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border#ImportDoneBadge.celebrate">
+      <Setter Property="RenderTransform" Value="scale(1)" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+  </UserControl.Styles>
+
+  <sc:StrataDialog x:Name="ImportDialog"
+                   Title="{loc:Str Import_Title}"
+                   IsDialogOpen="{Binding IsOpen, Mode=TwoWay}"
+                   CloseCommand="{Binding CloseCommand}"
+                   MaxDialogWidth="580">
+    <sc:StrataDialog.DialogContent>
+      <Panel x:Name="ImportSheetRoot" MinWidth="460" DragDrop.AllowDrop="True" Background="Transparent">
+
+        <!-- ── Pick ── -->
+        <StackPanel x:Name="ImportPickStage" IsVisible="{Binding IsPicking}" Spacing="14">
+
+          <Border x:Name="ImportClipboardOffer"
+                  IsVisible="{Binding HasClipboardCandidate}"
+                  Background="{DynamicResource Tint.Info}"
+                  BorderBrush="{DynamicResource Tint.InfoBorder}"
+                  BorderThickness="1"
+                  CornerRadius="12"
+                  Padding="12,10">
+            <DockPanel>
+              <Button x:Name="ImportPreviewClipboardButton"
+                      DockPanel.Dock="Right"
+                      Classes="accent"
+                      Padding="14,6"
+                      MinHeight="0"
+                      VerticalAlignment="Center"
+                      Command="{Binding UseClipboardCandidateCommand}"
+                      Content="{loc:Str Import_Preview}" />
+              <TextBlock DockPanel.Dock="Left" Text="{Binding ClipboardCandidateGlyph}" FontSize="22"
+                         VerticalAlignment="Center" Margin="2,0,12,0" />
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="{loc:Str Import_ClipboardFound}" FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}" />
+                <TextBlock Text="{Binding ClipboardCandidateName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding ClipboardCandidateDetail}" Classes="caption secondary" />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <Border x:Name="ImportDropZone"
+                  Classes="drop-zone"
+                  Classes.active="{Binding IsDropTargetActive}"
+                  MinHeight="190">
+            <Panel>
+              <Rectangle Classes="drop-outline"
+                         StrokeThickness="1.5"
+                         StrokeDashArray="5,4"
+                         RadiusX="16" RadiusY="16"
+                         IsHitTestVisible="False" />
+              <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="20,22">
+                <Border Classes="drop-glyph"
+                        Width="46" Height="46"
+                        CornerRadius="23"
+                        HorizontalAlignment="Center"
+                        Background="{DynamicResource Brush.AccentSubtle}">
+                  <PathIcon Data="{StaticResource Import.Arrow}" Width="20" Height="20"
+                            Foreground="{DynamicResource Brush.AccentDefault}" />
+                </Border>
+                <TextBlock Text="{loc:Str Import_DropTitle}" FontSize="15" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="{loc:Str Import_DropFormats}" Classes="caption tertiary"
+                           FontFamily="{DynamicResource Font.FamilyMono}" HorizontalAlignment="Center"
+                           TextAlignment="Center" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,6,0,0">
+                  <Button x:Name="ImportPasteButton" Padding="12,6" MinHeight="0" Command="{Binding PasteCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Import.Paste}" Width="13" Height="13" />
+                      <TextBlock Text="{loc:Str Import_Paste}" />
+                    </StackPanel>
+                  </Button>
+                  <Button x:Name="ImportChooseFileButton" Padding="12,6" MinHeight="0" Click="OnChooseFileClick">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Import.File}" Width="13" Height="13" />
+                      <TextBlock Text="{loc:Str Import_ChooseFile}" />
+                    </StackPanel>
+                  </Button>
+                </StackPanel>
+              </StackPanel>
+            </Panel>
+          </Border>
+
+          <Border IsVisible="{Binding HasError}"
+                  Background="{DynamicResource Brush.DangerSubtle}"
+                  CornerRadius="10"
+                  Padding="12,9">
+            <TextBlock x:Name="ImportError" Text="{Binding ErrorMessage}" TextWrapping="Wrap"
+                       FontSize="{DynamicResource Font.SizeCaption}" />
+          </Border>
+        </StackPanel>
+
+        <!-- ── Review: the receipt ── -->
+        <StackPanel x:Name="ImportReviewStage" IsVisible="{Binding IsReviewing}" Spacing="16">
+          <Border x:Name="ImportRiskBanner"
+                  Classes="risk-banner"
+                  Classes.safe="{Binding IsRiskSafe}"
+                  Classes.info="{Binding IsRiskInfo}"
+                  Classes.caution="{Binding IsRiskCaution}">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Left" Text="{Binding RiskGlyph}" FontSize="20"
+                         VerticalAlignment="Top" Margin="0,0,12,0" />
+              <StackPanel Spacing="2">
+                <TextBlock Text="{Binding RiskTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding RiskText}" Classes="caption secondary" TextWrapping="Wrap" />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <views:CapabilityCardView x:Name="ImportCard" DataContext="{Binding Card}" />
+
+          <StackPanel>
+            <TextBlock Classes="sheet-section" Text="{loc:Str Import_WillBeAdded}" />
+            <ItemsControl x:Name="ImportItems" ItemsSource="{Binding Items}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ImportItemViewModel">
+                  <Border Classes="import-item">
+                    <StackPanel Spacing="8">
+                      <DockPanel>
+                        <Border DockPanel.Dock="Right"
+                                Classes="status-pill"
+                                Classes.reused="{Binding IsReused}"
+                                Classes.renamed="{Binding IsRenamed}">
+                          <TextBlock Text="{Binding StatusLabel}" FontSize="10.5" FontWeight="SemiBold" />
+                        </Border>
+                        <Border DockPanel.Dock="Left"
+                                Width="36" Height="36"
+                                CornerRadius="10"
+                                Margin="0,0,11,0"
+                                Background="{Binding AccentTint}">
+                          <TextBlock Text="{Binding Glyph}" FontSize="17"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel VerticalAlignment="Center" Spacing="1" Margin="0,0,8,0">
+                          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding KindLabel}" FontSize="11" Foreground="{Binding Accent}" />
+                        </StackPanel>
+                      </DockPanel>
+
+                      <TextBlock Text="{Binding Description}" IsVisible="{Binding HasDescription}"
+                                 Classes="caption secondary" TextWrapping="Wrap" />
+
+                      <ItemsControl ItemsSource="{Binding Facts}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:ReceiptNoteViewModel">
+                            <Border Classes="fact"
+                                    Classes.safe="{Binding IsSafe}"
+                                    Classes.info="{Binding IsInfo}"
+                                    Classes.caution="{Binding IsCaution}">
+                              <DockPanel>
+                                <TextBlock DockPanel.Dock="Left" Text="{Binding Glyph}" FontSize="12"
+                                           Width="18" VerticalAlignment="Top" Margin="0,1,6,0" />
+                                <StackPanel>
+                                  <TextBlock Text="{Binding Text}" FontSize="{DynamicResource Font.SizeCaption}"
+                                             FontWeight="Medium" TextWrapping="Wrap" />
+                                  <Border Classes="code-chip" IsVisible="{Binding HasCode}">
+                                    <SelectableTextBlock Text="{Binding Code}" FontFamily="{DynamicResource Font.FamilyMono}"
+                                                         FontSize="11.5" TextWrapping="Wrap"
+                                                         Foreground="{DynamicResource Brush.TextPrimary}" />
+                                  </Border>
+                                  <TextBlock Text="{Binding Detail}" IsVisible="{Binding HasDetail}"
+                                             FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
+                                             TextWrapping="Wrap" Margin="0,4,0,0" />
+                                </StackPanel>
+                              </DockPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+
+                      <StackPanel IsVisible="{Binding HasPreview}" Spacing="6">
+                        <Button Classes="subtle" HorizontalAlignment="Left" Padding="6,3" MinHeight="0"
+                                Command="{Binding ToggleExpandedCommand}">
+                          <TextBlock Text="{Binding PreviewToggleLabel}" FontSize="11.5"
+                                     Foreground="{DynamicResource Brush.TextSecondary}" />
+                        </Button>
+                        <Border IsVisible="{Binding IsExpanded}"
+                                Background="{DynamicResource Brush.Background}"
+                                BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="10,8"
+                                MaxHeight="220">
+                          <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <SelectableTextBlock Text="{Binding Preview}" FontFamily="{DynamicResource Font.FamilyMono}"
+                                                 FontSize="11" TextWrapping="Wrap"
+                                                 Foreground="{DynamicResource Brush.TextSecondary}" />
+                          </ScrollViewer>
+                        </Border>
+                      </StackPanel>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+
+          <ItemsControl x:Name="ImportNotes" ItemsSource="{Binding Notes}" IsVisible="{Binding HasNotes}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ReceiptNoteViewModel">
+                <Border Classes="fact"
+                        Classes.safe="{Binding IsSafe}"
+                        Classes.info="{Binding IsInfo}"
+                        Classes.caution="{Binding IsCaution}">
+                  <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding Glyph}" FontSize="12" Width="18"
+                               VerticalAlignment="Top" Margin="0,1,6,0" />
+                    <TextBlock Text="{Binding Text}" FontSize="{DynamicResource Font.SizeCaption}" TextWrapping="Wrap" />
+                  </DockPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+        </StackPanel>
+
+        <!-- ── Done ── -->
+        <StackPanel x:Name="ImportDoneStage" IsVisible="{Binding IsDone}" Spacing="18">
+          <StackPanel HorizontalAlignment="Center" Spacing="8" Margin="0,6,0,0">
+            <Border x:Name="ImportDoneBadge"
+                    Width="68" Height="68"
+                    CornerRadius="34"
+                    HorizontalAlignment="Center"
+                    Background="{DynamicResource Tint.Safe}"
+                    BorderBrush="{DynamicResource Brush.SuccessDefault}"
+                    BorderThickness="1.5">
+              <PathIcon Data="{StaticResource Import.Check}" Width="30" Height="30"
+                        Foreground="{DynamicResource Brush.SuccessDefault}" />
+            </Border>
+            <TextBlock Text="{Binding DoneTitle}" FontSize="19" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding DoneSubtitle}" Classes="secondary" HorizontalAlignment="Center"
+                       TextAlignment="Center" TextWrapping="Wrap" />
+          </StackPanel>
+
+          <StackPanel IsVisible="{Binding !!NextSteps.Count}">
+            <TextBlock Classes="sheet-section" Text="{loc:Str Import_NextSteps}" />
+            <ItemsControl x:Name="ImportNextSteps" ItemsSource="{Binding NextSteps}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:NextStepViewModel">
+                  <Border Classes="import-item">
+                    <DockPanel>
+                      <Button x:Name="ImportNextStepButton"
+                              DockPanel.Dock="Right"
+                              Classes="accent"
+                              Padding="14,6"
+                              MinHeight="0"
+                              VerticalAlignment="Center"
+                              Margin="10,0,0,0"
+                              Content="{Binding ActionLabel}"
+                              Command="{Binding $parent[ItemsControl].((vm:ImportSheetViewModel)DataContext).RunStepCommand}"
+                              CommandParameter="{Binding}" />
+                      <TextBlock DockPanel.Dock="Left" Text="{Binding Glyph}" FontSize="18"
+                                 VerticalAlignment="Center" Margin="2,0,12,0" />
+                      <StackPanel VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Detail}" Classes="caption secondary" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </DockPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+
+        </StackPanel>
+      </Panel>
+    </sc:StrataDialog.DialogContent>
+    <sc:StrataDialog.DialogFooter>
+      <Panel x:Name="ImportFooter">
+        <!-- Pick: the promise, pinned where the eye lands last -->
+        <StackPanel IsVisible="{Binding IsPicking}" Spacing="4">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Left" Text="🛡" FontSize="12" Margin="0,0,7,0" VerticalAlignment="Top" />
+            <TextBlock Text="{loc:Str Import_TrustLine}" Classes="caption secondary" TextWrapping="Wrap" />
+          </DockPanel>
+          <TextBlock Text="{loc:Str Import_InteropLine}" Classes="caption tertiary" TextWrapping="Wrap" Margin="19,0,0,0" />
+        </StackPanel>
+
+        <!-- Review: decide with the whole receipt still in view -->
+        <Grid IsVisible="{Binding IsReviewing}" ColumnDefinitions="Auto,*,Auto">
+          <Button x:Name="ImportBackButton"
+                  Classes="subtle"
+                  Padding="14,8"
+                  MinHeight="0"
+                  Command="{Binding BackCommand}"
+                  Content="{loc:Str Import_Back}" />
+          <TextBlock Grid.Column="1"
+                     Text="{Binding ReviewSummary}"
+                     Classes="caption tertiary"
+                     HorizontalAlignment="Right"
+                     VerticalAlignment="Center"
+                     Margin="12,0" />
+          <Button x:Name="ImportConfirmButton"
+                  Grid.Column="2"
+                  Classes="accent"
+                  Padding="20,8"
+                  MinHeight="0"
+                  IsEnabled="{Binding CanConfirm}"
+                  Command="{Binding ConfirmCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <PathIcon Data="{StaticResource Import.Arrow}" Width="13" Height="13" />
+              <TextBlock Text="{Binding ConfirmLabel}" />
+            </StackPanel>
+          </Button>
+        </Grid>
+
+        <!-- Done -->
+        <Button x:Name="ImportDoneButton"
+                IsVisible="{Binding IsDone}"
+                Classes="subtle"
+                HorizontalAlignment="Right"
+                Padding="16,7"
+                MinHeight="0"
+                Command="{Binding CloseCommand}"
+                Content="{loc:Str Import_Done}" />
+      </Panel>
+    </sc:StrataDialog.DialogFooter>
+  </sc:StrataDialog>
+</UserControl>

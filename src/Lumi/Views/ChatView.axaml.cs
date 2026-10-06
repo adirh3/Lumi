@@ -26,6 +26,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Services;
 using Lumi.ViewModels;
 using StrataTheme.Animation;
 using StrataTheme.Controls;
@@ -89,6 +90,11 @@ public partial class ChatView : UserControl
     private int _currentHitIndex = -1;
     private SelectableTextBlock? _highlightedStb;
     private System.Threading.CancellationTokenSource? _searchDebounce;
+
+    // ── Reply jump state ──
+    private SelectableTextBlock? _replyHighlightedTextBlock;
+    private StrataChatMessage? _replyFlashMessage;
+    private DispatcherTimer? _replyFlashTimer;
 
     /// <summary>A match against a TranscriptItem's raw content, with the occurrence index within that item.</summary>
     private sealed record SearchHit(TranscriptTurn Turn, TranscriptItem Item, int OccurrenceInItem, string Query);
@@ -190,10 +196,24 @@ public partial class ChatView : UserControl
         AddHandler(StrataChatMessage.CopyRequestedEvent, OnCopyMessageRequested);
         AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
+        AddHandler(StrataChatMessage.ReplyRequestedEvent, OnReplyRequested);
         AddHandler(KeyDownEvent, OnLinkedChatKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnEmptyComposerScrollKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnTranscriptScrollKeyDown, RoutingStrategies.Bubble);
+        AddHandler(KeyDownEvent, OnComposerReplyKeyDown, RoutingStrategies.Bubble);
         SizeChanged += OnChatViewSizeChanged;
+
+        // The pending-reply card rises into the composer like the other composer chrome.
+        var replyCard = this.FindControl<Border>("ComposerReplyCard");
+        if (replyCard is not null)
+        {
+            replyCard.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == IsVisibleProperty && replyCard.IsVisible
+                    && _subscribedVm?.AreAnimationsEnabled != false)
+                    SlideFadeEntrance.Play(replyCard, offsetY: 6);
+            };
+        }
 
         // ── Search bar controls ──
         _searchBar = this.FindControl<Border>("SearchBar");
@@ -213,6 +233,8 @@ public partial class ChatView : UserControl
         if (searchPrevBtn is not null) searchPrevBtn.Click += (_, _) => NavigateSearchMatch(-1);
         if (searchNextBtn is not null) searchNextBtn.Click += (_, _) => NavigateSearchMatch(1);
         if (searchCloseBtn is not null) searchCloseBtn.Click += (_, _) => CloseSearch();
+
+        InitializeLaunchpad();
     }
 
     private void ApplyShellChrome()
@@ -267,6 +289,7 @@ public partial class ChatView : UserControl
             vm.FocusComposerRequested += FocusComposer;
             vm.FocusComposerAtEndRequested += FocusComposerAtEnd;
             vm.WorkspaceJumpToTurnRequested += OnWorkspaceJumpToTurnRequested;
+            vm.ReplySourceJumpRequested += OnReplySourceJumpRequested;
             SubscribeToMountedTurns(vm.MountedTranscriptTurns);
             Dispatcher.UIThread.Post(EnsureTranscriptScrollViewer, DispatcherPriority.Loaded);
             QueueInitialTranscriptTailSyncIfNeeded(vm);
@@ -276,12 +299,14 @@ public partial class ChatView : UserControl
         }
 
         QueueWorktreeToggleHighlightUpdate();
+        UpdateLaunchpadActivation();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         Dispatcher.UIThread.Post(EnsureTranscriptScrollViewer, DispatcherPriority.Loaded);
+        UpdateLaunchpadActivation();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -308,6 +333,7 @@ public partial class ChatView : UserControl
 
     private void UnsubscribeFromViewModel()
     {
+        DeactivateLaunchpad();
         _backgroundActivityButton?.Flyout?.Hide();
         if (_subscribedVm is null) return;
         _subscribedVm.ScrollToEndRequested -= OnScrollToEndRequested;
@@ -320,6 +346,7 @@ public partial class ChatView : UserControl
         _subscribedVm.FocusComposerRequested -= FocusComposer;
         _subscribedVm.FocusComposerAtEndRequested -= FocusComposerAtEnd;
         _subscribedVm.WorkspaceJumpToTurnRequested -= OnWorkspaceJumpToTurnRequested;
+        _subscribedVm.ReplySourceJumpRequested -= OnReplySourceJumpRequested;
         // Clear the realizing gate so a view detach mid-open can't leave the overlay stuck up on the VM:
         // a suspended OpenTranscriptAtLatestAsync won't reach its gate-clearing finally once _subscribedVm
         // is null / the sync version has been bumped below.
@@ -867,6 +894,9 @@ public partial class ChatView : UserControl
         {
             _backgroundActivityButton?.Flyout?.Hide();
         }
+
+        if (e.PropertyName == nameof(ChatViewModel.IsWelcomeVisible))
+            UpdateLaunchpadActivation();
 
         if (e.PropertyName == nameof(ChatViewModel.IsChatSurfaceLoading))
             SetTranscriptMaterialized(!(_subscribedVm?.IsChatSurfaceLoading ?? false));
@@ -1766,6 +1796,21 @@ public partial class ChatView : UserControl
     private static bool HasCopyContext(ClipboardCopyPayload payload)
         => payload.AttachmentPaths.Count > 0 || payload.SkillNames.Count > 0 || payload.Sources.Count > 0;
 
+    private async Task SetClipboardFormattedAsync(string markdown, StrataCopyFormat format)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+            return;
+
+        try
+        {
+            await clipboard.SetDataAsync(format == StrataCopyFormat.RichText
+                ? ChatClipboardData.CreateRichText(markdown)
+                : ChatClipboardData.CreateMarkdown(markdown));
+        }
+        catch { /* ignore */ }
+    }
+
     private async void OnCopyMessageRequested(object? sender, StrataCopyRequestedEventArgs e)
     {
         if (e.Source is not StrataChatMessage message)
@@ -1774,7 +1819,12 @@ public partial class ChatView : UserControl
         e.Handled = true;
 
         if (e.Format != StrataCopyFormat.Text)
+        {
+            // Strata copied the rendered bubble, which for a reply includes its quote block.
+            if (message.DataContext is UserMessageItem { HasReply: true } reply)
+                await SetClipboardFormattedAsync(reply.Content, e.Format);
             return;
+        }
 
         if (e.IsSelection && !string.IsNullOrEmpty(e.Text))
         {
@@ -1813,6 +1863,179 @@ public partial class ChatView : UserControl
 
         if (messageId is Guid id && DataContext is ChatViewModel vm)
             vm.RequestForkFromMessage(id);
+    }
+
+    // ── Reply to (meta-row action, context menu, or selection pill on assistant messages) ───
+
+    private void OnReplyRequested(object? sender, StrataReplyRequestedEventArgs e)
+    {
+        e.Handled = true;
+
+        if (e.Source is not StrataChatMessage { DataContext: AssistantMessageItem assistant }
+            || DataContext is not ChatViewModel vm)
+        {
+            return;
+        }
+
+        // A whole-message reply quotes the message's own markdown, not the extracted visual text.
+        vm.BeginReply(
+            assistant.MessageId,
+            e.IsSelection ? e.Text : assistant.Content,
+            e.IsSelection,
+            assistant.Author);
+    }
+
+    /// <summary>Esc in the composer drops a pending reply (after autocomplete and edit mode had their turn).</summary>
+    private void OnComposerReplyKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape
+            || e.KeyModifiers != KeyModifiers.None
+            || _subscribedVm is not { HasPendingReply: true, IsEditingMessage: false } vm
+            || _composer is null
+            || e.Source is not Visual source
+            || !(ReferenceEquals(source, _composer) || _composer.IsVisualAncestorOf(source)))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        vm.CancelReplyCommand.Execute(null);
+    }
+
+    /// <summary>
+    /// Scrolls to the message a reply quotes. A selected excerpt is re-selected in place so the eye
+    /// lands on the exact words; the message itself briefly glows either way.
+    /// </summary>
+    private async void OnReplySourceJumpRequested(MessageReply reply)
+    {
+        if (_subscribedVm is null || _chatShell is null || _transcriptScrollViewer is null)
+            return;
+
+        TranscriptTurn? sourceTurn = null;
+        AssistantMessageItem? sourceItem = null;
+        foreach (var turn in _subscribedVm.TranscriptTurns)
+        {
+            sourceItem = turn.Items
+                .OfType<AssistantMessageItem>()
+                .FirstOrDefault(item => item.MessageId == reply.MessageId);
+            if (sourceItem is not null)
+            {
+                sourceTurn = turn;
+                break;
+            }
+        }
+
+        if (sourceTurn is null || sourceItem is null)
+            return;
+
+        var turnControl = await EnsureTurnRealizedAsync(sourceTurn);
+        var message = turnControl?
+            .GetVisualDescendants()
+            .OfType<Control>()
+            .FirstOrDefault(control => ReferenceEquals(TranscriptTurnControl.GetHostedItem(control), sourceItem))
+            is { } itemView
+                ? itemView as StrataChatMessage ?? itemView.GetVisualDescendants().OfType<StrataChatMessage>().FirstOrDefault()
+                : null;
+        if (message is null || _transcriptScrollViewer is null)
+            return;
+
+        Control target = message;
+        if (reply.IsSelection && SelectReplyQuote(message, reply.Quote) is { } quotedText)
+            target = quotedText;
+
+        // Land the quote in the upper part of the viewport, like jumping to a search hit.
+        if (target.TranslatePoint(default, _transcriptScrollViewer) is { } position)
+        {
+            var viewportInset = Math.Max(64, _transcriptScrollViewer.Viewport.Height * 0.25);
+            _chatShell.PreserveViewport();
+            _chatShell.ScrollToVerticalOffset(Math.Max(0, _chatShell.VerticalOffset + position.Y - viewportInset));
+        }
+
+        FlashReplySource(message);
+    }
+
+    /// <summary>
+    /// Selects the quoted excerpt inside <paramref name="message"/>'s rendered text. The quote was
+    /// captured from one text block's selection and then normalized, so each block's text is
+    /// normalized the same way (with a position map back to the raw text) before matching.
+    /// </summary>
+    private SelectableTextBlock? SelectReplyQuote(StrataChatMessage message, string quote)
+    {
+        var needle = quote.EndsWith('…') ? quote[..^1].TrimEnd() : quote;
+        if (needle.Length == 0)
+            return null;
+
+        ClearReplyQuoteHighlight();
+        foreach (var textBlock in message.GetVisualDescendants().OfType<SelectableTextBlock>())
+        {
+            if (!textBlock.IsEffectivelyVisible)
+                continue;
+
+            var raw = textBlock.Inlines is { Count: > 0 } inlines ? inlines.Text : textBlock.Text;
+            if (string.IsNullOrEmpty(raw))
+                continue;
+
+            var normalized = new StringBuilder(raw.Length);
+            var rawIndexes = new List<int>(raw.Length);
+            for (var i = 0; i < raw.Length; i++)
+            {
+                if (MessageReplyFormatter.IsRenderingArtifact(raw[i]))
+                    continue;
+
+                normalized.Append(raw[i]);
+                rawIndexes.Add(i);
+            }
+
+            var start = normalized.ToString().IndexOf(needle, StringComparison.Ordinal);
+            if (start < 0)
+                continue;
+
+            textBlock.SelectionStart = rawIndexes[start];
+            textBlock.SelectionEnd = rawIndexes[start + needle.Length - 1] + 1;
+            _replyHighlightedTextBlock = textBlock;
+            return textBlock;
+        }
+
+        return null;
+    }
+
+    private void ClearReplyQuoteHighlight()
+    {
+        // Once the user clicks into that text, its selection is theirs rather than the jump's.
+        if (_replyHighlightedTextBlock is { IsFocused: false } textBlock)
+        {
+            textBlock.SelectionStart = 0;
+            textBlock.SelectionEnd = 0;
+        }
+
+        _replyHighlightedTextBlock = null;
+    }
+
+    /// <summary>
+    /// Briefly glows the replied-to message. The quote highlight goes with the glow: left in place it
+    /// would linger as a selection that the message's copy and reply actions would act on.
+    /// </summary>
+    private void FlashReplySource(StrataChatMessage message)
+    {
+        _replyFlashTimer?.Stop();
+        _replyFlashMessage?.Classes.Remove("reply-flash");
+
+        _replyFlashMessage = message;
+        message.Classes.Add("reply-flash");
+
+        if (_replyFlashTimer is null)
+        {
+            _replyFlashTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _replyFlashTimer.Tick += (_, _) =>
+            {
+                _replyFlashTimer.Stop();
+                _replyFlashMessage?.Classes.Remove("reply-flash");
+                _replyFlashMessage = null;
+                ClearReplyQuoteHighlight();
+            };
+        }
+
+        _replyFlashTimer.Start();
     }
 
     // ── Copy turn (context menu on assistant messages) ───

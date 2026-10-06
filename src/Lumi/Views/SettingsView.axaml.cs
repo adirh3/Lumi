@@ -302,6 +302,7 @@ public partial class SettingsView : UserControl
         [Loc.Setting_MinimizeToTray] = vm => vm.RevertMinimizeToTrayCommand.Execute(null),
         [Loc.Setting_GlobalHotkey] = vm => vm.RevertGlobalHotkeyCommand.Execute(null),
         [Loc.Setting_EnableNotifications] = vm => vm.RevertNotificationsEnabledCommand.Execute(null),
+        [Loc.Setting_OfferCopiedCapabilities] = vm => vm.RevertOfferCopiedCapabilitiesCommand.Execute(null),
         [Loc.Setting_DarkMode] = vm => vm.RevertIsDarkThemeCommand.Execute(null),
         [Loc.Setting_CompactDensity] = vm => vm.RevertIsCompactDensityCommand.Execute(null),
         [Loc.Setting_FontSize] = vm => vm.RevertUiScaleCommand.Execute(null),

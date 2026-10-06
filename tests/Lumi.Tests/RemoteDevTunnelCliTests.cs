@@ -238,8 +238,74 @@ public sealed class RemoteDevTunnelCliTests
         Assert.Equal("owner@example.com", result.Username);
         Assert.Equal(3, calls.Count);
         Assert.Equal(["user", "show", "--json"], calls[0]);
-        Assert.Equal(["user", "login", "--entra", "--use-browser-auth", "--json"], calls[1]);
+        Assert.Equal(RemoteDevTunnelHost.BrowserSignInArguments, calls[1]);
         Assert.Equal(calls[0], calls[2]);
+    }
+
+    [Fact]
+    public async Task WindowsSignInUsesIntegratedAuthenticationBeforeOpeningTheBrowser()
+    {
+        var calls = new List<string[]>();
+        Task<string> Run(string[] arguments, CancellationToken token)
+        {
+            calls.Add(arguments);
+            return Task.FromResult(calls.Count == 1
+                ? """{"status":"Not logged in"}"""
+                : calls.Count == 2 ? "{}" : MicrosoftIdentity);
+        }
+
+        var result = await RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+            Run, () => { }, CancellationToken.None, preferIntegratedWindowsAuth: true);
+
+        Assert.Equal("owner@example.com", result.Username);
+        Assert.Equal(RemoteDevTunnelHost.IntegratedWindowsSignInArguments, calls[1]);
+        Assert.Equal(3, calls.Count);
+    }
+
+    [Fact]
+    public async Task FailedIntegratedAuthenticationFallsBackToBrowserSignIn()
+    {
+        var calls = new List<string[]>();
+        Task<string> Run(string[] arguments, CancellationToken token)
+        {
+            calls.Add(arguments);
+            if (calls.Count == 1)
+                return Task.FromResult("""{"status":"Not logged in"}""");
+            if (arguments.SequenceEqual(RemoteDevTunnelHost.IntegratedWindowsSignInArguments))
+                throw new InvalidOperationException("Integrated authentication unavailable.");
+            return Task.FromResult(calls.Count == 3 ? "{}" : MicrosoftIdentity);
+        }
+
+        var result = await RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+            Run, () => { }, CancellationToken.None, preferIntegratedWindowsAuth: true);
+
+        Assert.Equal("owner@example.com", result.Username);
+        Assert.Equal(RemoteDevTunnelHost.IntegratedWindowsSignInArguments, calls[1]);
+        Assert.Equal(RemoteDevTunnelHost.BrowserSignInArguments, calls[2]);
+        Assert.Equal(["user", "show", "--json"], calls[3]);
+    }
+
+    [Fact]
+    public async Task TimedOutIntegratedAuthenticationFallsBackToBrowserSignIn()
+    {
+        var calls = new List<string[]>();
+        Task<string> Run(string[] arguments, CancellationToken token)
+        {
+            calls.Add(arguments);
+            if (calls.Count == 1)
+                return Task.FromResult("""{"status":"Not logged in"}""");
+            if (arguments.SequenceEqual(RemoteDevTunnelHost.IntegratedWindowsSignInArguments))
+                throw new OperationCanceledException("Integrated authentication timed out.");
+            return Task.FromResult(calls.Count == 3 ? "{}" : MicrosoftIdentity);
+        }
+
+        var result = await RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+            Run, () => { }, CancellationToken.None, preferIntegratedWindowsAuth: true);
+
+        Assert.Equal("owner@example.com", result.Username);
+        Assert.Equal(RemoteDevTunnelHost.IntegratedWindowsSignInArguments, calls[1]);
+        Assert.Equal(RemoteDevTunnelHost.BrowserSignInArguments, calls[2]);
+        Assert.Equal(["user", "show", "--json"], calls[3]);
     }
 
     [Fact]
@@ -257,13 +323,18 @@ public sealed class RemoteDevTunnelCliTests
     [Fact]
     public async Task CanceledSignInDoesNotProceedToAccountVerificationOrTunnelCreation()
     {
+        using var cancellation = new CancellationTokenSource();
         var calls = 0;
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
-                (_, _) => ++calls == 1
-                    ? Task.FromResult("""{"status":"Not logged in"}""")
-                    : Task.FromCanceled<string>(new CancellationToken(true)),
-                () => { }, CancellationToken.None));
+                (_, _) =>
+                {
+                    if (++calls == 1)
+                        return Task.FromResult("""{"status":"Not logged in"}""");
+                    cancellation.Cancel();
+                    return Task.FromCanceled<string>(cancellation.Token);
+                },
+                () => { }, cancellation.Token, preferIntegratedWindowsAuth: true));
         Assert.Equal(2, calls);
     }
 

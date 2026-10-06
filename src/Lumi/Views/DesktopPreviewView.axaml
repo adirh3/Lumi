@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.DesktopPreviewView"
+             x:DataType="vm:ChatViewModel"
+             x:CompileBindings="True"
+             Focusable="False">
+  <Grid RowDefinitions="Auto,*,Auto">
+    <Border BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,0,1" Padding="16,12">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="3" VerticalAlignment="Center">
+          <TextBlock x:Name="DesktopWindowTitle"
+                     Text="{Binding DesktopPreviewWindowTitle}"
+                     ToolTip.Tip="{Binding DesktopPreviewWindowTitle}"
+                     FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding DesktopPreview.ProcessName}"
+                     FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
+                     TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <Button x:Name="RefreshDesktopPreviewButton" Grid.Column="1"
+                Classes="subtle" Padding="6" Margin="8,0,0,0" MinWidth="0" MinHeight="0"
+                VerticalAlignment="Center" IsEnabled="{Binding !IsRefreshingDesktopPreview}"
+                Command="{Binding RefreshDesktopPreviewCommand}"
+                ToolTip.Tip="{loc:Str Desktop_Refresh}" AutomationProperties.Name="{loc:Str Desktop_Refresh}">
+          <PathIcon Width="14" Height="14"
+                    Data="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24L14 10h7V3l-3.35 3.35z" />
+        </Button>
+      </Grid>
+    </Border>
+    <Grid Grid.Row="1" Margin="16" ClipToBounds="True">
+      <Image x:Name="DesktopPreviewImage" Stretch="Uniform" IsHitTestVisible="False" />
+      <StackPanel x:Name="DesktopPreviewPlaceholder" Spacing="12" Margin="12"
+                  HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360">
+        <PathIcon Width="32" Height="32" HorizontalAlignment="Center"
+                  Foreground="{DynamicResource Brush.TextTertiary}"
+                  Data="M21 2H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm0 14H3V4h18v12z" />
+        <TextBlock x:Name="DesktopPreviewPlaceholderText" Text="{loc:Str Desktop_NoImage}"
+                   FontSize="14" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" />
+      </StackPanel>
+    </Grid>
+    <Border Grid.Row="2" BorderBrush="{DynamicResource Brush.BorderSubtle}"
+            BorderThickness="0,1,0,0" Padding="16,12">
+      <StackPanel Spacing="5">
+        <TextBlock x:Name="DesktopActionText" Text="{Binding DesktopPreview.ActionText}"
+                   FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+        <TextBlock x:Name="DesktopStatusText" Text="{Binding DesktopPreview.StatusText}"
+                   FontSize="12" Foreground="{DynamicResource Brush.TextSecondary}"
+                   TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+        <TextBlock x:Name="DesktopPreviewStateText" Text="{loc:Str Desktop_PassiveNotice}"
+                   FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}" TextWrapping="Wrap" />
+        <TextBlock x:Name="DesktopCaptureTime" Text="{Binding DesktopPreviewCapturedAtText}"
+                   FontSize="10.5" Foreground="{DynamicResource Brush.TextTertiary}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>

@@ -93,7 +93,7 @@ public sealed class LightweightSessionOptions
         string? contextTier = null,
         GitHub.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
-        SkillProvider? skillProvider = null,
+        ISkillProvider? skillProvider = null,
         ModelCapabilitiesOverride? modelCapabilities = null)
     {
         var config = new SessionConfig
@@ -141,7 +141,7 @@ public sealed class LightweightSessionOptions
         string? contextTier = null,
         GitHub.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
-        SkillProvider? skillProvider = null,
+        ISkillProvider? skillProvider = null,
         ModelCapabilitiesOverride? modelCapabilities = null)
     {
         var config = new ResumeSessionConfig

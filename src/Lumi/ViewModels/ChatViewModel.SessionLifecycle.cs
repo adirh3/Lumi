@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -48,6 +49,56 @@ internal sealed class AssistantTurnBoundaryTracker
 public partial class ChatViewModel
 {
     private const int StreamingUiUpdateThrottleMs = 50;
+
+    internal static string? GetNativeMcpServerName(ToolExecutionStartData tool)
+    {
+        if (tool.McpTransport != McpServerTransport.Stdio)
+            return null;
+
+        var name = string.IsNullOrWhiteSpace(tool.McpConfigServerName)
+            ? tool.McpServerName
+            : tool.McpConfigServerName;
+        return string.IsNullOrWhiteSpace(name) ? null : name;
+    }
+
+    internal static async Task RestartNativeMcpServerAfterSessionLossAsync(
+        ToolExecutionCompleteData tool,
+        ConcurrentDictionary<string, string> nativeServersByToolCallId,
+        Dictionary<string, long> restartTimes,
+        Func<string, Task> restartServerAsync)
+    {
+        if (!nativeServersByToolCallId.TryRemove(tool.ToolCallId, out var serverName)
+            || tool.Success == true
+            || !McpStdioServerConnection.IsRecoverableSessionLossMessage(tool.Error?.Message))
+        {
+            return;
+        }
+
+        lock (restartTimes)
+        {
+            var now = Environment.TickCount64;
+            if (restartTimes.TryGetValue(serverName, out var lastRestart)
+                && now - lastRestart < 30_000)
+            {
+                return;
+            }
+
+            restartTimes[serverName] = now;
+        }
+
+        try
+        {
+            // Repair the bridge, never replay the failed business call or replace the chat session.
+            await restartServerAsync(serverName).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                "[Chat] Native MCP server '{0}' restart after session loss failed: {1}",
+                serverName,
+                ex.Message);
+        }
+    }
 
     internal static string? CaptureTurnModelId(string? currentTurnModelId, string? selectedModelId)
         => currentTurnModelId ?? selectedModelId;
@@ -284,6 +335,8 @@ public partial class ChatViewModel
         var runtime = GetOrCreateRuntimeState(chat.Id);
         var sessionTurnSequence = runtime.LifecycleTurnSequence;
         var capabilities = GetCapabilities(chat, workDir);
+        var nativeMcpServersByToolCallId = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var nativeMcpRestartTimes = new Dictionary<string, long>(StringComparer.Ordinal);
         var toolParentById = new Dictionary<string, string?>(StringComparer.Ordinal);
         var terminalRootByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
         var externalToolCallIdByRequestId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -838,7 +891,7 @@ public partial class ChatViewModel
                 ScrollToEndRequested?.Invoke();
             }
 
-            if (!wasBusy)
+            if (!wasBusy || chat.IsPaused)
                 return;
 
             if (!IsChatOnScreen(chat.Id))
@@ -869,6 +922,9 @@ public partial class ChatViewModel
             switch (evt)
             {
                 case AssistantTurnStartEvent turnStart when IsRootAgentEvent(evt):
+                    // Empty-batch continuations have no user.message echo to establish their epoch.
+                    if (runtime.IsContinuationTurn)
+                        sessionTurnSequence = runtime.LifecycleTurnSequence;
                     Volatile.Write(ref runtime.AssistantTurnStarted, true);
                     var isTopLevelTurnStart = assistantTurnBoundaries.Begin(
                         turnStart.Data.TurnId,
@@ -1131,6 +1187,8 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionStartEvent toolStart:
+                    if (GetNativeMcpServerName(toolStart.Data) is { } nativeMcpServerName)
+                        nativeMcpServersByToolCallId[toolStart.Data.ToolCallId] = nativeMcpServerName;
                     if (IsRootAgentEvent(toolStart))
                         AdjustPendingToolCount(chat.Id, 1);
                     // Stamp the start on the event thread, before the UI dispatch: queuing latency
@@ -1281,6 +1339,11 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionCompleteEvent toolEnd:
+                    _ = RestartNativeMcpServerAfterSessionLossAsync(
+                        toolEnd.Data,
+                        nativeMcpServersByToolCallId,
+                        nativeMcpRestartTimes,
+                        serverName => session.Rpc.Mcp.RestartServerAsync(serverName, null));
                     var shouldReconcileAfterTool = IsRootAgentEvent(toolEnd)
                         && AdjustPendingToolCount(chat.Id, -1);
                     if (shouldReconcileAfterTool)
@@ -1651,7 +1714,7 @@ public partial class ChatViewModel
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
                         MarkRuntimeTerminal(runtime);
-                        if (IsAuthoritativeSession())
+                        if (IsAuthoritativeSession() && !chat.IsPaused)
                         {
                             // Fallback for abort/recovery paths where no authoritative turn-end arrived.
                             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
@@ -1937,7 +2000,7 @@ public partial class ChatViewModel
                         }
 
                         runtime.StatusText = Loc.Status_Stopped;
-                        if (IsAuthoritativeSession())
+                        if (IsAuthoritativeSession() && !chat.IsPaused)
                         {
                             PublishTerminalChatLifecycleEventOnce(
                                 chat,
@@ -2532,9 +2595,11 @@ public partial class ChatViewModel
 
     private static void MarkRuntimeTerminal(ChatRuntimeState runtime, string? statusText = null)
     {
+        runtime.PauseGate.CancelWaiters();
         runtime.IsBusy = false;
         runtime.IsStreaming = false;
         runtime.TurnInProgress = false;
+        runtime.IsContinuationTurn = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
         Volatile.Write(ref runtime.AssistantTurnStarted, false);
@@ -2542,12 +2607,15 @@ public partial class ChatViewModel
         runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = statusText ?? string.Empty;
         runtime.IsSessionActive = false;
+        if (runtime.Chat is { } chat)
+            chat.IsPausePending = chat.IsPaused && runtime.StopOperation is { IsCompleted: false };
     }
 
     private static void MarkAssistantIdle(ChatRuntimeState runtime)
     {
         runtime.IsStreaming = false;
         runtime.TurnInProgress = false;
+        runtime.IsContinuationTurn = false;
         Volatile.Write(ref runtime.AssistantTurnStarted, false);
         runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = string.Empty;
@@ -2637,13 +2705,15 @@ public partial class ChatViewModel
     }
 
     private static bool ShouldKeepRuntimeBusyUntilSessionIdle(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => runtime.IsContinuationTurn
+           || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
            || runtime.ActiveSubagentExecutionDepth > 0
            || runtime.HasPendingBackgroundWork;
 
     private static bool ShouldMarkBackgroundWorkPending(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => runtime.IsContinuationTurn
+           || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0;
 
     private string ResolveWorkspaceFileChangedPath(Chat chat, string path)
@@ -2884,6 +2954,7 @@ public partial class ChatViewModel
             if (chat is not null)
                 ApplyKnownContextTokenLimit(chat, runtime, ResolveSelectedModelForChat(chat), updateDisplayed: false);
             _runtimeStates[chatId] = runtime;
+            TrackChatPauseGate(runtime);
         }
         return runtime;
     }

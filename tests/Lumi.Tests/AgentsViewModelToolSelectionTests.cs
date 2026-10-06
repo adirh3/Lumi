@@ -8,6 +8,15 @@ namespace Lumi.Tests;
 public sealed class AgentsViewModelToolSelectionTests
 {
     [Fact]
+    public void DesktopBatchTool_IsSelectableOnlyOnWindows()
+    {
+        var names = GetVisibleToolNames();
+        Assert.Equal(OperatingSystem.IsWindows(), names.Contains("ui_do"));
+        Assert.Equal(OperatingSystem.IsWindows(), names.Contains("ui_screenshot"));
+        Assert.Equal(OperatingSystem.IsWindows(), names.Contains("ui_click_at"));
+    }
+
+    [Fact]
     public void SaveAgent_ExplicitEmptySelectionRemainsRestricted()
     {
         var agent = new LumiAgent

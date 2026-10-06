@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -39,6 +40,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
     private DataStore? _dataStore;
     private DataStore? _attachedDataStore;
     private ChatViewModel? _attachedChatViewModel;
+    // Local dismissal survives rebinds without keeping evicted chat surfaces alive.
+    private readonly ConditionalWeakTable<ChatViewModel, DesktopPreviewHostState> _desktopStates = new();
 
     // The decoupled ambient-glow layer: a single self-contained controller owns the visual and
     // observes already-public view-model state. No production view pushes to it.
@@ -91,6 +94,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
     public Func<Guid, bool>? CanShowBrowserPanel { get; set; }
 
+    public Func<Guid, bool>? CanShowDesktopPanel { get; set; }
+
     public ChatView? ChatView => _chatView;
 
     public WorkspacePage WorkspacePage => _workspace?.Page ?? WorkspacePage.Overview;
@@ -106,9 +111,14 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
     /// <summary>Closes any open page (chat switch, leaving the chat); the overview follows the user's preference.</summary>
     public void CloseWorkspacePages() => _workspace?.ClosePages();
 
+    public void RestoreDesktopPanel() => _workspace?.RestoreDesktop();
+
     public void Dispose()
     {
         DisposeWorkspace();
+        foreach (var state in _desktopStates)
+            state.Value.Dispose();
+        _desktopStates.Clear();
         GC.SuppressFinalize(this);
     }
 
@@ -235,13 +245,16 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             chatViewModel,
             parts,
             ensureChatVisible: () => EnsureChatVisible?.Invoke(),
-            canShowBrowserPanel: chatId => CanShowBrowserPanel?.Invoke(chatId) != false);
+            canShowBrowserPanel: chatId => CanShowBrowserPanel?.Invoke(chatId) != false,
+            canShowDesktopPanel: chatId => CanShowDesktopPanel?.Invoke(chatId) != false,
+            desktopState: _desktopStates.GetValue(chatViewModel, static vm => new DesktopPreviewHostState(vm)));
 
         if (_workspaceHeaderBar is not null)
             _workspaceHeaderBar.DataContext = _workspace.Header;
 
         _attachedDataStore = _dataStore;
         _attachedChatViewModel = chatViewModel;
+        _workspace.RestoreDesktop();
 
         // Persistent ambient field: created ONCE for the lifetime of this (reused) workspace grid and
         // RE-POINTED at the new surface on a chat switch. ChatWorkspaceView is a single named element in

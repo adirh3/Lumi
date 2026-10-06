@@ -1,4 +1,11 @@
-# Vendored Copilot SDK package
+# Archived Copilot SDK packages
+
+Lumi now references official `GitHub.Copilot.SDK 1.0.17-preview.7` from NuGet.org
+and implements its upstream `ISkillProvider` API. The packages below are retained
+only as historical provenance: they are not referenced or source-mapped by Lumi.
+The local feed remains active for the patched Avalonia core.
+Full CLI acquisition has moved to `build/Copilot/CopilotCli.targets`, which uses
+the official SDK's supported binary-path override.
 
 `Lumi.Copilot.SDK` is an **unofficial, temporary prerelease build** of the GitHub
 Copilot .NET SDK with the native in-memory skill provider proposed upstream and
@@ -22,7 +29,7 @@ All managed assemblies and XML documentation are byte-for-byte identical to
 and the official SDK package together. `.lumi.2` replaces only package build assets
 and metadata; it does not alter SDK authentication or skill-provider code.
 
-## Consuming and updating
+## Historical consumption and updating
 
 Normal `dotnet restore`, `dotnet build`, and publish use this feed and the package's
 build targets automatically. No separate Lumi acquisition task, import, or opt-out
@@ -55,6 +62,6 @@ Python is needed only for reproduction, never for normal builds. Future changes
 must produce a new package version, with reviewed CLI pins and updated provenance;
 do not replace the bytes of an already-used version.
 
-The upstream API is experimental and currently text-only/pathless. Once an official
-SDK release provides the required API, restore the official package reference and
-remove this package and its local-feed mapping.
+The upstream API remains experimental and text-only/pathless. Lumi's active SDK
+reference and provider integration no longer depend on these packages or their
+custom SDK implementation.
