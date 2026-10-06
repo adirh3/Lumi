@@ -490,7 +490,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         LoadProjects();
         SubscribeChatRunningState();
         RefreshChatList();
-        ChatVM.RefreshComposerCatalogs();
         if (_ownsBackgroundJobService && startBackgroundJobs)
             _backgroundJobService.Start();
 
@@ -501,7 +500,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _chatNavigationHistory.Record(ChatVM.CurrentChat?.Id, SelectedProjectFilter);
         if (initializeCopilotOnStartup)
-            _ = InitializeAsync();
+        {
+            // Keep saved model choices ready for the first frame; only defer connecting.
+            InjectByokModels();
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_isDisposed)
+                    _ = InitializeAsync();
+            }, DispatcherPriority.Background);
+        }
     }
 
     private void PrepareChatSurface(ChatViewModel surface)
@@ -735,10 +742,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private async Task InitializeAsync()
     {
-        // Ensure BYOK tokens are visible in the picker immediately at startup, even before
-        // GetModelsAsync() resolves (or fails). Without this, the picker can briefly show only
-        // the seeded PreferredModel — never the BYOK picks the user has configured.
-        InjectByokModels();
         await RefreshCopilotStateAsync(refreshAuthStatus: true);
         _ = WarmSearchIndexAsync();
     }

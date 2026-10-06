@@ -1,0 +1,32 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="using:Lumi.Localization"
+        x:Class="Lumi.Views.StartupWindow"
+        Name="StartupLoadingWindow"
+        Title="Lumi"
+        Width="380" Height="260"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource Brush.Surface0}"
+        UseLayoutRounding="True">
+  <StackPanel Spacing="16"
+              Margin="32"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Center">
+    <Image Source="/Assets/lumi-icon.png"
+           Width="56" Height="56"
+           Stretch="Uniform"
+           RenderOptions.BitmapInterpolationMode="HighQuality" />
+    <TextBlock Text="{loc:Str App_Name}"
+               FontSize="24"
+               FontWeight="SemiBold"
+               HorizontalAlignment="Center" />
+    <TextBlock Name="StartupStatus"
+               Text="{loc:Str Startup_Loading}"
+               Foreground="{DynamicResource Brush.TextSecondary}"
+               HorizontalAlignment="Center" />
+    <ProgressBar Name="StartupProgress"
+                 Width="220" Height="4"
+                 IsIndeterminate="True" />
+  </StackPanel>
+</Window>

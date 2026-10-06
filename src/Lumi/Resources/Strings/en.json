@@ -1,5 +1,6 @@
 {
   "App_Name": "Lumi",
+  "Startup_Loading": "Starting Lumi...",
   "Preview_Title": "Preview",
   "Preview_Open": "Open preview",
   "Preview_Edited": "Edited",

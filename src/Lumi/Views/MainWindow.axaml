@@ -2825,9 +2825,11 @@
                   PointerPressed="OnOnboardingDragStripPointerPressed" />
         </Grid>
         <Border Grid.Row="1" Background="{DynamicResource Brush.SurfaceCard}" />
-        <views:OnboardingView Grid.Row="1"
-                              x:Name="OnboardingView"
-                              DataContext="{Binding OnboardingVM}" />
+        <ContentControl Grid.Row="1"
+                        x:Name="OnboardingHost"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch"
+                        DataContext="{Binding OnboardingVM}" />
       </Grid>
     </Panel>
 

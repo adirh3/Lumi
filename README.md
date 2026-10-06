@@ -18,6 +18,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
+- **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
 ### Sharing skills, Lumis and MCP servers
 
