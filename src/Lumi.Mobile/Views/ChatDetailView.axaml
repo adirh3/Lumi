@@ -457,7 +457,7 @@
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
             <sc:StrataPulse IsLive="False" Width="10" Height="10" VerticalAlignment="Center" />
             <TextBlock Grid.Column="1" Text="{Binding ConnectionBannerText}" TextWrapping="Wrap"
-                       FontSize="{DynamicResource Font.SizeMeta}"
+                       FontSize="{DynamicResource Font.SizeCaption}"
                        Foreground="{DynamicResource Brush.TextSecondary}"
                        VerticalAlignment="Center" />
           </Grid>

@@ -45,6 +45,10 @@ public static class RemoteProtocol
     /// <summary>Header carrying the stable client-generated device id.</summary>
     public const string DeviceIdHeader = "X-Lumi-Device-Id";
 
+    /// <summary>Distinguishes Lumi pairing errors from a private gateway's expired sign-in.</summary>
+    public const string ServerResponseHeader = "X-Lumi-Response";
+    public const string ServerResponseValue = "remote";
+
     /// <summary>UTF-8 encoded leaf filename for a raw authenticated upload body.</summary>
     public const string UploadFileNameHeader = "X-Lumi-File-Name";
 

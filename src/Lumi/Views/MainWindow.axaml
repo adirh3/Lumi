@@ -3074,10 +3074,6 @@
                        FontSize="{DynamicResource Font.SizeCaption}"
                        Foreground="{DynamicResource Brush.TextSecondary}" />
           </Border>
-          <TextBlock Text="{loc:Str Remote_DevTunnelInstallNext}"
-                     TextWrapping="Wrap"
-                     FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
           <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
             <Button x:Name="DevTunnelInstallCancelButton"
                     Classes="subtle"

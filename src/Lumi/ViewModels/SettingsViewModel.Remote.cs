@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using Avalonia.Threading;
@@ -31,12 +32,31 @@ public partial class SettingsViewModel
     private IDisposable? _remotePairingExpiryRegistration;
     private bool _attachingRemoteServer;
     private MobileSetupKind _activeMobileSetupKind;
+    private bool _mobileSetupNeedsPairing;
+    private string? _openedDevTunnelSignInCode;
 
-    [ObservableProperty] private bool _remoteAccessEnabled;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMobileExperienceSectionVisible))]
+    [NotifyPropertyChangedFor(nameof(IsDevTunnelSetupVisible))]
+    private bool _remoteAccessEnabled;
     [ObservableProperty] private bool _useLocalNetworkForMobile;
-    [ObservableProperty] private bool _useDevTunnelForMobile;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMobileExperienceSectionVisible))]
+    [NotifyPropertyChangedFor(nameof(IsDevTunnelSetupVisible))]
+    [NotifyPropertyChangedFor(nameof(MobileExperienceTitle))]
+    private bool _useDevTunnelForMobile;
     [ObservableProperty] private string _devTunnelStatusText = "";
+    [ObservableProperty] private string _devTunnelSetupTitle = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDevTunnelErrorDetails))]
+    private string _devTunnelErrorDetails = "";
+    [ObservableProperty] private bool _isDevTunnelSetupBusy;
     [ObservableProperty] private bool _isDevTunnelInstallDialogOpen;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDevTunnelSignInCode))]
+    private string _devTunnelSignInCode = "";
+    [ObservableProperty] private string _devTunnelSignInUrl = "";
+    [ObservableProperty] private string _devTunnelBrowserMessage = "";
     [ObservableProperty] private string _remotePairingCode = "";
     [ObservableProperty] private bool _isRemotePairing;
     [ObservableProperty] private string _remotePairActionText = Loc.Get("Remote_PairButton");
@@ -47,7 +67,10 @@ public partial class SettingsViewModel
     [ObservableProperty] private bool _isMobileSetupChoiceEnabled;
     [ObservableProperty] private bool _isMobileWebSetup;
     [ObservableProperty] private bool _isMobileAndroidSetup;
-    [ObservableProperty] private bool _isMobileSetupReady;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMobileExperienceSectionVisible))]
+    [NotifyPropertyChangedFor(nameof(IsDevTunnelSetupVisible))]
+    private bool _isMobileSetupReady;
     [ObservableProperty] private bool _isMobileTailscaleAvailable;
     [ObservableProperty] private string _mobileTransportDescription = "";
     [ObservableProperty] private string _mobileSetupTitle = "";
@@ -66,8 +89,14 @@ public partial class SettingsViewModel
 
     public bool IsMobileAndroidSetupChoiceEnabled => IsMobileSetupChoiceEnabled && !UseDevTunnelForMobile;
 
-    public string MobileExperienceDescription => Loc.Get(
-        UseDevTunnelForMobile ? "Remote_SetupWebOnlyDescription" : "SettingDesc_MobileChoose");
+    public string MobileExperienceDescription => UseDevTunnelForMobile ? "" : Loc.Get("SettingDesc_MobileChoose");
+    public string MobileExperienceTitle => Loc.Get(
+        UseDevTunnelForMobile ? "Remote_DevTunnelPhoneTitle" : "Setting_MobileChoose");
+    public bool IsMobileExperienceSectionVisible =>
+        RemoteAccessEnabled && (!UseDevTunnelForMobile || IsMobileSetupReady);
+    public bool IsDevTunnelSetupVisible =>
+        RemoteAccessEnabled && UseDevTunnelForMobile && !IsMobileSetupReady;
+    public bool HasDevTunnelErrorDetails => DevTunnelErrorDetails.Length > 0;
 
     private MobileOnboardingTransport SelectedMobileTransport => UseDevTunnelForMobile
         ? MobileOnboardingTransport.DevTunnel
@@ -75,7 +104,25 @@ public partial class SettingsViewModel
 
     public bool CanRetryMobileDevTunnel =>
         RemoteAccessEnabled && UseDevTunnelForMobile
-        && _remoteServer is { IsDevTunnelStarting: false, DevTunnelOrigin: null };
+        && _remoteServer is { RequiresDevTunnelSignIn: false } server
+        && (!server.IsDevTunnelStarting || server.IsDevTunnelReconnecting);
+
+    public bool CanSignInMobileDevTunnel =>
+        RemoteAccessEnabled && UseDevTunnelForMobile
+        && _remoteServer is { IsRunning: true, IsDevTunnelStarting: false, RequiresDevTunnelSignIn: true };
+
+    public bool CanCancelMobileDevTunnelSetup =>
+        _remoteServer is { IsDevTunnelStarting: true, RequiresDevTunnelInstallConfirmation: false };
+
+    public bool HasDevTunnelSignInCode => DevTunnelSignInCode.Length > 0;
+
+    public bool CanUseDevTunnelBrowserSignIn =>
+        RemoteAccessEnabled && UseDevTunnelForMobile && _remoteServer is { IsRunning: true } server
+        && (server.RequiresDevTunnelSignIn && !server.IsDevTunnelStarting
+            || server.IsDevTunnelSigningIn && server.DevTunnelSignInCode is null);
+
+    public string DevTunnelRetryActionText => Loc.Get(
+        _remoteServer?.DevTunnelOrigin is not null ? "Remote_DevTunnelReconnect" : "Remote_DevTunnelRetry");
 
     internal void AttachRemoteServer(LumiRemoteServer server)
     {
@@ -145,9 +192,22 @@ public partial class SettingsViewModel
             IsMobileTailscaleAvailable
                 ? "Remote_TransportDetected"
                 : "Remote_TransportUnavailable");
+        IsDevTunnelSetupBusy = server is { IsDevTunnelStarting: true, RequiresDevTunnelInstallConfirmation: false };
+        DevTunnelSetupTitle = Loc.Get(server switch
+        {
+            { DevTunnelError: not null } or { StartError: not null } => "Remote_DevTunnelErrorTitle",
+            { DevTunnelOrigin: not null, IsWebAppAvailable: false } => "Remote_DevTunnelErrorTitle",
+            { RequiresDevTunnelInstallConfirmation: true } => "Remote_DevTunnelInstallTitle",
+            { RequiresDevTunnelSignIn: true } or { IsDevTunnelSigningIn: true } => "Remote_DevTunnelSignInTitle",
+            { IsDevTunnelReconnecting: true } => "Remote_DevTunnelReconnect",
+            _ => "Remote_DevTunnelSetupTitle"
+        });
+        DevTunnelErrorDetails = server?.DevTunnelError ?? "";
         DevTunnelStatusText = server switch
         {
-            { DevTunnelError: { } error } => error,
+            { StartError: { } error } => error,
+            { DevTunnelError: not null } => Loc.Get("Remote_DevTunnelErrorSummary"),
+            { DevTunnelOrigin: not null, IsWebAppAvailable: false } => Loc.Get("Remote_WebAppUnavailable"),
             { DevTunnelOrigin: not null, DevTunnelAccount: { } account } =>
                 Loc.Get("Remote_DevTunnelReady", account),
             { DevTunnelSetupMessage: { } message } => message,
@@ -155,14 +215,34 @@ public partial class SettingsViewModel
             _ => Loc.Get("Remote_DevTunnelInstall")
         };
         IsDevTunnelInstallDialogOpen = server?.RequiresDevTunnelInstallConfirmation == true;
+        DevTunnelSignInUrl = server?.DevTunnelSignInUrl ?? "";
+        DevTunnelSignInCode = server?.DevTunnelSignInCode ?? "";
+        if (DevTunnelSignInCode.Length == 0)
+        {
+            _openedDevTunnelSignInCode = null;
+            DevTunnelBrowserMessage = "";
+        }
+        else if (_openedDevTunnelSignInCode != DevTunnelSignInCode)
+        {
+            _openedDevTunnelSignInCode = DevTunnelSignInCode;
+            OpenDevTunnelSignIn();
+        }
         RetryMobileDevTunnelCommand.NotifyCanExecuteChanged();
+        SignInMobileDevTunnelCommand.NotifyCanExecuteChanged();
+        UseDevTunnelBrowserSignInCommand.NotifyCanExecuteChanged();
+        CancelMobileDevTunnelSetupCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanRetryMobileDevTunnel));
+        OnPropertyChanged(nameof(CanSignInMobileDevTunnel));
+        OnPropertyChanged(nameof(CanUseDevTunnelBrowserSignIn));
+        OnPropertyChanged(nameof(CanCancelMobileDevTunnelSetup));
+        OnPropertyChanged(nameof(DevTunnelRetryActionText));
         var pairing = server is null
             ? (Code: (string?)null, ExpiresAt: (DateTimeOffset?)null)
             : server.GetPairingDisplayState(now);
 
         RemoteStatusText = server switch
         {
+            { StartError: { } error } => error,
             { IsRunning: true } when server.ListenAddresses.Count > 0 =>
                 Loc.Get(
                     "Remote_ListeningOn",
@@ -192,8 +272,12 @@ public partial class SettingsViewModel
             RemoteAccessEnabled
             && server is { IsRunning: true }
             && server.ListenAddresses.Count > 0;
-        RefreshMobileOnboarding(server);
         ScheduleRemotePairingExpiry(pairing.ExpiresAt, now);
+        if (RemoteAccessEnabled && UseDevTunnelForMobile && !IsMobileSetupActive
+            && server is { IsRunning: true })
+            StartMobileSetup(MobileSetupKind.Web);
+        else
+            RefreshMobileOnboarding(server);
     }
 
     private void ScheduleRemotePairingExpiry(DateTimeOffset? expiresAt, DateTimeOffset now)
@@ -363,7 +447,7 @@ public partial class SettingsViewModel
         IsMobileSetupActive = true;
         IsMobileWebSetup = kind == MobileSetupKind.Web;
         IsMobileAndroidSetup = kind == MobileSetupKind.Android;
-        server.BeginPairing();
+        _mobileSetupNeedsPairing = true;
         RefreshMobileOnboarding(server);
     }
 
@@ -388,15 +472,68 @@ public partial class SettingsViewModel
     private void SelectMobileDevTunnel()
     {
         if (RemoteAccessEnabled)
+        {
             UseDevTunnelForMobile = true;
+            StartMobileSetup(MobileSetupKind.Web);
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanRetryMobileDevTunnel))]
     private void RetryMobileDevTunnel()
     {
-        _remoteServer?.Stop();
-        _remoteServer?.Start();
+        if (_remoteServer is { IsRunning: true } server)
+            server.RestartDevTunnel();
+        else
+            _remoteServer?.Start();
         RefreshRemoteState();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSignInMobileDevTunnel))]
+    private void SignInMobileDevTunnel()
+    {
+        _remoteServer?.RestartDevTunnel(signIn: true);
+        RefreshRemoteState();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanUseDevTunnelBrowserSignIn))]
+    private void UseDevTunnelBrowserSignIn()
+    {
+        _remoteServer?.RestartDevTunnel(signIn: true, useDeviceCode: true);
+        RefreshRemoteState();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCancelMobileDevTunnelSetup))]
+    private void CancelMobileDevTunnelSetup()
+    {
+        _remoteServer?.CancelDevTunnelSetup();
+        RefreshRemoteState();
+    }
+
+    [RelayCommand]
+    private void OpenDevTunnelSignIn()
+    {
+        if (!RemoteDevTunnelHost.IsAllowedSignInUrl(DevTunnelSignInUrl))
+        {
+            DevTunnelBrowserMessage = Loc.Get("Remote_DevTunnelInvalidResponse");
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo(DevTunnelSignInUrl) { UseShellExecute = true });
+            DevTunnelBrowserMessage = "";
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or System.IO.IOException)
+        {
+            Trace.TraceWarning($"[Remote] Could not open Microsoft sign-in: {ex.Message}");
+            DevTunnelBrowserMessage = Loc.Get("Remote_DevTunnelBrowserOpenFailed");
+        }
+    }
+
+    [RelayCommand]
+    private async Task CopyDevTunnelSignInCodeAsync()
+    {
+        if (HasDevTunnelSignInCode)
+            await Services.ClipboardHelper.CopyTextAsync(DevTunnelSignInCode);
     }
 
     [RelayCommand]
@@ -429,7 +566,9 @@ public partial class SettingsViewModel
             return;
 
         MobileSetupTitle = Loc.Get(
-            _activeMobileSetupKind == MobileSetupKind.Web
+            UseDevTunnelForMobile
+                ? "Remote_DevTunnelPhonePanelTitle"
+                : _activeMobileSetupKind == MobileSetupKind.Web
                 ? "Remote_SetupWebPanelTitle"
                 : "Remote_SetupAndroidPanelTitle");
         MobileSetupInstructions = Loc.Get(
@@ -437,7 +576,7 @@ public partial class SettingsViewModel
                 ? "Remote_SetupWebInstructions"
                 : "Remote_SetupAndroidInstructions");
         if (UseDevTunnelForMobile)
-            MobileSetupInstructions = Loc.Get("Remote_DevTunnelInstructions") + " " + MobileSetupInstructions;
+            MobileSetupInstructions = Loc.Get("Remote_DevTunnelInstructions");
 
         if (server is not { IsRunning: true })
         {
@@ -456,7 +595,9 @@ public partial class SettingsViewModel
             SelectedMobileTransport);
         if (endpoint is null)
         {
-            SetMobileSetupUnavailable(Loc.Get("Remote_SetupNoAddress"));
+            SetMobileSetupUnavailable(UseDevTunnelForMobile
+                ? DevTunnelStatusText
+                : Loc.Get("Remote_SetupNoAddress"));
             return;
         }
 
@@ -467,18 +608,25 @@ public partial class SettingsViewModel
                 AppVersion);
         MobileSetupQrValue = MobileSetupUrl;
         MobileSetupDescription = Loc.Get(
-            _activeMobileSetupKind == MobileSetupKind.Web
+            UseDevTunnelForMobile
+                ? "Remote_DevTunnelPhoneDescription"
+                : _activeMobileSetupKind == MobileSetupKind.Web
                 ? "Remote_SetupWebPanelDesc"
                 : "Remote_SetupAndroidPanelDesc");
         MobileSetupConnectionText = Loc.Get(
             endpoint.Transport switch
             {
-                MobileOnboardingTransport.DevTunnel => "Remote_DevTunnelReady",
+                MobileOnboardingTransport.DevTunnel => "Remote_DevTunnelAccount",
                 MobileOnboardingTransport.LocalNetwork => "Remote_SetupUsingWifi",
                 _ => "Remote_SetupUsingTailscale"
             },
             server.DevTunnelAccount ?? "");
         IsMobileSetupReady = true;
+        if (_mobileSetupNeedsPairing)
+        {
+            _mobileSetupNeedsPairing = false;
+            server.BeginPairing();
+        }
     }
 
     private void SetMobileSetupUnavailable(string description)
@@ -492,6 +640,7 @@ public partial class SettingsViewModel
 
     private void ResetMobileOnboarding()
     {
+        _mobileSetupNeedsPairing = false;
         IsMobileSetupActive = false;
         IsMobileSetupChoiceEnabled = false;
         IsMobileWebSetup = false;
