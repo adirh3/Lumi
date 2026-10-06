@@ -9,3 +9,13 @@ c886ba35aca763e9dfa94dac8ebc5c67e41627f877c8ff0012e14c5049b5dcbe  avalonia/12.1.
 945be5b0086aeceecd7d44e1dcf59e10691588e7a2cd4377d28c0e98a55ba737  avalonia/12.1.2.2/tools/pack.py
 22b9924206062b0299f675e48d3fab764e220d857c3ba3f9496754986e63d6c5  avalonia/12.1.2.2/tools/Verify-Compatibility.ps1
 226151f857f14819d1a4d7132c74b8b79457e41eae32547b642fcfbe8f3d4b2b  nuget/Avalonia.12.1.2.2.nupkg
+6c392bbefc6bfbee31527eb96728476a736342d30a829c0b02de0ae06b0831e2  avalonia/12.1.3.1/licence.md
+8165ec6ddcb6a1ca66a5de65ac860d1f3bbac5509669ec4c6fdbb1e8ef04c5a4  avalonia/12.1.3.1/NOTICE.md
+903b3114d25999cd92279093b5e968dc726ead981bf29a4a688e9cf7e99ba87a  avalonia/12.1.3.1/patches/0001-textbox-selection-notifications.patch
+e2cae9500a21d4854fff96f9d32a1a1230386e11ddb87011cc30591d6d353657  avalonia/12.1.3.1/patches/0002-textline-empty-ranges.patch
+b747b30a765ee38529e3c28c7b9689b3add754783ee6a3ef7e4d83d39c672ee2  avalonia/12.1.3.1/PROVENANCE.md
+ac212a27d2cb5a2a5021fc5b49b57d559c0ca26e7eb5fcc14a4a9dcc6a66e6fd  avalonia/12.1.3.1/README.md
+0dfdeb7fd4df5de80a15fbe0523ce7f48cd9877c8d0c24c302b658949e6258ab  avalonia/12.1.3.1/Rebuild.ps1
+e4d1a19b00854d32089618d968d18a112c5a917a2d528a04b3de0817f2c87baf  avalonia/12.1.3.1/tools/pack.py
+1b74b675296a5a382bbff740fb47397b16cd3f84c76f0081efe4835664b3b27d  avalonia/12.1.3.1/tools/Verify-Compatibility.ps1
+9e77f8fc7234639cceb2abdace3d8f04d04410c072b61b6dd054bb5d6fb5eeb6  nuget/Avalonia.12.1.3.1.nupkg

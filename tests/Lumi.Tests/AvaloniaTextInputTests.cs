@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -15,6 +16,40 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class AvaloniaTextInputTests
 {
+    [Theory]
+    [InlineData(2, 4)]
+    [InlineData(4, 2)]
+    [InlineData(8, 18)]
+    [InlineData(18, 8)]
+    public async Task InputMethodSelectionAssignment_NotifiesOnlyTheFinalRange(int start, int end)
+    {
+        using var session = HeadlessTestSession.Start(typeof(AvaloniaTextInputTestApp));
+        await session.Dispatch(async () =>
+        {
+            var input = new TextBox { Text = "abcdefghijklmnopqrst" };
+            var window = new Window { Width = 360, Height = 180, Content = input };
+            window.Show();
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                input.Focus();
+                input.CaretIndex = 0;
+                var client = GetClient(input);
+                var selections = new List<TextSelection>();
+                client.SelectionChanged += (_, _) => selections.Add(client.Selection);
+
+                client.Selection = new TextSelection(start, end);
+
+                Assert.Equal(new TextSelection(start, end), Assert.Single(selections));
+                Assert.Equal("abcdefghijklmnopqrst", input.Text);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData(8, 18, "short", "shortx")]
     [InlineData(18, 8, "short", "shortx")]
@@ -35,12 +70,7 @@ public sealed class AvaloniaTextInputTests
                 input.Focus();
                 input.CaretIndex = 0;
 
-                var request = new TextInputMethodClientRequestedEventArgs
-                {
-                    RoutedEvent = InputElement.TextInputMethodClientRequestedEvent
-                };
-                input.RaiseEvent(request);
-                var client = Assert.IsAssignableFrom<TextInputMethodClient>(request.Client);
+                var client = GetClient(input);
                 client.Selection = new TextSelection(selectionStart, selectionEnd);
 
                 var inputSent = false;
@@ -82,6 +112,16 @@ public sealed class AvaloniaTextInputTests
                 window.Close();
             }
         }, CancellationToken.None);
+    }
+
+    private static TextInputMethodClient GetClient(TextBox input)
+    {
+        var request = new TextInputMethodClientRequestedEventArgs
+        {
+            RoutedEvent = InputElement.TextInputMethodClientRequestedEvent
+        };
+        input.RaiseEvent(request);
+        return Assert.IsAssignableFrom<TextInputMethodClient>(request.Client);
     }
 }
 

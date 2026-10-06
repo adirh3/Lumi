@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
     <!-- Keep the Avalonia package family aligned; update this value for future upgrades. -->
-    <AvaloniaVersion>12.1.2</AvaloniaVersion>
+    <AvaloniaVersion>12.1.3</AvaloniaVersion>
   </PropertyGroup>
 </Project>
