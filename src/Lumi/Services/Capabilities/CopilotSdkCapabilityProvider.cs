@@ -133,7 +133,7 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
         CancellationToken cancellationToken)
     {
         var result = await client.Rpc.Skills
-            .GetDiscoveryPathsAsync(projectPaths, excludeHostSkills: null, cancellationToken)
+            .GetDiscoveryPathsAsync(projectPaths, excludeHostSkills: null, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         if (result?.Paths is not { Count: > 0 } paths)
@@ -154,7 +154,7 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
         CancellationToken cancellationToken)
     {
         var result = await client.Rpc.Skills
-            .DiscoverAsync(projectPaths, skillDirectories: null, excludeHostSkills: null, cancellationToken)
+            .DiscoverAsync(projectPaths, skillDirectories: null, excludeHostSkills: null, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         // Per-skill parse errors describe individual entries the runtime rejected, not a source it

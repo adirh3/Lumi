@@ -1039,7 +1039,7 @@ public sealed class ChatViewModelAgentRoutingTests
         var data = new AppData { Skills = [skill] };
         using var harness = CreateHarness(data);
         var provider = new LumiSkillProvider(_ => Task.FromResult<IReadOnlyList<Skill>>(data.Skills));
-        var descriptor = Assert.Single(await provider.ListAsync());
+        var descriptor = Assert.Single(await provider.ListSkillsAsync());
         var tool = Assert.Single(
             InvokeBuildCustomTools(harness.ViewModel, skillProvider: provider),
             candidate => candidate.Name == "manage_skills");

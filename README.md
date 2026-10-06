@@ -336,16 +336,19 @@ git submodule update --init --recursive
 
 ### Build & Run
 
-The Copilot SDK is a normal NuGet dependency. `NuGet.Config` restores the versioned,
-unofficial `Lumi.Copilot.SDK` package from the checked-in `vendor/nuget` feed.
-Other packages except the patched Avalonia core come from NuGet.org. No SDK
+The Copilot SDK is an official NuGet dependency: `GitHub.Copilot.SDK`
+`1.0.17-preview.7`, restored from NuGet.org. This is a prerelease; its native
+skill-provider API is experimental. Only the patched Avalonia core comes from
+the checked-in `vendor/nuget` feed. No SDK
 submodule, source build, patch step, feed credentials, or Node.js installation
 is needed to build Lumi.
 
-The package preserves native in-memory skill loading while the generic provider API
-is proposed upstream in [github/copilot-sdk#2672](https://github.com/github/copilot-sdk/pull/2672).
-See [package provenance](vendor/nuget/README.md) for the exact source commit and checksum.
-Lumi's skill storage and editing behavior are unchanged.
+Lumi implements the upstream `ISkillProvider` contract for native, lazy in-memory
+skill loading. The native `skill` tool handles activation alongside file-based
+skills, including reloads, resumed sessions and delegated agents. Lumi's skill
+storage, editing and existing app-data Markdown mirrors are unchanged. Native
+activation does not depend on those mirrors; no workspace `SKILL.md` stubs or
+replacement loader tool are generated.
 
 `Directory.Build.targets` pins the core `Avalonia` package to the vendored
 `12.1.2.2` build throughout the project-reference graph, including Strata. It fixes
@@ -356,14 +359,37 @@ See [Avalonia patch provenance and reproduction](vendor/avalonia/12.1.2.2/README
 When switching an existing build to the patched package, use a clean rebuild
 (`dotnet build src/Lumi/Lumi.csproj -t:Rebuild`) or a fresh `--artifacts-path`.
 
-**GitHub sign-in:** The custom SDK package supplies one checksum-pinned, matching
-official full Copilot CLI during build and publish. Lumi needs no separate CLI
-download targets. The SDK uses it over stdio, and GitHub's `copilot login` handles browser/device authorization.
+**GitHub sign-in:** [Lumi's CLI acquisition target](build/Copilot/CopilotCli.targets)
+supplies one checksum-pinned, matching official full Copilot CLI through the SDK's
+supported `CopilotCliBinaryPath` override. The SDK's default headless bundle cannot
+replace the full CLI used for sign-in. The official SDK handles copying the binary
+to build, referencing-project and publish outputs. The SDK uses it over stdio,
+and GitHub's `copilot login` handles browser/device authorization.
 The current full CLI does not expose `logout`, so Lumi uses the SDK account API
 to remove only the selected stored user. Existing credential selection and
 storage are unchanged; AI Models refreshes the shared sign-in display.
 No additional CLI, OAuth app, token store, or Node.js installation is required.
-See [package provenance and reproduction](vendor/nuget/README.md).
+The [reviewed CLI pins](build/Copilot/CopilotCliPins.props) must be updated when an
+SDK upgrade changes `CopilotCliVersion`; both downloaded archives and extracted
+executables are verified. `CopilotSkipCliDownload` and `CopilotCliBinaryPath`
+overrides remain available.
+
+**Updating Copilot:** choose a specific SDK version and update its `PackageReference`
+in `src/Lumi/Lumi.csproj`, then run the maintainer-only pin updater with Python 3.10+:
+
+```powershell
+python tools\update_copilot_cli_pins.py
+python tools\update_copilot_cli_pins.py --check
+```
+
+The script reads the matching CLI version from the official SDK package, verifies
+all eight platform archives against GitHub's release checksums, and replaces the
+pin file only after every executable passes its layout and hash checks. It reuses
+archives in the normal build cache when available; missing archives are downloaded
+temporarily. Review and commit the SDK reference and generated pins together.
+No SDK is repacked and no CLI binaries are committed. Python is needed only for
+this maintenance step, not for normal restore, build or publish. Focused updater
+tests run with `python -m unittest discover -s tools -p test_update_copilot_cli_pins.py`.
 
 ```bash
 dotnet build src/Lumi/Lumi.csproj
