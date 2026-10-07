@@ -12,6 +12,22 @@ namespace Lumi.ViewModels;
 
 public partial class ChatViewModel
 {
+    /// <summary>Opens a local browser fixture without a model turn, only in an isolated Debug app.</summary>
+    internal async Task<string> LoadDebugBrowserFixtureAsync(string url)
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR")))
+            throw new InvalidOperationException("Browser fixtures require an isolated LUMI_APPDATA_DIR.");
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !uri.IsFile
+            || !System.IO.File.Exists(uri.LocalPath))
+            throw new InvalidOperationException("Browser fixtures require an existing local file URL.");
+        if (CurrentChat is null)
+            LoadDebugTranscriptFixture();
+        var browser = GetOrCreateBrowserService(CurrentChat!.Id);
+        HasUsedBrowser = true;
+        RequestShowBrowser();
+        return await browser.OpenAndSnapshotAsync(url);
+    }
+
     public void LoadDebugTranscriptFixture()
     {
         ClearChat();
