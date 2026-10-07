@@ -1,4 +1,20 @@
-# Archived Copilot SDK packages
+# Vendored NuGet packages
+
+## Active Avalonia package
+
+Lumi consumes the unofficial `Avalonia 12.1.3.1` core with official `12.1.3`
+peer packages. It backports both final merged text fixes onto stable 12.1.3.
+Source patches, licenses, rebuild tools and provenance are under
+[`../avalonia/12.1.3.1`](../avalonia/12.1.3.1/README.md).
+
+- `Avalonia.12.1.3.1.nupkg` SHA-256:
+  `9e77f8fc7234639cceb2abdace3d8f04d04410c072b61b6dd054bb5d6fb5eeb6`
+- The previous `Avalonia.12.1.2.2.nupkg` and its inputs remain unchanged.
+- Only the exact package ID `Avalonia` is mapped to this local feed.
+- Replace the temporary fork only after an official stable release demonstrably
+  contains both fixes and passes the actual binary/app regressions.
+
+## Archived Copilot SDK packages
 
 Lumi now references official `GitHub.Copilot.SDK 1.0.17-preview.7` from NuGet.org
 and implements its upstream `ISkillProvider` API. The packages below are retained
@@ -11,7 +27,7 @@ the official SDK's supported binary-path override.
 Copilot .NET SDK with the native in-memory skill provider proposed upstream and
 package-owned full CLI acquisition. It is not an official GitHub release.
 
-## Provenance
+### Provenance
 
 - Package: `Lumi.Copilot.SDK` version `1.0.14-preview.1.lumi.2`
 - Source: [adirh3/copilot-sdk at 4a33b2c](https://github.com/adirh3/copilot-sdk/tree/4a33b2cf5ff7993a58d50aa80a8be008660bf0b7)
@@ -29,7 +45,7 @@ All managed assemblies and XML documentation are byte-for-byte identical to
 and the official SDK package together. `.lumi.2` replaces only package build assets
 and metadata; it does not alter SDK authentication or skill-provider code.
 
-## Historical consumption and updating
+### Historical consumption and updating
 
 Normal `dotnet restore`, `dotnet build`, and publish use this feed and the package's
 build targets automatically. No separate Lumi acquisition task, import, or opt-out
@@ -43,7 +59,7 @@ The default is full-CLI stdio/TCP hosting, not FFI/in-process hosting. The publi
 The CLI's own extraction-cache and storage behavior is unchanged; no second
 runtime or separate Node.js installation is shipped.
 
-## Reproducing the package
+### Reproducing the package
 
 The package contains all replacement sources in `build/FullCli/`, its
 `build/Lumi.Copilot.SDK.targets`, `tools/repack.py`, and focused package tests.

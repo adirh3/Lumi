@@ -1,5 +1,6 @@
 {
   "App_Name": "Lumi",
+  "Startup_Loading": "Starting Lumi...",
   "Preview_Title": "Preview",
   "Preview_Open": "Open preview",
   "Preview_Edited": "Edited",
@@ -945,7 +946,7 @@
   "Remote_SetupWebPanelTitle": "Open Lumi in your browser",
   "Remote_SetupWebPanelDesc": "Scan the code and Lumi opens directly. No App Store or Play Store download is required.",
   "Remote_SetupAndroidPanelTitle": "Install Lumi for Android",
-  "Remote_SetupAndroidPanelDesc": "Scan the code to download the matching Android app and connect it to this PC.",
+  "Remote_SetupAndroidPanelDesc": "Scan the code to download the matching official Android APK from GitHub and connect it to this PC. Lumi isn't in any app store.",
   "Remote_SetupScan": "Scan with your phone camera",
   "Remote_SetupCopyLink": "Copy link",
   "Remote_SetupCopied": "Setup link copied.",

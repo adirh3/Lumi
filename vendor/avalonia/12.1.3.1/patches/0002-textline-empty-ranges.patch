@@ -1,0 +1,167 @@
+diff --git a/src/Avalonia.Base/Media/TextFormatting/TextLine.cs b/src/Avalonia.Base/Media/TextFormatting/TextLine.cs
+index 9482b6440..3360fd73a 100644
+--- a/src/Avalonia.Base/Media/TextFormatting/TextLine.cs
++++ b/src/Avalonia.Base/Media/TextFormatting/TextLine.cs
+@@ -214,7 +214,7 @@ public abstract class TextLine : IDisposable
+         /// </summary>
+         /// <param name="firstTextSourceCharacterIndex">index of first character of specified range</param>
+         /// <param name="textLength">number of characters of the specified range</param>
+-        /// <returns>an array of bounding rectangles.</returns>
++        /// <returns>A list of bounding rectangles, or an empty list for an empty range.</returns>
+         public abstract IReadOnlyList<TextBounds> GetTextBounds(int firstTextSourceCharacterIndex, int textLength);
+ 
+         public abstract void Dispose();
+diff --git a/src/Avalonia.Base/Media/TextFormatting/TextLineImpl.cs b/src/Avalonia.Base/Media/TextFormatting/TextLineImpl.cs
+index 16f0e2690..29fc730e6 100644
+--- a/src/Avalonia.Base/Media/TextFormatting/TextLineImpl.cs
++++ b/src/Avalonia.Base/Media/TextFormatting/TextLineImpl.cs
+@@ -674,7 +674,7 @@ public override IReadOnlyList<TextBounds> GetTextBounds(int firstTextSourceIndex
+         {
+             if (textLength == 0)
+             {
+-                throw new ArgumentOutOfRangeException(nameof(textLength), textLength, $"{nameof(textLength)} ('0') must be a non-zero value. ");
++                return [];
+             }
+ 
+             if (_indexedTextRuns is null || _indexedTextRuns.Count == 0)
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutRangeContractTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutRangeContractTests.cs
+new file mode 100644
+index 000000000..6ba703a81
+--- /dev/null
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutRangeContractTests.cs
+@@ -0,0 +1,55 @@
++using System;
++using System.Linq;
++using Avalonia.Media;
++using Avalonia.Media.TextFormatting;
++using Avalonia.UnitTests;
++using Xunit;
++
++namespace Avalonia.Skia.UnitTests.Media.TextFormatting
++{
++    public class TextLayoutRangeContractTests
++    {
++        [Theory]
++        [InlineData("abc", 0)]
++        [InlineData("abc", 1)]
++        [InlineData("abc", 3)]
++        [InlineData("a\r\nb\r\n", 3)]
++        public void Empty_Range_Returns_No_Geometry(string text, int start)
++        {
++            using var app = Start();
++            using var layout = new TextLayout(text, Typeface.Default, 12, Brushes.Black);
++
++            Assert.Empty(layout.HitTestTextRange(start, 0));
++        }
++
++        [Fact]
++        public void Completed_Range_Does_Not_Add_Geometry_From_Following_Lines()
++        {
++            using var app = Start();
++            using var layout = new TextLayout("a\r\nb\r\n", Typeface.Default, 12, Brushes.Black);
++            var firstLine = layout.TextLines[0];
++            var expected = Assert.Single(firstLine.GetTextBounds(0, firstLine.Length)).Rectangle;
++
++            var actual = Assert.Single(layout.HitTestTextRange(0, firstLine.Length));
++
++            Assert.Equal(expected, actual);
++        }
++
++        [Fact]
++        public void Negative_Range_Length_Preserves_Line_Geometry()
++        {
++            using var app = Start();
++            using var layout = new TextLayout("abc", Typeface.Default, 12, Brushes.Black);
++            var expected = layout.TextLines[0].GetTextBounds(2, -1)
++                .Select(bounds => bounds.Rectangle).ToArray();
++            Assert.Empty(expected);
++
++            Assert.Equal(expected, layout.HitTestTextRange(2, -1).ToArray());
++        }
++
++        private static IDisposable Start() =>
++            UnitTestApplication.Start(TestServices.MockPlatformRenderInterface.With(
++                renderInterface: new PlatformRenderInterface(null),
++                fontManagerImpl: new CustomFontManagerImpl()));
++    }
++}
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
+index 6dc0ac4f2..dc26b0e2e 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
+@@ -888,24 +888,67 @@ public void Should_GetCharacterHitFromDistance_From_Mixed_TextBuffer()
+             }
+         }
+ 
+-        [Fact]
+-        public void Should_Throw_ArgumentOutOfRangeException_For_Zero_TextLength()
++        [Theory]
++        [InlineData("abc", 0, 0)]
++        [InlineData("abc", 0, 1)]
++        [InlineData("abc", 0, 3)]
++        [InlineData("a\r\nb\r\n", 0, 2)]
++        [InlineData("a\r\nb\r\n", 0, 3)]
++        [InlineData("a\r\nb\r\n", 3, 3)]
++        [InlineData("a\r\nb\r\n", 3, 6)]
++        [InlineData("\r\n", 0, 0)]
++        public void Should_GetTextBounds_For_Zero_TextLength(string text, int lineStart, int rangeStart)
+         {
+             using (Start())
+             {
+-                var typeface = Typeface.Default;
++                var defaultProperties = new GenericTextRunProperties(Typeface.Default);
++                var textSource = new SingleBufferTextSource(text, defaultProperties);
++                var formatter = new TextFormatterImpl();
+ 
+-                var defaultProperties = new GenericTextRunProperties(typeface);
+-                var textSource = new CustomTextBufferTextSource(new TextCharacters("1234", defaultProperties));
++                using var textLine =
++                    formatter.FormatLine(textSource, lineStart, double.PositiveInfinity,
++                        new GenericTextParagraphProperties(defaultProperties));
++
++                Assert.NotNull(textLine);
++                Assert.Equal(lineStart, textLine.FirstTextSourceIndex);
++
++                Assert.Empty(textLine.GetTextBounds(rangeStart, 0));
++            }
++        }
++
++        [Theory]
++        [InlineData("abc", 0, 0, 3)]
++        [InlineData("abc", 0, 1, 1)]
++        [InlineData("a\r\nb\r\n", 3, 3, 1)]
++        public void Should_GetTextBounds_For_Non_Empty_TextLength(
++            string text, int lineStart, int rangeStart, int rangeLength)
++        {
++            using (Start())
++            {
++                var defaultProperties = new GenericTextRunProperties(Typeface.Default);
++                var textSource = new SingleBufferTextSource(text, defaultProperties);
+                 var formatter = new TextFormatterImpl();
+ 
+-                var textLine =
+-                    formatter.FormatLine(textSource, 0, double.PositiveInfinity,
++                using var textLine =
++                    formatter.FormatLine(textSource, lineStart, double.PositiveInfinity,
+                         new GenericTextParagraphProperties(defaultProperties));
+ 
+                 Assert.NotNull(textLine);
+ 
+-                Assert.Throws<ArgumentOutOfRangeException>(() => textLine.GetTextBounds(0, 0));
++                var bounds = Assert.Single(textLine.GetTextBounds(rangeStart, rangeLength));
++                var start = textLine.GetDistanceFromCharacterHit(new CharacterHit(rangeStart));
++                var end = textLine.GetDistanceFromCharacterHit(new CharacterHit(rangeStart + rangeLength));
++
++                Assert.Equal(start, bounds.Rectangle.Left, 3);
++                Assert.Equal(end - start, bounds.Rectangle.Width, 3);
++                Assert.Equal(0, bounds.Rectangle.Top);
++                Assert.Equal(textLine.Height, bounds.Rectangle.Height);
++                Assert.Equal(FlowDirection.LeftToRight, bounds.FlowDirection);
++
++                var runBounds = Assert.Single(bounds.TextRunBounds);
++
++                Assert.Equal(rangeStart, runBounds.TextSourceCharacterIndex);
++                Assert.Equal(rangeLength, runBounds.Length);
+             }
+         }
+ 

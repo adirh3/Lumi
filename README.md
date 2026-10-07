@@ -18,6 +18,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
+- **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
 ### Sharing skills, Lumis and MCP servers
 
@@ -112,6 +113,13 @@ The existing **Show Animations** setting disables the new message/section entran
 composer focus motion; the static underline remains visible.
 
 ### Mobile conversations
+
+Lumi's native Android app is distributed as an official APK on
+[GitHub Releases](https://github.com/adirh3/Lumi/releases/latest), not through Google Play
+or any other app store. In **Settings > Mobile**, choose **Android app** and scan the
+setup code to download the APK matching your desktop release. Install it, return to
+the setup page, and tap **Open Lumi**. If the app is not installed, **Open Lumi**
+falls back to the official APK download, never an app-store listing.
 
 Announced files appear as readable attachment cards after the reply for their turn,
 including file-only replies, without changing transcript paging or download permissions.

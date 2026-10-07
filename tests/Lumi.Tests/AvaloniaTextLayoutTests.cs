@@ -14,6 +14,22 @@ namespace Lumi.Tests;
 public sealed class AvaloniaTextLayoutTests
 {
     [Theory]
+    [InlineData("abc", 0)]
+    [InlineData("abc", 1)]
+    [InlineData("abc", 3)]
+    [InlineData("a\r\nb\r\n", 3)]
+    public async Task DirectEmptyLineRange_ReturnsNoBounds(string text, int start)
+    {
+        using var session = HeadlessTestSession.Start(typeof(AvaloniaTextInputTestApp));
+        await session.Dispatch(() =>
+        {
+            using var layout = new TextLayout(text, Typeface.Default, 14, Brushes.Black);
+
+            Assert.Empty(layout.TextLines[0].GetTextBounds(start, 0));
+        }, CancellationToken.None);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(6)]

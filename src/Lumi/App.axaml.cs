@@ -61,9 +61,44 @@ public partial class App : Application
             var dataStore = new DataStore();
             _dataStore = dataStore;
 
-            // Initialize localization before creating any UI
             Loc.Load(dataStore.Data.Settings.Language);
+            RequestedThemeVariant = dataStore.Data.Settings.IsDarkTheme
+                ? ThemeVariant.Dark
+                : ThemeVariant.Light;
 
+            if (dataStore.Data.Settings.StartMinimized)
+            {
+                InitializeDesktop(dataStore);
+            }
+            else
+            {
+                var startupWindow = new StartupWindow();
+                if (Loc.IsRightToLeft)
+                    startupWindow.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
+                desktop.MainWindow = startupWindow;
+
+                // Let the loading window render before constructing the main UI.
+                startupWindow.Opened += (_, _) => Dispatcher.UIThread.Post(() =>
+                {
+                    if (!startupWindow.IsVisible)
+                        return;
+
+                    InitializeDesktop(dataStore);
+                    var window = _mainWindow
+                        ?? throw new InvalidOperationException("Lumi's main window was not initialized.");
+                    window.Show();
+                    Dispatcher.UIThread.Post(startupWindow.Close, DispatcherPriority.Background);
+                }, DispatcherPriority.Background);
+            }
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private void InitializeDesktop(DataStore dataStore)
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
             var copilotService = new CopilotService();
             // (UseBYOKOnly) at the session-creation chokepoint.
             copilotService.SetSettingsProvider(() => dataStore.Data.Settings);
@@ -223,11 +258,6 @@ public partial class App : Application
                 }
             });
 
-            // Apply saved theme before showing the window
-            RequestedThemeVariant = dataStore.Data.Settings.IsDarkTheme
-                ? ThemeVariant.Dark
-                : ThemeVariant.Light;
-
             // Apply saved density
             MainWindow.ApplyDensityStatic(dataStore.Data.Settings.IsCompactDensity);
             UiScaleService.Apply(dataStore.Data.Settings.UiScalePercent);
@@ -298,8 +328,6 @@ public partial class App : Application
             }
 
         }
-
-        base.OnFrameworkInitializationCompleted();
     }
 
     private static async Task InitializeRemoteServerAsync(Lumi.Services.Remote.LumiRemoteServer server)

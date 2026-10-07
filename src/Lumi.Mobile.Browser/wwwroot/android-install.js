@@ -17,4 +17,5 @@ const openLumi = document.querySelector('#open-lumi');
 const server = globalThis.location.origin;
 openLumi.href =
     `intent://connect?server=${encodeURIComponent(server)}` +
-    '#Intent;scheme=lumi;package=com.lumi.mobile;end';
+    '#Intent;scheme=lumi;package=com.lumi.mobile;' +
+    `S.browser_fallback_url=${encodeURIComponent(apkUrl)};end`;

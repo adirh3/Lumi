@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     private const double NavLabelMaxWidth = 52;
 
     private Panel? _onboardingPanel;
+    private ContentControl? _onboardingHost;
     private DockPanel? _mainPanel;
     private Border? _acrylicFallback;
     private Border? _windowContentRoot;
@@ -244,6 +245,7 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
 
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
+        _onboardingHost = this.FindControl<ContentControl>("OnboardingHost");
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
         _acrylicFallback = this.FindControl<Border>("AcrylicFallback");
         _windowContentRoot = this.FindControl<Border>("WindowContentRoot");
@@ -1210,6 +1212,9 @@ public partial class MainWindow : Window
 
     private void UpdateOnboarding(bool isOnboarded)
     {
+        if (!isOnboarded && _onboardingHost is { Content: null })
+            _onboardingHost.Content = new OnboardingView { Name = "OnboardingView" };
+
         if (_onboardingPanel is not null) _onboardingPanel.IsVisible = !isOnboarded;
         if (_mainPanel is not null) _mainPanel.IsVisible = true;
 

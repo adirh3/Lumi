@@ -21,6 +21,30 @@ public sealed class RemoteWebAppTests
         Assert.Matches("""\bcrossorigin\s*=\s*["']use-credentials["']""", link);
     }
 
+    [Fact]
+    public void AndroidInstallerIntentFallsBackToItsOfficialApkDownload()
+    {
+        var script = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "BrowserAssets", "android-install.js"));
+
+        Assert.Contains("https://github.com/adirh3/Lumi/releases/download/", script);
+        Assert.Contains("https://github.com/adirh3/Lumi/releases/latest", script);
+        Assert.Contains("S.browser_fallback_url=${encodeURIComponent(apkUrl)};end", script);
+    }
+
+    [Fact]
+    public void AndroidInstallerDefaultDownloadPointsToOfficialReleases()
+    {
+        var html = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "BrowserAssets", "android.html"));
+        var link = Assert.Single(Regex.Matches(html, @"<a\b[^>]*>", RegexOptions.IgnoreCase)
+            .Cast<Match>()
+            .Select(match => match.Value),
+            tag => Regex.IsMatch(tag, """\bid\s*=\s*["']download-apk["']""", RegexOptions.IgnoreCase));
+
+        Assert.Matches("""\bhref\s*=\s*["']https://github\.com/adirh3/Lumi/releases/latest["']""", link);
+    }
+
     [Theory]
     [InlineData("GET", "/lumi/snapshot", "navigate", "document", true)]
     [InlineData("GET", "/lumi/events", "navigate", "document", true)]
