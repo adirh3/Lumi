@@ -1,9 +1,40 @@
+using Avalonia;
+using Avalonia.Media;
 using Xunit;
 
 namespace Lumi.Tests;
 
+[Collection("Headless UI")]
 public sealed class HeadlessTestSessionTests
 {
+    [Fact]
+    public async Task DefaultSessions_ReuseTheUiThreadButIsolateApplications()
+    {
+        Application? firstApplication = null;
+        Geometry? geometry = null;
+        var ownerThread = 0;
+        using (var first = HeadlessTestSession.Start())
+        {
+            await first.Dispatch(() =>
+            {
+                firstApplication = Assert.IsType<HeadlessTestApp>(Application.Current);
+                ownerThread = Environment.CurrentManagedThreadId;
+                geometry = Geometry.Parse("M0,0 L10,0 L10,10 Z");
+                Assert.True(geometry.Bounds.Width > 0);
+            }, CancellationToken.None);
+        }
+
+        using var second = HeadlessTestSession.Start();
+        await second.Dispatch(() =>
+        {
+            Assert.Equal(ownerThread, Environment.CurrentManagedThreadId);
+            Assert.IsType<HeadlessTestApp>(Application.Current);
+            Assert.NotSame(firstApplication, Application.Current);
+            Assert.NotNull(geometry);
+            Assert.True(geometry.Bounds.Width > 0);
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task AsyncDispatch_WaitsForTheBodyAndPropagatesItsException()
     {

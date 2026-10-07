@@ -467,6 +467,12 @@ dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
 ```
 
+Drawing-free UI tests reuse Avalonia's assembly headless session so cached
+geometries keep one owning UI thread. Each dispatch still gets a fresh
+application and services through `PerTest` isolation; dispose the test wrapper,
+not the shared dispatcher. UI objects, including geometry bounds, must be
+accessed inside `HeadlessTestSession.Dispatch`.
+
 The composer's real-pixel animation checks run in an isolated Skia test process;
 the ordinary drawing-free headless suite skips them to avoid mixing graphics backends:
 
