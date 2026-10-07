@@ -231,6 +231,20 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         Assert.Contains("button", natural);
         Assert.Equal("3", await EvaluateString(browser, "String(window.searches)"));
 
+        await browser.EvaluateAsync("""
+            const query = document.getElementById('query');
+            query.insertAdjacentHTML('beforebegin', '<label for="query">Search</label>');
+            query.setAttribute('onclick', 'this.select();window.fieldClicks++');
+            window.fieldClicks=0;
+            """);
+        var labeled = await browser.DoAsync("click", "Search");
+        output.WriteLine("Labeled Search input with inline click handler: " + labeled);
+        output.WriteLine("Submissions: " + await EvaluateString(browser, "String(window.searches)") +
+            "; input callbacks: " + await EvaluateString(browser, "String(window.fieldClicks)"));
+        Assert.Matches(@"(?m)^Clicked \[\d+\] button\b", labeled);
+        Assert.Equal("4", await EvaluateString(browser, "String(window.searches)"));
+        Assert.Equal("0", await EvaluateString(browser, "String(window.fieldClicks)"));
+
         Assert.DoesNotContain("Error:", await browser.DoAsync("click", "#query"));
         Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
         var queryRef = Reference(await browser.LookAsync(), "name=\"search\"");
@@ -238,8 +252,16 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
         Assert.DoesNotContain("Error:", await browser.DoAsync("click", "query"));
         Assert.Equal("query", await EvaluateString(browser, "document.activeElement.id"));
-        Assert.Equal("3", await EvaluateString(browser, "String(window.searches)"));
-        output.WriteLine("Search form submitted exactly three times; blur listeners ran once per edit and explicit CSS/numeric input clicks preserved focus.");
+        Assert.Equal("4", await EvaluateString(browser, "String(window.searches)"));
+        Assert.Equal("3", await EvaluateString(browser, "String(window.fieldClicks)"));
+        await browser.EvaluateAsync("""
+            document.querySelector('main').insertAdjacentHTML('beforeend',
+                '<div onclick="window.genericClicks++">Custom action</div>');
+            window.genericClicks=0;
+            """);
+        Assert.DoesNotContain("Error:", await browser.DoAsync("click", "Custom action"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.genericClicks)"));
+        output.WriteLine("Search submitted exactly four times, including the labeled/onclick case with zero field callbacks; CSS/numeric/field-name clicks ran the input handler exactly once each.");
     }
 
     private async Task VerifyMultilineEdits(BrowserService browser)

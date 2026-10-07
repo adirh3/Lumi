@@ -34,7 +34,7 @@ internal static class BrowserDomScript
         class AutomationError extends Error {}
         const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
         const selector = 'a[href],button,input,select,textarea,summary,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="radio"],[role="checkbox"],[role="switch"],[role="combobox"],[role="option"],[role="gridcell"],[role="spinbutton"],[role="slider"],[onclick],[tabindex],[contenteditable],[data-tooltip]';
-        const clickSelector = 'a[href],button,summary,input[type="button"],input[type="submit"],input[type="reset"],input[type="image"],input[type="checkbox"],input[type="radio"],[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="radio"],[role="checkbox"],[role="switch"],[role="option"],[onclick]';
+        const clickSelector = 'a[href],button,summary,input[type="button"],input[type="submit"],input[type="reset"],input[type="image"],input[type="checkbox"],input[type="radio"],[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="radio"],[role="checkbox"],[role="switch"],[role="option"]';
         const dialogSelector = 'dialog[open],[role="dialog"],[aria-modal="true"]';
         const fieldSelector = 'input,select,textarea,[contenteditable="true"],[role="textbox"],[role="combobox"]';
         const visible = el => {
