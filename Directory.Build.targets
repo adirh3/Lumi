@@ -1,9 +1,12 @@
 <Project>
   <PropertyGroup>
-    <!-- Only the core package carries the local text fixes; peer packages stay on AvaloniaVersion. -->
+    <!-- Only the core package carries the local text fixes. -->
     <AvaloniaCoreVersion>12.1.3.1</AvaloniaCoreVersion>
+    <!-- DataGrid is released independently; no 12.1.3 package is published. -->
+    <AvaloniaDataGridVersion>12.1.2</AvaloniaDataGridVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Update="Avalonia" Version="[$(AvaloniaCoreVersion)]" />
+    <PackageReference Update="Avalonia.Controls.DataGrid" Version="[$(AvaloniaDataGridVersion)]" />
   </ItemGroup>
 </Project>

@@ -24,6 +24,11 @@ public sealed class ByokAdvancedSettingsSerializationTests
         original.MaxOutputTokens = 8192;
         original.MaxPromptTokens = 64000;
         original.MaxRequestsPerMinute = 5;
+        original.SupportsReasoningEffort = true;
+        original.SupportedReasoningEfforts = ["low", "high"];
+        original.DefaultReasoningEffort = "low";
+        original.DefaultContextWindowTokens = 128000;
+        original.LongContextWindowTokens = 200000;
 
         var json = JsonSerializer.Serialize(original, AppDataJsonContext.Default.ByokModel);
         var deserialized = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.ByokModel);
@@ -32,11 +37,25 @@ public sealed class ByokAdvancedSettingsSerializationTests
         Assert.Equal(8192, deserialized!.MaxOutputTokens);
         Assert.Equal(64000, deserialized.MaxPromptTokens);
         Assert.Equal(5, deserialized.MaxRequestsPerMinute);
+        Assert.True(deserialized.SupportsReasoningEffort);
+        Assert.Equal(["low", "high"], deserialized.SupportedReasoningEfforts);
+        Assert.Equal("low", deserialized.DefaultReasoningEffort);
+        Assert.Equal(128000, deserialized.DefaultContextWindowTokens);
+        Assert.Equal(200000, deserialized.LongContextWindowTokens);
 
         // JSON wire form uses camelCase and emits the values.
         Assert.Contains("\"maxOutputTokens\": 8192", json);
         Assert.Contains("\"maxPromptTokens\": 64000", json);
         Assert.Contains("\"maxRequestsPerMinute\": 5", json);
+        Assert.Contains("\"supportsReasoningEffort\": true", json);
+        Assert.Contains("\"defaultReasoningEffort\": \"low\"", json);
+        Assert.Contains("\"defaultContextWindowTokens\": 128000", json);
+        Assert.Contains("\"longContextWindowTokens\": 200000", json);
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(["low", "high"], document.RootElement
+            .GetProperty("supportedReasoningEfforts")
+            .EnumerateArray()
+            .Select(static effort => effort.GetString()));
     }
 
     [Fact]
@@ -50,6 +69,11 @@ public sealed class ByokAdvancedSettingsSerializationTests
         Assert.Null(deserialized!.MaxOutputTokens);
         Assert.Null(deserialized.MaxPromptTokens);
         Assert.Null(deserialized.MaxRequestsPerMinute);
+        Assert.False(deserialized.SupportsReasoningEffort);
+        Assert.Empty(deserialized.SupportedReasoningEfforts);
+        Assert.Null(deserialized.DefaultReasoningEffort);
+        Assert.Null(deserialized.DefaultContextWindowTokens);
+        Assert.Null(deserialized.LongContextWindowTokens);
 
         // A model with default (null) advanced fields serializes nulls as well.
         var withNulls = MakeModel();

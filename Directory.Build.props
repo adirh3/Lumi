@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <!-- Keep the Avalonia package family aligned; update this value for future upgrades. -->
+    <!-- Keep Avalonia peers aligned; DataGrid is pinned separately in Directory.Build.targets. -->
     <AvaloniaVersion>12.1.3</AvaloniaVersion>
   </PropertyGroup>
 </Project>

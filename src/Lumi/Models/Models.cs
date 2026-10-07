@@ -391,6 +391,11 @@ public sealed class ByokModel : INotifyPropertyChanged
     private string _modelId = "";
     private string _displayName = "";
     private bool _isEnabled = true;
+    private bool _supportsReasoningEffort;
+    private List<string> _supportedReasoningEfforts = [];
+    private string? _defaultReasoningEffort;
+    private int? _defaultContextWindowTokens;
+    private int? _longContextWindowTokens;
     private int? _maxOutputTokens;
     private int? _maxPromptTokens;
     private int? _maxRequestsPerMinute;
@@ -427,6 +432,38 @@ public sealed class ByokModel : INotifyPropertyChanged
         set { if (_isEnabled != value) { _isEnabled = value; OnPropertyChanged(nameof(IsEnabled)); } }
     }
 
+    public bool SupportsReasoningEffort
+    {
+        get => _supportsReasoningEffort;
+        set { if (_supportsReasoningEffort != value) { _supportsReasoningEffort = value; OnPropertyChanged(nameof(SupportsReasoningEffort)); } }
+    }
+
+    public List<string> SupportedReasoningEfforts
+    {
+        get => _supportedReasoningEfforts;
+        set { _supportedReasoningEfforts = value ?? []; OnPropertyChanged(nameof(SupportedReasoningEfforts)); }
+    }
+
+    public string? DefaultReasoningEffort
+    {
+        get => _defaultReasoningEffort;
+        set { if (_defaultReasoningEffort != value) { _defaultReasoningEffort = value; OnPropertyChanged(nameof(DefaultReasoningEffort)); } }
+    }
+
+    /// <summary>Total context-window capacity for the Default tier, not the prompt/compaction cap.</summary>
+    public int? DefaultContextWindowTokens
+    {
+        get => _defaultContextWindowTokens;
+        set { if (!Nullable.Equals(_defaultContextWindowTokens, value)) { _defaultContextWindowTokens = value; OnPropertyChanged(nameof(DefaultContextWindowTokens)); } }
+    }
+
+    /// <summary>Total context-window capacity for the Long tier, not the prompt/compaction cap.</summary>
+    public int? LongContextWindowTokens
+    {
+        get => _longContextWindowTokens;
+        set { if (!Nullable.Equals(_longContextWindowTokens, value)) { _longContextWindowTokens = value; OnPropertyChanged(nameof(LongContextWindowTokens)); } }
+    }
+
     /// <summary>
     /// Maximum number of output (completion) tokens the provider may generate per turn.
     /// <c>null</c> (the default) means "inherit the provider/SDK default" — Lumi does not
@@ -441,7 +478,8 @@ public sealed class ByokModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Maximum number of input (prompt) tokens allowed for a turn — caps the context window.
+    /// Maximum number of input (prompt) tokens used as the prompt/input and compaction cap,
+    /// distinct from the total context capacity in <c>ModelCapabilities.Limits.MaxContextWindowTokens</c>.
     /// <c>null</c> (the default) means "inherit the provider/SDK default". Applied through
     /// <c>ProviderConfig.MaxPromptTokens</c>.
     /// </summary>
