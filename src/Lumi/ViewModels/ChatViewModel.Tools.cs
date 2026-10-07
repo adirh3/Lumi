@@ -413,6 +413,15 @@ public partial class ChatViewModel
 
     partial void OnSelectedModelChanged(string? value)
     {
+        if (!_suppressModelSelectionSideEffects && !IsEditingMessage
+            && !string.IsNullOrWhiteSpace(value)
+            && CurrentChat is { Messages.Count: 0 } emptyChat
+            && !string.Equals(emptyChat.LastModelUsed, value, StringComparison.Ordinal)
+            && (ByokConfigHelper.IsByokModel(value) || ByokConfigHelper.IsByokModel(emptyChat.LastModelUsed)))
+        {
+            emptyChat.LastReasoningEffortUsed = null;
+        }
+
         UpdateQualityLevels(value);
         UpdateContextWindowTiers(value);
         if (CurrentChat is { } activeChat)
@@ -454,11 +463,12 @@ public partial class ChatViewModel
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
             _dataStore.Data.Settings.PreferredModel = value;
-            _dataStore.Data.Settings.ReasoningEffort = reasoningEffort ?? string.Empty;
+            if (!ByokConfigHelper.IsByokModel(value))
+                _dataStore.Data.Settings.ReasoningEffort = reasoningEffort ?? string.Empty;
             if (contextTier is not null)
                 _dataStore.Data.Settings.ContextWindowTier = contextTier;
             _dataStore.Save();
-            DefaultModelSelectionChanged?.Invoke(value, reasoningEffort, contextTier);
+            DefaultModelSelectionChanged?.Invoke(value, _dataStore.Data.Settings.ReasoningEffort, contextTier);
         }
 
         if (CurrentChat is { } chat)
@@ -467,7 +477,8 @@ public partial class ChatViewModel
             // Null = GitHub default backend; non-null = BYOK endpoint. Different values
             // mean the existing session would route to the wrong backend and must be recreated.
             var previousSignature = chat.SessionProviderSignature;
-            var newSignature = ByokConfigHelper.BuildProviderSignature(ResolveModelRouteForChat(value, chat).Provider);
+            var selectedRoute = ResolveModelRouteForChat(value, chat);
+            var newSignature = ByokConfigHelper.BuildProviderSignature(selectedRoute.Provider, selectedRoute.ByokModel);
 
             chat.LastModelUsed = value;
             chat.LastReasoningEffortUsed = reasoningEffort;
@@ -550,7 +561,7 @@ public partial class ChatViewModel
             return false;
         }
 
-        var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider);
+        var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider, modelRoute.ByokModel);
         if (!string.Equals(newSignature, _activeSessionProviderSignature, StringComparison.Ordinal))
         {
             InvalidateCurrentSessionForModelSwitch();
@@ -565,7 +576,10 @@ public partial class ChatViewModel
                 {
                     ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
                     ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                    ContextTier = SessionConfigBuilder.CreateContextTier(contextTier)
+                    ContextTier = SessionConfigBuilder.CreateContextTier(contextTier),
+                    ModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+                        modelRoute.ByokModel,
+                        contextTier)
                 });
             return true;
         }

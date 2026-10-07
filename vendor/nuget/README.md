@@ -3,7 +3,10 @@
 ## Active Avalonia package
 
 Lumi consumes the unofficial `Avalonia 12.1.3.1` core with official `12.1.3`
-peer packages. It backports both final merged text fixes onto stable 12.1.3.
+peer packages. `Avalonia.Controls.DataGrid` is released independently and is
+pinned to its published `12.1.2` release in root `Directory.Build.targets`,
+including for Strata's project references. The core backports both final merged
+text fixes onto stable 12.1.3.
 Source patches, licenses, rebuild tools and provenance are under
 [`../avalonia/12.1.3.1`](../avalonia/12.1.3.1/README.md).
 

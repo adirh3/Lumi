@@ -420,11 +420,13 @@ activation does not depend on those mirrors; no workspace `SKILL.md` stubs or
 replacement loader tool are generated.
 
 `Directory.Build.targets` pins the core `Avalonia` package to the vendored
-`12.1.2.2` build throughout the project-reference graph, including Strata. It fixes
+`12.1.3.1` build throughout the project-reference graph, including Strata. It fixes
 input-method notifications exposing partially updated selections and empty
 selection geometry reaching the text-line renderer. Official Avalonia peer
-packages remain at `12.1.2`; no Strata input guard or runtime patch is used.
-See [Avalonia patch provenance and reproduction](vendor/avalonia/12.1.2.2/README.md).
+packages remain at `12.1.3`, except `Avalonia.Controls.DataGrid`, which is pinned
+separately to its published `12.1.2` release. No Strata input guard or runtime
+patch is used.
+See [Avalonia patch provenance and reproduction](vendor/avalonia/12.1.3.1/README.md).
 When switching an existing build to the patched package, use a clean rebuild
 (`dotnet build src/Lumi/Lumi.csproj -t:Rebuild`) or a fresh `--artifacts-path`.
 
@@ -464,6 +466,12 @@ tests run with `python -m unittest discover -s tools -p test_update_copilot_cli_
 dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
 ```
+
+Drawing-free UI tests reuse Avalonia's assembly headless session so cached
+geometries keep one owning UI thread. Each dispatch still gets a fresh
+application and services through `PerTest` isolation; dispose the test wrapper,
+not the shared dispatcher. UI objects, including geometry bounds, must be
+accessed inside `HeadlessTestSession.Dispatch`.
 
 The composer's real-pixel animation checks run in an isolated Skia test process;
 the ordinary drawing-free headless suite skips them to avoid mixing graphics backends:

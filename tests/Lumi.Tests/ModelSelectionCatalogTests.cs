@@ -19,6 +19,147 @@ namespace Lumi.Tests;
 public sealed class ModelSelectionCatalogTests
 {
     [Fact]
+    public async Task KnownByokModelWithoutReasoning_DoesNotUsePreloadFallback()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+            const string modelId = "byok:endpoint:model";
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", modelId));
+            viewModel.UpdateModelCapabilities([new ModelInfo { Id = modelId }], merge: true);
+            Assert.Null(viewModel.ResolveReasoningEffortForModel("high", modelId));
+            Assert.Null(viewModel.QualityLevels);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ResolveReasoningEffortForModel_PreservesNativeEffort_WhenOnlyByokCatalogInjected()
+    {
+        // Startup injects BYOK picker tokens (merge:true) before the native SDK catalog arrives, so
+        // the capability map is non-empty while native models are still unresolvable. Those BYOK
+        // entries must not be mistaken for a loaded native catalog: the stored native effort stays
+        // preserved until the authoritative catalog lands (owner-reproduced high → null regression).
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+
+            viewModel.UpdateModelCapabilities(
+                [
+                    new ModelInfo { Id = "byok:endpoint:no-reasoning" },
+                    new ModelInfo
+                    {
+                        Id = "byok:endpoint:with-reasoning",
+                        SupportedReasoningEfforts = ["low", "high"],
+                        DefaultReasoningEffort = "low"
+                    }
+                ],
+                merge: true);
+
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ResolveReasoningEffortForModel_KeepsNativeEffort_ThroughByokThenNativeCatalog()
+    {
+        // Mirrors the real startup order: InjectByokModels() (merge:true) runs in InitializeAsync
+        // before RefreshCopilotStateAsync applies the SDK catalog (merge:false). The stored native
+        // effort survives the BYOK injection window and resolves against the catalog once it lands;
+        // a native model absent from the loaded catalog is retired and drops the effort.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo { Id = "byok:endpoint:model", SupportedReasoningEfforts = ["low"] }],
+                merge: true);
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+
+            SeedCatalog(viewModel);
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+            Assert.Null(viewModel.ResolveReasoningEffortForModel("high", "retired-model"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ResolveReasoningEffortForModel_DropsEffort_ForUnknownByokModel()
+    {
+        // The local BYOK config catalog is synchronous and authoritative: once it has been applied,
+        // a BYOK token missing from the map is genuinely unknown (e.g. a deleted entry), not a
+        // not-yet-loaded catalog, so the stored effort is dropped instead of forwarded unsupported
+        // to the endpoint. Before any injection the preload fallback still preserves it.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+            Assert.Equal(
+                "high",
+                viewModel.ResolveReasoningEffortForModel("high", "byok:endpoint:deleted"));
+
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo { Id = "byok:endpoint:current" }],
+                merge: true);
+
+            Assert.Null(viewModel.ResolveReasoningEffortForModel("high", "byok:endpoint:deleted"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CopyModelCatalogFrom_CarriesNativeCatalogLoadedFlag()
+    {
+        // Background orchestration/job surfaces are seeded via CopyModelCatalogFrom rather than a
+        // live SDK update. A seeded surface must treat the copied catalog as authoritative: an
+        // unknown native model drops the stored effort instead of preserving it forever.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var source = CreateViewModel(out _);
+            SeedCatalog(source);
+            var target = CreateViewModel(out _);
+            Assert.Equal("high", target.ResolveReasoningEffortForModel("high", "retired-model"));
+
+            target.CopyModelCatalogFrom(source);
+
+            Assert.Null(target.ResolveReasoningEffortForModel("high", "retired-model"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CopyModelCatalogFrom_CarriesByokCatalogLoadedFlag()
+    {
+        // A surface can also be seeded while only the synchronous BYOK config has been applied —
+        // the source never received a native SDK catalog. The copy must carry the BYOK-loaded flag
+        // too: on the seeded surface an unknown BYOK token is a deleted entry and drops the stored
+        // effort, the copied BYOK map stays live, and native efforts remain preserved because the
+        // source's native catalog never loaded.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var source = CreateViewModel(out _);
+            source.UpdateModelCapabilities(
+                [new ModelInfo { Id = "byok:endpoint:current", SupportedReasoningEfforts = ["low"] }],
+                merge: true);
+            var target = CreateViewModel(out _);
+            Assert.Equal("high", target.ResolveReasoningEffortForModel("high", "byok:endpoint:deleted"));
+
+            target.CopyModelCatalogFrom(source);
+
+            Assert.Null(target.ResolveReasoningEffortForModel("high", "byok:endpoint:deleted"));
+            Assert.Equal("low", target.ResolveReasoningEffortForModel("high", "byok:endpoint:current"));
+            Assert.Equal("high", target.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task UpdateModelCapabilities_ByokMergeKeepsCopilotModelCapabilities()
     {
         using var session = HeadlessTestSession.Start();
@@ -45,6 +186,109 @@ public sealed class ModelSelectionCatalogTests
             Assert.Equal(["Default", "Long"], viewModel.ContextWindowTiers!);
             Assert.Equal("Default", viewModel.SelectedContextWindowTier);
         }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task UpdateModelCapabilities_ByokMergeAddsAndRemovesOnlyByokCapabilities()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+            SeedCatalog(viewModel);
+            const string byokId = "byok:endpoint:model";
+
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo
+                {
+                    Id = byokId,
+                    Name = "BYOK model",
+                    SupportedReasoningEfforts = ["low", "high"],
+                    DefaultReasoningEffort = "low"
+                }],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { byokId },
+                new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [byokId] = new(128_000, 256_000)
+                },
+                merge: true);
+            viewModel.SelectedModel = byokId;
+
+            Assert.Equal(["Low", "High"], viewModel.QualityLevels!);
+            Assert.Equal(["Default", "Long"], viewModel.ContextWindowTiers!);
+
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo { Id = byokId }],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase),
+                merge: true);
+
+            Assert.Null(viewModel.QualityLevels);
+            Assert.Null(viewModel.ContextWindowTiers);
+            viewModel.SelectedModel = "gpt-5.5";
+            Assert.Equal(["Low", "Medium", "High"], viewModel.QualityLevels!);
+            Assert.Equal(["Default", "Long"], viewModel.ContextWindowTiers!);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ByokDefaultEffort_FollowsChatChoiceAndPrecedesGlobalPreference()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        string? selectedQuality = null;
+        string? resolvedDefault = null;
+        string? resolvedExplicitChoice = null;
+
+        await session.Dispatch(async () =>
+        {
+            var chat = new Chat { Title = "BYOK reasoning default" };
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false,
+                    ReasoningEffort = "high"
+                },
+                Chats = [chat]
+            };
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            SeedCatalog(viewModel);
+            string? notifiedEffort = null;
+            viewModel.DefaultModelSelectionChanged += (_, effort, _) => notifiedEffort = effort;
+            const string byokId = "byok:endpoint:model";
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo
+                {
+                    Id = byokId,
+                    SupportedReasoningEfforts = ["low", "high"],
+                    DefaultReasoningEffort = "low"
+                }], new HashSet<string> { byokId }, merge: true);
+            await viewModel.LoadChatAsync(chat);
+            viewModel.SelectedModel = byokId;
+
+            selectedQuality = viewModel.SelectedQuality;
+            resolvedDefault = viewModel.ResolvePersistedReasoningEffortForChat(chat, byokId);
+            Assert.Equal("high", data.Settings.ReasoningEffort);
+            Assert.Equal("high", notifiedEffort);
+            viewModel.SelectedContextWindowTier = "Long";
+            Assert.Equal("high", notifiedEffort);
+            viewModel.SelectedModel = "gpt-5.5";
+            Assert.Equal("High", viewModel.SelectedQuality);
+            viewModel.SelectedModel = byokId;
+
+            viewModel.SelectedQuality = "High";
+            resolvedExplicitChoice = viewModel.ResolvePersistedReasoningEffortForChat(chat, byokId);
+            viewModel.SelectedQuality = "Low";
+            Assert.Equal("low", data.Settings.ReasoningEffort);
+            Assert.Equal("low", notifiedEffort);
+        }, CancellationToken.None);
+
+        Assert.Equal("Low", selectedQuality);
+        Assert.Equal("low", resolvedDefault);
+        Assert.Equal("high", resolvedExplicitChoice);
     }
 
     [Fact]
@@ -225,6 +469,86 @@ public sealed class ModelSelectionCatalogTests
         Assert.Null(resolvedForUnsupportedModel);
     }
 
+    [Theory]
+    [InlineData("gpt-6-luna", null, null, "long_context", "max", 640_000)]
+    [InlineData("gpt-6-luna", "default", "low", "default", "low", 256_000)]
+    [InlineData("gpt-5.5", "long_context", "max", "long_context", "max", 640_000)]
+    [InlineData("gpt-5.5", "default", null, "default", "max", 256_000)]
+    public async Task ApplySessionModelState_ByokWireIdUsesSelectedModelCapabilities(
+        string wireModelId,
+        string? eventTier,
+        string? eventEffort,
+        string expectedTier,
+        string expectedEffort,
+        long expectedLimit)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var model = new ByokModel
+            {
+                Id = "custom-model",
+                EndpointId = "custom-endpoint",
+                ModelId = wireModelId,
+                DisplayName = "Custom model"
+            };
+            var token = ByokConfigHelper.BuildModelToken(model);
+            var chat = new Chat
+            {
+                LastModelUsed = token,
+                LastReasoningEffortUsed = "max",
+                LastContextWindowTierUsed = ModelContextWindowTiers.LongContext
+            };
+            var settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false };
+            settings.ByokModels.Add(model);
+            settings.ByokEndpoints.Add(new ByokEndpoint
+            {
+                Id = model.EndpointId,
+                Name = "Test endpoint",
+                BaseUrl = "http://localhost:11434/v1",
+                ProviderType = "openai",
+                ApiKeyMode = ByokApiKeyMode.None
+            });
+            var viewModel = new ChatViewModel(
+                new DataStore(new AppData { Settings = settings, Chats = [chat] }),
+                TestCopilot.Shared);
+            SeedCatalog(viewModel);
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo
+                {
+                    Id = token,
+                    SupportedReasoningEfforts = ["low", "high", "max"],
+                    DefaultReasoningEffort = "high"
+                }],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { token },
+                new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [token] = new(256_000, 640_000)
+                },
+                merge: true);
+            var runtime = new ChatRuntimeState
+            {
+                ActiveModelId = token,
+                ActiveContextWindowTier = ModelContextWindowTiers.LongContext,
+                ContextTokenLimit = 640_000,
+                ContextTokenLimitSource = ContextTokenLimitSource.Session
+            };
+
+            InvokeApplySessionModelState(viewModel, chat, runtime, wireModelId, eventTier, eventEffort);
+
+            Assert.Equal(token, chat.LastModelUsed);
+            Assert.Equal(token, runtime.ActiveModelId);
+            Assert.Equal(expectedTier, chat.LastContextWindowTierUsed);
+            Assert.Equal(expectedTier, runtime.ActiveContextWindowTier);
+            Assert.Equal(expectedEffort, chat.LastReasoningEffortUsed);
+            Assert.Equal(expectedLimit, runtime.ContextTokenLimit);
+            Assert.Equal(token, viewModel.SelectedModel);
+            Assert.Equal(expectedEffort == "max" ? "Max" : "Low", viewModel.SelectedQuality);
+            Assert.Equal(expectedTier == "default" ? "Default" : "Long", viewModel.SelectedContextWindowTier);
+        }, CancellationToken.None);
+    }
+
     private static ChatViewModel CreateViewModel(out Chat chat)
     {
         chat = new Chat { Title = "Model selection" };
@@ -266,13 +590,14 @@ public sealed class ModelSelectionCatalogTests
         Chat chat,
         ChatRuntimeState runtime,
         string modelId,
-        string? sessionContextTier)
+        string? sessionContextTier,
+        string? reasoningEffort = null)
     {
         var method = typeof(ChatViewModel).GetMethod(
             "ApplySessionModelState",
             BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("ApplySessionModelState was not found.");
 
-        method.Invoke(viewModel, [chat, runtime, modelId, null, sessionContextTier, true]);
+        method.Invoke(viewModel, [chat, runtime, modelId, reasoningEffort, sessionContextTier, true]);
     }
 }
