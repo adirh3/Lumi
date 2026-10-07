@@ -420,11 +420,13 @@ activation does not depend on those mirrors; no workspace `SKILL.md` stubs or
 replacement loader tool are generated.
 
 `Directory.Build.targets` pins the core `Avalonia` package to the vendored
-`12.1.2.2` build throughout the project-reference graph, including Strata. It fixes
+`12.1.3.1` build throughout the project-reference graph, including Strata. It fixes
 input-method notifications exposing partially updated selections and empty
 selection geometry reaching the text-line renderer. Official Avalonia peer
-packages remain at `12.1.2`; no Strata input guard or runtime patch is used.
-See [Avalonia patch provenance and reproduction](vendor/avalonia/12.1.2.2/README.md).
+packages remain at `12.1.3`, except `Avalonia.Controls.DataGrid`, which is pinned
+separately to its published `12.1.2` release. No Strata input guard or runtime
+patch is used.
+See [Avalonia patch provenance and reproduction](vendor/avalonia/12.1.3.1/README.md).
 When switching an existing build to the patched package, use a clean rebuild
 (`dotnet build src/Lumi/Lumi.csproj -t:Rebuild`) or a fresh `--artifacts-path`.
 
