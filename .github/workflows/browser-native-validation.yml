@@ -25,19 +25,15 @@ jobs:
           - name: Windows WebView2
             os: windows-latest
             architecture: x64
-            framework: net11.0-windows10.0.22621.0
           - name: Linux WebKitGTK
             os: ubuntu-latest
             architecture: x64
-            framework: net11.0
           - name: macOS Intel WKWebView
             os: macos-15-intel
             architecture: x64
-            framework: net11.0
           - name: macOS Apple Silicon WKWebView
             os: macos-15
             architecture: arm64
-            framework: net11.0
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,11 +68,12 @@ jobs:
         timeout-minutes: 5
         shell: pwsh
         run: |
-          $app = (Resolve-Path 'src\Lumi\bin\Debug\${{ matrix.framework }}\Lumi.dll').Path
+          $arguments = @('run', '--project', 'src\Lumi\Lumi.csproj', '--configuration', 'Debug',
+              '--no-build', '--', '--test-browser-native', '--browser-native-output', 'BrowserResults')
           if ($IsLinux) {
-            xvfb-run -a dbus-run-session -- dotnet $app --test-browser-native --browser-native-output BrowserResults
+            xvfb-run -a dbus-run-session -- dotnet @arguments
           } else {
-            dotnet $app --test-browser-native --browser-native-output BrowserResults
+            dotnet @arguments
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $reportPath = Join-Path BrowserResults results.json
