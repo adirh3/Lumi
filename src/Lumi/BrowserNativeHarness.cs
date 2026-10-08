@@ -218,8 +218,18 @@ internal sealed class BrowserNativeHarness
         }
 #else
         {
-            var download = await browser.OpenAndSnapshotAsync(_server.Url + "/download");
-            Check("download-detected", download.Contains("Downloaded:", StringComparison.Ordinal), Clip(download));
+            var navigationReply = await browser.OpenAndSnapshotAsync(_server.Url + "/download");
+            var download = "";
+            // Downloads abort navigation; verify the download API, not native event ordering.
+            await WaitAsync(async () =>
+            {
+                download = await browser.DoAsync("download", "lumi-native-fixture.bin");
+                return download.Contains("Downloaded:", StringComparison.Ordinal);
+            });
+            Check("download-detected", download.Contains("Downloaded:", StringComparison.Ordinal),
+                Clip(navigationReply) + "\nFinal download status: " + Clip(download));
+            Check("download-saved-content",
+                await File.ReadAllTextAsync(Path.Combine(_output, "lumi-native-fixture.bin")) == "LUMI_NATIVE_DOWNLOAD");
         }
 #endif
 
