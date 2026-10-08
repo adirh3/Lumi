@@ -81,7 +81,8 @@ jobs:
             throw "The headed browser fixture did not write its result report."
           }
           $report = Get-Content $reportPath -Raw | ConvertFrom-Json
-          if ($report.failed -ne 0 -or $report.passed -lt 40) {
+          $completed = @($report.checks | Where-Object { $_.name -eq 'harness-completed' -and $_.passed })
+          if ($report.failed -ne 0 -or $completed.Count -ne 1) {
             throw "The real browser checks did not all pass."
           }
 

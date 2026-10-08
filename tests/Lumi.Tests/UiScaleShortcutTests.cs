@@ -23,7 +23,7 @@ namespace Lumi.Tests;
 public sealed class UiScaleShortcutTests
 {
     [Fact]
-    public async Task CtrlPlusAndMinus_AdjustScaleWhileScaleSliderIsFocused()
+    public async Task CommandPlusAndMinus_AdjustScaleWhileScaleSliderIsFocused()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -71,15 +71,18 @@ public sealed class UiScaleShortcutTests
                 slider.Focus();
                 await PumpAsync();
                 sliderFocused = slider.IsFocused;
+                var commandModifier = OperatingSystem.IsMacOS()
+                    ? RawInputModifiers.Meta
+                    : RawInputModifiers.Control;
 
                 PressKey(
                     window,
                     PhysicalKey.Equal,
-                    RawInputModifiers.Control | RawInputModifiers.Shift);
+                    commandModifier | RawInputModifiers.Shift);
                 await PumpAsync();
                 scaleAfterPlus = viewModel.SettingsVM.UiScalePercent;
 
-                PressKey(window, PhysicalKey.Minus, RawInputModifiers.Control);
+                PressKey(window, PhysicalKey.Minus, commandModifier);
                 await PumpAsync();
                 scaleAfterMinus = viewModel.SettingsVM.UiScalePercent;
 

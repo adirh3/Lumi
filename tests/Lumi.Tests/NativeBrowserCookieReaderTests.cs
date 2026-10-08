@@ -92,12 +92,16 @@ public sealed class NativeBrowserCookieReaderTests
         Assert.True(File.Exists(walPath));
         Assert.True(new FileInfo(walPath).Length > 32, "The WAL must contain committed frames, not just its header.");
         Assert.Equal(0L, (long)keeperCount.ExecuteScalar()!);
+        // SQLite resolves macOS temp-directory symlinks when reporting an open database path.
+        var appDirectory = Path.GetFullPath(Path.Combine(
+            Path.GetDirectoryName(keeper.DataSource)!,
+            Path.GetRelativePath(Path.GetDirectoryName(fixture.CookiePath)!, fixture.AppDirectory)));
 
         var cookies = BrowserCookieService.ReadStagedDatabase(
             fixture.CookiePath, fixture.AppDirectory, connection =>
             {
-                Assert.StartsWith(fixture.AppDirectory + Path.DirectorySeparatorChar, connection.DataSource);
-                Assert.NotEqual(fixture.CookiePath, connection.DataSource);
+                Assert.StartsWith(appDirectory + Path.DirectorySeparatorChar, connection.DataSource);
+                Assert.NotEqual(keeper.DataSource, connection.DataSource);
                 Assert.False(new SqliteConnectionStringBuilder(connection.ConnectionString).Pooling);
                 if (OperatingSystem.IsWindows())
                     throw new PlatformNotSupportedException("Unix cookie snapshot permissions require a non-Windows platform.");

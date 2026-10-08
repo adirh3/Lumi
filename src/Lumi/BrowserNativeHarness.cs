@@ -139,8 +139,8 @@ internal sealed class BrowserNativeHarness
         Check("form-read-and-secret-redaction", form.Contains("native query", StringComparison.Ordinal)
             && form.Contains("[redacted]", StringComparison.Ordinal)
             && !form.Contains("fixture-secret", StringComparison.Ordinal));
-        Check("multiline-retained", await browser.EvaluateAsync("return JSON.stringify(document.getElementById('notes').value)")
-            == "\"line one\\nline two\"");
+        var multiline = await browser.EvaluateAsync("return document.getElementById('notes').value");
+        Check("multiline-retained", multiline == "line one\nline two", Clip(multiline));
         await browser.DoAsync("type", "#query", "enter query");
         await browser.DoAsync("press", "Enter");
         Check("keyboard-submit", await browser.EvaluateAsync("return String(window.submits)") == "1");
@@ -193,12 +193,21 @@ internal sealed class BrowserNativeHarness
         await browser.ClearCookiesAsync();
         Check("clear-cookies", !(await browser.EvaluateAsync("return document.cookie")).Contains("nativeSession=", StringComparison.Ordinal));
 
+#if WINDOWS
+        const string themeScript = "return String(matchMedia('(prefers-color-scheme: dark)').matches)";
+        const string lightThemeResult = "false";
+        const string darkThemeResult = "true";
+#else
+        const string themeScript = "return document.documentElement.style.colorScheme";
+        const string lightThemeResult = "light";
+        const string darkThemeResult = "dark";
+#endif
         browser.SetTheme(false);
-        await WaitAsync(async () => await browser.EvaluateAsync("return document.documentElement.style.colorScheme") == "light");
-        Check("theme-light", await browser.EvaluateAsync("return document.documentElement.style.colorScheme") == "light");
+        await WaitAsync(async () => await browser.EvaluateAsync(themeScript) == lightThemeResult);
+        Check("theme-light", await browser.EvaluateAsync(themeScript) == lightThemeResult);
         browser.SetTheme(true);
-        await WaitAsync(async () => await browser.EvaluateAsync("return document.documentElement.style.colorScheme") == "dark");
-        Check("theme-dark", await browser.EvaluateAsync("return document.documentElement.style.colorScheme") == "dark");
+        await WaitAsync(async () => await browser.EvaluateAsync(themeScript) == darkThemeResult);
+        Check("theme-dark", await browser.EvaluateAsync(themeScript) == darkThemeResult);
 
 #if !WINDOWS
         {
@@ -277,6 +286,11 @@ internal sealed class BrowserNativeHarness
 #if !WINDOWS
         var detachedLayer = detached.GetVisualDescendants().OfType<Canvas>()
             .FirstOrDefault(control => control.Name == "NativeWebViewLayer");
+#else
+        // WebView2 must have a live parent before the old parent HWND is destroyed.
+        var mainHandle = mainWindow.TryGetPlatformHandle()
+            ?? throw new InvalidOperationException("The main WebView2 host has no native window handle.");
+        browser.SetParentHwnd(mainHandle.Handle);
 #endif
         detached.Close();
         await WaitAsync(() => Task.FromResult(!desktop.Windows.Contains(detached)));
@@ -365,7 +379,11 @@ internal sealed class BrowserNativeHarness
         await File.WriteAllBytesAsync(empty, []);
         var paths = "[\"" + JavaScriptEncoderQuote(path) + "\",\"" + JavaScriptEncoderQuote(empty) + "\"]";
         var upload = await browser.DoAsync("upload", "#files", paths);
-        Check("upload-multiple-and-comma-name", upload.Contains("Uploaded:", StringComparison.Ordinal), Clip(upload));
+        Check("upload-multiple-and-comma-name",
+            !upload.Contains("Error:", StringComparison.Ordinal)
+            && upload.Contains("Uploaded", StringComparison.Ordinal)
+            && upload.Contains("upload,fixture.txt", StringComparison.Ordinal)
+            && upload.Contains("empty.txt", StringComparison.Ordinal), Clip(upload));
         await WaitAsync(async () => await browser.EvaluateAsync("return String(window.uploadSizes.length)") == "2");
         var expectedLength = new FileInfo(path).Length;
         Check("upload-content-and-empty-file", await browser.EvaluateAsync("return JSON.stringify(window.uploadSizes)")
