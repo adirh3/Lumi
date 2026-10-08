@@ -727,6 +727,78 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
+    public async Task UpdateSafetyTracksStopAndSendUntilFailureRestoresItsDraft()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(Guid.NewGuid(), "Existing chat");
+        chat.IsBusy = true;
+        chat.PromptText = "Keep this replacement";
+        chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\uploads\notes.txt"));
+        var safetySignals = new List<bool>();
+        chat.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(chat.HasUnsentWork))
+                safetySignals.Add(chat.HasUnsentWork);
+        };
+
+        var send = chat.StopAndSendCommand.ExecuteAsync(null);
+        await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        try
+        {
+            Assert.True(chat.StopAndSendCommand.IsRunning);
+            Assert.False(chat.SendCommand.IsRunning);
+            Assert.Empty(chat.PromptText);
+            Assert.Empty(chat.Attachments);
+            Assert.True(chat.HasUnsentWork);
+        }
+        finally
+        {
+            sink.CommandResult.TrySetResult(new RemoteCommandResult
+            {
+                Ok = false, Error = "Microsoft sign-in is required."
+            });
+            await send;
+        }
+
+        Assert.Equal("Keep this replacement", chat.PromptText);
+        Assert.Equal("notes.txt", Assert.Single(chat.Attachments).FileName);
+        Assert.True(chat.HasUnsentWork);
+        chat.PromptText = "";
+        chat.RemoveAttachmentCommand.Execute(Assert.Single(chat.Attachments));
+        Assert.False(chat.HasUnsentWork);
+        Assert.False(safetySignals[^1]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateSafetyIgnoresErrorOnlyInactiveUploadsButKeepsActualDrafts(bool hasDraft)
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var original = Guid.NewGuid();
+        chat.Reset(original, "Original");
+        if (hasDraft)
+            chat.PromptText = "Keep my actual draft";
+        var upload = chat.AttachFileAsync("notes.txt", new byte[] { 1, 2, 3 });
+        await sink.UploadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        chat.Reset(Guid.NewGuid(), "Other chat");
+        Assert.True(chat.HasUnsentWork);
+        sink.UploadResult.SetResult(new RemoteUploadResponse
+        {
+            Ok = false, Error = "The upload failed."
+        });
+        await upload;
+
+        Assert.Equal(hasDraft, chat.HasUnsentWork);
+        chat.Reset(original, "Original");
+        Assert.Equal("The upload failed.", chat.ErrorText);
+        Assert.Equal(hasDraft ? "Keep my actual draft" : "", chat.PromptText);
+        Assert.Equal(hasDraft, chat.HasUnsentWork);
+    }
+
+    [Fact]
     public async Task UpdateSafetyNotifiesWhenPendingConfigurationIsConfirmed()
     {
         var sink = new ControllableSink();

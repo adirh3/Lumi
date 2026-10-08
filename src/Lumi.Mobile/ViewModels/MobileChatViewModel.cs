@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -248,11 +249,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
         || IsPickingAttachment
         || _uploadsInFlight > 0
         || SendCommand.IsRunning
+        || StopAndSendCommand.IsRunning
         || HasPendingConfiguration
         || HasPendingReplay
         || Turns.SelectMany(turn => turn.Items).OfType<QuestionItemViewModel>()
             .Any(question => question.HasAnswerDraft && !question.IsAnswered)
-        || _drafts.Any(draft => !IsCurrentSurface(draft.Key) && !draft.Value.IsEmpty);
+        || _drafts.Any(draft => !IsCurrentSurface(draft.Key) && draft.Value.HasUnsentWork);
 
     internal void NotifyUnsentWorkChanged() => OnPropertyChanged(nameof(HasUnsentWork));
 
@@ -448,11 +450,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
         SkillChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addSkills");
         McpChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addMcps");
         Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasUnsentWork));
-        SendCommand.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(SendCommand.IsRunning))
-                OnPropertyChanged(nameof(HasUnsentWork));
-        };
+        SendCommand.PropertyChanged += OnSendActivityChanged;
+        StopAndSendCommand.PropertyChanged += OnSendActivityChanged;
+    }
+
+    private void OnSendActivityChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SendCommand.IsRunning))
+            OnPropertyChanged(nameof(HasUnsentWork));
     }
 
     private void PushChipAdditions(NotifyCollectionChangedEventArgs e, string key)
@@ -3360,6 +3365,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         public static DraftState Empty =>
             new("", [], null, new PendingChatConfiguration(), null);
+
+        public bool HasUnsentWork =>
+            PromptText.Length > 0 ||
+            Attachments.Length > 0 ||
+            !Configuration.IsEmpty ||
+            PendingRetry is { PayloadEdited: false };
 
         public bool IsEmpty =>
             PromptText.Length == 0 &&
