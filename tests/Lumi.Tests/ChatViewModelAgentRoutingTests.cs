@@ -831,7 +831,7 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
-    public void BuildCustomTools_BrowserToolsPreserveExistingArgumentsAndAddTabContracts()
+    public void BuildCustomTools_BrowserToolsPreserveRequiredArgumentsAndPlatformOptions()
     {
         using var harness = CreateHarness(new AppData());
         var tools = InvokeBuildCustomTools(harness.ViewModel).ToDictionary(tool => tool.Name);
@@ -840,13 +840,15 @@ public sealed class ChatViewModelAgentRoutingTests
             Assert.DoesNotContain(tools.Keys, static name => name.StartsWith("lumi_browser_", StringComparison.Ordinal));
             return;
         }
+        var isWindows = OperatingSystem.IsWindows();
         var expectedArguments = new Dictionary<string, string[]>
         {
-            [ToolDisplayHelper.BrowserOpenToolName] = ["url"],
+            [ToolDisplayHelper.BrowserOpenToolName] = isWindows ? ["url", "diagnostics"] : ["url"],
             [ToolDisplayHelper.BrowserLookToolName] = ["filter"],
             [ToolDisplayHelper.BrowserFindToolName] = ["query", "limit"],
-            [ToolDisplayHelper.BrowserDoToolName] = ["action", "target", "value"],
-            [ToolDisplayHelper.BrowserJsToolName] = ["script"],
+            [ToolDisplayHelper.BrowserDoToolName] = isWindows
+                ? ["action", "target", "value", "diagnostics"] : ["action", "target", "value"],
+            [ToolDisplayHelper.BrowserJsToolName] = isWindows ? ["script", "timeoutMs"] : ["script"],
             [ToolDisplayHelper.BrowserTabsToolName] = ["action", "tabId", "url"],
             [ToolDisplayHelper.BrowserScreenshotToolName] = ["tabId"]
         };
@@ -854,12 +856,28 @@ public sealed class ChatViewModelAgentRoutingTests
         foreach (var (name, parameters) in expectedArguments)
             Assert.Equal(parameters, tools[name].JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name));
 
+        foreach (var (name, required) in new[]
+        {
+            (ToolDisplayHelper.BrowserOpenToolName, "url"),
+            (ToolDisplayHelper.BrowserDoToolName, "action"),
+            (ToolDisplayHelper.BrowserJsToolName, "script")
+        })
+            Assert.Equal([required], tools[name].JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
+
         var tabs = tools[ToolDisplayHelper.BrowserTabsToolName];
         Assert.Equal(["action"], tabs.JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
         Assert.Equal(["action"], tools[ToolDisplayHelper.BrowserDoToolName].JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
         Assert.Equal(["query"], tools[ToolDisplayHelper.BrowserFindToolName].JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
         Assert.Contains("stable IDs", tabs.Description);
         Assert.Contains("partial fill blocks subsequent steps", tools[ToolDisplayHelper.BrowserDoToolName].Description);
+        Assert.Contains("own visible, enabled target", tools[ToolDisplayHelper.BrowserDoToolName].Description);
+        Assert.Contains("returned Promises", tools[ToolDisplayHelper.BrowserJsToolName].Description);
+        if (!isWindows)
+        {
+            Assert.DoesNotContain("diagnostics=true", tools[ToolDisplayHelper.BrowserDoToolName].Description);
+            Assert.Contains("await and returned Promises are not supported",
+                tools[ToolDisplayHelper.BrowserJsToolName].Description);
+        }
     }
 
     [Fact]
@@ -893,7 +911,7 @@ public sealed class ChatViewModelAgentRoutingTests
         {
             Assert.Contains("wait, download, clear", interact.Description);
             Assert.Contains("wait, download, clear", actionDescription);
-            Assert.Contains("download is detected automatically", open.Description);
+            Assert.Contains("Download URLs report the download instead of a page snapshot", open.Description);
             Assert.DoesNotContain("Embedded browser downloads are unsupported", open.Description);
         }
     }

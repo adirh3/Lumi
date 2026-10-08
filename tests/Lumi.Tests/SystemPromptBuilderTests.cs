@@ -520,6 +520,24 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("Batch only when later steps do not require inspecting intermediate results", prompt);
         Assert.Contains("Stops at the first failure; a partial fill blocks subsequent steps", prompt);
         Assert.Contains("completed actions are not rolled back", prompt);
+        Assert.Contains("their own visible, enabled target", prompt);
+        Assert.Contains("not global page settling", prompt);
+        if (platform == SystemPromptBuilder.PromptPlatform.Windows)
+        {
+            Assert.Contains("diagnostics=true", prompt);
+            Assert.Contains("returned Promises are supported", prompt);
+            Assert.Contains("Hidden pages can pause `requestAnimationFrame`", prompt);
+        }
+        else
+        {
+            Assert.DoesNotContain("diagnostics=true", prompt);
+            Assert.Contains("`await` and returned Promises are not supported", prompt);
+            Assert.DoesNotContain("lumi_browser_js(script, timeoutMs?)", prompt);
+        }
+        Assert.Contains("Never repeat a completed click or submit", prompt);
+        Assert.Contains("legacy button openers and class-based options", prompt);
+        Assert.Contains("Coordinated fields are validated after all requested writes", prompt);
+        Assert.Contains("visible page-level errors", prompt);
         Assert.DoesNotContain("Always use `steps` when you need 2+", prompt);
     }
 
@@ -534,7 +552,7 @@ public sealed class SystemPromptBuilderTests
             System.Text.Encoding.UTF8.GetBytes(automation)));
 
         // Locks both full automation sections, including download/upload wording and whitespace.
-        Assert.Equal("3CCFCDB9DF6AA6C8BC7E1BCB3E75AD4735A19D55B91400370485955A3210E659", digest);
+        Assert.Equal("638FD10F71EAD8091AF54D38A91F73ED5223C3699EF34C96040C9D6D4AA60057", digest);
     }
 
     [Fact]

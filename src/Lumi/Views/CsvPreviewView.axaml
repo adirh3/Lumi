@@ -1,0 +1,100 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.CsvPreviewView"
+             x:DataType="vm:CsvPreviewViewModel"
+             x:CompileBindings="True">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.csv-meta">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.csv-numeric">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+    </Style>
+    <Style Selector="TextBlock.csv-row-number">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="TextBlock.csv-header">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <Style Selector="DataGrid.csv-table /template/ Border#DataGridBorder">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 Transparent" />
+    </Style>
+    <Style Selector="DataGrid.csv-table /template/ Rectangle#PART_ColumnHeadersAndRowsSeparator">
+      <Setter Property="Fill" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="DataGrid.csv-table DataGridRow:selected /template/ Rectangle#BackgroundRectangle">
+      <Setter Property="Fill" Value="Transparent" />
+    </Style>
+    <Style Selector="DataGrid.csv-table DataGridRow:nth-child(even):not(:selected):not(:pointerover) /template/ Border#RowBorder">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="14,12">
+    <TextBox x:Name="CsvSearchBox" Classes="line-focus" MinHeight="34" FontSize="12.5"
+             Padding="8,0,6,0" CornerRadius="8"
+             Background="{DynamicResource Brush.Surface0}"
+             BorderBrush="{DynamicResource Brush.BorderSubtle}"
+             PlaceholderText="{loc:Str Csv_Search}" Text="{Binding SearchText}"
+             AutomationProperties.Name="{loc:Str Csv_Search}">
+      <TextBox.InnerLeftContent>
+        <PathIcon Width="15" Height="15" Margin="8,0,0,0"
+                  Foreground="{DynamicResource Brush.TextTertiary}"
+                  Data="{x:Static vm:WorkspaceIcons.Search}" />
+      </TextBox.InnerLeftContent>
+      <TextBox.InnerRightContent>
+        <Button x:Name="CsvClearSearch" Classes="subtle" Padding="4" Margin="0,0,5,0"
+                MinHeight="0" MinWidth="0" IsVisible="{Binding HasSearch}"
+                Command="{Binding ClearSearchCommand}"
+                ToolTip.Tip="{loc:Str Workspace_ClearSearch}"
+                AutomationProperties.Name="{loc:Str Workspace_ClearSearch}">
+          <PathIcon Width="12" Height="12" Foreground="{DynamicResource Brush.TextTertiary}"
+                    Data="{x:Static vm:WorkspaceIcons.Dismiss}" />
+        </Button>
+      </TextBox.InnerRightContent>
+    </TextBox>
+
+    <Grid Grid.Row="1" Margin="0,10,0,0">
+      <DataGrid x:Name="CsvTable" Classes="csv-table" ItemsSource="{Binding Rows}"
+                AutoGenerateColumns="False" IsReadOnly="True" FrozenColumnCount="1"
+                CanUserSortColumns="True" CanUserResizeColumns="True" CanUserReorderColumns="True"
+                SelectionMode="Extended" ClipboardCopyMode="IncludeHeader"
+                ColumnHeaderHeight="{DynamicResource Size.DataGridHeaderHeight}" FontSize="12.5"
+                AutomationProperties.Name="{loc:Str Csv_Title}">
+        <DataGrid.ContextMenu>
+          <ContextMenu>
+            <MenuItem x:Name="CsvHeaderAction" Header="{Binding HeaderActionLabel}"
+                      Command="{Binding ToggleHeaderRowCommand}" />
+          </ContextMenu>
+        </DataGrid.ContextMenu>
+      </DataGrid>
+      <Border x:Name="CsvEmptyState" IsVisible="{Binding !HasRows}" Margin="1,42,1,1"
+              Background="{DynamicResource Brush.Surface0}" Padding="20" IsHitTestVisible="False">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8" MaxWidth="340">
+          <TextBlock Text="{Binding EmptyTitle}" FontSize="14" FontWeight="SemiBold"
+                     TextWrapping="Wrap" TextAlignment="Center" />
+          <TextBlock Text="{Binding EmptyDetail}" Classes="csv-meta"
+                     TextWrapping="Wrap" TextAlignment="Center" />
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <WrapPanel x:Name="CsvFooterStats" Grid.Row="2" Orientation="Horizontal" Margin="2,10,2,0"
+               ToolTip.Tip="{Binding InteractionHint}">
+      <TextBlock x:Name="CsvRowCount" Text="{Binding RowCountLabel}" Classes="csv-meta" Margin="0,0,14,0" />
+      <TextBlock x:Name="CsvColumnCount" Text="{Binding ColumnCountLabel}" Classes="csv-meta" Margin="0,0,14,0" />
+      <TextBlock Text="{Binding DelimiterLabel}" Classes="csv-meta" />
+    </WrapPanel>
+  </Grid>
+</UserControl>

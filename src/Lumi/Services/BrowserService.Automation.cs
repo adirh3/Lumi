@@ -1,5 +1,6 @@
 #if WINDOWS
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 
 namespace Lumi.Services;
@@ -18,6 +19,7 @@ public sealed partial class BrowserService
     private async Task<BrowserActionResult> RunDomActionAsync(
         string operation, string? target = null, string? value = null, int limit = 50, bool preferDialog = true)
     {
+        long targetWaitMs = 0;
         try
         {
             await EnsureInitializedAsync();
@@ -26,30 +28,37 @@ public sealed partial class BrowserService
             {
                 if (operation is "click" or "type" or "clear" or "select")
                 {
+                    var targetTimer = Stopwatch.StartNew();
                     var targetDeadline = Environment.TickCount64 + 2500;
                     while (true)
                     {
                         var targetState = await ExecuteDomScriptAsync("probe", target, operation);
                         if (targetState.Succeeded) break;
-                        if (!targetState.Pending) return targetState;
+                        if (!targetState.Pending)
+                            return targetState with { TargetWaitMs = targetTimer.ElapsedMilliseconds };
                         if (Environment.TickCount64 >= targetDeadline)
-                            return BrowserActionResult.Failure("Timeout waiting for a matching visible target; no action was executed.");
+                            return BrowserActionResult.Failure("Timeout waiting for a visible, enabled target; no action was executed.")
+                                with { TargetWaitMs = targetTimer.ElapsedMilliseconds };
                         await Task.Delay(100);
                     }
+                    targetWaitMs = targetTimer.ElapsedMilliseconds;
                 }
                 var result = await ExecuteDomScriptAsync(operation, target, value, limit, preferDialog);
                 if (operation != "select" || !result.Pending)
-                    return result;
+                    return result with { TargetWaitMs = targetWaitMs };
 
                 // Opening the dropdown is a side effect: only poll for the option, never re-click the opener.
+                var optionTimer = Stopwatch.StartNew();
                 var deadline = Environment.TickCount64 + 2500;
                 do
                 {
                     result = await ExecuteDomScriptAsync("select_option", target, value);
-                    if (!result.Pending) return result;
+                    if (!result.Pending)
+                        return result with { TargetWaitMs = targetWaitMs + optionTimer.ElapsedMilliseconds };
                     await Task.Delay(100);
                 } while (Environment.TickCount64 < deadline);
-                return BrowserActionResult.Failure("The dropdown opened, but the requested option did not appear before timeout.");
+                return BrowserActionResult.Failure("The dropdown opened, but the requested option did not appear before timeout.")
+                    with { TargetWaitMs = targetWaitMs + optionTimer.ElapsedMilliseconds };
             }
             finally { _actionLock.Release(); }
         }
@@ -61,6 +70,8 @@ public sealed partial class BrowserService
     {
         var json = await InvokeOnUiThreadAsync(() =>
         {
+            if (_isNavigating && operation is "probe" or "ready" or "wait")
+                return Task.FromResult("""{"ok":false,"message":"The document is navigating.","pending":true}""");
             var script = BrowserDomScript.Build(operation, target, value, limit, preferDialog);
             return _webView!.ExecuteScriptAsync(script);
         });
@@ -69,37 +80,48 @@ public sealed partial class BrowserService
 
     private async Task<BrowserActionResult> WaitForDomElementAsync(string target, int timeoutMs)
     {
-        var deadline = Environment.TickCount64 + Math.Clamp(timeoutMs, 0, 30000);
+        var started = Environment.TickCount64;
+        var deadline = started + Math.Clamp(timeoutMs, 0, 30000);
         do
         {
             var result = await RunDomActionAsync("wait", target);
-            if (!result.Pending) return result;
+            if (!result.Pending)
+                return result with { TargetWaitMs = Environment.TickCount64 - started };
             if (Environment.TickCount64 >= deadline) break;
             await Task.Delay(100);
         } while (true);
-        return BrowserActionResult.Failure("Timeout waiting for a matching visible element.");
+        return BrowserActionResult.Failure("Timeout waiting for a visible, enabled target.")
+            with { TargetWaitMs = Environment.TickCount64 - started };
     }
 
-    private async Task<BrowserActionResult> WaitForContentSettleAsync(int maxWaitMs = 4000, int pollMs = 100)
+    private async Task<BrowserActionResult> WaitForDocumentReadyAsync(int maxWaitMs = 2500, int pollMs = 100)
     {
         var started = Environment.TickCount64;
         var deadline = started + maxWaitMs;
         do
         {
             var result = await RunDomActionAsync("ready");
-            if (!result.Succeeded && !result.Pending) return result;
-            // A brief quiet gap before a delayed update is not evidence that the action has settled.
-            if (result.Succeeded && Environment.TickCount64 - started >= 750) return result;
+            if (!result.Pending)
+                return result with { ElapsedMs = Environment.TickCount64 - started };
             if (Environment.TickCount64 >= deadline) break;
             await Task.Delay(pollMs);
         } while (true);
         return new(false,
-            "Observation note: page settling reached its time limit; the latest observation may still be changing. " +
-            "Use wait for the next expected element before continuing.",
-            Pending: true);
+            $"Observation: document readiness reached its {Environment.TickCount64 - started} ms limit; the snapshot may still change. " +
+            "Completed actions were not retried. The next action waits for its own target.",
+            Pending: true, ElapsedMs: Environment.TickCount64 - started);
     }
 
     private async Task<BrowserActionResult> ExecuteActionAsync(BrowserAutomationStep step)
+    {
+        var timer = Stopwatch.StartNew();
+        var result = await ExecuteActionCoreAsync(step);
+        var action = BrowserAutomationBatch.Supports(step.Action) || step.Action == "download" ? step.Action : "unsupported";
+        Debug.WriteLine($"Browser action={action}; target_ms={result.TargetWaitMs}; elapsed_ms={timer.ElapsedMilliseconds}; success={result.Succeeded}");
+        return result with { ElapsedMs = timer.ElapsedMilliseconds };
+    }
+
+    private async Task<BrowserActionResult> ExecuteActionCoreAsync(BrowserAutomationStep step)
     {
         try
         {
@@ -148,18 +170,14 @@ public sealed partial class BrowserService
 
             if (!result.Succeeded || action is "read_form" or "wait" or "download")
                 return result;
-            var readiness = await WaitForContentSettleAsync(maxWaitMs: 2500);
-            if (!readiness.Succeeded && !readiness.Pending)
-                return BrowserActionResult.Failure(result.Message + "\nAction executed; " + readiness.Message + " It was not retried.");
             if (action is "type" or "select" or "fill" or "clear")
             {
-                var validation = await RunDomActionAsync("validate_edits");
+                var validation = await RunDomActionAsync("validate_edits", value: action);
                 if (!validation.Succeeded)
-                    return BrowserActionResult.Failure(result.Message + "\n" + validation.Message);
+                    return BrowserActionResult.Failure(action == "fill" ? validation.Message : result.Message + "\n" + validation.Message)
+                        with { TargetWaitMs = result.TargetWaitMs };
             }
-            return readiness.Pending
-                ? BrowserActionResult.Success(result.Message + "\nThe action completed and was not retried.\n" + readiness.Message)
-                : result;
+            return result;
         }
         catch (Exception ex) { return BrowserActionResult.FromException(ex); }
     }

@@ -21,6 +21,9 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
+#if !WINDOWS
+using Microsoft.Data.Sqlite;
+#endif
 using SkiaSharp;
 
 namespace Lumi;
@@ -29,6 +32,7 @@ namespace Lumi;
 internal sealed class BrowserNativeHarness
 {
     private readonly List<(string Name, bool Passed, string Detail)> _checks = [];
+    private readonly List<(string Name, double Milliseconds)> _operationTimings = [];
     private readonly string _output;
     private readonly LocalServer _server = new();
 
@@ -79,6 +83,18 @@ internal sealed class BrowserNativeHarness
         Console.WriteLine($"[CHK] {(passed ? "PASS" : "FAIL")} {name}: {detail}");
     }
 
+    private async Task<string> MeasureAsync(string name, Func<Task<string>> operation)
+    {
+        var timer = Stopwatch.StartNew();
+        try { return await operation(); }
+        finally
+        {
+            var milliseconds = timer.Elapsed.TotalMilliseconds;
+            _operationTimings.Add((name, milliseconds));
+            Console.WriteLine($"[TIME] {name}: {milliseconds:F1} ms");
+        }
+    }
+
     private async Task RunAsync(IClassicDesktopStyleApplicationLifetime desktop, MainViewModel vm, DataStore store)
     {
         _server.Start();
@@ -109,7 +125,7 @@ internal sealed class BrowserNativeHarness
         await SettleBoundsAsync(view);
         Check("real-chat-and-workspace", chatVm.CurrentChat?.Id == chat.Id && view.IsEffectivelyVisible);
 
-        var opened = await browser.OpenAndSnapshotAsync(_server.Url + "/fixture");
+        var opened = await MeasureAsync("open", () => browser.OpenAndSnapshotAsync(_server.Url + "/fixture"));
         Check("navigation-and-snapshot", opened.Contains("Native Browser Fixture", StringComparison.Ordinal)
             && opened.Contains("--- Elements ---", StringComparison.Ordinal), Clip(opened));
         Check("native-controller-live", browser.HasController);
@@ -126,14 +142,14 @@ internal sealed class BrowserNativeHarness
         var found = await browser.FindElementsAsync("Alpha", 1);
         var number = Regex.Match(found, @"\[(\d+)\]").Groups[1].Value;
         Check("stable-ranked-target", number.Length > 0, Clip(found));
-        Check("numbered-click", (await browser.DoAsync("click", number))
+        Check("numbered-click", (await MeasureAsync("click", () => browser.DoAsync("click", number)))
             .Contains("Clicked", StringComparison.Ordinal));
         Check("click-actually-executed", await browser.EvaluateAsync("return String(window.alphaClicks)") == "1");
         await browser.EvaluateAsync("document.getElementById('alpha').outerHTML='<button id=\"alpha\">Alpha</button>'");
         Check("stale-reference-rejected", (await browser.DoAsync("click", number)).Contains("Error:", StringComparison.Ordinal));
 
-        var filled = await browser.DoAsync("fill", value:
-            """{"#query":"native query","#notes":"line one\r\nline two","#choice":"Two","#checked":true,"#password":"fixture-secret"}""");
+        var filled = await MeasureAsync("fill", () => browser.DoAsync("fill", value:
+            """{"#query":"native query","#notes":"line one\r\nline two","#choice":"Two","#checked":true,"#password":"fixture-secret"}"""));
         Check("form-fill", !filled.Contains("Error:", StringComparison.Ordinal), Clip(filled));
         var form = await browser.DoAsync("read_form");
         Check("form-read-and-secret-redaction", form.Contains("native query", StringComparison.Ordinal)
@@ -149,9 +165,15 @@ internal sealed class BrowserNativeHarness
             """[{"action":"type","target":"#query","value":"retained"},{"action":"click","target":"#missing"},{"action":"click","target":"#submit"}]""");
         Check("batch-fail-stop", failedBatch.Contains("Completed 1 of 3", StringComparison.Ordinal)
             && await browser.EvaluateAsync("return String(window.submits)") == "1", Clip(failedBatch));
-        var batch = await browser.DoAsync("steps", value:
-            """[{"action":"clear","target":"#query"},{"action":"type","target":"#query","value":"batch query"},{"action":"press","target":"Enter"}]""");
+        var batch = await MeasureAsync("batch-three", () => browser.DoAsync("steps", value:
+            """[{"action":"clear","target":"#query"},{"action":"type","target":"#query","value":"batch query"},{"action":"press","target":"Enter"}]"""));
         Check("batch-success", batch.Contains("Completed 3 of 3", StringComparison.Ordinal));
+        for (var iteration = 1; iteration <= 3; iteration++)
+        {
+            var typed = await MeasureAsync("ready-type-" + iteration,
+                () => browser.DoAsync("type", "#query", "batch query"));
+            Check("ready-type-" + iteration, !typed.Contains("Error:", StringComparison.Ordinal), Clip(typed));
+        }
         Check("wait", !(await browser.DoAsync("wait", "#query", "1000")).Contains("Error:", StringComparison.Ordinal));
         await browser.DoAsync("scroll", "down", "300");
         Check("scroll", double.TryParse(await browser.EvaluateAsync("return String(scrollY)"),
@@ -265,7 +287,9 @@ internal sealed class BrowserNativeHarness
 #endif
         await VerifyWindowTransferAsync(desktop, vm, chat, browser, window);
 #if !WINDOWS
+        await VerifyNavigationWaitAsync(browser);
         await VerifyDisposalAsync(window, browser);
+        await VerifySettingsCookieResetAsync(vm, store, browser);
 #endif
         Check("harness-completed", true);
     }
@@ -326,6 +350,26 @@ internal sealed class BrowserNativeHarness
     }
 
 #if !WINDOWS
+    private async Task VerifyNavigationWaitAsync(BrowserService browser)
+    {
+        var click = browser.DoAsync("click", "#slow-nav");
+        try
+        {
+            await _server.NavigationRequested.WaitAsync(TimeSpan.FromSeconds(5));
+            var action = await click;
+            Check("delayed-navigation-dispatched", action.Contains("Clicked", StringComparison.Ordinal), Clip(action));
+            var wait = await browser.DoAsync("wait", "#query", "200");
+            Check("wait-rejects-outgoing-document", wait.Contains("Error:", StringComparison.Ordinal), Clip(wait));
+        }
+        finally
+        {
+            _server.ReleaseNavigation();
+        }
+        await WaitAsync(async () => await browser.EvaluateAsync("return document.title") == "Navigation Fixture");
+        Check("delayed-navigation-completed", (await browser.LookAsync()).Contains("Navigation Fixture", StringComparison.Ordinal));
+        await browser.OpenAndSnapshotAsync(_server.Url + "/fixture");
+    }
+
     private async Task VerifyNativeCookiesAsync(BrowserService browser)
     {
         var view = browser.GetHostLayer().Children.OfType<NativeWebView>().Single();
@@ -377,6 +421,91 @@ internal sealed class BrowserNativeHarness
             .FirstOrDefault(control => control.Name == "NativeWebViewLayer");
         Check("disposed-browser-releases-view", layer?.Children.OfType<NativeWebView>().Count() == retainedBrowser.Tabs.Count,
             $"layer found={layer is not null}, native views={layer?.Children.OfType<NativeWebView>().Count()}");
+    }
+
+    private async Task VerifySettingsCookieResetAsync(
+        MainViewModel vm, DataStore store, BrowserService browser)
+    {
+        var layer = browser.GetHostLayer();
+        var chatView = layer.Children.OfType<NativeWebView>().Single();
+        var existingViews = layer.Children.OfType<NativeWebView>().ToHashSet();
+        await using var sibling = new BrowserService();
+        await sibling.OpenAndSnapshotAsync(_server.Url + "/second");
+        var siblingView = layer.Children.OfType<NativeWebView>().Single(view => !existingViews.Contains(view));
+        existingViews.Add(siblingView);
+        await using var unrelated = new BrowserService(Path.Combine(_output, "settings-unrelated-profile"));
+        await unrelated.OpenAndSnapshotAsync(_server.Url + "/second");
+        var unrelatedView = layer.Children.OfType<NativeWebView>().Single(view => !existingViews.Contains(view));
+        await using var dormant = new BrowserService();
+        var session = new Cookie("settingsResetSession", "fixture-value", "/", "127.0.0.1")
+            { Discard = true, HttpOnly = true };
+        foreach (var view in new[] { chatView, siblingView, unrelatedView })
+            await NativeWebViewCookies.SetAsync(view, [session]);
+        Check("settings-reset-session-seeded", (await NativeWebViewCookies.GetAllAsync(chatView))
+            .Any(cookie => cookie.Name == session.Name && cookie.Value == session.Value));
+
+        await vm.SettingsVM.ResetBrowserCookiesCommand.ExecuteAsync(null);
+        Check("settings-reset-reports-completion",
+            !store.Data.Settings.HasImportedBrowserCookies && !string.IsNullOrWhiteSpace(vm.SettingsVM.BrowserCookieStatus),
+            vm.SettingsVM.BrowserCookieStatus);
+        Check("settings-reset-clears-active-chat-session", !(await NativeWebViewCookies.GetAllAsync(chatView))
+            .Any(cookie => cookie.Name == session.Name));
+        Check("settings-reset-clears-other-chat-session", !(await NativeWebViewCookies.GetAllAsync(siblingView))
+            .Any(cookie => cookie.Name == session.Name));
+        Check("settings-reset-preserves-other-profile", (await NativeWebViewCookies.GetAllAsync(unrelatedView))
+            .Any(cookie => cookie.Name == session.Name && cookie.Value == session.Value));
+        Check("settings-reset-keeps-unopened-peer-uninitialized", !dormant.IsInitialized && !dormant.HasController);
+
+        var syntheticRoot = Path.Combine(_output, "synthetic-chromium-" + Guid.NewGuid().ToString("N"));
+        var databaseFolder = Path.Combine(syntheticRoot, "Default", "Network");
+        Directory.CreateDirectory(databaseFolder);
+        await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(databaseFolder, "Cookies"),
+            Pooling = false,
+        }.ToString()))
+        {
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO meta VALUES ('version', '24');
+                CREATE TABLE cookies (
+                    host_key TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL,
+                    encrypted_value BLOB NOT NULL, path TEXT NOT NULL,
+                    expires_utc INTEGER NOT NULL, is_secure INTEGER NOT NULL,
+                    is_httponly INTEGER NOT NULL, has_expires INTEGER NOT NULL,
+                    is_persistent INTEGER NOT NULL
+                );
+                INSERT INTO cookies VALUES (
+                    $host, 'lumi_settings_session', 'fixture-session-only',
+                    X'', '/', 0, 0, 1, 0, 0
+                );
+                """;
+            command.Parameters.AddWithValue("$host", new Uri(_server.Url).Host);
+            await command.ExecuteNonQueryAsync();
+        }
+        var source = new BrowserCookieService.BrowserInfo("Fixture Chromium", syntheticRoot, "");
+        var profile = new BrowserCookieService.BrowserProfile("Fixture", "Default", source);
+        var imported = await vm.SettingsVM.BrowserService.ImportCookiesAsync(profile);
+        Check("settings-import-reports-source-cookie-count", imported == 1, $"count={imported}");
+        foreach (var (name, view) in new[] { ("active-chat", chatView), ("other-chat", siblingView) })
+        {
+            Check("settings-import-reaches-" + name, (await NativeWebViewCookies.GetAllAsync(view))
+                .Any(cookie => cookie is
+                {
+                    Name: "lumi_settings_session",
+                    Value: "fixture-session-only",
+                    HttpOnly: true,
+                    Path: "/",
+                } && cookie.Expires == DateTime.MinValue));
+        }
+        var otherCookies = await NativeWebViewCookies.GetAllAsync(unrelatedView);
+        Check("settings-import-preserves-other-profile",
+            otherCookies.Any(cookie => cookie.Name == session.Name && cookie.Value == session.Value)
+            && !otherCookies.Any(cookie => cookie.Name == "lumi_settings_session"));
+        Check("settings-import-keeps-unopened-peer-uninitialized", !dormant.IsInitialized && !dormant.HasController);
+        store.Data.Settings.HasImportedBrowserCookies = true;
     }
 #endif
 
@@ -516,6 +645,15 @@ internal sealed class BrowserNativeHarness
             json.WriteEndObject();
         }
         json.WriteEndArray();
+        json.WriteStartArray("operationTimings");
+        foreach (var timing in _operationTimings)
+        {
+            json.WriteStartObject();
+            json.WriteString("name", timing.Name);
+            json.WriteNumber("milliseconds", timing.Milliseconds);
+            json.WriteEndObject();
+        }
+        json.WriteEndArray();
         json.WriteEndObject();
         Console.WriteLine($"[SUMMARY] passed={_checks.Count(check => check.Passed)} failed={_checks.Count(check => !check.Passed)} output={_output}");
     }
@@ -526,6 +664,11 @@ internal sealed class BrowserNativeHarness
     {
         private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
         private readonly CancellationTokenSource _stop = new();
+        private readonly TaskCompletionSource<bool> _navigationRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _releaseNavigation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task NavigationRequested => _navigationRequested.Task;
+        internal void ReleaseNavigation() => _releaseNavigation.TrySetResult(true);
         internal string Url { get; private set; } = "";
 
         internal void Start()
@@ -559,9 +702,17 @@ internal sealed class BrowserNativeHarness
                     var request = await reader.ReadLineAsync(_stop.Token) ?? "";
                     while (!string.IsNullOrEmpty(await reader.ReadLineAsync(_stop.Token))) { }
                     var path = request.Split(' ').ElementAtOrDefault(1) ?? "/";
+                    var delayed = path.StartsWith("/delayed", StringComparison.Ordinal);
+                    if (delayed)
+                    {
+                        _navigationRequested.TrySetResult(true);
+                        await _releaseNavigation.Task.WaitAsync(_stop.Token);
+                    }
                     var download = path.StartsWith("/download", StringComparison.Ordinal);
                     var body = download ? Encoding.UTF8.GetBytes("LUMI_NATIVE_DOWNLOAD") :
-                        Encoding.UTF8.GetBytes(path.StartsWith("/second", StringComparison.Ordinal)
+                        Encoding.UTF8.GetBytes(delayed
+                            ? "<!doctype html><title>Navigation Fixture</title><input id=\"query\" value=\"destination\">"
+                            : path.StartsWith("/second", StringComparison.Ordinal)
                             ? "<!doctype html><title>Second Fixture</title><h1>Second tab</h1><button>Other</button>"
                             : FixtureHtml);
                     var headers = "HTTP/1.1 200 OK\r\nContent-Type: " +
@@ -600,6 +751,7 @@ internal sealed class BrowserNativeHarness
         <label for="files">Upload files</label><input id="files" type="file" multiple>
         <input id="single-file" type="file">
         <a id="popup" href="/second" target="_blank">Open popup</a><a href="/download">Download</a>
+        <a id="slow-nav" href="/delayed">Slow navigation</a>
         <div class="spacer"></div><button>Bottom</button></main><script>
         window.alphaClicks=0;window.submits=0;window.uploadSizes=[];window.uploadText='';
         document.getElementById('files').addEventListener('change',async function(){

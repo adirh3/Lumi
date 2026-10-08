@@ -626,6 +626,15 @@ public static class SystemPromptBuilder
         var downloadActionHint = platform == PromptPlatform.Windows
             ? "`download`: target = file pattern (e.g. \"*.csv\"). Reports download status."
             : $"**Native downloads:** Embedded browser downloads are unsupported on Linux and macOS. Use `lumi_fetch` to read a verified direct URL, or `curl --fail --location --output \"{downloadPath}\" \"<verified-direct-url>\"` to save a public file. Shell downloads do not inherit browser login cookies; do not claim authenticated exports will work.";
+        var openArguments = platform == PromptPlatform.Windows ? "url, diagnostics?" : "url";
+        var actionArguments = platform == PromptPlatform.Windows
+            ? "action, target?, value?, diagnostics?" : "action, target?, value?";
+        var javascriptHint = platform == PromptPlatform.Windows
+            ? "`lumi_browser_js(script, timeoutMs?)` — Run JavaScript in the page context. Use `return` for a result; `await` and returned Promises are supported. Synchronous/async errors are explicit. Timeout defaults to 10000 ms (100-30000). A timed-out script is not cancelled or retried and may still finish. Hidden pages can pause `requestAnimationFrame`; use bounded `setTimeout`-based DOM checks or `wait`, not paint-dependent waits."
+            : "`lumi_browser_js(script)` — Run synchronous JavaScript in the page context. Use `return` for a result. Synchronous errors are explicit; `await` and returned Promises are not supported. Use a callback for asynchronous work, then `lumi_browser_do(\"wait\", ...)` to verify its visible result. Native browser phase-timing diagnostics and a script timeout parameter are unavailable.";
+        var diagnosticsHint = platform == PromptPlatform.Windows
+            ? "**Diagnostics:** Default responses are compact. Set `diagnostics=true` on open/do only when investigating latency to include navigation, target-readiness, action and observation timings. Timings do not include field contents or script bodies."
+            : "**Native tools:** Open/do do not expose a diagnostics parameter. Do not pass Windows-only timing or asynchronous JavaScript options to native browser tools.";
 
         var section = $$"""
 
@@ -639,30 +648,31 @@ public static class SystemPromptBuilder
         - Web search results aren't sufficient and you need interactive browsing
 
         **Browser tools:**
-        - `lumi_browser_open(url)` — Navigate the active tab to a URL. Returns numbered interactive elements and text preview.
+        - `lumi_browser_open({{openArguments}})` — Navigate the active tab to a URL. Returns navigation status, DOM readiness/visibility, numbered interactive elements and text preview. Does not require global network/DOM idle. Dynamic apps may still show Loading; known subsequent actions wait for their own targets without another look.
         - `lumi_browser_tabs(action, tabId?, url?)` — List, create (`new`), switch, or close tabs. Use the stable tab IDs returned by list/new, never positions or titles. Supply tabId for switch/close; url is optional for new.
         - `lumi_browser_screenshot(tabId?)` — Inspect a viewport image, with tab ID, URL, and delivered pixel dimensions. Images preserve aspect ratio without upscaling, capped at a 2048-pixel longest edge and 3 MiB PNG (4 MiB base64); this does not bypass model image-count limits. Use it for visual layout, canvas content, charts, or icons that text/DOM snapshots miss; prefer look/find for exact text. Omit tabId for the active tab. The target must be visible and ready; capture does not switch tabs or show the browser. If hidden, switch/show the target tab first, then retry.
         - `lumi_browser_look(filter?)` — Returns current page state. Optional filter narrows elements.
         - `lumi_browser_find(query)` — Find and rank interactive elements matching a query across text, aria-label, tooltip, title, and href. Returns element indices.
-        - `lumi_browser_do(action, target?, value?)` — Interact with the page. Returns action result and updated page state. Actions:
+        - `lumi_browser_do({{actionArguments}})` — Interact with the page. Returns action result and updated page state. Actions:
           - `click`: target = element number, text, or CSS selector
           - `type`: target = element number or selector, value = text to type. Works with React/Vue/Angular forms.
           - `press`: target = key name (Enter, Tab, Escape)
-          - `select`: target = element number or selector, value = option text. Works with custom dropdowns (react-select, MUI, etc.).
+          - `select`: target = element number, text, or selector, value = option text. Works with native selects and custom dropdowns, including legacy button openers and class-based options.
           - `scroll`: target = "up" or "down"
           - `back`: go to previous page
-          - `wait`: target = CSS selector
+          - `wait`: target = CSS selector for the expected state; waits for visibility and enabled state. value = timeout milliseconds (default 10000, maximum 30000).
           - {{downloadActionHint}}
           - `clear`: target = element number or selector. Clears a field's value.
           - `upload`: attach local file(s) to a file input **without** the native OS file picker (the picker is an OS window JS can't drive). value = absolute file path(s) — use a JSON array for multiple files, or a single path for one (multiple paths may also be newline-separated; commas are NOT separators, so paths containing commas stay intact); target = optional locator for the `<input type=file>` (CSS selector or the upload button/label text) — omit to use the page's only file input. Always use this for uploads instead of clicking a button that opens the system dialog.
-          - `fill`: value = JSON object mapping field identifiers (element number, name, placeholder, or label) to values. Fills multiple form fields at once in a single call — **much more efficient than typing one by one**. Handles text inputs, textareas, checkboxes (true/false), and native selects.
-          - `read_form`: no target needed. Returns all visible form fields with their names, values, types, required status, and validation errors. **Use this before and after filling forms** to verify state.
+          - `fill`: value = JSON object mapping field identifiers (element number, name, placeholder, or label) to values. Fills multiple form fields at once in a single call — **much more efficient than typing one by one**. Handles text inputs, textareas, checkboxes (true/false), and native selects. Coordinated fields are validated after all requested writes; write failures or invalid final values block subsequent steps.
+          - `read_form`: no target needed. Returns all visible form fields with their names, values, types, required status, field validation and visible page-level errors. Passwords are redacted. **Use this before and after filling forms** to verify state.
           - `steps`: Execute multiple actions in ONE call with ONE final snapshot. Value = JSON array of action objects. Batch only when later steps do not require inspecting intermediate results. Stops at the first failure; a partial fill blocks subsequent steps. Inspect the result and repair failed fields before continuing.
-        - `lumi_browser_js(script)` — Run JavaScript in the page context. Errors are caught and returned as messages (never silently null).
+        - {{javascriptHint}}
 
         **Tab identity:** Browser actions default to the active tab. Each operation stays with the tab it started on, even if the user switches tabs while it runs. After switching tabs, use look/find before reusing element numbers; numbers belong to a tab's page state, not to every tab. Screenshots show pixels, not clickable element numbers.
         **Quiet mode:** Append ` quiet` to the target or set value to `quiet` on click/press/scroll to skip the auto-snapshot. Use when you already know the next action.
-        **Settling:** Post-action observations wait for a bounded settling window, not every possible asynchronous update. A settling note does not mean the completed action failed: do not repeat a completed click or submit. Use `wait` for the next expected element and inspect again when the page may still be changing.
+        **Readiness:** Click/type/select/clear wait up to 2500 ms for their own visible, enabled target. Known batches do not wait for unrelated live content between steps; quiet actions skip observation entirely. Final observations wait only for document readiness, not global page settling. DOM available does not prove a delayed application effect: use `wait` for its expected selector or a bounded timer-based JavaScript condition. Never repeat a completed click or submit because an observation timed out.
+        {{diagnosticsHint}}
         **Steps action example:** `lumi_browser_do("steps", null, '[{"action":"click","target":"Next month"},{"action":"click","target":"Next month"},{"action":"click","target":"25"}]')`
 
         **Fill action example:** `lumi_browser_do("fill", null, '{"3": "John", "email": "john@example.com", "agree": true}')`

@@ -16,9 +16,30 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
+- **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
 - **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
+
+### CSV file previews
+
+Choose **Preview** on a CSV attachment or file in the Workspace/Library to open a
+spreadsheet-style table. Column headers stay visible while scrolling; row numbers
+stay pinned and keep their original record positions when filtering or sorting.
+Click a header to sort (numeric columns sort numerically), drag its edge to resize,
+and search across every cell. Row/column counts and separator information sit beneath
+the table. For files without column names, right-click the table and choose **Use
+first row as data**; the same menu switches back to using the first row as headers.
+Hover a cell to see its full value; select rows and press **Ctrl+C** (**Cmd+C** on
+macOS) to copy them with headers.
+
+Comma, semicolon, tab, and pipe separators are detected automatically, including
+Excel's `sep=` directive. Quoted separators, escaped quotes, multiline fields,
+empty cells, and Unicode BOMs are supported. TSV files use tabs. Like other text
+previews, the viewer reads at most 100,000 characters; large files show a notice
+and only complete records, never a misleading partial row. **Refresh** reloads
+the file, and **Open** still opens it in its default app. Previewing never edits
+the source file.
 
 ### Sharing skills, Lumis and MCP servers
 
@@ -492,6 +513,9 @@ and the system WebKit browser on Linux/macOS. Native support is compiled out on
 Windows; the engines keep independent initialization, tab, and disposal code.
 The same browser tools provide navigation, safe element targeting, forms, JavaScript,
 uploads, tabs, and actual page screenshots on all three platforms.
+Windows also provides browser phase-timing diagnostics and JavaScript promise
+awaiting with a bounded timeout. Native browser tools keep synchronous JavaScript
+and do not expose those Windows-only options.
 
 Linux needs WebKitGTK 4.1 (`sudo apt install libwebkit2gtk-4.1-0` on Ubuntu).
 The native macOS browser requires macOS 14 or later for private per-profile

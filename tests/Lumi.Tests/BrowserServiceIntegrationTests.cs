@@ -59,9 +59,27 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 browser.SetParentHwnd(window.TryGetPlatformHandle()!.Handle);
                 browser.SetBounds(0, 0, 940, 700);
                 browser.SetControllerVisible(true);
-                await browser.OpenAndSnapshotAsync(url);
+                var coldOpenTimer = Stopwatch.StartNew();
+                var opened = await browser.OpenAndSnapshotAsync(url);
+                output.WriteLine($"BENCH cold open/profile initialization: {coldOpenTimer.ElapsedMilliseconds} ms.");
+                Assert.Contains("Navigation: completed.", opened);
+                Assert.Contains("Readiness: DOM available", opened);
                 browser.WebView!.Profile.DefaultDownloadFolderPath = root;
 
+                await VerifyRoutineActionEfficiency(browser);
+                output.WriteLine("PASS: ready/continuously updating four-step batches and quiet clicks stay within the regression budget.");
+                await VerifyLegacyDropdownCompatibility(browser);
+                output.WriteLine("PASS: legacy dropdown openers/options, natural/numeric targets, controlled option scoping, and no submit mis-targeting.");
+                await VerifyCoordinatedFillValidation(browser);
+                output.WriteLine("PASS: coordinated fields validate their final state while invalid fills and lost values block submit.");
+                await VerifyPageLevelFormErrors(browser);
+                output.WriteLine("PASS: visible page-level errors are reported once, hidden errors omitted, and password text redacted.");
+                await VerifyTargetReadinessAndForms(browser);
+                output.WriteLine("PASS: dynamic radio/custom-select/fill/submit batches wait for their targets, disabled/invalid fields stop, and submit runs once.");
+                await VerifyBackgroundJavaScriptAndUploads(browser, root);
+                output.WriteLine("PASS: bounded async JavaScript, hidden-page timers/DOM waits, explicit failures, and multi-file input/change delivery.");
+                await VerifyNavigationAndQueuedValidation(browser, url, root);
+                output.WriteLine("PASS: navigation/loading phases, target waits without another look, failed-navigation status, and queued framework edit rejection.");
                 await VerifyBlurNotifications(browser);
                 output.WriteLine("PASS: unfocused edits notify blur validation once, commit model state, and preserve page-managed focus.");
                 await VerifyKeyboardAndClickTargets(browser);
@@ -69,7 +87,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 await VerifyMultilineEdits(browser);
                 output.WriteLine("PASS: LF/CRLF textarea type/fill retain normalized values and continue batches; genuine reset/replacement edits still stop.");
                 await VerifyActionSettling(browser);
-                output.WriteLine("PASS: delayed results appear, continuous updates preserve successful actions, and clicks are never retried.");
+                output.WriteLine("PASS: explicit expected-state waits capture delayed results, live updates do not hold actions, and clicks are never retried.");
                 await browser.OpenAndSnapshotAsync(url);
                 await VerifyReferences(browser, url);
                 output.WriteLine("PASS: filtered/ranked/limited identities, dialog order, replacement/navigation stale references.");
@@ -211,6 +229,403 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         output.WriteLine("Actual blur listeners committed type/fill values exactly once, enabled confirmation, redirected logical focus, and rejected edits without activating the document. Already-delivered event simulation did not duplicate notification.");
     }
 
+    private async Task VerifyRoutineActionEfficiency(BrowserService browser)
+    {
+        const string steps = """
+            [{"action":"click","target":"#tick"},{"action":"click","target":"#followup"},
+             {"action":"click","target":"#tick"},{"action":"click","target":"#followup"}]
+            """;
+        var ready = new List<long>();
+        var updating = new List<long>();
+        var responseBytes = new List<int>();
+        foreach (var timings in new[] { ready, updating })
+        {
+            if (ReferenceEquals(timings, updating))
+                await browser.EvaluateAsync("""
+                    document.body.insertAdjacentHTML('beforeend', '<span id="telemetry" role="progressbar">Background telemetry</span>');
+                    window.efficiencyNoise = setInterval(() => document.getElementById('live-result').textContent = String(performance.now()), 50);
+                    """);
+            for (var i = 0; i < 3; i++)
+            {
+                var timer = Stopwatch.StartNew();
+                var result = await browser.DoAsync("steps", value: steps);
+                timings.Add(timer.ElapsedMilliseconds);
+                responseBytes.Add(System.Text.Encoding.UTF8.GetByteCount(result));
+                Assert.Contains("Completed 4 of 4 steps", result);
+                Assert.DoesNotContain("Error:", result);
+                Assert.Single(Regex.Matches(result, @"(?m)^Page: "));
+            }
+            var sorted = timings.Order().ToArray();
+            output.WriteLine($"BENCH {(ReferenceEquals(timings, ready) ? "ready" : "updating")} four-step batch (n=3): " +
+                $"p50={sorted[1]} ms; p95={sorted[2]} ms; samples={string.Join(",", timings)}.");
+        }
+        var quietTimer = Stopwatch.StartNew();
+        var quiet = await browser.DoAsync("click", "#tick quiet");
+        var quietMs = quietTimer.ElapsedMilliseconds;
+        output.WriteLine($"BENCH updating quiet click: {quietMs} ms; bytes={System.Text.Encoding.UTF8.GetByteCount(quiet)}.");
+        output.WriteLine($"BENCH four-step response bytes: {string.Join(",", responseBytes)}.");
+        await browser.EvaluateAsync("""
+            clearInterval(window.efficiencyNoise); document.getElementById('telemetry').remove();
+            window.tickClicks=0; window.followups=0;
+            """);
+
+        Assert.DoesNotContain("Page: ", quiet);
+        Assert.True(ready.Max() < 1500, $"Already-ready four-step batch took {ready.Max()} ms (budget <1500 ms).");
+        Assert.True(updating.Max() < 1500, $"Unrelated live content delayed a four-step batch to {updating.Max()} ms (budget <1500 ms).");
+        Assert.True(quietMs < 750, $"Quiet click waited {quietMs} ms (budget <750 ms).");
+    }
+
+    private async Task VerifyTargetReadinessAndForms(BrowserService browser)
+    {
+        await browser.EvaluateAsync("""
+            document.body.insertAdjacentHTML('beforeend', `
+                <form id="dynamic-form">
+                  <label>Branch<input id="dynamic-branch" type="radio" name="branch"></label>
+                  <div id="branch-fields" hidden>
+                    <button id="dynamic-model" type="button" role="combobox" aria-controls="model-options">Choose model</button>
+                    <div id="model-options" role="listbox" hidden><button type="button" role="option">Model B</button></div>
+                    <label>Name<input id="dynamic-name" required></label>
+                    <label>Email<input id="dynamic-email" type="email"></label>
+                    <button id="dynamic-submit" type="submit">Submit dynamic form</button>
+                  </div>
+                </form>
+                <output id="dynamic-ack"></output>
+                <button id="enable-next" type="button">Start next control</button>
+                <button id="delayed-next" type="button" disabled>Delayed next control</button>
+                <button id="never-ready" type="button" disabled>Permanently disabled</button>
+                <span id="dynamic-telemetry" role="progressbar">Unrelated telemetry</span>`);
+            window.dynamicSubmits=0; window.modelOpens=0; window.nextClicks=0;
+            document.getElementById('dynamic-branch').onchange = () =>
+                setTimeout(() => document.getElementById('branch-fields').hidden=false, 200);
+            document.getElementById('dynamic-model').onclick = () => {
+                window.modelOpens++;
+                setTimeout(() => document.getElementById('model-options').hidden=false, 200);
+            };
+            document.querySelector('#model-options button').onclick = () => {
+                document.getElementById('dynamic-model').textContent='Model B';
+                document.getElementById('model-options').hidden=true;
+            };
+            document.getElementById('dynamic-form').onsubmit = event => {
+                event.preventDefault(); window.dynamicSubmits++;
+                setTimeout(() => {
+                    document.getElementById('dynamic-ack').textContent='Submission acknowledged';
+                    document.getElementById('dynamic-ack').dataset.ready='true';
+                }, 400);
+            };
+            document.getElementById('enable-next').onclick = () =>
+                setTimeout(() => document.getElementById('delayed-next').disabled=false, 300);
+            document.getElementById('delayed-next').onclick = () => window.nextClicks++;
+            """);
+        var timer = Stopwatch.StartNew();
+        var result = await browser.DoAsync("steps", value: """
+            [{"action":"click","target":"#dynamic-branch"},
+             {"action":"select","target":"#dynamic-model","value":"Model B"},
+             {"action":"fill","value":"{\"#dynamic-name\":\"Fixture user\",\"#dynamic-email\":\"fixture@example.test\"}"},
+             {"action":"click","target":"#dynamic-submit"}]
+            """, diagnostics: true);
+        output.WriteLine($"Dynamic four-step form ({timer.ElapsedMilliseconds} ms): {result}");
+        Assert.Contains("Completed 4 of 4 steps", result);
+        Assert.Contains("Filled 2 fields.", result);
+        Assert.Contains("target-ready=", result);
+        Assert.Contains("document-ready", result);
+        Assert.DoesNotContain("Error:", result);
+        Assert.Single(Regex.Matches(result, @"(?m)^Tab: "));
+        Assert.Single(Regex.Matches(result, @"(?m)^Page: "));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.modelOpens)"));
+        Assert.Equal("Model B", await EvaluateString(browser, "document.getElementById('dynamic-model').textContent"));
+        Assert.Equal("Fixture user", await EvaluateString(browser, "document.getElementById('dynamic-name').value"));
+        Assert.DoesNotContain("Error:", await browser.DoAsync("wait", "#dynamic-ack[data-ready='true']", "3000"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.dynamicSubmits)"));
+
+        var enabled = await browser.DoAsync("steps", value: """
+            [{"action":"click","target":"#enable-next"},{"action":"click","target":"#delayed-next"}]
+            """);
+        Assert.Contains("Completed 2 of 2 steps", enabled);
+        Assert.Equal("1", await EvaluateString(browser, "String(window.nextClicks)"));
+
+        var disabled = await browser.DoAsync("steps", value: """
+            [{"action":"click","target":"#never-ready"},{"action":"click","target":"#dynamic-submit"}]
+            """);
+        Assert.Contains("no action was executed", disabled);
+        Assert.Contains("Completed 0 of 2", disabled);
+        Assert.Contains("Unexecuted steps: 2 (click)", disabled);
+        var invalid = await browser.DoAsync("steps", value: """
+            [{"action":"fill","value":"{\"#dynamic-name\":\"Edited name\",\"#dynamic-email\":\"not-an-email\"}"},
+             {"action":"click","target":"#dynamic-submit"}]
+            """);
+        Assert.Contains("Fill validation failed at field 2", invalid);
+        Assert.Contains("Completed fields: 2; unexecuted fields: 0", invalid);
+        Assert.Equal("1", await EvaluateString(browser, "String(window.dynamicSubmits)"));
+        await browser.EvaluateAsync("document.getElementById('dynamic-telemetry').remove()");
+    }
+
+    private async Task VerifyLegacyDropdownCompatibility(BrowserService browser)
+    {
+        await browser.EvaluateAsync("""
+            document.body.insertAdjacentHTML('beforeend', `
+                <section id="legacy-dropdown-fixture">
+                  <button id="legacy-trigger" type="button">Legacy model</button>
+                  <div id="legacy-options" hidden><div class="option">Model B</div></div>
+                  <div id="decoy-option" class="option">Model B</div>
+                  <button id="scoped-trigger" type="button" role="combobox" aria-controls="scoped-options">Scoped model</button>
+                  <div id="scoped-options" hidden><div class="Option">Model B</div></div>
+                  <button id="list-trigger" type="button">Legacy list</button>
+                  <div id="list-option" role="listitem" hidden>Model C</div>
+                </section>`);
+            window.legacyOpens=0; window.scopedOpens=0; window.listOpens=0; window.decoyClicks=0; window.legacySelection='';
+            document.getElementById('legacy-trigger').onclick=() => {
+                window.legacyOpens++;
+                setTimeout(() => document.getElementById('legacy-options').hidden=false, 150);
+            };
+            document.querySelector('#legacy-options .option').onclick=() => {
+                window.legacySelection='legacy B'; document.getElementById('legacy-options').hidden=true;
+            };
+            document.getElementById('decoy-option').onclick=() => window.decoyClicks++;
+            document.getElementById('scoped-trigger').onclick=() => {
+                window.scopedOpens++;
+                setTimeout(() => document.getElementById('scoped-options').hidden=false, 150);
+            };
+            document.querySelector('#scoped-options .Option').onclick=() => {
+                window.legacySelection='scoped B'; document.getElementById('scoped-options').hidden=true;
+            };
+            document.getElementById('list-trigger').onclick=() => {
+                window.listOpens++; document.getElementById('list-option').hidden=false;
+            };
+            document.getElementById('list-option').onclick=() => {
+                window.legacySelection='list C'; document.getElementById('list-option').hidden=true;
+            };
+            """);
+        // The generic opener has no ARIA metadata; its options are identified only by a CSS class.
+        var generic = await browser.DoAsync("select", "#legacy-trigger", "Model B");
+        output.WriteLine("Legacy dropdown: " + generic);
+        Assert.DoesNotContain("Error:", generic);
+        Assert.Equal("legacy B", await EvaluateString(browser, "window.legacySelection"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.legacyOpens)"));
+        await browser.EvaluateAsync("document.getElementById('decoy-option').hidden=false");
+        var scopedRef = Reference(await browser.LookAsync(), "name=\"scoped-trigger\"");
+        Assert.DoesNotContain("Error:", await browser.DoAsync("select", scopedRef, "Model B"));
+        Assert.Equal("scoped B", await EvaluateString(browser, "window.legacySelection"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.scopedOpens)"));
+        Assert.Equal("0", await EvaluateString(browser, "String(window.decoyClicks)"));
+        Assert.DoesNotContain("Error:", await browser.DoAsync("select", "Legacy list", "Model C"));
+        Assert.Equal("list C", await EvaluateString(browser, "window.legacySelection"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.listOpens)"));
+        AssertError(await browser.DoAsync("select", "#submit", "Model B"));
+        Assert.Equal("0", await EvaluateString(browser, "String(window.submits)"));
+        await browser.EvaluateAsync("document.getElementById('legacy-dropdown-fixture').remove()");
+    }
+
+    private async Task VerifyCoordinatedFillValidation(BrowserService browser)
+    {
+        await browser.EvaluateAsync("""
+            document.body.insertAdjacentHTML('beforeend', `
+                <form id="range-form">
+                  <label>Start<input id="range-start" type="date" value="2026-10-08"></label>
+                  <label>End<input id="range-end" type="date" value="2026-10-12"></label>
+                  <button id="range-submit" type="submit">Save range</button>
+                </form>`);
+            window.rangeSubmits=0;
+            const start=document.getElementById('range-start'), end=document.getElementById('range-end');
+            const validate=() => {
+                const valid=start.value <= end.value;
+                start.setCustomValidity(valid ? '' : 'Start date is after end date.');
+                end.setCustomValidity(valid ? '' : 'End date is before start date.');
+            };
+            start.oninput=validate; start.onchange=validate; end.oninput=validate; end.onchange=validate;
+            document.getElementById('range-form').onsubmit=event => { event.preventDefault(); window.rangeSubmits++; };
+            """);
+        var valid = await browser.DoAsync("steps", value: """
+            [{"action":"fill","value":"{\"#range-start\":\"2026-11-01\",\"#range-end\":\"2026-11-05\"}"},
+             {"action":"click","target":"#range-submit"}]
+            """);
+        output.WriteLine("Coordinated date fill: " + valid);
+        Assert.Contains("Completed 2 of 2 steps", valid);
+        Assert.DoesNotContain("Error:", valid);
+        Assert.Equal("2026-11-01", await EvaluateString(browser, "document.getElementById('range-start').value"));
+        Assert.Equal("2026-11-05", await EvaluateString(browser, "document.getElementById('range-end').value"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.rangeSubmits)"));
+        await browser.EvaluateAsync("""
+            const start=document.getElementById('range-start'), end=document.getElementById('range-end');
+            const validate=() => {
+                const valid=start.value <= end.value;
+                start.setCustomValidity(valid ? '' : 'Start date is after end date.');
+                end.setCustomValidity(valid ? '' : 'End date is before start date.');
+            };
+            end.oninput=() => queueMicrotask(validate);
+            end.onchange=() => queueMicrotask(validate);
+            """);
+        var queued = await browser.DoAsync("fill", value: """
+            {"#range-start":"2026-12-01","#range-end":"2026-12-05"}
+            """);
+        output.WriteLine("Queued framework date validation: " + queued);
+        Assert.DoesNotContain("Error:", queued);
+        Assert.Equal("true", await EvaluateString(browser, "String(document.getElementById('range-start').validity.valid)"));
+        Assert.Equal("true", await EvaluateString(browser, "String(document.getElementById('range-end').validity.valid)"));
+        var invalid = await browser.DoAsync("steps", value: """
+            [{"action":"fill","value":"{\"#range-start\":\"2026-12-08\",\"#range-end\":\"2026-12-04\"}"},
+             {"action":"click","target":"#range-submit"}]
+            """);
+        AssertError(invalid);
+        Assert.Contains("Fill validation failed", invalid);
+        Assert.Contains("Completed fields: 2; unexecuted fields: 0", invalid);
+        Assert.Contains("Unexecuted steps: 2 (click)", invalid);
+        Assert.Equal("1", await EvaluateString(browser, "String(window.rangeSubmits)"));
+        await browser.EvaluateAsync("""
+            document.getElementById('range-start').oninput=function() { this.value='2026-01-01'; };
+            """);
+        var reset = await browser.DoAsync("steps", value: """
+            [{"action":"fill","value":"{\"#range-start\":\"2026-11-01\",\"#range-end\":\"2026-11-05\"}"},
+             {"action":"click","target":"#range-submit"}]
+            """);
+        Assert.Contains("did not retain the requested value", reset);
+        Assert.Contains("unexecuted fields: 1", reset);
+        Assert.Equal("1", await EvaluateString(browser, "String(window.rangeSubmits)"));
+        await browser.EvaluateAsync("document.getElementById('range-form').remove()");
+    }
+
+    private async Task VerifyPageLevelFormErrors(BrowserService browser)
+    {
+        const string secret = "page-alert-password-39172";
+        await browser.EvaluateAsync("""
+            document.body.insertAdjacentHTML('beforeend', `
+                <section id="page-error-fixture">
+                  <input id="alert-password" type="password">
+                  <div class="error"><div id="server-alert" role="alert"></div></div>
+                  <div class="Error">Try again later.</div>
+                  <div role="alert" hidden>Hidden server error.</div>
+                </section>`);
+            """);
+        Assert.DoesNotContain("Error:", await browser.DoAsync("type", "#alert-password", secret));
+        await browser.EvaluateAsync(
+            "document.getElementById('server-alert').textContent='Server rejected '+document.getElementById('alert-password').value;");
+        var form = await browser.DoAsync("read_form");
+        output.WriteLine("Form page-level errors: " + form);
+        Assert.Contains("Page errors:", form);
+        Assert.Contains("Server rejected [redacted]", form);
+        Assert.Contains("Try again later.", form);
+        Assert.Single(Regex.Matches(form, "Server rejected"));
+        Assert.DoesNotContain("Hidden server error.", form);
+        Assert.DoesNotContain(secret, form);
+        await browser.EvaluateAsync("document.getElementById('page-error-fixture').remove()");
+    }
+
+    private async Task VerifyBackgroundJavaScriptAndUploads(BrowserService browser, string root)
+    {
+        Assert.Equal("visible", await browser.EvaluateAsync(
+            "return await new Promise(resolve => setTimeout(() => resolve(document.visibilityState), 20));"));
+        Assert.Equal("promise result", await browser.EvaluateAsync("return Promise.resolve('promise result');"));
+        var objectResult = await browser.EvaluateAsync("return {number:42, text:'quotes \" and \\\\ and newline\\n'};");
+        using (var doc = JsonDocument.Parse(objectResult))
+            Assert.Equal(42, doc.RootElement.GetProperty("number").GetInt32());
+        Assert.StartsWith("JS Error:", await browser.EvaluateAsync("throw new Error('fixture synchronous error');"));
+        Assert.StartsWith("JS Error:", await browser.EvaluateAsync("return Promise.reject(new Error('fixture async error'));"));
+        Assert.StartsWith("JS Error:", await browser.EvaluateAsync("const = invalid;"));
+        Assert.StartsWith("JS Error:", await browser.EvaluateAsync("return 'must not execute';", timeoutMs: 0));
+
+        browser.SetControllerVisible(false);
+        await UntilAsync(async () => await EvaluateString(browser, "document.visibilityState") == "hidden");
+        Assert.Contains("visibility: hidden", await browser.LookAsync());
+        Assert.Equal("hidden timer", await browser.EvaluateAsync(
+            "return new Promise(resolve => setTimeout(() => resolve('hidden timer'), 200));", timeoutMs: 3000));
+        var timeoutTimer = Stopwatch.StartNew();
+        var timedOut = await browser.EvaluateAsync("return new Promise(() => {});", timeoutMs: 300);
+        Assert.StartsWith("JS Error:", timedOut);
+        Assert.Contains("not retried", timedOut);
+        Assert.Contains("may still finish", timedOut);
+        Assert.InRange(timeoutTimer.ElapsedMilliseconds, 0, 1500);
+        output.WriteLine("Hidden unresolved Promise: " + timedOut);
+        var paintTimer = Stopwatch.StartNew();
+        var paint = await browser.EvaluateAsync(
+            "return new Promise(resolve => requestAnimationFrame(() => resolve('paint available')));", timeoutMs: 300);
+        Assert.True(paint == "paint available" || paint.StartsWith("JS Error:", StringComparison.Ordinal), paint);
+        Assert.InRange(paintTimer.ElapsedMilliseconds, 0, 1500);
+        output.WriteLine("Hidden animation-frame availability: " + paint);
+        await browser.EvaluateAsync("""
+            setTimeout(() => {
+                const button=document.createElement('button'); button.id='hidden-ready'; button.textContent='Hidden DOM ready';
+                document.body.append(button);
+            }, 200);
+            return 'scheduled';
+            """);
+        Assert.DoesNotContain("Error:", await browser.DoAsync("wait", "#hidden-ready", "3000"));
+        Assert.Equal("false", await EvaluateString(browser, "String(document.hasFocus())"));
+        browser.SetControllerVisible(true);
+
+        var first = Path.Combine(root, "upload-a.txt");
+        var second = Path.Combine(root, "upload-b,1.txt");
+        await File.WriteAllTextAsync(first, "First fixture file");
+        await File.WriteAllTextAsync(second, "Second fixture file");
+        await browser.EvaluateAsync("""
+            document.body.insertAdjacentHTML('beforeend',
+                '<input id="fixture-files" type="file" multiple><span id="upload-telemetry" role="progressbar">Unrelated upload telemetry</span>');
+            window.uploadInputs=0; window.uploadChanges=0;
+            document.getElementById('fixture-files').oninput=() => window.uploadInputs++;
+            document.getElementById('fixture-files').onchange=() => window.uploadChanges++;
+            """);
+        var files = "[" + JsonSerializer.Serialize(first, Lumi.Models.AppDataJsonContext.Default.String) + "," +
+            JsonSerializer.Serialize(second, Lumi.Models.AppDataJsonContext.Default.String) + "]";
+        var uploadTimer = Stopwatch.StartNew();
+        var uploaded = await browser.DoAsync("upload", "#fixture-files", files);
+        output.WriteLine($"Multi-file upload ({uploadTimer.ElapsedMilliseconds} ms): {uploaded}");
+        Assert.Contains("Uploaded 2 file(s)", uploaded);
+        Assert.DoesNotContain("Error:", uploaded);
+        Assert.Single(Regex.Matches(uploaded, @"(?m)^Page: "));
+        Assert.Equal("upload-a.txt|upload-b,1.txt", await EvaluateString(browser,
+            "Array.from(document.getElementById('fixture-files').files).map(file => file.name).join('|')"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.uploadInputs)"));
+        Assert.Equal("1", await EvaluateString(browser, "String(window.uploadChanges)"));
+        Assert.True(uploadTimer.ElapsedMilliseconds < 1500, "Unrelated telemetry delayed an otherwise-ready upload.");
+        await browser.EvaluateAsync("document.getElementById('upload-telemetry').remove()");
+    }
+
+    private async Task VerifyNavigationAndQueuedValidation(BrowserService browser, string url, string root)
+    {
+        var loadingPage = Path.Combine(root, "loading.html");
+        await File.WriteAllTextAsync(loadingPage, """
+            <!doctype html><html><head><title>Delayed application fixture</title></head><body>Loading...
+            <script>
+            window.arrivalClicks=0;
+            setTimeout(() => {
+                document.body.insertAdjacentHTML('beforeend', '<button id="app-ready">Continue when app is ready</button>');
+                document.getElementById('app-ready').onclick=() => window.arrivalClicks++;
+            }, 400);
+            </script></body></html>
+            """);
+        var opened = await browser.OpenAndSnapshotAsync(new Uri(loadingPage).AbsoluteUri, diagnostics: true);
+        output.WriteLine("Delayed application navigation: " + opened);
+        Assert.Contains("Navigation: completed.", opened);
+        Assert.Contains("Readiness: DOM available", opened);
+        Assert.Contains("navigation=", opened);
+        if (!opened.Contains("Continue when app is ready", StringComparison.Ordinal))
+            Assert.Contains("no interactive elements yet", opened);
+        var clicked = await browser.DoAsync("click", "#app-ready quiet");
+        Assert.DoesNotContain("Error:", clicked);
+        Assert.Equal("1", await EvaluateString(browser, "String(window.arrivalClicks)"));
+        var hashNavigation = await browser.NavigateAsync(new Uri(loadingPage).AbsoluteUri + "#same-document");
+        Assert.StartsWith("Navigated to ", hashNavigation);
+        Assert.DoesNotContain("Error:", await browser.DoAsync("click", "#app-ready quiet"));
+        Assert.Equal("2", await EvaluateString(browser, "String(window.arrivalClicks)"));
+        var failed = await browser.OpenAndSnapshotAsync(new Uri(Path.Combine(root, "missing.html")).AbsoluteUri);
+        AssertError(failed);
+        Assert.DoesNotContain("Navigation: completed.", failed);
+
+        await browser.OpenAndSnapshotAsync(url);
+        await browser.EvaluateAsync("""
+            document.getElementById('notes').oninput = function() {
+                queueMicrotask(() => this.value='rejected asynchronously');
+            };
+            """);
+        var rejected = await browser.DoAsync("steps", value: """
+            [{"action":"type","target":"#notes","value":"must not be accepted"},
+             {"action":"click","target":"#confirm-notes"}]
+            """);
+        AssertError(rejected);
+        Assert.Contains("did not retain the requested value", rejected);
+        Assert.Contains("Unexecuted steps: 2 (click)", rejected);
+        Assert.Equal("0", await EvaluateString(browser, "String(window.confirmations)"));
+        await browser.EvaluateAsync("document.getElementById('notes').oninput=null");
+    }
+
     private async Task VerifyKeyboardAndClickTargets(BrowserService browser)
     {
         Assert.DoesNotContain("Error:", await browser.DoAsync("type", "#query", "local query"));
@@ -304,7 +719,9 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
     private async Task VerifyActionSettling(BrowserService browser)
     {
         var timer = Stopwatch.StartNew();
-        var delayed = await browser.DoAsync("click", "#delayed");
+        var delayed = await browser.DoAsync("steps", value: """
+            [{"action":"click","target":"#delayed"},{"action":"wait","target":"#delayed-result[data-ready='true']","value":"3000"}]
+            """);
         var delayedMs = timer.ElapsedMilliseconds;
         var delayedClicks = await EvaluateString(browser, "String(window.delayedClicks)");
 
@@ -340,10 +757,10 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         Assert.Equal("1", tickClicks);
         Assert.Equal("1", followups);
         Assert.DoesNotContain("Error:", changing);
-        Assert.Contains("may still be changing", changing);
-        Assert.Contains("not retried", changing);
+        Assert.DoesNotContain("time limit", changing);
+        Assert.Contains("Readiness: DOM available", changing);
         Assert.Equal("2", totalTickClicks);
-        Assert.InRange(changingMs, 0, 5000);
+        Assert.InRange(changingMs, 0, 1500);
     }
 
     private static async Task VerifyReferences(BrowserService browser, string url)
@@ -574,7 +991,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         <button id="commit-validation" type="button" disabled onclick="window.queryConfirmations++">Accept validation</button>
         <textarea id="notes"></textarea>
         <button id="confirm-notes" type="button" onclick="window.confirmations++">Confirm notes</button>
-        <button id="delayed" type="button" onclick="window.delayedClicks++;setTimeout(()=>document.getElementById('delayed-result').textContent='Result arrived',500)">Delayed result</button>
+        <button id="delayed" type="button" onclick="window.delayedClicks++;setTimeout(()=>{const result=document.getElementById('delayed-result');result.textContent='Result arrived';result.dataset.ready='true'},500)">Delayed result</button>
         <output id="delayed-result">Result pending</output>
         <button id="tick" type="button" onclick="window.tickClicks++">Count click</button>
         <button id="followup" type="button" onclick="window.followups++">Follow-up</button>

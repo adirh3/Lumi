@@ -154,6 +154,27 @@ public sealed class BrowserService : IAsyncDisposable
             return _tabs.ToArray();
     }
 
+    private NativeBrowserTab[] SnapshotInitializedProfileTabs()
+    {
+        var profileFolder = Path.TrimEndingDirectorySeparator(UserDataFolder);
+        BrowserService[] browsers;
+        lock (HostSync)
+        {
+            Browsers.RemoveAll(reference => !reference.TryGetTarget(out _));
+            browsers = Browsers.Select(reference =>
+                    reference.TryGetTarget(out var browser) ? browser : null)
+                .OfType<BrowserService>()
+                .Where(browser => !browser._isDisposed && string.Equals(
+                    Path.TrimEndingDirectorySeparator(browser.UserDataFolder),
+                    profileFolder, StringComparison.Ordinal))
+                .ToArray();
+        }
+
+        // Disposal takes a tab lock before HostSync; do not invert that order.
+        return browsers.SelectMany(browser => browser.GetTabs())
+            .Where(tab => tab.IsInitialized).ToArray();
+    }
+
     private NativeBrowserTab CaptureActiveTab()
     {
         ObjectDisposedException.ThrowIf(_isDisposed, this);
@@ -372,7 +393,7 @@ public sealed class BrowserService : IAsyncDisposable
     {
         var tab = CaptureActiveTab();
         await tab.EnsureInitializedAsync();
-        foreach (var initialized in GetTabs().Where(candidate => candidate.IsInitialized))
+        foreach (var initialized in SnapshotInitializedProfileTabs())
             await initialized.ClearCookiesAsync();
     }
 
@@ -381,7 +402,7 @@ public sealed class BrowserService : IAsyncDisposable
         var tab = CaptureActiveTab();
         await tab.EnsureInitializedAsync();
         var cookies = await BrowserCookieService.ReadCookiesAsync(profile);
-        foreach (var initialized in GetTabs().Where(candidate => candidate.IsInitialized))
+        foreach (var initialized in SnapshotInitializedProfileTabs())
             await initialized.SetCookiesAsync(cookies);
         return cookies.Count;
     }

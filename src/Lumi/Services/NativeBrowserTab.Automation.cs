@@ -74,7 +74,7 @@ internal sealed partial class NativeBrowserTab
         var result = await NavigateCoreAsync(url);
         if (!result.Succeeded)
             return $"Tab: {Id}\n" + result.ToDisplayText();
-        var ready = await WaitForContentSettleAsync();
+        var ready = await WaitForDocumentReadyAsync();
         var snapshot = await LookCoreAsync();
         return ready.Succeeded ? snapshot :
             (ready.Pending ? ready.Message : ready.ToDisplayText()) + "\n\n" + snapshot;
@@ -240,15 +240,16 @@ internal sealed partial class NativeBrowserTab
         }
         if (!result.Succeeded || action is "read_form" or "wait" or "download")
             return result;
-        var ready = await WaitForContentSettleAsync(2500);
+        var ready = await WaitForDocumentReadyAsync(2500);
         if (!ready.Succeeded && !ready.Pending)
             return BrowserActionResult.Failure(result.Message + "\nAction executed; " +
                 ready.Message + " It was not retried.");
         if (action is "type" or "select" or "fill" or "clear")
         {
-            var validation = await RunDomActionAsync("validate_edits");
+            var validation = await RunDomActionAsync("validate_edits", value: action);
             if (!validation.Succeeded)
-                return BrowserActionResult.Failure(result.Message + "\n" + validation.Message);
+                return BrowserActionResult.Failure(action == "fill"
+                    ? validation.Message : result.Message + "\n" + validation.Message);
         }
         return ready.Pending
             ? BrowserActionResult.Success(result.Message + "\nThe action completed and was not retried.\n" + ready.Message)
@@ -262,8 +263,6 @@ internal sealed partial class NativeBrowserTab
         await _actionLock.WaitAsync(_lifetime.Token);
         try
         {
-            if (operation == "ready" && _isNavigating)
-                return new(false, "The page is navigating.", Pending: true);
             if (operation is "click" or "type" or "clear" or "select")
             {
                 var deadline = Environment.TickCount64 + 2500;
@@ -302,8 +301,13 @@ internal sealed partial class NativeBrowserTab
 
     private Task<BrowserActionResult> ExecuteDomScriptAsync(
         string operation, string? target = null, string? value = null, int limit = 50, bool preferDialog = true) =>
-        BrowserService.OnUiThreadAsync(async () => BrowserActionResult.FromScript(
-            await ExecuteScriptAsync(BrowserDomScript.Build(operation, target, value, limit, preferDialog))));
+        BrowserService.OnUiThreadAsync(async () =>
+        {
+            if (_isNavigating && operation is "probe" or "ready" or "wait")
+                return new BrowserActionResult(false, "The page is navigating.", Pending: true);
+            return BrowserActionResult.FromScript(
+                await ExecuteScriptAsync(BrowserDomScript.Build(operation, target, value, limit, preferDialog)));
+        });
 
     private async Task<BrowserActionResult> WaitForDomElementAsync(string target, int timeoutMs)
     {
@@ -320,7 +324,7 @@ internal sealed partial class NativeBrowserTab
         return BrowserActionResult.Failure("Timeout waiting for a matching visible element.");
     }
 
-    private async Task<BrowserActionResult> WaitForContentSettleAsync(int maxWaitMs = 4000)
+    private async Task<BrowserActionResult> WaitForDocumentReadyAsync(int maxWaitMs = 4000)
     {
         var start = Environment.TickCount64;
         var deadline = start + maxWaitMs;
@@ -329,14 +333,14 @@ internal sealed partial class NativeBrowserTab
             var ready = await RunDomActionAsync("ready");
             if (!ready.Succeeded && !ready.Pending)
                 return ready;
-            if (ready.Succeeded && Environment.TickCount64 - start >= 750)
+            if (ready.Succeeded)
                 return ready;
             if (Environment.TickCount64 >= deadline)
                 break;
             await Task.Delay(100, _lifetime.Token);
         } while (true);
         return new(false,
-            "Observation note: page settling reached its time limit; the latest observation may still be changing. " +
+            "Observation note: document readiness reached its time limit; the latest observation may still be changing. " +
             "Use wait for the next expected element before continuing.", Pending: true);
     }
 
