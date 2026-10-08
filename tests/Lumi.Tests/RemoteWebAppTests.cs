@@ -45,6 +45,36 @@ public sealed class RemoteWebAppTests
         Assert.Matches("""\bhref\s*=\s*["']https://github\.com/adirh3/Lumi/releases/latest["']""", link);
     }
 
+    [Fact]
+    public void InstalledPwaKeepsItsIdentityAndRequestsExistingWindowFocus()
+    {
+        var assets = Path.Combine(AppContext.BaseDirectory, "BrowserAssets");
+        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(assets, "manifest.webmanifest")));
+        Assert.Equal("Lumi", manifest.RootElement.GetProperty("name").GetString());
+        Assert.Equal("./", manifest.RootElement.GetProperty("id").GetString());
+        Assert.Equal("standalone", manifest.RootElement.GetProperty("display").GetString());
+        Assert.Equal("focus-existing",
+            manifest.RootElement.GetProperty("launch_handler").GetProperty("client_mode").GetString());
+    }
+
+    [Fact]
+    public async Task ServiceWorkerScriptsRevalidateWithinTheirDefaultAppScope()
+    {
+        using var fixture = new WebFixture();
+        fixture.Write("service-worker.js", "self.addEventListener('fetch', () => {});");
+        fixture.Write("service-worker-assets.js", "self.lumiAssets = [];");
+
+        foreach (var file in new[] { "service-worker.js", "service-worker-assets.js" })
+        {
+            var response = await fixture.RequestAsync("GET", "/app/" + file);
+            Assert.StartsWith("HTTP/1.1 200 OK", response.Headers);
+            Assert.Contains("Content-Type: text/javascript; charset=utf-8", response.Headers);
+            Assert.Contains("Cache-Control: no-cache", response.Headers);
+            Assert.Contains("worker-src 'self'", response.Headers);
+            Assert.DoesNotContain("Service-Worker-Allowed:", response.Headers);
+        }
+    }
+
     [Theory]
     [InlineData("GET", "/lumi/snapshot", "navigate", "document", true)]
     [InlineData("GET", "/lumi/events", "navigate", "document", true)]
@@ -136,6 +166,23 @@ public sealed class RemoteWebAppTests
         Assert.Contains("Content-Security-Policy:", response.Headers);
         Assert.Contains("X-Content-Type-Options: nosniff", response.Headers);
         Assert.Equal("<!doctype html><title>Lumi</title>", response.Body);
+    }
+
+    [Fact]
+    public async Task ExplicitBrowserRecoveryUsesANonCachedBootstrapInsteadOfTheOldAppShell()
+    {
+        using var fixture = new WebFixture();
+        fixture.Write("index.html", "normal cached shell");
+        fixture.Write("cache-recovery.html", "fresh browser bootstrap");
+        fixture.Write("cache-recovery.js", "recover();");
+
+        var response = await fixture.RequestAsync("GET", "/app/?lumi-refresh=1");
+        var script = await fixture.RequestAsync("GET", "/app/cache-recovery.js");
+
+        Assert.Equal("fresh browser bootstrap", response.Body);
+        Assert.Contains("Cache-Control: no-store", response.Headers);
+        Assert.Contains("script-src 'self' 'wasm-unsafe-eval'", response.Headers);
+        Assert.Contains("Cache-Control: no-store", script.Headers);
     }
 
     [Fact]
@@ -275,10 +322,11 @@ public sealed class RemoteWebAppTests
             string path,
             Dictionary<string, string>? headers = null)
         {
+            var queryStart = path.IndexOf('?');
             var request = new RemoteHttpRequest(
                 method,
-                path,
-                "",
+                queryStart < 0 ? path : path[..queryStart],
+                queryStart < 0 ? "" : path[(queryStart + 1)..],
                 headers ?? new Dictionary<string, string>(),
                 "",
                 KeepAlive: false);

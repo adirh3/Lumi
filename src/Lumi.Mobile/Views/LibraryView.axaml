@@ -95,7 +95,7 @@
       <Border x:Name="LibraryHeaderSideInset"
               Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
         <Grid x:Name="LibraryHeaderLayout"
-              RowDefinitions="Auto,Auto,Auto"
+              RowDefinitions="Auto,Auto,Auto,Auto"
               ColumnDefinitions="Auto,*,Auto"
               ColumnSpacing="4"
               MaxWidth="720"
@@ -137,6 +137,9 @@
               </MultiBinding>
             </TextBlock.IsVisible>
           </TextBlock>
+          <views:WebAppUpdateBannerView x:Name="LibraryUpdateBanner"
+                                        Grid.Row="3" Grid.ColumnSpan="3"
+                                        DataContext="{Binding $parent[views:MobileShellView].DataContext}" />
         </Grid>
       </Border>
     </Border>

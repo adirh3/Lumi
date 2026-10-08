@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111114">
+  <meta name="application-name" content="Lumi">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Lumi">
@@ -18,7 +20,8 @@
     <div class="lumi-splash avalonia-splash">
       <img src="./icons/lumi-192.png" alt="">
       <strong>Lumi</strong>
-      <span>Connecting to your PC...</span>
+      <span role="status">Opening Lumi...</span>
+      <button id="startup-retry" type="button" hidden>Try again</button>
     </div>
   </div>
   <script type="module" src="./main.js"></script>
