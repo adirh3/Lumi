@@ -29,6 +29,15 @@ public enum MobilePage
     Search
 }
 
+public enum WebAppUpdateState
+{
+    Current,
+    Downloading,
+    Ready,
+    Applying,
+    Failed
+}
+
 /// <summary>A project the user can put the conversation into, straight from the drawer.</summary>
 public sealed partial class ProjectPickViewModel : ObservableObject
 {
@@ -69,6 +78,9 @@ public sealed partial class MobileShellViewModel :
     IAsyncDisposable
 {
     private readonly IMobileSettingsStore _store;
+    private readonly Action? _reloadWebApp = MobilePlatformServices.HostEnvironment.ReloadWebApp;
+    private readonly Action? _applyWebAppUpdate = MobilePlatformServices.HostEnvironment.ApplyWebAppUpdate;
+    private readonly Action? _checkWebAppUpdate = MobilePlatformServices.HostEnvironment.CheckWebAppUpdate;
     private readonly MobileConnectionSettings _settings;
     private readonly Action<Action> _post;
     private readonly CancellationTokenSource _lifetime = new();
@@ -86,6 +98,7 @@ public sealed partial class MobileShellViewModel :
     private bool _isApplicationActive = true;
     private MobilePage _lastObservedPage = MobilePage.Chat;
     private bool _chatActivationOwnsSubscription;
+    private int _commandsInFlight;
 
     private readonly object _transcriptRefreshSync = new();
     private readonly Stack<int> _newerTranscriptCursors = new();
@@ -156,6 +169,8 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(ShowMenuButton))]
     [NotifyPropertyChangedFor(nameof(CanChangeProjectScope))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenProjectPickerCommand))]
     private bool _isPaired;
 
@@ -166,6 +181,13 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ConnectionBannerText))]
     private string? _connectionMessage;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ConnectionBannerText))]
+    [NotifyPropertyChangedFor(nameof(ConnectionStateLabel))]
+    [NotifyPropertyChangedFor(nameof(ShowGatewaySignInAction))]
+    private bool _isGatewaySignInRequired;
+
     [ObservableProperty] private MobileLayoutState _layout = MobileLayoutState.From(390, 844);
     [ObservableProperty] private ThemePreference _theme = ThemePreference.System;
     [ObservableProperty] private string _userName = "";
@@ -189,12 +211,27 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(IsNavigationCoveringContent))]
     private bool _isDrawerMoving;
 
-    [ObservableProperty] private bool _isModalSheetPresented;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
+    private bool _isModalSheetPresented;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isProjectPickerOpen;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowWebAppUpdateBanner))]
+    [NotifyPropertyChangedFor(nameof(WebAppUpdateTitle))]
+    [NotifyPropertyChangedFor(nameof(WebAppUpdateMessage))]
+    [NotifyPropertyChangedFor(nameof(IsWebAppUpdating))]
+    [NotifyPropertyChangedFor(nameof(ShowApplyWebAppUpdateAction))]
+    [NotifyPropertyChangedFor(nameof(ShowCheckWebAppUpdateAction))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
+    private WebAppUpdateState _webAppUpdateState;
 
     public MobileShellViewModel(
         LumiRemoteClient? client = null,
@@ -258,6 +295,13 @@ public sealed partial class MobileShellViewModel :
                 OnPropertyChanged(nameof(CanDragDrawer));
             }
 
+            if (e.PropertyName is nameof(MobileChatViewModel.HasUnsentWork)
+                or nameof(MobileChatViewModel.HasOpenSheet)
+                or nameof(MobileChatViewModel.CanChooseWorktree))
+            {
+                NotifyWebAppUpdateSafetyChanged();
+            }
+
             if (e.PropertyName == nameof(MobileChatViewModel.IsGitChangesOpen) && CanReadChatTranscript)
                 _ = RefreshTranscriptAsync();
 
@@ -289,6 +333,13 @@ public sealed partial class MobileShellViewModel :
             {
                 OnPropertyChanged(nameof(CanGoBack));
                 OnPropertyChanged(nameof(CanDragDrawer));
+            }
+            if (e.PropertyName is nameof(LibraryViewModel.HasOpenSurface)
+                or nameof(LibraryViewModel.HasUnsavedChanges)
+                or nameof(LibraryViewModel.IsSaving)
+                or nameof(LibraryViewModel.IsActionBusy))
+            {
+                NotifyWebAppUpdateSafetyChanged();
             }
         };
 
@@ -362,6 +413,8 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isChatActionsOpen;
 
     [ObservableProperty]
@@ -374,6 +427,8 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowChatActionList))]
     [NotifyPropertyChangedFor(nameof(ChatActionsTitle))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveChatNameCommand))]
     private bool _isRenamingChat;
 
@@ -396,6 +451,8 @@ public sealed partial class MobileShellViewModel :
     [NotifyCanExecuteChangedFor(nameof(RenameActionChatCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveChatNameCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConfirmDeleteActionChatCommand))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isChatActionBusy;
 
     public string ActionChatTitle => ActionChat?.Title ?? "";
@@ -659,6 +716,87 @@ public sealed partial class MobileShellViewModel :
 
     public string DeviceName => _settings.DeviceName;
 
+    public bool CanReloadWebApp => _reloadWebApp is not null;
+
+    public bool ShowGatewaySignInAction => IsGatewaySignInRequired && CanReloadWebApp;
+
+    public bool CanAutomaticallyRecoverGatewaySignIn =>
+        IsPaired
+        && CanReloadWebApp
+        && Page == MobilePage.Chat
+        && !Chat.HasUnsentWork
+        && !Chat.HasOpenSheet
+        && !Library.HasUnsavedChanges
+        && !Library.IsSaving
+        && !IsRenamingChat
+        && !IsChatActionBusy;
+
+    public bool CanApplyWebAppUpdate =>
+        _applyWebAppUpdate is not null
+        && _isApplicationActive
+        && IsPaired
+        && Volatile.Read(ref _commandsInFlight) == 0
+        && !IsKeyboardOpen
+        && !Chat.HasUnsentWork
+        && !Chat.HasOpenSheet
+        && !Library.HasOpenSurface
+        && !Library.IsSaving
+        && !Library.IsActionBusy
+        && !IsModalSheetPresented
+        && !IsProjectPickerOpen
+        && !IsChatActionsOpen
+        && !IsRenamingChat
+        && !IsChatActionBusy
+        && !IsDisconnectConfirmationOpen;
+
+    public bool ShowWebAppUpdateBanner =>
+        _applyWebAppUpdate is not null && WebAppUpdateState != WebAppUpdateState.Current;
+
+    public bool IsWebAppUpdating =>
+        WebAppUpdateState is WebAppUpdateState.Downloading or WebAppUpdateState.Applying;
+
+    public bool ShowApplyWebAppUpdateAction => WebAppUpdateState == WebAppUpdateState.Ready;
+
+    public bool ShowCheckWebAppUpdateAction => WebAppUpdateState == WebAppUpdateState.Failed;
+
+    public string WebAppUpdateTitle => WebAppUpdateState switch
+    {
+        WebAppUpdateState.Downloading => "Downloading update",
+        WebAppUpdateState.Ready => "Update ready",
+        WebAppUpdateState.Applying => "Applying update",
+        WebAppUpdateState.Failed => "Update couldn't finish",
+        _ => ""
+    };
+
+    public string WebAppUpdateMessage => WebAppUpdateState switch
+    {
+        WebAppUpdateState.Downloading => "You can keep using Lumi while the verified app downloads.",
+        WebAppUpdateState.Ready => "Finish or clear drafts and question replies, then close editors. Lumi will update automatically when it's safe.",
+        WebAppUpdateState.Applying => "Reopening Lumi with the new build. Your pairing is kept.",
+        WebAppUpdateState.Failed => "Your current app and pairing are kept. Try again when connected.",
+        _ => ""
+    };
+
+    private bool CanApplyReadyWebAppUpdate =>
+        ShowApplyWebAppUpdateAction && CanApplyWebAppUpdate;
+
+    private bool CanCheckWebAppUpdate => _checkWebAppUpdate is not null;
+
+    private void NotifyWebAppUpdateSafetyChanged()
+    {
+        OnPropertyChanged(nameof(CanApplyWebAppUpdate));
+        ApplyWebAppUpdateCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanApplyReadyWebAppUpdate))]
+    private void ApplyWebAppUpdate() => _applyWebAppUpdate?.Invoke();
+
+    [RelayCommand(CanExecute = nameof(CanCheckWebAppUpdate))]
+    private void CheckWebAppUpdate() => _checkWebAppUpdate?.Invoke();
+
+    [RelayCommand(CanExecute = nameof(CanReloadWebApp))]
+    private void ReloadWebApp() => _reloadWebApp?.Invoke();
+
     /// <summary>
     /// The running build, shown in Settings. Without this there is no way to confirm which APK is
     /// actually on a phone — an install that silently kept the previous build looks identical to one
@@ -754,7 +892,8 @@ public sealed partial class MobileShellViewModel :
     /// <summary>True only when the phone can actually reach a ready Lumi: link up AND host ready.</summary>
     public bool IsLive => IsConnected && IsHostReady;
 
-    public string ConnectionStateLabel => !IsConnected ? "Reconnecting"
+    public string ConnectionStateLabel => IsGatewaySignInRequired ? "Sign-in required"
+        : !IsConnected ? "Reconnecting"
         : IsHostReady ? "Connected" : "Getting ready";
 
     /// <summary>
@@ -767,6 +906,9 @@ public sealed partial class MobileShellViewModel :
     {
         get
         {
+            if (IsGatewaySignInRequired)
+                return ConnectionMessage ?? "Microsoft sign-in needs attention. Your Lumi pairing is kept.";
+
             if (!IsConnected)
             {
                 var host = string.IsNullOrWhiteSpace(HostName) ? "your PC" : HostName;
@@ -1150,6 +1292,8 @@ public sealed partial class MobileShellViewModel :
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsWelcomeVisible))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isKeyboardOpen;
 
     /// <summary>
@@ -1215,7 +1359,7 @@ public sealed partial class MobileShellViewModel :
                     if (!_isApplicationActive
                         || generation != Volatile.Read(ref _connectionGeneration)
                         || !IsPaired
-                        || Client.State == RemoteLinkState.Unauthorized)
+                        || Client.State is RemoteLinkState.Unauthorized or RemoteLinkState.GatewaySignInRequired)
                     {
                         return;
                     }
@@ -1302,6 +1446,7 @@ public sealed partial class MobileShellViewModel :
     {
         var generation = Interlocked.Increment(ref _lifecycleGeneration);
         _isApplicationActive = false;
+        NotifyWebAppUpdateSafetyChanged();
         BeginConnectionGeneration();
         await _lifecycleGate.WaitAsync();
         try
@@ -1320,6 +1465,7 @@ public sealed partial class MobileShellViewModel :
     {
         var generation = Interlocked.Increment(ref _lifecycleGeneration);
         _isApplicationActive = true;
+        NotifyWebAppUpdateSafetyChanged();
         await _lifecycleGate.WaitAsync();
         try
         {
@@ -1406,6 +1552,8 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isDisconnectConfirmationOpen;
 
     [RelayCommand]
@@ -2171,6 +2319,7 @@ public sealed partial class MobileShellViewModel :
         PostForConnection(generation, () =>
         {
             ConnectionMessage = message;
+            IsGatewaySignInRequired = state == RemoteLinkState.GatewaySignInRequired;
 
             switch (state)
             {
@@ -2378,27 +2527,37 @@ public sealed partial class MobileShellViewModel :
 
     public async Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command)
     {
-        var generation = Volatile.Read(ref _connectionGeneration);
-        using var request = CreateConnectionRequest();
-        RemoteCommandResult result;
+        Interlocked.Increment(ref _commandsInFlight);
         try
         {
-            result = await Client.SendCommandAsync(command, request.Token);
-        }
-        catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
-        {
-            result = new RemoteCommandResult
+            _post(NotifyWebAppUpdateSafetyChanged);
+            var generation = Volatile.Read(ref _connectionGeneration);
+            using var request = CreateConnectionRequest();
+            RemoteCommandResult result;
+            try
             {
-                Error = "The PC connection changed before this action completed.",
-                RequestId = command.RequestId,
-                IsOutcomeUnknown = true
-            };
+                result = await Client.SendCommandAsync(command, request.Token);
+            }
+            catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
+            {
+                result = new RemoteCommandResult
+                {
+                    Error = "The PC connection changed before this action completed.",
+                    RequestId = command.RequestId,
+                    IsOutcomeUnknown = true
+                };
+            }
+
+            if (!result.Ok && result.Error is { Length: > 0 } error)
+                PostForConnection(generation, () => ConnectionMessage = error);
+
+            return result;
         }
-
-        if (!result.Ok && result.Error is { Length: > 0 } error)
-            PostForConnection(generation, () => ConnectionMessage = error);
-
-        return result;
+        finally
+        {
+            Interlocked.Decrement(ref _commandsInFlight);
+            _post(NotifyWebAppUpdateSafetyChanged);
+        }
     }
 
     public async Task<RemoteUploadResponse> UploadAsync(string fileName, ReadOnlyMemory<byte> content)

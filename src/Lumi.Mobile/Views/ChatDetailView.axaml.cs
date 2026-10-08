@@ -241,7 +241,10 @@ public partial class ChatDetailView : UserControl
             && _composer?.TranslatePoint(default, this) is { } origin
             && this.FindControl<Border>("WelcomeSideInset") is { } welcome)
         {
-            welcome.Margin = new Thickness(0, 0, 0, Math.Max(0, Bounds.Height - origin.Y + 8));
+            var header = this.FindControl<Border>("ChatHeaderSideInset");
+            var headerBottom = header?.TranslatePoint(new Point(0, header.Bounds.Height), this)?.Y ?? 0;
+            welcome.Margin = new Thickness(
+                0, Math.Max(0, headerBottom), 0, Math.Max(0, Bounds.Height - origin.Y + 8));
         }
     }
 
@@ -353,7 +356,10 @@ public partial class ChatDetailView : UserControl
     {
         if (_shell is not { } shell || TopLevel.GetTopLevel(this) is not { StorageProvider: { } storage })
             return;
+        if (shell.Chat.IsPickingAttachment)
+            return;
 
+        shell.Chat.IsPickingAttachment = true;
         ReleaseComposerFocus();
         try
         {
@@ -399,6 +405,10 @@ public partial class ChatDetailView : UserControl
                 ? "That file is too large for this phone to send."
                 : "That file could not be attached.";
             Trace.TraceWarning($"[Mobile] Attach failed: {ex}");
+        }
+        finally
+        {
+            shell.Chat.IsPickingAttachment = false;
         }
     }
 
@@ -761,6 +771,13 @@ public partial class ChatDetailView : UserControl
 
     private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (sender is QuestionItemViewModel
+            && e.PropertyName is nameof(QuestionItemViewModel.HasAnswerDraft)
+                or nameof(QuestionItemViewModel.IsAnswered))
+        {
+            _shell?.Chat.NotifyUnsentWorkChanged();
+        }
+
         if (_shell?.Chat.IsLatestWindow != true)
             return;
 
@@ -887,6 +904,7 @@ public partial class ChatDetailView : UserControl
                 .SelectMany(turn => turn.Items)
                 .Where(item => item is AssistantItemViewModel
                     or ReasoningItemViewModel
+                    or QuestionItemViewModel
                     or ActivitySummaryItemViewModel),
             ReferenceEqualityComparer.Instance);
 

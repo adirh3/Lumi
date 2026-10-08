@@ -690,6 +690,7 @@ public sealed partial class QuestionItemViewModel : TranscriptItemViewModel
     [ObservableProperty] private bool _allowMultiSelect;
     [ObservableProperty] private bool _isAnswered;
     [ObservableProperty] private string? _answer;
+    [ObservableProperty] private bool _hasAnswerDraft;
 
     public string QuestionId { get; private set; } = "";
 

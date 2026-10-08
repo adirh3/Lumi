@@ -20,6 +20,12 @@ internal sealed class BrowserHostEnvironment(string origin) : IMobileHostEnviron
     public string? FixedBaseUrl { get; } = origin.TrimEnd('/');
 
     public string FixedEndpointName => "This Lumi PC";
+
+    public Action? ReloadWebApp => BrowserInterop.ReloadWebApp;
+
+    public Action? ApplyWebAppUpdate => BrowserInterop.TryApplyAppUpdate;
+
+    public Action? CheckWebAppUpdate => BrowserInterop.CheckAppUpdate;
 }
 
 internal sealed class BrowserDiscoveryClient : ILumiDiscoveryClient
@@ -411,6 +417,24 @@ internal static partial class BrowserInterop
 {
     internal static BrowserNativeTextInputOverlayPresenter? NativeTextInputOverlayPresenter { get; set; }
 
+    [JSImport("setTheme", "./pwaHost.js")]
+    internal static partial void SetTheme(string preference);
+
+    [JSImport("reloadWebApp", "./pwaHost.js")]
+    internal static partial void ReloadWebApp();
+
+    [JSImport("recoverGatewaySignIn", "./pwaHost.js")]
+    internal static partial bool RecoverGatewaySignIn();
+
+    [JSImport("confirmGatewaySignIn", "./pwaHost.js")]
+    internal static partial void ConfirmGatewaySignIn();
+
+    [JSImport("tryApplyAppUpdate", "./pwaHost.js")]
+    internal static partial void TryApplyAppUpdate();
+
+    [JSImport("checkAppUpdate", "./pwaHost.js")]
+    internal static partial void CheckAppUpdate();
+
     [JSImport("getOrigin", "./browserHost.js")]
     internal static partial string GetOrigin();
 
@@ -498,6 +522,22 @@ internal static partial class BrowserInterop
             shell.NotifyApplicationActivated();
         else
             shell.NotifyApplicationDeactivated();
+    }
+
+    [JSExport]
+    internal static bool CanApplyAppUpdate() =>
+        (Application.Current as App)?.Shell?.CanApplyWebAppUpdate == true;
+
+    [JSExport]
+    internal static void SetAppUpdateState(string state)
+    {
+        if ((Application.Current as App)?.Shell is not { } shell)
+            return;
+
+        if (Enum.TryParse<WebAppUpdateState>(state, ignoreCase: true, out var value))
+            shell.WebAppUpdateState = value;
+        else
+            System.Diagnostics.Trace.TraceWarning($"[Mobile] Unknown browser update state: {state}");
     }
 
     [JSExport]

@@ -17,7 +17,8 @@ public enum RemoteLinkState
     Connecting,
     Connected,
     Unauthorized,
-    Error
+    Error,
+    GatewaySignInRequired
 }
 
 public sealed class RemoteGatewaySignInException(string message) : HttpRequestException(message);
@@ -242,6 +243,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             return new RemotePairResponse { Error = RequestTimeoutMessage };
         }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return new RemotePairResponse { Error = ex.Message };
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new RemotePairResponse { Error = Describe(ex) };
@@ -433,7 +439,9 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 cancellationToken)
             .ConfigureAwait(false);
         var result = firstAttempt.Result;
-        if (firstAttempt.IsAuthoritative || command.Action == RemoteProtocol.Actions.RevokeDevice)
+        if (firstAttempt.IsAuthoritative
+            || firstAttempt.IsGatewaySignInFailure
+            || command.Action == RemoteProtocol.Actions.RevokeDevice)
             return result;
         if (cancellationToken.IsCancellationRequested)
         {
@@ -529,6 +537,15 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 IsTimeout = true
             }, IsAuthoritative: false);
         }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return new CommandAttempt(new RemoteCommandResult
+            {
+                Error = ex.Message,
+                RequestId = requestId
+            }, IsAuthoritative: false, IsGatewaySignInFailure: true);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new CommandAttempt(new RemoteCommandResult
@@ -541,7 +558,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     private readonly record struct CommandAttempt(
         RemoteCommandResult Result,
-        bool IsAuthoritative);
+        bool IsAuthoritative,
+        bool IsGatewaySignInFailure = false);
 
     internal void MarkProtocolCompatibleForTests(
         int protocolVersion = RemoteProtocol.Version,
@@ -738,7 +756,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SetState(RemoteLinkState.Error, Describe(ex));
+            SetExceptionFailure(ex);
             return null;
         }
     }
@@ -872,6 +890,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             {
                 return null;
             }
+            catch (RemoteGatewaySignInException ex)
+            {
+                SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+                return null;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Trace.TraceWarning($"[Mobile] Inline image download failed: {ex}");
@@ -949,6 +972,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
         catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
         {
+            return null;
+        }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
             return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1122,6 +1150,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             return new RemoteUploadResponse { Error = RequestTimeoutMessage };
         }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return new RemoteUploadResponse { Error = ex.Message };
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new RemoteUploadResponse { Error = Describe(ex) };
@@ -1222,6 +1255,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             return;
         }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Trace.TraceWarning($"[Mobile] Subscription update failed: {ex.Message}");
@@ -1316,6 +1354,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             catch (UnauthorizedAccessException)
             {
                 SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                return;
+            }
+            catch (RemoteGatewaySignInException ex)
+            {
+                SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
                 return;
             }
             catch (Exception ex)
@@ -1515,7 +1558,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SetState(RemoteLinkState.Error, Describe(ex));
+            SetExceptionFailure(ex);
             return default;
         }
     }
@@ -1641,6 +1684,13 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         StateMessage = message;
         StateChanged?.Invoke(state, message);
     }
+
+    private void SetExceptionFailure(Exception exception) =>
+        SetState(
+            exception is RemoteGatewaySignInException
+                ? RemoteLinkState.GatewaySignInRequired
+                : RemoteLinkState.Error,
+            Describe(exception));
 
     private void SetRequestFailure(string message)
     {

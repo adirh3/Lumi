@@ -7,6 +7,9 @@ namespace Lumi.Mobile.Browser;
 internal sealed class BrowserSameOriginHandler(Uri origin, HttpMessageHandler innerHandler)
     : DelegatingHandler(innerHandler)
 {
+    private static readonly HttpRequestOptionsKey<IDictionary<string, object>> FetchOptions =
+        new("WebAssemblyFetchOptions");
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -19,6 +22,16 @@ internal sealed class BrowserSameOriginHandler(Uri origin, HttpMessageHandler in
         {
             throw new HttpRequestException("Lumi Web can only connect to the PC that served this app.");
         }
+
+        request.Options.TryGetValue(FetchOptions, out var configuredOptions);
+        var options = configuredOptions is null
+            ? new Dictionary<string, object>(StringComparer.Ordinal)
+            : new Dictionary<string, object>(configuredOptions, StringComparer.Ordinal);
+        options["credentials"] = "include";
+        options["cache"] = "no-store";
+        options["redirect"] = "manual";
+        request.Options.Set(FetchOptions, options);
+
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var isLumiResponse = response.Headers.TryGetValues(RemoteProtocol.ServerResponseHeader, out var source)
             && source.Contains(RemoteProtocol.ServerResponseValue, StringComparer.Ordinal);
@@ -32,8 +45,9 @@ internal sealed class BrowserSameOriginHandler(Uri origin, HttpMessageHandler in
         {
             response.Dispose();
             throw new RemoteGatewaySignInException(
-                "Microsoft sign-in needs attention. Reopen this web app and sign in with the tunnel owner's account. " +
-                "Your Lumi pairing is kept; copy any unsent draft before reloading.");
+                "Microsoft sign-in needs attention. Sign in again with the tunnel owner's account. " +
+                "Your Lumi pairing is kept; copy any unsent draft before reloading. " +
+                "Reload web app in Settings is also available.");
         }
         return response;
     }

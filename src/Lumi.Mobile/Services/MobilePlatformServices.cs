@@ -76,6 +76,12 @@ public interface IMobileHostEnvironment
     string? FixedBaseUrl { get; }
 
     string FixedEndpointName { get; }
+
+    Action? ReloadWebApp => null;
+
+    Action? ApplyWebAppUpdate => null;
+
+    Action? CheckWebAppUpdate => null;
 }
 
 public interface IRemoteDownloadStore

@@ -696,6 +696,59 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
+    public async Task UpdateSafetyKeepsUploadsUnsafeAcrossChatSwitchesUntilTheirAttachmentIsCleared()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var original = Guid.NewGuid();
+        var safetySignals = 0;
+        chat.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(chat.HasUnsentWork))
+                safetySignals++;
+        };
+        chat.Reset(original, "Original");
+        var upload = chat.AttachFileAsync("notes.txt", new byte[] { 1, 2, 3 });
+        await sink.UploadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        chat.Reset(Guid.NewGuid(), "Other chat");
+        Assert.False(chat.IsUploading);
+        Assert.True(chat.HasUnsentWork);
+        sink.UploadResult.SetResult(new RemoteUploadResponse
+        {
+            Ok = true, FileName = "notes.txt", Path = @"C:\uploads\notes.txt"
+        });
+        await upload;
+        Assert.True(chat.HasUnsentWork);
+        Assert.Empty(chat.Attachments);
+        chat.Reset(original, "Original");
+        chat.RemoveAttachmentCommand.Execute(Assert.Single(chat.Attachments));
+        Assert.False(chat.HasUnsentWork);
+        Assert.True(safetySignals >= 4);
+    }
+
+    [Fact]
+    public async Task UpdateSafetyNotifiesWhenPendingConfigurationIsConfirmed()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var signals = new List<bool>();
+        chat.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(chat.HasUnsentWork))
+                signals.Add(chat.HasUnsentWork);
+        };
+        chat.Reset(Guid.NewGuid(), "Existing chat");
+        chat.Model = "model-b";
+        await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(chat.HasUnsentWork);
+        sink.CommandResult.SetResult(new RemoteCommandResult { Ok = true });
+        await chat.FlushPendingConfigurationAsync();
+        Assert.False(chat.HasUnsentWork);
+        Assert.Contains(true, signals);
+        Assert.False(signals[^1]);
+    }
+
+    [Fact]
     public async Task BlankChatAdoption_KeepsAnInFlightUploadOnTheSameSurface()
     {
         var sink = new ControllableSink();

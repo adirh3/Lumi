@@ -278,6 +278,73 @@ it were full-bleed artwork. Installed launchers can cache old icons; remove the
 old PWA shortcut and install again from the current `/app/` link if the icon has
 not refreshed after updating Lumi.
 
+Published PWAs cache their static app shell and WebAssembly runtime locally after
+the first successful load. Later icon launches can open the app without waiting
+for those assets to cross the tunnel again. Chats, pairing responses, event
+streams, commands, and downloaded files are **not** service-worker cached; the PC,
+tunnel sign-in, and device pairing are still required for live use. Plain HTTP
+LAN addresses do not support service workers; HTTPS and localhost do.
+
+Private Dev Tunnel icon launches check the opening document over the network,
+even when its shell is cached. This lets Microsoft's gateway renew its browser
+session before the live API starts; authentication redirects and denials are
+never replaced with cached application HTML. The WASM/static assets still open
+from their verified cache. Offline or unavailable-tunnel launches retain the
+cached shell, with live data remaining unavailable until the connection returns.
+Other supported origins keep their cache-first navigation behavior.
+
+The web API transport explicitly includes same-origin browser credentials, uses
+Fetch `cache: no-store`, and keeps redirects manual. This applies to every live
+request, including reconnects and event subscriptions, so browser HTTP caches
+cannot reuse an earlier gateway denial after sign-in is renewed.
+
+The manifest requests **focus-existing** launch behavior, so browsers that
+support it bring an open Lumi window forward without navigating it again. This
+is a browser-dependent hint, not a guarantee on Android: Edge/Android may still
+reload or recreate the page, and Android can discard background apps. Resuming
+an existing page no longer performs duplicate lifecycle handshakes. Browser
+theme/status-bar colors follow Lumi's Light, Dark, or System preference.
+
+The PWA checks for content-versioned updates on launch, resume, network recovery,
+and a live desktop reconnect. New builds download and integrity-check their
+static assets before activation. When there is no unsent work or open editor,
+Lumi activates the update and reopens once automatically. Otherwise an **Update
+ready** banner keeps the current app usable and defers activation/reopening until
+drafts (including other chats and question replies), attachments, uploads,
+pending sends/configuration or remote actions, and open editors or sheets are
+safe. Update failures offer **Try again** without
+clearing the working app or pairing. Restarting the desktop with unchanged PWA
+assets only reconnects; it does not reinstall the bundle or reload the app.
+Other open app windows keep their runtime and drafts until they can safely
+reopen too. The refresh URL is a recovery fallback, not the normal update flow.
+
+If tunnel sign-in expires, the PWA stops treating it as a network reconnect and tries one
+same-origin sign-in refresh when no unsent or edited work would be lost. That
+navigation bypasses the static cache so Microsoft's gateway can renew its session;
+only a confirmed live Lumi connection resets the automatic-attempt guard.
+Otherwise, **Sign in again** appears in the connection banner. The existing
+**Settings > Connection > Browser sign-in > Reload web app** action remains
+available. Pairing stays saved, but copy any unsent work before a manual reload.
+Startup failures also offer **Try again**.
+
+The explicit reload goes through a small, non-cached recovery document. It
+unregisters only Lumi's `/app/` service-worker registration before opening a
+fresh document, so a browser retaining an older controller does not reload the
+same stale runtime. It does not clear cookies, pairing, browser storage, or
+verified static caches, and it does not navigate other open app windows.
+The recovered document coordinates activation of the waiting update. Older
+verified framework caches are retained while other app pages remain open, so
+those pages keep their loaded runtime and drafts; subsequent new launches use
+the current build instead of depending on the browser retiring an old page.
+
+**Install as app** does not guarantee a separate Android application identity:
+the browser decides whether it creates a packaged PWA or a browser-hosted
+shortcut, and it controls the Recents icon. Authentication-protected manifests
+and icons may limit packaging by services that cannot use the browser's sign-in
+cookies. Lumi keeps those assets private; it does not expose the tunnel publicly
+to force an install icon. Reinstall from the current signed-in `/app/` page after
+updating, but do not treat that as a guaranteed fix for Edge's Recents icon.
+
 This mode binds Lumi's listener to **127.0.0.1 only**, disables LAN discovery, and
 does not fall back to LAN or Tailscale if setup or hosting fails. Browser requests
 are restricted to their original origin and do not follow authentication
@@ -325,8 +392,9 @@ from Lumi pairing: reopen the same `/app/` link and sign in again with the owner
 account. This does not revoke or replace the phone's Lumi pairing token.
 The web client identifies gateway sign-in redirects and non-Lumi authentication
 errors separately from Lumi's marked JSON pairing errors, so an expired Microsoft browser
-session does not accidentally unpair the device. Its reconnect banner exposes the
-sign-in guidance rather than hiding every error behind **Reconnecting**.
+session does not accidentally unpair the device. Authentication failures stop the
+handshake and event-stream retry loops and expose **Sign-in required** with a
+direct recovery action, rather than endlessly showing **Reconnecting**.
 Copy any unsent draft before reloading the web app.
 Long-lived web requests use the CLI's disabled relay request timeout; Lumi's own
 request/body limits and SSE silence deadlines remain in force.

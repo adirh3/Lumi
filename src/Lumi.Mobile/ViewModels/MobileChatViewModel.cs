@@ -34,6 +34,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private CancellationTokenSource? _fileSuggestionCts;
     private long _fileSuggestionVersion;
     private bool _restoringDraftState;
+    private int _uploadsInFlight;
 
     /// <summary>
     /// Set while server state is being written into the selection properties. Their setters push a
@@ -46,6 +47,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty] private string _title = "";
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
     private string _promptText = "";
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
@@ -239,12 +241,32 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public bool HasAttachments => Attachments.Count > 0;
 
+    internal bool HasUnsentWork =>
+        PromptText.Length > 0
+        || HasAttachments
+        || IsUploading
+        || IsPickingAttachment
+        || _uploadsInFlight > 0
+        || SendCommand.IsRunning
+        || HasPendingConfiguration
+        || HasPendingReplay
+        || Turns.SelectMany(turn => turn.Items).OfType<QuestionItemViewModel>()
+            .Any(question => question.HasAnswerDraft && !question.IsAnswered)
+        || _drafts.Any(draft => !IsCurrentSurface(draft.Key) && !draft.Value.IsEmpty);
+
+    internal void NotifyUnsentWorkChanged() => OnPropertyChanged(nameof(HasUnsentWork));
+
     internal long StatusVersion => Volatile.Read(ref _statusVersion);
 
     /// <summary>An upload in flight, so the composer can show progress instead of appearing to hang.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
     private bool _isUploading;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUnsentWork))]
+    private bool _isPickingAttachment;
 
     /// <summary>
     /// Asks the view to open the file picker. The picker needs a TopLevel, which a view model has
@@ -358,6 +380,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         var hostGeneration = Volatile.Read(ref _hostGeneration);
         var surface = CurrentSurface;
+        _uploadsInFlight++;
         IsUploading = true;
         try
         {
@@ -389,6 +412,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         {
             if (IsCurrentHost(hostGeneration) && IsCurrentSurface(surface))
                 IsUploading = false;
+            _uploadsInFlight--;
+            OnPropertyChanged(nameof(HasUnsentWork));
         }
     }
 
@@ -422,6 +447,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // via _applyingServerState, leaving only the ones the user actually made on the phone.
         SkillChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addSkills");
         McpChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addMcps");
+        Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasUnsentWork));
+        SendCommand.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SendCommand.IsRunning))
+                OnPropertyChanged(nameof(HasUnsentWork));
+        };
     }
 
     private void PushChipAdditions(NotifyCollectionChangedEventArgs e, string key)
@@ -1196,12 +1227,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (ChatId == Guid.Empty)
         {
             _pendingConfiguration.SetScalar(key, value);
+            OnPropertyChanged(nameof(HasUnsentWork));
             return;
         }
 
         // Keep every unconfirmed choice in one batch. SendAsync carries the same batch atomically,
         // so an immediate send cannot overtake a fire-and-forget configure request.
         _pendingConfiguration.SetScalar(key, value);
+        OnPropertyChanged(nameof(HasUnsentWork));
         _ = FlushPendingConfigurationAsync();
     }
 
@@ -1342,12 +1375,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         surface = ResolveSurface(surface);
         if (draft.IsEmpty)
-        {
             _drafts.Remove(surface);
-            return;
-        }
-
-        _drafts[surface] = draft.Copy();
+        else
+            _drafts[surface] = draft.Copy();
+        OnPropertyChanged(nameof(HasUnsentWork));
     }
 
     private void ApplyDraft(DraftState draft, bool restoreSelections)
@@ -1373,6 +1404,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasAttachments));
+        OnPropertyChanged(nameof(HasUnsentWork));
         SendCommand.NotifyCanExecuteChanged();
     }
 
@@ -1479,6 +1511,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             // Editing starts a new explicit send, but the old request still needs a receipt check.
             _pendingRetry = pending with { PayloadEdited = true };
             OnPropertyChanged(nameof(CanChooseWorktree));
+            OnPropertyChanged(nameof(HasUnsentWork));
         }
     }
 
@@ -1544,6 +1577,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         finally
         {
             _configurationGate.Release();
+            OnPropertyChanged(nameof(HasUnsentWork));
         }
     }
 
@@ -1668,6 +1702,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         finally
         {
             IsApplyingTranscript = false;
+            NotifyUnsentWorkChanged();
             OnPropertyChanged(nameof(IsInitialLoading));
             TranscriptApplied?.Invoke();
         }
@@ -3298,6 +3333,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         Interlocked.Increment(ref _statusVersion);
         _pendingConfiguration.AddValue(key, value);
+        OnPropertyChanged(nameof(HasUnsentWork));
         return ChatId == Guid.Empty
             ? Task.CompletedTask
             : FlushPendingConfigurationAsync();
