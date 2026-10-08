@@ -497,7 +497,7 @@ public sealed class ChatViewModelAgentRoutingTests
             materializedViewModel);
 
         Assert.Equal(MessageSteerState.Queued, materializedViewModel.SteerState);
-        Assert.Single(chat.Messages.Where(message => message.Content == materializedMessage.Content));
+        Assert.Single(chat.Messages, message => message.Content == materializedMessage.Content);
         Assert.Equal(["C:\\attachments\\report.txt"], materializedMessage.Attachments);
         Assert.Same(materializedMessage, queued[chat.Id][0]);
         Assert.Same(newerQueuedMessage, queued[chat.Id][1]);
@@ -764,24 +764,14 @@ public sealed class ChatViewModelAgentRoutingTests
             .Select(tool => tool.Name)
             .ToArray();
 
-        // The embedded browser (WebView2) is Windows-only, so the lumi_browser_* tools are only
-        // registered on Windows. Elsewhere they must be absent so the agent isn't told about them.
-        if (OperatingSystem.IsWindows())
-        {
-            Assert.Contains(ToolDisplayHelper.BrowserOpenToolName, toolNames);
-            Assert.Contains(ToolDisplayHelper.BrowserLookToolName, toolNames);
-            Assert.Contains(ToolDisplayHelper.BrowserFindToolName, toolNames);
-            Assert.Contains(ToolDisplayHelper.BrowserDoToolName, toolNames);
-            Assert.Contains(ToolDisplayHelper.BrowserJsToolName, toolNames);
-            Assert.Contains(ToolDisplayHelper.BrowserTabsToolName, toolNames);
-            Assert.Contains(ToolDisplayHelper.BrowserScreenshotToolName, toolNames);
-        }
-        else
-        {
-            Assert.DoesNotContain(ToolDisplayHelper.BrowserOpenToolName, toolNames);
-            Assert.DoesNotContain(ToolDisplayHelper.BrowserJsToolName, toolNames);
-            Assert.DoesNotContain(toolNames, static name => name.StartsWith("lumi_browser_", StringComparison.Ordinal));
-        }
+        var available = NativeBrowserLogic.IsEmbeddedBrowserAvailable;
+        Assert.Equal(available, toolNames.Contains(ToolDisplayHelper.BrowserOpenToolName));
+        Assert.Equal(available, toolNames.Contains(ToolDisplayHelper.BrowserLookToolName));
+        Assert.Equal(available, toolNames.Contains(ToolDisplayHelper.BrowserFindToolName));
+        Assert.Equal(available, toolNames.Contains(ToolDisplayHelper.BrowserDoToolName));
+        Assert.Equal(available, toolNames.Contains(ToolDisplayHelper.BrowserJsToolName));
+        Assert.Equal(available, toolNames.Contains(ToolDisplayHelper.BrowserTabsToolName));
+        Assert.Equal(available, toolNames.Contains(ToolDisplayHelper.BrowserScreenshotToolName));
 
         // Regardless of platform, no tool should use the bare "browser" namespace.
         Assert.DoesNotContain("browser", toolNames);
@@ -803,18 +793,17 @@ public sealed class ChatViewModelAgentRoutingTests
         var config = SessionConfigBuilder.Build(
             "prompt", null, null, null, [], [], tools, null, null, null, null);
 
-        if (OperatingSystem.IsWindows())
-        {
-            var tool = Assert.Single(config.Tools!);
-            Assert.Equal(ToolDisplayHelper.BrowserOpenToolName, tool.Name);
-            Assert.Equal(CopilotToolDefer.Never,
-                Assert.IsType<CopilotToolDefer>(tool.AdditionalProperties["defer"]));
-        }
-        else
+        if (!NativeBrowserLogic.IsEmbeddedBrowserAvailable)
         {
             Assert.Empty(tools);
             Assert.Null(config.Tools);
+            return;
         }
+
+        var tool = Assert.Single(config.Tools!);
+        Assert.Equal(ToolDisplayHelper.BrowserOpenToolName, tool.Name);
+        Assert.Equal(CopilotToolDefer.Never,
+            Assert.IsType<CopilotToolDefer>(tool.AdditionalProperties["defer"]));
     }
 
     [Theory]
@@ -842,20 +831,24 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
-    public void BuildCustomTools_BrowserToolsPreserveRequiredArgumentsAndAddOptionalDiagnostics()
+    public void BuildCustomTools_BrowserToolsPreserveRequiredArgumentsAndPlatformOptions()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         using var harness = CreateHarness(new AppData());
         var tools = InvokeBuildCustomTools(harness.ViewModel).ToDictionary(tool => tool.Name);
+        if (!NativeBrowserLogic.IsEmbeddedBrowserAvailable)
+        {
+            Assert.DoesNotContain(tools.Keys, static name => name.StartsWith("lumi_browser_", StringComparison.Ordinal));
+            return;
+        }
+        var isWindows = OperatingSystem.IsWindows();
         var expectedArguments = new Dictionary<string, string[]>
         {
-            [ToolDisplayHelper.BrowserOpenToolName] = ["url", "diagnostics"],
+            [ToolDisplayHelper.BrowserOpenToolName] = isWindows ? ["url", "diagnostics"] : ["url"],
             [ToolDisplayHelper.BrowserLookToolName] = ["filter"],
             [ToolDisplayHelper.BrowserFindToolName] = ["query", "limit"],
-            [ToolDisplayHelper.BrowserDoToolName] = ["action", "target", "value", "diagnostics"],
-            [ToolDisplayHelper.BrowserJsToolName] = ["script", "timeoutMs"],
+            [ToolDisplayHelper.BrowserDoToolName] = isWindows
+                ? ["action", "target", "value", "diagnostics"] : ["action", "target", "value"],
+            [ToolDisplayHelper.BrowserJsToolName] = isWindows ? ["script", "timeoutMs"] : ["script"],
             [ToolDisplayHelper.BrowserTabsToolName] = ["action", "tabId", "url"],
             [ToolDisplayHelper.BrowserScreenshotToolName] = ["tabId"]
         };
@@ -873,14 +866,58 @@ public sealed class ChatViewModelAgentRoutingTests
 
         var tabs = tools[ToolDisplayHelper.BrowserTabsToolName];
         Assert.Equal(["action"], tabs.JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal(["action"], tools[ToolDisplayHelper.BrowserDoToolName].JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal(["query"], tools[ToolDisplayHelper.BrowserFindToolName].JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
         Assert.Contains("stable IDs", tabs.Description);
         Assert.Contains("partial fill blocks subsequent steps", tools[ToolDisplayHelper.BrowserDoToolName].Description);
         Assert.Contains("own visible, enabled target", tools[ToolDisplayHelper.BrowserDoToolName].Description);
         Assert.Contains("returned Promises", tools[ToolDisplayHelper.BrowserJsToolName].Description);
+        if (!isWindows)
+        {
+            Assert.DoesNotContain("diagnostics=true", tools[ToolDisplayHelper.BrowserDoToolName].Description);
+            Assert.Contains("await and returned Promises are not supported",
+                tools[ToolDisplayHelper.BrowserJsToolName].Description);
+        }
     }
 
     [Fact]
-    public void BuildCustomTools_RestrictedBrowserSelectionOnlyInjectsSelectedNewToolsOnWindows()
+    public void BuildCustomTools_BrowserDownloadGuidanceMatchesHostCapabilities()
+    {
+        using var harness = CreateHarness(new AppData());
+        var tools = InvokeBuildCustomTools(harness.ViewModel).ToDictionary(tool => tool.Name);
+        if (!NativeBrowserLogic.IsEmbeddedBrowserAvailable)
+        {
+            Assert.DoesNotContain(tools.Keys, static name => name.StartsWith("lumi_browser_", StringComparison.Ordinal));
+            return;
+        }
+        var open = tools[ToolDisplayHelper.BrowserOpenToolName];
+        var interact = tools[ToolDisplayHelper.BrowserDoToolName];
+        var properties = interact.JsonSchema.GetProperty("properties");
+        var actionDescription = properties.GetProperty("action").GetProperty("description").GetString();
+
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Contains("Embedded browser downloads are unsupported on Linux and macOS", open.Description);
+            Assert.Contains("Embedded browser downloads are unsupported on Linux and macOS", interact.Description);
+            Assert.Contains("curl", interact.Description);
+            Assert.Contains("verified direct URL", interact.Description);
+            Assert.Contains("do not inherit browser login cookies", interact.Description);
+            Assert.DoesNotContain("wait, download, clear", interact.Description);
+            Assert.DoesNotContain("download", actionDescription);
+            Assert.DoesNotContain("file pattern", properties.GetProperty("target").GetProperty("description").GetString());
+            Assert.DoesNotContain("download is detected automatically", open.Description);
+        }
+        else
+        {
+            Assert.Contains("wait, download, clear", interact.Description);
+            Assert.Contains("wait, download, clear", actionDescription);
+            Assert.Contains("Download URLs report the download instead of a page snapshot", open.Description);
+            Assert.DoesNotContain("Embedded browser downloads are unsupported", open.Description);
+        }
+    }
+
+    [Fact]
+    public void BuildCustomTools_RestrictedBrowserSelectionOnlyInjectsSelectedNewTools()
     {
         using var harness = CreateHarness(new AppData());
         var agent = new LumiAgent
@@ -891,7 +928,7 @@ public sealed class ChatViewModelAgentRoutingTests
         };
         var toolNames = InvokeBuildCustomTools(harness.ViewModel, agent).Select(tool => tool.Name).ToArray();
 
-        Assert.Equal(OperatingSystem.IsWindows() ? agent.ToolNames.ToArray() : [], toolNames);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable ? agent.ToolNames.ToArray() : [], toolNames);
     }
 
     [Fact]
@@ -908,15 +945,15 @@ public sealed class ChatViewModelAgentRoutingTests
         Assert.Contains("manage_current_chat", toolNames);
         Assert.Contains("manage_lumis", toolNames);
         Assert.Contains("code_review", toolNames);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable,
+            toolNames.Contains(ToolDisplayHelper.BrowserOpenToolName));
         if (OperatingSystem.IsWindows())
         {
-            Assert.Contains(ToolDisplayHelper.BrowserOpenToolName, toolNames);
             Assert.Contains("ui_list_windows", toolNames);
         }
         else
         {
-            Assert.DoesNotContain(ToolDisplayHelper.BrowserOpenToolName, toolNames);
-            Assert.DoesNotContain("ui_list_windows", toolNames);
+            Assert.DoesNotContain(toolNames, static name => name.StartsWith("ui_", StringComparison.Ordinal));
         }
     }
 

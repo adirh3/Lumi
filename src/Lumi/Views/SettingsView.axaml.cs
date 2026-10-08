@@ -6,6 +6,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+#if !WINDOWS
+using Avalonia.LogicalTree;
+#endif
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Lumi.Localization;
@@ -161,6 +164,21 @@ public partial class SettingsView : UserControl
         _cookieImportActions = this.FindControl<StackPanel>("CookieImportActions");
         _cookieImportButton = this.FindControl<Button>("CookieImportButton");
         _cookieImportCancelButton = this.FindControl<Button>("CookieImportCancelButton");
+
+#if !WINDOWS
+        if (_cookieImportDialog?.DialogContent is Control dialogContent)
+        {
+            foreach (var hint in dialogContent.GetLogicalDescendants().OfType<TextBlock>())
+            {
+                if (hint.Text == "• The selected browser will be briefly closed")
+                    hint.Text = "• Close the selected browser first if its cookie database is locked";
+                else if (hint.Text == "• Windows may ask for your password to authorize")
+                    hint.Text = "• Your system may ask to unlock its credential store";
+                else if (OperatingSystem.IsLinux() && hint.Text == "• Your cookies will be copied into Lumi's browser")
+                    hint.Text = Loc.Browser_LinuxTabSessionHint;
+            }
+        }
+#endif
 
         if (_cookieImportButton is not null)
             _cookieImportButton.Click += OnCookieImportClick;

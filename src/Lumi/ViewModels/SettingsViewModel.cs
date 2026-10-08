@@ -501,9 +501,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     /// keyboard-shortcut settings group is hidden on Linux/macOS.</summary>
     public bool IsGlobalHotkeyAvailable => OperatingSystem.IsWindows();
 
-    /// <summary>The embedded WebView2 browser (and its cookie import) is Windows-only, so the
-    /// browser settings group is hidden on Linux/macOS.</summary>
-    public bool IsEmbeddedBrowserAvailable => OperatingSystem.IsWindows();
+    /// <summary>The embedded browser needs macOS 14+ for an isolated persistent profile.</summary>
+    public bool IsEmbeddedBrowserAvailable => NativeBrowserLogic.IsEmbeddedBrowserAvailable;
 
     public SettingsViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService, UpdateService updateService, Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null, McpProxyRuntime? mcpProxyRuntime = null)
     {

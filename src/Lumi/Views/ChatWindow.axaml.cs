@@ -22,6 +22,18 @@ public partial class ChatWindow : Window
     public ChatWindow()
     {
         InitializeComponent();
+#if !WINDOWS
+        // Keep this window's native host attached even when its Workspace browser page is closed.
+        var scaledContent = Content as Control;
+        Content = null;
+        var nativeWebViewLayer = new Canvas { Name = "NativeWebViewLayer", ClipToBounds = true };
+        var nativeHostRoot = new Grid { Name = "NativeWebViewHostRoot" };
+        if (scaledContent is not null)
+            nativeHostRoot.Children.Add(scaledContent);
+        nativeHostRoot.Children.Add(nativeWebViewLayer);
+        Content = nativeHostRoot;
+        BrowserService.RegisterHostLayer(this, nativeWebViewLayer);
+#endif
         WindowChromeInterop.EnableNativeMinMaxAnimations(this);
         ExtendClientAreaToDecorationsHint = true;
         ExtendClientAreaTitleBarHeightHint = BaseTitleBarHeight;
@@ -69,6 +81,9 @@ public partial class ChatWindow : Window
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
 
         _chatWorkspace?.Dispose();
+#if !WINDOWS
+        BrowserService.UnregisterHostLayer(this);
+#endif
         base.OnClosed(e);
     }
 

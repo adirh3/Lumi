@@ -517,6 +517,53 @@ try {
 }
 ```
 
+### Embedded browser
+
+Lumi's Workspace browser uses the existing WebView2 implementation on Windows
+and the system WebKit browser on Linux/macOS. Native support is compiled out on
+Windows; the engines keep independent initialization, tab, and disposal code.
+The same browser tools provide navigation, safe element targeting, forms, JavaScript,
+uploads, tabs, and actual page screenshots on all three platforms.
+Windows also provides browser phase-timing diagnostics and JavaScript promise
+awaiting with a bounded timeout. Native browser tools keep synchronous JavaScript
+and do not expose those Windows-only options.
+
+Linux needs WebKitGTK 4.1 (`sudo apt install libwebkit2gtk-4.1-0` on Ubuntu).
+The native macOS browser requires macOS 14 or later for private per-profile
+storage; older macOS versions use the system browser instead.
+WebKitGTK stores browser data under Lumi's app-data directory; macOS selects a
+separate system-managed WKWebView data store for each Lumi app-data profile.
+Cookie import uses the user's local browser profiles; unavailable keyring access and unsupported
+encryption formats are reported rather than treated as a successful import.
+
+Platform differences are intentional:
+
+- Linux tabs have separate in-memory session cookies. Keep a signed-in workflow
+  in the same tab; a new tab or popup may need its own sign-in.
+- Native popups open as independent tabs, without a preserved JavaScript
+  `window.opener` relationship.
+- Embedded downloads are supported on Windows only. On Linux/macOS, use a
+  verified direct download URL with `curl`, or the system browser. Native tool
+  descriptions omit the download action, and direct requests report the limitation.
+
+For headed regression checks, run the Debug-only fixture:
+
+```powershell
+dotnet run --project src\Lumi\Lumi.csproj -- --test-browser-native
+```
+
+It creates a fresh isolated app-data directory and a loopback-only fixture server;
+it never sends Copilot messages, uses real browser cookies, registers global
+shortcuts, or changes launch-at-login settings. Checks exercise the
+real Workspace, navigation and actions, uploads, native cookie round-trips and
+profile isolation, tab policy, page-reported viewport
+dimensions, screenshot pixels, hide/show, resizing, UI scaling, detached-window
+transfer, and disposal. It exits nonzero on failure. Add
+`--browser-native-output <directory>` to collect JSON/PNG evidence, or
+`--browser-native-keep-open` to leave the fixture open for inspection.
+The dedicated validation workflow runs on Windows, Linux, Intel macOS, and Apple
+Silicon macOS; headed results, not compilation alone, establish runtime support.
+
 ### Windows computer-use automation
 
 Windows desktop tools use native UI Automation patterns, cached UI properties,

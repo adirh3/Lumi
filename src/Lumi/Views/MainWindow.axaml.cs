@@ -147,6 +147,18 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+#if !WINDOWS
+        // Native controls live outside UiScaleHost; BrowserView supplies transformed physical bounds.
+        var scaledContent = Content as Control;
+        Content = null;
+        var nativeWebViewLayer = new Canvas { Name = "NativeWebViewLayer", ClipToBounds = true };
+        var nativeHostRoot = new Grid { Name = "NativeWebViewHostRoot" };
+        if (scaledContent is not null)
+            nativeHostRoot.Children.Add(scaledContent);
+        nativeHostRoot.Children.Add(nativeWebViewLayer);
+        Content = nativeHostRoot;
+        BrowserService.RegisterHostLayer(this, nativeWebViewLayer);
+#endif
         WindowChromeInterop.EnableNativeMinMaxAnimations(this);
         ExtendClientAreaToDecorationsHint = true;
         ExtendClientAreaTitleBarHeightHint = BaseTitleBarHeight;
@@ -490,6 +502,15 @@ public partial class MainWindow : Window
         CaptureBoundsToSettings();
         base.OnClosing(e);
     }
+
+#if !WINDOWS
+    protected override void OnClosed(EventArgs e)
+    {
+        // Closing to the tray is cancelled in OnClosing and must keep its host registered.
+        BrowserService.UnregisterHostLayer(this);
+        base.OnClosed(e);
+    }
+#endif
 
     protected virtual IReadOnlyList<Window> GetDesktopWindows()
     {

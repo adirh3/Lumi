@@ -34,6 +34,8 @@
   "Csv_NoCompleteRows": "No complete rows fit in this preview. Open the file in its app to see everything.",
   "Csv_InvalidFormat": "The CSV has an invalid quoted field near line {0}. Open it in its app to check the file.",
 
+  "Browser_LinuxTabSessionHint": "• On Linux, tabs have separate session cookies. Keep sign-in flows in the same tab; new tabs and popups may need a separate login.",
+
   "Onboarding_Hello": "Hello! I'm Lumi",
   "Onboarding_Subtitle": "Your personal assistant. What should I call you?",
   "Onboarding_NameWatermark": "Your name",
