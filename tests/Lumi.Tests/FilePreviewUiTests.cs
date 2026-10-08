@@ -2,6 +2,7 @@ using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -18,6 +19,129 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class FilePreviewUiTests
 {
+    [Fact]
+    public async Task CsvPreviewRendersSortsFiltersAndTogglesHeadersWithoutEditingTheFile()
+    {
+        const string source = "Name,Price,Notes\nTen,10,\"quoted, note\"\nTwo,2,\"line 1\nline 2\"\n";
+        var path = Path.Combine(Path.GetTempPath(), $"lumi-csv-preview-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, source);
+        var session = HeadlessTestSession.Start();
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                using var view = new FilePreviewView();
+                var window = new Window { Content = view, Width = 680, Height = 520 };
+                window.Show();
+                try
+                {
+                    await view.ShowFileAsync(path);
+                    window.UpdateLayout();
+                    var csv = Assert.IsType<CsvPreviewView>(
+                        view.FindControl<ContentControl>("FilePreviewContentHost")!.Content);
+                    var vm = Assert.IsType<CsvPreviewViewModel>(csv.DataContext);
+                    var grid = csv.FindControl<DataGrid>("CsvTable")!;
+                    Assert.True(grid.IsReadOnly);
+                    Assert.Equal(1, grid.FrozenColumnCount);
+                    Assert.Equal(DataGridClipboardCopyMode.IncludeHeader, grid.ClipboardCopyMode);
+                    Assert.Equal(["#", "Name", "Price", "Notes"], grid.Columns.Select(column => column.Header));
+                    Assert.DoesNotContain(view.GetVisualDescendants(), control => control is StrataCodeBlock);
+                    Assert.Null(csv.FindControl<CheckBox>("CsvHeaderToggle"));
+                    Assert.DoesNotContain(csv.GetVisualDescendants().OfType<TextBlock>(),
+                        text => text.Text == Lumi.Localization.Loc.Csv_Title);
+                    Assert.All(csv.GetVisualDescendants().OfType<TextBlock>()
+                        .Where(text => text.Classes.Contains("csv-row-number")),
+                        text => Assert.True(text.Bounds.Width >= 36,
+                            "Record numbers need enough content width for multi-digit positions."));
+                    var footer = csv.FindControl<WrapPanel>("CsvFooterStats")!;
+                    var footerTop = footer.TranslatePoint(default, csv)!.Value.Y;
+                    var tableBottom = grid.TranslatePoint(new Avalonia.Point(0, grid.Bounds.Height), csv)!.Value.Y;
+                    Assert.True(footerTop >= tableBottom, "CSV statistics should be below the table.");
+
+                    Assert.True(grid.Columns[2].CanUserSort);
+                    var priceHeader = grid.GetVisualDescendants().OfType<DataGridColumnHeader>()
+                        .Single(header => Equals(header.Content, "Price"));
+                    var headerPoint = priceHeader.TranslatePoint(
+                        new Avalonia.Point(priceHeader.Bounds.Width / 2, priceHeader.Bounds.Height / 2), window)!.Value;
+                    window.MouseDown(headerPoint, MouseButton.Left);
+                    window.MouseUp(headerPoint, MouseButton.Left);
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.Equal(["2", "10"], vm.Rows.Cast<CsvPreviewRow>().Select(row => row.Cells[1]));
+                    csv.FindControl<TextBox>("CsvSearchBox")!.Text = "quoted";
+                    Assert.Single(vm.Rows.Cast<CsvPreviewRow>());
+                    Assert.Equal("Ten", vm.Rows.Cast<CsvPreviewRow>().Single().Cells[0]);
+                    vm.ClearSearchCommand.Execute(null);
+                    Assert.Equal(["2", "10"], vm.Rows.Cast<CsvPreviewRow>().Select(row => row.Cells[1]));
+
+                    window.UpdateLayout();
+                    var multiline = csv.GetVisualDescendants().OfType<TextBlock>()
+                        .Single(text => text.Text == "line 1 line 2");
+                    Assert.Equal("line 1\nline 2", ToolTip.GetTip(multiline));
+                    var copied = new List<object[]>();
+                    grid.CopyingRowClipboardContent += (_, e) =>
+                        copied.Add(e.ClipboardRowContent.Select(cell => cell.Content).ToArray());
+                    grid.SelectedItem = vm.Rows.Cast<CsvPreviewRow>().First();
+                    grid.Focus();
+                    window.KeyPress(Key.C, RawInputModifiers.Control, PhysicalKey.None, null);
+                    Assert.Equal(2, copied.Count);
+                    Assert.Equal(["Name", "Price", "Notes"], copied[0]);
+                    Assert.Equal(["Two", "2", "line 1\nline 2"], copied[1]);
+                    var menu = Assert.IsType<ContextMenu>(grid.ContextMenu);
+                    menu.Open(grid);
+                    window.UpdateLayout();
+                    var headerAction = Assert.Single(menu.Items.OfType<MenuItem>());
+                    Assert.Equal(Lumi.Localization.Loc.Csv_UseFirstRowAsData, headerAction.Header);
+                    Assert.Same(vm.ToggleHeaderRowCommand, headerAction.Command);
+                    headerAction.Command!.Execute(null);
+                    Assert.False(vm.HasHeaderRow);
+                    Assert.Equal(3, vm.Rows.Count);
+                    Assert.Equal(4, grid.Columns.Count);
+                    Assert.Equal(1, grid.FrozenColumnCount);
+                    Assert.Equal(Lumi.Localization.Loc.Csv_UseFirstRowAsHeaders, headerAction.Header);
+                    menu.Close();
+                    view.Clear();
+                    Assert.Null(view.FindControl<ContentControl>("FilePreviewContentHost")!.Content);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+            Assert.Equal(source, await File.ReadAllTextAsync(path));
+            using var exclusive = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        }
+        finally
+        {
+            await Task.Run(session.Dispose);
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task MalformedCsvShowsAnErrorInsteadOfAnEmptyTable()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"lumi-csv-error-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "Name,Notes\nA,\"unfinished");
+        var session = HeadlessTestSession.Start();
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                using var view = new FilePreviewView();
+                await view.ShowFileAsync(path);
+                var status = Assert.IsType<StackPanel>(
+                    view.FindControl<ContentControl>("FilePreviewContentHost")!.Content);
+                Assert.Contains(status.Children.OfType<SelectableTextBlock>(),
+                    text => text.Text == Lumi.Localization.Loc.Get("Csv_InvalidFormat", 2));
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(session.Dispose);
+            File.Delete(path);
+        }
+    }
+
     [SkippableFact]
     public async Task HtmlBrowserInitializationFailureShowsAnErrorInsteadOfSourceCode()
     {

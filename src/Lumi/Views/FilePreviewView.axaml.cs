@@ -12,6 +12,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Services;
+using Lumi.ViewModels;
 using StrataTheme.Controls;
 
 namespace Lumi.Views;
@@ -41,6 +42,13 @@ public partial class FilePreviewView : UserControl, IDisposable
             PreviewTruncationNotice.IsVisible = content.IsTruncated;
             switch (content.Kind)
             {
+                case FilePreviewKind.Csv:
+                    FilePreviewContentHost.Content = new CsvPreviewView
+                    {
+                        DataContext = new CsvPreviewViewModel(
+                            content.Csv ?? throw new ArgumentException("CSV preview data is missing."), content.IsTruncated)
+                    };
+                    break;
                 case FilePreviewKind.Markdown:
                     FilePreviewContentHost.Content = WrapContent(new StrataMarkdown
                     {
@@ -105,7 +113,7 @@ public partial class FilePreviewView : UserControl, IDisposable
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
-                                   or NotSupportedException)
+                                   or NotSupportedException or FormatException)
         {
             if (ReferenceEquals(_loadCts, cts))
                 ShowStatus(Loc.Preview_Unavailable, ex.Message);
