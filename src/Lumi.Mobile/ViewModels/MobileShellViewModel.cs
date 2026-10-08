@@ -723,6 +723,7 @@ public sealed partial class MobileShellViewModel :
     public bool CanAutomaticallyRecoverGatewaySignIn =>
         IsPaired
         && CanReloadWebApp
+        && Volatile.Read(ref _commandsInFlight) == 0
         && Page == MobilePage.Chat
         && !Chat.HasUnsentWork
         && !Chat.HasOpenSheet
@@ -771,7 +772,7 @@ public sealed partial class MobileShellViewModel :
     public string WebAppUpdateMessage => WebAppUpdateState switch
     {
         WebAppUpdateState.Downloading => "You can keep using Lumi while the verified app downloads.",
-        WebAppUpdateState.Ready => "Finish or clear drafts and question replies, then close editors. Lumi will update automatically when it's safe.",
+        WebAppUpdateState.Ready => "Wait for downloads and actions, finish or clear drafts and question replies, then close editors. Lumi will update automatically when it's safe.",
         WebAppUpdateState.Applying => "Reopening Lumi with the new build. Your pairing is kept.",
         WebAppUpdateState.Failed => "Your current app and pairing are kept. Try again when connected.",
         _ => ""
@@ -2525,12 +2526,29 @@ public sealed partial class MobileShellViewModel :
         }
     }
 
-    public async Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command)
+    internal void BeginPendingRemoteAction()
     {
         Interlocked.Increment(ref _commandsInFlight);
+        _post(NotifyPendingRemoteActionSafetyChanged);
+    }
+
+    internal void EndPendingRemoteAction()
+    {
+        Interlocked.Decrement(ref _commandsInFlight);
+        _post(NotifyPendingRemoteActionSafetyChanged);
+    }
+
+    private void NotifyPendingRemoteActionSafetyChanged()
+    {
+        NotifyWebAppUpdateSafetyChanged();
+        OnPropertyChanged(nameof(CanAutomaticallyRecoverGatewaySignIn));
+    }
+
+    public async Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command)
+    {
+        BeginPendingRemoteAction();
         try
         {
-            _post(NotifyWebAppUpdateSafetyChanged);
             var generation = Volatile.Read(ref _connectionGeneration);
             using var request = CreateConnectionRequest();
             RemoteCommandResult result;
@@ -2555,8 +2573,7 @@ public sealed partial class MobileShellViewModel :
         }
         finally
         {
-            Interlocked.Decrement(ref _commandsInFlight);
-            _post(NotifyWebAppUpdateSafetyChanged);
+            EndPendingRemoteAction();
         }
     }
 

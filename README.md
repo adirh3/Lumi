@@ -311,16 +311,16 @@ static assets before activation. When there is no unsent work or open editor,
 Lumi activates the update and reopens once automatically. Otherwise an **Update
 ready** banner keeps the current app usable and defers activation/reopening until
 drafts (including other chats and question replies), attachments, uploads,
-pending sends/configuration or remote actions, and open editors or sheets are
-safe. Update failures offer **Try again** without
+produced-file downloads and opens, pending sends/configuration or remote actions,
+and open editors or sheets are safe. Update failures offer **Try again** without
 clearing the working app or pairing. Restarting the desktop with unchanged PWA
 assets only reconnects; it does not reinstall the bundle or reload the app.
 Other open app windows keep their runtime and drafts until they can safely
 reopen too. The refresh URL is a recovery fallback, not the normal update flow.
 
 If tunnel sign-in expires, the PWA stops treating it as a network reconnect and tries one
-same-origin sign-in refresh when no unsent or edited work would be lost. That
-navigation bypasses the static cache so Microsoft's gateway can renew its session;
+same-origin sign-in refresh only when pending actions have finished and no unsent
+or edited work would be lost. That navigation bypasses the static cache so Microsoft's gateway can renew its session;
 only a confirmed live Lumi connection resets the automatic-attempt guard.
 Otherwise, **Sign in again** appears in the connection banner. The existing
 **Settings > Connection > Browser sign-in > Reload web app** action remains

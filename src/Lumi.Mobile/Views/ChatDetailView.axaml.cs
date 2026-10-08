@@ -982,6 +982,7 @@ public partial class ChatDetailView : UserControl
         }
 
         string? downloadedPath = null;
+        shell.BeginPendingRemoteAction();
         try
         {
             downloadedPath = await shell.DownloadProducedFileAsync(shell.Chat.ChatId, messageId, fileName);
@@ -1024,8 +1025,15 @@ public partial class ChatDetailView : UserControl
         }
         finally
         {
-            if (downloadedPath is not null && File.Exists(downloadedPath))
-                File.Delete(downloadedPath);
+            try
+            {
+                if (downloadedPath is not null && File.Exists(downloadedPath))
+                    File.Delete(downloadedPath);
+            }
+            finally
+            {
+                shell.EndPendingRemoteAction();
+            }
         }
     }
 }

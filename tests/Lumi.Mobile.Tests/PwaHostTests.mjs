@@ -122,6 +122,71 @@ const settle = async () => {
         await Promise.resolve();
 };
 
+function startup(failedModule) {
+    const retry = eventTarget({ hidden: true });
+    const label = { textContent: 'Opening Lumi...' };
+    const errors = [];
+    const modules = [];
+    let reloads = 0;
+    let recoveries = 0;
+    const window = eventTarget({
+        location: { href: 'https://lumi.test/app/', reload: () => reloads++ }
+    });
+    const context = vm.createContext({
+        window, location: window.location, navigator: { onLine: true },
+        document: {
+            getElementById: () => retry,
+            querySelector: () => ({
+                classList: { contains: () => false },
+                querySelector: () => label
+            })
+        },
+        console: { error: error => errors.push(error) },
+        async loadModule(name) {
+            modules.push(name);
+            if (name === failedModule)
+                throw new Error(`HTTP 503 loading ${name}`);
+            if (name === './browserHost.js')
+                return {};
+            if (name === './pwaHost.js')
+                return { checkAppUpdate() {}, reloadWebApp: () => recoveries++ };
+            throw new Error(`Unexpected fixture module ${name}`);
+        }
+    });
+    const main = source('main.js')
+        .replace(/^import\s+\{([^}]+)\}\s+from\s+(['"])([^'"]+)\2;/gm,
+            'const {$1} = await loadModule("$3");')
+        .replace(/\bimport\s*\(/g, 'loadModule(');
+    const ready = vm.runInContext(`(async () => { ${main} })()`, context)
+        .catch(error => errors.push(error));
+    return {
+        retry, label, errors, modules, ready,
+        get reloads() { return reloads; },
+        get recoveries() { return recoveries; }
+    };
+}
+
+test('a failed PWA host import exposes the startup error and a working retry without that module', async () => {
+    const app = startup('./pwaHost.js');
+    await app.ready;
+    assert.equal(app.retry.hidden, false);
+    assert.match(app.label.textContent, /Lumi could not start:.*503.*pwaHost\.js/);
+    assert.ok(!app.modules.includes('./_framework/dotnet.js'));
+    app.retry.dispatch('click');
+    assert.equal(app.reloads, 1);
+    assert.equal(app.recoveries, 0);
+});
+
+test('a runtime import failure retains explicit PWA recovery once the host module loaded', async () => {
+    const app = startup('./_framework/dotnet.js');
+    await app.ready;
+    assert.equal(app.retry.hidden, false);
+    assert.match(app.label.textContent, /Lumi could not start:.*503.*dotnet\.js/);
+    app.retry.dispatch('click');
+    assert.equal(app.recoveries, 1);
+    assert.equal(app.reloads, 0);
+});
+
 function waitingWorker() {
     const messages = [];
     return eventTarget({

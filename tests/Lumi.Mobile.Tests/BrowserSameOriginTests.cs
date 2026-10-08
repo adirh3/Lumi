@@ -1,4 +1,6 @@
 using System.Net;
+using System.Text;
+using System.Text.Json;
 using Lumi.Mobile.Browser;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
@@ -207,6 +209,64 @@ public sealed class BrowserSameOriginTests
         Assert.Equal(1, transport.RequestCount);
     }
 
+    [Fact]
+    public async Task AutomaticGatewayRecoveryWaitsForThePendingQuestionAcknowledgment()
+    {
+        const string origin = "https://private-47654.uks1.devtunnels.ms";
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        MobilePlatformServices.HostEnvironment = new RecoverableWebHost(origin);
+        var transport = new PendingGatewayActionHandler();
+        try
+        {
+            await using var client = new LumiRemoteClient("test-device", "Web fixture",
+                new BrowserSameOriginHandler(new Uri(origin), transport));
+            var store = new PairedStore(new MobileConnectionSettings
+            {
+                DeviceId = "test-device", DeviceName = "Web fixture",
+                BaseUrl = origin, Token = "test-pairing-token", HostName = "Fixture PC"
+            });
+            await using var shell = new MobileShellViewModel(client, store: store, post: action => action());
+            client.MarkProtocolCompatibleForTests();
+            var recoveries = 0;
+            shell.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(shell.IsGatewaySignInRequired)
+                    or nameof(shell.CanAutomaticallyRecoverGatewaySignIn)
+                    && shell.IsGatewaySignInRequired && shell.CanAutomaticallyRecoverGatewaySignIn)
+                    recoveries++;
+            };
+            var action = shell.SendCommandAsync(new RemoteCommand(RemoteProtocol.Actions.AnswerQuestion)
+                .With("questionId", "fixture-question").With("answer", "First"));
+            await transport.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            try
+            {
+                Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.Null(await client.GetSnapshotAsync(CancellationToken.None));
+                Assert.True(shell.IsGatewaySignInRequired);
+                Assert.False(action.IsCompleted);
+                Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+                Assert.Equal(0, recoveries);
+                Assert.True(shell.ShowGatewaySignInAction);
+                Assert.True(shell.ReloadWebAppCommand.CanExecute(null));
+            }
+            finally
+            {
+                transport.Release.TrySetResult();
+                Assert.True((await action).Ok);
+            }
+
+            Assert.True(shell.CanApplyWebAppUpdate);
+            Assert.True(shell.CanAutomaticallyRecoverGatewaySignIn);
+            Assert.Equal(1, recoveries);
+            Assert.Equal("test-pairing-token", store.Load().Token);
+        }
+        finally
+        {
+            transport.Release.TrySetResult();
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
     private sealed class PairedStore(MobileConnectionSettings settings) : IMobileSettingsStore
     {
         public int SaveCount { get; private set; }
@@ -214,6 +274,45 @@ public sealed class BrowserSameOriginTests
         public MobileConnectionSettings Load() => settings;
 
         public void Save(MobileConnectionSettings value) => SaveCount++;
+    }
+
+    private sealed class RecoverableWebHost(string origin) : IMobileHostEnvironment
+    {
+        public bool HasFixedEndpoint => true;
+        public string? FixedBaseUrl => origin;
+        public string FixedEndpointName => "Fixture PC";
+        public Action? ReloadWebApp => () => { };
+        public Action? ApplyWebAppUpdate => () => { };
+    }
+
+    private sealed class PendingGatewayActionHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath != RemoteProtocol.Routes.Command)
+                return new HttpResponseMessage(HttpStatusCode.Forbidden)
+                {
+                    Content = new StringContent("Sign in to Microsoft.", Encoding.UTF8, "text/html")
+                };
+
+            var json = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var command = JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteCommand);
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new RemoteCommandResult
+                {
+                    Ok = true, RequestId = command?.RequestId
+                }, RemoteJsonContext.Default.RemoteCommandResult), Encoding.UTF8, "application/json")
+            };
+        }
     }
 
     private sealed class CaptureHandler(

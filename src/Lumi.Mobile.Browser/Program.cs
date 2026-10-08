@@ -42,7 +42,8 @@ internal static class Program
             {
                 if (e.PropertyName == nameof(MobileShellViewModel.Theme))
                     BrowserInterop.SetTheme(shell.Theme.ToString());
-                else if (e.PropertyName == nameof(MobileShellViewModel.IsGatewaySignInRequired)
+                else if (e.PropertyName is nameof(MobileShellViewModel.IsGatewaySignInRequired)
+                    or nameof(MobileShellViewModel.CanAutomaticallyRecoverGatewaySignIn)
                     && shell.IsGatewaySignInRequired
                     && shell.CanAutomaticallyRecoverGatewaySignIn)
                 {

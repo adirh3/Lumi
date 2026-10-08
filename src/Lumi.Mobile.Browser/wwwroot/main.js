@@ -2,15 +2,8 @@ import {
     configureNativeTextInputs,
     publishViewportInsets
 } from './browserHost.js';
-import {
-    configureAppLifecycle,
-    configureAppUpdates,
-    checkAppUpdate,
-    reloadWebApp
-} from './pwaHost.js';
-
-document.getElementById('startup-retry').addEventListener('click', reloadWebApp);
-void checkAppUpdate();
+let retryStartup = () => window.location.reload();
+document.getElementById('startup-retry').addEventListener('click', () => retryStartup());
 
 const showFatalError = error => {
     console.error(error);
@@ -28,6 +21,15 @@ window.addEventListener('error', event => showFatalError(event.error || event.me
 window.addEventListener('unhandledrejection', event => showFatalError(event.reason));
 
 try {
+    const {
+        configureAppLifecycle,
+        configureAppUpdates,
+        checkAppUpdate,
+        reloadWebApp
+    } = await import('./pwaHost.js');
+    retryStartup = reloadWebApp;
+    void checkAppUpdate();
+
     const { dotnet } = await import('./_framework/dotnet.js');
     const runtime = await dotnet
         .withDiagnosticTracing(false)

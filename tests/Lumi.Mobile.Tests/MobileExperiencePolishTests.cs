@@ -2051,6 +2051,107 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BrowserNavigationWaitsForTheProducedFileBodyAndOpener(bool openerFails)
+    {
+        var chatId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        await using var desktop = new FakeLumiDesktop
+        {
+            ProducedFileBytes = "A complete produced file."u8.ToArray(),
+            FileBodyStarted = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            ReleaseFileBody = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            Snapshot = new RemoteSnapshot { ActiveChatId = chatId },
+            Transcript = new RemoteTranscript
+            {
+                ChatId = chatId, Revision = 1, TotalRawMessageCount = 1, WindowEndMessageIndex = 1,
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "file-turn",
+                    Items = [new RemoteTranscriptItem
+                    {
+                        Id = "file-row", Kind = RemoteProtocol.ItemKinds.File,
+                        Attachments = [new RemoteAttachment
+                        {
+                            MessageId = messageId, FileName = "review-file.txt", Extension = "txt"
+                        }]
+                    }]
+                }]
+            }
+        };
+        desktop.Start();
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        var previousOpener = MobilePlatformServices.ProducedFileOpener;
+        var opener = new DeferredProducedFileOpener();
+        MobilePlatformServices.HostEnvironment = new ReloadableWebHost(
+            () => { }, () => { }, () => { }, desktop.BaseUrl);
+        MobilePlatformServices.ProducedFileOpener = opener;
+        try
+        {
+            await RunUiAsync(360, async (shell, view, window) =>
+            {
+                await PairAsync(shell, desktop);
+                await desktop.SubscriberConnected.WaitAsync(TimeSpan.FromSeconds(2));
+                shell.Chat.Reset(chatId, "File fixture");
+                shell.Chat.ApplyTranscript(desktop.Transcript);
+                Pump(window);
+                var file = view.GetVisualDescendants().OfType<StrataFileAttachment>()
+                    .Single(card => card.Classes.Contains("produced-file"));
+                var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var opening = false;
+                shell.PropertyChanged += (_, e) =>
+                {
+                    if (opening && e.PropertyName == nameof(shell.CanApplyWebAppUpdate)
+                        && shell.CanApplyWebAppUpdate)
+                        finished.TrySetResult();
+                };
+                try
+                {
+                    Assert.True(shell.CanApplyWebAppUpdate);
+                    file.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(
+                        StrataFileAttachment.OpenRequestedEvent));
+                    await desktop.FileBodyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                    opening = true;
+                    shell.WebAppUpdateState = WebAppUpdateState.Ready;
+                    Assert.False(shell.CanApplyWebAppUpdate);
+                    Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+                    Assert.True(shell.ReloadWebAppCommand.CanExecute(null));
+                    Assert.False(opener.Started.Task.IsCompleted);
+
+                    desktop.ReleaseFileBody.TrySetResult();
+                    await opener.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                    Assert.Equal(desktop.ProducedFileBytes, await File.ReadAllBytesAsync(opener.Path!));
+                    Assert.False(shell.CanApplyWebAppUpdate);
+                    Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+
+                    if (openerFails)
+                        opener.Result.TrySetException(new IOException("The fixture opener failed."));
+                    else
+                        opener.Result.TrySetResult(true);
+                    await finished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                    Assert.True(shell.CanApplyWebAppUpdate);
+                    Assert.True(shell.CanAutomaticallyRecoverGatewaySignIn);
+                    Assert.False(File.Exists(opener.Path));
+                    Assert.Equal(openerFails ? "That file could not be opened." : null, shell.Chat.ErrorText);
+                }
+                finally
+                {
+                    desktop.ReleaseFileBody.TrySetResult();
+                    opener.Result.TrySetResult(true);
+                }
+            });
+        }
+        finally
+        {
+            desktop.ReleaseFileBody.TrySetResult();
+            opener.Result.TrySetResult(true);
+            MobilePlatformServices.HostEnvironment = previousHost;
+            MobilePlatformServices.ProducedFileOpener = previousOpener;
+        }
+    }
+
     [Fact]
     public Task PairingErrorsStayBesideTheCodeAndAboveTheKeyboard() =>
         RunUiAsync(360, async (shell, view, window) =>
@@ -2369,6 +2470,23 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         public Action? ReloadWebApp => reload;
         public Action? ApplyWebAppUpdate => apply;
         public Action? CheckWebAppUpdate => check;
+    }
+
+    private sealed class DeferredProducedFileOpener : IProducedFileOpener
+    {
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Result { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string? Path { get; private set; }
+
+        public Task<bool> TryOpenAsync(
+            string downloadedPath, string displayName, CancellationToken cancellationToken)
+        {
+            Path = downloadedPath;
+            Started.TrySetResult();
+            return Result.Task.WaitAsync(cancellationToken);
+        }
     }
 
     private sealed class FocusEditorFactory : INativeComposerEditorFactory
