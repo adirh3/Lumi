@@ -516,6 +516,20 @@ public sealed class RemoteDevTunnelCliTests
         }
     }
 
+    [Fact]
+    public async Task ErrorLineNotificationsPreserveEveryLineAndBoundTheRetainedTail()
+    {
+        var lines = new[] { "First host error", new string('x', 2500), "Last host error" };
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(
+            string.Join(Environment.NewLine, lines) + Environment.NewLine));
+        using var reader = new StreamReader(stream);
+        var reported = new List<string>();
+        var tail = await RemoteDevTunnelCli.ReadErrorLinesAsync(reader, CancellationToken.None, reported.Add);
+        Assert.Equal(lines, reported);
+        Assert.Equal(2000, tail.Length);
+        Assert.EndsWith("Last host error" + Environment.NewLine, tail);
+    }
+
     private static HttpClient Client(Func<HttpRequestMessage, HttpResponseMessage> respond) =>
         new(new Handler(respond));
 

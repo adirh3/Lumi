@@ -308,8 +308,19 @@ cluster when available.
 Transient relay failures are retried automatically with capped, cancellable
 backoff, and network changes rehost the same route. Settings show **Reconnecting**
 instead of a usable link while the relay is down; **Reconnect** retries without
-rebinding the local listener. Expired desktop credentials ask for an explicit
-Microsoft sign-in. On the phone, Microsoft's gateway session can expire separately
+rebinding the local listener. Lumi observes the CLI's live relay-close, restored,
+and terminal host-error messages instead of waiting for the process to exit.
+The CLI can recover in place; if its recovery stalls for 90 seconds or reports a
+recoverable terminal host error, Lumi replaces only its owned host through the same retry
+path. A previously connected host can hold expired in-memory credentials, so
+Lumi first relaunches it to reacquire credentials from Microsoft's credential
+store. If fresh setup still requires authentication, Lumi asks for explicit
+Microsoft sign-in rather than repeatedly restarting or opening login unattended.
+The listener, saved link, phone pairing, and running chats remain unchanged.
+An explicit "another host has connected" conflict instead stops automatic
+recovery and shows an error. Stop the other host before manually retrying; Lumi
+does not automatically reclaim the tunnel from it.
+On the phone, Microsoft's gateway session can expire separately
 from Lumi pairing: reopen the same `/app/` link and sign in again with the owner
 account. This does not revoke or replace the phone's Lumi pairing token.
 The web client identifies gateway sign-in redirects and non-Lumi authentication

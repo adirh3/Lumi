@@ -402,7 +402,292 @@ public sealed class RemoteDevTunnelTests
         }
     }
 
-    private static ProcessStartInfo HostedProcessFixture(string origin, bool exitAfterReady)
+    [Theory]
+    [InlineData("devtunnel: Error connecting host tunnel session: Unauthorized (401).", true)]
+    [InlineData("Error connecting host tunnel session: Network unavailable.", true)]
+    [InlineData("HostSSH: Error running client SSH session: Connection lost.", false)]
+    [InlineData("ClientSSH: Error running client SSH session: Error connecting host tunnel session: unrelated.", false)]
+    [InlineData("Connection to host tunnel relay closed. Reconnecting.", false)]
+    public void OnlyTerminalHostErrorsInterruptTheHostingProcess(string line, bool expected) =>
+        Assert.Equal(expected, RemoteDevTunnelHost.IsTerminalHostFailure(line));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AuthenticationFailureReacquiresCredentialsOnlyForAPreviouslyReadyHost(bool wasReady)
+    {
+        var failure = RemoteDevTunnelHost.CreateHostingFailure(
+            "Unauthorized (401). Provide a fresh tunnel access token with 'host' scope.", wasReady);
+        Assert.Equal(!wasReady, failure.RequiresSignIn);
+        Assert.Equal(wasReady, failure.CanRetry);
+    }
+
+    [Theory]
+    [InlineData("Connection to host tunnel relay closed. Another host for the tunnel has connected.", true)]
+    [InlineData("devtunnel: Error connecting host tunnel session: Cannot retry connection because another host for this tunnel has connected. Only one host connection at a time is supported.", true)]
+    [InlineData("devtunnel: Error connecting host tunnel session: Cannot retry connection because another host for this tunnel has connected. Only one host connection at a time is supported.", false)]
+    public void HostConflictsNeverTriggerAutomaticRehostingOrSignIn(string message, bool wasReady)
+    {
+        var failure = RemoteDevTunnelHost.CreateHostingFailure(message, wasReady);
+        Assert.False(failure.CanRetry);
+        Assert.False(failure.RequiresSignIn);
+        Assert.Equal(Lumi.Localization.Loc.Get("Remote_DevTunnelHostConflict"), failure.Message);
+    }
+
+    [Fact]
+    public void ClientConnectionLimitsAreNotMistakenForAHostConflict()
+    {
+        var failure = RemoteDevTunnelHost.CreateHostingFailure("Too many client connections.", wasReady: true);
+        Assert.True(failure.CanRetry);
+        Assert.NotEqual(Lumi.Localization.Loc.Get("Remote_DevTunnelHostConflict"), failure.Message);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PermanentHostConflictStopsWithoutStartingAReplacement(bool whileReconnecting)
+    {
+        const string origin = "https://bright-river-47654.uks1.devtunnels.ms";
+        var host = new RemoteDevTunnelHost();
+        var stopped = new TaskCompletionSource<RemoteDevTunnelCliException>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = 0;
+        var retries = 0;
+        var sawReconnecting = false;
+        host.StateChanged += () => sawReconnecting |= host.State.IsReconnecting;
+        try
+        {
+            host.Start(async lifetime =>
+            {
+                try
+                {
+                    await RemoteDevTunnelHost.RunWithRecoveryAsync(
+                        token =>
+                        {
+                            Interlocked.Increment(ref attempts);
+                            return host.HostAsync(
+                                HostedProcessFixture(
+                                    origin, exitAfterReady: false,
+                                    outputAfterReady:
+                                        (whileReconnecting
+                                            ? "Connection to host tunnel relay closed. Connection lost. Reconnecting.\n"
+                                            : "")
+                                        + "Connection to host tunnel relay closed. Another host for the tunnel has connected."),
+                                47654, "Fixture owner", lifetime, token,
+                                reconnectTimeout: TimeSpan.FromMilliseconds(200));
+                        },
+                        (_, _) => Interlocked.Increment(ref retries),
+                        lifetime.Token,
+                        (_, _) => Task.CompletedTask);
+                    stopped.TrySetException(new InvalidOperationException("Expected a terminal host conflict."));
+                }
+                catch (RemoteDevTunnelCliException ex)
+                {
+                    stopped.TrySetResult(ex);
+                }
+            });
+            var failure = await stopped.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.False(failure.CanRetry);
+            Assert.False(failure.RequiresSignIn);
+            Assert.Equal(1, attempts);
+            Assert.Equal(0, retries);
+            Assert.Equal(whileReconnecting, sawReconnecting);
+            Assert.Equal(Lumi.Localization.Loc.Get("Remote_DevTunnelHostConflict"), failure.Message);
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task RunningHostAuthenticationFailureRehostsWithoutWaitingForProcessExit()
+    {
+        const string origin = "https://bright-river-47654.uks1.devtunnels.ms";
+        var files = Directory.CreateTempSubdirectory("LumiDevTunnelRecovery-");
+        var release = Path.Combine(files.FullName, "release");
+        var pidFile = Path.Combine(files.FullName, "host.pid");
+        var host = new RemoteDevTunnelHost();
+        var firstReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failures = new List<RemoteDevTunnelCliException>();
+        var attempts = 0;
+        var readyCount = 0;
+        host.StateChanged += () =>
+        {
+            if (host.State.Origin is not null)
+            {
+                if (Interlocked.Increment(ref readyCount) == 1)
+                    firstReady.TrySetResult();
+                else
+                    secondReady.TrySetResult();
+            }
+        };
+        try
+        {
+            host.Start(lifetime => RemoteDevTunnelHost.RunWithRecoveryAsync(
+                token =>
+                {
+                    var first = Interlocked.Increment(ref attempts) == 1;
+                    var info = HostedProcessFixture(
+                        origin, exitAfterReady: false,
+                        errorAfterReady: first
+                            ? "devtunnel: Error connecting host tunnel session: Not authorized (401). Refreshed tunnel access token is not valid."
+                            : null,
+                        readySignalFile: first ? release : null);
+                    if (first)
+                        info.Environment["LUMI_TEST_HOST_PID_FILE"] = pidFile;
+                    return host.HostAsync(info, 47654, "Fixture owner", lifetime, token);
+                },
+                (error, _) => failures.Add(Assert.IsType<RemoteDevTunnelCliException>(error)),
+                lifetime.Token,
+                (_, _) => Task.CompletedTask));
+            await firstReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            using var firstProcess = Process.GetProcessById(int.Parse(await File.ReadAllTextAsync(pidFile)));
+            Assert.False(firstProcess.HasExited);
+            await File.WriteAllTextAsync(release, "report the terminal error but stay alive");
+            await secondReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await firstProcess.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(2, attempts);
+            var failure = Assert.Single(failures);
+            Assert.False(failure.RequiresSignIn);
+            Assert.True(failure.CanRetry);
+            Assert.Equal(origin, host.State.Origin);
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            files.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RelayLossAndRestorationUpdateReadinessWithoutRestartingTheCli()
+    {
+        const string origin = "https://bright-river-47654.uks1.devtunnels.ms";
+        var host = new RemoteDevTunnelHost();
+        var states = new ConcurrentQueue<RemoteDevTunnelState>();
+        var restored = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readyCount = 0;
+        host.StateChanged += () =>
+        {
+            var state = host.State;
+            states.Enqueue(state);
+            if (state.Origin is not null && Interlocked.Increment(ref readyCount) == 2)
+                restored.TrySetResult();
+        };
+        try
+        {
+            host.Start(lifetime => host.HostAsync(
+                HostedProcessFixture(
+                    origin, exitAfterReady: false,
+                    outputAfterReady: "Connection to host tunnel relay closed. Connection lost. Reconnecting.\n"
+                        + "Connection to host tunnel relay restored."),
+                47654, "Fixture owner", lifetime, lifetime.Token));
+            await restored.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            var disconnected = Assert.Single(states, state => state.IsReconnecting);
+            Assert.True(disconnected.IsStarting);
+            Assert.Null(disconnected.Origin);
+            Assert.Equal("Fixture owner", disconnected.Account);
+            Assert.False(disconnected.RequiresSignIn);
+            Assert.Equal(origin, host.State.Origin);
+            Assert.False(host.State.IsStarting);
+            Assert.False(host.State.IsReconnecting);
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task StalledCliRecoveryRehostsTheSameRouteWithinItsDeadline()
+    {
+        const string origin = "https://bright-river-47654.uks1.devtunnels.ms";
+        var host = new RemoteDevTunnelHost();
+        var secondReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failures = new List<RemoteDevTunnelCliException>();
+        var readyCount = 0;
+        var attempts = 0;
+        host.StateChanged += () =>
+        {
+            if (host.State.Origin is not null && Interlocked.Increment(ref readyCount) == 2)
+                secondReady.TrySetResult();
+        };
+        try
+        {
+            host.Start(lifetime => RemoteDevTunnelHost.RunWithRecoveryAsync(
+                token => host.HostAsync(
+                    HostedProcessFixture(
+                        origin, exitAfterReady: false,
+                        outputAfterReady: Interlocked.Increment(ref attempts) == 1
+                            ? "Connection to host tunnel relay closed. Connection lost. Reconnecting."
+                            : null),
+                    47654, "Fixture owner", lifetime, token,
+                    reconnectTimeout: TimeSpan.FromMilliseconds(200)),
+                (error, _) => failures.Add(Assert.IsType<RemoteDevTunnelCliException>(error)),
+                lifetime.Token,
+                (_, _) => Task.CompletedTask));
+            await secondReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(2, attempts);
+            var failure = Assert.Single(failures);
+            Assert.False(failure.RequiresSignIn);
+            Assert.True(failure.CanRetry);
+            Assert.Equal(origin, host.State.Origin);
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task CancelingDuringCliRecoveryCannotStartAnotherHost()
+    {
+        const string origin = "https://bright-river-47654.uks1.devtunnels.ms";
+        var host = new RemoteDevTunnelHost();
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = 0;
+        var retries = 0;
+        host.StateChanged += () =>
+        {
+            if (host.State.IsReconnecting)
+                disconnected.TrySetResult();
+        };
+        try
+        {
+            host.Start(lifetime => RemoteDevTunnelHost.RunWithRecoveryAsync(
+                token =>
+                {
+                    Interlocked.Increment(ref attempts);
+                    return host.HostAsync(
+                        HostedProcessFixture(
+                            origin, exitAfterReady: false,
+                            outputAfterReady: "Connection to host tunnel relay closed. Connection lost. Reconnecting."),
+                        47654, "Fixture owner", lifetime, token);
+                },
+                (_, _) => Interlocked.Increment(ref retries),
+                lifetime.Token,
+                (_, _) => Task.CompletedTask));
+            await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(1, attempts);
+            Assert.Equal(0, retries);
+            Assert.Null(host.State.Origin);
+            Assert.False(host.State.IsReconnecting);
+        }
+        finally
+        {
+            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static ProcessStartInfo HostedProcessFixture(
+        string origin,
+        bool exitAfterReady,
+        string? outputAfterReady = null,
+        string? errorAfterReady = null,
+        string? readySignalFile = null)
     {
         var executable = OperatingSystem.IsWindows()
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
@@ -410,18 +695,30 @@ public sealed class RemoteDevTunnelTests
             : "/bin/sh";
         var arguments = OperatingSystem.IsWindows()
             ? new[] { "-NoProfile", "-NonInteractive", "-Command",
+                "if ($env:LUMI_TEST_HOST_PID_FILE) { [IO.File]::WriteAllText($env:LUMI_TEST_HOST_PID_FILE, [string]$PID) }; " +
                 "[Console]::Out.WriteLine('Hosting port 47654 at ' + $env:LUMI_TEST_HOST_ORIGIN + '/'); " +
                 "[Console]::Out.WriteLine('Ready to accept connections for tunnel: lumi-profile.uks1'); " +
+                "if ($env:LUMI_TEST_HOST_RELEASE) { while (!(Test-Path -LiteralPath $env:LUMI_TEST_HOST_RELEASE)) { Start-Sleep -Milliseconds 10 } }; " +
+                "if ($env:LUMI_TEST_HOST_OUTPUT) { [Console]::Out.WriteLine($env:LUMI_TEST_HOST_OUTPUT) }; " +
+                "if ($env:LUMI_TEST_HOST_ERROR) { [Console]::Error.WriteLine($env:LUMI_TEST_HOST_ERROR) }; " +
                 (exitAfterReady
                     ? "[Console]::Error.WriteLine('Connection reset by peer.'); exit 1"
                     : "while ($true) { Start-Sleep -Milliseconds 50 }") }
-            : ["-c", "printf 'Hosting port 47654 at %s/\\n' \"$LUMI_TEST_HOST_ORIGIN\"; " +
+            : ["-c", "if [ -n \"$LUMI_TEST_HOST_PID_FILE\" ]; then printf '%s' \"$$\" > \"$LUMI_TEST_HOST_PID_FILE\"; fi; " +
+                "printf 'Hosting port 47654 at %s/\\n' \"$LUMI_TEST_HOST_ORIGIN\"; " +
                 "printf 'Ready to accept connections for tunnel: lumi-profile.uks1\\n'; " +
+                "if [ -n \"$LUMI_TEST_HOST_RELEASE\" ]; then while [ ! -f \"$LUMI_TEST_HOST_RELEASE\" ]; do sleep 0.01; done; fi; " +
+                "if [ -n \"$LUMI_TEST_HOST_OUTPUT\" ]; then printf '%s\\n' \"$LUMI_TEST_HOST_OUTPUT\"; fi; " +
+                "if [ -n \"$LUMI_TEST_HOST_ERROR\" ]; then printf '%s\\n' \"$LUMI_TEST_HOST_ERROR\" >&2; fi; " +
                 (exitAfterReady
                     ? "printf 'Connection reset by peer.\\n' >&2; exit 1"
                     : "while true; do sleep 1; done")];
         var info = RemoteDevTunnelCli.CreateStartInfo(executable, arguments);
         info.Environment["LUMI_TEST_HOST_ORIGIN"] = origin;
+        info.Environment["LUMI_TEST_HOST_OUTPUT"] = outputAfterReady ?? "";
+        info.Environment["LUMI_TEST_HOST_ERROR"] = errorAfterReady ?? "";
+        info.Environment["LUMI_TEST_HOST_RELEASE"] = readySignalFile ?? "";
+        info.Environment["LUMI_TEST_HOST_PID_FILE"] = "";
         return info;
     }
 
