@@ -395,12 +395,21 @@ internal static class RemoteDevTunnelCli
     {
         if (reportOutput is not null)
             return await ReadOutputAsync(reader, reportOutput, cancellationToken, 2000).ConfigureAwait(false);
+        return await ReadErrorLinesAsync(reader, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<string> ReadErrorLinesAsync(
+        StreamReader reader,
+        CancellationToken cancellationToken,
+        Action<string>? reportLine = null)
+    {
         var tail = new StringBuilder();
         while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
         {
             tail.AppendLine(line);
             if (tail.Length > 2000)
                 tail.Remove(0, tail.Length - 2000);
+            reportLine?.Invoke(line);
         }
         return tail.ToString();
     }

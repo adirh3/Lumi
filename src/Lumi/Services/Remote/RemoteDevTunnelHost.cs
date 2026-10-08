@@ -26,6 +26,7 @@ internal sealed record RemoteDevTunnelSignIn(string Url, string Code);
 internal sealed class RemoteDevTunnelHost : IAsyncDisposable
 {
     internal const string TunnelDescription = "Lumi private web app";
+    private static readonly TimeSpan HostConnectionTimeout = TimeSpan.FromSeconds(90);
 
     private readonly object _gate = new();
     private CancellationTokenSource? _lifetime;
@@ -458,54 +459,120 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         int port,
         string account,
         CancellationTokenSource lifetime,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? reconnectTimeout = null)
     {
-        using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        startup.CancelAfter(TimeSpan.FromSeconds(90));
+        using var hosting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        hosting.CancelAfter(HostConnectionTimeout);
         using var process = new Process
         {
             StartInfo = startInfo
         };
         if (!process.Start())
             throw new InvalidOperationException(Loc.Get("Remote_DevTunnelStartFailed"));
-        using var registration = startup.Token.Register(() => RemoteDevTunnelCli.StopProcess(process));
-        var errors = RemoteDevTunnelCli.ReadErrorsAsync(process.StandardError, startup.Token);
+        using var registration = hosting.Token.Register(() => RemoteDevTunnelCli.StopProcess(process));
+        var terminalError = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var errors = RemoteDevTunnelCli.ReadErrorLinesAsync(process.StandardError, hosting.Token, line =>
+        {
+            if (IsTerminalHostFailure(line))
+                terminalError.TrySetResult(line);
+        });
+        Task? pendingOutput = null;
         string? origin = null;
         var ready = false;
+        var reconnecting = false;
         try
         {
-            while (await process.StandardOutput.ReadLineAsync(startup.Token).ConfigureAwait(false) is { } line)
+            while (true)
             {
+                var output = process.StandardOutput.ReadLineAsync(hosting.Token).AsTask();
+                pendingOutput = output;
+                await Task.WhenAny(pendingOutput, terminalError.Task, errors).ConfigureAwait(false);
+                if (terminalError.Task.IsCompletedSuccessfully)
+                    throw CreateHostingFailure(await terminalError.Task.ConfigureAwait(false), ready);
+                if (errors.IsFaulted)
+                    await errors.ConfigureAwait(false);
+                var line = await output.ConfigureAwait(false);
+                pendingOutput = null;
+                hosting.Token.ThrowIfCancellationRequested();
+                if (line is null)
+                    break;
                 origin ??= FindWebOrigin(line, port);
-                if (!ready && origin is not null
+                if (origin is not null
                     && line.Contains("Ready to accept connections", StringComparison.Ordinal))
                 {
                     ready = true;
-                    startup.CancelAfter(Timeout.InfiniteTimeSpan);
+                    reconnecting = false;
+                    hosting.CancelAfter(Timeout.InfiniteTimeSpan);
+                    Publish(lifetime, new RemoteDevTunnelState(Account: account, Origin: origin));
+                }
+                else if (line.Contains("Connection to host tunnel relay closed.", StringComparison.Ordinal))
+                {
+                    if (IsHostConflict(line))
+                        throw CreateHostingFailure(line, ready);
+                    if (ready && !reconnecting)
+                    {
+                        reconnecting = true;
+                        hosting.CancelAfter(reconnectTimeout ?? HostConnectionTimeout);
+                        Trace.TraceWarning("[Remote] Dev Tunnel relay disconnected; waiting for CLI recovery.");
+                        Publish(lifetime, new RemoteDevTunnelState(
+                            IsStarting: true, Account: account, IsReconnecting: true,
+                            SetupMessage: Loc.Get("Remote_DevTunnelRestoring")));
+                    }
+                }
+                else if (ready && reconnecting
+                         && line.Contains("Connection to host tunnel relay restored.", StringComparison.Ordinal))
+                {
+                    reconnecting = false;
+                    hosting.CancelAfter(Timeout.InfiniteTimeSpan);
+                    Trace.TraceInformation("[Remote] Dev Tunnel relay connection restored.");
                     Publish(lifetime, new RemoteDevTunnelState(Account: account, Origin: origin));
                 }
             }
 
-            await process.WaitForExitAsync(startup.Token).ConfigureAwait(false);
+            await process.WaitForExitAsync(hosting.Token).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             var error = (await errors.ConfigureAwait(false)).Trim();
-            throw new RemoteDevTunnelCliException(
-                Loc.Get("Remote_DevTunnelStopped", error), RemoteDevTunnelCli.IsAuthenticationFailure(error),
-                ready || RemoteDevTunnelCli.IsTransientFailure(error));
+            throw CreateHostingFailure(error, ready);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new RemoteDevTunnelCliException(Loc.Get("Remote_DevTunnelTimeout"));
         }
         finally
         {
-            startup.Cancel();
+            hosting.Cancel();
             RemoteDevTunnelCli.StopProcess(process);
             try
             {
-                await errors.ConfigureAwait(false);
+                await Task.WhenAll(errors, pendingOutput ?? Task.CompletedTask).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (startup.IsCancellationRequested)
+            catch (OperationCanceledException) when (hosting.IsCancellationRequested)
             {
             }
         }
     }
+
+    internal static bool IsTerminalHostFailure(string line) =>
+        Regex.IsMatch(
+            line, @"^(?:[^:\r\n]+:\s*)?Error connecting host tunnel session:",
+            RegexOptions.CultureInvariant);
+
+    internal static RemoteDevTunnelCliException CreateHostingFailure(string error, bool wasReady)
+    {
+        if (IsHostConflict(error))
+            return new RemoteDevTunnelCliException(Loc.Get("Remote_DevTunnelHostConflict"), canRetry: false);
+
+        // A ready host may hold expired credentials; restart it before requiring sign-in.
+        return new RemoteDevTunnelCliException(
+            Loc.Get("Remote_DevTunnelStopped", error),
+            requiresSignIn: !wasReady && RemoteDevTunnelCli.IsAuthenticationFailure(error),
+            canRetry: wasReady || RemoteDevTunnelCli.IsTransientFailure(error));
+    }
+
+    private static bool IsHostConflict(string message) =>
+        message.Contains("Another host for the tunnel has connected.", StringComparison.Ordinal)
+        || message.Contains("another host for this tunnel has connected.", StringComparison.Ordinal);
 
     internal static async Task<(string Username, string ObjectId, string TenantId)?> EnsureMicrosoftIdentityAsync(
         Func<string[], CancellationToken, Task<string>> runCli,
