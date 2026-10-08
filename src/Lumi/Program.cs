@@ -47,6 +47,10 @@ class Program
 
     /// <summary>When true, runs the DEBUG-only animation lifecycle retention proof once the window opens.</summary>
     public static bool AnimationLifecycleLeakReproEnabled { get; private set; }
+
+    internal static bool BrowserNativeHarnessEnabled { get; private set; }
+    internal static bool BrowserNativeHarnessKeepOpen { get; private set; }
+    internal static string? BrowserNativeHarnessOutput { get; private set; }
 #endif
 
     [STAThread]
@@ -72,6 +76,19 @@ class Program
         if (OpenAgentDebugHarness)
         {
             EnsureIsolatedHarnessAppDataDir("agent-debug");
+            SkipOnboarding = true;
+        }
+
+        BrowserNativeHarnessEnabled = args.Contains("--test-browser-native", StringComparer.OrdinalIgnoreCase);
+        BrowserNativeHarnessKeepOpen = args.Contains("--browser-native-keep-open", StringComparer.OrdinalIgnoreCase);
+        var browserOutputIndex = Array.FindIndex(args, value =>
+            value.Equals("--browser-native-output", StringComparison.OrdinalIgnoreCase));
+        if (browserOutputIndex >= 0 && browserOutputIndex + 1 < args.Length)
+            BrowserNativeHarnessOutput = Path.GetFullPath(args[browserOutputIndex + 1]);
+        if (BrowserNativeHarnessEnabled)
+        {
+            AttachParentConsole();
+            EnsureIsolatedHarnessAppDataDir("browser-native", forceNew: true);
             SkipOnboarding = true;
         }
 
@@ -502,10 +519,10 @@ class Program
     }
 
     /// <summary>Points Lumi at a throwaway app-data directory so the harness never touches real data.</summary>
-    private static void EnsureIsolatedHarnessAppDataDir(string harnessName)
+    private static void EnsureIsolatedHarnessAppDataDir(string harnessName, bool forceNew = false)
     {
         var existing = Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR");
-        if (!string.IsNullOrWhiteSpace(existing))
+        if (!forceNew && !string.IsNullOrWhiteSpace(existing))
         {
             Console.WriteLine($"[{harnessName}] Using caller-provided LUMI_APPDATA_DIR: {existing}");
             return;

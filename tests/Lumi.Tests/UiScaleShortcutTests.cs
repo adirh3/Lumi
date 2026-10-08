@@ -243,6 +243,16 @@ public sealed class UiScaleShortcutTests
                     var layout = browser.CalculateNativeWebViewLayout(topLevel!);
                     Assert.NotNull(layout);
 
+                    var urlBar = browser.FindControl<Border>("UrlBar");
+                    Assert.NotNull(urlBar);
+                    var barBottom = urlBar.TranslatePoint(new Point(0, urlBar.Bounds.Height), topLevel!);
+                    var viewportBottom = browser.TranslatePoint(new Point(0, browser.Bounds.Height), topLevel!);
+                    Assert.NotNull(barBottom);
+                    Assert.NotNull(viewportBottom);
+                    Assert.Equal((int)Math.Floor(barBottom.Value.Y * topLevel!.RenderScaling), layout.Value.Y);
+                    Assert.Equal((int)Math.Ceiling(viewportBottom.Value.Y * topLevel.RenderScaling),
+                        layout.Value.Y + layout.Value.Height);
+
                     results[i] = (
                         scale,
                         layout.Value.RasterizationScale / topLevel!.RenderScaling,

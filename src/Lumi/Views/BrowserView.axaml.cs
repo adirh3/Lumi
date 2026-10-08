@@ -4,6 +4,10 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+#if !WINDOWS
+using Avalonia.LogicalTree;
+using Lumi.Localization;
+#endif
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Lumi.Services;
@@ -55,6 +59,17 @@ public partial class BrowserView : UserControl
         _urlBar = this.FindControl<Border>("UrlBar");
         _tabsPanel = this.FindControl<StackPanel>("BrowserTabs");
         _browserErrorText = this.FindControl<TextBlock>("BrowserErrorText");
+
+#if !WINDOWS
+        if (OperatingSystem.IsLinux() && _cookieOnboardingOverlay is not null)
+        {
+            foreach (var hint in _cookieOnboardingOverlay.GetLogicalDescendants().OfType<TextBlock>())
+            {
+                if (hint.Text == "• Your cookies will be copied into Lumi's browser")
+                    hint.Text = Loc.Browser_LinuxTabSessionHint;
+            }
+        }
+#endif
     }
 
     /// <summary>Binds a BrowserService and DataStore to this view. Can be called multiple times to switch between per-chat services.</summary>
@@ -62,6 +77,9 @@ public partial class BrowserView : UserControl
     {
         ClearBrowserService();
         _browserService = browserService;
+#if !WINDOWS
+        _browserService.UseHostLayerFor(this);
+#endif
         _dataStore = dataStore;
         _isInitialized = false;
         _browserService.BrowserReady += OnBrowserReady;
@@ -130,6 +148,9 @@ public partial class BrowserView : UserControl
     /// <summary>Shows the current browser service's controller overlay.</summary>
     public void ShowCurrentController()
     {
+#if !WINDOWS
+        _browserService?.UseHostLayerFor(this);
+#endif
         _browserService?.SetControllerVisible(true);
     }
 
@@ -140,6 +161,9 @@ public partial class BrowserView : UserControl
         // Ensure HWND is set for lazy init
         if (_browserService is not null)
         {
+#if !WINDOWS
+            _browserService.UseHostLayerFor(this);
+#endif
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel is not null)
             {
@@ -201,9 +225,14 @@ public partial class BrowserView : UserControl
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel is null) return;
 
+#if WINDOWS
         var platformHandle = topLevel.TryGetPlatformHandle();
         if (platformHandle is null) return;
         var hwnd = platformHandle.Handle;
+#else
+        service.UseHostLayerFor(this);
+        var hwnd = topLevel.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+#endif
 
         try
         {

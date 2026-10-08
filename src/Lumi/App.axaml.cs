@@ -290,6 +290,14 @@ public partial class App : Application
 
             window.Opened += (_, _) =>
             {
+#if DEBUG
+                if (Program.BrowserNativeHarnessEnabled)
+                {
+                    BrowserNativeHarness.Start(desktop, vm, dataStore,
+                        Program.BrowserNativeHarnessKeepOpen, Program.BrowserNativeHarnessOutput);
+                    return;
+                }
+#endif
                 Dispatcher.UIThread.Post(() =>
                 {
                     // Defer non-critical setup until first frame is shown.

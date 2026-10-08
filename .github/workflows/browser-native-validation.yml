@@ -1,0 +1,131 @@
+name: Embedded browser validation
+
+on:
+  push:
+    branches:
+      - validation/browser-native-v2-20261008
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    name: Browser (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows WebView2
+            os: windows-latest
+            architecture: x64
+            framework: net11.0-windows10.0.22621.0
+          - name: Linux WebKitGTK
+            os: ubuntu-latest
+            architecture: x64
+            framework: net11.0
+          - name: macOS Intel WKWebView
+            os: macos-15-intel
+            architecture: x64
+            framework: net11.0
+          - name: macOS Apple Silicon WKWebView
+            os: macos-15
+            architecture: arm64
+            framework: net11.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Record native host
+        shell: pwsh
+        run: |
+          [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+          $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+          $architecture
+          if ($architecture -ne "${{ matrix.architecture }}") {
+            throw "This runner does not provide the requested native architecture."
+          }
+          dotnet --info
+
+      - name: Install Linux system browser
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-0 libsecret-tools xvfb dbus-x11
+
+      - name: Build headed fixture
+        run: dotnet build src/Lumi/Lumi.csproj --configuration Debug --verbosity quiet
+
+      - name: Run real native browser and docking checks
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $app = (Resolve-Path 'src\Lumi\bin\Debug\${{ matrix.framework }}\Lumi.dll').Path
+          if ($IsLinux) {
+            xvfb-run -a dbus-run-session -- dotnet $app --test-browser-native --browser-native-output BrowserResults
+          } else {
+            dotnet $app --test-browser-native --browser-native-output BrowserResults
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $reportPath = Join-Path BrowserResults results.json
+          if (-not (Test-Path $reportPath)) {
+            throw "The headed browser fixture did not write its result report."
+          }
+          $report = Get-Content $reportPath -Raw | ConvertFrom-Json
+          if ($report.failed -ne 0 -or $report.passed -lt 40) {
+            throw "The real browser checks did not all pass."
+          }
+
+      - name: Test browser contracts and platform wiring
+        timeout-minutes: 10
+        shell: pwsh
+        run: >
+          dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
+          --configuration Debug
+          --verbosity quiet
+          --filter
+          "(FullyQualifiedName~Lumi.Tests.NativeBrowser
+          |FullyQualifiedName~Lumi.Tests.NativeWebViewPlatform
+          |FullyQualifiedName~Lumi.Tests.BrowserPlatformWiring
+          |FullyQualifiedName~Lumi.Tests.BrowserServiceLifecycle
+          |FullyQualifiedName~Lumi.Tests.BrowserActionResult
+          |FullyQualifiedName~Lumi.Tests.BrowserOperationGate
+          |FullyQualifiedName~Lumi.Tests.BrowserAutomationBatch
+          |FullyQualifiedName~Lumi.Tests.SystemPromptBuilder
+          |FullyQualifiedName~Lumi.Tests.AgentsViewModelToolSelection
+          |FullyQualifiedName~Lumi.Tests.ChatViewModelAgentRouting
+          |FullyQualifiedName~Lumi.Tests.UiScaleShortcut)"
+          --logger "trx;LogFileName=browser-contracts.trx"
+          --results-directory BrowserResults
+
+      - name: Test existing real WebView2 integration in a fresh host
+        if: ${{ runner.os == 'Windows' }}
+        timeout-minutes: 5
+        run: >
+          dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
+          --configuration Debug
+          --no-build
+          --filter FullyQualifiedName~Lumi.Tests.BrowserServiceIntegrationTests
+          --logger "trx;LogFileName=webview2-integration.trx"
+          --results-directory BrowserResults
+
+      - name: Upload browser evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-${{ matrix.os }}
+          path: BrowserResults
+          if-no-files-found: warn
+          retention-days: 7

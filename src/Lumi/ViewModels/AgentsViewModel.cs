@@ -379,8 +379,7 @@ public partial class AgentsViewModel : ObservableObject
         var hasRestrictions = agent?.HasToolRestrictions == true;
         foreach (var (name, displayName, group, description) in KnownTools)
         {
-            // Browser and Desktop (UI automation) tools are Windows-only and never registered off
-            // Windows (see ChatViewModel.BuildCustomTools), so don't offer them as assignable here.
+            // Use the same browser availability policy as session registration and Settings.
             if (!IsToolGroupAvailable(group))
                 continue;
             var isAssigned = !hasRestrictions || runtimeToolNames.Contains(name);
@@ -404,10 +403,14 @@ public partial class AgentsViewModel : ObservableObject
         _ => group
     };
 
-    /// <summary>Whether a tool group is usable on this platform. Browser/Desktop groups are
-    /// Windows-only; everything else is cross-platform.</summary>
+    /// <summary>Whether a tool group is usable on this host.</summary>
     private static bool IsToolGroupAvailable(string group)
-        => OperatingSystem.IsWindows() || group is not ("Browser" or "Desktop");
+        => group switch
+        {
+            "Browser" => NativeBrowserLogic.IsEmbeddedBrowserAvailable,
+            "Desktop" => OperatingSystem.IsWindows(),
+            _ => true,
+        };
 
     [RelayCommand]
     private void NewAgent()
@@ -714,8 +717,8 @@ public partial class AgentsViewModel : ObservableObject
             .ToList();
 
         // Empty list = all tools available; only store names when some are deselected.
-        // Preserve any tools the agent already has that aren't shown on this platform (Windows-only
-        // Browser/Desktop tools edited on Linux/macOS) so a Windows configuration is never erased.
+        // Preserve tools unavailable on this host (Desktop off Windows; Browser on older macOS)
+        // so editing an agent never erases its configuration for another supported host.
         var shownToolNames = KnownTools
             .Where(t => IsToolGroupAvailable(t.Group))
             .Select(t => t.Name)
@@ -726,8 +729,8 @@ public partial class AgentsViewModel : ObservableObject
 
         // "[]" means "all tools, unrestricted". Collapsing to [] is only safe when no tool groups
         // are hidden on this platform, or the agent was already unrestricted. Otherwise — e.g. a
-        // Windows agent that deliberately excluded the Browser/Desktop groups, edited on Linux/macOS
-        // where those groups are hidden — collapsing would silently re-enable those Windows-only tools.
+        // Windows agent that deliberately excluded the Desktop group, edited on Linux/macOS
+        // where that group is hidden — collapsing would silently re-enable unavailable tools.
         var hasHiddenGroups = KnownTools.Any(t => !IsToolGroupAvailable(t.Group));
         var wasRestricted = SelectedAgent?.HasToolRestrictions == true;
         var canBeUnrestricted = !(hasHiddenGroups && wasRestricted);

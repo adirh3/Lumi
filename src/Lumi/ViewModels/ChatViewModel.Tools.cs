@@ -152,9 +152,7 @@ public partial class ChatViewModel
         tools.Add(BuildAskQuestionTool(chatId));
         tools.AddRange(BuildLumiManagementTools(chatId, skillProvider));
         tools.AddRange(BuildWebTools());
-        // The embedded browser is built on WebView2 (Windows-only), so the lumi_browser_* tools
-        // are only offered on Windows. On Linux/macOS the agent uses web_search + lumi_fetch instead.
-        if (OperatingSystem.IsWindows())
+        if (NativeBrowserLogic.IsEmbeddedBrowserAvailable)
             tools.AddRange(BuildBrowserTools(chatId));
         tools.AddRange(_codingToolService.BuildCodingTools());
         if (OperatingSystem.IsWindows())
@@ -209,6 +207,38 @@ public partial class ChatViewModel
 
     private List<AIFunction> BuildBrowserTools(Guid chatId)
     {
+        const string targetDescription = "Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). For upload: optional locator for the <input type=file> (CSS selector or the upload button/label text) — omit to use the page's only file input. Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').";
+        const string valueDescription = "Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill, absolute file path(s) for upload (a JSON array for multiple files, or a single path; multiple paths may also be newline-separated — commas are NOT separators), JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot";
+        const string interactionDescription = "Interact with the active tab. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps. Use 'upload' to attach local file(s) to a file input WITHOUT the native OS file picker (value = absolute file path(s); target = optional file-input locator) — this is the only way to upload, never try to drive the native dialog. Use 'steps' to batch actions only when later steps do not require inspecting intermediate results (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]); returns one final snapshot. Stops at the first failure; a partial fill blocks subsequent steps. Inspect the result before continuing. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip the auto-snapshot only when the next action is already known.";
+        const string nativeDownloadHint = "Embedded browser downloads are unsupported on Linux and macOS; use lumi_fetch to read a verified direct URL or curl to save a public file. Shell downloads do not inherit browser login cookies.";
+        var isNativeBrowser = !OperatingSystem.IsWindows();
+
+        Task<string> InteractAsync(
+            [Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps")] string action,
+            [Description(targetDescription)] string? target = null,
+            [Description(valueDescription)] string? value = null)
+        {
+            var svc = GetOrCreateBrowserService(chatId);
+            var act = (action ?? "").Trim().ToLowerInvariant();
+            if (act is "click" or "type" or "press" or "select" or "download" or "back" or "clear" or "fill" or "upload" or "steps")
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
+                    BrowserShowRequested?.Invoke(chatId);
+                });
+            }
+            return svc.DoAsync(action ?? "", target, value);
+        }
+
+        Task<string> InteractOnNativeAsync(
+            [Description("Action to perform: click, type, press, select, scroll, back, wait, clear, fill, read_form, upload, steps")] string action,
+            [Description("Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), or direction (for scroll). For upload: optional locator for the <input type=file> (CSS selector or the upload button/label text) — omit to use the page's only file input. Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
+            [Description(valueDescription)] string? value = null)
+            => InteractAsync(action, target, value);
+
+        Func<string, string?, string?, Task<string>> interact = isNativeBrowser ? InteractOnNativeAsync : InteractAsync;
+
         return
         [
             AIFunctionFactory.Create(
@@ -223,7 +253,8 @@ public partial class ChatViewModel
                     return svc.OpenAndSnapshotAsync(url);
                 },
                 ToolDisplayHelper.BrowserOpenToolName,
-                "Open a URL in the active browser tab and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with lumi_browser_do in that tab. Use lumi_browser_tabs to create or switch tabs. If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot."),
+                "Open a URL in the active browser tab and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with lumi_browser_do in that tab. Use lumi_browser_tabs to create or switch tabs."
+                    + (isNativeBrowser ? " " + nativeDownloadHint : " If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot.")),
 
             AIFunctionFactory.Create(
                 ([Description("Tab action: list, new, switch, or close.")] string action,
@@ -265,24 +296,11 @@ public partial class ChatViewModel
                 "Find and rank interactive elements by query. Matches against text, aria-label, tooltip, title, and href. Returns stable element indices usable with lumi_browser_do."),
 
             AIFunctionFactory.Create(
-                ([Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps")] string action,
-                 [Description("Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). For upload: optional locator for the <input type=file> (CSS selector or the upload button/label text) — omit to use the page's only file input. Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
-                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill, absolute file path(s) for upload (a JSON array for multiple files, or a single path; multiple paths may also be newline-separated — commas are NOT separators), JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot")] string? value = null) =>
-                {
-                    var svc = GetOrCreateBrowserService(chatId);
-                    var act = (action ?? "").Trim().ToLowerInvariant();
-                    if (act is "click" or "type" or "press" or "select" or "download" or "back" or "clear" or "fill" or "upload" or "steps")
-                    {
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
-                            BrowserShowRequested?.Invoke(chatId);
-                        });
-                    }
-                    return svc.DoAsync(action ?? "", target, value);
-                },
+                interact,
                 ToolDisplayHelper.BrowserDoToolName,
-                "Interact with the active tab. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps. Use 'upload' to attach local file(s) to a file input WITHOUT the native OS file picker (value = absolute file path(s); target = optional file-input locator) — this is the only way to upload, never try to drive the native dialog. Use 'steps' to batch actions only when later steps do not require inspecting intermediate results (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]); returns one final snapshot. Stops at the first failure; a partial fill blocks subsequent steps. Inspect the result before continuing. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip the auto-snapshot only when the next action is already known."),
+                isNativeBrowser
+                    ? interactionDescription.Replace("wait, download, clear", "wait, clear", StringComparison.Ordinal) + " " + nativeDownloadHint
+                    : interactionDescription),
 
             AIFunctionFactory.Create(
                 ([Description("JavaScript code to execute in the page context")] string script) =>

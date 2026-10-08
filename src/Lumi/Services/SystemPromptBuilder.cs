@@ -53,15 +53,20 @@ public static class SystemPromptBuilder
         var machine = Environment.MachineName;
 
         var isWindows = platform == PromptPlatform.Windows;
+        // Parameterized prompts retain their platform framing; actual older Macs fail closed.
+        var isEmbeddedBrowserAvailable = platform != PromptPlatform.MacOS
+            || !OperatingSystem.IsMacOS()
+            || NativeBrowserLogic.IsEmbeddedBrowserAvailable;
         var pathSep = isWindows ? "\\" : "/";
 
         // ── OS-specific capability framing ────────────────────────────────
-        // Linux/macOS must NOT be told about Windows-only abilities (PowerShell, COM/Office
-        // automation, the embedded WebView2 browser, desktop UI automation) — those tools are
-        // not registered off Windows, so advertising them would only cause failed attempts.
+        // Browser automation is cross-platform; shell, Office and desktop UI guidance must still
+        // match the capabilities registered on the host.
         var accessLine = isWindows
             ? "You have full access to their system through PowerShell, file operations, web search, and browser automation."
-            : "You have full access to their system through the shell, file operations, and web search.";
+            : isEmbeddedBrowserAvailable
+                ? "You have full access to their system through the shell, file operations, web search, and browser automation."
+                : "You have full access to their system through the shell, file operations, and web search.";
 
         var commonFolders =
             $"{userProfile}{pathSep}Documents, {userProfile}{pathSep}Downloads, {userProfile}{pathSep}Desktop, {userProfile}{pathSep}Pictures";
@@ -73,9 +78,12 @@ public static class SystemPromptBuilder
         // "## What You Can Do" — reproduced byte-for-byte from the prior Windows prompt. The original
         // section had irregular leading whitespace; it is preserved EXACTLY and locked by
         // SystemPromptBuilderTests.WindowsCapabilitiesSection_MatchesBaselineWhitespace. The
-        // browser/desktop-automation/Office-COM bullets are Windows-only and are replaced with
-        // cross-platform equivalents on other OSes. Do not re-indent the Windows literal — its
+        // desktop-automation/Office-COM bullets are Windows-only and are replaced with
+        // native equivalents on other OSes. Do not re-indent the Windows literal — its
         // ragged leading spaces are intentional.
+        var browserCapability = isEmbeddedBrowserAvailable
+            ? "- **Automate the browser** (navigate, click, type, screenshot)"
+            : "- **Open websites** in the system browser";
         var capabilitySection = isWindows
             ? """
               ## What You Can Do
@@ -88,11 +96,12 @@ public static class SystemPromptBuilder
              - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, use webmail in the browser — see **Email** under Quick Reference)
              - **Manage the system** — processes, disk space, installed apps, network, clipboard, and more
             """
-            : """
+            : $"""
               ## What You Can Do
               - **Run any command** via the shell (bash/zsh) or Python — you have a shell with full access
               - **Read and write files** anywhere on the filesystem
               - **Search the web** and fetch webpages
+              {browserCapability}
               - **Query app databases** — most apps store data locally in SQLite, JSON, or XML files
               - **Create documents** — Word, Excel, PowerPoint via Python libraries (python-docx, openpyxl, python-pptx) or LibreOffice in headless mode
               - **Open apps & URLs** — launch the user's default browser or apps to show results (see Quick Reference)
@@ -103,7 +112,7 @@ public static class SystemPromptBuilder
             ? "use `Get-Content` or `Select-String` to read specific sections"
             : "use `cat`, `grep`, `sed`, or `head`/`tail` to read specific sections";
 
-        var quickReference = BuildQuickReference(platform);
+        var quickReference = BuildQuickReference(platform, isEmbeddedBrowserAvailable);
 
         // The agent's async shell tool is "powershell" on Windows; on Linux/macOS it is the
         // shell (bash) — keep the guidance tool-name accurate per platform.
@@ -111,8 +120,9 @@ public static class SystemPromptBuilder
             ? "After an async `powershell` command completes, call `read_powershell` promptly with that command's `shellId` if you still need its output."
             : "After an async shell command completes, read its output promptly with that command's `shellId` if you still need it.";
 
-        // The embedded browser (WebView2) and desktop UI Automation (FlaUI) are Windows-only.
-        var platformAutomationSections = isWindows ? WindowsAutomationSections : "";
+        var platformAutomationSections = isEmbeddedBrowserAvailable
+            ? BuildBrowserAutomationSection(platform) + (isWindows ? WindowsWindowAutomationSection : "")
+            : "";
         var filePreviewPlatformHint = isWindows
             ? "On Windows, document previews use installed Windows preview handlers when available; a file without a supported handler can still be opened in its default app."
             : "Preview availability depends on the file type; files can also be opened in their default app.";
@@ -600,11 +610,24 @@ public static class SystemPromptBuilder
     }
 
     /// <summary>
-    /// The Windows-only "Browser Automation" + "Window Automation" prompt sections.
-    /// Concatenated into the prompt only on Windows (where the lumi_browser_* and ui_* tools
-    /// are registered).
+    /// Browser guidance shared across desktop platforms, with native paths and engine limitations.
     /// </summary>
-    private const string WindowsAutomationSections = """
+    private static string BuildBrowserAutomationSection(PromptPlatform platform)
+    {
+        var uploadPath = platform switch
+        {
+            PromptPlatform.Windows => """C:\\Users\\me\\Pictures\\photo.png""",
+            PromptPlatform.MacOS => "/Users/me/Pictures/photo.png",
+            _ => "/home/me/Pictures/photo.png"
+        };
+        var downloadPath = platform == PromptPlatform.MacOS
+            ? "/Users/me/Downloads/export.csv"
+            : "/home/me/Downloads/export.csv";
+        var downloadActionHint = platform == PromptPlatform.Windows
+            ? "`download`: target = file pattern (e.g. \"*.csv\"). Reports download status."
+            : $"**Native downloads:** Embedded browser downloads are unsupported on Linux and macOS. Use `lumi_fetch` to read a verified direct URL, or `curl --fail --location --output \"{downloadPath}\" \"<verified-direct-url>\"` to save a public file. Shell downloads do not inherit browser login cookies; do not claim authenticated exports will work.";
+
+        var section = $$"""
 
 
         ## Browser Automation
@@ -629,7 +652,7 @@ public static class SystemPromptBuilder
           - `scroll`: target = "up" or "down"
           - `back`: go to previous page
           - `wait`: target = CSS selector
-          - `download`: target = file pattern (e.g. "*.csv"). Reports download status.
+          - {{downloadActionHint}}
           - `clear`: target = element number or selector. Clears a field's value.
           - `upload`: attach local file(s) to a file input **without** the native OS file picker (the picker is an OS window JS can't drive). value = absolute file path(s) — use a JSON array for multiple files, or a single path for one (multiple paths may also be newline-separated; commas are NOT separators, so paths containing commas stay intact); target = optional locator for the `<input type=file>` (CSS selector or the upload button/label text) — omit to use the page's only file input. Always use this for uploads instead of clicking a button that opens the system dialog.
           - `fill`: value = JSON object mapping field identifiers (element number, name, placeholder, or label) to values. Fills multiple form fields at once in a single call — **much more efficient than typing one by one**. Handles text inputs, textareas, checkboxes (true/false), and native selects.
@@ -644,7 +667,7 @@ public static class SystemPromptBuilder
 
         **Fill action example:** `lumi_browser_do("fill", null, '{"3": "John", "email": "john@example.com", "agree": true}')`
 
-        **Upload action example:** `lumi_browser_do("upload", null, "C:\\Users\\me\\Pictures\\photo.png")` — attaches the file directly to the page's file input; no native dialog opens. Use a target (CSS selector or upload-button text) only when the page has more than one file input.
+        **Upload action example:** `lumi_browser_do("upload", null, "{{uploadPath}}")` — attaches the file directly to the page's file input; no native dialog opens. Use a target (CSS selector or upload-button text) only when the page has more than one file input.
 
         **Efficiency best practices (IMPORTANT):**
         1. **Batch with `steps` only when safe** — Use it for known sequences whose later actions don't depend on inspecting intermediate results. Otherwise act, inspect, then choose the next step. A failure stops the batch; completed actions are not rolled back.
@@ -654,6 +677,27 @@ public static class SystemPromptBuilder
         5. For custom dropdowns that aren't native `<select>`, use `lumi_browser_do("select", "element#", "option text")`.
         6. When a website uses a booking timer, use `fill` and `steps` to be fast.
         7. If a booking platform requires CAPTCHA or credit card — note it and move on immediately.
+        """;
+
+        if (platform == PromptPlatform.Linux)
+        {
+            section += """
+
+
+        **Linux tab sessions:** In-memory session cookies are independent per tab, even with the same profile directory. Keep authenticated or session-dependent flows in the SAME TAB; use `lumi_browser_open` to navigate within it. New tabs and popups may need an independent login. Do not assume session cookies or sign-in transfer between tabs.
+        """;
+        }
+
+        return platform == PromptPlatform.Windows ? section : section + """
+
+
+        **Native popup limitation:** Popup tabs can open, but the native engine cannot preserve an opener relationship between views. OAuth flows that require `window.opener` may not complete. Do not promise Windows-identical opener-dependent sign-in; report this limitation instead of repeatedly retrying a blocked flow.
+        """;
+    }
+
+    /// <summary>Desktop UI Automation guidance is registered only on Windows.</summary>
+    private const string WindowsWindowAutomationSection = """
+
 
         ## Window Automation (UI Automation)
         You can interact with ANY open desktop window on the user's PC using Windows UI Automation. This lets you click buttons, type text, read values, send keyboard shortcuts, and navigate the UI of any application — not just browsers.
@@ -705,9 +749,9 @@ public static class SystemPromptBuilder
         """;
 
     /// <summary>OS-appropriate "Quick Reference" bullets. The Windows text is unchanged; the
-    /// Linux/macOS text drops Windows-only techniques (COM, winget, registry, Win32 WMI, the
-    /// embedded browser) and substitutes native equivalents.</summary>
-    private static string BuildQuickReference(PromptPlatform platform)
+    /// Linux/macOS text drops Windows-only techniques (COM, winget, registry, Win32 WMI)
+    /// and substitutes native equivalents.</summary>
+    private static string BuildQuickReference(PromptPlatform platform, bool isEmbeddedBrowserAvailable)
     {
         if (platform == PromptPlatform.Windows)
         {
@@ -728,6 +772,14 @@ public static class SystemPromptBuilder
         }
 
         var openCmd = platform == PromptPlatform.MacOS ? "open" : "xdg-open";
+        var browserAvailabilityHint = platform == PromptPlatform.MacOS
+            ? "- **Embedded browser on macOS**: Lumi's embedded browser requires macOS 14 or later to keep its persistent profile isolated. On earlier macOS, embedded browser tools are unavailable; use `open <url-or-path>` to open websites in the system browser instead.\n"
+            : "";
+        var websiteHint = isEmbeddedBrowserAvailable
+            ? $"use `lumi_browser_open` for interactive websites in Lumi's built-in browser; use `{openCmd} <url-or-path>` to launch an external browser/app when requested."
+            : $"launch the system browser/app with `{openCmd} <url-or-path>`; embedded website automation is unavailable on this Mac.";
+        var webmailBrowser = isEmbeddedBrowserAvailable ? "Lumi's built-in browser" : "the system browser";
+        var browserOpenCommand = isEmbeddedBrowserAvailable ? "`lumi_browser_open`" : $"`{openCmd}`";
         var clipboard = platform == PromptPlatform.MacOS
             ? "`pbcopy` / `pbpaste`"
             : "`xclip -selection clipboard` / `wl-copy` / `wl-paste` (install if missing)";
@@ -738,14 +790,14 @@ public static class SystemPromptBuilder
             ? "`uname -a`, `sw_vers`, `sysctl -n machdep.cpu.brand_string`, `df -h`, `vm_stat`, `pmset -g batt`"
             : "`uname -a`, `cat /etc/os-release`, `lscpu`, `df -h`, `free -h`, `cat /proc/cpuinfo`, `upower -i` (battery)";
 
-        return $"""
-             - **Open a URL or app**: launch the user's default browser/app with `{openCmd} <url-or-path>` so they can see results (there is no embedded browser on this platform).
+        return browserAvailabilityHint + $"""
+             - **Open a URL or app**: {websiteHint}
              - **Browser history**: Chrome stores history under the user's config dir (SQLite). On macOS: `~/Library/Application Support/Google/Chrome/Default/History`; on Linux: `~/.config/google-chrome/Default/History`. Copy the file first — Chrome locks it.
-             - **Email (sending or reading)**: work through webmail in the user's browser:
+             - **Email (sending or reading)**: work through webmail in {webmailBrowser}:
               1. **Discover the user's email address without asking, first.** Try in order: Lumi's memories about the user; `git config user.email`; the `$EMAIL`/`$GIT_AUTHOR_EMAIL` environment variables. Only ask the user if none of these reveal it.
-              2. **Compose via the provider's deep link** so the draft opens pre-filled — Outlook Web: `https://outlook.office.com/mail/deeplink/compose?to=<addr>&subject=<subject>&body=<body>` (personal Outlook uses `https://outlook.live.com/mail/0/deeplink/compose?...`); Gmail: `https://mail.google.com/mail/?view=cm&fs=1&to=<addr>&su=<subject>&body=<body>`. URL-encode subject/body, then open the link with `{openCmd}`. Never use `mailto:`.
+              2. **Compose via the provider's deep link** so the draft opens pre-filled — Outlook Web: `https://outlook.office.com/mail/deeplink/compose?to=<addr>&subject=<subject>&body=<body>` (personal Outlook uses `https://outlook.live.com/mail/0/deeplink/compose?...`); Gmail: `https://mail.google.com/mail/?view=cm&fs=1&to=<addr>&su=<subject>&body=<body>`. URL-encode subject/body, then open the link with {browserOpenCommand}. Never use `mailto:`.
               3. **Stop and let the user send — do NOT auto-send.** Open the pre-filled draft, tell the user it's ready, and let them review and click Send themselves. An imperative phrasing alone is NOT consent to send; only send yourself if the user explicitly said to.
-              4. **Calendar works the same way** — open `https://outlook.office.com/calendar/` or `https://calendar.google.com` with `{openCmd}`.
+              4. **Calendar works the same way** — open `https://outlook.office.com/calendar/` or `https://calendar.google.com` with {browserOpenCommand}.
             - **Documents**: create Word/Excel/PowerPoint with Python (`python-docx`, `openpyxl`, `python-pptx`) or convert with LibreOffice headless (`libreoffice --headless --convert-to pdf <file>`).
             - **Clipboard**: {clipboard}.
             - **Installed apps**: {installedApps}.

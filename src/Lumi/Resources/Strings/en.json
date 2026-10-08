@@ -12,6 +12,8 @@
   "Preview_Truncated": "Showing the beginning of this large file. Open it in its app to see everything.",
   "Preview_Empty": "This file is empty.",
 
+  "Browser_LinuxTabSessionHint": "• On Linux, tabs have separate session cookies. Keep sign-in flows in the same tab; new tabs and popups may need a separate login.",
+
   "Onboarding_Hello": "Hello! I'm Lumi",
   "Onboarding_Subtitle": "Your personal assistant. What should I call you?",
   "Onboarding_NameWatermark": "Your name",

@@ -77,6 +77,11 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
   </ItemGroup>
 
+  <!-- Keep the native backend out of the Windows dependency graph and implementation. -->
+  <ItemGroup Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' != 'windows'">
+    <PackageReference Include="Avalonia.Controls.WebView" Version="12.1.0" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Lumi.Generators\Lumi.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Lumi.Remote.Protocol\Lumi.Remote.Protocol.csproj" />

@@ -58,10 +58,10 @@
               <StackPanel Spacing="4">
                 <TextBlock Classes="caption" TextWrapping="Wrap"
                            Foreground="{DynamicResource Brush.TextTertiary}"
-                           Text="• The selected browser will be briefly closed" />
+                           Text="{OnPlatform Windows='• The selected browser will be briefly closed', Default='• Close the selected browser first if its cookie database is locked'}" />
                 <TextBlock Classes="caption" TextWrapping="Wrap"
                            Foreground="{DynamicResource Brush.TextTertiary}"
-                           Text="• Windows may ask for your password to authorize" />
+                           Text="{OnPlatform Windows='• Windows may ask for your password to authorize', Default='• Your system may ask to unlock its credential store'}" />
                 <TextBlock Classes="caption" TextWrapping="Wrap"
                            Foreground="{DynamicResource Brush.TextTertiary}"
                            Text="• Your cookies will be copied into Lumi's browser" />
