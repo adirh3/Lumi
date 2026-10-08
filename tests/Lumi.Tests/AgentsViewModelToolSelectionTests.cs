@@ -17,12 +17,20 @@ public sealed class AgentsViewModelToolSelectionTests
     }
 
     [Fact]
-    public void BrowserTabsAndScreenshot_AreSelectableOnlyOnWindows()
+    public void BrowserTools_MatchSharedHostAvailability()
     {
         var visibleNames = GetVisibleToolNames();
 
-        Assert.Equal(OperatingSystem.IsWindows(), visibleNames.Contains(ToolDisplayHelper.BrowserTabsToolName));
-        Assert.Equal(OperatingSystem.IsWindows(), visibleNames.Contains(ToolDisplayHelper.BrowserScreenshotToolName));
+        var available = NativeBrowserLogic.IsEmbeddedBrowserAvailable;
+        Assert.Equal(available, visibleNames.Contains(ToolDisplayHelper.BrowserOpenToolName));
+        Assert.Equal(available, visibleNames.Contains(ToolDisplayHelper.BrowserLookToolName));
+        Assert.Equal(available, visibleNames.Contains(ToolDisplayHelper.BrowserFindToolName));
+        Assert.Equal(available, visibleNames.Contains(ToolDisplayHelper.BrowserDoToolName));
+        Assert.Equal(available, visibleNames.Contains(ToolDisplayHelper.BrowserJsToolName));
+        Assert.Equal(available, visibleNames.Contains(ToolDisplayHelper.BrowserTabsToolName));
+        Assert.Equal(available, visibleNames.Contains(ToolDisplayHelper.BrowserScreenshotToolName));
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            Assert.True(available);
     }
 
     [Fact]
@@ -76,11 +84,8 @@ public sealed class AgentsViewModelToolSelectionTests
     }
 
     [Fact]
-    public void SaveAgent_OnNonWindows_DoesNotReenableHiddenWindowsTools()
+    public void SaveAgent_ExplicitVisibleSelectionDoesNotReenableUnavailableDesktopTools()
     {
-        if (OperatingSystem.IsWindows())
-            return;
-
         var visibleToolNames = GetVisibleToolNames();
         var agent = new LumiAgent
         {
@@ -93,26 +98,31 @@ public sealed class AgentsViewModelToolSelectionTests
         Assert.All(viewModel.AvailableTools, tool => Assert.True(tool.IsSelected));
         viewModel.SaveAgentCommand.Execute(null);
 
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.False(agent.HasExplicitToolSelection);
+            Assert.False(agent.HasToolRestrictions);
+            Assert.Empty(agent.ToolNames);
+            return;
+        }
+
         Assert.True(agent.HasExplicitToolSelection);
         Assert.True(agent.HasToolRestrictions);
         Assert.Equal(
             visibleToolNames.OrderBy(static name => name),
             agent.ToolNames.OrderBy(static name => name));
-        Assert.DoesNotContain(ToolDisplayHelper.BrowserOpenToolName, agent.ToolNames);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable,
+            agent.ToolNames.Contains(ToolDisplayHelper.BrowserOpenToolName));
         Assert.DoesNotContain("ui_list_windows", agent.ToolNames);
     }
 
     [Fact]
-    public void SaveAgent_OnNonWindows_PreservesSelectedHiddenWindowsTools()
+    public void SaveAgent_PreservesSelectedDesktopToolsAcrossPlatforms()
     {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        var visibleToolNames = GetVisibleToolNames();
         var agent = new LumiAgent
         {
             Name = "Cross-platform tools",
-            ToolNames = [.. visibleToolNames, ToolDisplayHelper.BrowserOpenToolName],
+            ToolNames = [ToolDisplayHelper.BrowserOpenToolName, "ui_do"],
             HasExplicitToolSelection = true
         };
         var viewModel = CreateEditor(agent);
@@ -121,8 +131,9 @@ public sealed class AgentsViewModelToolSelectionTests
 
         Assert.True(agent.HasExplicitToolSelection);
         Assert.Contains(ToolDisplayHelper.BrowserOpenToolName, agent.ToolNames);
+        Assert.Contains("ui_do", agent.ToolNames);
         Assert.Equal(
-            visibleToolNames.Append(ToolDisplayHelper.BrowserOpenToolName).OrderBy(static name => name),
+            new[] { ToolDisplayHelper.BrowserOpenToolName, "ui_do" }.OrderBy(static name => name),
             agent.ToolNames.OrderBy(static name => name));
     }
 

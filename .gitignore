@@ -50,6 +50,8 @@ publish-*/
 diagnostics/
 .qa-lumi-debug.log
 *.qa-lumi-debug.log
+# Local browser validation reports, native profiles, and isolated build fixtures.
+/artifacts/browser-validation/
 
 # Isolated build output for the long-lived lumi-mcp stdio server (see .vscode/mcp.json).
 # Keeps the running server off src/Lumi.Mcp/bin so it never locks normal builds.

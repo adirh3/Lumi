@@ -497,10 +497,21 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("call `read_powershell`", prompt);
     }
 
-    [Fact]
-    public void Build_Windows_ExplainsVisualInspectionStableTabsAndSafeBatching()
+    [Theory]
+    [InlineData("Windows")]
+    [InlineData("MacOS")]
+    [InlineData("Linux")]
+    public void Build_ExplainsVisualInspectionStableTabsAndSafeBatchingOnEveryPlatform(string platformName)
     {
-        var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Windows);
+        var platform = System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName);
+        var prompt = BuildForPlatform(platform);
+        if (platform == SystemPromptBuilder.PromptPlatform.MacOS
+            && OperatingSystem.IsMacOS() && !NativeBrowserLogic.IsEmbeddedBrowserAvailable)
+        {
+            Assert.DoesNotContain("## Browser Automation", prompt);
+            Assert.Contains("macOS 14 or later", prompt);
+            return;
+        }
 
         Assert.Contains("visual layout, canvas content, charts, or icons", prompt);
         Assert.Contains("capture does not switch tabs or show the browser", prompt);
@@ -511,14 +522,37 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("completed actions are not rolled back", prompt);
         Assert.Contains("their own visible, enabled target", prompt);
         Assert.Contains("not global page settling", prompt);
-        Assert.Contains("diagnostics=true", prompt);
-        Assert.Contains("returned Promises are supported", prompt);
-        Assert.Contains("Hidden pages can pause `requestAnimationFrame`", prompt);
+        if (platform == SystemPromptBuilder.PromptPlatform.Windows)
+        {
+            Assert.Contains("diagnostics=true", prompt);
+            Assert.Contains("returned Promises are supported", prompt);
+            Assert.Contains("Hidden pages can pause `requestAnimationFrame`", prompt);
+        }
+        else
+        {
+            Assert.DoesNotContain("diagnostics=true", prompt);
+            Assert.Contains("`await` and returned Promises are not supported", prompt);
+            Assert.DoesNotContain("lumi_browser_js(script, timeoutMs?)", prompt);
+        }
         Assert.Contains("Never repeat a completed click or submit", prompt);
         Assert.Contains("legacy button openers and class-based options", prompt);
         Assert.Contains("Coordinated fields are validated after all requested writes", prompt);
         Assert.Contains("visible page-level errors", prompt);
         Assert.DoesNotContain("Always use `steps` when you need 2+", prompt);
+    }
+
+    [Fact]
+    public void WindowsAutomationSections_MatchCurrentMainBaseline()
+    {
+        var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Windows).ReplaceLineEndings("\n");
+        var start = prompt.IndexOf("## Browser Automation", StringComparison.Ordinal);
+        var end = prompt.IndexOf("## Visualizations", start, StringComparison.Ordinal);
+        var automation = prompt[start..end];
+        var digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(automation)));
+
+        // Locks both full automation sections, including download/upload wording and whitespace.
+        Assert.Equal("638FD10F71EAD8091AF54D38A91F73ED5223C3699EF34C96040C9D6D4AA60057", digest);
     }
 
     [Fact]
@@ -552,11 +586,15 @@ public sealed class SystemPromptBuilderTests
     {
         var prompt = BuildForPlatform(platform);
 
-        // Windows-only tool sections must NOT be advertised (the tools aren't registered).
-        Assert.DoesNotContain("## Browser Automation", prompt);
+        // Browser tools are registered everywhere; desktop UI automation is still Windows-only.
+        var browserAvailable = platform != SystemPromptBuilder.PromptPlatform.MacOS
+            || !OperatingSystem.IsMacOS() || NativeBrowserLogic.IsEmbeddedBrowserAvailable;
+        Assert.Equal(browserAvailable, prompt.Contains("## Browser Automation", StringComparison.Ordinal));
+        Assert.Equal(browserAvailable, prompt.Contains("lumi_browser_open", StringComparison.Ordinal));
+        Assert.Equal(browserAvailable, prompt.Contains("lumi_browser_tabs", StringComparison.Ordinal));
+        Assert.Equal(browserAvailable, prompt.Contains("lumi_browser_screenshot", StringComparison.Ordinal));
+        Assert.DoesNotContain("there is no embedded browser", prompt);
         Assert.DoesNotContain("## Window Automation", prompt);
-        Assert.DoesNotContain("lumi_browser_open", prompt);
-        Assert.DoesNotContain("lumi_browser_", prompt);
         Assert.DoesNotContain("ui_inspect", prompt);
         Assert.DoesNotContain("ui_list_windows", prompt);
         Assert.DoesNotContain("ui_do", prompt);
@@ -570,12 +608,84 @@ public sealed class SystemPromptBuilderTests
         Assert.DoesNotContain("winget", prompt);
         Assert.DoesNotContain("Get-CimInstance", prompt);
         Assert.DoesNotContain("HKLM:", prompt);
+        Assert.DoesNotContain("HKCU:", prompt);
+        Assert.DoesNotContain("WebView2", prompt);
+        Assert.DoesNotContain(@"C:\\Users\\", prompt);
         Assert.DoesNotContain("read_powershell", prompt);
 
         // Cross-platform guidance IS present.
         Assert.Contains("the shell (bash/zsh)", prompt);
         Assert.Contains("python-docx", prompt);
         Assert.Contains("async shell command", prompt);
+    }
+
+    [Theory]
+    [InlineData("MacOS", "/Users/me/Pictures/photo.png")]
+    [InlineData("Linux", "/home/me/Pictures/photo.png")]
+    public void Build_NativeBrowser_UsesNativePathsAndExplainsPopupLimitations(string platformName, string uploadPath)
+    {
+        var prompt = BuildForPlatform(System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName));
+        if (platformName == "MacOS" && OperatingSystem.IsMacOS() && !NativeBrowserLogic.IsEmbeddedBrowserAvailable)
+        {
+            Assert.DoesNotContain("lumi_browser_", prompt);
+            Assert.Contains("system browser", prompt);
+            return;
+        }
+
+        Assert.Contains($"lumi_browser_do(\"upload\", null, \"{uploadPath}\")", prompt);
+        Assert.Contains("webmail in Lumi's built-in browser", prompt);
+        Assert.Contains("cannot preserve an opener relationship", prompt);
+        Assert.Contains("`window.opener`", prompt);
+        Assert.Contains("OAuth flows", prompt);
+        Assert.Contains("report this limitation", prompt);
+    }
+
+    [Theory]
+    [InlineData("Linux", true)]
+    [InlineData("MacOS", false)]
+    [InlineData("Windows", false)]
+    public void Build_OnlyLinuxKeepsAuthenticatedFlowsInTheSameTab(string platformName, bool hasIndependentTabSessions)
+    {
+        var prompt = BuildForPlatform(System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName));
+
+        Assert.Equal(hasIndependentTabSessions, prompt.Contains("**Linux tab sessions:**", StringComparison.Ordinal));
+        Assert.Equal(hasIndependentTabSessions, prompt.Contains("In-memory session cookies are independent per tab", StringComparison.Ordinal));
+        Assert.Equal(hasIndependentTabSessions, prompt.Contains("even with the same profile directory", StringComparison.Ordinal));
+        Assert.Equal(hasIndependentTabSessions, prompt.Contains("flows in the SAME TAB", StringComparison.Ordinal));
+        Assert.Equal(hasIndependentTabSessions, prompt.Contains("use `lumi_browser_open` to navigate within it", StringComparison.Ordinal));
+        Assert.Equal(hasIndependentTabSessions, prompt.Contains("New tabs and popups may need an independent login", StringComparison.Ordinal));
+        Assert.Equal(hasIndependentTabSessions, prompt.Contains("Do not assume session cookies or sign-in transfer between tabs", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("MacOS", "/Users/me/Downloads/export.csv")]
+    [InlineData("Linux", "/home/me/Downloads/export.csv")]
+    public void Build_NativePlatformsUseDirectDownloadsInsteadOfAdvertisingBrowserDownloadAction(string platformName, string downloadPath)
+    {
+        var prompt = BuildForPlatform(System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName));
+        if (platformName == "MacOS" && OperatingSystem.IsMacOS() && !NativeBrowserLogic.IsEmbeddedBrowserAvailable)
+        {
+            Assert.DoesNotContain("lumi_browser_", prompt);
+            Assert.Contains("macOS 14 or later", prompt);
+            return;
+        }
+
+        Assert.Contains("Embedded browser downloads are unsupported on Linux and macOS", prompt);
+        Assert.Contains("curl --fail --location --output", prompt);
+        Assert.Contains(downloadPath, prompt);
+        Assert.Contains("verified direct URL", prompt);
+        Assert.Contains("do not inherit browser login cookies", prompt);
+        Assert.DoesNotContain("- `download`: target = file pattern", prompt);
+        Assert.DoesNotContain("lumi_browser_do(\"download\"", prompt);
+    }
+
+    [Fact]
+    public void Build_WindowsBrowserDownloadsKeepTheirExistingGuidance()
+    {
+        var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Windows);
+
+        Assert.Contains("- `download`: target = file pattern (e.g. \"*.csv\"). Reports download status.", prompt);
+        Assert.DoesNotContain("Embedded browser downloads are unsupported", prompt);
     }
 
     [Fact]
@@ -597,5 +707,29 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("pbcopy", prompt);
         Assert.Contains("sw_vers", prompt);
         Assert.DoesNotContain("xdg-open", prompt);
+        Assert.Contains("macOS 14 or later", prompt);
+        Assert.Contains("persistent profile isolated", prompt);
+        Assert.Contains("system browser instead", prompt);
+    }
+
+    [Fact]
+    public void Build_ActualHostBrowserGuidanceMatchesSharedAvailability()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" },
+            agent: null, project: null, allSkills: [], activeSkills: [], memories: []);
+
+        var available = NativeBrowserLogic.IsEmbeddedBrowserAvailable;
+        Assert.Equal(available, prompt.Contains("## Browser Automation", StringComparison.Ordinal));
+        Assert.Equal(available, prompt.Contains("lumi_browser_open", StringComparison.Ordinal));
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            Assert.True(available);
+        if (!available)
+        {
+            Assert.DoesNotContain("lumi_browser_", prompt);
+            Assert.DoesNotContain("**Automate the browser**", prompt);
+            Assert.Contains("macOS 14 or later", prompt);
+            Assert.Contains("`open <url-or-path>`", prompt);
+        }
     }
 }

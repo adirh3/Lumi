@@ -23,7 +23,7 @@ namespace Lumi.Tests;
 public sealed class UiScaleShortcutTests
 {
     [Fact]
-    public async Task CtrlPlusAndMinus_AdjustScaleWhileScaleSliderIsFocused()
+    public async Task CommandPlusAndMinus_AdjustScaleWhileScaleSliderIsFocused()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -71,15 +71,18 @@ public sealed class UiScaleShortcutTests
                 slider.Focus();
                 await PumpAsync();
                 sliderFocused = slider.IsFocused;
+                var commandModifier = OperatingSystem.IsMacOS()
+                    ? RawInputModifiers.Meta
+                    : RawInputModifiers.Control;
 
                 PressKey(
                     window,
                     PhysicalKey.Equal,
-                    RawInputModifiers.Control | RawInputModifiers.Shift);
+                    commandModifier | RawInputModifiers.Shift);
                 await PumpAsync();
                 scaleAfterPlus = viewModel.SettingsVM.UiScalePercent;
 
-                PressKey(window, PhysicalKey.Minus, RawInputModifiers.Control);
+                PressKey(window, PhysicalKey.Minus, commandModifier);
                 await PumpAsync();
                 scaleAfterMinus = viewModel.SettingsVM.UiScalePercent;
 
@@ -242,6 +245,16 @@ public sealed class UiScaleShortcutTests
 
                     var layout = browser.CalculateNativeWebViewLayout(topLevel!);
                     Assert.NotNull(layout);
+
+                    var urlBar = browser.FindControl<Border>("UrlBar");
+                    Assert.NotNull(urlBar);
+                    var barBottom = urlBar.TranslatePoint(new Point(0, urlBar.Bounds.Height), topLevel!);
+                    var viewportBottom = browser.TranslatePoint(new Point(0, browser.Bounds.Height), topLevel!);
+                    Assert.NotNull(barBottom);
+                    Assert.NotNull(viewportBottom);
+                    Assert.Equal((int)Math.Floor(barBottom.Value.Y * topLevel!.RenderScaling), layout.Value.Y);
+                    Assert.Equal((int)Math.Ceiling(viewportBottom.Value.Y * topLevel.RenderScaling),
+                        layout.Value.Y + layout.Value.Height);
 
                     results[i] = (
                         scale,
