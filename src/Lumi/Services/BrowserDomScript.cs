@@ -37,6 +37,7 @@ internal static class BrowserDomScript
         const clickSelector = 'a[href],button,summary,input[type="button"],input[type="submit"],input[type="reset"],input[type="image"],input[type="checkbox"],input[type="radio"],[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="radio"],[role="checkbox"],[role="switch"],[role="option"]';
         const dialogSelector = 'dialog[open],[role="dialog"],[aria-modal="true"]';
         const fieldSelector = 'input,select,textarea,[contenteditable="true"],[role="textbox"],[role="combobox"]';
+        const optionSelector = '[role="option"],[role="menuitem"],[role="listitem"],li[data-value],li[class*="option"],div[class*="option"],div[class*="Option"],span[class*="option"]';
         const visible = el => {
             if (!el || !el.isConnected || el.ownerDocument !== document || el.closest('[hidden],[inert]')) return false;
             const box = el.getBoundingClientRect();
@@ -50,19 +51,11 @@ internal static class BrowserDomScript
         const slot = Symbol.for('lumi.browser.elements.v1');
         let registry = document[slot];
         if (!registry) {
-            registry = {scope, next:0, ids:new WeakMap(), nodes:new Map(), secrets:new Set(), changed:performance.now()};
+            registry = {scope, next:0, ids:new WeakMap(), nodes:new Map(), secrets:new Set()};
             Object.defineProperty(document, slot, {value:registry, configurable:true});
-            registry.observer = new MutationObserver(() => { registry.changed = performance.now(); });
-            registry.observer.observe(document, {
-                subtree:true, childList:true, characterData:true, attributes:true,
-                attributeFilter:['class','style','hidden','inert','open','disabled','readonly',
-                    'aria-busy','aria-disabled','aria-hidden','aria-expanded','aria-invalid',
-                    'aria-label','aria-modal','role','value','checked','selected','href','title','placeholder','data-tooltip']
-            });
             // A restored document gets new references, even though its JS heap survived navigation.
             const restored = event => {
                 if (!event.persisted) return;
-                registry.observer.disconnect();
                 if (document[slot] === registry) delete document[slot];
                 removeEventListener('pageshow', restored);
             };
@@ -180,11 +173,11 @@ internal static class BrowserDomScript
             setter.call(el, next);
             el._valueTracker?.setValue(String(previous));
         };
-        const validateEdit = edit => {
+        const validateEdit = (edit, checkValidity = true) => {
             const el = edit.node.deref();
             if (!el?.isConnected || el.ownerDocument !== document) throw new AutomationError('The field was replaced during editing; observe it again.');
             if (el[edit.property] !== edit.expected) throw new AutomationError('The field did not retain the requested value.');
-            if (edit.checkValidity && invalid(el)) throw new AutomationError(validation(el) || 'The field is invalid.');
+            if (checkValidity && edit.checkValidity && invalid(el)) throw new AutomationError(validation(el) || 'The field is invalid.');
         };
         const setValue = (el, next, checkValidity = true) => {
             editable(el, true);
@@ -229,31 +222,38 @@ internal static class BrowserDomScript
             if (!blurNotified) el.dispatchEvent(new FocusEvent('blur', {bubbles:true}));
             const edit = {node:new WeakRef(el), property, expected, checkValidity};
             registry.edited.push(edit);
-            validateEdit(edit);
+            // Coordinated fills may be temporarily invalid until the other fields are updated.
+            validateEdit(edit, operation !== 'fill');
             // Keep blur-driven validation while preserving ordinary type-then-Enter continuation.
             if (document.activeElement === document.body && visible(el)) el.focus();
         };
         try {
             rememberSecrets();
-            if (['click','type','clear','select','fill','press'].includes(operation)) registry.changed = performance.now();
             if (['type','clear','select','fill'].includes(operation)) registry.edited = [];
             if (operation === 'validate_edits') {
-                for (const edit of registry.edited || []) validateEdit(edit);
+                const edits = registry.edited || [];
+                for (let i = 0; i < edits.length; i++) {
+                    try { validateEdit(edits[i]); }
+                    catch (error) {
+                        if (value !== 'fill') throw error;
+                        return fail('Fill validation failed at field ' + (i+1) + ': ' + errorText(error) +
+                            '\nCompleted fields: ' + edits.length + '; unexecuted fields: 0');
+                    }
+                }
                 return ok('Edited fields retained their values.');
             }
             if (operation === 'ready') {
-                if (document.readyState === 'loading' || !document.body ||
-                    [...document.querySelectorAll('[aria-busy="true"],[role="progressbar"]')].some(visible) ||
-                    performance.now() - registry.changed < 250)
-                    return pending('The page is still loading or updating.');
-                return ok('Page ready.');
+                if (document.readyState === 'loading' || !document.body)
+                    return pending('The document is still loading.');
+                return ok('Document ready.');
             }
             if (operation === 'select_option') {
                 const dropdown = registry.dropdown, opener = dropdown?.el.deref();
                 if (!opener?.isConnected) return fail('The dropdown was removed or the document changed.');
                 const containers = (dropdown.controlled || '').split(/\s+/).map(key => document.getElementById(key)).filter(Boolean);
-                const all = collect('[role="option"],[role="menuitem"],li[data-value]');
-                const options = containers.length ? all.filter(el => containers.some(root => root.contains(el))) : all;
+                const all = collect(optionSelector);
+                const options = containers.length ? all.filter(el => containers.some(root => root.contains(el))) :
+                    all.filter(el => !dropdown.visibleBefore.has(el));
                 const matches = el => [norm(el.textContent), norm(el.getAttribute('data-value'))].map(s => s.toLowerCase());
                 const lower = value.toLowerCase();
                 const option = options.find(el => matches(el).includes(lower)) || options.find(el => matches(el).some(s => s.includes(lower)));
@@ -261,7 +261,6 @@ internal static class BrowserDomScript
                 editable(option);
                 const description = describe(option);
                 delete registry.dropdown;
-                registry.changed = performance.now();
                 option.click();
                 return ok('Selected ' + description);
             }
@@ -281,6 +280,8 @@ internal static class BrowserDomScript
                         .sort((a,b) => b.score-a.score || a.order-b.order).slice(0,limit).map(it => it.el);
                 }
                 let output = 'Page: ' + redact(document.title) + '\nURL: ' + redact(location.href) +
+                    '\nReadiness: ' + (document.readyState === 'loading' ? 'document loading' : 'DOM available') +
+                    '; visibility: ' + document.visibilityState + (all.length ? '' : '; no interactive elements yet') +
                     '\n\n--- Elements ---\n' + (matching.map(describe).join('\n') || '(no matching elements)') +
                     '\n(' + matching.length + ' shown)';
                 if (operation === 'look') output += '\n\n--- Text Preview ---\n' + redact(norm(document.body?.innerText)).slice(0,1500);
@@ -297,7 +298,10 @@ internal static class BrowserDomScript
                         (el.required || el.getAttribute('aria-required') === 'true' ? ' [required]' : '') +
                         (invalid(el) ? ' [invalid]' : '') + (validation(el) ? ' error="' + validation(el).slice(0,160) + '"' : '');
                 });
-                return ok('Form fields (' + fields.length + '):\n' + lines.join('\n'));
+                const errors = [...new Set(collect('[role="alert"],[class*="error"],[class*="Error"]')
+                    .map(el => redact(norm(el.textContent))).filter(text => text && text.length < 200))];
+                return ok('Form fields (' + fields.length + '):\n' + lines.join('\n') +
+                    (errors.length ? '\n\nPage errors:\n' + errors.join('\n') : ''));
             }
             if (operation === 'fill') {
                 let fields;
@@ -321,7 +325,7 @@ internal static class BrowserDomScript
                             (results.length ? '\n' + results.join('\n') : ''));
                     }
                 }
-                return ok(results.join('\n'));
+                return ok('Filled ' + results.length + ' fields.');
             }
             if (operation === 'press') {
                 const el = value ? resolve(value) : document.activeElement || document.body;
@@ -335,17 +339,19 @@ internal static class BrowserDomScript
                 return ok('Pressed key.');
             }
             let el;
-            try { el = resolve(target, ['type','clear','select'].includes(operation === 'probe' ? value : operation),
+            try { el = resolve(target, ['type','clear'].includes(operation === 'probe' ? value : operation),
                 operation === 'click' || operation === 'probe' && value === 'click'); }
             catch (error) {
                 if (['wait','probe'].includes(operation) && error instanceof AutomationError && !/^#?\d+$/.test(target.trim()))
                     return pending('Waiting for a matching visible element.');
                 throw error;
             }
-            if (operation === 'wait') return ok('Element found: ' + describe(el));
+            if (['probe','wait'].includes(operation) &&
+                (el.disabled || el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true'))
+                return pending('Waiting for the target to become enabled.');
+            if (operation === 'wait') return ok('Element ready: ' + describe(el));
             editable(el, operation === 'probe' && ['type','clear'].includes(value));
             if (operation === 'probe') return ok('Target ready.');
-            registry.changed = performance.now();
             if (operation === 'click') {
                 if (el.type === 'file') return fail('Use upload to attach files without opening a native dialog.');
                 const description = describe(el);
@@ -359,10 +365,13 @@ internal static class BrowserDomScript
             }
             if (operation === 'select') {
                 if (el.tagName === 'SELECT') { setValue(el,value); return ok('Selected option in ' + describe(el)); }
-                if (el.getAttribute('role') !== 'combobox' && el.getAttribute('aria-haspopup') !== 'listbox')
-                    return fail('Target is not a select or custom combobox.');
+                if (el.type === 'file') return fail('Use upload for file inputs.');
+                const declaresDropdown = el.getAttribute('role') === 'combobox' || el.hasAttribute('aria-haspopup');
+                if (!declaresDropdown && el.form && ['submit','reset','image'].includes(el.type))
+                    return fail('Target is a form action, not a dropdown; no action was executed.');
                 const controlled = el.getAttribute('aria-controls') || el.getAttribute('aria-owns') || '';
-                registry.dropdown = {el:new WeakRef(el), controlled};
+                // Without an owned list, unrelated options already on the page are not this menu.
+                registry.dropdown = {el:new WeakRef(el), controlled, visibleBefore:new WeakSet(collect(optionSelector))};
                 el.focus(); el.click();
                 return pending('Dropdown opened; waiting for the requested option.');
             }

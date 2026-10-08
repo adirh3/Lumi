@@ -212,7 +212,8 @@ public partial class ChatViewModel
         return
         [
             AIFunctionFactory.Create(
-                ([Description("The full URL to navigate to (e.g. https://mail.google.com)")] string url) =>
+                ([Description("The full URL to navigate to (e.g. https://mail.google.com)")] string url,
+                 [Description("Include phase timings for diagnosing browser latency. Default false keeps the response compact.")] bool diagnostics = false) =>
                 {
                     var svc = GetOrCreateBrowserService(chatId);
                     Dispatcher.UIThread.Post(() =>
@@ -220,10 +221,10 @@ public partial class ChatViewModel
                         if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
                         BrowserShowRequested?.Invoke(chatId);
                     });
-                    return svc.OpenAndSnapshotAsync(url);
+                    return svc.OpenAndSnapshotAsync(url, diagnostics);
                 },
                 ToolDisplayHelper.BrowserOpenToolName,
-                "Open a URL in the active browser tab and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with lumi_browser_do in that tab. Use lumi_browser_tabs to create or switch tabs. If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot."),
+                "Open a URL in the active browser tab and return navigation status, DOM readiness/visibility, numbered interactive elements and a text preview. Does not wait for global network/DOM idle; a dynamic app may still show Loading. Known subsequent actions wait for their own visible, enabled targets without an extra look call. The browser has persistent cookies/sessions — the user may already be logged in. Element numbers belong to that tab. Use lumi_browser_tabs to create or switch tabs. Download URLs report the download instead of a page snapshot. Set diagnostics=true for phase timings."),
 
             AIFunctionFactory.Create(
                 ([Description("Tab action: list, new, switch, or close.")] string action,
@@ -267,7 +268,8 @@ public partial class ChatViewModel
             AIFunctionFactory.Create(
                 ([Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps")] string action,
                  [Description("Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). For upload: optional locator for the <input type=file> (CSS selector or the upload button/label text) — omit to use the page's only file input. Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
-                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill, absolute file path(s) for upload (a JSON array for multiple files, or a single path; multiple paths may also be newline-separated — commas are NOT separators), JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot")] string? value = null) =>
+                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), timeout milliseconds for wait (default 10000), JSON object for fill, absolute file path(s) for upload (a JSON array for multiple files, or a single path; multiple paths may also be newline-separated — commas are NOT separators), JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot")] string? value = null,
+                 [Description("Include target-readiness, action and observation timings. Default false keeps the response compact.")] bool diagnostics = false) =>
                 {
                     var svc = GetOrCreateBrowserService(chatId);
                     var act = (action ?? "").Trim().ToLowerInvariant();
@@ -279,19 +281,20 @@ public partial class ChatViewModel
                             BrowserShowRequested?.Invoke(chatId);
                         });
                     }
-                    return svc.DoAsync(action ?? "", target, value);
+                    return svc.DoAsync(action ?? "", target, value, diagnostics);
                 },
                 ToolDisplayHelper.BrowserDoToolName,
-                "Interact with the active tab. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps. Use 'upload' to attach local file(s) to a file input WITHOUT the native OS file picker (value = absolute file path(s); target = optional file-input locator) — this is the only way to upload, never try to drive the native dialog. Use 'steps' to batch actions only when later steps do not require inspecting intermediate results (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]); returns one final snapshot. Stops at the first failure; a partial fill blocks subsequent steps. Inspect the result before continuing. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip the auto-snapshot only when the next action is already known."),
+                "Interact with the active tab. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps. Click/type/select/clear wait up to 2500 ms for their own visible, enabled target, not unrelated page activity. Use wait for a longer target/expected-state wait (value=timeout milliseconds). Select supports native and legacy custom dropdowns. Fill validates coordinated fields after all requested writes; invalid final values block later steps. Read_form includes visible page-level errors and redacts passwords. Use upload for local file(s), never the native file picker. Use steps for known sequences (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]); waits for each target and returns compact completed steps with ONE final snapshot. Stops at the first failure; a partial fill blocks subsequent steps. Completed actions are never retried. Snapshots do not prove delayed application effects; wait for the expected state when needed. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip observation when the next action is known. Set diagnostics=true for phase timings."),
 
             AIFunctionFactory.Create(
-                ([Description("JavaScript code to execute in the page context")] string script) =>
+                ([Description("JavaScript code to execute in the page context. Use return for the result; await and returned Promises are supported.")] string script,
+                 [Description("Maximum JavaScript execution/wait time in milliseconds (100-30000, default 10000).")] int timeoutMs = 10000) =>
                 {
                     var svc = GetOrCreateBrowserService(chatId);
-                    return svc.EvaluateAsync(script);
+                    return svc.EvaluateAsync(script, timeoutMs);
                 },
                 ToolDisplayHelper.BrowserJsToolName,
-                "Run JavaScript in the browser page context."),
+                "Run JavaScript in the active browser tab. Supports await and returned Promises with a bounded timeout; synchronous/async errors are returned explicitly. Use return to retrieve a value. Hidden/background pages may pause requestAnimationFrame; use bounded setTimeout-based DOM condition checks or browser_do wait instead. A timeout does not cancel or retry a dispatched script; it may still finish."),
         ];
     }
 

@@ -509,6 +509,15 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("Batch only when later steps do not require inspecting intermediate results", prompt);
         Assert.Contains("Stops at the first failure; a partial fill blocks subsequent steps", prompt);
         Assert.Contains("completed actions are not rolled back", prompt);
+        Assert.Contains("their own visible, enabled target", prompt);
+        Assert.Contains("not global page settling", prompt);
+        Assert.Contains("diagnostics=true", prompt);
+        Assert.Contains("returned Promises are supported", prompt);
+        Assert.Contains("Hidden pages can pause `requestAnimationFrame`", prompt);
+        Assert.Contains("Never repeat a completed click or submit", prompt);
+        Assert.Contains("legacy button openers and class-based options", prompt);
+        Assert.Contains("Coordinated fields are validated after all requested writes", prompt);
+        Assert.Contains("visible page-level errors", prompt);
         Assert.DoesNotContain("Always use `steps` when you need 2+", prompt);
     }
 

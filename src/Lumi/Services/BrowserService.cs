@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -545,7 +546,8 @@ public sealed partial class BrowserService : IAsyncDisposable
     {
         var url = _webView?.Source ?? "about:blank";
         _tabUrl = url;
-        _sourceChangedTcs?.TrySetResult(url);
+        if (!e.IsNewDocument)
+            _sourceChangedTcs?.TrySetResult(url);
         UrlChanged?.Invoke();
         NotifyTabChanged();
     }
@@ -829,35 +831,68 @@ public sealed partial class BrowserService : IAsyncDisposable
     }
 
     /// <summary>Execute arbitrary JavaScript and return the result. Wraps in try/catch for better error reporting.</summary>
-    public async Task<string> EvaluateAsync(string javascript)
+    public async Task<string> EvaluateAsync(string javascript, int timeoutMs = 10000)
     {
         if (_tabOwner is null)
-            return await CaptureActiveTab().EvaluateAsync(javascript);
-        return await RunOperationAsync(() => EvaluateCoreAsync(javascript));
+            return await CaptureActiveTab().EvaluateAsync(javascript, timeoutMs);
+        return await RunOperationAsync(() => EvaluateCoreAsync(javascript, timeoutMs));
     }
 
-    private async Task<string> EvaluateCoreAsync(string javascript)
+    private async Task<string> EvaluateCoreAsync(string javascript, int timeoutMs)
     {
+        if (timeoutMs is < 100 or > 30000)
+            return "JS Error: timeoutMs must be between 100 and 30000.";
         await EnsureInitializedAsync();
         await WaitForActionLockAsync();
         try
         {
-            // Wrap the user script in a synchronous try/catch so errors are returned as text instead of null.
-            // NOTE: We intentionally do NOT use async/await here because WebView2's ExecuteScriptAsync
-            // may not auto-await Promises, which would cause all results to come back as empty "{}".
+            // CDP can await returned Promises; ExecuteScriptAsync cannot.
             var wrappedScript =
-                "(function(){try{" +
-                "var __result__=(function(){" + javascript + "})();" +
+                "(async function(){try{" +
+                "var __result__=await (async function(){" + javascript + "})();" +
                 "if(__result__===undefined)return '(undefined)';" +
                 "if(__result__===null)return '(null)';" +
                 "if(typeof __result__==='object'){" +
-                "if(typeof __result__.then==='function')return '(Promise returned — use .then() or callback pattern instead of await)';" +
                 "try{return JSON.stringify(__result__,null,2)}catch(e){return String(__result__);}}" +
                 "return String(__result__);" +
                 "}catch(e){return 'JS Error: '+e.message+(e.stack?'\\n'+e.stack.split('\\n').slice(0,3).join('\\n'):'');}})()";
 
             var beforeEval = DateTime.UtcNow;
-            var result = await InvokeOnUiThreadAsync(() => _webView!.ExecuteScriptAsync(wrappedScript));
+            var parameters = "{\"expression\":" + JsonQuote(wrappedScript) +
+                ",\"awaitPromise\":true,\"returnByValue\":true,\"timeout\":" + timeoutMs + "}";
+            var evaluationTimer = Stopwatch.StartNew();
+            string result;
+            try
+            {
+                var json = await InvokeOnUiThreadAsync(() =>
+                    _webView!.CallDevToolsProtocolMethodAsync("Runtime.evaluate", parameters))
+                    .WaitAsync(TimeSpan.FromMilliseconds(timeoutMs));
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("exceptionDetails", out var error))
+                {
+                    var description = error.TryGetProperty("exception", out var exception) &&
+                        exception.TryGetProperty("description", out var detail)
+                        ? detail.GetString() : error.GetProperty("text").GetString();
+                    return "JS Error: " + description;
+                }
+                if (!doc.RootElement.GetProperty("result").TryGetProperty("value", out var value) ||
+                    value.ValueKind != JsonValueKind.String)
+                    return "JS Error: The page did not return a JavaScript result; the script was not retried.";
+                result = value.GetString()!;
+            }
+            catch (TimeoutException)
+            {
+                return $"JS Error: JavaScript exceeded {timeoutMs} ms; the script was not retried and may still finish. " +
+                    "Hidden pages can pause requestAnimationFrame; use bounded setTimeout-based conditions instead.";
+            }
+            catch (Exception ex)
+            {
+                return "JS Error: " + BrowserActionResult.FromException(ex).Message;
+            }
+            finally
+            {
+                Debug.WriteLine($"Browser phase=javascript; elapsed_ms={evaluationTimer.ElapsedMilliseconds}");
+            }
             await Task.Delay(300); // brief settle for any download to register
 
             // Check if the script triggered a download
@@ -865,10 +900,10 @@ public sealed partial class BrowserService : IAsyncDisposable
             if (downloads.Count > 0)
             {
                 var status = await GetDownloadStatusAsync(downloads[^1]);
-                return CleanJsResult(result) + $"\n\nDownload triggered:\n{status}";
+                return result + $"\n\nDownload triggered:\n{status}";
             }
 
-            return CleanJsResult(result);
+            return result;
         }
         finally
         {
@@ -932,25 +967,26 @@ public sealed partial class BrowserService : IAsyncDisposable
     // Composite Tool Methods — clean 4-tool surface for the LLM
     // ═══════════════════════════════════════════════════════════════
 
-    /// <summary>Navigate to a URL, wait for dynamic content to settle, and return a numbered snapshot.</summary>
-    public async Task<string> OpenAndSnapshotAsync(string url)
+    /// <summary>Navigate to a URL and return a document-ready snapshot without waiting for global page idle.</summary>
+    public async Task<string> OpenAndSnapshotAsync(string url, bool diagnostics = false)
     {
         if (_tabOwner is null)
-            return await CaptureActiveTab().OpenAndSnapshotAsync(url);
-        return await RunOperationAsync(() => OpenAndSnapshotCoreAsync(url));
+            return await CaptureActiveTab().OpenAndSnapshotAsync(url, diagnostics);
+        return await RunOperationAsync(() => OpenAndSnapshotCoreAsync(url, diagnostics));
     }
 
-    private async Task<string> OpenAndSnapshotCoreAsync(string url)
+    private async Task<string> OpenAndSnapshotCoreAsync(string url, bool diagnostics)
     {
         try
         {
+            var navigationTimer = Stopwatch.StartNew();
             var (result, isDownload) = await NavigateCoreAsync(url);
+            var navigationMs = navigationTimer.ElapsedMilliseconds;
             if (!result.Succeeded || isDownload)
                 return $"Tab: {TabId}\n" + result.ToDisplayText();
-            var readiness = await WaitForContentSettleAsync();
-            var snapshot = await LookCoreAsync();
-            return readiness.Succeeded ? snapshot :
-                (readiness.Pending ? readiness.Message : readiness.ToDisplayText()) + "\n\n" + snapshot;
+            return $"Tab: {TabId}\nNavigation: completed.\n" +
+                (diagnostics ? $"Timing: navigation={navigationMs} ms.\n" : "") +
+                await ObservePageCoreAsync(diagnostics: diagnostics);
         }
         catch (Exception ex) { return $"Tab: {TabId}\n" + BrowserActionResult.FromException(ex).ToDisplayText(); }
     }
@@ -966,6 +1002,20 @@ public sealed partial class BrowserService : IAsyncDisposable
     private async Task<string> LookCoreAsync(string? filter = null) =>
         $"Tab: {TabId}\n" + (await RunDomActionAsync("look", filter)).ToDisplayText();
 
+    private async Task<string> ObservePageCoreAsync(bool diagnostics = false)
+    {
+        var readiness = await WaitForDocumentReadyAsync();
+        var snapshotTimer = Stopwatch.StartNew();
+        var snapshot = (await RunDomActionAsync("look")).ToDisplayText();
+        var text = readiness.Succeeded ? snapshot :
+            (readiness.Pending ? readiness.Message : readiness.ToDisplayText()) + "\n\n" + snapshot;
+        var reason = readiness.Succeeded ? "document-ready" : readiness.Pending ? "loading-deadline" : "failed";
+        Debug.WriteLine($"Browser phase=observation; ready_ms={readiness.ElapsedMs}; snapshot_ms={snapshotTimer.ElapsedMilliseconds}; reason={reason}");
+        return diagnostics
+            ? text + $"\nTiming: readiness={readiness.ElapsedMs} ms ({reason}); snapshot={snapshotTimer.ElapsedMilliseconds} ms."
+            : text;
+    }
+
     /// <summary>
     /// Find and rank interactive elements by query across text/aria/tooltip/title/href.
     /// Returns stable element indices that can be used with lumi_browser_do(click, target).
@@ -979,20 +1029,20 @@ public sealed partial class BrowserService : IAsyncDisposable
     }
 
     /// <summary>Perform a browser action. Dispatches to the appropriate internal method.</summary>
-    public async Task<string> DoAsync(string action, string? target = null, string? value = null)
+    public async Task<string> DoAsync(string action, string? target = null, string? value = null, bool diagnostics = false)
     {
         if (_tabOwner is null)
-            return await CaptureActiveTab().DoAsync(action, target, value);
-        return await RunOperationAsync(() => DoCoreAsync(action, target, value));
+            return await CaptureActiveTab().DoAsync(action, target, value, diagnostics);
+        return await RunOperationAsync(() => DoCoreAsync(action, target, value, diagnostics));
     }
 
-    private async Task<string> DoCoreAsync(string action, string? target, string? value)
+    private async Task<string> DoCoreAsync(string action, string? target, string? value, bool diagnostics)
     {
         var act = (action ?? "").Trim().ToLowerInvariant();
 
         // "steps" is a meta-action that runs multiple sub-actions with one snapshot at the end.
         if (act == "steps")
-            return $"Tab: {TabId}\n" + await ExecuteStepsAsync(value);
+            return $"Tab: {TabId}\n" + await ExecuteStepsAsync(value, diagnostics);
 
         // Check for quiet flag: value="quiet" or target ends with " quiet" suppresses the auto-snapshot.
         var quiet = false;
@@ -1018,12 +1068,13 @@ public sealed partial class BrowserService : IAsyncDisposable
         _lastNewWindowUrl = null; // Reset new-window tracker
 
         var outcome = await ExecuteActionAsync(new(act, target, value));
-        var result = $"Tab: {TabId}\n" + outcome.ToDisplayText();
+        var result = $"Tab: {TabId}\n" + outcome.ToDisplayText(diagnostics);
         if (!outcome.Succeeded)
-            return result + (quiet ? "" : "\n\n" + await LookCoreAsync());
+            return result + (quiet ? "" : "\n\n" + await ObservePageCoreAsync(diagnostics));
 
         if (autoLook)
         {
+            var snapshot = await ObservePageCoreAsync(diagnostics);
             // Check if the action triggered a download
             var downloads = GetDownloadsSince(beforeAction);
             if (downloads.Count > 0)
@@ -1039,7 +1090,6 @@ public sealed partial class BrowserService : IAsyncDisposable
                 result += $"\n\nNew tab requested: {newWindowUrl}. Observation below remains on the original tab.";
             }
 
-            var snapshot = await LookCoreAsync();
             return result + "\n\n" + snapshot;
         }
 
@@ -1056,8 +1106,9 @@ public sealed partial class BrowserService : IAsyncDisposable
     /// The value parameter is a JSON array of action objects, each with action/target/value fields.
     /// Example: [{"action":"click","target":"Next month"},{"action":"click","target":"Next month"},{"action":"click","target":"25"}]
     /// </summary>
-    private Task<string> ExecuteStepsAsync(string? stepsJson) =>
-        BrowserAutomationBatch.ExecuteAsync(stepsJson, ExecuteActionAsync, () => LookCoreAsync());
+    private Task<string> ExecuteStepsAsync(string? stepsJson, bool diagnostics) =>
+        BrowserAutomationBatch.ExecuteAsync(stepsJson, ExecuteActionAsync,
+            () => ObservePageCoreAsync(diagnostics), diagnostics);
 
 
     /// <summary>
@@ -1994,11 +2045,11 @@ public sealed class BrowserService : IAsyncDisposable
 
     public Task InitializeAsync(IntPtr parentHwnd) => Task.CompletedTask;
     public Task<string> NavigateAsync(string url) => Task.FromResult(NotSupported);
-    public Task<string> OpenAndSnapshotAsync(string url) => Task.FromResult(NotSupported);
+    public Task<string> OpenAndSnapshotAsync(string url, bool diagnostics = false) => Task.FromResult(NotSupported);
     public Task<string> LookAsync(string? filter = null) => Task.FromResult(NotSupported);
     public Task<string> FindElementsAsync(string query, int limit = 12, bool preferDialog = true) => Task.FromResult(NotSupported);
-    public Task<string> DoAsync(string action, string? target = null, string? value = null) => Task.FromResult(NotSupported);
-    public Task<string> EvaluateAsync(string javascript) => Task.FromResult(NotSupported);
+    public Task<string> DoAsync(string action, string? target = null, string? value = null, bool diagnostics = false) => Task.FromResult(NotSupported);
+    public Task<string> EvaluateAsync(string javascript, int timeoutMs = 10000) => Task.FromResult(NotSupported);
     public Task<string> PressKeyAsync(string key, string? selector = null) => Task.FromResult(NotSupported);
     public Task<string> WaitForAsync(string selector, int timeoutMs = 10000) => Task.FromResult(NotSupported);
     public Task<string> GoBackAsync() => Task.FromResult(NotSupported);

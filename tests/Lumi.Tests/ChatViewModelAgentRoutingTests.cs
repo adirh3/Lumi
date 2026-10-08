@@ -842,7 +842,7 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
-    public void BuildCustomTools_BrowserToolsPreserveExistingArgumentsAndAddTabContracts()
+    public void BuildCustomTools_BrowserToolsPreserveRequiredArgumentsAndAddOptionalDiagnostics()
     {
         if (!OperatingSystem.IsWindows())
             return;
@@ -851,11 +851,11 @@ public sealed class ChatViewModelAgentRoutingTests
         var tools = InvokeBuildCustomTools(harness.ViewModel).ToDictionary(tool => tool.Name);
         var expectedArguments = new Dictionary<string, string[]>
         {
-            [ToolDisplayHelper.BrowserOpenToolName] = ["url"],
+            [ToolDisplayHelper.BrowserOpenToolName] = ["url", "diagnostics"],
             [ToolDisplayHelper.BrowserLookToolName] = ["filter"],
             [ToolDisplayHelper.BrowserFindToolName] = ["query", "limit"],
-            [ToolDisplayHelper.BrowserDoToolName] = ["action", "target", "value"],
-            [ToolDisplayHelper.BrowserJsToolName] = ["script"],
+            [ToolDisplayHelper.BrowserDoToolName] = ["action", "target", "value", "diagnostics"],
+            [ToolDisplayHelper.BrowserJsToolName] = ["script", "timeoutMs"],
             [ToolDisplayHelper.BrowserTabsToolName] = ["action", "tabId", "url"],
             [ToolDisplayHelper.BrowserScreenshotToolName] = ["tabId"]
         };
@@ -863,10 +863,20 @@ public sealed class ChatViewModelAgentRoutingTests
         foreach (var (name, parameters) in expectedArguments)
             Assert.Equal(parameters, tools[name].JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name));
 
+        foreach (var (name, required) in new[]
+        {
+            (ToolDisplayHelper.BrowserOpenToolName, "url"),
+            (ToolDisplayHelper.BrowserDoToolName, "action"),
+            (ToolDisplayHelper.BrowserJsToolName, "script")
+        })
+            Assert.Equal([required], tools[name].JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
+
         var tabs = tools[ToolDisplayHelper.BrowserTabsToolName];
         Assert.Equal(["action"], tabs.JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
         Assert.Contains("stable IDs", tabs.Description);
         Assert.Contains("partial fill blocks subsequent steps", tools[ToolDisplayHelper.BrowserDoToolName].Description);
+        Assert.Contains("own visible, enabled target", tools[ToolDisplayHelper.BrowserDoToolName].Description);
+        Assert.Contains("returned Promises", tools[ToolDisplayHelper.BrowserJsToolName].Description);
     }
 
     [Fact]

@@ -136,6 +136,34 @@ public sealed class BrowserAutomationResultTests
         Assert.Equal(new[] { "type", "click", "observe" }, events);
         Assert.Contains("Completed 2 of 2", output);
         Assert.DoesNotContain("secret-password", output);
+        Assert.DoesNotContain("Timing:", output);
+    }
+
+    [Fact]
+    public async Task DiagnosticsReportPhaseDurationsWithoutEchoingInput()
+    {
+        var observations = 0;
+        var output = await BrowserAutomationBatch.ExecuteAsync(
+            """[{"action":"type","target":"secret-target","value":"secret-password"},{"action":"click"}]""",
+            _ => Task.FromResult(new BrowserActionResult(true, "Done", TargetWaitMs: 3, ElapsedMs: 5)),
+            () => { observations++; return Task.FromResult("fresh observation"); },
+            diagnostics: true);
+        Assert.Equal(1, observations);
+        Assert.Contains("Completed 2 of 2 steps", output);
+        Assert.Contains("target-ready=6 ms", output);
+        Assert.Contains("actions=", output);
+        Assert.Contains("observation=", output);
+        Assert.DoesNotContain("secret-target", output);
+        Assert.DoesNotContain("secret-password", output);
+    }
+
+    [Fact]
+    public void ActionDiagnosticsAreOptionalAndKeepFailureStatus()
+    {
+        var result = new BrowserActionResult(false, "No action executed.", TargetWaitMs: 12, ElapsedMs: 20);
+        Assert.Equal("Error: No action executed.", result.ToDisplayText());
+        Assert.StartsWith("Error: No action executed.", result.ToDisplayText(diagnostics: true));
+        Assert.Contains("target-ready=12 ms; action=8 ms", result.ToDisplayText(diagnostics: true));
     }
 
     [Fact]

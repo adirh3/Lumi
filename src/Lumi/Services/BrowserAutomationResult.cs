@@ -1,16 +1,24 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Lumi.Services;
 
-internal readonly record struct BrowserActionResult(bool Succeeded, string Message, bool Pending = false)
+internal readonly record struct BrowserActionResult(
+    bool Succeeded, string Message, bool Pending = false, long TargetWaitMs = 0, long ElapsedMs = 0)
 {
     internal static BrowserActionResult Success(string message) => new(true, message);
     internal static BrowserActionResult Failure(string message) => new(false, message);
-    internal string ToDisplayText() => Succeeded ? Message : "Error: " + Message;
+    internal string ToDisplayText(bool diagnostics = false)
+    {
+        var text = Succeeded ? Message : "Error: " + Message;
+        return diagnostics
+            ? text + $"\nTiming: target-ready={TargetWaitMs} ms; action={Math.Max(0, ElapsedMs - TargetWaitMs)} ms."
+            : text;
+    }
 
     internal static BrowserActionResult FromScript(string json)
     {
@@ -69,7 +77,8 @@ internal static class BrowserAutomationBatch
     internal static async Task<string> ExecuteAsync(
         string? json,
         Func<BrowserAutomationStep, Task<BrowserActionResult>> execute,
-        Func<Task<string>> observe)
+        Func<Task<string>> observe,
+        bool diagnostics = false)
     {
         var steps = new List<BrowserAutomationStep>();
         try
@@ -97,6 +106,18 @@ internal static class BrowserAutomationBatch
         }
 
         var completed = new List<string>();
+        var timer = Stopwatch.StartNew();
+        long targetWaitMs = 0;
+        async Task<string> FinishAsync(string summary)
+        {
+            var actionMs = timer.ElapsedMilliseconds;
+            var observationTimer = Stopwatch.StartNew();
+            var snapshot = await ObserveSafelyAsync(observe);
+            return summary + (diagnostics
+                ? $"\nTiming: target-ready={targetWaitMs} ms; actions={Math.Max(0, actionMs - targetWaitMs)} ms; observation={observationTimer.ElapsedMilliseconds} ms."
+                : "") + "\n\n" + snapshot;
+        }
+
         for (var i = 0; i < steps.Count; i++)
         {
             var step = steps[i];
@@ -111,20 +132,20 @@ internal static class BrowserAutomationBatch
             {
                 result = BrowserActionResult.FromException(ex);
             }
+            targetWaitMs += result.TargetWaitMs;
             if (!result.Succeeded)
             {
                 var remaining = steps.Skip(i + 1).Select((s, j) =>
                     $"{i + j + 2} ({(Supports(s.Action) ? s.Action : "unsupported")})");
-                return $"Error: step {i + 1} failed: {result.Message}\n" +
+                return await FinishAsync($"Error: step {i + 1} failed: {result.Message}\n" +
                     $"Completed {completed.Count} of {steps.Count} steps:\n" +
                     (completed.Count == 0 ? "(none)" : string.Join("\n", completed)) +
-                    "\nUnexecuted steps: " + (i + 1 == steps.Count ? "(none)" : string.Join(", ", remaining)) +
-                    "\n\n" + await ObserveSafelyAsync(observe);
+                    "\nUnexecuted steps: " + (i + 1 == steps.Count ? "(none)" : string.Join(", ", remaining)));
             }
             completed.Add($"{i + 1}. {step.Action}: {result.Message}");
         }
-        return $"Completed {steps.Count} of {steps.Count} steps:\n" +
-            string.Join("\n", completed) + "\n\n" + await ObserveSafelyAsync(observe);
+        return await FinishAsync($"Completed {steps.Count} of {steps.Count} steps:\n" +
+            string.Join("\n", completed));
     }
 
     private static async Task<string> ObserveSafelyAsync(Func<Task<string>> observe)
