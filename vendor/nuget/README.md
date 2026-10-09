@@ -1,28 +1,24 @@
 # Vendored NuGet packages
 
-## Active Avalonia package
+## Avalonia dependency
 
-Lumi consumes the unofficial `Avalonia 12.1.3.1` core with official `12.1.3`
-peer packages. `Avalonia.Controls.DataGrid` is released independently and is
-pinned to its published `12.1.2` release in root `Directory.Build.targets`,
-including for Strata's project references. The core backports both final merged
-text fixes onto stable 12.1.3.
-Source patches, licenses, rebuild tools and provenance are under
-[`../avalonia/12.1.3.1`](../avalonia/12.1.3.1/README.md).
+Lumi now consumes official `Avalonia 12.1.4` from NuGet.org. That stable release
+includes both final accepted text fixes from
+[AvaloniaUI/Avalonia#22343](https://github.com/AvaloniaUI/Avalonia/pull/22343) and
+[AvaloniaUI/Avalonia#22344](https://github.com/AvaloniaUI/Avalonia/pull/22344).
+The temporary Avalonia packages, rebuild inputs, checksum rows and exact local
+source mapping have been removed after verifying the official binaries against
+the input and direct empty-bounds regressions.
 
-- `Avalonia.12.1.3.1.nupkg` SHA-256:
-  `9e77f8fc7234639cceb2abdace3d8f04d04410c072b61b6dd054bb5d6fb5eeb6`
-- The previous `Avalonia.12.1.2.2.nupkg` and its inputs remain unchanged.
-- Only the exact package ID `Avalonia` is mapped to this local feed.
-- Replace the temporary fork only after an official stable release demonstrably
-  contains both fixes and passes the actual binary/app regressions.
+`Avalonia.Controls.DataGrid` remains independently pinned to published `12.1.2`.
+The Copilot SDK archives below are unchanged and are not active dependencies.
 
 ## Archived Copilot SDK packages
 
 Lumi now references official `GitHub.Copilot.SDK 1.0.17-preview.7` from NuGet.org
 and implements its upstream `ISkillProvider` API. The packages below are retained
 only as historical provenance: they are not referenced or source-mapped by Lumi.
-The local feed remains active for the patched Avalonia core.
+This directory is retained as an archive, not an active package feed.
 Full CLI acquisition has moved to `build/Copilot/CopilotCli.targets`, which uses
 the official SDK's supported binary-path override.
 
