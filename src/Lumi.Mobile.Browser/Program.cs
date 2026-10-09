@@ -12,6 +12,7 @@ internal static class Program
     private static async Task Main(string[] args)
     {
         await JSHost.ImportAsync("./browserHost.js", "/app/browserHost.js");
+        await JSHost.ImportAsync("./pwaHost.js", "/app/pwaHost.js");
         var host = new BrowserHostEnvironment(BrowserInterop.GetOrigin());
         var nativeTextInputOverlayPresenter = new BrowserNativeTextInputOverlayPresenter();
         MobilePlatformServices.HostEnvironment = host;
@@ -32,10 +33,33 @@ internal static class Program
                     new Uri(host.FixedBaseUrl!),
                     new HttpClientHandler { AllowAutoRedirect = false }),
                 downloads);
-            return new MobileShellViewModel(
+            var shell = new MobileShellViewModel(
                 client,
                 new BrowserDiscoveryClient(),
                 store);
+            BrowserInterop.SetTheme(shell.Theme.ToString());
+            shell.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MobileShellViewModel.Theme))
+                    BrowserInterop.SetTheme(shell.Theme.ToString());
+                else if (e.PropertyName is nameof(MobileShellViewModel.IsGatewaySignInRequired)
+                    or nameof(MobileShellViewModel.CanAutomaticallyRecoverGatewaySignIn)
+                    && shell.IsGatewaySignInRequired
+                    && shell.CanAutomaticallyRecoverGatewaySignIn)
+                {
+                    BrowserInterop.RecoverGatewaySignIn();
+                }
+                else if (e.PropertyName == nameof(MobileShellViewModel.IsConnected) && shell.IsConnected)
+                {
+                    BrowserInterop.ConfirmGatewaySignIn();
+                    BrowserInterop.CheckAppUpdate();
+                }
+                else if (e.PropertyName == nameof(MobileShellViewModel.CanApplyWebAppUpdate))
+                {
+                    BrowserInterop.TryApplyAppUpdate();
+                }
+            };
+            return shell;
         };
 
         await AppBuilder.Configure<App>()

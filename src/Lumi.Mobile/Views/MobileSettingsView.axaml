@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
              xmlns:sc="using:StrataTheme.Controls"
              x:Class="Lumi.Mobile.Views.MobileSettingsView"
              x:DataType="vm:MobileShellViewModel"
@@ -11,6 +12,7 @@
     <Border x:Name="SettingsTopInset" Grid.Row="0" Padding="{Binding SafeAreaTop}">
       <Border x:Name="SettingsHeaderSideInset" Padding="{Binding SafeAreaSides}">
         <Grid x:Name="SettingsHeaderLayout"
+              RowDefinitions="Auto,Auto"
               ColumnDefinitions="Auto,*"
               ColumnSpacing="4"
               MaxWidth="620"
@@ -24,6 +26,8 @@
           </Button>
           <TextBlock Grid.Column="1" Text="Settings" Classes="section-title"
                      VerticalAlignment="Center" />
+          <views:WebAppUpdateBannerView x:Name="SettingsUpdateBanner"
+                                        Grid.Row="1" Grid.ColumnSpan="2" />
         </Grid>
       </Border>
     </Border>
@@ -91,6 +95,14 @@
                         Command="{Binding RefreshCommand}">
                   <TextBlock Text="Refresh" Foreground="{Binding $parent[Button].Foreground}" />
                 </Button>
+              </sc:StrataSetting>
+              <sc:StrataSetting x:Name="ReloadWebAppSetting" Header="Browser sign-in" Classes="mobile stacked"
+                                IsVisible="{Binding CanReloadWebApp}"
+                                Description="Reload through your browser if sign-in has expired. Pairing is kept; unsent text is not.">
+                <Button x:Name="ReloadWebAppButton" Classes="touch open-action"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Content="Reload web app"
+                        Command="{Binding ReloadWebAppCommand}" />
               </sc:StrataSetting>
               <sc:StrataSetting Header="App version" Classes="mobile" Description="{Binding AppVersion}" />
             </sc:StrataSettingGroup>

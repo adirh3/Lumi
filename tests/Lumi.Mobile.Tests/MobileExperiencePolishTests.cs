@@ -1694,6 +1694,464 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.True(shell.IsPaired);
         });
 
+    [Theory]
+    [InlineData(false, 320)]
+    [InlineData(true, 320)]
+    [InlineData(true, 900)]
+    public async Task BrowserSignInRecoveryIsAvailableOnlyInTheWebApp(bool webApp, double width)
+    {
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        var reloads = 0;
+        MobilePlatformServices.HostEnvironment =
+            new ReloadableWebHost(webApp ? () => reloads++ : null);
+        try
+        {
+            await RunUiAsync(width, async (shell, view, window) =>
+            {
+                shell.IsConnected = false;
+                shell.IsHostReady = false;
+                shell.IsGatewaySignInRequired = true;
+                shell.ConnectionMessage = "Sign in again. Pairing is kept; copy your draft before reloading.";
+                shell.Chat.PromptText = "An unsent draft";
+                await Task.Delay(320);
+                Pump(window);
+                Assert.Equal("Sign-in required", shell.ConnectionStateLabel);
+                Assert.False(Required<Control>(view, "ConnectionRetryPulse").IsEffectivelyVisible);
+                var recovery = Required<Button>(view, "GatewaySignInButton");
+                Assert.Equal(webApp, recovery.IsEffectivelyVisible);
+                Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+                if (webApp)
+                {
+                    Assert.True(recovery.Bounds.Width >= 48 && recovery.Bounds.Height >= 48);
+                    Assert.True(recovery.TranslatePoint(
+                        new Point(recovery.Bounds.Width, 0), view)!.Value.X <= view.Bounds.Width);
+                    Tap(window, recovery);
+                    Assert.Equal(1, reloads);
+                    Assert.True(shell.IsPaired);
+                    Assert.Equal("An unsent draft", shell.Chat.PromptText);
+                }
+
+                shell.IsGatewaySignInRequired = false;
+                shell.IsConnected = true;
+                shell.IsHostReady = true;
+                Pump(window);
+                Assert.False(Required<Control>(view, "ConnectionBanner").IsEffectivelyVisible);
+                Assert.False(recovery.IsEffectivelyVisible);
+
+                shell.Page = MobilePage.Settings;
+                Pump(window);
+                Assert.Equal(webApp, shell.CanReloadWebApp);
+                Assert.Equal(webApp, shell.ReloadWebAppCommand.CanExecute(null));
+                Assert.Equal(webApp, Required<Control>(view, "ReloadWebAppSetting").IsEffectivelyVisible);
+                if (webApp)
+                {
+                    var button = Required<Button>(view, "ReloadWebAppButton");
+                    button.BringIntoView();
+                    await Task.Delay(320);
+                    Pump(window);
+                    Tap(window, button);
+                    Assert.Equal(2, reloads);
+                    Assert.True(shell.IsPaired);
+                }
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
+    [Fact]
+    public async Task AutomaticBrowserSignInRecoveryProtectsCurrentAndInactiveChatWork()
+    {
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        MobilePlatformServices.HostEnvironment = new ReloadableWebHost(() => { });
+        try
+        {
+            await RunUiAsync(320, (shell, _, _) =>
+            {
+                Assert.True(shell.CanAutomaticallyRecoverGatewaySignIn);
+                var originalChat = shell.Chat.ChatId;
+                shell.Chat.PromptText = "Keep this draft";
+                Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+
+                shell.Chat.Reset(Guid.NewGuid(), "Another chat");
+                Assert.Empty(shell.Chat.PromptText);
+                Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+                shell.Chat.Reset(originalChat, "Original chat");
+                Assert.Equal("Keep this draft", shell.Chat.PromptText);
+                shell.Chat.PromptText = "";
+                Assert.True(shell.CanAutomaticallyRecoverGatewaySignIn);
+
+                shell.Chat.IsUploading = true;
+                Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+                shell.Chat.IsUploading = false;
+                shell.Page = MobilePage.Settings;
+                Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+                return Task.CompletedTask;
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
+    [Theory]
+    [InlineData(false, 320)]
+    [InlineData(true, 320)]
+    [InlineData(true, 900)]
+    public async Task BrowserUpdateBannerKeepsDraftsAndOffersSafeApplyAndRetryOnEveryPage(bool webApp, double width)
+    {
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        var applies = 0;
+        var checks = 0;
+        MobilePlatformServices.HostEnvironment = new ReloadableWebHost(
+            reload: null,
+            apply: webApp ? () => applies++ : null,
+            check: webApp ? () => checks++ : null);
+        try
+        {
+            await RunUiAsync(width, async (shell, view, window) =>
+            {
+                shell.WebAppUpdateState = WebAppUpdateState.Ready;
+                shell.Chat.PromptText = "Keep this draft while updating";
+                foreach (var (page, name) in new[]
+                         {
+                             (MobilePage.Chat, "ChatUpdateBanner"),
+                             (MobilePage.Library, "LibraryUpdateBanner"),
+                             (MobilePage.Settings, "SettingsUpdateBanner"),
+                             (MobilePage.Search, "SearchUpdateBanner")
+                         })
+                {
+                    shell.Page = page;
+                    await Task.Delay(260);
+                    Pump(window);
+                    var banner = Required<WebAppUpdateBannerView>(view, name);
+                    Assert.Equal(webApp, banner.IsEffectivelyVisible);
+                    if (!webApp)
+                        continue;
+                    var apply = Required<Button>(banner, "ApplyWebAppUpdateButton");
+                    Assert.False(apply.IsEffectivelyEnabled);
+                    Assert.Equal("Keep this draft while updating", shell.Chat.PromptText);
+
+                    Assert.Contains(banner.GetVisualDescendants().OfType<TextBlock>(),
+                        text => text.Text == "Update ready");
+                    Assert.True(apply.Bounds.Width >= 48 && apply.Bounds.Height >= 48);
+                    Assert.True(banner.TranslatePoint(
+                        new Point(banner.Bounds.Width, 0), view)!.Value.X <= view.Bounds.Width);
+
+                    shell.WebAppUpdateState = WebAppUpdateState.Failed;
+                    await Task.Delay(80);
+                    Pump(window);
+                    Tap(window, Required<Button>(banner, "CheckWebAppUpdateButton"));
+                    shell.WebAppUpdateState = WebAppUpdateState.Ready;
+                }
+                Assert.Equal(webApp ? 4 : 0, checks);
+                shell.Page = MobilePage.Chat;
+                shell.Chat.PromptText = "";
+                await Task.Delay(260);
+                Pump(window);
+                Assert.Equal(webApp, shell.CanApplyWebAppUpdate);
+                Assert.Equal(webApp, shell.ApplyWebAppUpdateCommand.CanExecute(null));
+                if (webApp)
+                    Tap(window, Required<Button>(
+                        Required<WebAppUpdateBannerView>(view, "ChatUpdateBanner"), "ApplyWebAppUpdateButton"));
+                Assert.Equal(webApp ? 1 : 0, applies);
+                Assert.True(shell.IsPaired);
+                shell.WebAppUpdateState = WebAppUpdateState.Current;
+                Pump(window);
+                Assert.False(Required<WebAppUpdateBannerView>(view, "ChatUpdateBanner").IsEffectivelyVisible);
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
+    [Fact]
+    public async Task BrowserUpdateSafetyTracksInactiveDraftsAttachmentsPickersSheetsEditorsAndLifecycle()
+    {
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        MobilePlatformServices.HostEnvironment = new ReloadableWebHost(null, () => { }, () => { });
+        try
+        {
+            await RunUiAsync(320, async (shell, _, _) =>
+            {
+                var safetySignals = 0;
+                shell.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(shell.CanApplyWebAppUpdate))
+                        safetySignals++;
+                };
+                Assert.True(shell.CanApplyWebAppUpdate);
+                var original = shell.Chat.ChatId;
+                shell.Chat.PromptText = "Keep my other chat's draft";
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Chat.Reset(Guid.NewGuid(), "Another chat");
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Chat.Reset(original, "Original");
+                shell.Chat.PromptText = "";
+                Assert.True(shell.CanApplyWebAppUpdate);
+
+                shell.Chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\uploads\notes.txt"));
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Chat.Attachments.Clear();
+                Assert.True(shell.CanApplyWebAppUpdate);
+                shell.Chat.IsPickingAttachment = true;
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Chat.IsPickingAttachment = false;
+                shell.Chat.IsUploading = true;
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Chat.IsUploading = false;
+                shell.Chat.IsModelSheetOpen = true;
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Chat.IsModelSheetOpen = false;
+                shell.IsProjectPickerOpen = true;
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.IsProjectPickerOpen = false;
+                shell.IsChatActionBusy = true;
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.IsChatActionBusy = false;
+
+                shell.Library.BeginCreateCommand.Execute(null);
+                Assert.True(shell.Library.IsEditing);
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Library.EditName = "Unsaved project";
+                shell.Library.CancelEditCommand.Execute(null);
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Library.DiscardChangesCommand.Execute(null);
+                await Task.Delay(300);
+                Assert.True(shell.CanApplyWebAppUpdate);
+
+                shell.IsKeyboardOpen = true;
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.IsKeyboardOpen = false;
+                shell.Chat.IsBusy = true;
+                shell.Chat.IsSessionActive = true;
+                Assert.True(shell.CanApplyWebAppUpdate, "Desktop work continues independently of the phone runtime.");
+                await shell.NotifyApplicationDeactivatedAsync();
+                Assert.False(shell.CanApplyWebAppUpdate);
+                await shell.NotifyApplicationActivatedAsync();
+                Assert.True(shell.CanApplyWebAppUpdate);
+                Assert.True(safetySignals >= 12);
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
+    [Fact]
+    public async Task BrowserUpdatesKeepUnsubmittedQuestionInputAfterTheKeyboardCloses()
+    {
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        MobilePlatformServices.HostEnvironment = new ReloadableWebHost(null, () => { }, () => { });
+        try
+        {
+            await RunUiAsync(360, async (shell, view, window) =>
+            {
+                shell.Chat.ApplyTranscript(new RemoteTranscript
+                {
+                    ChatId = shell.Chat.ChatId, Revision = 1,
+                    TotalRawMessageCount = 1, WindowEndMessageIndex = 1,
+                    Turns = [new RemoteTranscriptTurn
+                    {
+                        Id = "question-turn",
+                        Items = [new RemoteTranscriptItem
+                        {
+                            Id = "question-row", Kind = RemoteProtocol.ItemKinds.Question,
+                            Question = new RemoteQuestion
+                            {
+                                QuestionId = "question-id", Text = "Which direction should we take?",
+                                Options = ["First", "Second"], AllowFreeText = true, AllowMultiSelect = true
+                            }
+                        }]
+                    }]
+                });
+                Pump(window);
+                var card = view.GetVisualDescendants().OfType<StrataQuestionCard>().Single();
+                var input = Required<TextBox>(card, "PART_FreeTextBox");
+                Assert.True(shell.CanApplyWebAppUpdate);
+                bool? signaledSafety = null;
+                shell.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(shell.CanApplyWebAppUpdate))
+                        signaledSafety = shell.CanApplyWebAppUpdate;
+                };
+                input.Text = "Keep this unsent answer";
+                shell.IsKeyboardOpen = false;
+                Pump(window);
+                Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.False(signaledSafety);
+                signaledSafety = null;
+                input.Text = "";
+                Pump(window);
+                Assert.True(shell.CanApplyWebAppUpdate);
+                Assert.True(signaledSafety);
+                await Task.Delay(80);
+                Pump(window);
+                var option = card.GetVisualDescendants().OfType<Button>()
+                    .Single(button => button.Classes.Contains("question-option") && (string?)button.Tag == "First");
+                signaledSafety = null;
+                Tap(window, option);
+                Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.False(signaledSafety);
+                signaledSafety = null;
+                Tap(window, option);
+                Assert.True(shell.CanApplyWebAppUpdate);
+                Assert.True(signaledSafety);
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
+    [Fact]
+    public async Task BrowserUpdatesWaitForInFlightRemoteActions()
+    {
+        await using var desktop = new FakeLumiDesktop();
+        desktop.Start();
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        MobilePlatformServices.HostEnvironment =
+            new ReloadableWebHost(null, () => { }, () => { }, desktop.BaseUrl);
+        using var release = new ManualResetEventSlim();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        desktop.CommandResultFactory = _ =>
+        {
+            started.TrySetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The action test did not release its response.");
+            return new RemoteCommandResult { Ok = true };
+        };
+        try
+        {
+            await RunUiAsync(360, async (shell, _, window) =>
+            {
+                await PairAsync(shell, desktop);
+                Assert.True(shell.CanApplyWebAppUpdate);
+                var action = shell.SendCommandAsync(new RemoteCommand(RemoteProtocol.Actions.AnswerQuestion)
+                    .With("questionId", "fixture-question").With("answer", "First"));
+                await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                Assert.False(shell.CanApplyWebAppUpdate);
+                release.Set();
+                Assert.True((await action).Ok);
+                Pump(window);
+                Assert.True(shell.CanApplyWebAppUpdate);
+            });
+        }
+        finally
+        {
+            release.Set();
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BrowserNavigationWaitsForTheProducedFileBodyAndOpener(bool openerFails)
+    {
+        var chatId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        await using var desktop = new FakeLumiDesktop
+        {
+            ProducedFileBytes = "A complete produced file."u8.ToArray(),
+            FileBodyStarted = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            ReleaseFileBody = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            Snapshot = new RemoteSnapshot { ActiveChatId = chatId },
+            Transcript = new RemoteTranscript
+            {
+                ChatId = chatId, Revision = 1, TotalRawMessageCount = 1, WindowEndMessageIndex = 1,
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "file-turn",
+                    Items = [new RemoteTranscriptItem
+                    {
+                        Id = "file-row", Kind = RemoteProtocol.ItemKinds.File,
+                        Attachments = [new RemoteAttachment
+                        {
+                            MessageId = messageId, FileName = "review-file.txt", Extension = "txt"
+                        }]
+                    }]
+                }]
+            }
+        };
+        desktop.Start();
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        var previousOpener = MobilePlatformServices.ProducedFileOpener;
+        var opener = new DeferredProducedFileOpener();
+        MobilePlatformServices.HostEnvironment = new ReloadableWebHost(
+            () => { }, () => { }, () => { }, desktop.BaseUrl);
+        MobilePlatformServices.ProducedFileOpener = opener;
+        try
+        {
+            await RunUiAsync(360, async (shell, view, window) =>
+            {
+                await PairAsync(shell, desktop);
+                await desktop.SubscriberConnected.WaitAsync(TimeSpan.FromSeconds(2));
+                shell.Chat.Reset(chatId, "File fixture");
+                shell.Chat.ApplyTranscript(desktop.Transcript);
+                Pump(window);
+                var file = view.GetVisualDescendants().OfType<StrataFileAttachment>()
+                    .Single(card => card.Classes.Contains("produced-file"));
+                var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var opening = false;
+                shell.PropertyChanged += (_, e) =>
+                {
+                    if (opening && e.PropertyName == nameof(shell.CanApplyWebAppUpdate)
+                        && shell.CanApplyWebAppUpdate)
+                        finished.TrySetResult();
+                };
+                try
+                {
+                    Assert.True(shell.CanApplyWebAppUpdate);
+                    file.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(
+                        StrataFileAttachment.OpenRequestedEvent));
+                    await desktop.FileBodyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                    opening = true;
+                    shell.WebAppUpdateState = WebAppUpdateState.Ready;
+                    Assert.False(shell.CanApplyWebAppUpdate);
+                    Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+                    Assert.True(shell.ReloadWebAppCommand.CanExecute(null));
+                    Assert.False(opener.Started.Task.IsCompleted);
+
+                    desktop.ReleaseFileBody.TrySetResult();
+                    await opener.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                    Assert.Equal(desktop.ProducedFileBytes, await File.ReadAllBytesAsync(opener.Path!));
+                    Assert.False(shell.CanApplyWebAppUpdate);
+                    Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+
+                    if (openerFails)
+                        opener.Result.TrySetException(new IOException("The fixture opener failed."));
+                    else
+                        opener.Result.TrySetResult(true);
+                    await finished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                    Assert.True(shell.CanApplyWebAppUpdate);
+                    Assert.True(shell.CanAutomaticallyRecoverGatewaySignIn);
+                    Assert.False(File.Exists(opener.Path));
+                    Assert.Equal(openerFails ? "That file could not be opened." : null, shell.Chat.ErrorText);
+                }
+                finally
+                {
+                    desktop.ReleaseFileBody.TrySetResult();
+                    opener.Result.TrySetResult(true);
+                }
+            });
+        }
+        finally
+        {
+            desktop.ReleaseFileBody.TrySetResult();
+            opener.Result.TrySetResult(true);
+            MobilePlatformServices.HostEnvironment = previousHost;
+            MobilePlatformServices.ProducedFileOpener = previousOpener;
+        }
+    }
+
     [Fact]
     public Task PairingErrorsStayBesideTheCodeAndAboveTheKeyboard() =>
         RunUiAsync(360, async (shell, view, window) =>
@@ -2001,6 +2459,34 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         private MobileConnectionSettings _settings = new();
         public MobileConnectionSettings Load() => _settings;
         public void Save(MobileConnectionSettings settings) => _settings = settings;
+    }
+
+    private sealed class ReloadableWebHost(
+        Action? reload, Action? apply = null, Action? check = null, string? baseUrl = "https://lumi.test") : IMobileHostEnvironment
+    {
+        public bool HasFixedEndpoint => true;
+        public string? FixedBaseUrl => baseUrl;
+        public string FixedEndpointName => "Test PC";
+        public Action? ReloadWebApp => reload;
+        public Action? ApplyWebAppUpdate => apply;
+        public Action? CheckWebAppUpdate => check;
+    }
+
+    private sealed class DeferredProducedFileOpener : IProducedFileOpener
+    {
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Result { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string? Path { get; private set; }
+
+        public Task<bool> TryOpenAsync(
+            string downloadedPath, string displayName, CancellationToken cancellationToken)
+        {
+            Path = downloadedPath;
+            Started.TrySetResult();
+            return Result.Task.WaitAsync(cancellationToken);
+        }
     }
 
     private sealed class FocusEditorFactory : INativeComposerEditorFactory

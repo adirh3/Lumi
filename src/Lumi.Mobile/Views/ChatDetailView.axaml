@@ -355,6 +355,7 @@
                              AllowMultiSelect="{Binding AllowMultiSelect}"
                              IsAnswered="{Binding IsAnswered}"
                              SelectedAnswer="{Binding Answer}"
+                             HasInput="{Binding HasAnswerDraft, Mode=OneWayToSource}"
                              AnswerSubmitted="OnQuestionAnswered" />
     </DataTemplate>
 
@@ -441,6 +442,8 @@
           </Grid>
         </Border>
 
+        <views:WebAppUpdateBannerView x:Name="ChatUpdateBanner" Margin="12,0" />
+
         <!--
           A paired phone must not go silent when the PC disappears. The transcript remains readable,
           while this compact status strip explains why new work is unavailable and disappears
@@ -455,11 +458,20 @@
                 Margin="12,4,12,6"
                 Padding="12,6">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-            <sc:StrataPulse IsLive="False" Width="10" Height="10" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="1" Text="{Binding ConnectionBannerText}" TextWrapping="Wrap"
-                       FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextSecondary}"
-                       VerticalAlignment="Center" />
+            <sc:StrataPulse x:Name="ConnectionRetryPulse"
+                            IsVisible="{Binding !IsGatewaySignInRequired}"
+                            IsLive="False" Width="10" Height="10" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Text="{Binding ConnectionBannerText}" TextWrapping="Wrap"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextSecondary}" />
+              <Button x:Name="GatewaySignInButton"
+                      IsVisible="{Binding ShowGatewaySignInAction}"
+                      Content="Sign in again"
+                      Classes="accent touch"
+                      HorizontalAlignment="Left"
+                      Command="{Binding ReloadWebAppCommand}" />
+            </StackPanel>
           </Grid>
         </Border>
         <!-- A ready assistant is not a busy session. Keep attached work visible and explicitly

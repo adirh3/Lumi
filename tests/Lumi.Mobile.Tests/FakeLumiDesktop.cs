@@ -52,6 +52,9 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
 
     public RemoteTranscript Transcript { get; set; } = new();
     public Func<HttpListenerRequest, Task<RemoteTranscript>>? TranscriptResponseFactory { get; set; }
+    public byte[]? ProducedFileBytes { get; set; }
+    public TaskCompletionSource? FileBodyStarted { get; set; }
+    public TaskCompletionSource? ReleaseFileBody { get; set; }
     public List<string> Capabilities { get; } = [RemoteProtocol.Capabilities.ScopedEventsV1];
     public Func<Guid, RemoteGitChanges>? GitChangesFactory { get; set; }
     public Func<Guid, string, string, RemoteGitDiff>? GitDiffFactory { get; set; }
@@ -314,6 +317,18 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
                     gitDiff(Guid.Parse(context.Request.QueryString["chatId"]!),
                         context.Request.QueryString["scopeId"]!, context.Request.QueryString["path"]!),
                     RemoteJsonContext.Default.RemoteGitDiff));
+                return;
+
+            case RemoteProtocol.Routes.File when ProducedFileBytes is { Length: > 0 } fileBytes:
+                context.Response.ContentType = "text/plain";
+                context.Response.ContentLength64 = fileBytes.Length;
+                await context.Response.OutputStream.WriteAsync(fileBytes.AsMemory(0, 1), _cts.Token);
+                await context.Response.OutputStream.FlushAsync(_cts.Token);
+                FileBodyStarted?.TrySetResult();
+                if (ReleaseFileBody is { } fileRelease)
+                    await fileRelease.Task.WaitAsync(_cts.Token);
+                await context.Response.OutputStream.WriteAsync(fileBytes.AsMemory(1), _cts.Token);
+                context.Response.Close();
                 return;
 
             case RemoteProtocol.Routes.Command:

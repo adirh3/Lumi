@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             x:Class="Lumi.Mobile.Views.WebAppUpdateBannerView"
+             x:DataType="vm:MobileShellViewModel"
+             IsVisible="{Binding ShowWebAppUpdateBanner}">
+  <Border Background="{DynamicResource Brush.Surface2}"
+          CornerRadius="14" Padding="12" Margin="0,8,0,6">
+    <StackPanel Spacing="6">
+      <TextBlock Text="{Binding WebAppUpdateTitle}" FontWeight="SemiBold" />
+      <TextBlock Text="{Binding WebAppUpdateMessage}" TextWrapping="Wrap"
+                 FontSize="{DynamicResource Font.SizeCaption}"
+                 Foreground="{DynamicResource Brush.TextSecondary}" />
+      <ProgressBar IsIndeterminate="True" Height="3"
+                   IsVisible="{Binding IsWebAppUpdating}" />
+      <Button x:Name="ApplyWebAppUpdateButton" Content="Update now" Classes="accent touch"
+              HorizontalAlignment="Left"
+              IsVisible="{Binding ShowApplyWebAppUpdateAction}"
+              Command="{Binding ApplyWebAppUpdateCommand}" />
+      <Button x:Name="CheckWebAppUpdateButton" Content="Try again" Classes="touch"
+              HorizontalAlignment="Left"
+              IsVisible="{Binding ShowCheckWebAppUpdateAction}"
+              Command="{Binding CheckWebAppUpdateCommand}" />
+    </StackPanel>
+  </Border>
+</UserControl>
