@@ -14,6 +14,132 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class PlatformLayoutReviewFixTests
 {
+    [Fact]
+    public async Task NativeKeyboardReportsDoNotTakeOwnershipOfSafeAreaInsets()
+    {
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+
+        await session.Dispatch(async () =>
+        {
+            MobileShellViewModel? shell = null;
+            Window? window = null;
+            try
+            {
+                shell = new MobileShellViewModel(store: session.NewStore(), post: action => action())
+                {
+                    HostName = "Test PC",
+                    IsPaired = true
+                };
+                var view = new MobileShellView { DataContext = shell };
+                window = new Window { Width = 390, Height = 844, Content = view };
+                window.Show();
+                Pump(window);
+
+                view.ApplyNativeInsets(new Thickness(0, 48, 0, 24));
+                view.ApplyPlatformKeyboardInset(300);
+                Assert.True(shell.IsKeyboardOpen);
+                Assert.Equal(300, shell.SafeAreaBottom.Bottom);
+
+                var updated = new Thickness(44, 18, 20, 21);
+                view.ApplyNativeInsets(updated);
+                Pump(window);
+                Assert.Equal(new Thickness(44, 0, 20, 0), shell.SafeAreaSides);
+                Assert.Equal(18, shell.SafeAreaTop.Top);
+                Assert.Equal(300, shell.SafeAreaBottom.Bottom);
+
+                view.ApplyPlatformKeyboardInset(0);
+                Pump(window);
+                Assert.False(shell.IsKeyboardOpen);
+                Assert.Equal(updated, shell.SafeArea);
+
+                view.NotifyApplicationDeactivated();
+                view.ApplyPlatformKeyboardInset(300);
+                Assert.False(shell.IsKeyboardOpen);
+                Assert.Equal(updated, shell.SafeArea);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                window?.Close();
+                if (shell is not null)
+                    await shell.DisposeAsync();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Theory]
+    [InlineData(0, 59, 0, 34)]
+    [InlineData(59, 0, 59, 21)]
+    public async Task BrowserHostInsetsRemainAuthoritativeAfterNativeSafeAreaRefresh(
+        double left, double top, double right, double bottom)
+    {
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+
+        await session.Dispatch(async () =>
+        {
+            MobileShellViewModel? shell = null;
+            Window? window = null;
+            try
+            {
+                shell = new MobileShellViewModel(store: session.NewStore(), post: action => action())
+                {
+                    HostName = "Test PC",
+                    IsPaired = true
+                };
+                var view = new MobileShellView { DataContext = shell };
+                window = new Window { Width = 390, Height = 844, Content = view };
+                window.Show();
+                Pump(window);
+
+                var correct = new Thickness(left, top, right, bottom);
+                var swapped = new Thickness(left, top, bottom, right);
+                view.ApplyNativeInsets(swapped);
+                Assert.Equal(swapped, shell.SafeArea);
+
+                view.ApplyPlatformInsets(correct, viewportHeight: 844);
+                view.ApplyNativeInsets(swapped);
+                Pump(window);
+
+                Assert.Equal(correct, shell.SafeArea);
+                Assert.Equal(new Thickness(left, 0, right, 0), shell.SafeAreaSides);
+                Assert.Equal(bottom, shell.SafeAreaBottom.Bottom);
+                Assert.False(shell.IsKeyboardOpen);
+                Assert.Equal(844, shell.UsableContentHeight);
+                AssertEdgeToEdge(Required<ChatDetailView>(view, "ChatSurface"), window);
+
+                view.ApplyPlatformInsets(correct, keyboardInset: 300, viewportHeight: 844);
+                view.ApplyNativeInsets(swapped);
+                Assert.True(shell.IsKeyboardOpen);
+                Assert.Equal(300, shell.SafeAreaBottom.Bottom);
+                Assert.Equal(right, shell.SafeAreaSides.Right);
+
+                view.ApplyPlatformInsets(correct, viewportHeight: 844);
+                view.ApplyNativeInsets(swapped);
+                Assert.False(shell.IsKeyboardOpen);
+                Assert.Equal(correct, shell.SafeArea);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                window?.Close();
+                if (shell is not null)
+                    await shell.DisposeAsync();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
     [Theory]
     [InlineData(810, 844, true)]
     [InlineData(810, 844, false)]

@@ -1,6 +1,6 @@
 import {
     configureNativeTextInputs,
-    publishViewportInsets
+    configureViewportInsets
 } from './browserHost.js';
 let retryStartup = () => window.location.reload();
 document.getElementById('startup-retry').addEventListener('click', () => retryStartup());
@@ -49,11 +49,7 @@ try {
     configureAppLifecycle(interop.SetApplicationActive);
     configureAppUpdates(interop.CanApplyAppUpdate, interop.SetAppUpdateState);
 
-    const publishInsets = () => publishViewportInsets(interop.SetViewportInsets);
-    window.addEventListener('resize', publishInsets);
-    window.visualViewport?.addEventListener('resize', publishInsets);
-    window.visualViewport?.addEventListener('scroll', publishInsets);
-    publishInsets();
+    configureViewportInsets(interop.SetViewportInsets);
 } catch (error) {
     showFatalError(error);
 }

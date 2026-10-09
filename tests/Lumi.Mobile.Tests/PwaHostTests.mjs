@@ -122,6 +122,177 @@ const settle = async () => {
         await Promise.resolve();
 };
 
+function viewportHost({
+    height = 844, visibleHeight = height, offsetTop = 0, scale = 1,
+    top = 59, right = 0, bottom = 34, left = 0, standalone = false,
+    active = { tagName: 'BODY' }
+} = {}) {
+    const inputs = [];
+    const frames = new Map();
+    const observers = [];
+    let frameId = 0;
+    const bounds = { height, bottom: height, width: 390, left: 0, top: 0 };
+    const out = { getBoundingClientRect: () => bounds };
+    const viewport = eventTarget({ height: visibleHeight, offsetTop, scale });
+    const document = eventTarget({
+        hidden: false,
+        activeElement: active,
+        documentElement: { dataset: {}, appendChild() {} },
+        body: { appendChild: input => inputs.push(input) },
+        getElementById: () => out,
+        createElement: tag => eventTarget({
+            tagName: tag.toUpperCase(), style: {}, value: '',
+            classList: { add() {}, remove() {}, toggle() {} },
+            setAttribute() {},
+            setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
+        })
+    });
+    const window = eventTarget({
+        visualViewport: viewport,
+        requestAnimationFrame(callback) {
+            const id = ++frameId;
+            frames.set(id, callback);
+            return id;
+        }
+    });
+    const context = vm.createContext({
+        document, window, navigator: { standalone }, queueMicrotask,
+        getComputedStyle: () => ({
+            paddingTop: `${top}px`, paddingRight: `${right}px`,
+            paddingBottom: `${bottom}px`, paddingLeft: `${left}px`
+        }),
+        ResizeObserver: class {
+            constructor(callback) { observers.push(callback); }
+            observe(element) { assert.equal(element, out); }
+        }
+    });
+    vm.runInContext(source('browserHost.js').replace(/^export /gm, ''), context);
+    const insets = [];
+    return {
+        context, document, window, viewport, bounds, frames, observers, inputs, insets,
+        publish() { context.publishViewportInsets((...values) => insets.push(values)); },
+        configure() { context.configureViewportInsets((...values) => insets.push(values)); },
+        flush() {
+            const pending = [...frames.values()];
+            frames.clear();
+            for (const callback of pending)
+                callback();
+        }
+    };
+}
+
+test('portrait and landscape CSS safe areas retain their physical edge ordering', () => {
+    for (const edges of [
+        { top: 59, right: 0, bottom: 34, left: 0 },
+        { top: 0, right: 59, bottom: 21, left: 59 }
+    ]) {
+        const app = viewportHost(edges);
+        app.publish();
+        assert.deepEqual(app.insets[0],
+            [edges.top, edges.right, edges.bottom, edges.left, 0, 844]);
+    }
+});
+
+test('Safari chrome and a stale dismissed keyboard are never treated as an active IME', () => {
+    for (const active of [
+        { tagName: 'BODY' },
+        { tagName: 'TEXTAREA', readOnly: true },
+        { tagName: 'INPUT', disabled: true }
+    ]) {
+        const app = viewportHost({ visibleHeight: 544, active });
+        app.publish();
+        assert.equal(app.insets[0][4], 0);
+        assert.equal(app.insets[0][2], 34);
+    }
+});
+
+test('keyboard overlap uses the current canvas and visual viewport offset without double shrinking', () => {
+    for (const [height, visibleHeight, offsetTop, expected] of [
+        [844, 544, 0, 300],
+        [810, 510, 0, 300],
+        [844, 510, 34, 300],
+        [544, 544, 0, 0]
+    ]) {
+        const app = viewportHost({
+            height, visibleHeight, offsetTop, active: { tagName: 'TEXTAREA' }
+        });
+        app.publish();
+        assert.deepEqual(app.insets[0], [59, 0, 34, 0, expected, height]);
+    }
+});
+
+test('standalone home-indicator exclusion and pinch zoom do not open a phantom keyboard', () => {
+    for (const [visibleHeight, scale] of [[810, 1], [809.5, 1], [422, 2]]) {
+        const app = viewportHost({
+            visibleHeight, scale, standalone: true, active: { tagName: 'TEXTAREA' }
+        });
+        app.publish();
+        assert.equal(app.insets[0][4], 0);
+        assert.equal(app.document.documentElement.dataset.lumiStandalone, 'true');
+    }
+});
+
+test('viewport updates coalesce after layout and cover focus, rotation, host resize and resume', () => {
+    const app = viewportHost({ visibleHeight: 544, active: { tagName: 'TEXTAREA' } });
+    app.configure();
+    assert.equal(app.insets[0][4], 300);
+    assert.equal(app.observers.length, 1);
+
+    app.window.dispatch('resize');
+    app.viewport.dispatch('resize');
+    app.viewport.dispatch('scroll');
+    app.bounds.height = app.bounds.bottom = 810;
+    assert.equal(app.frames.size, 1);
+    app.flush();
+    assert.deepEqual(app.insets.at(-1), [59, 0, 34, 0, 266, 810]);
+
+    app.document.activeElement = { tagName: 'BODY' };
+    app.document.dispatch('focusout');
+    app.flush();
+    assert.equal(app.insets.at(-1)[4], 0);
+
+    for (const notify of [
+        () => app.window.dispatch('orientationchange'),
+        () => app.window.dispatch('pageshow'),
+        () => app.observers[0](),
+        () => app.document.dispatch('focusin'),
+        () => app.document.dispatch('visibilitychange')
+    ]) {
+        const previous = app.insets.length;
+        notify();
+        app.flush();
+        assert.equal(app.insets.length, previous + 1);
+    }
+
+    app.document.hidden = true;
+    app.document.dispatch('visibilitychange');
+    assert.equal(app.frames.size, 0);
+    app.document.hidden = false;
+    app.document.dispatch('visibilitychange');
+    app.flush();
+    assert.equal(app.insets.at(-1)[4], 0);
+});
+
+test('browsers without visualViewport keep only their safe area', () => {
+    const app = viewportHost({ active: { tagName: 'TEXTAREA' } });
+    app.window.visualViewport = undefined;
+    app.publish();
+    assert.deepEqual(app.insets[0], [59, 0, 34, 0, 0, 844]);
+});
+
+test('native editors prevent Safari focus zoom while preserving larger typography', () => {
+    const app = viewportHost();
+    for (const fontSize of [14, 16, 18]) {
+        app.context.showNativeTextInput(
+            1, 84, 742, 260, 48, 0, 0, 390, 844, '', 'Message Lumi',
+            true, 0, 'text', 'send', false, true, true, true,
+            'Inter', fontSize, 400, 'normal', 20, 0, 0, 0, 0, 0, 'left', 'ltr', false);
+        assert.equal(app.inputs[0].style.fontSize, `${Math.max(16, fontSize)}px`);
+    }
+    assert.equal(app.inputs.length, 1);
+    assert.ok(!/user-scalable\s*=\s*no|maximum-scale\s*=\s*1/i.test(source('index.html')));
+});
+
 function startup(failedModule) {
     const retry = eventTarget({ hidden: true });
     const label = { textContent: 'Opening Lumi...' };

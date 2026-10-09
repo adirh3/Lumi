@@ -172,8 +172,15 @@ This confirmation is read-only: it does not resend the message, and newer draft 
 are preserved. Android uses the managed HTTP transport so stopping a live connection
 does not leave foreground reconnection waiting on a native streaming read.
 
-The PWA measures its actual dynamic-height canvas when applying keyboard overlap, so
-browser resizing does not add a second bottom gap. Home-indicator safe space is retained.
+The iPhone PWA fills the Home Screen app's full viewport; Safari tabs instead follow
+the dynamic browser toolbar height. Backgrounds run edge to edge, while controls
+respect the notch and home indicator, including after rotation and resume.
+The browser's measured safe areas remain authoritative instead of being overwritten
+by native resize notifications. Keyboard overlap is measured against the actual
+canvas only while an editable field is focused, so browser resizing, zoom, or a
+dismissed keyboard does not add a second bottom gap. Native browser editors use at
+least 16 CSS pixels to avoid Safari's automatic focus zoom and horizontal panning.
+Browser chrome and startup backgrounds follow the selected Light, Dark, or System theme.
 Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript realizes
 only turns near the viewport while retaining the full loaded page and offscreen streaming
 updates, avoiding eager layout of every markdown answer when opening a conversation.

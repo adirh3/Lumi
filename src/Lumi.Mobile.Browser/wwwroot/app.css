@@ -5,10 +5,10 @@
 }
 
 html,
-body,
-#out {
+body {
   width: 100%;
-  height: 100%;
+  /* Percentage heights leave a status-bar-sized gap in iOS standalone apps. */
+  height: 100vh;
   margin: 0;
   overflow: hidden;
 }
@@ -16,11 +16,26 @@ body,
 #out {
   position: fixed;
   inset: 0;
-  /* Follow Safari's browser chrome without also shrinking for the software keyboard. */
+  width: 100%;
+  height: 100vh;
   height: 100dvh;
+  margin: 0;
+  overflow: hidden;
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  #out {
+    height: 100vh;
+  }
+}
+
+:root[data-lumi-standalone="true"] #out {
+  height: 100vh;
 }
 
 body {
+  position: fixed;
+  inset: 0;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
@@ -175,27 +190,27 @@ body {
     background: #111114;
   }
 
-  :root[data-lumi-theme="light"],
-  :root[data-lumi-theme="light"] .lumi-splash {
-    color: #17171d;
-    background: #f7f7fa;
-  }
-
-  :root[data-lumi-theme="dark"],
-  :root[data-lumi-theme="dark"] .lumi-splash {
-    color: #f5f5f7;
-    background: #111114;
-  }
-
-  :root[data-lumi-theme="light"] .lumi-splash span {
-    color: #777784;
-  }
-
-  :root[data-lumi-theme="dark"] .lumi-splash span {
-    color: #a4a4ae;
-  }
-
   .lumi-splash span {
     color: #a4a4ae;
   }
+}
+
+:root[data-lumi-theme="light"],
+:root[data-lumi-theme="light"] .lumi-splash {
+  color: #17171d;
+  background: #f7f7fa;
+}
+
+:root[data-lumi-theme="dark"],
+:root[data-lumi-theme="dark"] .lumi-splash {
+  color: #f5f5f7;
+  background: #111114;
+}
+
+:root[data-lumi-theme="light"] .lumi-splash span {
+  color: #777784;
+}
+
+:root[data-lumi-theme="dark"] .lumi-splash span {
+  color: #a4a4ae;
 }

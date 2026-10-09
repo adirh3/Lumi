@@ -22,6 +22,7 @@ public partial class MobileShellView : UserControl
     private IInputPane? _inputPane;
     private TopLevel? _topLevel;
     private Thickness _safeArea;
+    private bool _hasHostInsets;
     private double _keyboardInset;
     private double _keyboardTop = double.NaN;
     private bool _isApplicationActive = true;
@@ -209,7 +210,8 @@ public partial class MobileShellView : UserControl
             // transcript feel like it belongs to the device rather than sitting in a letterbox.
             _insets.DisplayEdgeToEdgePreference = true;
             _insets.SafeAreaChanged += OnSafeAreaChanged;
-            _safeArea = _insets.SafeAreaPadding;
+            if (!_hasHostInsets)
+                _safeArea = _insets.SafeAreaPadding;
         }
 
         _inputPane = _topLevel.InputPane;
@@ -264,21 +266,34 @@ public partial class MobileShellView : UserControl
     }
 
     private void OnSafeAreaChanged(object? sender, SafeAreaChangedArgs e)
+        => ApplyNativeInsets(e.SafeAreaPadding);
+
+    internal void ApplyNativeInsets(Thickness safeArea)
     {
-        _safeArea = e.SafeAreaPadding;
+        if (_hasHostInsets)
+            return;
+        _safeArea = safeArea;
         ApplyInsets();
     }
 
     /// <summary>
-    /// The single point where OS insets enter the view. Exposed so tests can stand in for the
-    /// platform, which reports nothing in a headless run.
+    /// Applies host-owned safe-area and viewport geometry. Tests can also supply insets when the
+    /// headless platform reports none.
     /// </summary>
     internal void ApplyPlatformInsets(
         Thickness safeArea,
         double keyboardInset = 0,
         double? viewportHeight = null)
     {
+        // The browser host measures CSS insets correctly. Avalonia.Browser 12.1.4 swaps right and
+        // bottom, so native resize/scaling notifications must not replace the host's geometry.
+        _hasHostInsets = true;
         _safeArea = safeArea;
+        ApplyKeyboardInset(keyboardInset, viewportHeight);
+    }
+
+    private void ApplyKeyboardInset(double keyboardInset, double? viewportHeight = null)
+    {
         _keyboardInset = _isApplicationActive ? keyboardInset : 0;
         // Browser viewport events can arrive before Avalonia's ResizeObserver. Keep the keyboard
         // edge in the measured host's coordinates rather than combining it with a stale height.
@@ -314,13 +329,16 @@ public partial class MobileShellView : UserControl
     private void OnScalingChanged(object? sender, EventArgs e)
     {
         if (_insets is not null)
-            _safeArea = _insets.SafeAreaPadding;
-
-        ApplyInsets();
+            ApplyNativeInsets(_insets.SafeAreaPadding);
+        else
+            ApplyInsets();
     }
 
     private void OnInputPaneStateChanged(object? sender, InputPaneStateEventArgs e)
-        => ApplyInputPaneGeometry(e.NewState, e.EndRect);
+    {
+        if (!_hasHostInsets)
+            ApplyInputPaneGeometry(e.NewState, e.EndRect);
+    }
 
     internal void ApplyInputPaneGeometry(InputPaneState state, Rect occludedRect)
     {
@@ -349,7 +367,7 @@ public partial class MobileShellView : UserControl
     internal void ApplyPlatformKeyboardInset(double keyboardInset)
     {
         if (_isApplicationActive)
-            ApplyPlatformInsets(_safeArea, keyboardInset);
+            ApplyKeyboardInset(keyboardInset);
     }
 
     private void ApplyInsets()
