@@ -477,7 +477,7 @@ fail explicitly; startup failures include the recent captured output.
 ## Tech Stack
 
 - **.NET 11** with C#
-- **Avalonia UI 12.0.4** — cross-platform desktop framework
+- **Avalonia UI 12.1.4** — cross-platform desktop framework
 - **CommunityToolkit.Mvvm 8.4** — MVVM source generators
 - **GitHub Copilot SDK** — agentic LLM backend
 - **[StrataTheme](https://github.com/adirh3/Strata)** — custom UI component library
@@ -507,9 +507,9 @@ git submodule update --init --recursive
 
 The Copilot SDK is an official NuGet dependency: `GitHub.Copilot.SDK`
 `1.0.17-preview.7`, restored from NuGet.org. This is a prerelease; its native
-skill-provider API is experimental. Only the patched Avalonia core comes from
-the checked-in `vendor/nuget` feed. No SDK
-submodule, source build, patch step, feed credentials, or Node.js installation
+skill-provider API is experimental. Avalonia is also restored from NuGet.org;
+no vendored package feed is needed. No SDK submodule, source build, patch step,
+feed credentials, or Node.js installation
 is needed to build Lumi.
 
 Lumi implements the upstream `ISkillProvider` contract for native, lazy in-memory
@@ -519,15 +519,14 @@ storage, editing and existing app-data Markdown mirrors are unchanged. Native
 activation does not depend on those mirrors; no workspace `SKILL.md` stubs or
 replacement loader tool are generated.
 
-`Directory.Build.targets` pins the core `Avalonia` package to the vendored
-`12.1.3.1` build throughout the project-reference graph, including Strata. It fixes
-input-method notifications exposing partially updated selections and empty
-selection geometry reaching the text-line renderer. Official Avalonia peer
-packages remain at `12.1.3`, except `Avalonia.Controls.DataGrid`, which is pinned
-separately to its published `12.1.2` release. No Strata input guard or runtime
-patch is used.
-See [Avalonia patch provenance and reproduction](vendor/avalonia/12.1.3.1/README.md).
-When switching an existing build to the patched package, use a clean rebuild
+Official [Avalonia 12.1.4](https://github.com/AvaloniaUI/Avalonia/releases/tag/12.1.4)
+includes both accepted text fixes: batched input-method selection notifications
+and empty bounds for zero-length text ranges. Lumi and Strata use the official
+packages without a custom core override, local feed mapping or runtime patch.
+`Avalonia.Controls.DataGrid` is released independently and remains pinned to its
+published `12.1.2` release in `Directory.Build.targets`. The focused input and
+text-layout regression tests are retained.
+When switching an existing build from the former custom package, use a clean rebuild
 (`dotnet build src/Lumi/Lumi.csproj -t:Rebuild`) or a fresh `--artifacts-path`.
 
 **GitHub sign-in:** [Lumi's CLI acquisition target](build/Copilot/CopilotCli.targets)
