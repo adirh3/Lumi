@@ -422,6 +422,51 @@ internal static class RemoteProjector
         };
     }
 
+    internal static RemoteNewChatExperience BuildNewChatExperience(DataStore dataStore, ChatViewModel owner)
+    {
+        var now = DateTimeOffset.Now;
+        var chats = dataStore.Data.Chats;
+        var hasHistory = chats.Any(LaunchpadPlanner.HasContent);
+        var greeting = LaunchpadPlanner.BuildGreeting(dataStore.Data.Settings.UserName, now.Hour);
+        return new RemoteNewChatExperience
+        {
+            Greeting = greeting.Lead + greeting.Name + greeting.Trail,
+            Brief = LaunchpadPlanner.BuildBrief(
+                chats.Count(chat => LaunchpadPlanner.ClassifyActive(chat) == LaunchpadChatState.Waiting),
+                chats.Count(chat => LaunchpadPlanner.ClassifyActive(chat) == LaunchpadChatState.Reply),
+                chats.Count(chat => LaunchpadPlanner.ClassifyActive(chat) is LaunchpadChatState.Working or LaunchpadChatState.Background),
+                hasHistory),
+            SetupsTitle = Loc.Launchpad_SetupsTitle,
+            Setups = LaunchpadViewModel.BuildSetupChoices(dataStore, owner, now).Select(choice =>
+            {
+                var spec = choice.Spec;
+                var project = dataStore.Data.Projects.FirstOrDefault(item => item.Id == spec.ProjectId);
+                var agent = dataStore.Data.Agents.FirstOrDefault(item => item.Id == spec.AgentId);
+                return new RemoteChatSetup
+                {
+                    Id = $"{spec.ProjectId:N}:{spec.AgentId:N}:{spec.UseWorktree}:{spec.ModelId}:{spec.Effort}",
+                    Title = BoundRequired(choice.Title, RemoteProtocol.MobileMetadataTextLimit),
+                    Description = BoundRequired(choice.Meta, RemoteProtocol.MobileMetadataTextLimit),
+                    Glyph = project is not null ? LaunchpadProjectBadge.InitialOf(project.Name) : agent?.IconGlyph ?? "✦",
+                    ProjectId = spec.ProjectId,
+                    ProjectName = project?.Name,
+                    AgentId = spec.AgentId,
+                    AgentName = agent?.Name,
+                    AgentGlyph = agent?.IconGlyph,
+                    UseWorktree = spec.UseWorktree,
+                    Model = spec.ModelId,
+                    Quality = spec.Effort is null ? null : ModelSelectionHelper.EffortToDisplay(spec.Effort)
+                };
+            }).ToList(),
+            Starters = LaunchpadPlanner.SelectStarters(now.Hour, hasHistory).Select(starter => new RemoteChatStarter
+            {
+                Glyph = starter.Glyph,
+                Label = starter.Label,
+                Prompt = starter.Prompt
+            }).ToList()
+        };
+    }
+
     public static RemoteSettings BuildSettings(
         DataStore dataStore,
         IReadOnlyList<string> models,
@@ -431,6 +476,7 @@ internal static class RemoteProjector
         return new RemoteSettings
         {
             UserName = settings.UserName ?? "",
+            NewChat = chatVm is null ? null : BuildNewChatExperience(dataStore, chatVm),
             IsDarkTheme = settings.IsDarkTheme,
             PreferredModel = settings.PreferredModel,
             ReasoningEffort = settings.ReasoningEffort,
@@ -1868,21 +1914,25 @@ internal static class RemoteProjector
     private static int CountLines(string? value) =>
         string.IsNullOrEmpty(value) ? 0 : value.Count(static character => character == '\n') + 1;
 
-    private static RemoteTranscriptItem BuildUserItem(ChatMessage message) => new()
+    private static RemoteTranscriptItem BuildUserItem(ChatMessage message)
     {
-        Id = message.Id.ToString("N"),
-        Kind = RemoteProtocol.ItemKinds.User,
-        Text = RemoteProtocol.TruncateForMobile(
-            message.Content,
-            RemoteProtocol.MobileUserTextLimit),
-        Author = message.Author,
-        RequestId = message.RemoteRequestId,
-        Timestamp = message.Timestamp,
-        SteerState = message.SteerDelivery == MessageSteerState.None
-            ? null
-            : message.SteerDelivery.ToString(),
-        Attachments = BuildAttachments(message.Attachments)
-    };
+        var content = RemoteUserMessageContent.Parse(message.Content, message.Author);
+        var attachments = (BuildAttachments(message.Attachments) ?? [])
+            .Concat(content.Attachments.Where(file => !message.Attachments.Contains(file.Path))).ToList();
+        return new RemoteTranscriptItem
+        {
+            Id = message.Id.ToString("N"),
+            Kind = RemoteProtocol.ItemKinds.User,
+            Text = RemoteProtocol.TruncateForMobile(content.Text, RemoteProtocol.MobileUserTextLimit),
+            Author = message.Author,
+            RequestId = message.RemoteRequestId,
+            Timestamp = message.Timestamp,
+            SteerState = message.SteerDelivery == MessageSteerState.None
+                ? null
+                : message.SteerDelivery.ToString(),
+            Attachments = attachments.Count == 0 ? null : attachments
+        };
+    }
 
     private static RemoteTranscriptItem BuildAssistantItem(
         ChatMessage message,

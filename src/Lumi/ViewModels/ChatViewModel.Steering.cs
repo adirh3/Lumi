@@ -15,6 +15,18 @@ public partial class ChatViewModel
     // UI-thread only. Entries remain pending until the agent consumes the steer or the turn terminates.
     private readonly Dictionary<Guid, List<ChatMessageViewModel>> _pendingSteerConfirmations = new();
 
+    private void RestoreQueuedExternalModelSelection(Chat chat, ChatMessage? message)
+    {
+        if (message is not { HasExternalModelSelection: true } || !chat.Messages.Contains(message))
+            return;
+
+        chat.LastModelUsed = message.Model;
+        chat.LastReasoningEffortUsed = message.ReasoningEffort;
+        chat.LastContextWindowTierUsed = message.ContextWindowTier;
+        if (CurrentChat?.Id == chat.Id)
+            ApplyModelSelection(message.Model, message.ReasoningEffort, message.ContextWindowTier);
+    }
+
     private async Task<bool> SteerActiveTurnAsync(
         Chat activeChat,
         string prompt,
@@ -23,6 +35,7 @@ public partial class ChatViewModel
         string? authorOverride = null,
         IReadOnlyCollection<string>? explicitAttachmentPaths = null)
     {
+        RestoreQueuedExternalModelSelection(activeChat, queuedMessage);
         if (BlockSendForByokOnly(
                 activeChat,
                 ResolveSelectedModelForChat(activeChat),

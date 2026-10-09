@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -11,7 +12,9 @@ using Avalonia.Threading;
 using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Remote.Protocol;
 using Lumi.Services;
+using Lumi.Services.Remote;
 using Lumi.ViewModels;
 using Lumi.Views;
 using Xunit;
@@ -21,6 +24,68 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class LaunchpadViewModelTests
 {
+    [Fact]
+    public async Task RemoteNewChatProjectsTheSameDesktopChoicesFromTheWholeIndex()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var project = new Project { Name = "Lumi" };
+            var agent = new LumiAgent { Name = "Coding Lumi", IconGlyph = "L" };
+            var oneOffProject = new Project { Name = "One-off" };
+            var data = NewData();
+            data.Projects.AddRange([project, oneOffProject]);
+            data.Agents.Add(agent);
+            var first = UsedChat(project, agent, 3);
+            var second = UsedChat(project, agent, 5);
+            first.WorktreePath = second.WorktreePath = @"C:\not-projected-worktree";
+            data.Chats.AddRange([first, second, UsedChat(oneOffProject, null, 1)]);
+            data.Chats.AddRange(Enumerable.Range(0, 1700).Select(index => new Chat
+            {
+                Title = $"Default chat {index}",
+                MessageCount = 2,
+                LastModelUsed = data.Settings.PreferredModel,
+                LastReasoningEffortUsed = data.Settings.ReasoningEffort,
+                CreatedAt = DateTimeOffset.Now,
+                UpdatedAt = DateTimeOffset.Now
+            }));
+            using var surface = NewSurface(data);
+            var launchpad = surface.Launchpad;
+            launchpad.Activate();
+            try
+            {
+                var projected = RemoteProjector.BuildSettings(
+                    new DataStore(data), surface.AvailableModels.ToArray(), surface).NewChat;
+                Assert.NotNull(projected);
+                var desktopSetup = Assert.Single(launchpad.Setups);
+                var mobileSetup = Assert.Single(projected.Setups);
+                Assert.Equal(desktopSetup.Title, mobileSetup.Title);
+                Assert.Equal(desktopSetup.Meta, mobileSetup.Description);
+                Assert.Equal(desktopSetup.Spec.ProjectId, mobileSetup.ProjectId);
+                Assert.Equal(desktopSetup.Spec.AgentId, mobileSetup.AgentId);
+                Assert.Equal(desktopSetup.Spec.ModelId, mobileSetup.Model);
+                Assert.Equal(surface.NormalizeReasoningEffortFor(mobileSetup.Model, mobileSetup.Quality),
+                    desktopSetup.Spec.Effort);
+                Assert.Equal(desktopSetup.Spec.UseWorktree, mobileSetup.UseWorktree);
+                Assert.Equal(launchpad.Starters.Select(item => (item.Glyph, item.Label, item.Prompt)),
+                    projected.Starters.Select(item => (item.Glyph, item.Label, item.Prompt)));
+                Assert.Equal(launchpad.GreetingLead + launchpad.GreetingName + launchpad.GreetingTrail,
+                    projected.Greeting);
+                var json = JsonSerializer.Serialize(projected, RemoteJsonContext.Default.RemoteNewChatExperience);
+                Assert.DoesNotContain(first.WorktreePath!, json);
+                var roundtrip = JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteNewChatExperience)!;
+                Assert.Equal(mobileSetup.Id, Assert.Single(roundtrip.Setups).Id);
+                Assert.True(json.Length < 8_000);
+                Assert.Equal(1703, data.Chats.Count);
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task Setup_ConfiguresTheDraft_AndClickingItAgainRestoresTheDraft()
     {

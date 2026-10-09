@@ -362,7 +362,7 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         if (_setupsStale)
         {
             _setupsStale = false;
-            RefreshSetups(chats, automationChatIds, now);
+            RefreshSetups(now);
         }
 
         RefreshSetupActivity();
@@ -466,34 +466,12 @@ public sealed partial class LaunchpadViewModel : ObservableObject
             Starters.Add(new LaunchpadStarterItem(spec, SendStarter));
     }
 
-    private void RefreshSetups(IReadOnlyList<Chat> chats, IReadOnlySet<Guid> automationChatIds, DateTimeOffset now)
+    private void RefreshSetups(DateTimeOffset now)
     {
-        var data = _dataStore.Data;
-        var projects = data.Projects.ToDictionary(static project => project.Id);
-        var agents = data.Agents.ToDictionary(static agent => agent.Id);
-        var models = _owner.AvailableModels.ToHashSet(StringComparer.Ordinal);
-        var catalogKnown = _owner.IsModelCatalogKnown;
-
-        // What a new chat would run today, so an unavailable model or an unsupported effort never shows.
-        (string? Model, string? Effort) ResolveModel(string? model, string? effort)
-            => string.IsNullOrWhiteSpace(model) || (catalogKnown && !models.Contains(model))
-                ? (null, null)
-                : (model, _owner.ResolveReasoningEffortForModel(effort, model));
-
-        var settings = data.Settings;
-        var (defaultModel, defaultEffort) = ResolveModel(settings.PreferredModel, settings.ReasoningEffort);
-        var specs = LaunchpadPlanner.SelectSetups(
-            chats,
-            automationChatIds,
-            now,
-            projects.ContainsKey,
-            agents.ContainsKey,
-            ResolveModel,
-            plainDefault: new LaunchpadSetupSpec(null, null, false, defaultModel, defaultEffort),
-            LaunchpadPlanner.MaxSetups);
-
-        // Renamed projects or agents change a tile's text without changing what it applies.
-        var items = specs.Select(spec => CreateSetupItem(spec, projects, agents)).ToList();
+        var projects = _dataStore.Data.Projects.ToDictionary(static project => project.Id);
+        var agents = _dataStore.Data.Agents.ToDictionary(static agent => agent.Id);
+        var items = BuildSetupChoices(_dataStore, _owner, now)
+            .Select(choice => CreateSetupItem(choice, projects, agents)).ToList();
         if (items.Select(Describe).SequenceEqual(Setups.Select(Describe)))
             return;
 
@@ -505,7 +483,41 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         static (LaunchpadSetupSpec, string, string) Describe(LaunchpadSetupItem item) => (item.Spec, item.Title, item.Meta);
     }
 
-    private LaunchpadSetupItem CreateSetupItem(
+    internal static List<LaunchpadSetupChoice> BuildSetupChoices(
+        DataStore dataStore,
+        ChatViewModel owner,
+        DateTimeOffset now)
+    {
+        var data = dataStore.Data;
+        var automationChatIds = dataStore.SnapshotBackgroundJobs()
+            .Where(static job => job.IsEnabled).Select(static job => job.ChatId).ToHashSet();
+        var projects = data.Projects.ToDictionary(static project => project.Id);
+        var agents = data.Agents.ToDictionary(static agent => agent.Id);
+        var models = owner.AvailableModels.ToHashSet(StringComparer.Ordinal);
+        var catalogKnown = owner.IsModelCatalogKnown;
+
+        // What a new chat would run today, so an unavailable model or an unsupported effort never shows.
+        (string? Model, string? Effort) ResolveModel(string? model, string? effort)
+            => string.IsNullOrWhiteSpace(model) || (catalogKnown && !models.Contains(model))
+                ? (null, null)
+                : (model, owner.ResolveReasoningEffortForModel(effort, model));
+
+        var settings = data.Settings;
+        var (defaultModel, defaultEffort) = ResolveModel(settings.PreferredModel, settings.ReasoningEffort);
+        var specs = LaunchpadPlanner.SelectSetups(
+            data.Chats,
+            automationChatIds,
+            now,
+            projects.ContainsKey,
+            agents.ContainsKey,
+            ResolveModel,
+            plainDefault: new LaunchpadSetupSpec(null, null, false, defaultModel, defaultEffort),
+            LaunchpadPlanner.MaxSetups);
+
+        return specs.Select(spec => DescribeSetup(spec, projects, agents)).ToList();
+    }
+
+    private static LaunchpadSetupChoice DescribeSetup(
         LaunchpadSetupSpec spec,
         IReadOnlyDictionary<Guid, Project> projects,
         IReadOnlyDictionary<Guid, LumiAgent> agents)
@@ -515,27 +527,20 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         var model = ChatViewModel.FormatModelDisplay(spec.ModelId);
 
         string title;
-        LaunchpadProjectBadge? badge = null;
-        Geometry? icon = null;
-        string? glyph = null;
         var meta = new List<string>(4);
         if (project is not null)
         {
             title = project.Name;
-            badge = LaunchpadProjectBadge.For(project);
             if (agent is not null)
                 meta.Add(agent.Name);
         }
         else if (agent is not null)
         {
             title = agent.Name;
-            glyph = string.IsNullOrWhiteSpace(agent.IconGlyph) ? null : agent.IconGlyph;
-            icon = glyph is null ? WorkspaceIcons.Agents : null;
         }
         else
         {
             title = model ?? Loc.Launchpad_SetupNoProject;
-            icon = WorkspaceIcons.Sparkle;
         }
 
         if (spec.UseWorktree)
@@ -547,7 +552,23 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         if (project is null)
             meta.Add(Loc.Launchpad_SetupNoProject);
 
-        return new LaunchpadSetupItem(spec, title, string.Join(" · ", meta), badge, icon, glyph, SelectSetup);
+        return new LaunchpadSetupChoice(spec, title, string.Join(" · ", meta));
+    }
+
+    private LaunchpadSetupItem CreateSetupItem(
+        LaunchpadSetupChoice choice,
+        IReadOnlyDictionary<Guid, Project> projects,
+        IReadOnlyDictionary<Guid, LumiAgent> agents)
+    {
+        var spec = choice.Spec;
+        var project = spec.ProjectId is { } projectId ? projects.GetValueOrDefault(projectId) : null;
+        var agent = spec.AgentId is { } agentId ? agents.GetValueOrDefault(agentId) : null;
+        var badge = project is null ? null : LaunchpadProjectBadge.For(project);
+        var glyph = project is null && !string.IsNullOrWhiteSpace(agent?.IconGlyph) ? agent.IconGlyph : null;
+        var icon = project is not null || glyph is not null
+            ? null
+            : agent is not null ? WorkspaceIcons.Agents : WorkspaceIcons.Sparkle;
+        return new LaunchpadSetupItem(spec, choice.Title, choice.Meta, badge, icon, glyph, SelectSetup);
     }
 
     private void RefreshSetupActivity()

@@ -95,6 +95,18 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     [ObservableProperty] private AssistantItemViewModel? _selectedSourceAnswer;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    private bool _isJobWakeSheetOpen;
+
+    [ObservableProperty] private JobWakeItemViewModel? _selectedJobWake;
+
+    private void OpenJobWake(JobWakeItemViewModel wake)
+    {
+        SelectedJobWake = wake;
+        IsJobWakeSheetOpen = true;
+    }
+
     public bool HasPlan => !string.IsNullOrWhiteSpace(PlanContent);
 
     partial void OnPlanContentChanged(string? value)
@@ -483,6 +495,34 @@ public sealed partial class MobileChatViewModel : ObservableObject
         new("M9.5 3a6.5 6.5 0 1 0 3.98 11.64L19.85 21 21 19.85l-6.36-6.37A6.5 6.5 0 0 0 9.5 3zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z", "Research a topic"),
         new("M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm0 2.5L17.5 8H14V4.5zM8 13h8v2H8v-2zm0 4h8v2H8v-2zm0-8h4v2H8V9z", "Create a document")
     ];
+    private IReadOnlyList<ChatStarter>? _desktopStarters;
+
+    internal void ApplyNewChatStarters(IReadOnlyList<RemoteChatStarter>? starters)
+    {
+        _desktopStarters = starters is { Count: > 0 }
+            ? starters.Take(3).Select(starter =>
+                new ChatStarter("", starter.Label, starter.Prompt, starter.Glyph)).ToArray()
+            : null;
+        OnPropertyChanged(nameof(Starters));
+    }
+
+    internal void ApplyStartSetup(RemoteChatSetup setup)
+    {
+        _pendingConfiguration.SetScalar("useChatSetup", "true");
+        ProjectValue = setup.ProjectId?.ToString();
+        ProjectName = setup.ProjectName;
+        AgentValue = setup.AgentId?.ToString();
+        AgentName = setup.AgentName;
+        AgentGlyph = setup.AgentGlyph ?? "◉";
+        if (setup.Model is { Length: > 0 } model)
+            Model = model;
+        if (setup.Quality is { Length: > 0 } quality)
+            Quality = quality;
+        _worktreeChoiceExplicit = true;
+        UseWorktree = setup.ProjectId is not null && setup.UseWorktree;
+        if (CanChooseWorktree)
+            _pendingConfiguration.SetScalar("worktree", UseWorktree ? "true" : "false");
+    }
 
     /// <summary>
     /// What an empty chat offers before the user has typed anything. An empty canvas gives no clue
@@ -497,7 +537,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         ? [.. Suggestions.Take(3).Select(text => new ChatStarter(
             "M12 2c.7 5.2 2.8 7.3 8 8-5.2.7-7.3 2.8-8 8-.7-5.2-2.8-7.3-8-8 5.2-.7 7.3-2.8 8-8z",
             text))]
-        : DefaultStarters;
+        : _desktopStarters ?? DefaultStarters;
 
     public ObservableCollection<string> AvailableModels { get; } = [];
 
@@ -860,6 +900,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Whether any modal sheet currently covers the conversation.</summary>
     public bool HasOpenSheet =>
         IsGitChangesOpen ||
+        IsJobWakeSheetOpen ||
         IsSourcesSheetOpen ||
         IsActivitySheetOpen ||
         IsRunSettingsSheetOpen ||
@@ -871,6 +912,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Closes the visually topmost chat sheet.</summary>
     internal bool DismissTopmostSheet()
     {
+        if (IsJobWakeSheetOpen)
+        {
+            IsJobWakeSheetOpen = false;
+            return true;
+        }
+
         if (IsGitChangesOpen)
         {
             if (IsGitFileOpen)
@@ -966,6 +1013,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     partial void OnChatIdChanged(Guid value)
     {
+        IsJobWakeSheetOpen = false;
+        SelectedJobWake = null;
         ResetGitChanges();
         OnPropertyChanged(nameof(HasChat));
         OnPropertyChanged(nameof(CanChooseWorktree));
@@ -1634,6 +1683,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             SelectedActivity = null;
             IsSourcesSheetOpen = false;
             SelectedSourceAnswer = null;
+            IsJobWakeSheetOpen = false;
+            SelectedJobWake = null;
             ResetVisibleActivityProgress();
             Model = model ?? (chatId == Guid.Empty ? _preferredModel : null);
             Quality = null;
@@ -1762,6 +1813,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             SelectedActivity?.IsTechnicalDetailsVisible == true;
         var selectedSourceAnswerId =
             IsSourcesSheetOpen ? SelectedSourceAnswer?.Id : null;
+        var selectedJobWakeId = IsJobWakeSheetOpen ? SelectedJobWake?.Id : null;
         if (pendingEcho is not null)
             Turns.Remove(pendingEcho);
         else
@@ -1802,7 +1854,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 OpenActivityAsync,
                 OpenSources,
                 resolveInlineImages,
-                releaseInlineImages);
+                releaseInlineImages,
+                OpenJobWake);
             created.Apply(incoming);
 
             if (i < Turns.Count)
@@ -1876,6 +1929,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         _hasAuthoritativeTranscript = true;
+        if (selectedJobWakeId is not null)
+        {
+            SelectedJobWake = Turns.SelectMany(turn => turn.Items)
+                .OfType<JobWakeItemViewModel>().FirstOrDefault(wake => wake.Id == selectedJobWakeId);
+            if (SelectedJobWake is null)
+                IsJobWakeSheetOpen = false;
+        }
         ReconcilePendingRetry(transcript, epochChanged);
         if (!retainPendingEcho && HasNewVisibleResponseActivity(transcript))
             MarkVisibleResponseActivity();
@@ -2674,8 +2734,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // the user cannot tell whether the tap registered. The echo is replaced by the server's own
         // copy on the next transcript, so nothing here can drift.
         var echo = AddPendingEcho(
-            text.Length > 0 ? text : attached[0].FileName,
-            effectiveSteer || effectiveStopAndSend);
+            text,
+            effectiveSteer || effectiveStopAndSend,
+            attached);
         if (surface.ChatId != Guid.Empty)
             ChatActivitySubmitted?.Invoke(surface.ChatId, echo?.Items.OfType<UserTurnItemViewModel>().FirstOrDefault()?.Text ?? text);
 
@@ -3000,7 +3061,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Turn id used for the optimistic echo, so a real transcript can replace it wholesale.</summary>
     private const string EchoTurnId = "__pending_echo__";
 
-    private TranscriptTurnViewModel? AddPendingEcho(string text, bool steer)
+    private TranscriptTurnViewModel? AddPendingEcho(
+        string text,
+        bool steer,
+        IReadOnlyList<PendingAttachment>? attachments = null)
     {
         _pendingEchoBaselineRevision = _revision;
         var turn = new TranscriptTurnViewModel(
@@ -3012,6 +3076,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
             Id = EchoTurnId,
             Kind = RemoteProtocol.ItemKinds.User,
             Text = text,
+            Attachments = attachments?.Select(file => new RemoteAttachment
+            {
+                FileName = file.FileName,
+                Path = file.Path,
+                Extension = Path.GetExtension(file.FileName)
+            }).ToList(),
             SteerState = steer ? "Steering" : null
         }));
 
@@ -3399,17 +3469,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     }
 
     private static string BuildSendPrompt(SendPayload payload)
-    {
-        var text = payload.PromptText.Trim();
-        return payload.Attachments.Length == 0
-            ? text
-            : string.Join(
-                "\n",
-                new[] { text }
-                    .Where(part => part.Length > 0)
-                    .Concat(["Attached files:"])
-                    .Concat(payload.Attachments.Select(file => file.Path)));
-    }
+        => RemoteUserMessageContent.BuildPrompt(payload.PromptText,
+            payload.Attachments.Select(file => new RemoteAttachment
+            {
+                Path = file.Path,
+                FileName = file.FileName
+            }));
 
     private sealed record PendingRetry(
         string RequestId,
@@ -3698,7 +3763,11 @@ public sealed record PendingAttachment(string FileName, string Path);
 /// <summary>A one-tap conversation starter offered on the empty chat canvas.</summary>
 /// <param name="Glyph">Emoji shown ahead of the label.</param>
 /// <param name="Text">The prompt text placed into the composer when tapped.</param>
-public sealed record ChatStarter(string IconData, string Text);
+public sealed record ChatStarter(string IconData, string Text, string? Prompt = null, string? Glyph = null)
+{
+    public string EffectivePrompt => Prompt ?? Text;
+    public bool HasGlyph => !string.IsNullOrWhiteSpace(Glyph);
+}
 
 public sealed class ModelProviderGroup(string label)
 {

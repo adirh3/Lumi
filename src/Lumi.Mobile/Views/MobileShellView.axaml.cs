@@ -24,6 +24,7 @@ public partial class MobileShellView : UserControl
     private Thickness _safeArea;
     private double _keyboardInset;
     private double _keyboardTop = double.NaN;
+    private bool _isApplicationActive = true;
     private readonly Dictionary<Control, MobileEntrance> _pageEntrances = [];
     private readonly HashSet<StrataBottomSheet> _presentedSheets = [];
     private readonly StrataNavigationDrawer? _navigationDrawer;
@@ -278,19 +279,20 @@ public partial class MobileShellView : UserControl
         double? viewportHeight = null)
     {
         _safeArea = safeArea;
-        _keyboardInset = keyboardInset;
+        _keyboardInset = _isApplicationActive ? keyboardInset : 0;
         // Browser viewport events can arrive before Avalonia's ResizeObserver. Keep the keyboard
         // edge in the measured host's coordinates rather than combining it with a stale height.
         var fullHeight = viewportHeight ?? (DataContext is MobileShellViewModel shell && shell.Layout.Height > 0
             ? shell.Layout.Height
             : _topLevel?.ClientSize.Height ?? Bounds.Height);
-        _keyboardTop = keyboardInset > 0 ? Math.Max(0, fullHeight - keyboardInset) : double.NaN;
+        _keyboardTop = _keyboardInset > 0 ? Math.Max(0, fullHeight - _keyboardInset) : double.NaN;
         ApplyInsets();
     }
 
     /// <summary>Clears transient IME geometry when the platform backgrounds the app.</summary>
     public void NotifyApplicationDeactivated()
     {
+        _isApplicationActive = false;
         _keyboardInset = 0;
         _keyboardTop = double.NaN;
         ApplyInsets();
@@ -300,8 +302,10 @@ public partial class MobileShellView : UserControl
 
     public void NotifyApplicationActivated()
     {
-        if (_inputPane is { } pane)
-            ApplyInputPaneGeometry(pane.State, pane.OccludedRect);
+        _isApplicationActive = true;
+        _keyboardInset = 0;
+        _keyboardTop = double.NaN;
+        ApplyInsets();
 
         if (DataContext is MobileShellViewModel shell)
             _ = shell.NotifyApplicationActivatedAsync();
@@ -320,6 +324,8 @@ public partial class MobileShellView : UserControl
 
     internal void ApplyInputPaneGeometry(InputPaneState state, Rect occludedRect)
     {
+        if (!_isApplicationActive)
+            return;
         // Lift the composer above the keyboard.
         //
         // The rect is NOT a height measured from the bottom: it is a client-space rectangle whose
@@ -329,13 +335,21 @@ public partial class MobileShellView : UserControl
         // the pattern in Avalonia's own SafeAreaDemo. Treating EndRect.Height as the inset — which
         // is what this did — dropped the navigation bar's worth of padding and left the composer
         // partly under the keyboard.
-        var rect = state == InputPaneState.Open ? occludedRect : default;
+        var rect = state == InputPaneState.Open && occludedRect.Top > _safeArea.Top
+            ? occludedRect
+            : default;
         _keyboardInset = rect.Height > 0 && _topLevel is { } top
             ? Math.Max(0, top.ClientSize.Height - rect.Top)
             : 0;
         _keyboardTop = _keyboardInset > 0 ? rect.Top : double.NaN;
 
         ApplyInsets();
+    }
+
+    internal void ApplyPlatformKeyboardInset(double keyboardInset)
+    {
+        if (_isApplicationActive)
+            ApplyPlatformInsets(_safeArea, keyboardInset);
     }
 
     private void ApplyInsets()

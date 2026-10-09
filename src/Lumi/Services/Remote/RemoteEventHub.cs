@@ -546,6 +546,8 @@ internal sealed class RemoteEventHub : IDisposable
         }
 
         _libraryDirty = true;
+        if (_clients.Values.Any(static client => client.WantsNewChatExperience))
+            _snapshotDirty = true;
     }
 
     private void OnChatContentChanged(Guid chatId)
@@ -592,6 +594,7 @@ internal sealed class RemoteEventHub : IDisposable
 
     private static ChatRowState BuildChatRowState(Chat chat) => new(
         chat.Title,
+        chat.UpdatedAt,
         chat.ProjectId,
         chat.AgentId,
         chat.IsPinned,
@@ -789,6 +792,7 @@ internal sealed class RemoteEventHub : IDisposable
 
     private readonly record struct ChatRowState(
         string Title,
+        DateTimeOffset UpdatedAt,
         Guid? ProjectId,
         Guid? AgentId,
         bool IsPinned,
@@ -854,6 +858,14 @@ internal sealed class RemoteEventClient : IDisposable
     internal int QueuedBytes { get { lock (_queueGate) return _queuedBytes; } }
     internal int QueuedFrames { get { lock (_queueGate) return _queue.Count; } }
     internal bool IsForeground => Volatile.Read(ref _subscription).IsForeground;
+    internal bool WantsNewChatExperience
+    {
+        get
+        {
+            var subscription = Volatile.Read(ref _subscription);
+            return subscription.IsForeground && subscription.ChatId is null;
+        }
+    }
     internal bool WantsChatList
     {
         get

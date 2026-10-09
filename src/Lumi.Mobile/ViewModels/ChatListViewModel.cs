@@ -258,54 +258,40 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Applies a live first-page patch without collapsing rows loaded with "Load more" or reordering
-    /// the list beneath the user's finger. A normal view refresh performs authoritative sorting.
+    /// Applies desktop ordering immediately while retaining the older pages already loaded.
     /// </summary>
     public void ApplyLive(RemoteChatPage page)
     {
         _pinnedGroupLabel = page.PinnedGroupLabel;
         _todayGroupLabel = page.TodayGroupLabel;
         var removedIds = page.RemovedChatIds.ToHashSet();
+        var incomingIds = page.Groups.SelectMany(group => group.Chats).Select(chat => chat.Id).ToHashSet();
         foreach (var group in _source)
-            group.Chats.RemoveAll(chat => removedIds.Contains(chat.Id));
+            group.Chats.RemoveAll(chat => removedIds.Contains(chat.Id) || incomingIds.Contains(chat.Id));
         _source.RemoveAll(group => group.Chats.Count == 0);
 
         foreach (var incomingGroup in page.Groups)
         {
-            foreach (var incoming in incomingGroup.Chats)
+            var target = _source.FirstOrDefault(group =>
+                string.Equals(group.Label, incomingGroup.Label, StringComparison.Ordinal));
+            if (target is null)
             {
-                RemoteChatGroup? existingGroup = null;
-                var existingIndex = -1;
-                foreach (var group in _source)
-                {
-                    existingIndex = group.Chats.FindIndex(chat => chat.Id == incoming.Id);
-                    if (existingIndex >= 0)
-                    {
-                        existingGroup = group;
-                        break;
-                    }
-                }
-
-                if (existingGroup is not null)
-                {
-                    existingGroup.Chats[existingIndex] = incoming;
-                    continue;
-                }
-
-                var target = _source.FirstOrDefault(group =>
-                    string.Equals(group.Label, incomingGroup.Label, StringComparison.Ordinal));
-                if (target is null)
-                {
-                    target = new RemoteChatGroup { Label = incomingGroup.Label };
-                    _source.Insert(0, target);
-                }
-                target.Chats.Insert(0, incoming);
+                target = new RemoteChatGroup { Label = incomingGroup.Label };
+                _source.Add(target);
             }
+            target.Chats.InsertRange(0, incomingGroup.Chats);
         }
 
+        _source = _source
+            .OrderByDescending(group => string.Equals(group.Label, _pinnedGroupLabel, StringComparison.Ordinal))
+            .ThenByDescending(group => group.Chats.Max(chat => chat.UpdatedAt))
+            .ToList();
+        foreach (var group in _source)
+            group.Chats = group.Chats.OrderByDescending(chat => chat.UpdatedAt).ToList();
+
         _serverPaged = true;
-        _serverHasMore = page.HasMore;
         _loadedChatCount = _source.Sum(group => group.Chats.Count);
+        _serverHasMore = page.HasMore && _loadedChatCount < page.TotalCount;
         _visibleLimit = Math.Max(_visibleLimit, _loadedChatCount);
         if (_totalChatCount != page.TotalCount)
         {
@@ -484,10 +470,11 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         {
             var (label, chats) = projected[i];
 
-            if (i >= Groups.Count)
-                Groups.Add(new ChatGroupViewModel(label));
-            else
-                Groups[i].Label = label;
+            var existingGroup = Groups.FirstOrDefault(group => group.Label == label);
+            if (existingGroup is null)
+                Groups.Insert(i, new ChatGroupViewModel(label));
+            else if (!ReferenceEquals(Groups[i], existingGroup))
+                Groups.Move(Groups.IndexOf(existingGroup), i);
 
             var target = Groups[i].Chats;
             for (var j = 0; j < chats.Count; j++)
@@ -505,10 +492,13 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
                 chat.IsSelected = sourceChat.Id == SelectedChatId;
 
-                if (j >= target.Count)
-                    target.Add(chat);
-                else if (!ReferenceEquals(target[j], chat))
-                    target[j] = chat;
+                if (j < target.Count && ReferenceEquals(target[j], chat))
+                    continue;
+                var existingIndex = target.IndexOf(chat);
+                if (existingIndex >= 0)
+                    target.Move(existingIndex, j);
+                else
+                    target.Insert(j, chat);
             }
 
             while (target.Count > chats.Count)
@@ -669,6 +659,10 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
     private void MergePage(RemoteChatPage page)
     {
+        var incomingIds = page.Groups.SelectMany(group => group.Chats).Select(chat => chat.Id).ToHashSet();
+        foreach (var group in _source)
+            group.Chats.RemoveAll(chat => incomingIds.Contains(chat.Id));
+        _source.RemoveAll(group => group.Chats.Count == 0);
         foreach (var incomingGroup in page.Groups)
         {
             var target = _source.FirstOrDefault(group =>

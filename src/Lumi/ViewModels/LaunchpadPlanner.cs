@@ -50,6 +50,8 @@ internal readonly record struct LaunchpadGreeting(string Lead, string Name, stri
 
 internal sealed record LaunchpadStarterSpec(string Glyph, string Label, string Prompt);
 
+internal sealed record LaunchpadSetupChoice(LaunchpadSetupSpec Spec, string Title, string Meta);
+
 /// <summary>
 /// The launchpad's decisions, kept free of UI and store state so they are cheap and testable:
 /// which chats deserve attention, which setups the user reaches for, and which starters fit the hour.

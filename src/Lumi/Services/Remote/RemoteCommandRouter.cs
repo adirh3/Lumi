@@ -644,10 +644,24 @@ internal sealed class RemoteCommandRouter
         AgentSelection agentSelection)
     {
         var applied = new List<string>();
+        var setupChat = command.GetBool("useChatSetup") == true
+                        && chatVm.CurrentChat is { Messages.Count: 0 } emptyChat
+            ? emptyChat
+            : null;
+        if (setupChat is not null)
+        {
+            chatVm.ApplyModelSelection(
+                command.Get("model") ?? chatVm.SelectedModel,
+                command.Get("quality") ?? command.Get("reasoningEffort") ?? chatVm.SelectedQuality,
+                command.Get("contextWindowTier") ?? chatVm.SelectedContextWindowTier);
+        }
 
         if (command.Get("model") is { Length: > 0 } model)
         {
-            chatVm.SelectedModel = model;
+            if (setupChat is not null)
+                setupChat.LastModelUsed = model;
+            else
+                chatVm.SelectedModel = model;
             applied.Add("model");
         }
 
@@ -655,13 +669,21 @@ internal sealed class RemoteCommandRouter
         // catalogs, which would otherwise clobber a value applied in the same request.
         if ((command.Get("quality") ?? command.Get("reasoningEffort")) is { Length: > 0 } quality)
         {
-            chatVm.SelectedQuality = quality;
+            if (setupChat is not null)
+                setupChat.LastReasoningEffortUsed =
+                    chatVm.NormalizeReasoningEffortFor(chatVm.SelectedModel, quality);
+            else
+                chatVm.SelectedQuality = quality;
             applied.Add("quality");
         }
 
         if (command.Get("contextWindowTier") is { Length: > 0 } tier)
         {
-            chatVm.SelectedContextWindowTier = tier;
+            if (setupChat is not null)
+                setupChat.LastContextWindowTierUsed =
+                    chatVm.NormalizeContextWindowTierFor(chatVm.SelectedModel, tier);
+            else
+                chatVm.SelectedContextWindowTier = tier;
             applied.Add("context window");
         }
 
@@ -679,7 +701,7 @@ internal sealed class RemoteCommandRouter
 
         if (projectSelection.IsSpecified)
         {
-            if (chatVm.CurrentChat is { } chat)
+            if (chatVm.CurrentChat is { } chat && chat.ProjectId != projectSelection.ProjectId)
             {
                 chat.ProjectId = projectSelection.ProjectId;
                 _dataStore.MarkChatChanged(chat);

@@ -144,6 +144,25 @@ falls back to the official APK download, never an app-store listing.
 
 Announced files appear as readable attachment cards after the reply for their turn,
 including file-only replies, without changing transcript paging or download permissions.
+The mobile chat drawer follows live desktop ordering and read state while retaining
+loaded history pages. New chats use the desktop launchpad's exact usual setups and
+time-aware starters, including project, agent, model, reasoning effort, and local/worktree
+choice. The desktop selects them from the whole chat index, not the mobile history page.
+Selecting one keeps the current draft and attachments and creates no chat until Send.
+Setup selections apply only to that chat and do not change global desktop model defaults.
+Older desktop hosts show an update hint instead of inventing different templates.
+Mobile sends leave an unchanged project configuration alone; if a live session is
+waiting for a real configuration refresh, its message queues like a desktop send
+instead of rejecting it or stopping background work.
+Explicit external model selections stay with a queued message even if the composer
+changes before delivery, including automatic steering.
+Mobile attachments show their original filenames instead of PC upload paths, and
+background-job wakes appear as compact events with instructions and output in a
+details sheet. Both presentations also work with older desktop hosts.
+Larger attachment selections are parsed before display limits are applied, so the
+omission notice does not expose the underlying upload-path instructions.
+Android clears transient keyboard geometry on backgrounding and reads fresh native
+IME insets on resume, so cached keyboard bounds cannot lift the composer to the top.
 New chats show the desktop-resolved reasoning effort and context-window selection for
 the chosen model. Older desktop hosts remain compatible and show **Set by desktop**
 when they do not provide that metadata; unsupported settings are labelled explicitly.

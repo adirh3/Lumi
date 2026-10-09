@@ -3431,11 +3431,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             throw new ByokOnlyRequestBlockedException(Loc.Byok_Error_ByokOnly);
 
         var requestedProviderSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider, modelRoute.ByokModel);
-        if (HasActiveSessionConfigurationConflict(targetChat, requestedProviderSignature))
-        {
-            throw new InvalidOperationException("Stop this session's background work before changing its configuration.");
-        }
-        if (targetChat.CopilotSessionId is not null
+        var mustDeferSessionRefresh = HasActiveSessionConfigurationConflict(targetChat, requestedProviderSignature);
+        if (!mustDeferSessionRefresh && targetChat.CopilotSessionId is not null
             && !string.Equals(
                 targetChat.SessionProviderSignature,
                 requestedProviderSignature,
@@ -3448,7 +3445,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (hasEffortOverride)
             targetChat.LastReasoningEffortUsed = reasoningEffortOverride!.Trim();
 
-        if (!_copilotService.IsConnected)
+        if (mustDeferSessionRefresh && (hasModelOverride || hasEffortOverride))
+        {
+            if (CurrentChat?.Id != targetChat.Id)
+                throw new InvalidOperationException("Lumi could not queue a configuration change on that chat's surface.");
+            ApplyModelSelection(
+                targetChat.LastModelUsed,
+                targetChat.LastReasoningEffortUsed,
+                targetChat.LastContextWindowTierUsed);
+        }
+
+        if (!mustDeferSessionRefresh && !_copilotService.IsConnected)
             await _copilotService.ConnectAsync(cancellationToken);
 
         if (string.IsNullOrWhiteSpace(targetChat.LastModelUsed))
@@ -3491,6 +3498,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Content = prompt,
             Author = author,
             RemoteRequestId = remoteRequestId,
+            HasExternalModelSelection = hasModelOverride || hasEffortOverride,
+            Model = hasModelOverride || hasEffortOverride ? modelRoute.SelectionToken : null,
+            ReasoningEffort = hasModelOverride || hasEffortOverride
+                ? ResolveReasoningEffortForModel(targetChat.LastReasoningEffortUsed, modelRoute.SelectionToken)
+                : null,
+            ContextWindowTier = hasModelOverride || hasEffortOverride
+                ? ResolveSelectedContextWindowTierForChat(targetChat, modelRoute.SelectionToken)
+                : null,
             ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames)
         };
 
@@ -3551,6 +3566,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             onAccepted?.Invoke();
             return;
         }
+
+        if (!_copilotService.IsConnected)
+            await _copilotService.ConnectAsync(cancellationToken);
 
         CancellationTokenSource? cts = null;
         MessageOptions? sendOptions = null;
@@ -4443,6 +4461,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrWhiteSpace(promptText))
             return;
+
+        if (CurrentChat is { } queuedChat)
+            RestoreQueuedExternalModelSelection(queuedChat, queuedMessage);
 
         var prompt = promptText.Trim();
         var guardChat = CurrentChat;

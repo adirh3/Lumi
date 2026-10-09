@@ -48,6 +48,19 @@ public sealed partial class ProjectPickViewModel : ObservableObject
     public required string Name { get; init; }
 }
 
+public sealed partial class ChatStartSetup(RemoteChatSetup setup) : ObservableObject
+{
+    internal RemoteChatSetup Source { get; } = setup;
+    public string Id => Source.Id;
+    public Guid? ProjectId => Source.ProjectId;
+    public Guid? AgentId => Source.AgentId;
+    public string? Model => Source.Model;
+    public string Title => Source.Title;
+    public string Description => Source.Description;
+    public string Glyph => Source.Glyph;
+    [ObservableProperty] private bool _isSelected;
+}
+
 /// <summary>
 /// One entry in the drawer's horizontal "experiences" strip. Mirrors ChatGPT's simplified sidebar,
 /// where capabilities sit in a scrolling row above the chat history instead of consuming a tab.
@@ -285,6 +298,18 @@ public sealed partial class MobileShellViewModel :
             {
                 OnPropertyChanged(nameof(HeaderTitle));
             }
+            if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
+                or nameof(MobileChatViewModel.IsBusy)
+                or nameof(MobileChatViewModel.IsLoading)
+                or nameof(MobileChatViewModel.CanChangeProjectSelection))
+                UseStartSetupCommand.NotifyCanExecuteChanged();
+            if (e.PropertyName is nameof(MobileChatViewModel.ProjectValue)
+                or nameof(MobileChatViewModel.AgentValue)
+                or nameof(MobileChatViewModel.Model)
+                or nameof(MobileChatViewModel.Quality)
+                or nameof(MobileChatViewModel.UseWorktree)
+                or nameof(MobileChatViewModel.ChatId))
+                RefreshSetupSelection();
 
             if (e.PropertyName is nameof(MobileChatViewModel.IsEmpty))
                 OnPropertyChanged(nameof(IsWelcomeVisible));
@@ -405,6 +430,67 @@ public sealed partial class MobileShellViewModel :
     public ObservableCollection<ProjectPickViewModel> Projects { get; } = [];
 
     public bool HasProjects => Projects.Count > 0;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasStartSetups))]
+    private IReadOnlyList<ChatStartSetup> _startSetups = [];
+
+    public bool HasStartSetups => StartSetups.Count > 0;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Greeting))]
+    private bool _hasDesktopNewChat;
+    [ObservableProperty] private string _newChatBrief = "Ask a question or get something done on your PC.";
+    [ObservableProperty] private string _startSetupsTitle = "Your usual setups";
+    private string? _desktopGreeting;
+
+    internal void ApplyNewChatExperience(RemoteNewChatExperience? experience)
+    {
+        _desktopGreeting = experience?.Greeting;
+        HasDesktopNewChat = experience is not null;
+        NewChatBrief = experience?.Brief ?? "Ask a question or get something done on your PC.";
+        StartSetupsTitle = experience?.SetupsTitle ?? "Your usual setups";
+        StartSetups = experience?.Setups.Take(3).Select(setup => new ChatStartSetup(setup)).ToArray() ?? [];
+        Chat.ApplyNewChatStarters(experience?.Starters);
+        RefreshSetupSelection();
+        OnPropertyChanged(nameof(Greeting));
+    }
+
+    private void RefreshSetupSelection()
+    {
+        foreach (var setup in StartSetups)
+        {
+            var source = setup.Source;
+            setup.IsSelected = !Chat.HasChat
+                && source.ProjectId?.ToString() == Chat.ProjectValue
+                && source.AgentId?.ToString() == Chat.AgentValue
+                && source.UseWorktree == Chat.UseWorktree
+                && (source.Model is null || source.Model == Chat.Model)
+                && (source.Quality is null || source.Quality == Chat.Quality);
+        }
+    }
+
+    private bool CanUseStartSetup() => !Chat.HasChat && !Chat.IsBusy && !Chat.IsLoading && Chat.CanChangeProjectSelection;
+
+    [RelayCommand(CanExecute = nameof(CanUseStartSetup))]
+    private void UseStartSetup(ChatStartSetup? setup)
+    {
+        if (!CanUseStartSetup())
+        {
+            Chat.ErrorText = "Setups are available before the first message.";
+            return;
+        }
+        if (setup is null || !StartSetups.Contains(setup))
+        {
+            Chat.ErrorText = "That setup is no longer available. Choose another setup.";
+            return;
+        }
+
+        ActiveProjectId = setup.ProjectId;
+        Chat.ApplyStartSetup(setup.Source);
+        RefreshSetupSelection();
+        Chat.ErrorText = null;
+    }
 
     // ── Chat action sheet ────────────────────────────────────────────────────────────────────
 
@@ -838,6 +924,8 @@ public sealed partial class MobileShellViewModel :
     {
         get
         {
+            if (HasDesktopNewChat && !string.IsNullOrWhiteSpace(_desktopGreeting))
+                return _desktopGreeting;
             var part = DateTime.Now.Hour switch
             {
                 < 5 => "Still up",
@@ -1535,6 +1623,7 @@ public sealed partial class MobileShellViewModel :
         ActiveProjectId = null;
         ResetTranscriptNavigation();
         Chat.ResetHostState();
+        ApplyNewChatExperience(null);
         ChatList.SelectedChatId = Guid.Empty;
         ChatList.Apply([]);
         ChatList.SearchText = "";
@@ -1699,6 +1788,7 @@ public sealed partial class MobileShellViewModel :
             ApplyLibrary(snapshot.Library, reconcileSelections: false);
         }
         Chat.ApplyCatalogs(snapshot.Settings);
+        ApplyNewChatExperience(snapshot.Settings.NewChat);
 
         // Adopt the desktop's active chat on first connect so the phone opens where the PC left off.
         if (!snapshot.IsPartial &&
@@ -1895,6 +1985,8 @@ public sealed partial class MobileShellViewModel :
                 Chat.ProjectName = ActiveProject;
             }
 
+            if (IsConnected)
+                await RefreshSnapshotAsync();
             return;
         }
 
@@ -1922,6 +2014,7 @@ public sealed partial class MobileShellViewModel :
 
         var connection = Volatile.Read(ref _connectionGeneration);
         var surface = _transcriptSurfaceGeneration;
+        var statusVersion = Chat.StatusVersion;
         try
         {
             var result = await SendCommandAsync(
@@ -1935,10 +2028,18 @@ public sealed partial class MobileShellViewModel :
 
             if (!result.Ok)
                 Trace.TraceWarning($"[Mobile] Could not mark chat {chatId} read: {result.Error}");
-            else if (hasUnreadMessages is null)
-                // Legacy hosts have no read state in transcript status. Never let this fallback
-                // suppress a fresh authoritative unread flag (completion can keep the same count).
-                _readWatermarks[chatId] = messageCount;
+            else
+            {
+                if (hasUnreadMessages is null)
+                    _readWatermarks[chatId] = messageCount;
+                // Do not clear a newer desktop read-state update that arrived during the request.
+                if (Chat.StatusVersion == statusVersion && CanReadChatTranscript
+                    && Chat.IsLatestWindow && Chat.TotalRawMessageCount <= messageCount)
+                {
+                    ChatList.SetUnread(chatId, false);
+                    SearchChatList.SetUnread(chatId, false);
+                }
+            }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {

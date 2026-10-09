@@ -105,6 +105,41 @@ public sealed class RemoteSettings
     /// a present entry with a null selection means that setting is not configurable for the model.
     /// </summary>
     public List<RemoteModelDefaults> ModelDefaults { get; set; } = [];
+
+    /// <summary>Desktop-selected new-chat choices. Null on hosts without launchpad projection.</summary>
+    public RemoteNewChatExperience? NewChat { get; set; }
+}
+
+public sealed class RemoteNewChatExperience
+{
+    public string Greeting { get; set; } = "";
+    public string Brief { get; set; } = "";
+    public string SetupsTitle { get; set; } = "";
+    public List<RemoteChatSetup> Setups { get; set; } = [];
+    public List<RemoteChatStarter> Starters { get; set; } = [];
+}
+
+public sealed class RemoteChatSetup
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string Glyph { get; set; } = "";
+    public Guid? ProjectId { get; set; }
+    public string? ProjectName { get; set; }
+    public Guid? AgentId { get; set; }
+    public string? AgentName { get; set; }
+    public string? AgentGlyph { get; set; }
+    public bool UseWorktree { get; set; }
+    public string? Model { get; set; }
+    public string? Quality { get; set; }
+}
+
+public sealed class RemoteChatStarter
+{
+    public string Glyph { get; set; } = "";
+    public string Label { get; set; } = "";
+    public string Prompt { get; set; } = "";
 }
 
 public sealed class RemoteModelDefaults

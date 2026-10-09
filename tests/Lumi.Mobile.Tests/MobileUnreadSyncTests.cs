@@ -293,6 +293,26 @@ public sealed class MobileUnreadSyncTests
             }, RemoteJsonContext.Default.RemoteChatStatus));
     }
 
+    [Fact]
+    public async Task SuccessfulReadAcknowledgementUpdatesBothListsWithoutWaitingForAStatusFrame()
+    {
+        var chatId = Guid.NewGuid();
+        await using var desktop = new FakeLumiDesktop
+        {
+            Snapshot = Snapshot(chatId, unread: true),
+            Transcript = Transcript(chatId, unread: true)
+        };
+        desktop.Start();
+        await using var shell = CreateShell();
+        await PairAsync(shell, desktop);
+        shell.SearchChatList.Apply(Snapshot(chatId, unread: true).Chats);
+        var row = Assert.Single(Assert.Single(shell.ChatList.Groups).Chats);
+        var searchRow = Assert.Single(Assert.Single(shell.SearchChatList.Groups).Chats);
+        shell.ChatList.OpenChatCommand.Execute(row);
+        await WaitAsync(() => !row.HasUnreadMessages && !searchRow.HasUnreadMessages);
+        Assert.Contains(ReadCommands(desktop), command => command.Action == RemoteProtocol.Actions.OpenChat);
+    }
+
     private static RemoteCommand[] ReadCommands(FakeLumiDesktop desktop)
     {
         lock (desktop.ReceivedCommands)

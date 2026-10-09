@@ -117,6 +117,10 @@ public class ChatMessage
     [JsonIgnore]
     public bool CanSendNowWhenQueued { get; set; }
 
+    /// <summary>An explicit external send selection belongs to its queued message, not later composer edits.</summary>
+    [JsonIgnore]
+    internal bool HasExternalModelSelection { get; set; }
+
     /// <summary>
     /// Deep-copies this message, including its mutable collections, so the copy can be mutated or
     /// serialized without touching the original. Callers that need a *distinct* message (rather
@@ -153,6 +157,7 @@ public class ChatMessage
         Model = Model,
         ReasoningEffort = ReasoningEffort,
         ContextWindowTier = ContextWindowTier,
+        HasExternalModelSelection = HasExternalModelSelection,
         AgentId = AgentId,
         SdkAgentName = SdkAgentName,
         HasAgentSelection = HasAgentSelection,

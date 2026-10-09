@@ -57,13 +57,15 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 
     public override void Update(RemoteTranscriptItem item)
     {
-        Text = item.Text ?? "";
+        var content = RemoteUserMessageContent.Parse(item.Text, item.Author);
+        Text = content.Text;
         Author = string.IsNullOrWhiteSpace(item.Author) ? "You" : item.Author!;
         Timestamp = item.Timestamp;
         SteerState = item.SteerState;
 
         Attachments.Clear();
-        foreach (var attachment in item.Attachments ?? [])
+        foreach (var attachment in (item.Attachments ?? []).Concat(content.Attachments.Where(file =>
+                     item.Attachments?.Any(existing => existing.Path == file.Path) != true)))
             Attachments.Add(attachment);
 
         OnPropertyChanged(nameof(HasAttachments));
@@ -74,6 +76,44 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
         OnPropertyChanged(nameof(HasSteerStatus));
         OnPropertyChanged(nameof(SteerStatusText));
     }
+}
+
+public sealed partial class JobWakeItemViewModel : TranscriptItemViewModel
+{
+    private readonly Action<JobWakeItemViewModel>? _open;
+    [ObservableProperty] private RemoteJobWake _details = RemoteJobWake.Parse(null, "");
+    [ObservableProperty] private string _timestampText = "";
+
+    public string Summary => Details.WakeSignal.StartsWith('{') || Details.WakeSignal.StartsWith('[')
+        ? "The job woke this chat."
+        : Details.WakeSignal;
+    public bool HasInstructions => Details.Instructions.Length > 0;
+    public bool HasOutput => Details.OutputText.Length > 0;
+    public bool HasExitCode => Details.ExitCode.Length > 0;
+    public bool HasStarted => Details.StartedText.Length > 0;
+    public bool HasCompleted => Details.CompletedText.Length > 0;
+
+    public JobWakeItemViewModel(RemoteTranscriptItem item, Action<JobWakeItemViewModel>? open = null)
+        : base(item)
+    {
+        _open = open;
+        Update(item);
+    }
+
+    public override void Update(RemoteTranscriptItem item)
+    {
+        Details = RemoteJobWake.Parse(item.Author, item.Text ?? "");
+        TimestampText = item.Timestamp?.ToLocalTime().ToString("t") ?? "";
+        OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(HasInstructions));
+        OnPropertyChanged(nameof(HasOutput));
+        OnPropertyChanged(nameof(HasExitCode));
+        OnPropertyChanged(nameof(HasStarted));
+        OnPropertyChanged(nameof(HasCompleted));
+    }
+
+    [RelayCommand]
+    private void Open() => _open?.Invoke(this);
 }
 
 public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
@@ -751,8 +791,11 @@ public static class TranscriptItemFactory
             IReadOnlyList<RemoteInlineImage>,
             CancellationToken,
             Task<string>>? resolveInlineImages = null,
-        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null) => item.Kind switch
+        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null,
+        Action<JobWakeItemViewModel>? openJobWake = null) => item.Kind switch
     {
+        RemoteProtocol.ItemKinds.User when RemoteJobWake.IsJobWake(item.Author, item.Text) =>
+            new JobWakeItemViewModel(item, openJobWake),
         RemoteProtocol.ItemKinds.User => new UserTurnItemViewModel(item),
         RemoteProtocol.ItemKinds.Activity => new ActivitySummaryItemViewModel(item, openActivity),
         RemoteProtocol.ItemKinds.Reasoning => new ReasoningItemViewModel(item),
@@ -772,7 +815,9 @@ public static class TranscriptItemFactory
 
     /// <summary>True when an existing row can be updated in place instead of being replaced.</summary>
     public static bool CanReuse(TranscriptItemViewModel existing, RemoteTranscriptItem item) =>
-        existing.Id == item.Id && existing.Kind == item.Kind;
+        existing.Id == item.Id && existing.Kind == item.Kind
+        && (existing is JobWakeItemViewModel) == (item.Kind == RemoteProtocol.ItemKinds.User
+            && RemoteJobWake.IsJobWake(item.Author, item.Text));
 }
 
 /// <summary>A local disclosure; the wire and canonical items remain flat for streaming and paging.</summary>
@@ -808,6 +853,7 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
 {
     private readonly Func<ActivitySummaryItemViewModel, Task>? _openActivity;
     private readonly Action<AssistantItemViewModel>? _openSources;
+    private readonly Action<JobWakeItemViewModel>? _openJobWake;
     private readonly Func<
         string,
         string,
@@ -828,13 +874,15 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
             IReadOnlyList<RemoteInlineImage>,
             CancellationToken,
             Task<string>>? resolveInlineImages = null,
-        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null)
+        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null,
+        Action<JobWakeItemViewModel>? openJobWake = null)
     {
         Id = id;
         _openActivity = openActivity;
         _openSources = openSources;
         _resolveInlineImages = resolveInlineImages;
         _releaseInlineImages = releaseInlineImages;
+        _openJobWake = openJobWake;
         Items.CollectionChanged += (_, _) =>
         {
             if (!_applying)
@@ -867,7 +915,8 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
                 _openActivity,
                 _openSources,
                 _resolveInlineImages,
-                _releaseInlineImages);
+                _releaseInlineImages,
+                _openJobWake);
             if (i < Items.Count)
             {
                 var replaced = Items[i];

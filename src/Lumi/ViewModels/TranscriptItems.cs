@@ -281,22 +281,20 @@ public sealed class JobWakeItem : TranscriptItem
     public JobWakeItem(ChatMessageViewModel source, bool showTimestamps)
         : base($"message:job-wake:{source.Message.Id}")
     {
-        var content = source.Content;
-        JobName = ExtractJobName(source, content);
+        var details = Lumi.Remote.Protocol.RemoteJobWake.Parse(source.Author, source.Content);
+        JobName = details.JobName;
         TimestampText = showTimestamps ? source.TimestampText : "";
-        Instructions = ExtractSection(content, "Job instructions:", "Trigger context:");
-        var triggerContext = ExtractSection(content, "Trigger context:", "Respond as Lumi");
-        WakeSignal = ExtractWakeSignal(triggerContext);
-        ExitCode = ExtractExitCode(triggerContext);
-        StartedText = ExtractLineValue(triggerContext, "Started:");
-        CompletedText = ExtractLineValue(triggerContext, "Completed:");
-        OutputText = ExtractSection(triggerContext, "Full script output:", null);
+        Instructions = details.Instructions;
+        WakeSignal = details.WakeSignal;
+        ExitCode = details.ExitCode;
+        StartedText = details.StartedText;
+        CompletedText = details.CompletedText;
+        OutputText = details.OutputText;
     }
 
     public static bool IsJobWakeMessage(ChatMessageViewModel source)
         => source.Role == "user"
-           && (source.Author?.StartsWith("Lumi Job - ", StringComparison.OrdinalIgnoreCase) ?? false)
-           && source.Content.StartsWith("Background job triggered:", StringComparison.OrdinalIgnoreCase);
+           && Lumi.Remote.Protocol.RemoteJobWake.IsJobWake(source.Author, source.Content);
 
     public string SearchText => string.Join('\n', new[]
         {
@@ -310,83 +308,6 @@ public sealed class JobWakeItem : TranscriptItem
         }
         .Where(static value => !string.IsNullOrWhiteSpace(value)));
 
-    private static string ExtractJobName(ChatMessageViewModel source, string content)
-    {
-        const string authorPrefix = "Lumi Job - ";
-        if (source.Author?.StartsWith(authorPrefix, StringComparison.OrdinalIgnoreCase) == true)
-            return source.Author[authorPrefix.Length..].Trim();
-
-        var firstLine = content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
-        const string contentPrefix = "Background job triggered:";
-        return firstLine.StartsWith(contentPrefix, StringComparison.OrdinalIgnoreCase)
-            ? firstLine[contentPrefix.Length..].Trim()
-            : "Background job";
-    }
-
-    private static string ExtractSection(string content, string startMarker, string? endMarker)
-    {
-        var start = content.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
-        if (start < 0)
-            return "";
-
-        start += startMarker.Length;
-        var end = endMarker is null
-            ? content.Length
-            : content.IndexOf(endMarker, start, StringComparison.OrdinalIgnoreCase);
-        if (end < 0)
-            end = content.Length;
-
-        return content[start..end].Trim();
-    }
-
-    private static string ExtractWakeSignal(string triggerContext)
-    {
-        var signalSource = ExtractBefore(triggerContext, "Full script output:");
-        var line = signalSource
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault(static value =>
-                !value.StartsWith("Wake script exited", StringComparison.OrdinalIgnoreCase)
-                && !value.StartsWith("Started:", StringComparison.OrdinalIgnoreCase)
-                && !value.StartsWith("Completed:", StringComparison.OrdinalIgnoreCase));
-
-        return string.IsNullOrWhiteSpace(line) ? "Wake signal received." : Preview(line, 260);
-    }
-
-    private static string ExtractBefore(string content, string marker)
-    {
-        var index = content.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        return index < 0 ? content : content[..index];
-    }
-
-    private static string ExtractExitCode(string content)
-    {
-        var wakeLine = content
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault(static value => value.StartsWith("Wake script exited with code", StringComparison.OrdinalIgnoreCase));
-        if (wakeLine is not null)
-        {
-            const string prefix = "Wake script exited with code";
-            return wakeLine[prefix.Length..].Trim().TrimEnd('.');
-        }
-
-        return ExtractLineValue(content, "Exit code:");
-    }
-
-    private static string ExtractLineValue(string content, string prefix)
-    {
-        var line = content
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault(value => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-        return line is null ? "" : line[prefix.Length..].Trim();
-    }
-
-    private static string Preview(string text, int maxLength)
-    {
-        var normalized = text.Trim();
-        return normalized.Length <= maxLength
-            ? normalized
-            : normalized[..Math.Max(0, maxLength - 1)].TrimEnd() + "...";
-    }
 }
 
 // ── Assistant message ────────────────────────────────

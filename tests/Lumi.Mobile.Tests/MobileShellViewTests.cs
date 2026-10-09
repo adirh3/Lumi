@@ -2000,6 +2000,153 @@ public sealed class MobileShellViewTests
         });
     }
 
+    [Fact]
+    public async Task ResumeIgnoresLateAndFullWindowKeyboardRectsUntilFreshGeometryArrives()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+            var view = window.GetVisualDescendants().OfType<MobileShellView>().Single();
+            view.ApplyPlatformInsets(new Thickness(0, 48, 0, 24), keyboardInset: 320);
+            view.NotifyApplicationDeactivated();
+            view.ApplyInputPaneGeometry(Avalonia.Controls.Platform.InputPaneState.Open, new Rect(0, 572, 412, 320));
+            view.ApplyPlatformInsets(new Thickness(0, 48, 0, 24), keyboardInset: 320);
+            Pump(window);
+            Assert.False(shell.IsKeyboardOpen);
+            Assert.Equal(24, shell.SafeArea.Bottom);
+
+            view.NotifyApplicationActivated();
+            view.ApplyInputPaneGeometry(Avalonia.Controls.Platform.InputPaneState.Open, new Rect(0, 0, 412, 892));
+            Pump(window);
+            Assert.False(shell.IsKeyboardOpen);
+            Assert.Equal(24, shell.SafeArea.Bottom);
+            view.ApplyInputPaneGeometry(Avalonia.Controls.Platform.InputPaneState.Open, new Rect(0, 572, 412, 320));
+            Pump(window);
+            Assert.True(shell.IsKeyboardOpen);
+            Assert.Equal(320, shell.SafeArea.Bottom, 1);
+            view.ApplyInputPaneGeometry(Avalonia.Controls.Platform.InputPaneState.Closed, default);
+            Pump(window);
+            Assert.False(shell.IsKeyboardOpen);
+            Assert.Equal(24, shell.SafeArea.Bottom);
+        });
+    }
+
+    [Fact]
+    public async Task JobWakeIsTouchReachableAndOpensItsDetailsSheet()
+    {
+        await RunAsync(async (shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+            shell.Chat.ApplyTranscript(new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId,
+                Revision = 1,
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "job",
+                    Items = [new RemoteTranscriptItem
+                    {
+                        Id = "wake", Kind = RemoteProtocol.ItemKinds.User,
+                        Author = "Lumi Job - Build watcher",
+                        Text = "Background job triggered: Build watcher\nJob instructions:\nReport progress.\nTrigger context:\nBuild finished.\nFull script output:\n{\"status\":\"passed\"}\nRespond as Lumi"
+                    }]
+                }]
+            });
+            Pump(window);
+            await Task.Delay(250);
+            Pump(window);
+            var button = window.GetVisualDescendants().OfType<Button>()
+                .Single(control => control.DataContext is JobWakeItemViewModel);
+            Assert.True(button.Bounds.Height >= 48);
+            var center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+            var hit = window.InputHitTest(center) as Visual;
+            Assert.True(ReferenceEquals(hit, button) || hit?.GetVisualAncestors().Contains(button) == true,
+                $"Job event at {center} is covered by {hit?.GetType().Name} {(hit as Control)?.Name}.");
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseUp(center, MouseButton.Left);
+            Pump(window);
+            var sheet = window.GetVisualDescendants().OfType<StrataBottomSheet>()
+                .Single(control => control.Name == "JobWakeSheet");
+            Assert.True(sheet.IsOpen);
+            Assert.True(shell.Chat.HasOpenSheet);
+            Assert.False(shell.CanDragDrawer);
+            shell.GoBackCommand.Execute(null);
+            Pump(window);
+            Assert.False(sheet.IsOpen);
+        });
+    }
+
+    [Theory]
+    [InlineData(320)]
+    [InlineData(412)]
+    [InlineData(884)]
+    public async Task DesktopSetupCardsAreTouchReachableAndKeepTheDraft(double width)
+    {
+        await RunAsync(async (shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, width, 892);
+            shell.IsSidebarCollapsed = true;
+            var projectId = Guid.NewGuid();
+            var agentId = Guid.NewGuid();
+            shell.Chat.ApplyLibraryCatalogs(new RemoteLibrary
+            {
+                Projects = [new RemoteProject { Id = projectId, Name = "Lumi", IsCodingProject = true }],
+                Lumis = [new RemoteLumi { Id = agentId, Name = "Coding Lumi" }]
+            });
+            shell.Chat.ApplyCatalogs(new RemoteSettings
+            {
+                PreferredModel = "model-a",
+                AvailableModels = ["model-a"],
+                ModelReasoningEfforts = ["model-a=Low,High"]
+            });
+            shell.ApplyNewChatExperience(new RemoteNewChatExperience
+            {
+                Greeting = "Good evening, Adir",
+                Brief = "You're all caught up. What's next?",
+                SetupsTitle = "Start with",
+                Setups = [new RemoteChatSetup
+                {
+                    Id = "lumi-worktree", Title = "Lumi",
+                    Description = "Coding Lumi · Model A · High · Worktree",
+                    Glyph = "L", ProjectId = projectId, ProjectName = "Lumi",
+                    AgentId = agentId, AgentName = "Coding Lumi",
+                    Model = "model-a", Quality = "High", UseWorktree = true
+                }],
+                Starters = [new RemoteChatStarter
+                {
+                    Glyph = "R", Label = "Recap my day", Prompt = "Recap my conversations from today."
+                }]
+            });
+            shell.Chat.PromptText = "Keep my draft";
+            shell.Chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\fixture\notes.txt"));
+            Pump(window);
+            await Task.Delay(250);
+            Pump(window);
+            var card = Named(window, "WelcomeSetups").GetVisualDescendants().OfType<Button>().Single();
+            Assert.True(card.Bounds.Height >= 48);
+            var center = card.TranslatePoint(new Point(card.Bounds.Width / 2, card.Bounds.Height / 2), window)!.Value;
+            var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(center));
+            Assert.True(ReferenceEquals(hit, card) || hit.GetVisualAncestors().Contains(card),
+                $"The desktop setup is covered by {hit.GetType().Name} at {center}.");
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseUp(center, MouseButton.Left);
+            Pump(window);
+            Assert.Equal(Guid.Empty, shell.Chat.ChatId);
+            Assert.Equal(projectId.ToString(), shell.Chat.ProjectValue);
+            Assert.Equal(agentId.ToString(), shell.Chat.AgentValue);
+            Assert.Equal("High", shell.Chat.Quality);
+            Assert.True(shell.Chat.UseWorktree);
+            Assert.Equal("Keep my draft", shell.Chat.PromptText);
+            Assert.Equal("notes.txt", Assert.Single(shell.Chat.Attachments).FileName);
+            Assert.True(Assert.Single(shell.StartSetups).IsSelected);
+        });
+    }
+
     /// <summary>
     /// The drawer is one scroll surface. New chat, Library, Projects and the history used to be
     /// fixed rows above a scroller that owned only the chat list, so on a short viewport the history

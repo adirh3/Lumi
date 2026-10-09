@@ -663,7 +663,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Pump(window);
             }
             var sheets = view.GetVisualDescendants().OfType<StrataBottomSheet>().ToArray();
-            Assert.Equal(12, sheets.Length);
+            Assert.Equal(13, sheets.Length);
             foreach (var sheet in sheets)
             {
                 shell.Page = sheet.GetVisualAncestors().OfType<LibraryView>().Any() ? MobilePage.Library
@@ -2182,7 +2182,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         });
 
     [Fact]
-    public Task CurrentInputPaneGeometryRestoresKeyboardLayoutAfterDeactivation() =>
+    public Task FreshInputPaneGeometryAfterActivationRestoresKeyboardLayout() =>
         RunUiAsync(360, (shell, view, window) =>
         {
             view.ApplyPlatformInsets(new Thickness(0, 24, 0, 20));
@@ -2192,6 +2192,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(shell.IsKeyboardOpen);
             Assert.Equal(20, shell.SafeAreaBottom.Bottom);
 
+            view.ApplyInputPaneGeometry(InputPaneState.Open, new Rect(0, 500, 360, 280));
+            Assert.False(shell.IsKeyboardOpen);
+            view.NotifyApplicationActivated();
+            Assert.False(shell.IsKeyboardOpen);
             view.ApplyInputPaneGeometry(InputPaneState.Open, new Rect(0, 500, 360, 280));
             Assert.True(shell.IsKeyboardOpen);
             Assert.False(shell.IsWelcomeVisible);

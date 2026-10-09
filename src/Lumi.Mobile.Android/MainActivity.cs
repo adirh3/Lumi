@@ -6,6 +6,7 @@ using Android.Views;
 using Android.Widget;
 using AndroidX.Core.Content;
 using AndroidX.Core.Util;
+using AndroidX.Core.View;
 using AndroidX.Window.Java.Layout;
 using AndroidX.Window.Layout;
 using Avalonia.Android;
@@ -167,6 +168,37 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
             shell.NotifyApplicationActivated();
         }
         AndroidImeAutocorrect.Refresh(this);
+        Window?.DecorView?.Post(RefreshKeyboardInsets);
+    }
+
+    public override void OnWindowFocusChanged(bool hasFocus)
+    {
+        base.OnWindowFocusChanged(hasFocus);
+        if (hasFocus)
+            Window?.DecorView?.Post(RefreshKeyboardInsets);
+    }
+
+    private void RefreshKeyboardInsets()
+    {
+        if (Window?.DecorView is not { HasWindowFocus: true } decor
+            || Avalonia.Application.Current?.ApplicationLifetime is not ISingleViewApplicationLifetime
+            {
+                MainView: MobileShellView shell
+            })
+        {
+            return;
+        }
+
+        ViewCompat.RequestApplyInsets(decor);
+        if (ViewCompat.GetRootWindowInsets(decor) is not { } insets)
+            return;
+
+        var density = Resources?.DisplayMetrics?.Density ?? 1f;
+        var keyboardInset = insets.IsVisible(WindowInsetsCompat.Type.Ime())
+                            && insets.GetInsets(WindowInsetsCompat.Type.Ime()) is { } ime
+            ? ime.Bottom / density
+            : 0;
+        shell.ApplyPlatformKeyboardInset(keyboardInset);
     }
 
     public override void OnRequestPermissionsResult(

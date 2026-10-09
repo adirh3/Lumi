@@ -55,6 +55,62 @@ public sealed class RemoteProjectionTests
             compact: true,
             workingDirectory: workingDirectory);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MobileAttachmentProjectionKeepsInstructionsOffTheVisibleMessage(bool compact)
+    {
+        const string path = @"C:\Temp\20261009-180001-a1b2c3d4e5f6.pdf";
+        var message = Message("user", RemoteUserMessageContent.BuildPrompt("Review this.",
+            [new RemoteAttachment { Path = path, FileName = "Quarterly report.pdf" }]));
+        message.Author = "Lumi Mobile";
+        message.RemoteRequestId = "request-id";
+        var transcript = compact ? BuildCompact(new Chat(), [message]) : Build(new Chat(), [message]);
+        var projected = Assert.Single(Assert.Single(transcript.Turns).Items);
+        Assert.Equal("Review this.", projected.Text);
+        Assert.Equal("Quarterly report.pdf", Assert.Single(projected.Attachments!).FileName);
+        Assert.Equal(path, projected.Attachments![0].Path);
+        Assert.Equal("request-id", projected.RequestId);
+        Assert.Contains(path, message.Content);
+        Assert.Empty(message.Attachments);
+    }
+
+    [Fact]
+    public void DesktopJobWakePresentationUsesTheSameDetailsAsMobile()
+    {
+        var source = Message("user", "Background job triggered: Watcher\nJob instructions:\nReport progress.\nTrigger context:\nWake script exited with code 0.\nStarted: 18:00\nCompleted: 18:01\nBuild complete.\nFull script output:\n{\"status\":\"passed\"}\nRespond as Lumi");
+        source.Author = "Lumi Job - Watcher";
+        var viewModel = new ChatMessageViewModel(source);
+        Assert.True(JobWakeItem.IsJobWakeMessage(viewModel));
+        var wake = new JobWakeItem(viewModel, showTimestamps: false);
+        Assert.Equal("Watcher", wake.JobName);
+        Assert.Equal("Report progress.", wake.Instructions);
+        Assert.Equal("Build complete.", wake.WakeSignal);
+        Assert.Equal("0", wake.ExitCode);
+        Assert.Equal("18:00", wake.StartedText);
+        Assert.Equal("18:01", wake.CompletedText);
+        Assert.Equal("{\"status\":\"passed\"}", wake.OutputText);
+    }
+
+    [Fact]
+    public void ExtraMobileAttachmentsAreBoundedWithoutExposingPromptPaths()
+    {
+        var files = Enumerable.Range(1, RemoteProtocol.MobileAttachmentCountLimit + 1)
+            .Select(index => new RemoteAttachment
+            {
+                Path = $@"C:\uploads\opaque-{index}.png",
+                FileName = $"Photo {index}.png"
+            }).ToArray();
+        var message = Message("user", RemoteUserMessageContent.BuildPrompt("Review these photos.", files));
+        message.Author = "Lumi Mobile";
+        var item = Assert.Single(Assert.Single(Build(new Chat(), [message]).Turns).Items);
+        Assert.Equal("Review these photos.", item.Text);
+        Assert.Equal(RemoteProtocol.MobileAttachmentCountLimit, item.Attachments!.Count);
+        Assert.Equal("Photo 1.png", item.Attachments[0].FileName);
+        Assert.Contains("2 more attachments omitted", item.Attachments[^1].FileName);
+        Assert.DoesNotContain(@"C:\uploads", item.Text);
+    }
+
     [Fact]
     public void LibrarySnapshotCarriesMetadataInsteadOfEditableBodies()
     {

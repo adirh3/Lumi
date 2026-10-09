@@ -410,7 +410,15 @@ public sealed class RemoteEventHubObserverTests
                 Flush(hub);
                 WriteBarrierAndWait(hub, mainStream);
                 Assert.Equal(
-                    chatFramesBeforeHiddenContent,
+                    chatFramesBeforeHiddenContent + 1,
+                    CountEvent(mainStream.Text, RemoteProtocol.Events.Chats));
+                detachedChat.Preview = "another streaming preview";
+                typeof(RemoteEventHub)
+                    .GetMethod("OnChatContentChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(hub, [detachedChat.Id]);
+                Flush(hub);
+                WriteBarrierAndWait(hub, mainStream);
+                Assert.Equal(chatFramesBeforeHiddenContent + 1,
                     CountEvent(mainStream.Text, RemoteProtocol.Events.Chats));
             }
             catch (Exception ex)
