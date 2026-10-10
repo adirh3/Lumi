@@ -952,7 +952,9 @@ internal sealed class RemoteCommandRouter
                     null,
                     _main.ChatVM.CurrentChat?.Id,
                     command.Get("sourceChatIdentifier"),
-                    command.GetList("chatEventTypes")),
+                    command.GetList("chatEventTypes"),
+                    command.Get("iconGlyph"),
+                    command.GetBool("useIconInChatTitles")),
                 _ => throw new InvalidOperationException($"Unknown feature resource '{resource}'.")
             };
         }

@@ -3841,7 +3841,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ChatUpdated?.Invoke();
     }
 
-    private static string BuildBackgroundJobPrompt(BackgroundJob job, string triggerContext)
+    internal static string BuildBackgroundJobPrompt(BackgroundJob job, string triggerContext)
     {
         var builder = new StringBuilder();
         builder.Append("Background job triggered: ")
@@ -3853,6 +3853,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             builder.Append("\n\nTrigger context:\n")
                 .Append(triggerContext.Trim());
+        }
+
+        if (job.UseIconInChatTitles)
+        {
+            builder.Append("\n\nJob chat-title icon: ")
+                .Append(job.DisplayIconGlyph)
+                .Append("""
+
+                Use this icon as the category prefix for this job's chat and any result chats you are already authorized to create or update.
+                This is a presentation preference, not permission to create chats, rerun work, or change job scope, schedules, or approval gates.
+                Explicit user or job instructions take priority, including rules that mark only result chats or only qualifying findings. When those conditions are not met, do not add a fallback icon.
+                Use manage_current_chat to read and update this chat's title when appropriate. Keep the descriptive title and exactly one category prefix followed by a space; do not stack duplicate icons.
+                Replace a leading default clock with the selected custom icon, but preserve an existing custom category on a shared chat.
+                Preserve existing urgency markers and their clearing rules. Never add an urgency marker merely because a job ran or found something new; require evidence and explicit alert criteria.
+                For authorized result chats, reuse existing chats and deduplication mappings. Include the icon in new chat titles and ask the result chat to preserve it. Do not wake existing chats just to rename them, interrupt running chats, or add job icons to unrelated conversations.
+                """);
         }
 
         builder.Append("\n\nRespond as Lumi in this chat. Be concise, explain what changed or what you found, and mention what you will keep watching if the job remains enabled.");

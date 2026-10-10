@@ -14,6 +14,20 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class LibraryExperienceTests
 {
+    [Theory]
+    [InlineData("\U0001F50E", "\U0001F50E")]
+    [InlineData("", "\u23F0")]
+    [InlineData(" ", "\u23F0")]
+    public void JobsShowTheDesktopIconWithAClockFallback(string icon, string expected)
+    {
+        var library = new LibraryViewModel(new LibrarySink()) { Section = LibrarySection.Jobs };
+        library.Apply(new RemoteLibrary
+        {
+            Jobs = [new RemoteJob { Name = "Review watcher", IconGlyph = icon }]
+        });
+        Assert.Equal(expected, Assert.Single(library.Entries).Glyph);
+    }
+
     [Fact]
     public void DirtyCancelAndBackKeepTheDraftUntilDiscardIsExplicit()
     {

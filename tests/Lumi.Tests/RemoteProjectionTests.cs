@@ -1302,6 +1302,8 @@ public sealed class RemoteProjectionTests
         data.BackgroundJobs.Add(new BackgroundJob
         {
             Name = "Worker completion",
+            IconGlyph = "\U0001F50E",
+            UseIconInChatTitles = true,
             ChatId = targetChatId,
             SourceChatId = sourceChatId,
             TriggerType = BackgroundJobTriggerTypes.ChatEvent,
@@ -1316,6 +1318,8 @@ public sealed class RemoteProjectionTests
         Assert.Equal("Personal", library.Memories[0].Category);
         Assert.True(library.McpServers[0].IsEnabled);
         Assert.Equal(targetChatId, library.Jobs[0].ChatId);
+        Assert.Equal("\U0001F50E", library.Jobs[0].IconGlyph);
+        Assert.True(library.Jobs[0].UseIconInChatTitles);
         Assert.Equal(sourceChatId, library.Jobs[0].SourceChatId);
         Assert.Equal("B", library.Jobs[0].SourceChatTitle);
         Assert.Equal(BackgroundJobTriggerTypes.ChatEvent, library.Jobs[0].TriggerType);

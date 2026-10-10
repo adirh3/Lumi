@@ -168,7 +168,9 @@ public sealed class LumiFeatureManager
         string? query = null,
         Guid? defaultChatId = null,
         string? sourceChatIdentifier = null,
-        string[]? chatEventTypes = null)
+        string[]? chatEventTypes = null,
+        string? iconGlyph = null,
+        bool? useIconInChatTitles = null)
     {
         var normalizedAction = NormalizeOrNull(action)?.ToLowerInvariant() ?? "";
         var result = normalizedAction switch
@@ -176,11 +178,11 @@ public sealed class LumiFeatureManager
             "list" or "show" or "search" => new FeatureChangeResult(ListJobs(query ?? identifier)),
             "create" or "add" or "new" => CreateJob(name, description, prompt, chatIdentifier, triggerType, scheduleType,
                 intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt, scriptContent, scriptLanguage,
-                isTemporary, isEnabled, runNow, defaultChatId, sourceChatIdentifier, chatEventTypes),
+                isTemporary, isEnabled, runNow, defaultChatId, sourceChatIdentifier, chatEventTypes, iconGlyph, useIconInChatTitles),
             "update" or "edit" or "rename" or "modify" => UpdateJob(identifier, name, description, prompt, chatIdentifier,
                 triggerType, scheduleType, intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt,
                 scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, defaultChatId, sourceChatIdentifier,
-                chatEventTypes),
+                chatEventTypes, iconGlyph, useIconInChatTitles),
             "delete" or "remove" => DeleteJob(identifier),
             "pause" or "disable" => SetJobEnabled(identifier, enabled: false),
             "resume" or "enable" => SetJobEnabled(identifier, enabled: true),
@@ -214,7 +216,9 @@ public sealed class LumiFeatureManager
         bool? runNow,
         Guid? defaultChatId,
         string? sourceChatIdentifier,
-        string[]? chatEventTypes)
+        string[]? chatEventTypes,
+        string? iconGlyph,
+        bool? useIconInChatTitles)
     {
         var normalizedName = NormalizeOrNull(name);
         var normalizedPrompt = NormalizeOrNull(prompt);
@@ -266,6 +270,8 @@ public sealed class LumiFeatureManager
             Name = normalizedName,
             Description = NormalizeOrNull(description) ?? "",
             Prompt = normalizedPrompt,
+            IconGlyph = NormalizeOrNull(iconGlyph) ?? BackgroundJob.DefaultIconGlyph,
+            UseIconInChatTitles = useIconInChatTitles ?? false,
             ChatId = chatLookup.Item!.Id,
             TriggerType = normalizedTriggerType,
             ScheduleType = scheduleType ?? BackgroundJobScheduleTypes.Interval,
@@ -321,7 +327,9 @@ public sealed class LumiFeatureManager
         bool? runNow,
         Guid? defaultChatId,
         string? sourceChatIdentifier,
-        string[]? chatEventTypes)
+        string[]? chatEventTypes,
+        string? iconGlyph,
+        bool? useIconInChatTitles)
     {
         var lookup = ResolveByIdOrLabel(
             _dataStore.SnapshotBackgroundJobs(),
@@ -332,18 +340,23 @@ public sealed class LumiFeatureManager
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
-        if (name is null && description is null && prompt is null && chatIdentifier is null
+        var presentationOnly = name is null && description is null && prompt is null && chatIdentifier is null
             && triggerType is null && scheduleType is null && intervalMinutes is null && dailyTime is null
             && daysOfWeek is null && monthlyDay is null && cronExpression is null && runAt is null
             && scriptContent is null && scriptLanguage is null
             && isTemporary is null && isEnabled is null && runNow is null
-            && sourceChatIdentifier is null && chatEventTypes is null)
+            && sourceChatIdentifier is null && chatEventTypes is null;
+        if (presentationOnly && iconGlyph is null && useIconInChatTitles is null)
             return Failure("No background job changes were provided.");
 
         var job = lookup.Item!;
         lock (job.SyncRoot)
         {
             var candidate = CreateJobUpdateCandidate(job);
+            if (iconGlyph is not null)
+                candidate.IconGlyph = NormalizeOrNull(iconGlyph) ?? BackgroundJob.DefaultIconGlyph;
+            if (useIconInChatTitles.HasValue)
+                candidate.UseIconInChatTitles = useIconInChatTitles.Value;
             var proposedTriggerType = triggerType is null
                 ? BackgroundJobSchedule.NormalizeTriggerType(candidate.TriggerType)
                 : BackgroundJobSchedule.NormalizeTriggerType(triggerType);
@@ -451,13 +464,19 @@ public sealed class LumiFeatureManager
                 candidate.IsTemporary = true;
 
             var now = DateTimeOffset.Now;
-            candidate.NextRunAt = candidate.IsEnabled
-                ? candidate.TriggerType == BackgroundJobTriggerTypes.Script || runNow == true
-                    ? now
-                    : BackgroundJobSchedule.ComputeNextRun(candidate, now, afterRun: false)
-                : null;
+            presentationOnly = runNow is null
+                && (iconGlyph is not null || useIconInChatTitles is not null)
+                && job.HasSameRunConfiguration(candidate);
+            if (!presentationOnly)
+            {
+                candidate.NextRunAt = candidate.IsEnabled
+                    ? candidate.TriggerType == BackgroundJobTriggerTypes.Script || runNow == true
+                        ? now
+                        : BackgroundJobSchedule.ComputeNextRun(candidate, now, afterRun: false)
+                    : null;
+            }
             candidate.UpdatedAt = now;
-            ApplyJobUpdateCandidate(job, candidate);
+            ApplyJobUpdateCandidate(job, candidate, presentationOnly);
         }
 
         _dataStore.MarkBackgroundJobsChanged();
@@ -474,6 +493,8 @@ public sealed class LumiFeatureManager
             Name = source.Name,
             Description = source.Description,
             Prompt = source.Prompt,
+            IconGlyph = source.IconGlyph,
+            UseIconInChatTitles = source.UseIconInChatTitles,
             TriggerType = source.TriggerType,
             ScheduleType = source.ScheduleType,
             IntervalMinutes = source.IntervalMinutes,
@@ -495,12 +516,14 @@ public sealed class LumiFeatureManager
         };
     }
 
-    private static void ApplyJobUpdateCandidate(BackgroundJob target, BackgroundJob candidate)
+    private static void ApplyJobUpdateCandidate(BackgroundJob target, BackgroundJob candidate, bool presentationOnly)
     {
         target.ChatId = candidate.ChatId;
         target.Name = candidate.Name;
         target.Description = candidate.Description;
         target.Prompt = candidate.Prompt;
+        target.IconGlyph = candidate.IconGlyph;
+        target.UseIconInChatTitles = candidate.UseIconInChatTitles;
         target.TriggerType = candidate.TriggerType;
         target.ScheduleType = candidate.ScheduleType;
         target.IntervalMinutes = candidate.IntervalMinutes;
@@ -517,7 +540,8 @@ public sealed class LumiFeatureManager
         target.IsTemporary = candidate.IsTemporary;
         target.NextRunAt = candidate.NextRunAt;
         target.UpdatedAt = candidate.UpdatedAt;
-        target.MarkConfigurationChanged();
+        if (!presentationOnly)
+            target.MarkConfigurationChanged();
     }
 
     private static bool TryValidateJobConfiguration(BackgroundJob job, out string? error)
@@ -1898,7 +1922,7 @@ public sealed class LumiFeatureManager
             var source = job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
                 ? $" | source: {_dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.SourceChatId)?.Title ?? "(missing chat)"}"
                 : "";
-            return $"- {job.Id} | {job.Name} | {(job.IsEnabled ? "enabled" : "paused")} | {BackgroundJobSchedule.Describe(job)} | chat: {chatTitle}{source} | temporary: {job.IsTemporary} | next: {next} | last: {last} | status: {job.LastRunStatus}{exit} | {Preview(job.Description)}";
+            return $"- {job.Id} | {job.Name} | {(job.IsEnabled ? "enabled" : "paused")} | {BackgroundJobSchedule.Describe(job)} | icon: {job.DisplayIconGlyph} | use icon in chat titles: {job.UseIconInChatTitles} | chat: {chatTitle}{source} | temporary: {job.IsTemporary} | next: {next} | last: {last} | status: {job.LastRunStatus}{exit} | {Preview(job.Description)}";
         }
     }
 

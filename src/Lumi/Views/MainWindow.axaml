@@ -1667,10 +1667,14 @@
                                            Foreground="{DynamicResource Brush.TextSecondary}" />
                               </StackPanel>
                             </Button>
-                            <TextBlock Text="{Binding Name}"
-                                       FontSize="{DynamicResource Font.SizeBody}"
-                                       TextTrimming="CharacterEllipsis"
-                                       VerticalAlignment="Center" />
+                            <DockPanel VerticalAlignment="Center">
+                              <TextBlock DockPanel.Dock="Left" Text="{Binding DisplayIconGlyph}"
+                                         Margin="0,0,6,0" FontSize="16" />
+                              <TextBlock Text="{Binding Name}"
+                                         FontSize="{DynamicResource Font.SizeBody}"
+                                         TextTrimming="CharacterEllipsis"
+                                         VerticalAlignment="Center" />
+                            </DockPanel>
                           </DockPanel>
                           <TextBlock Text="{Binding Description}"
                                      FontSize="{DynamicResource Font.SizeCaption}"

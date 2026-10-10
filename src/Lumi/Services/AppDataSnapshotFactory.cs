@@ -299,7 +299,7 @@ internal static class AppDataSnapshotFactory
             LastSeenAt = source.LastSeenAt
         };
 
-    private static BackgroundJob CloneBackgroundJob(BackgroundJob source)
+    internal static BackgroundJob CloneBackgroundJob(BackgroundJob source)
     {
         return new BackgroundJob
         {
@@ -308,6 +308,8 @@ internal static class AppDataSnapshotFactory
             Name = source.Name,
             Description = source.Description,
             Prompt = source.Prompt,
+            IconGlyph = source.IconGlyph,
+            UseIconInChatTitles = source.UseIconInChatTitles,
             TriggerType = source.TriggerType,
             ScheduleType = source.ScheduleType,
             IntervalMinutes = source.IntervalMinutes,

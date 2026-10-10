@@ -1080,12 +1080,15 @@ public partial class ChatViewModel
                     [Description("True for a temporary time job that pauses after a successful invocation. Script jobs are always one-shot.")] bool? isTemporary = null,
                     [Description("Whether the job should be enabled.")] bool? isEnabled = null,
                     [Description("Set true to queue the job immediately.")] bool? runNow = null,
+                    [Description("Optional job emoji icon. Omit to keep the current icon on update; pass an empty string to restore the default clock.")] string? iconGlyph = null,
+                    [Description("Opt in to chat-title icon guidance during job runs, including authorized result chats. Defaults to false. Explicit conditional and urgency rules still take priority.")] bool? useIconInChatTitles = null,
                     [Description("Optional text query for list filtering.")] string? query = null) =>
                 {
                     var result = FeatureManager.ManageJobs(action, identifier, name, description, prompt, chatIdentifier,
                         triggerType, scheduleType, intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt,
                         scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, query, defaultChatId: chatId,
-                        sourceChatIdentifier: sourceChatIdentifier, chatEventTypes: chatEventTypes);
+                        sourceChatIdentifier: sourceChatIdentifier, chatEventTypes: chatEventTypes,
+                        iconGlyph: iconGlyph, useIconInChatTitles: useIconInChatTitles);
                     return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_jobs",
