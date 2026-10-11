@@ -15,6 +15,10 @@
   </UserControl.Resources>
 
   <UserControl.Styles>
+    <Style Selector="sc|StrataThink">
+      <Setter Property="MaxContentHeight" Value="Infinity" />
+    </Style>
+
     <!-- The run transcript is read-only: no copy/edit/retry affordances on any bubble. -->
     <Style Selector="sc|StrataChatMessage /template/ Border#PART_ActionLayer">
       <Setter Property="IsVisible" Value="False" />
@@ -130,6 +134,7 @@
 
     <DataTemplate DataType="vm:ReasoningItem">
       <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
+                      MaxContentHeight="240"
                       IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
                       IsActive="{Binding IsActive}"
                       HorizontalAlignment="Left">

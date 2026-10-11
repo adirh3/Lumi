@@ -251,6 +251,7 @@
     <Style Selector="sc|StrataThink">
       <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="MaxWidth" Value="760" />
+      <Setter Property="MaxContentHeight" Value="Infinity" />
     </Style>
     <Style Selector="sc|StrataThink.activity-group">
       <Setter Property="MaxWidth" Value="560" />
@@ -1468,6 +1469,7 @@
     <!-- ── Reasoning block ──────────────────────────── -->
     <DataTemplate DataType="vm:ReasoningItem">
       <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
+                      MaxContentHeight="240"
                       IsExpanded="{Binding IsExpanded}"
                       IsActive="{Binding IsActive}">
         <sc:StrataThink.Content>
