@@ -100,8 +100,8 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var copilotService = new CopilotService();
-            // (UseBYOKOnly) at the session-creation chokepoint.
-            copilotService.SetSettingsProvider(() => dataStore.Data.Settings);
+            copilotService.SetSettingsProvider(
+                () => dataStore.Data.Settings, Lumi.Services.Byok.SecureKeyStoreFactory.Instance);
             _copilotService = copilotService;
 
             // Warm the login-shell PATH probe off the UI thread so GUI-launched macOS/Linux builds

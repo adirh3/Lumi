@@ -334,6 +334,7 @@ public partial class SettingsView : UserControl
         [Loc.Setting_AutoGenerateTitles] = vm => vm.RevertAutoGenerateTitlesCommand.Execute(null),
         [Loc.Setting_GlobalCustomInstructions] = vm => vm.RevertGlobalCustomInstructionsCommand.Execute(null),
         [Loc.Setting_PreferredModel] = vm => vm.RevertDefaultModelSelectionCommand.Execute(null),
+        [Loc.Setting_BackgroundModel] = vm => vm.RevertBackgroundModelCommand.Execute(null),
         [Loc.Setting_UseMcpProxy] = vm => vm.RevertUseMcpProxyCommand.Execute(null),
         [Loc.Setting_UseLazyMcpInitialization] = vm => vm.RevertUseLazyMcpInitializationCommand.Execute(null),
         [Loc.Setting_McpToolTimeout] = vm => vm.RevertMcpToolTimeoutCommand.Execute(null),

@@ -1519,7 +1519,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _chatEvents = chatEvents ?? new ChatEventHub();
         _globalSearchService = globalSearchService;
         _secureKeyStore = secureKeyStore;
-        _byokRateLimiter = byokRateLimiter ?? new ByokRateLimiter();
+        _byokRateLimiter = byokRateLimiter ?? copilotService.ByokRateLimiter;
         _ownsCapabilityCatalog = capabilityCatalog is null;
         _capabilityCatalog = capabilityCatalog ?? CapabilityCatalog.CreateDefault(dataStore, copilotService);
         _memoryAgentService = new MemoryAgentService(dataStore, copilotService);

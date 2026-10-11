@@ -9,6 +9,26 @@ namespace Lumi.Tests;
 
 public class AppDataSnapshotFactoryTests
 {
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("gpt-6-luna")]
+    [InlineData("byok:private-helper")]
+    public void BackgroundModel_SurvivesIndexSnapshotsAndJsonRoundTrip(string backgroundModel)
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings { BackgroundModel = backgroundModel, PreferredModel = "gpt-6-sol" }
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        data.Settings.BackgroundModel = "another-model";
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
+
+        Assert.Equal(backgroundModel, snapshot.Settings.BackgroundModel);
+        Assert.Equal(backgroundModel, restored.Settings.BackgroundModel);
+        Assert.Equal("gpt-6-sol", restored.Settings.PreferredModel);
+    }
+
     [Fact]
     public void McpToolTimeout_DefaultsToThreeMinutesForExistingSettings()
     {

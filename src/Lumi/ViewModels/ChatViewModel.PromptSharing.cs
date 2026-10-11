@@ -1,4 +1,3 @@
-using Lumi.Services;
 using Lumi.Services.Sharing;
 using CommunityToolkit.Mvvm.Input;
 
@@ -29,20 +28,10 @@ public partial class ChatViewModel
 
         var platform = OperatingSystem.IsWindows() ? "Windows" : OperatingSystem.IsMacOS() ? "macOS" : "Linux";
         var source = PromptDraftBuilder.Create(chat, messageId, platform);
-        var selection = ResolveSelectedModelForChat(chat);
         SharePromptRequested?.Invoke(source, async (snapshot, ct) =>
         {
-            var route = ResolveModelRouteForChat(selection, chat, allowLegacyByWireId: true);
-            if (route.IsInvalidByok)
-                throw new InvalidOperationException("The selected BYOK model is no longer configured.");
-            var capabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, null);
             await _copilotService.ConnectAsync(ct);
-            if (route.ByokModel is { MaxRequestsPerMinute: > 0 } model)
-                await _byokRateLimiter.AcquireSendSlotAsync(model.Id, model.MaxRequestsPerMinute, ct);
-            var modelId = route.WireModelId;
-            if (string.IsNullOrWhiteSpace(modelId) && !_dataStore.Data.Settings.UseBYOKOnly)
-                modelId = PickBestModel((await _copilotService.GetModelsAsync(ct)).Select(static model => model.Id).ToList());
-            return await _copilotService.GenerateSharedPromptAsync(snapshot, modelId, route.Provider, capabilities, ct);
+            return await _copilotService.GenerateSharedPromptAsync(snapshot, ct: ct);
         });
     }
 

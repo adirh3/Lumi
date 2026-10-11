@@ -898,9 +898,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             ApplyModelCatalog(models, contextWindowCatalog, resetSurfaceSelections: true);
 
-            // Inject BYOK model tokens so users can pick custom endpoints alongside Copilot models.
-            InjectByokModels();
-
             // Refresh account quota in background
             _ = ChatVM.RefreshQuotaAsync();
 
@@ -939,6 +936,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var modelIds = models
             .Select(m => m.Id)
             .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Concat(ByokConfigHelper.GetValidModels(_dataStore.Data.Settings)
+                .Select(ByokConfigHelper.BuildModelToken))
             .ToList();
 
         // Auto-select best model on clean state (no user preference saved)
@@ -946,7 +945,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var isCleanState = string.IsNullOrWhiteSpace(selected)
             || !modelIds.Contains(selected);
         if (isCleanState)
-            selected = ChatViewModel.PickBestModel(modelIds);
+            selected = ResolveFallbackModel(modelIds);
 
         _chatSessionStore.ApplyToSurfaces(surface =>
         {
@@ -960,6 +959,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SettingsVM.UpdateAvailableModels(modelIds);
         if (isCleanState && selected is not null)
             SettingsVM.PreferredModel = selected;
+
+        InjectByokModels();
     }
 
     /// <summary>

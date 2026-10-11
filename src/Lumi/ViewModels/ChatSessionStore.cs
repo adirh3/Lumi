@@ -35,7 +35,7 @@ public sealed class ChatSessionStore : IDisposable
     private readonly ChatEventHub _chatEvents;
     private readonly CapabilityCatalog _capabilityCatalog;
     private readonly bool _ownsCapabilityCatalog;
-    private readonly ByokRateLimiter _byokRateLimiter = new();
+    private readonly ByokRateLimiter _byokRateLimiter;
     private readonly Func<ChatViewModel, Chat, Task> _loadChatAsync;
     private readonly int _maxIdleCachedSurfaces;
     private readonly int _maxWarmIdleSessions;
@@ -91,6 +91,7 @@ public sealed class ChatSessionStore : IDisposable
         _registry = registry;
         _globalSearchService = globalSearchService;
         _secureKeyStore = secureKeyStore;
+        _byokRateLimiter = copilotService.ByokRateLimiter;
         _chatEvents = chatEvents ?? new ChatEventHub();
         _ownsCapabilityCatalog = capabilityCatalog is null;
         _capabilityCatalog = capabilityCatalog ?? CapabilityCatalog.CreateDefault(dataStore, copilotService);

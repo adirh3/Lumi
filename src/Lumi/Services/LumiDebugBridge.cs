@@ -1985,6 +1985,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             _dataStore.Data.Settings.ExpandReasoningWhileStreaming,
             _dataStore.Data.Settings.AutoGenerateTitles,
             _dataStore.Data.Settings.PreferredModel,
+            _dataStore.Data.Settings.BackgroundModel,
             _dataStore.Data.Settings.ReasoningEffort,
             _dataStore.Data.Settings.ContextWindowTier,
             _dataStore.Data.Settings.EnableMemoryAutoSave,

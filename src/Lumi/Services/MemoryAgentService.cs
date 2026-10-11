@@ -213,7 +213,6 @@ public sealed class MemoryAgentService
 
         try
         {
-            var model = await PickLightweightModelAsync(cancellationToken).ConfigureAwait(false);
             var memoryTools = BuildMemoryTools(
                 checkpoint.ChatId,
                 source: "auto",
@@ -222,7 +221,6 @@ public sealed class MemoryAgentService
                 new LightweightSessionOptions
                 {
                     SystemPrompt = BuildSystemPrompt(),
-                    Model = model,
                     Streaming = true,
                     Tools = memoryTools
                 },
@@ -579,49 +577,6 @@ public sealed class MemoryAgentService
         sb.AppendLine("Analyze this conversation. Save or update a memory only if the user explicitly revealed a lasting personal fact about themselves (name, birthday, family, job title/career, hobby, goal, lasting preference) or a durable project-only convention/constraint for the active project. Do NOT save tasks, files, tool output, branch/repo state, installed tools, working context, or current implementation details. Most conversations have nothing worth saving — just respond MEMORY_SYNC_DONE.");
 
         return sb.ToString();
-    }
-
-    private async Task<string?> PickLightweightModelAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            var models = await _copilotService.GetModelsAsync(cancellationToken).ConfigureAwait(false);
-            var modelIds = models.Select(m => m.Id).Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
-            if (modelIds.Count == 0)
-                return _dataStore.Data.Settings.PreferredModel;
-
-            return modelIds
-                .OrderByDescending(ScoreLightweightModel)
-                .ThenBy(id => id, StringComparer.OrdinalIgnoreCase)
-                .First();
-        }
-        catch
-        {
-            return _dataStore.Data.Settings.PreferredModel;
-        }
-    }
-
-    private static int ScoreLightweightModel(string modelId)
-    {
-        var id = modelId.ToLowerInvariant();
-        var score = 0;
-
-        if (id.Contains("mini")) score += 700;
-        if (id.Contains("haiku")) score += 650;
-        if (id.Contains("flash")) score += 600;
-        if (id.Contains("fast")) score += 550;
-        if (id.Contains("small")) score += 500;
-        if (id.Contains("nano")) score += 450;
-
-        if (id.Contains("sonnet")) score += 220;
-        if (id.Contains("gpt-4.1")) score += 180;
-        if (id.Contains("gpt-5")) score += 140;
-
-        if (id.Contains("preview")) score -= 40;
-        if (id.Contains("pro")) score -= 220;
-        if (id.Contains("opus")) score -= 280;
-
-        return score;
     }
 
     private SemaphoreSlim GetCheckpointGate(Guid chatId)

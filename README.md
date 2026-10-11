@@ -14,6 +14,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Sharing** — Share reusable prompts, skills, Lumis and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
 - **Projects** — Organize chats with custom instructions that shape Lumi's behavior
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions
+- **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
@@ -74,8 +75,8 @@ on macOS, which warns when apps read the clipboard).
 
 **Share prompt** (above a completed assistant result, in its context menu, or under the sidebar's
 chat-actions `…` as **Share prompt from this chat**) turns the visible
-conversation through that result into an editable, standalone task. It uses the source chat's model
-in a separate tool-free helper session, respecting BYOK routing and rate limits; it never sends in,
+conversation through that result into an editable, standalone task. It uses the configured background
+model in a separate tool-free helper session, respecting BYOK routing and rate limits; it never sends in,
 forks, or changes the source chat. Final refinements, quoted context and answered questions are
 included. Credentials, personal paths and email addresses are removed from the bounded source
 snapshot; file-format hints are retained so input/output formats are not lost. Files, raw tool
@@ -91,6 +92,49 @@ for the recipient's OS, available tools, prerequisites and permissions, includin
 platforms and secure authentication. Source attachments are never included automatically.
 Prompt packs use format version 2; older Lumi versions show an update-required message.
 Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior is unchanged.
+
+### Background AI models
+
+**Settings > AI & Models > Background Model** controls all of Lumi's internal AI helpers:
+
+| Use case | When it runs | What the model does |
+|---|---|---|
+| Chat titles | A new conversation starts, when automatic titles are enabled | Produces a short title from the first user message |
+| Follow-up suggestions | An eligible assistant reply completes | Proposes three concise next messages using the current exchange and frequently typed requests as low-priority context |
+| Automatic memories | A completed exchange contains potential lasting facts, when auto-save is enabled | Saves, updates, or removes personal facts and durable project conventions using restricted memory tools |
+| Onboarding discovery | The optional getting-to-know-you flow | Analyzes deterministic PC scans, investigates with restricted tools, asks questions, and records durable memories |
+| Reusable prompt drafts | You choose Share prompt on a completed reply | Turns the bounded, redacted conversation snapshot into a portable task |
+| Coding helpers | The assistant invokes `code_review`, `generate_tests`, `explain_code`, or `analyze_project` | Performs the requested specialized analysis in an isolated, tool-free session |
+
+The default is **Auto**, including for existing profiles. It selects the lowest estimated
+Copilot AI-credit cost for a standard **1K input + 1K output** token sample, normalizing each model's
+reported input/output prices by its billing batch size. This is a comparison baseline, not a
+per-request quote: actual usage depends on tokens, reasoning, and caching. When no usable model
+reports comparable token prices, older catalogs use billing multipliers instead; zero beats paid
+models in that mode. Token prices and legacy multipliers are never mixed as if they had the same unit.
+Equal-cost choices prefer the newest **GPT Luna** version, then other lightweight model names,
+with a stable model-id tie-breaker. Disabled or not-yet-enabled models are excluded. When no
+usable model reports a comparable cost, Auto prefers the newest GPT Luna, then a lightweight name; Settings
+marks the cost as unavailable rather than claiming a known price. A missing catalog/model produces
+an error, never a silent fallback to an expensive default.
+
+All helpers resolve through `CopilotService.BuildLightweightSessionConfigAsync` and
+`SessionConfigBuilder.BuildLightweight`. One-shot sessions are disposed and deleted; suggestions
+keep their existing serialized, reusable session, replacing it before the next request if the
+resolved model, provider, or capabilities changed. Auto re-evaluates the shared catalog and uses its
+existing five-minute refresh policy; Settings shows the current automatic model. Changes apply to
+the next helper request without interrupting current work or changing any chat's selected model.
+
+An explicit choice can be a Copilot model or a configured **BYOK** model. BYOK helpers use the
+same endpoint, credential store, capability overrides, and per-model rate limiter as chats.
+**BYOK Only** still blocks every non-BYOK inference request: choose a BYOK background model to
+run helpers in that mode. Auto does not guess private-provider prices or silently inherit the
+source chat's model, including for Share prompt.
+
+Actual chat turns, scheduled job/chat-event wakes, and orchestrated chats retain their chat or
+explicitly overridden models. SDK-owned subagents, web search, and context compaction remain
+under the main session/SDK's policy, not this internal-helper setting. Memory maintenance and
+launchpad starters use deterministic local logic, not LLM calls.
 
 ### Unread chats
 

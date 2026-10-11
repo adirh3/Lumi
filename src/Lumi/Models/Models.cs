@@ -1334,6 +1334,11 @@ public class UserSettings
     // ── AI & Models ──
     public string PreferredModel { get; set; } = "";
 
+    public const string AutomaticBackgroundModel = "auto";
+
+    /// <summary>Model for Lumi's internal AI helpers, independent of chat and agent model choices.</summary>
+    public string BackgroundModel { get; set; } = AutomaticBackgroundModel;
+
     /// <summary>
     /// Model ids the user pinned in the composer's model picker, in pin order. Pinned models are
     /// listed first in the picker. Ids that are no longer in the catalog are simply not rendered, so

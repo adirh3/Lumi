@@ -815,8 +815,8 @@ public static class DebugAgentHarness
         Console.WriteLine("Connecting to Copilot...");
 
         await copilotService.ConnectAsync(ct).ConfigureAwait(false);
-        var model = await copilotService.GetFastestModelIdAsync(ct).ConfigureAwait(false);
-        Console.WriteLine($"Model: {model ?? "(default)"}");
+        var model = await copilotService.GetBackgroundModelIdAsync(ct).ConfigureAwait(false);
+        Console.WriteLine($"Model: {model}");
 
         var toolInputs = new List<string>();
         var toolStarted = 0;
@@ -937,8 +937,10 @@ public static class DebugAgentHarness
 
         Console.WriteLine("Connecting to Copilot...");
         await copilotService.ConnectAsync(ct).ConfigureAwait(false);
-        var model = await copilotService.GetFastestModelIdAsync(ct).ConfigureAwait(false);
-        Console.WriteLine($"Model: {model ?? "(default)"}");
+        var model = CopilotService.SelectCheapestModelId(
+            await copilotService.GetModelsAsync(ct).ConfigureAwait(false))
+            ?? throw new InvalidOperationException("No usable Copilot model is available for the MCP stress harness.");
+        Console.WriteLine($"Model: {model}");
 
         var root = Path.Combine(Path.GetTempPath(), $"lumi-mcp-{harnessName}-stress-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1235,8 +1237,10 @@ public static class DebugAgentHarness
 
         Console.WriteLine("Connecting to Copilot...");
         await copilotService.ConnectAsync(ct).ConfigureAwait(false);
-        var model = await copilotService.GetFastestModelIdAsync(ct).ConfigureAwait(false);
-        Console.WriteLine($"Model: {model ?? "(default)"}");
+        var model = CopilotService.SelectCheapestModelId(
+            await copilotService.GetModelsAsync(ct).ConfigureAwait(false))
+            ?? throw new InvalidOperationException("No usable Copilot model is available for the session-reap stress harness.");
+        Console.WriteLine($"Model: {model}");
 
         var root = Path.Combine(Path.GetTempPath(), "lumi-session-reap-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);

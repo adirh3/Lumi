@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -93,8 +94,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             ]
         };
         var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
-        var model = ChatViewModel.PickBestModel((await _service.GetModelsAsync()).Select(static item => item.Id).ToList());
-        var prompt = await _service.GenerateSharedPromptAsync(source, model);
+        var prompt = await _service.GenerateSharedPromptAsync(source);
         _output.WriteLine(PromptSharing.Write(prompt));
 
         Assert.Contains(prompt.Inputs, input => input.Kind == PromptInputKind.File);
@@ -130,8 +130,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             ]
         };
         var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
-        var model = ChatViewModel.PickBestModel((await _service.GetModelsAsync()).Select(static item => item.Id).ToList());
-        var prompt = await _service.GenerateSharedPromptAsync(source, model);
+        var prompt = await _service.GenerateSharedPromptAsync(source);
         _output.WriteLine(PromptSharing.Write(prompt));
         Assert.True(prompt.Inputs.Count(input => input.Kind == PromptInputKind.Folder) >= 2);
         Assert.Matches("(?i)(09:00|9:00|9\\s*(?:am|a\\.m\\.))", prompt.Content);
@@ -160,8 +159,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
                 result
             ]
         };
-        var model = ChatViewModel.PickBestModel((await _service.GetModelsAsync()).Select(static item => item.Id).ToList());
-        var prompt = await _service.GenerateSharedPromptAsync(PromptDraftBuilder.Create(chat, result.Id, "Windows"), model);
+        var model = await _service.GetBackgroundModelIdAsync();
+        var prompt = await _service.GenerateSharedPromptAsync(PromptDraftBuilder.Create(chat, result.Id, "Windows"));
         var raw = await _service.UseLightweightSessionAsync(new LightweightSessionOptions
         {
             Model = model,
@@ -214,8 +213,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             ]
         };
         var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
-        var model = ChatViewModel.PickBestModel((await _service.GetModelsAsync()).Select(static item => item.Id).ToList());
-        var prompt = await _service.GenerateSharedPromptAsync(source, model);
+        var prompt = await _service.GenerateSharedPromptAsync(source);
         _output.WriteLine(PromptSharing.Write(prompt));
         Assert.Contains(prompt.Inputs, input => input.Kind == PromptInputKind.File);
         Assert.Matches(@"(?i)(markdown|\.md)", prompt.Content + string.Join(' ', prompt.Requirements));
@@ -1512,6 +1510,177 @@ public class CopilotIntegrationTests : IAsyncLifetime
     // ═══════════════════════════════════════════════════════════════════════
     // 15. Title generation — lightweight session
     // ═══════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task BackgroundModel_HelperConfigPreservesExplicitOverridesAndIsolation()
+    {
+        await using var service = new CopilotService();
+        var config = await service.BuildLightweightSessionConfigAsync(new LightweightSessionOptions
+        {
+            SystemPrompt = "Isolated fixture helper.",
+            Model = "explicit-fixture-model",
+            Streaming = false
+        });
+
+        Assert.Equal("explicit-fixture-model", config.Model);
+        Assert.False(config.EnableConfigDiscovery);
+        Assert.False(config.EnableSessionStore);
+        Assert.Empty(config.AvailableTools!);
+        Assert.Equal("Isolated fixture helper.", config.SystemMessage?.Content);
+    }
+
+    [Fact]
+    public async Task BackgroundModel_ByokOnlyTogglePreservesCredentialStoreRouting()
+    {
+        await using var service = new CopilotService();
+        var keyStore = new FakeSecureKeyStore();
+        var endpoint = new ByokEndpoint
+        {
+            Id = "background-credential-endpoint",
+            Name = "Credential fixture",
+            ProviderType = "openai",
+            BaseUrl = "http://127.0.0.1:1/v1",
+            WireApi = "completions",
+            ApiKeyMode = ByokApiKeyMode.CredentialStore
+        };
+        var model = new ByokModel
+        {
+            Id = "background-credential-model",
+            EndpointId = endpoint.Id,
+            ModelId = "private-wire-model",
+            DisplayName = "Private background model"
+        };
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                BackgroundModel = ByokConfigHelper.BuildModelToken(model),
+                ByokEndpoints = [endpoint],
+                ByokModels = [model]
+            }
+        };
+        await keyStore.SetAsync(
+            Lumi.Services.Byok.SecureKeyStoreFactory.EndpointKey(endpoint.Id), "fixture-credential");
+        service.SetSettingsProvider(() => data.Settings, keyStore);
+        await using var browser = new BrowserService();
+        using var settingsVm = new SettingsViewModel(
+            new DataStore(data), service, browser, new UpdateService(), keyStore);
+        var options = new LightweightSessionOptions { SystemPrompt = "Credential fixture helper." };
+        Assert.Equal("fixture-credential",
+            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+
+        settingsVm.UseBYOKOnly = true;
+        Assert.Equal("fixture-credential",
+            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+        settingsVm.UseBYOKOnly = false;
+        Assert.Equal("fixture-credential",
+            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+    }
+
+    [SkippableFact]
+    public async Task BackgroundModel_UsesLivePreferenceForHelpersAndRefreshesCachedSuggestions()
+    {
+        SkipIfDisabled();
+        var settings = new UserSettings { PreferredModel = "not-the-background-model" };
+        _service.SetSettingsProvider(() => settings);
+        var catalog = await _service.GetModelsAsync();
+        var automatic = await _service.GetBackgroundModelIdAsync();
+        Assert.Equal(CopilotService.SelectCheapestModelId(catalog), automatic);
+        _output.WriteLine($"BACKGROUND_MODEL_AUTO={automatic}");
+        foreach (var model in catalog.Where(CopilotService.IsModelEnabled))
+        {
+            _output.WriteLine(
+                $"{model.Id}: tokenSampleCredits={CopilotService.GetModelTokenCost(model)?.ToString("R", CultureInfo.InvariantCulture) ?? "unknown"}, " +
+                $"multiplier={model.Billing?.Multiplier?.ToString("R", CultureInfo.InvariantCulture) ?? "unknown"}");
+        }
+
+        var usedModel = await _service.UseLightweightSessionAsync(
+            new LightweightSessionOptions { SystemPrompt = "Reply exactly BACKGROUND_MODEL_OK." },
+            async (session, ct) =>
+            {
+                var usage = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var subscription = session.On<AssistantUsageEvent>(evt =>
+                {
+                    if (evt.Data?.Model is { } model)
+                        usage.TrySetResult(model);
+                });
+                var reply = await session.SendAndWaitAsync(
+                    new MessageOptions { Prompt = "Reply exactly BACKGROUND_MODEL_OK." },
+                    TimeSpan.FromSeconds(60), ct);
+                Assert.Equal("BACKGROUND_MODEL_OK", reply?.Data?.Content?.Trim());
+                return await usage.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+            });
+        Assert.Equal(automatic, usedModel);
+
+        settings.BackgroundModel = automatic;
+        Assert.False(string.IsNullOrWhiteSpace(
+            await _service.GenerateTitleAsync("Find cozy anime for a rainy evening.")));
+        var suggestions = await _service.GenerateSuggestionsAsync(
+            "Try a cozy slice-of-life anime with short episodes.", "Find a cozy anime.");
+        Assert.NotEmpty(suggestions!);
+        var sessionField = typeof(CopilotService).GetField("_suggestionSession", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var first = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
+
+        var secondModel = CopilotService.SelectCheapestModelId(catalog.Where(model => model.Id != automatic));
+        Assert.NotNull(secondModel);
+        settings.BackgroundModel = secondModel!;
+        suggestions = await _service.GenerateSuggestionsAsync(
+            "You can watch one short episode this evening.", "What can I watch tonight?");
+        Assert.NotEmpty(suggestions!);
+        var second = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
+        Assert.NotEqual(first.SessionId, second.SessionId);
+        var secondUsage = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var secondSubscription = second.On<AssistantUsageEvent>(evt =>
+        {
+            if (evt.Data?.Model is { } model)
+                secondUsage.TrySetResult(model);
+        });
+        await _service.GenerateSuggestionsAsync("It is available with subtitles.", "Does it have subtitles?");
+        Assert.Same(second, sessionField.GetValue(_service));
+        Assert.Equal(secondModel, await secondUsage.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        _output.WriteLine($"BACKGROUND_MODEL_OVERRIDE={secondModel}");
+
+        settings.UseBYOKOnly = true;
+        Assert.Null(await _service.GenerateTitleAsync("This must not reach Copilot."));
+        Assert.Null(await _service.GenerateSuggestionsAsync("Private exchange.", "Private message."));
+        await Assert.ThrowsAsync<ByokOnlyRequestBlockedException>(() =>
+            _service.BuildLightweightSessionConfigAsync(
+                new LightweightSessionOptions { SystemPrompt = "Blocked helper." }));
+
+        var endpoint = new ByokEndpoint
+        {
+            Id = "background-fixture-endpoint",
+            Name = "Background fixture",
+            ProviderType = "openai",
+            BaseUrl = "http://127.0.0.1:1/v1",
+            WireApi = "completions",
+            ApiKeyMode = ByokApiKeyMode.None
+        };
+        var byokModel = new ByokModel
+        {
+            Id = "background-fixture-model",
+            EndpointId = endpoint.Id,
+            ModelId = "private-wire-model",
+            DisplayName = "Private background model",
+            DefaultContextWindowTokens = 128_000,
+            MaxRequestsPerMinute = 10
+        };
+        settings.ByokEndpoints.Add(endpoint);
+        settings.ByokModels.Add(byokModel);
+        Assert.Null(ByokConfigHelper.ValidateEndpoint(endpoint));
+        Assert.Null(ByokConfigHelper.ValidateModel(byokModel, endpoint));
+        settings.BackgroundModel = ByokConfigHelper.BuildModelToken(byokModel);
+        var config = await _service.BuildLightweightSessionConfigAsync(
+            new LightweightSessionOptions { SystemPrompt = "BYOK helper." });
+        Assert.Equal(byokModel.ModelId, config.Model);
+        Assert.Equal(endpoint.BaseUrl, config.Provider?.BaseUrl);
+        Assert.Equal(128_000, config.ModelCapabilities?.Limits?.MaxContextWindowTokens);
+        Assert.True(_service.ByokRateLimiter.IsRateLimited(byokModel.Id));
+        settings.BackgroundModel = "byok:missing";
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.BuildLightweightSessionConfigAsync(
+                new LightweightSessionOptions { SystemPrompt = "Invalid BYOK helper." }));
+    }
 
     [SkippableFact]
     public async Task TitleGeneration_ProducesTitle()

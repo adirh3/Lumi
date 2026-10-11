@@ -119,6 +119,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     // ── AI & Models ──
     [ObservableProperty] private string _preferredModel;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BackgroundModelStatus))]
+    private string _backgroundModel;
     [ObservableProperty] private string _reasoningEffort;
     [ObservableProperty] private string[]? _qualityLevels;
     [ObservableProperty] private string? _selectedQuality;
@@ -132,6 +135,23 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, string> _modelDefaultEfforts = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
     public ObservableCollection<string> AvailableModels { get; } = [];
+    public ObservableCollection<string> AvailableBackgroundModels { get; } = [];
+    private GitHub.Copilot.ModelInfo? _automaticBackgroundModel;
+
+    public string? BackgroundModelStatus
+        => BackgroundModel != UserSettings.AutomaticBackgroundModel
+            ? null
+            : UseBYOKOnly
+                ? Loc.SettingStatus_BackgroundModelByokOnly
+                : _automaticBackgroundModel is not { } model
+                    ? Loc.SettingStatus_BackgroundModelWaiting
+                    : string.Format(
+                        Loc.SettingStatus_BackgroundModelAuto,
+                        ChatViewModel.FormatModelDisplay(model.Id),
+                        CopilotService.GetModelTokenCost(model) is { } tokenCost
+                            ? string.Format(Loc.SettingStatus_BackgroundModelTokenCost, tokenCost)
+                            : ModelOptionCatalog.FormatCostMultiplier(CopilotService.GetModelCostMultiplier(model))
+                                ?? Loc.SettingStatus_BackgroundModelUnknownCost);
 
     // ── BYOK (Bring Your Own Key) ──
     public ObservableCollection<ByokEndpoint> ByokEndpoints { get; } = [];
@@ -197,7 +217,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     /// When on, Lumi only uses configured BYOK providers, disabling built-in Copilot
     /// authentication so no conversation content reaches GitHub's internal Copilot endpoints.
     /// </summary>
-    [ObservableProperty] private bool _useBYOKOnly;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BackgroundModelStatus))]
+    private bool _useBYOKOnly;
 
     // ── MCP ──
     [ObservableProperty]
@@ -556,6 +578,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         // AI
         _preferredModel = s.PreferredModel;
+        _backgroundModel = CopilotService.NormalizeBackgroundModel(s.BackgroundModel);
         _reasoningEffort = s.ReasoningEffort;
         _contextWindowTier = string.IsNullOrWhiteSpace(s.ContextWindowTier)
             ? ModelContextWindowTiers.Default
@@ -573,6 +596,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         {
             AvailableModels.Add(byokToken);
         }
+        SyncAvailableBackgroundModels(AvailableModels.ToList());
         UpdateQualityLevels(_preferredModel);
         UpdateContextWindowTiers(_preferredModel);
 
@@ -1050,6 +1074,22 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         NotifyModified();
     }
 
+    partial void OnBackgroundModelChanged(string value)
+    {
+        var normalized = CopilotService.NormalizeBackgroundModel(value);
+        if (value != normalized)
+        {
+            BackgroundModel = normalized;
+            return;
+        }
+
+        _dataStore.Data.Settings.BackgroundModel = normalized;
+        if (!AvailableBackgroundModels.Contains(normalized))
+            AvailableBackgroundModels.Add(normalized);
+        Save();
+        NotifyModified();
+    }
+
     partial void OnSelectedQualityChanged(string? value)
     {
         if (_suppressSelectedQualitySync)
@@ -1120,7 +1160,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         _dataStore.Data.Settings.UseBYOKOnly = value;
         // Keep the CopilotService chokepoint in sync with the live flag.
-        _copilotService.SetSettingsProvider(() => _dataStore.Data.Settings);
+        _copilotService.SetSettingsProvider(() => _dataStore.Data.Settings, _secureKeyStore);
         Save();
         NotifyModified();
     }
@@ -1160,9 +1200,16 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public void UpdateAvailableModels(System.Collections.Generic.List<string> models)
     {
         ModelSelectionHelper.SyncAvailableModels(AvailableModels, models, PreferredModel);
+        SyncAvailableBackgroundModels(models);
         UpdateQualityLevels(PreferredModel);
         UpdateContextWindowTiers(PreferredModel);
     }
+
+    private void SyncAvailableBackgroundModels(IReadOnlyList<string> models)
+        => ModelSelectionHelper.SyncAvailableModels(
+            AvailableBackgroundModels,
+            [UserSettings.AutomaticBackgroundModel, .. models],
+            BackgroundModel);
 
     /// <summary>
     /// Asks the Copilot service for a fresher model catalog. Bound to the preferred-model picker so
@@ -1187,6 +1234,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         IReadOnlySet<string>? longContextModelIds = null,
         bool merge = false)
     {
+        if (!merge)
+        {
+            var automaticModelId = CopilotService.SelectCheapestModelId(models);
+            _automaticBackgroundModel = models.FirstOrDefault(model => model.Id == automaticModelId);
+            OnPropertyChanged(nameof(BackgroundModelStatus));
+        }
+
         if (merge)
         {
             foreach (var modelId in _modelReasoningEfforts.Keys
@@ -1895,6 +1949,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         || ReasoningEffort != _defaults.ReasoningEffort
         || ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsPreferredModelModified=> PreferredModel != _defaults.PreferredModel;
+    public bool IsBackgroundModelModified => BackgroundModel != _defaults.BackgroundModel;
     public bool IsReasoningEffortModified => ReasoningEffort != _defaults.ReasoningEffort;
     public bool IsGlobalCustomInstructionsModified => GlobalCustomInstructions != _defaults.GlobalCustomInstructions;
     public bool IsUseMcpProxyModified => UseMcpProxy != _defaults.UseMcpProxy;
@@ -1927,6 +1982,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsAutoGenerateTitlesModified));
         OnPropertyChanged(nameof(IsDefaultModelSelectionModified));
         OnPropertyChanged(nameof(IsPreferredModelModified));
+        OnPropertyChanged(nameof(IsBackgroundModelModified));
         OnPropertyChanged(nameof(IsReasoningEffortModified));
         OnPropertyChanged(nameof(IsGlobalCustomInstructionsModified));
         OnPropertyChanged(nameof(IsUseMcpProxyModified));
@@ -1981,6 +2037,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ReasoningEffort = _defaults.ReasoningEffort;
         ContextWindowTier = _defaults.ContextWindowTier;
     }
+    [RelayCommand] private void RevertBackgroundModel() => BackgroundModel = _defaults.BackgroundModel;
     [RelayCommand] private void RevertGlobalCustomInstructions() => GlobalCustomInstructions = _defaults.GlobalCustomInstructions;
     [RelayCommand] private void RevertUseMcpProxy() => UseMcpProxy = _defaults.UseMcpProxy;
     [RelayCommand] private void RevertUseLazyMcpInitialization() => UseLazyMcpInitialization = _defaults.UseLazyMcpInitialization;
@@ -2119,6 +2176,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ShowReasoning = defaults.ShowReasoning;
         AutoGenerateTitles = defaults.AutoGenerateTitles;
         PreferredModel = defaults.PreferredModel;
+        BackgroundModel = defaults.BackgroundModel;
         ReasoningEffort = defaults.ReasoningEffort;
         UseMcpProxy = defaults.UseMcpProxy;
         UseLazyMcpInitialization = defaults.UseLazyMcpInitialization;

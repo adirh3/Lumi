@@ -100,9 +100,6 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
 /// </summary>
 public static class ModelOptionCatalog
 {
-    /// <summary>Policy states that mean the model is already usable; anything else needs enabling.</summary>
-    private static readonly string[] EnabledPolicyStates = ["enabled", "ready", "unset", ""];
-
     public static ModelOptionMetadata Describe(ModelInfo model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -118,8 +115,7 @@ public static class ModelOptionCatalog
         var supportsReasoning = supports?.ReasoningEffort == true
             || model.SupportedReasoningEfforts is { Count: > 0 };
 
-        var policyState = model.Policy?.State?.Trim().ToLowerInvariant() ?? string.Empty;
-        var requiresOptIn = !EnabledPolicyStates.Contains(policyState, StringComparer.Ordinal);
+        var requiresOptIn = !Services.CopilotService.IsModelEnabled(model);
 
         return new ModelOptionMetadata(
             contextTokens,

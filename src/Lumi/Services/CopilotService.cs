@@ -78,14 +78,15 @@ public class CopilotService : IAsyncDisposable
     /// <summary>Exposes the underlying CopilotClient for advanced usage (e.g. test harness).</summary>
     public CopilotClient? Client => _client;
     private readonly ModelCatalogCache _modelCatalog;
-    private string? _fastestModelId;
     private long _connectionGeneration;
     private ConnectionState _state = ConnectionState.Disconnected;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private Action? _cleanupProcessHandlers;
     private IDisposable? _lifecycleSub;
     private CopilotSession? _suggestionSession;
+    private string? _suggestionSessionModelSignature;
     private readonly SemaphoreSlim _suggestionGate = new(1, 1);
+    internal ByokRateLimiter ByokRateLimiter { get; } = new();
 
     // Tracks in-flight session releases keyed by SERVER SESSION ID, shared across every
     // ChatViewModel surface. DisposeAsync sends session.destroy scoped to the session id but leaves
@@ -102,12 +103,7 @@ public class CopilotService : IAsyncDisposable
             async ct => (await RequireClient().ListModelsAsync(ct).ConfigureAwait(false)).ToList(),
             ct => LoadContextWindowCatalogAsync(RequireClient(), ct));
 
-        _modelCatalog.Changed += snapshot =>
-        {
-            // A new or removed model can change which model is the cheapest fast one.
-            _fastestModelId = null;
-            ModelCatalogChanged?.Invoke(snapshot);
-        };
+        _modelCatalog.Changed += snapshot => ModelCatalogChanged?.Invoke(snapshot);
     }
 
     private CopilotClient RequireClient()
@@ -151,16 +147,22 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Optional accessor for the live <see cref="UserSettings"/>. When set and
+    /// Accessor for the live background-model and privacy settings. When set and
     /// <see cref="UserSettings.UseBYOKOnly"/> is on, any session created without a BYOK
     /// <c>Provider</c> throws <see cref="ByokOnlyRequestBlockedException"/> — the hard guarantee that
     /// no inference request reaches GitHub's endpoints. Set once from <c>App.axaml.cs</c> after the
     /// <see cref="DataStore"/> is loaded; left null in tests so the default is permissive.
     /// </summary>
     private Func<UserSettings>? _settingsProvider;
+    private Byok.ISecureKeyStore? _secureKeyStore;
 
-    /// <summary>Wires the live settings accessor used for the non-BYOK block check.</summary>
-    public void SetSettingsProvider(Func<UserSettings>? settingsProvider) => _settingsProvider = settingsProvider;
+    public void SetSettingsProvider(
+        Func<UserSettings>? settingsProvider,
+        Byok.ISecureKeyStore? secureKeyStore = null)
+    {
+        _settingsProvider = settingsProvider;
+        _secureKeyStore = secureKeyStore;
+    }
 
     /// <summary>
     /// True when the BYOK Only block is active (<see cref="UserSettings.UseBYOKOnly"/> flag on AND a
@@ -563,7 +565,6 @@ public class CopilotService : IAsyncDisposable
     private void InvalidateModelCatalog()
     {
         _modelCatalog.Invalidate();
-        _fastestModelId = null;
     }
 
     /// <summary>
@@ -624,79 +625,93 @@ public class CopilotService : IAsyncDisposable
         return (long)Math.Round(tokens.Value);
     }
 
-    /// <summary>Known fast, low-latency models preferred for lightweight background work
-    /// (chat titles and follow-up suggestions), in priority order. The first one the
-    /// signed-in account can actually access wins; if none are available we fall back to a
-    /// cost-based heuristic. gpt-5.4-mini leads because it is fast and produces good
-    /// lightweight output.</summary>
-    internal static readonly string[] PreferredFastModelIds =
-    {
-        "gpt-5.4-mini",
-        "gpt-5-mini",
-        "gemini-3.5-flash",
-        "claude-haiku-4.5",
-    };
+    internal static string NormalizeBackgroundModel(string? model)
+        => string.IsNullOrWhiteSpace(model)
+            || string.Equals(model.Trim(), UserSettings.AutomaticBackgroundModel, StringComparison.OrdinalIgnoreCase)
+                ? UserSettings.AutomaticBackgroundModel
+                : model.Trim();
 
-    /// <summary>Returns the model ID to use for fast/lightweight sessions (titles, suggestions).
-    /// Prefers a known fast model (<see cref="PreferredFastModelIds"/>) when the account has
-    /// access; otherwise uses the lowest billing multiplier as a proxy for speed, then a
-    /// lightweight-sounding name (e.g. "mini", "flash"), then the first available model.</summary>
-    public async Task<string?> GetFastestModelIdAsync(CancellationToken ct = default)
+    /// <summary>Uses the live helper preference, or the cheapest usable Copilot model for Auto.</summary>
+    public async Task<string> GetBackgroundModelIdAsync(CancellationToken ct = default)
     {
-        if (_fastestModelId is not null) return _fastestModelId;
-        try
-        {
-            var models = await GetModelsAsync(ct);
-            var candidates = models
-                .Where(m => !string.IsNullOrWhiteSpace(m.Id))
-                .Select(m => (m.Id, Multiplier: m.Billing is null ? (double?)null : Convert.ToDouble(m.Billing.Multiplier)))
-                .ToList();
-            _fastestModelId = SelectFastestModelId(candidates, PreferredFastModelIds);
-        }
-        catch { /* best effort — fall back to default model */ }
-        return _fastestModelId;
+        ct.ThrowIfCancellationRequested();
+        var selection = NormalizeBackgroundModel(_settingsProvider?.Invoke()?.BackgroundModel);
+        if (selection != UserSettings.AutomaticBackgroundModel)
+            return selection;
+
+        var models = await GetModelsAsync(ct).ConfigureAwait(false);
+        if (await RefreshModelCatalogAsync(ct: ct).ConfigureAwait(false))
+            models = await GetModelsAsync(ct).ConfigureAwait(false);
+
+        var selected = SelectCheapestModelId(models)
+            ?? throw new InvalidOperationException("No usable Copilot model is available for background AI. Choose a background model in Settings.");
+        var selectedModel = models.First(model => model.Id == selected);
+        if (GetModelTokenCost(selectedModel) is null && GetModelCostMultiplier(selectedModel) is null)
+            Debug.WriteLine($"[Lumi] Background Auto selected {selected} by name; the catalog reports no comparable billing costs.");
+        return selected;
     }
 
-    /// <summary>Pure selection logic for <see cref="GetFastestModelIdAsync"/>, separated so it
-    /// can be unit-tested without a live connection. <paramref name="models"/> is the available
-    /// model list (id + optional billing multiplier); <paramref name="preferredIds"/> is the
-    /// priority allowlist of known-fast models.</summary>
-    internal static string? SelectFastestModelId(
-        IReadOnlyList<(string Id, double? Multiplier)> models,
-        IReadOnlyList<string> preferredIds)
+    internal static bool IsModelEnabled(ModelInfo model)
+        => (model.Policy?.State?.Trim().ToLowerInvariant() ?? "") is "" or "enabled" or "ready" or "unset";
+
+    internal static double? GetModelCostMultiplier(ModelInfo model)
+        => NormalizeModelCost(model.Billing?.Multiplier);
+
+    private static double? NormalizeModelCost(double? cost)
+        => cost is { } value && double.IsFinite(value) && value >= 0
+            ? value
+            : null;
+
+    /// <summary>AI credits for a comparable 1K-input + 1K-output sample, not a per-request quote.</summary>
+    internal static double? GetModelTokenCost(ModelInfo model)
     {
-        if (models is null || models.Count == 0)
+        var prices = model.Billing?.TokenPrices;
+        if (prices?.BatchSize is not { } batchSize || batchSize <= 0
+            || NormalizeModelCost(prices.InputPrice) is not { } input
+            || NormalizeModelCost(prices.OutputPrice) is not { } output)
             return null;
 
-        // Preferred: first known-fast model the account can access, in priority order.
-        foreach (var preferred in preferredIds)
-        {
-            var match = models.FirstOrDefault(m =>
-                string.Equals(m.Id, preferred, StringComparison.OrdinalIgnoreCase));
-            if (match.Id is not null)
-                return match.Id;
-        }
-
-        // Lowest billing multiplier — cheapest ≈ lightest/fastest.
-        var cheapest = models
-            .Where(m => m.Multiplier is not null)
-            .OrderBy(m => m.Multiplier!.Value)
-            .Select(m => m.Id)
-            .FirstOrDefault();
-        if (cheapest is not null)
-            return cheapest;
-
-        // Name hints at a lightweight tier.
-        var lightweight = models.FirstOrDefault(m =>
-            m.Id.Contains("mini", StringComparison.OrdinalIgnoreCase) ||
-            m.Id.Contains("flash", StringComparison.OrdinalIgnoreCase) ||
-            m.Id.Contains("haiku", StringComparison.OrdinalIgnoreCase)).Id;
-        if (lightweight is not null)
-            return lightweight;
-
-        // Last resort: first available model.
-        return models[0].Id;
+        return NormalizeModelCost((input + output) * (1000d / batchSize));
     }
+
+    /// <summary>Cost always wins. Equal-cost models prefer the newest GPT Luna, then lightweight names.</summary>
+    internal static string? SelectCheapestModelId(IEnumerable<ModelInfo> models)
+    {
+        var available = models
+            .Where(static model => !string.IsNullOrWhiteSpace(model.Id)
+                && !string.Equals(model.Id, UserSettings.AutomaticBackgroundModel, StringComparison.OrdinalIgnoreCase)
+                && !ByokConfigHelper.IsByokModel(model.Id) && IsModelEnabled(model))
+            .ToList();
+        var useTokenPrices = available.Any(static model => GetModelTokenCost(model) is not null);
+        return available
+            .OrderBy(model => (useTokenPrices ? GetModelTokenCost(model) : GetModelCostMultiplier(model))
+                ?? double.PositiveInfinity)
+            .ThenByDescending(static model => GetLunaVersion(model.Id))
+            .ThenByDescending(static model => IsLightweightModelName(model.Id))
+            .ThenBy(static model => model.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(static model => model.Id)
+            .FirstOrDefault();
+    }
+
+    private static Version? GetLunaVersion(string modelId)
+    {
+        var parts = modelId.Split('-');
+        if (parts.Length < 3
+            || !parts[0].Equals("gpt", StringComparison.OrdinalIgnoreCase)
+            || !parts[2].Equals("luna", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var version = parts[1].Contains('.') ? parts[1] : parts[1] + ".0";
+        return Version.TryParse(version, out var parsed) ? parsed : null;
+    }
+
+    private static bool IsLightweightModelName(string modelId)
+        => modelId.Contains("mini", StringComparison.OrdinalIgnoreCase)
+            || modelId.Contains("nano", StringComparison.OrdinalIgnoreCase)
+            || modelId.Contains("flash", StringComparison.OrdinalIgnoreCase)
+            || modelId.Contains("haiku", StringComparison.OrdinalIgnoreCase)
+            || modelId.Contains("small", StringComparison.OrdinalIgnoreCase)
+            || modelId.Contains("fast", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Creates a new Copilot session with the given configuration.</summary>
     public async Task<CopilotSession> CreateSessionAsync(SessionConfig config, CancellationToken ct = default)
@@ -788,10 +803,47 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Runs a one-shot lightweight helper session and always deletes the session afterwards.
-    /// The Copilot SDK does not expose a public transient-session API, so helper flows must
-    /// explicitly create, use, dispose, and delete ordinary sessions to avoid polluting history.
+    /// Applies the shared background-model policy, BYOK routing, privacy guard, and rate limit.
     /// </summary>
+    internal async Task<SessionConfig> BuildLightweightSessionConfigAsync(
+        LightweightSessionOptions options,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ct.ThrowIfCancellationRequested();
+        var config = SessionConfigBuilder.BuildLightweight(options);
+        ByokModel? byokModel = null;
+        if (options.Provider is null)
+        {
+            var selectedModel = string.IsNullOrWhiteSpace(options.Model)
+                ? await GetBackgroundModelIdAsync(ct).ConfigureAwait(false)
+                : options.Model;
+            var route = ByokConfigHelper.ResolveSessionModelRoute(
+                _settingsProvider?.Invoke() ?? new UserSettings(),
+                selectedModel,
+                keyStore: _secureKeyStore);
+            if (route.IsInvalidByok)
+                throw new InvalidOperationException("The selected background BYOK model is missing, disabled, or invalid. Update it in Settings.");
+            config.Model = route.WireModelId;
+            config.Provider = route.Provider;
+            config.ModelCapabilities ??= ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, null);
+            byokModel = route.ByokModel;
+        }
+
+        ThrowIfByokOnlyWithoutProvider(ByokConfigHelper.HasValidByokUrl(config.Provider));
+        await ByokRateLimiter.AcquireSendSlotAsync(
+            byokModel?.Id, byokModel?.MaxRequestsPerMinute, ct).ConfigureAwait(false);
+        return config;
+    }
+
+    internal static string GetLightweightSessionModelSignature(SessionConfig config)
+        => string.Join("|",
+            config.Model,
+            ByokConfigHelper.BuildProviderSignature(config.Provider),
+            config.ModelCapabilities?.Limits?.MaxContextWindowTokens,
+            config.ModelCapabilities?.Supports?.ReasoningEffort);
+
+    /// <summary>Runs a one-shot helper and deletes its transient session even when the operation fails.</summary>
     public async Task<TResult> UseLightweightSessionAsync<TResult>(
         LightweightSessionOptions options,
         Func<CopilotSession, CancellationToken, Task<TResult>> operation,
@@ -800,7 +852,8 @@ public class CopilotService : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(operation);
 
-        var session = await CreateSessionAsync(SessionConfigBuilder.BuildLightweight(options), ct).ConfigureAwait(false);
+        var config = await BuildLightweightSessionConfigAsync(options, ct).ConfigureAwait(false);
+        var session = await CreateSessionAsync(config, ct).ConfigureAwait(false);
         try
         {
             return await operation(session, ct).ConfigureAwait(false);
@@ -1914,9 +1967,6 @@ public class CopilotService : IAsyncDisposable
     /// <summary>Drafts a portable task in a tool-free helper session, never in the source chat.</summary>
     public async Task<Sharing.SharedPrompt> GenerateSharedPromptAsync(
         Sharing.PromptShareSource source,
-        string? model,
-        ProviderConfig? provider = null,
-        GitHub.Copilot.Rpc.ModelCapabilitiesOverride? modelCapabilities = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -1927,9 +1977,6 @@ public class CopilotService : IAsyncDisposable
             new LightweightSessionOptions
             {
                 SystemPrompt = Sharing.PromptDraftBuilder.SystemPrompt,
-                Model = model,
-                Provider = provider,
-                ModelCapabilities = modelCapabilities,
                 Streaming = false
             },
             async (session, innerCt) =>
@@ -1948,17 +1995,17 @@ public class CopilotService : IAsyncDisposable
         return prompt;
     }
 
-    /// <summary>Generates a short chat title using a lightweight session with the fastest model.</summary>
+    /// <summary>Generates a short chat title using the shared background-model policy.</summary>
     public async Task<string?> GenerateTitleAsync(string userMessage, CancellationToken ct = default)
     {
         if (_client is null) return null;
 
-        // Title generation uses a lightweight (non-BYOK) session. When the BYOK Only block is on,
-        // skip it entirely rather than throwing — a missing title is preferable to leaking the
-        // user's message to GitHub's endpoints.
-        if (IsUseByokOnly) return null;
+        if (IsBackgroundCopilotBlocked)
+        {
+            Debug.WriteLine("[Lumi] Title generation skipped: BYOK Only requires a BYOK background model.");
+            return null;
+        }
 
-        var fastModel = await GetFastestModelIdAsync(ct).ConfigureAwait(false);
         var systemContent = $"""
             Generate a short title (3-6 words) for a chat that starts with this message. Output ONLY the title text, nothing else.
 
@@ -1969,7 +2016,6 @@ public class CopilotService : IAsyncDisposable
             new LightweightSessionOptions
             {
                 SystemPrompt = systemContent,
-                Model = fastModel,
                 Streaming = false
             },
             async (session, innerCt) =>
@@ -2010,20 +2056,26 @@ public class CopilotService : IAsyncDisposable
 
     private async Task<CopilotSession> GetOrCreateSuggestionSessionAsync(CancellationToken ct)
     {
-        if (_suggestionSession is not null)
+        var config = await BuildLightweightSessionConfigAsync(new LightweightSessionOptions
+        {
+            SystemPrompt = SuggestionSystemPrompt,
+            Streaming = false
+        }, ct).ConfigureAwait(false);
+        var signature = GetLightweightSessionModelSignature(config);
+        if (_suggestionSession is not null && _suggestionSessionModelSignature == signature)
             return _suggestionSession;
 
-        var fastModel = await GetFastestModelIdAsync(ct).ConfigureAwait(false);
-        _suggestionSession = await _client!.CreateSessionAsync(
-            SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
-            {
-                SystemPrompt = SuggestionSystemPrompt,
-                Model = fastModel,
-                Streaming = false
-            }),
-            ct).ConfigureAwait(false);
+        var previous = _suggestionSession;
+        _suggestionSession = null;
+        await DisposeAndDeleteSessionAsync(previous).ConfigureAwait(false);
+        _suggestionSession = await CreateSessionAsync(config, ct).ConfigureAwait(false);
+        _suggestionSessionModelSignature = signature;
         return _suggestionSession;
     }
+
+    private bool IsBackgroundCopilotBlocked
+        => IsUseByokOnly && !ByokConfigHelper.IsByokModel(
+            NormalizeBackgroundModel(_settingsProvider?.Invoke()?.BackgroundModel));
 
     public Task<List<string>?> GenerateSuggestionsAsync(
         string assistantMessage,
@@ -2039,10 +2091,11 @@ public class CopilotService : IAsyncDisposable
     {
         if (_client is null) return null;
 
-        // Suggestion generation uses a lightweight (non-BYOK) session. When the BYOK Only block is
-        // on, skip it entirely rather than throwing — no suggestions is preferable to leaking the
-        // conversation context to GitHub's endpoints.
-        if (IsUseByokOnly) return null;
+        if (IsBackgroundCopilotBlocked)
+        {
+            Debug.WriteLine("[Lumi] Suggestions skipped: BYOK Only requires a BYOK background model.");
+            return null;
+        }
 
         var contextBuilder = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(userMessage))

@@ -39,6 +39,9 @@ public static partial class PromptDraftBuilder
           values with {{snake_case}} inputs. Use only meaningful inputs, at most 8.
         - A file input means the recipient supplies their own file; no file content is included.
           A folder input means the recipient chooses their own local folder.
+        - Local path inputs must use File or Folder, even when the sender's paths were redacted.
+          Text is for non-path values. Keep directory backup/copy sources and destinations as
+          Folder inputs; do not broaden a directory task into an ambiguous "file or folder" input.
         - Preserve essential technology requirements, but list unavailable software, skills,
           MCPs, accounts, source data or platform restrictions in requirements. Explain equivalent
           supported approaches when appropriate; never invent cross-platform support.
@@ -71,7 +74,7 @@ public static partial class PromptDraftBuilder
 
         Before answering, check silently: selected task only; final refinements preserved;
         independently actionable; no personal paths/accounts/secrets; missing attachments explicit;
-        setup differences handled; placeholders and inputs match.
+        setup differences handled; file/folder input kinds preserved; placeholders and inputs match.
         """;
 
     [GeneratedRegex("""(?i)\b[a-z][a-z0-9+.-]*://[^\s<>"'`]+""", RegexOptions.CultureInvariant)]

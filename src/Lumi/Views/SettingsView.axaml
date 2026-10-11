@@ -743,6 +743,33 @@
               </sc:StrataModelPicker.ModelItemTemplate>
             </sc:StrataModelPicker>
           </sc:StrataSetting>
+          <sc:StrataSetting x:Name="BackgroundModelSetting"
+                            Header="{loc:Str Setting_BackgroundModel}"
+                            Description="{loc:Str SettingDesc_BackgroundModel}"
+                            IsModified="{Binding IsBackgroundModelModified}">
+            <StackPanel Spacing="6">
+              <sc:StrataModelPicker x:Name="BackgroundModelPicker" Width="300"
+                                    Models="{Binding AvailableBackgroundModels}"
+                                    PickerOpenedCommand="{Binding RefreshModelCatalogCommand}"
+                                    SelectedModel="{Binding BackgroundModel, Mode=TwoWay}">
+                <sc:StrataModelPicker.ModelItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
+                  </DataTemplate>
+                </sc:StrataModelPicker.ModelItemTemplate>
+              </sc:StrataModelPicker>
+              <TextBlock x:Name="BackgroundModelStatusText"
+                         Text="{Binding BackgroundModelStatus}"
+                         IsVisible="{Binding BackgroundModelStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         TextWrapping="Wrap" MaxWidth="300" />
+            </StackPanel>
+          </sc:StrataSetting>
+          <TextBlock Text="{loc:Str SettingDesc_BackgroundModelAuto}"
+                     FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}"
+                     TextWrapping="Wrap" />
         </sc:StrataSettingGroup>
 
         <!-- ═══ BYOK ═══ -->
