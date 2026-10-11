@@ -110,6 +110,12 @@ public partial class ChatViewModel
             Messages.Add(new ChatMessageViewModel(message));
         }
 
+        foreach (var message in DebugAgentHarness.CreatePromptSharingFixtureMessages(_dataStore))
+        {
+            fixture.Messages.Add(message);
+            Messages.Add(new ChatMessageViewModel(message));
+        }
+
         ScrollToEndRequested?.Invoke();
     }
 

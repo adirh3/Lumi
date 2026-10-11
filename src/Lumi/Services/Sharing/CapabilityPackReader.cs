@@ -18,7 +18,8 @@ public enum PackReadError
     EmptyPack,
 
     /// <summary>A Lumi chat code that was cut short or altered on the way.</summary>
-    DamagedCode
+    DamagedCode,
+    InvalidPrompt
 }
 
 public sealed record PackReadResult(CapabilityPack? Pack, PackReadError Error, string? Detail = null)
@@ -189,11 +190,25 @@ public static class CapabilityPackReader
         var skills = new List<SharedSkill>();
         var servers = new List<SharedMcpServer>();
         SharedLumi? lumi = null;
+        SharedPrompt? prompt = null;
 
         foreach (var block in PackText.FindFencedBlocks(body))
         {
             switch (block.Tag)
             {
+                case CapabilityPackWriter.PromptBlockTag:
+                    if (prompt is not null)
+                        return PackReadResult.Fail(PackReadError.InvalidPrompt, "A pack may contain only one prompt.");
+                    try
+                    {
+                        prompt = PromptSharing.Parse(block.Content);
+                    }
+                    catch (Exception ex) when (ex is JsonException or ArgumentException)
+                    {
+                        return PackReadResult.Fail(PackReadError.InvalidPrompt, ex.Message);
+                    }
+                    break;
+
                 case CapabilityPackWriter.SkillBlockTag:
                     if (Frontmatter.TryParse(block.Content, out var skillFrontmatter, out var skillBody, out _)
                         && ReadSkillDocument(skillFrontmatter, skillBody, out _) is { } skill
@@ -224,6 +239,22 @@ public static class CapabilityPackReader
 
             if (skills.Count + servers.Count > MaxItems)
                 return PackReadResult.Fail(PackReadError.TooLarge);
+        }
+
+        if (string.Equals(frontmatter.GetString("kind"), "prompt", StringComparison.OrdinalIgnoreCase) || prompt is not null)
+        {
+            if (prompt is null || lumi is not null || skills.Count > 0 || servers.Count > 0
+                || !string.Equals(frontmatter.GetString("kind"), "prompt", StringComparison.OrdinalIgnoreCase))
+                return PackReadResult.Fail(PackReadError.InvalidPrompt, "A prompt pack must contain only a reusable prompt.");
+            return PackReadResult.Ok(new CapabilityPack
+            {
+                Kind = SharedCapabilityKind.Prompt,
+                Format = CapabilityPackFormat.LumiPack,
+                Name = prompt.Name,
+                Description = prompt.Description,
+                IconGlyph = "\u2728",
+                Prompt = prompt
+            });
         }
 
         if (lumi is null && skills.Count == 0 && servers.Count == 0)

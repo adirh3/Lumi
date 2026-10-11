@@ -18,6 +18,8 @@ public sealed class LightweightSessionOptions
     public string? WorkingDirectory { get; init; }
     public string? ConfigDir { get; init; }
     public List<AIFunction>? Tools { get; init; }
+    public GitHub.Copilot.ProviderConfig? Provider { get; init; }
+    public ModelCapabilitiesOverride? ModelCapabilities { get; init; }
 }
 
 /// <summary>
@@ -181,6 +183,8 @@ public sealed class LightweightSessionOptions
         {
             ClientName = ClientName,
             Model = options.Model,
+            Provider = options.Provider,
+            ModelCapabilities = options.ModelCapabilities,
             Streaming = options.Streaming,
             WorkingDirectory = options.WorkingDirectory,
             ConfigDirectory = options.ConfigDir ?? GetDefaultConfigDir(),

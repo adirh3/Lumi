@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Sharing;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -69,6 +70,161 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
     private static bool IsEnabled =>
         Environment.GetEnvironmentVariable("LUMI_INTEGRATION_TESTS") == "1";
+
+    [SkippableFact]
+    public async Task PromptSharing_RealModelPreservesDashboardRefinementsAndUsesRecipientFiles()
+    {
+        SkipIfDisabled();
+        var result = new Lumi.Models.ChatMessage
+        {
+            Role = "assistant",
+            Content = @"Created C:\Users\Sender\Reports\dashboard.xlsx with monthly category charts, recurring-charge highlights and a dark blue theme. The original CSV is untouched."
+        };
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Content = "Recommend an anime to watch." },
+                new() { Role = "assistant", Content = "Try a short adventure anime." },
+                new() { Content = @"Create an Excel expense dashboard from C:\Users\Sender\bank.csv.", Attachments = [@"C:\Users\Sender\bank.csv"] },
+                new() { Role = "assistant", Content = "I can use Excel COM on this Windows computer." },
+                new() { Content = "Use monthly category charts, highlight recurring charges and use a dark blue theme. Keep the original CSV unchanged. Never email or upload the bank data. API_KEY=private-fixture-key" },
+                result
+            ]
+        };
+        var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
+        var model = ChatViewModel.PickBestModel((await _service.GetModelsAsync()).Select(static item => item.Id).ToList());
+        var prompt = await _service.GenerateSharedPromptAsync(source, model);
+        _output.WriteLine(PromptSharing.Write(prompt));
+
+        Assert.Contains(prompt.Inputs, input => input.Kind == PromptInputKind.File);
+        Assert.Contains("monthly", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("recurring", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("blue", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches("(?i)(unchanged|untouched|read.only|do not (?:modify|alter|change)|without (?:modifying|altering|changing))", prompt.Content);
+        Assert.Matches("(?i)(never|do not|no|must not).*(?:upload|email)", prompt.Content);
+        Assert.DoesNotContain("anime", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("private-fixture-key", PromptSharing.Write(prompt));
+        Assert.DoesNotContain("Sender", PromptSharing.Write(prompt), StringComparison.OrdinalIgnoreCase);
+        Assert.False(PromptDraftBuilder.HasPersonalLocation(prompt));
+        Assert.Contains("operating system", PromptSharing.ComposeText(prompt));
+        Assert.Equal(6, chat.Messages.Count);
+    }
+
+    [SkippableFact]
+    public async Task PromptSharing_RealModelMakesPlatformSpecificBackupReusableWithoutAssumingSourceSetup()
+    {
+        var result = new Lumi.Models.ChatMessage
+        {
+            Role = "assistant",
+            Content = @"Set up SenderBackup on Windows with a scheduled PowerShell/robocopy job. It copies C:\Users\Sender\Code to D:\Backups at 09:00 Monday-Friday, retaining the last seven dated backups. It never uploads to the cloud or deletes the source."
+        };
+        SkipIfDisabled();
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Content = @"Set up a local backup of C:\Users\Sender\Code into D:\Backups." },
+                new() { Content = "Run at 09:00 on weekdays, retain seven dated backups. Don't upload to any cloud service or delete the source. Verify I can restore a file." },
+                result
+            ]
+        };
+        var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
+        var model = ChatViewModel.PickBestModel((await _service.GetModelsAsync()).Select(static item => item.Id).ToList());
+        var prompt = await _service.GenerateSharedPromptAsync(source, model);
+        _output.WriteLine(PromptSharing.Write(prompt));
+        Assert.True(prompt.Inputs.Count(input => input.Kind == PromptInputKind.Folder) >= 2);
+        Assert.Matches("(?i)(09:00|9:00|9\\s*(?:am|a\\.m\\.))", prompt.Content);
+        Assert.Matches("(?i)(weekday|Monday)", prompt.Content);
+        Assert.Matches("(?i)(seven|\\b7\\b)", prompt.Content);
+        Assert.Contains("restore", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches("(?i)(windows|operating system|platform|scheduler)", prompt.Content + string.Join(' ', prompt.Requirements));
+        Assert.False(PromptDraftBuilder.HasPersonalLocation(prompt));
+        Assert.DoesNotContain("SenderBackup", prompt.Content);
+        Assert.Contains("creating recurring jobs", PromptSharing.ComposeText(prompt));
+    }
+
+    [SkippableFact]
+    public async Task PromptSharing_RealRecipientAdaptsAWindowsTaskToLinuxAndAsksForMissingData()
+    {
+        SkipIfDisabled();
+        var result = new Lumi.Models.ChatMessage
+        {
+            Role = "assistant", Content = "Created the Excel dashboard using Excel COM on Windows. The original CSV is unchanged."
+        };
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Content = "Create an Excel workbook with monthly expense charts from my bank CSV. Keep the CSV unchanged.", Attachments = [@"C:\Users\Sender\bank.csv"] },
+                result
+            ]
+        };
+        var model = ChatViewModel.PickBestModel((await _service.GetModelsAsync()).Select(static item => item.Id).ToList());
+        var prompt = await _service.GenerateSharedPromptAsync(PromptDraftBuilder.Create(chat, result.Id, "Windows"), model);
+        var raw = await _service.UseLightweightSessionAsync(new LightweightSessionOptions
+        {
+            Model = model,
+            SystemPrompt = """
+                Evaluate a shared task for a declared recipient machine. This is a planning-only
+                test: do not execute anything. The recipient is on Linux, has Python and openpyxl,
+                does not have Microsoft Excel, COM, PowerShell or Windows desktop automation, and
+                has not supplied the bank CSV. Treat these declared capabilities as authoritative,
+                not the test process's actual host environment.
+                Return ONLY JSON: {"approach":"specific viable tool/approach","missingInputs":["what the user must supply"],"canProceed":false,"needsWindows":false}.
+                Follow the shared prompt's setup checks. Do not claim you have accessed files or
+                completed the task. Distinguish missing data from missing Windows-only tooling.
+                """
+        }, async (session, ct) =>
+        {
+            var response = await session.SendAndWaitAsync(new MessageOptions
+            {
+                Prompt = PromptSharing.ComposeText(prompt)
+            }, TimeSpan.FromSeconds(90), ct);
+            return response?.Data?.Content;
+        });
+        Assert.False(string.IsNullOrWhiteSpace(raw));
+        _output.WriteLine("Generated share:\n" + PromptSharing.Write(prompt) + "\nLinux recipient plan:\n" + raw);
+        var json = raw!.Trim();
+        if (PackText.TryUnwrapSingleFence(json, out var inner))
+            json = inner;
+        using var plan = JsonDocument.Parse(json);
+        Assert.False(plan.RootElement.GetProperty("canProceed").GetBoolean());
+        Assert.False(plan.RootElement.GetProperty("needsWindows").GetBoolean());
+        Assert.Contains("openpyxl", plan.RootElement.GetProperty("approach").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(plan.RootElement.GetProperty("missingInputs").EnumerateArray(),
+            input => input.GetString()?.Contains("csv", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    [SkippableFact]
+    public async Task PromptSharing_RealModelRetainsFormatsFromRedactedFileLocations()
+    {
+        SkipIfDisabled();
+        var result = new Lumi.Models.ChatMessage
+        {
+            Role = "assistant",
+            Content = @"Created D:\PrivateExports\private-slides.pptx. One slide per section, three short bullets per slide."
+        };
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Content = """Convert "C:\Users\Sender\private-source.md" to "D:\PrivateExports\private-slides.pptx". Use one slide per section and at most three short bullets per slide.""" },
+                result
+            ]
+        };
+        var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
+        var model = ChatViewModel.PickBestModel((await _service.GetModelsAsync()).Select(static item => item.Id).ToList());
+        var prompt = await _service.GenerateSharedPromptAsync(source, model);
+        _output.WriteLine(PromptSharing.Write(prompt));
+        Assert.Contains(prompt.Inputs, input => input.Kind == PromptInputKind.File);
+        Assert.Matches(@"(?i)(markdown|\.md)", prompt.Content + string.Join(' ', prompt.Requirements));
+        Assert.Contains(".pptx", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches("(?i)(slide[^\\n]*section|section[^\\n]*slide)", prompt.Content);
+        Assert.False(PromptDraftBuilder.HasPersonalLocation(prompt));
+        Assert.DoesNotContain("private-source", prompt.Content);
+        Assert.DoesNotContain("private-slides", prompt.Content);
+    }
 
     public async Task InitializeAsync()
     {

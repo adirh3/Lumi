@@ -931,15 +931,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CurrentChatTitle))]
+    [NotifyPropertyChangedFor(nameof(CanShareLatestPrompt))]
+    [NotifyCanExecuteChangedFor(nameof(ShareLatestPromptCommand))]
     private Chat? _currentChat;
 
     /// <summary>Exposes CurrentChat.Title so the header binding updates without toggling CurrentChat.</summary>
     public string? CurrentChatTitle => CurrentChat?.Title;
 
     [ObservableProperty] private string? _promptText;
-    [ObservableProperty] private bool _isBusy;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanShareLatestPrompt))]
+    [NotifyCanExecuteChangedFor(nameof(ShareLatestPromptCommand))]
+    private bool _isBusy;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsTranscriptStreaming))]
+    [NotifyPropertyChangedFor(nameof(CanShareLatestPrompt))]
+    [NotifyCanExecuteChangedFor(nameof(ShareLatestPromptCommand))]
     private bool _isStreaming;
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty]

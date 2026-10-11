@@ -51,6 +51,39 @@ public static class DebugAgentHarness
         => string.Equals(arg, "--test-session-reap", StringComparison.OrdinalIgnoreCase)
            || string.Equals(arg, "--stress-session-reap", StringComparison.OrdinalIgnoreCase);
 
+    public static IReadOnlyList<LumiChatMessage> CreatePromptSharingFixtureMessages(DataStore dataStore)
+    {
+        var expensePath = Path.Combine(EnsureFixtureDirectory(), "prompt-expenses.csv");
+        File.WriteAllText(expensePath, "Date,Merchant,Category,Amount\n2026-08-10,Stream service,Subscriptions,12.99\n2026-09-10,Stream service,Subscriptions,12.99\n2026-09-15,Groceries,Food,48.50\n");
+        var user = new LumiChatMessage
+        {
+            Role = "user",
+            Content = "Create an Excel expense dashboard from my CSV with monthly and category charts."
+        };
+        user.Attachments = [expensePath];
+        var result = new LumiChatMessage { Role = "assistant", Content = """
+            **Prompt sharing sample**
+
+            The expense dashboard has monthly/category charts, recurring-charge highlights and a
+            dark blue theme. The source CSV was left unchanged and no data was uploaded.
+
+            Choose **Share prompt** above this result to turn the request and refinements into a
+            reusable task. This is a synthetic fixture: sharing does not send a message in this chat.
+            """ };
+        if (dataStore.Data.Skills.FirstOrDefault(static skill => skill.Name == "Document Creator") is { } skill)
+            result.ActiveSkills = [new SkillReference { Name = skill.Name, Glyph = skill.IconGlyph, Description = skill.Description }];
+        return
+        [
+            user,
+            new LumiChatMessage
+            {
+                Role = "user",
+                Content = "Use a dark blue theme, highlight recurring charges, and keep the original CSV unchanged. Never email or upload my bank data."
+            },
+            result
+        ];
+    }
+
     public static Chat CreateTranscriptFixtureChat(DataStore dataStore)
     {
         var root = EnsureFixtureDirectory();

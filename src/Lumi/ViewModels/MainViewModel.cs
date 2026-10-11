@@ -198,7 +198,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public MemoriesViewModel MemoriesVM { get; }
     public McpServersViewModel McpServersVM { get; }
 
-    /// <summary>The share sheet for skills, Lumis and MCP servers (one per window).</summary>
+    /// <summary>The share sheet for prompts, skills, Lumis and MCP servers (one per window).</summary>
     public ShareSheetViewModel ShareVM { get; }
 
     /// <summary>The import sheet: SKILL.md, Lumi packs and MCP configs, with a receipt before anything is added.</summary>
@@ -464,6 +464,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ImportVM.Imported += OnCapabilitiesImported;
         ImportVM.OpenItemRequested += OpenImportedCapability;
         ImportVM.ChatWithLumiRequested += StartChatWithImportedLumi;
+        ImportVM.PromptUseRequested += StartChatWithSharedPrompt;
         AgentsVM.ChatRequested += agent => StartChatWithImportedLumi(agent.Id);
         ProjectsVM.NewChatRequested += StartChatInProject;
         SkillsVM.OpenAgentRequested += OpenLumiPage;
@@ -542,6 +543,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.RevealChatRequested += OnChatRevealChatRequested;
         chatVm.OpenAutomationsRequested += OnChatOpenAutomationsRequested;
         chatVm.ForkChatRequested += OnChatForkRequested;
+        chatVm.SharePromptRequested += OnChatSharePromptRequested;
+        chatVm.PromptImportRequested += OnChatPromptImportRequested;
     }
 
     private void DetachChatViewModel(ChatViewModel chatVm)
@@ -555,6 +558,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.RevealChatRequested -= OnChatRevealChatRequested;
         chatVm.OpenAutomationsRequested -= OnChatOpenAutomationsRequested;
         chatVm.ForkChatRequested -= OnChatForkRequested;
+        chatVm.SharePromptRequested -= OnChatSharePromptRequested;
+        chatVm.PromptImportRequested -= OnChatPromptImportRequested;
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
@@ -573,6 +578,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OnChatForkRequested(Chat chat, Guid throughMessageId)
         => _ = ForkChatAsync(chat, throughMessageId);
+
+    private void OnChatSharePromptRequested(PromptShareSource source, Func<PromptShareSource, CancellationToken, Task<SharedPrompt>> prepare)
+        => _ = ShareVM.OpenForPromptAsync(source, prepare);
+
+    private void OnChatPromptImportRequested(string text)
+    {
+        NoticeVM.HideOffer();
+        ImportVM.OpenWithText(text, Loc.Import_FromClipboard);
+    }
 
     private void ShowChatSurface(ChatViewModel surface)
     {
@@ -823,6 +837,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         _isDisposed = true;
+        ShareVM.CloseCommand.Execute(null);
         _dataStore.ChatContentChanged -= OnDataStoreChatContentChanged;
         _dataStore.ChatsContentReset -= OnDataStoreChatsContentReset;
         _searchIndexCts.Cancel();
@@ -1188,6 +1203,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewChatCommand.Execute(null);
         ChatVM.SelectedSdkAgentName = null;
         ChatVM.SetActiveAgent(agent);
+    }
+
+    private void StartChatWithSharedPrompt(PromptUseRequest request)
+    {
+        ClearMainChatSurface();
+        SetDraftChatProjectContext(SelectedProjectFilter);
+        ChatVM.PromptText = request.Text;
+        foreach (var path in request.Attachments)
+            ChatVM.AddAttachment(path);
+        SelectedNavIndex = 0;
+        NoticeVM.HideOffer();
     }
 
     private void OpenLumiPage(Guid agentId)

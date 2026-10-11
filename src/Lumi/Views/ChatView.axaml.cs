@@ -197,6 +197,7 @@ public partial class ChatView : UserControl
         AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
         AddHandler(StrataChatMessage.ReplyRequestedEvent, OnReplyRequested);
+        AddHandler(StrataChatMessage.ShareRequestedEvent, OnSharePromptRequested);
         AddHandler(KeyDownEvent, OnLinkedChatKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnEmptyComposerScrollKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnTranscriptScrollKeyDown, RoutingStrategies.Bubble);
@@ -1547,6 +1548,8 @@ public partial class ChatView : UserControl
             }
 
             var clipboardText = await ClipboardExtensions.TryGetTextAsync(clipboard);
+            if (vm.TryImportPastedPrompt(clipboardText))
+                return;
             if (TryPasteFormattedChatContext(vm, clipboardText))
             {
                 FocusComposer();
@@ -1863,6 +1866,14 @@ public partial class ChatView : UserControl
 
         if (messageId is Guid id && DataContext is ChatViewModel vm)
             vm.RequestForkFromMessage(id);
+    }
+
+    private void OnSharePromptRequested(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (e.Source is StrataChatMessage { DataContext: AssistantMessageItem { CanSharePrompt: true } assistant }
+            && DataContext is ChatViewModel vm)
+            vm.RequestSharePrompt(assistant.MessageId);
     }
 
     // ── Reply to (meta-row action, context menu, or selection pill on assistant messages) ───

@@ -10,7 +10,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
 - **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
-- **Sharing** — Share skills, Lumis and MCP servers as plain-text files anyone can read, or as a compact code for Teams/Slack that Lumi picks up from the clipboard; import them (or any `SKILL.md` / MCP config) with a receipt of exactly what gets added
+- **Sharing** — Share reusable prompts, skills, Lumis and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
 - **Projects** — Organize chats with custom instructions that shape Lumi's behavior
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
@@ -41,7 +41,7 @@ and only complete records, never a misleading partial row. **Refresh** reloads
 the file, and **Open** still opens it in its default app. Previewing never edits
 the source file.
 
-### Sharing skills, Lumis and MCP servers
+### Sharing prompts, skills, Lumis and MCP servers
 
 **Share** (editor header, or right-click an item) opens a card with a receipt of what leaves the
 computer. A skill is shared as a standard Agent Skills `SKILL.md` (slug `name`, Lumi's display name
@@ -70,6 +70,26 @@ Lumi, a notice offers **Preview**, which opens the same import receipt. Lumi onl
 when its window is activated, only looks for its own codes and packs, never offers your own copies or
 things you already have, and can be turned off under **Settings › General › Sharing** (off by default
 on macOS, which warns when apps read the clipboard).
+
+**Share prompt** (above a completed assistant result, in its context menu, or under the sidebar's
+chat-actions `…` as **Share prompt from this chat**) turns the visible
+conversation through that result into an editable, standalone task. It uses the source chat's model
+in a separate tool-free helper session, respecting BYOK routing and rate limits; it never sends in,
+forks, or changes the source chat. Final refinements, quoted context and answered questions are
+included. Credentials, personal paths and email addresses are removed from the bounded source
+snapshot; file-format hints are retained so input/output formats are not lost. Files, raw tool
+results, memories and project/agent instructions are not sent to the
+helper. Review the AI draft and any personal details before sharing.
+
+**Copy for chat** preserves the prompt's inputs and setup notes; **Copy prompt text** works in
+other assistants; **Save file** writes a readable `*.lumi.md`. A recipient can paste the code in the
+composer or open **Import**, preview the complete prompt, and choose their own files/folders and
+values. **Use prompt** opens a fresh, unsent chat draft and attaches only their selected files.
+No sender configuration, skills or MCPs are installed. Every runnable prompt includes a setup check
+for the recipient's OS, available tools, prerequisites and permissions, including unsupported
+platforms and secure authentication. Source attachments are never included automatically.
+Prompt packs use format version 2; older Lumi versions show an update-required message.
+Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior is unchanged.
 
 ### Unread chats
 

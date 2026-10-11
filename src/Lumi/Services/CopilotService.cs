@@ -1911,6 +1911,43 @@ public class CopilotService : IAsyncDisposable
         public string UserName;
     }
 
+    /// <summary>Drafts a portable task in a tool-free helper session, never in the source chat.</summary>
+    public async Task<Sharing.SharedPrompt> GenerateSharedPromptAsync(
+        Sharing.PromptShareSource source,
+        string? model,
+        ProviderConfig? provider = null,
+        GitHub.Copilot.Rpc.ModelCapabilitiesOverride? modelCapabilities = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (string.IsNullOrWhiteSpace(source.Text) || source.Text.Length > Sharing.PromptDraftBuilder.MaxSourceLength)
+            throw new ArgumentException("The source conversation is empty or too large.");
+
+        var raw = await UseLightweightSessionAsync(
+            new LightweightSessionOptions
+            {
+                SystemPrompt = Sharing.PromptDraftBuilder.SystemPrompt,
+                Model = model,
+                Provider = provider,
+                ModelCapabilities = modelCapabilities,
+                Streaming = false
+            },
+            async (session, innerCt) =>
+            {
+                var result = await session.SendAndWaitAsync(
+                    new MessageOptions { Prompt = source.Text }, TimeSpan.FromSeconds(120), innerCt).ConfigureAwait(false);
+                return result?.Data?.Content;
+            }, ct).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(raw))
+            throw new InvalidOperationException("The model returned an empty reusable prompt.");
+        var prompt = Sharing.PromptSharing.Parse(raw);
+        if (Sharing.PromptDraftBuilder.HasPersonalLocation(prompt)
+            || Sharing.PromptDraftBuilder.HasCredentialText(prompt))
+            throw new InvalidOperationException("The generated draft still contains personal locations or a possible credential. Please try again.");
+        return prompt;
+    }
+
     /// <summary>Generates a short chat title using a lightweight session with the fastest model.</summary>
     public async Task<string?> GenerateTitleAsync(string userMessage, CancellationToken ct = default)
     {

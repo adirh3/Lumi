@@ -27,13 +27,14 @@ namespace Lumi.Services.Sharing;
 /// </summary>
 public static class CapabilityPackWriter
 {
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
     public const string PackExtension = ".lumi.md";
     public const string SkillFileName = "SKILL.md";
 
     internal const string LumiBlockTag = "lumi:agent";
     internal const string SkillBlockTag = "lumi:skill";
     internal const string McpBlockTag = "lumi:mcp";
+    internal const string PromptBlockTag = "lumi:prompt";
 
     private const int MaxSpecDescriptionLength = 1024;
     private static readonly string[] NodeShims = ["npx", "npm", "pnpm", "pnpx", "yarn"];
@@ -144,6 +145,25 @@ public static class CapabilityPackWriter
         return new CapabilityShare(pack, WritePack(pack), PackFileName(pack.Name, "mcp-server"), findings);
     }
 
+    public static CapabilityShare ForPrompt(SharedPrompt prompt)
+    {
+        prompt = PromptSharing.Normalize(prompt);
+        var findings = new List<ShareFinding>();
+        AddTextFindings(prompt.Name, PromptSharing.Write(prompt), findings);
+        if (PromptDraftBuilder.HasPersonalLocation(prompt.Content))
+            findings.Add(new ShareFinding(ShareFindingKind.LocalPath, prompt.Name, prompt.Content));
+        var pack = new CapabilityPack
+        {
+            Kind = SharedCapabilityKind.Prompt,
+            Format = CapabilityPackFormat.LumiPack,
+            Name = prompt.Name,
+            Description = prompt.Description,
+            IconGlyph = "\u2728",
+            Prompt = prompt
+        };
+        return new CapabilityShare(pack, WritePack(pack), PackFileName(pack.Name, "prompt"), findings);
+    }
+
     /// <summary>A standard Agent Skills <c>SKILL.md</c>. Lumi's display name and icon ride in <c>metadata</c>.</summary>
     public static string WriteSkillMarkdown(SharedSkill skill)
     {
@@ -223,8 +243,13 @@ public static class CapabilityPackWriter
     {
         var builder = new StringBuilder();
         builder.Append("---\n");
-        builder.Append("lumi-pack: ").Append(FormatVersion.ToString(CultureInfo.InvariantCulture)).Append('\n');
-        builder.Append("kind: ").Append(pack.Kind == SharedCapabilityKind.Lumi ? "lumi" : "mcp-server").Append('\n');
+        builder.Append("lumi-pack: ").Append((pack.Kind == SharedCapabilityKind.Prompt ? FormatVersion : 1).ToString(CultureInfo.InvariantCulture)).Append('\n');
+        builder.Append("kind: ").Append(pack.Kind switch
+        {
+            SharedCapabilityKind.Lumi => "lumi",
+            SharedCapabilityKind.Prompt => "prompt",
+            _ => "mcp-server"
+        }).Append('\n');
         builder.Append("name: ").Append(PackText.Quote(pack.Name)).Append('\n');
         if (!string.IsNullOrWhiteSpace(pack.Description))
             builder.Append("description: ").Append(PackText.Quote(pack.Description)).Append('\n');
@@ -248,7 +273,9 @@ public static class CapabilityPackWriter
 
         builder.Append("> **Lumi capability pack** · ").Append(DescribeContents(pack)).Append('\n');
         builder.Append(">\n");
-        builder.Append("> To add it, open Lumi and choose **Import**, or drop this file onto Lumi. You will see everything inside before anything is added, and nothing runs until you turn it on.\n");
+        builder.Append(pack.Prompt is not null
+            ? "> Open **Import** in Lumi to preview this prompt, supply your own inputs and open a new chat draft. Nothing is sent or installed automatically.\n"
+            : "> To add it, open Lumi and choose **Import**, or drop this file onto Lumi. You will see everything inside before anything is added, and nothing runs until you turn it on.\n");
         var keys = pack.McpServers.SelectMany(static server => server.RequiredKeys).Distinct(StringComparer.Ordinal).ToList();
         if (keys.Count > 0)
         {
@@ -263,6 +290,17 @@ public static class CapabilityPackWriter
 
     private static string AppendBlocks(StringBuilder builder, CapabilityPack pack, bool prose)
     {
+        if (pack.Prompt is { } prompt)
+        {
+            if (prose)
+            {
+                builder.Append("## Reusable prompt\n\n");
+                PackText.AppendFence(builder, "text", PromptSharing.ComposeText(prompt));
+                builder.Append("## Portable prompt data\n\n");
+            }
+            PackText.AppendFence(builder, "json " + PromptBlockTag, PromptSharing.Write(prompt));
+        }
+
         if (pack.Lumi is { } lumi)
         {
             if (prose)
@@ -319,6 +357,8 @@ public static class CapabilityPackWriter
     private static string DescribeContents(CapabilityPack pack)
     {
         var parts = new List<string>();
+        if (pack.Prompt is not null)
+            parts.Add("1 reusable prompt");
         if (pack.Lumi is not null)
             parts.Add("1 Lumi");
         if (pack.Skills.Count > 0)

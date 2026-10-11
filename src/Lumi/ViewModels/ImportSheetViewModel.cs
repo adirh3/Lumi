@@ -212,6 +212,7 @@ public partial class ImportSheetViewModel : ObservableObject
 
     private void Reset()
     {
+        ResetPrompt();
         _openGeneration++;
         _pack = null;
         _clipboardText = null;
@@ -347,6 +348,12 @@ public partial class ImportSheetViewModel : ObservableObject
 
     private void Review(CapabilityPack pack, string footer)
     {
+        if (pack.Prompt is not null)
+        {
+            ReviewPrompt(pack, footer);
+            return;
+        }
+        ResetPrompt();
         _pack = pack;
         var plan = CapabilityImporter.Plan(pack, _dataStore);
 
@@ -556,6 +563,7 @@ public partial class ImportSheetViewModel : ObservableObject
         PackReadError.NewerVersion => Loc.Import_ErrorNewer,
         PackReadError.EmptyPack => Loc.Import_ErrorEmptyPack,
         PackReadError.DamagedCode => Loc.Import_ErrorDamagedCode,
+        PackReadError.InvalidPrompt => string.Format(CultureInfo.CurrentCulture, Loc.Prompt_InvalidPack, result.Detail ?? ""),
         _ => Loc.Import_ErrorNotRecognized
     };
 
@@ -564,6 +572,11 @@ public partial class ImportSheetViewModel : ObservableObject
     {
         if (_pack is null || Stage != ImportSheetStage.Review)
             return;
+        if (IsPrompt)
+        {
+            UsePrompt();
+            return;
+        }
 
         // Plan again at the moment of adding: the library may have changed since the receipt was shown.
         var plan = CapabilityImporter.Plan(_pack, _dataStore);
@@ -646,6 +659,7 @@ public partial class ImportSheetViewModel : ObservableObject
     [RelayCommand]
     private void Back()
     {
+        ResetPrompt();
         ErrorMessage = null;
         Stage = ImportSheetStage.Pick;
     }

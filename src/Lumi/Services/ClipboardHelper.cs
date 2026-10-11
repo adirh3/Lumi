@@ -32,12 +32,14 @@ public static class ClipboardHelper
     }
 
     /// <summary>Copies plain text to the system clipboard.</summary>
-    public static async Task CopyTextAsync(string? text)
+    public static async Task CopyTextAsync(string? text, bool throwOnFailure = false)
     {
         if (string.IsNullOrEmpty(text))
             return;
 
         var clipboard = ActiveTopLevel()?.Clipboard;
+        if (clipboard is null && throwOnFailure)
+            throw new InvalidOperationException("The system clipboard is unavailable.");
         if (clipboard is null)
             return;
 
@@ -47,7 +49,7 @@ public static class ClipboardHelper
             data.Add(DataTransferItem.CreateText(text));
             await clipboard.SetDataAsync(data);
         }
-        catch
+        catch when (!throwOnFailure)
         {
             /* clipboard can be transiently locked by another process — ignore */
         }
@@ -58,12 +60,14 @@ public static class ClipboardHelper
     /// paste the formatted version — for example a real code block — and everything else gets the
     /// plain text. <paramref name="htmlFragment"/> is body content, not a full document.
     /// </summary>
-    public static async Task CopyTextAndHtmlAsync(string text, string htmlFragment)
+    public static async Task CopyTextAndHtmlAsync(string text, string htmlFragment, bool throwOnFailure = false)
     {
         if (string.IsNullOrEmpty(text))
             return;
 
         var clipboard = ActiveTopLevel()?.Clipboard;
+        if (clipboard is null && throwOnFailure)
+            throw new InvalidOperationException("The system clipboard is unavailable.");
         if (clipboard is null)
             return;
 
@@ -84,7 +88,7 @@ public static class ClipboardHelper
         catch
         {
             // A rich copy that fails (clipboard locked, format refused) still leaves the user able to copy text.
-            await CopyTextAsync(text);
+            await CopyTextAsync(text, throwOnFailure);
         }
     }
 
