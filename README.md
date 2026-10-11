@@ -598,6 +598,13 @@ application and services through `PerTest` isolation; dispose the test wrapper,
 not the shared dispatcher. UI objects, including geometry bounds, must be
 accessed inside `HeadlessTestSession.Dispatch`.
 
+Windows CI runs `tools\Test-LumiTestsInBatches.ps1` after the Release build.
+The Skia-backed `AvaloniaTextInputTests` and `AvaloniaTextLayoutTests` each run
+in a fresh test host, separate from the drawing-free UI tests. Mixing these
+dispatchers lets delayed callbacks from an earlier window access its controls
+on another UI thread and fail an otherwise unrelated test. Keep these classes
+isolated rather than retrying or skipping their failures.
+
 The composer's real-pixel animation checks run in an isolated Skia test process;
 the ordinary drawing-free headless suite skips them to avoid mixing graphics backends:
 
