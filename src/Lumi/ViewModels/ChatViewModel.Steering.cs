@@ -72,6 +72,8 @@ public partial class ChatViewModel
         if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime) || sessionProviderMismatch)
         {
             QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths);
+            if (CurrentChat?.Id == chatId && CanStartTurnOnReadySession(activeChat))
+                ScheduleQueuedBusySendDrain(chatId);
             if (consumeComposerPrompt)
             {
                 PromptText = "";
@@ -286,12 +288,7 @@ public partial class ChatViewModel
             targetChat.LastRemoteRequestId = remoteRequestId;
         }
 
-        var queuedMessage = QueueSteerPrompt(
-            targetChat.Id,
-            prompt,
-            queuedMessage: null,
-            authorOverride: author,
-            explicitAttachmentPaths: []);
+        var queuedMessage = CreateQueuedBusySend(targetChat.Id, prompt, author, explicitAttachmentPaths: []);
         if (queuedMessage is null)
         {
             targetChat.LastRemoteDeviceId = previousDeviceId;
@@ -318,6 +315,11 @@ public partial class ChatViewModel
             }
         }
 
+        // Only make the message eligible for an idle drain after its receipt is durable.
+        if (!_queuedBusySendPrompts.TryGetValue(targetChat.Id, out var pending))
+            _queuedBusySendPrompts[targetChat.Id] = pending = [];
+        pending.Add(queuedMessage);
+
         if (!CanInterruptQueuedSendNowImmediately(targetChat.Id))
         {
             GetOrCreateRuntimeState(targetChat.Id).SendQueuedNowWhenTurnStarts = true;
@@ -342,6 +344,8 @@ public partial class ChatViewModel
         // The message has already been inserted into the transcript and owns the consumed attachment
         // payload. Passing it as `existing` preserves that instance and restores it to the queue front.
         QueueBusySendPrompt(chatId, prompt, userMessage);
+        if (CurrentChat is { } chat && chat.Id == chatId && CanStartTurnOnReadySession(chat))
+            ScheduleQueuedBusySendDrain(chatId);
     }
 
     /// <summary>
@@ -354,9 +358,12 @@ public partial class ChatViewModel
     /// </summary>
     private bool IsCachedSessionProviderConsistentWithSelection(Guid chatId, CopilotSession session)
     {
-        // A pending refresh means the session is already known to be stale and will be recreated or
-        // resumed on the next EnsureSessionAsync. Never steer through the old handle.
-        if (HasPendingSessionRefresh(chatId))
+        // A ready background session can apply a same-ID refresh before the next send.
+        // Busy turns and provider/hard replacements must still wait.
+        if (HasPendingSessionRefresh(chatId)
+            && (_pendingSessionInvalidations.Contains(chatId)
+                || IsAssistantBusy(chatId)
+                || !IsChatRuntimeActive(chatId)))
             return false;
 
         // Resolve the chat for this session, preferring the current chat for the active session.

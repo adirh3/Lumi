@@ -177,9 +177,10 @@ choice. The desktop selects them from the whole chat index, not the mobile histo
 Selecting one keeps the current draft and attachments and creates no chat until Send.
 Setup selections apply only to that chat and do not change global desktop model defaults.
 Older desktop hosts show an update hint instead of inventing different templates.
-Mobile sends leave an unchanged project configuration alone; if a live session is
-waiting for a real configuration refresh, its message queues like a desktop send
-instead of rejecting it or stopping background work.
+Mobile and desktop sends use assistant readiness, not background-session activity.
+A ready session applies pending configuration changes through same-ID resume without
+stopping background work. Queued follow-ups drain when the assistant becomes idle,
+not only when every background task finishes.
 Explicit external model selections stay with a queued message even if the composer
 changes before delivery, including automatic steering.
 Mobile attachments show their original filenames instead of PC upload paths, and

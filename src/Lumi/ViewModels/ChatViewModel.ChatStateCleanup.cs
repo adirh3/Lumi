@@ -357,8 +357,15 @@ public partial class ChatViewModel
     /// Shows a deferred send in the transcript straight away with a "Queued…" pill, so sending while the
     /// chat is busy is never invisible even though delivery has to wait.
     /// </summary>
-    private ChatMessage? CreateQueuedBusySend(Guid chatId, string prompt, string? authorOverride = null)
+    private ChatMessage? CreateQueuedBusySend(
+        Guid chatId,
+        string prompt,
+        string? authorOverride = null,
+        IReadOnlyCollection<string>? explicitAttachmentPaths = null)
     {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return null;
+
         var chat = CurrentChat?.Id == chatId
             ? CurrentChat
             : _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
@@ -376,9 +383,8 @@ public partial class ChatViewModel
             HasAgentSelection = true,
             ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
             HasMcpSelection = true,
-            Attachments = CurrentChat?.Id == chatId
-                ? PendingAttachments.ToList()
-                : [],
+            Attachments = explicitAttachmentPaths?.ToList()
+                ?? (CurrentChat?.Id == chatId ? PendingAttachments.ToList() : []),
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
             SteerDelivery = MessageSteerState.Queued,
             IsPendingPausedSend = chat.IsPaused,
@@ -388,7 +394,7 @@ public partial class ChatViewModel
             ReplyTo = authorOverride is null ? TakePendingReply(chatId) : null
         };
 
-        if (CurrentChat?.Id == chatId)
+        if (explicitAttachmentPaths is null && CurrentChat?.Id == chatId)
         {
             PendingAttachments.Clear();
             PendingAttachmentItems.Clear();

@@ -115,7 +115,7 @@ public class CopilotService : IAsyncDisposable
 
     /// <summary>
     /// Removes a session handle from the SDK client's strong registry without sending
-    /// <c>session.destroy</c>. Lumi uses this only while replacing an unhealthy local handle for the
+    /// <c>session.destroy</c>. Lumi uses this while replacing a local handle for the
     /// same resumable server session; the caller must retain ownership until resume succeeds or the
     /// server session is explicitly abandoned.
     /// </summary>

@@ -3140,7 +3140,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private bool HasActiveSessionConfigurationConflict(Chat chat, string? requestedProviderSignature)
         => IsChatRuntimeActive(chat.Id)
-           && (HasPendingSessionRefresh(chat.Id)
+           && (_pendingSessionInvalidations.Contains(chat.Id)
+               || (_pendingSessionReconfigurations.Contains(chat.Id) && IsAssistantBusy(chat.Id))
                || (chat.CopilotSessionId is not null
                    && !string.Equals(chat.SessionProviderSignature, requestedProviderSignature, StringComparison.Ordinal)));
 
@@ -3148,7 +3149,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         _pendingSessionReconfigurations.Remove(chat.Id);
         CancelPendingQuestions(chat);
-        ReleaseSessionResources(chat.Id, cancelActiveRequest: true);
+        if (_runtimeStates.TryGetValue(chat.Id, out var runtime) && runtime.IsSessionActive)
+            InvalidateLocalSessionCache(chat);
+        else
+            ReleaseSessionResources(chat.Id, cancelActiveRequest: true);
         RemoveSuggestionTracking(chat.Id);
         if (CurrentChat?.Id == chat.Id)
             _activeSession = null;
@@ -3596,6 +3600,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _ctsSources.Remove(chatId);
 
             var runtime = GetOrCreateRuntimeState(chatId);
+            var needsSessionSetup = NeedsSessionSetup(targetChat);
+            ScheduleStoredSessionRecovery(targetChat, retainedContext);
+            if (ConsumePendingSessionInvalidation(targetChat))
+                needsSessionSetup = true;
+
             BeginChatLifecycleTurn(targetChat);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             if (reservationToken is { } token)
@@ -3606,11 +3615,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (CurrentChat?.Id == chatId)
                 ApplyDisplayedRuntimeState(runtime);
             onAccepted?.Invoke();
-
-            var needsSessionSetup = NeedsSessionSetup(targetChat);
-            ScheduleStoredSessionRecovery(targetChat, retainedContext);
-            if (ConsumePendingSessionInvalidation(targetChat))
-                needsSessionSetup = true;
 
             cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _ctsSources[chatId] = cts;
@@ -4700,12 +4704,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 }
             }
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
-            MarkRuntimeActive(
-                runtime,
-                needsWorktreeCreation ? Loc.Status_CreatingWorktree : Loc.Status_Thinking);
-            if (CurrentChat?.Id == targetChat.Id)
-                ApplyDisplayedRuntimeState(runtime);
-
             // The per-chat cache owns session identity. _activeSession is only the displayed-session
             // pointer and can be temporarily null or point elsewhere while the cached session is still
             // valid. Using it here unnecessarily resumed healthy sessions and reconnected their MCPs.
@@ -4713,6 +4711,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ScheduleStoredSessionRecovery(targetChat, retainedContext);
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
+
+            MarkRuntimeActive(
+                runtime,
+                needsWorktreeCreation ? Loc.Status_CreatingWorktree : Loc.Status_Thinking);
+            if (CurrentChat?.Id == targetChat.Id)
+                ApplyDisplayedRuntimeState(runtime);
 
             cts = new CancellationTokenSource();
             var turnToken = cts.Token;

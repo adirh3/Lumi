@@ -1402,14 +1402,21 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
-    public Task PendingSessionRefreshQueuesAMobileSendLikeDesktopInsteadOfRejectingIt() => RunAsync(async () =>
+    public Task PendingSameSessionRefreshDoesNotBlockMobileSendAdmission() => RunAsync(async () =>
     {
         using var rig = await DetachedRig.CreateAsync();
         var runtime = MarkBackgroundActive(rig.DetachedSurface, rig.DetachedChat);
         GetPrivateField<HashSet<Guid>>(rig.DetachedSurface, "_pendingSessionReconfigurations")
             .Add(rig.DetachedChat.Id);
         rig.DetachedSurface.AddAttachment(@"C:\desktop-draft.txt");
-        var router = new RemoteCommandRouter(rig.DataStore, rig.Main);
+        var started = false;
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main, (owner, chat, _, _, _, _) =>
+        {
+            Assert.Same(rig.DetachedSurface, owner);
+            Assert.Same(rig.DetachedChat, chat);
+            started = true;
+            return Task.FromResult<string?>(null);
+        });
         var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
             .With("chatId", rig.DetachedChat.Id.ToString())
             .With("message", "Send when this session is ready");
@@ -1419,16 +1426,12 @@ public sealed class RemoteCommandRouterSurfaceTests
         var result = await router.ExecuteAsync(command, CancellationToken.None);
 
         Assert.True(result.Ok, result.Error);
-        var message = Assert.Single(rig.DetachedChat.Messages,
-            item => item.RemoteRequestId == command.RequestId);
-        Assert.Equal("Lumi Mobile", message.Author);
-        Assert.Equal(MessageSteerState.Queued, message.SteerDelivery);
-        Assert.Empty(message.Attachments);
+        Assert.True(started);
         Assert.Equal([@"C:\desktop-draft.txt"], rig.DetachedSurface.PendingAttachments);
         Assert.True(runtime.HasPendingBackgroundWork);
         Assert.False(runtime.IsBusy);
-        Assert.Contains(message, GetPrivateField<Dictionary<Guid, List<ChatMessage>>>(
-            rig.DetachedSurface, "_queuedBusySendPrompts")[rig.DetachedChat.Id]);
+        Assert.Empty(GetPrivateField<Dictionary<Guid, List<ChatMessage>>>(
+            rig.DetachedSurface, "_queuedBusySendPrompts"));
     });
 
     [Theory]

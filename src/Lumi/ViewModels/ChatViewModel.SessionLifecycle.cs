@@ -1668,6 +1668,7 @@ public partial class ChatViewModel
 
                         CompleteAssistantResponse(IsDisplayedSession());
                         QueueSaveChat(chat, saveIndex: false);
+                        ScheduleQueuedBusySendDrain(chat.Id);
                     });
                     break;
 
