@@ -52,8 +52,11 @@ public partial class ChatDetailView : UserControl
     private bool _transcriptContentChanged;
     private MobileEntrance? _transcriptEntrance;
     private MobileEntrance? _welcomeEntrance;
+    private MobileEntrance? _workingEntrance;
+    private bool _wasWorking;
     private int _chatEntranceVersion;
     private bool _awaitingChatEntrance;
+    private bool _chatEntranceQueued;
     private IDisposable? _loadingDelay;
     private bool _transcriptWidthHeld;
 
@@ -61,6 +64,11 @@ public partial class ChatDetailView : UserControl
     {
         InitializeComponent();
         AddHandler(PointerPressedEvent, OnSurfacePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        LayoutUpdated += (_, _) =>
+        {
+            if (_awaitingChatEntrance)
+                QueueChatEntrance();
+        };
 
         // The ambient field is created in code rather than XAML because the controller owns it: it
         // has to insert it as the bottom-most child and keep it out of the hit-test path.
@@ -71,6 +79,7 @@ public partial class ChatDetailView : UserControl
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        _wasWorking = _shell?.Chat.IsWorking == true;
         Dispatcher.UIThread.Post(AttachComposerChipObserver, DispatcherPriority.Loaded);
         Dispatcher.UIThread.Post(AttachNativeComposerEditor, DispatcherPriority.Loaded);
         if (_shell?.Chat.IsInitialLoading == true)
@@ -89,7 +98,10 @@ public partial class ChatDetailView : UserControl
         _transcriptEntrance = null;
         _welcomeEntrance?.Dispose();
         _welcomeEntrance = null;
+        _workingEntrance?.Dispose();
+        _workingEntrance = null;
         _awaitingChatEntrance = false;
+        _chatEntranceQueued = false;
         _transcriptContentChanged = false;
         if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
             transcript.IsHitTestVisible = true;
@@ -544,6 +556,15 @@ public partial class ChatDetailView : UserControl
 
     private StrataChatShell? Shell => this.FindControl<StrataChatShell>("ChatShell");
 
+    internal bool CanAnimateArrival =>
+        !_awaitingChatEntrance && IsEffectivelyVisible
+        && _shell is { IsChatPage: true, HasPageOverlay: false }
+        && _shell.Chat.IsLatestWindow;
+
+    internal bool ShouldDeferTranscriptRealization =>
+        _awaitingChatEntrance && _shell is not null
+        && (_shell.IsDrawerMoving || (!_shell.CanDockDrawer && _shell.IsDrawerPresented));
+
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
@@ -559,6 +580,7 @@ public partial class ChatDetailView : UserControl
         _presence?.Attach(shell);
 
         _shell = shell;
+        _wasWorking = shell.Chat.IsWorking;
         shell.PropertyChanged += OnShellPropertyChanged;
         shell.Chat.Turns.CollectionChanged += OnTurnsChanged;
         shell.Chat.PropertyChanged += OnChatPropertyChanged;
@@ -589,11 +611,14 @@ public partial class ChatDetailView : UserControl
         _loadingDelay = null;
         _chatEntranceVersion++;
         _awaitingChatEntrance = false;
+        _chatEntranceQueued = false;
         _transcriptContentChanged = false;
         _transcriptEntrance?.Dispose();
         _transcriptEntrance = null;
         _welcomeEntrance?.Dispose();
         _welcomeEntrance = null;
+        _workingEntrance?.Dispose();
+        _workingEntrance = null;
 
         _shell = null;
         UpdateNativeComposerVisibility();
@@ -603,11 +628,43 @@ public partial class ChatDetailView : UserControl
         object? sender,
         PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileShellViewModel.HasPageOverlay))
+        {
+            if (_shell?.HasPageOverlay == true)
+            {
+                _transcriptEntrance?.Stop();
+                _welcomeEntrance?.Stop();
+                _workingEntrance?.Stop();
+            }
+            else
+                PlayMountedChatEntrance();
+        }
+
+        if (e.PropertyName == nameof(MobileShellViewModel.IsWelcomeVisible))
+        {
+            if (_shell?.IsWelcomeVisible == true && !_awaitingChatEntrance)
+                PlayWelcomeEntrance();
+            else if (_shell?.IsWelcomeVisible != true)
+                _welcomeEntrance?.Stop();
+        }
+
         if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
             or nameof(MobileShellViewModel.CanDockDrawer)
             or nameof(MobileShellViewModel.HasHingeGap))
         {
             SetTranscriptMotionWidth(_shell is { IsDrawerMoving: true, CanDockDrawer: true, HasHingeGap: false });
+        }
+
+        if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
+            or nameof(MobileShellViewModel.IsDrawerPresented)
+            or nameof(MobileShellViewModel.HasPageOverlay))
+        {
+            if (_awaitingChatEntrance && !ShouldDeferTranscriptRealization)
+            {
+                foreach (var turn in this.GetVisualDescendants().OfType<TranscriptTurnView>())
+                    turn.QueueUpdate();
+            }
+            QueueChatEntrance();
         }
 
         if (e.PropertyName == nameof(MobileShellViewModel.IsKeyboardOpen))
@@ -684,6 +741,7 @@ public partial class ChatDetailView : UserControl
         ReleaseComposerFocus();
         var version = ++_chatEntranceVersion;
         _awaitingChatEntrance = true;
+        _chatEntranceQueued = false;
         _loadingDelay?.Dispose();
         if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
         {
@@ -720,38 +778,70 @@ public partial class ChatDetailView : UserControl
         }
     }
 
-    private void QueueChatEntrance()
+    internal void QueueChatEntrance()
     {
-        if (!_awaitingChatEntrance)
+        if (!_awaitingChatEntrance || _chatEntranceQueued)
             return;
 
+        _chatEntranceQueued = true;
         var version = _chatEntranceVersion;
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_awaitingChatEntrance || version != _chatEntranceVersion || _shell?.Chat.IsLoading != false)
+            if (version != _chatEntranceVersion)
+                return;
+            _chatEntranceQueued = false;
+            if (!IsChatReadyForEntrance())
                 return;
 
-            // The shell lands the initial viewport at Render/Loaded priority. Reveal after that
-            // layout, rather than showing the top of the transcript and jumping to its bottom.
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (!_awaitingChatEntrance || version != _chatEntranceVersion || _shell?.Chat.IsLoading != false)
-                    return;
-                _awaitingChatEntrance = false;
-                _loadingDelay?.Dispose();
-                _loadingDelay = null;
-                if (this.FindControl<Border>("ChatLoadingOverlay") is { } loading)
-                    loading.IsVisible = false;
-                if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
-                    transcript.IsHitTestVisible = true;
-                _transcriptEntrance?.Reveal();
-                if (_shell.IsWelcomeVisible && this.FindControl<StackPanel>("NoChatPlaceholder") is { } welcome)
-                {
-                    _welcomeEntrance ??= new MobileEntrance(welcome);
-                    _welcomeEntrance.Play();
-                }
-            }, DispatcherPriority.Loaded);
-        }, DispatcherPriority.Loaded);
+            _awaitingChatEntrance = false;
+            _loadingDelay?.Dispose();
+            _loadingDelay = null;
+            if (this.FindControl<Border>("ChatLoadingOverlay") is { } loading)
+                loading.IsVisible = false;
+            if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
+                transcript.IsHitTestVisible = true;
+            _transcriptEntrance?.Reveal();
+            PlayWelcomeEntrance();
+        }, DispatcherPriority.Background);
+    }
+
+    private bool IsChatReadyForEntrance()
+    {
+        if (!_awaitingChatEntrance || !this.IsAttachedToVisualTree()
+            || _shell is not { IsChatPage: true, HasPageOverlay: false, IsDrawerMoving: false }
+            || _shell.Chat.IsLoading || (!_shell.CanDockDrawer && _shell.IsDrawerPresented)
+            || this.FindControl<Border>("ChatTranscriptSideInset") is not { } transcript
+            || !transcript.IsMeasureValid || !transcript.IsArrangeValid
+            || (Shell is { IsFollowingTail: true, CurrentDistanceFromBottom: >= 1 }))
+            return false;
+
+        return transcript.GetVisualDescendants().OfType<TranscriptTurnView>()
+            .All(turn => turn.IsReadyForEntrance);
+    }
+
+    private void PlayWelcomeEntrance()
+    {
+        if (_shell?.IsWelcomeVisible == true && _shell.HasPageOverlay == false
+            && this.FindControl<StackPanel>("NoChatPlaceholder") is { } welcome)
+        {
+            _welcomeEntrance ??= new MobileEntrance(welcome);
+            _welcomeEntrance.Play();
+        }
+    }
+
+    private void PlayMountedChatEntrance()
+    {
+        if (_awaitingChatEntrance || !IsEffectivelyVisible
+            || _shell is not { IsChatPage: true, HasPageOverlay: false }
+            || _shell.Chat.IsLoading)
+            return;
+
+        if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
+        {
+            _transcriptEntrance ??= new MobileEntrance(transcript);
+            _transcriptEntrance.Play();
+        }
+        PlayWelcomeEntrance();
     }
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -792,6 +882,29 @@ public partial class ChatDetailView : UserControl
 
     private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileChatViewModel.IsWorking))
+        {
+            var isWorking = _shell?.Chat.IsWorking == true;
+            var started = isWorking && !_wasWorking;
+            _wasWorking = isWorking;
+            if (started && this.IsAttachedToVisualTree() && IsEffectivelyVisible
+                && _shell is { IsChatPage: true, HasPageOverlay: false }
+                && this.FindControl<StrataTypingIndicator>("ChatTyping") is { } working)
+            {
+                _workingEntrance ??= new MobileEntrance(
+                    working, offsetY: 6, duration: TimeSpan.FromMilliseconds(180));
+                _workingEntrance.Play();
+            }
+            else if (!isWorking)
+                _workingEntrance?.Stop();
+        }
+
+        if (e.PropertyName == nameof(MobileChatViewModel.IsGitChangesOpen))
+        {
+            if (_shell?.Chat.IsGitChangesOpen == false)
+                PlayMountedChatEntrance();
+        }
+
         if (e.PropertyName == nameof(MobileChatViewModel.HasAttachments))
             UpdateComposerFocus();
 

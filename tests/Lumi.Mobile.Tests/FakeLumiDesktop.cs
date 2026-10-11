@@ -130,7 +130,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
                     await writer.WriteAsync(wire);
                     await writer.FlushAsync();
                 }
-                catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException or HttpListenerException)
                 {
                     _subscribers.Remove(writer);
                 }

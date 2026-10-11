@@ -15,6 +15,21 @@
     <Setter Property="BorderThickness" Value="0" />
   </Style>
 
+  <!-- Animate the visual, not the 48dp hit target. History selection must remain instantaneous. -->
+  <Style Selector="Button /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(1)" />
+  </Style>
+  <Style Selector="Button:not(.drawer-chat) /template/ Border#PART_Surface">
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.12" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.16" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+
   <Style Selector="TextBox">
     <Setter Property="behaviors:NativeTextInputOverlay.IsEnabled" Value="True" />
   </Style>
@@ -46,8 +61,8 @@
     </Setter>
   </Style>
 
-  <Style Selector="Button.nav-item:pressed">
-    <Setter Property="RenderTransform" Value="scale(0.94)" />
+  <Style Selector="Button.nav-item:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.96)" />
   </Style>
 
   <Style Selector="Button.nav-item.selected">
@@ -81,6 +96,8 @@
 
   <Style Selector="Button.chat-row:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+  </Style>
+  <Style Selector="Button.chat-row:pressed /template/ Border#PART_Surface">
     <Setter Property="RenderTransform" Value="scale(0.985)" />
   </Style>
 
@@ -101,6 +118,8 @@
 
   <Style Selector="Button.setup-host-row:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+  </Style>
+  <Style Selector="Button.setup-host-row:pressed /template/ Border#PART_Surface">
     <Setter Property="RenderTransform" Value="scale(0.99)" />
   </Style>
 
@@ -404,7 +423,9 @@
 
   <Style Selector="Button.experience:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    <Setter Property="RenderTransform" Value="scale(0.96)" />
+  </Style>
+  <Style Selector="Button.experience:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.97)" />
   </Style>
 
   <Style Selector="Button.chat-controls">
@@ -594,13 +615,14 @@
     <Setter Property="Transitions">
       <Transitions>
         <BrushTransition Property="Background" Duration="0:0:0.12" />
-        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1" Easing="CubicEaseOut" />
       </Transitions>
     </Setter>
   </Style>
   <Style Selector="Button.composer-pill:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.ControlPressed}" />
-    <Setter Property="RenderTransform" Value="scale(0.96)" />
+  </Style>
+  <Style Selector="Button.composer-pill:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.97)" />
   </Style>
 
   <Style Selector="Button.composer-toolbar-icon">
@@ -619,7 +641,12 @@
 
   <Style Selector="Button.composer-toolbar-icon:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.ControlPressed}" />
-    <Setter Property="RenderTransform" Value="scale(0.94)" />
+  </Style>
+  <Style Selector="Button.composer-toolbar-icon:pressed /template/ Border#PART_Surface,
+                   Button.chat-header-action:pressed /template/ Border#PART_Surface,
+                   Button.navigation-icon-button:pressed /template/ Border#PART_Surface,
+                   Button.page-back:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.96)" />
   </Style>
 
   <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_SheetMotion">

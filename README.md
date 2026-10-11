@@ -165,6 +165,11 @@ falls back to the official APK download, never an app-store listing.
 
 Announced files appear as readable attachment cards after the reply for their turn,
 including file-only replies, without changing transcript paging or download permissions.
+Inline screenshots are also available when that exact raster-image file was successfully
+read by a `view` tool call in the same chat, even if it was not announced as an attachment.
+Arbitrary markdown paths, failed reads and unrelated files remain unavailable remotely.
+Unchanged transcript refreshes retain image downloads and resolved cache paths instead of
+cancelling them or replacing visible images; unsuccessful downloads can retry on a later refresh.
 The mobile chat drawer follows live desktop ordering and read state while retaining
 loaded history pages. New chats use the desktop launchpad's exact usual setups and
 time-aware starters, including project, agent, model, reasoning effort, and local/worktree
@@ -205,6 +210,21 @@ Browser chrome and startup backgrounds follow the selected Light, Dark, or Syste
 Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript realizes
 only turns near the viewport while retaining the full loaded page and offscreen streaming
 updates, avoiding eager layout of every markdown answer when opening a conversation.
+
+Mobile uses Strata's short, interruptible rise-and-fade motion for chat switches, new chats,
+page returns and Library categories; native forms and pairing steps fade without moving
+their input overlays. Sent bubbles and fresh live
+replies/activity arrive once; initial history, paging, server echo reconciliation and
+offscreen arrivals do not replay message entrances. Adding an item keeps the existing
+turn's controls alive, and entrances only change opacity/transforms, not transcript layout.
+Touch feedback eases on the button surface while its full-size hit target stays fixed;
+history selection remains instantaneous to avoid a previous-row highlight flash.
+Sending still shows the local bubble and Thinking before network I/O; motion never delays
+send, Stop, steering, or the native keyboard.
+Entrances run on the render thread, so queued UI work cannot consume their playback time or
+shift scroll anchors. Chat switches finish closing the drawer before realizing heavy markdown,
+then reveal the settled viewport; the animation does not run unseen behind the drawer or during
+the initial layout. Rendered-pixel tests check partial-opacity frames and visible travel.
 
 ### Lumi tool availability
 

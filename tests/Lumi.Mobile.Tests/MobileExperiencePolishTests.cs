@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using Avalonia;
 using Avalonia.Animation;
+using Avalonia.Media.Transformation;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Platform;
@@ -15,6 +16,7 @@ using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
 using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
+using StrataTheme.Animation;
 using Xunit;
 
 namespace Lumi.Mobile.Tests;
@@ -711,8 +713,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         });
 
     [Fact]
-    public Task LoadedChatBecomesInteractiveWithoutWaitingForBackgroundDispatcherWork() =>
-        RunUiAsync(360, (shell, view, _) =>
+    public Task LoadedChatWaitsForRealizationBeforeSpendingItsEntrance() =>
+        RunUiAsync(360, (shell, view, window) =>
         {
             shell.Chat.Reset(Guid.NewGuid(), "A fresh conversation");
             shell.Chat.ApplyTranscript(new RemoteTranscript
@@ -729,8 +731,13 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             });
             Dispatcher.UIThread.RunJobs(DispatcherPriority.Loaded);
             var body = Required<Border>(view, "ChatTranscriptSideInset");
+            Assert.False(body.IsHitTestVisible);
+            Assert.Equal(0, body.Opacity);
+            Assert.False(SlideFadeEntrance.IsCompositedRunning(body));
+            PumpFrame(window);
             Assert.True(body.IsHitTestVisible);
-            Assert.Equal(1, body.GetBaseValue(Visual.OpacityProperty));
+            Assert.Equal(1, body.Opacity);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(body));
             Assert.False(Required<Border>(view, "ChatLoadingOverlay").IsVisible);
             return Task.CompletedTask;
         });
@@ -1110,6 +1117,11 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Assert.Equal(Guid.Empty, shell.Chat.ChatId);
                 var send = Assert.IsAssignableFrom<Task>(shell.Chat.SendCommand.ExecutionTask);
                 Assert.False(send.IsCompleted);
+                Assert.True(shell.Chat.ShowThinking);
+                Assert.True(Required<StrataTypingIndicator>(view, "ChatTyping").IsEffectivelyVisible);
+                var echo = Required<ItemsControl>(view, "Transcript").GetVisualDescendants()
+                    .OfType<ItemsControl>().Single(control => control.DataContext == shell.Chat.Turns[^1]);
+                Assert.True(SlideFadeEntrance.IsCompositedRunning(echo.ContainerFromIndex(0)!));
 
                 response.SetResult(new RemoteCommandResult { Ok = true, ChatId = chatId });
                 await send.WaitAsync(TimeSpan.FromSeconds(5));
@@ -2261,6 +2273,55 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         });
 
     [Fact]
+    public Task ChatSwitchDoesNotBuildMarkdownBehindTheClosingDrawer() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            shell.IsDrawerOpen = true;
+            await Task.Delay(240);
+            PumpFrame(window);
+            var drawer = Required<StrataNavigationDrawer>(view, "NavDrawer");
+            Assert.Equal(1, drawer.Progress);
+            var builtUnderDrawer = 0;
+            using var subscription = StrataMarkdown.MarkdownProperty.Changed.AddClassHandler<StrataMarkdown>(
+                (markdown, _) =>
+                {
+                    if (markdown.Markdown?.StartsWith("### Heavy chat") == true
+                        && drawer.Progress > 0.001)
+                        builtUnderDrawer++;
+                });
+            shell.Chat.Reset(Guid.NewGuid(), "Next chat", isLoading: true);
+            shell.Chat.ApplyTranscript(new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId, Revision = 1,
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "heavy-turn",
+                    Items = [new RemoteTranscriptItem
+                    {
+                        Id = "heavy-answer", Kind = RemoteProtocol.ItemKinds.Assistant,
+                        Text = "### Heavy chat\n\n" + string.Join("\n\n",
+                            Enumerable.Repeat("A **paragraph** with `inline code`.", 20))
+                    }]
+                }]
+            });
+            shell.Chat.IsLoading = false;
+            PumpFrame(window);
+            Assert.DoesNotContain(view.GetVisualDescendants().OfType<StrataMarkdown>(),
+                markdown => markdown.Markdown?.StartsWith("### Heavy chat") == true);
+            var surface = Required<Border>(view, "ChatTranscriptSideInset");
+            Assert.False(SlideFadeEntrance.IsCompositedRunning(surface));
+            Tap(window, Required<Button>(view, "DrawerCloseButton"));
+            await Task.Delay(240);
+            PumpFrame(window);
+            Assert.Equal(0, drawer.Progress);
+            Assert.Equal(0, builtUnderDrawer);
+            Assert.Contains(view.GetVisualDescendants().OfType<StrataMarkdown>(),
+                markdown => markdown.Markdown?.StartsWith("### Heavy chat") == true);
+            Assert.True(surface.IsHitTestVisible);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(surface));
+        });
+
+    [Fact]
     public Task ALoadedTranscriptStartsExactlyOneEntranceAndLiveRefreshDoesNotReplayIt() =>
         RunUiAsync(360, (shell, view, window) =>
         {
@@ -2270,7 +2331,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             var starts = 0;
             surface.PropertyChanged += (_, e) =>
             {
-                if (e.Property == Animatable.TransitionsProperty && surface.Transitions is not null)
+                if (e.Property == Visual.OpacityProperty && surface.Opacity == 1)
                     starts++;
             };
             var transcript = new RemoteTranscript
@@ -2285,7 +2346,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             };
             shell.Chat.ApplyTranscript(transcript);
             shell.Chat.IsLoading = false;
-            Pump(window);
+            PumpFrame(window);
             Assert.Equal(1, starts);
             Assert.True(surface.IsHitTestVisible);
 
@@ -2293,6 +2354,236 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Pump(window);
             Assert.Equal(1, starts);
             return Task.CompletedTask;
+        });
+
+    [Fact]
+    public Task WorkingEntranceDoesNotReplayWhenBusyAndStreamingNotificationsOverlap() =>
+        RunUiAsync(360, (shell, view, window) =>
+        {
+            var indicator = Required<StrataTypingIndicator>(view, "ChatTyping");
+            var starts = 0;
+            indicator.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == Visual.OpacityProperty && indicator.Opacity == 1)
+                    starts++;
+            };
+            shell.Chat.IsBusy = true;
+            PumpFrame(window);
+            Assert.Equal(1, starts);
+            Assert.True(indicator.IsEffectivelyVisible);
+            shell.Chat.IsStreaming = true;
+            shell.Chat.IsBusy = false;
+            Pump(window);
+            Assert.Equal(1, starts);
+            Assert.True(indicator.IsEffectivelyVisible);
+            shell.Chat.IsStreaming = false;
+            Pump(window);
+            Assert.False(indicator.IsEffectivelyVisible);
+            shell.Chat.IsBusy = true;
+            PumpFrame(window);
+            Assert.Equal(2, starts);
+            return Task.CompletedTask;
+        });
+
+    [Fact]
+    public Task FreshReplyAnimatesWithoutReplacingExistingTurnControls() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            var transcript = new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId, Revision = 1,
+                Status = new RemoteChatStatus { ChatId = shell.Chat.ChatId },
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "motion-turn",
+                    Items =
+                    [
+                        new RemoteTranscriptItem
+                        {
+                            Id = "user", Kind = RemoteProtocol.ItemKinds.User, Text = "A thought"
+                        },
+                        new RemoteTranscriptItem
+                        {
+                            Id = "answer", Kind = RemoteProtocol.ItemKinds.Assistant, Text = "Already visible."
+                        }
+                    ]
+                }]
+            };
+            shell.Chat.ApplyTranscript(transcript);
+            Pump(window);
+            var turn = view.GetVisualDescendants().OfType<TranscriptTurnView>().Single();
+            var items = Assert.IsType<ItemsControl>(turn.Child);
+            var user = items.ContainerFromIndex(0);
+            var answer = items.ContainerFromIndex(1);
+            Assert.NotNull(user);
+            Assert.NotNull(answer);
+            Assert.Null(answer.Transitions);
+
+            transcript.Revision = 2;
+            transcript.Turns[0].Items.Add(new RemoteTranscriptItem
+            {
+                Id = "arrival", Kind = RemoteProtocol.ItemKinds.Assistant, Text = "A fresh reply."
+            });
+            shell.Chat.ApplyTranscript(transcript);
+            Pump(window);
+            Assert.Same(user, items.ContainerFromIndex(0));
+            Assert.Same(answer, items.ContainerFromIndex(1));
+            var arrival = items.ContainerFromIndex(2)!;
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(arrival));
+            Assert.Null(arrival.Transitions);
+
+            await Task.Delay(65);
+            Pump(window);
+            Assert.Equal(1, arrival.Opacity);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(arrival));
+            transcript.Revision = 3;
+            transcript.Turns[0].Items[^1].Text += " More streamed text.";
+            shell.Chat.ApplyTranscript(transcript);
+            Pump(window);
+            Assert.Same(arrival, items.ContainerFromIndex(2));
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(arrival));
+            await Task.Delay(300);
+            Pump(window);
+            Assert.Equal(1, arrival.Opacity);
+            Assert.Equal(0, arrival.RenderTransform!.Value.M32, precision: 3);
+            Assert.False(SlideFadeEntrance.IsCompositedRunning(arrival));
+        });
+
+    [Fact]
+    public Task PageReturnAnimatesWithoutResettingTheReadersViewport() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            shell.Chat.ApplyTranscript(new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId, Revision = 1,
+                Status = new RemoteChatStatus { ChatId = shell.Chat.ChatId },
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "reading-turn",
+                    Items = [new RemoteTranscriptItem
+                    {
+                        Id = "reading-answer", Kind = RemoteProtocol.ItemKinds.Assistant,
+                        Text = string.Join("\n\n", Enumerable.Repeat("A paragraph to keep reading.", 40))
+                    }]
+                }]
+            });
+            Pump(window);
+            var scroll = Required<ScrollViewer>(view, "PART_TranscriptScroll");
+            scroll.Offset = default;
+            Pump(window);
+            var offset = scroll.Offset;
+            var answer = view.GetVisualDescendants().OfType<StrataMarkdown>()
+                .Single(markdown => markdown.Markdown?.StartsWith("A paragraph") == true);
+            shell.ShowPageCommand.Execute("Settings");
+            Pump(window);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(Required<StackPanel>(view, "SettingsContent")));
+            await Task.Delay(65);
+            Pump(window);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(Required<StackPanel>(view, "SettingsContent")));
+            Tap(window, Required<Button>(view, "SettingsBackButton"));
+            Pump(window);
+            Assert.True(shell.IsChatPage);
+            Assert.Same(answer, view.GetVisualDescendants().OfType<StrataMarkdown>()
+                .Single(markdown => markdown.Markdown?.StartsWith("A paragraph") == true));
+            Assert.Equal(offset, scroll.Offset);
+            var surface = Required<Border>(view, "ChatTranscriptSideInset");
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(surface));
+            await Task.Delay(65);
+            Pump(window);
+            Assert.Equal(1, surface.Opacity);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(surface));
+            await Task.Delay(300);
+            Pump(window);
+            Assert.Equal(offset, scroll.Offset);
+            Assert.Equal(1, surface.Opacity);
+        });
+
+    [Fact]
+    public Task LibraryCategoryAndEditorHaveInterruptibleMotion() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            shell.ShowPageCommand.Execute("Library");
+            await Task.Delay(340);
+            Pump(window);
+            var library = Required<LibraryView>(view, "LibraryPage");
+            var list = Required<StackPanel>(view, "LibraryListContent");
+            shell.Library.SectionIndex = 1;
+            Pump(window);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(list));
+            await Task.Delay(340);
+            Tap(window, Required<Button>(library, "LibraryNewButton"));
+            var editor = Required<StackPanel>(view, "LibraryEditor");
+            Assert.True(shell.Library.IsEditing);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(editor));
+            Tap(window, Required<Button>(library, "EditCancelButton"));
+            Assert.False(shell.Library.IsEditing);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(list));
+            Assert.Equal(1, editor.Opacity);
+            await Task.Delay(340);
+            Pump(window);
+            Assert.Equal(1, list.Opacity);
+        });
+
+    [Fact]
+    public Task TouchPressEasesTheSurfaceWithoutShrinkingItsHitTarget() =>
+        RunUiAsync(360, async (_, view, window) =>
+        {
+            var button = Required<Button>(view, "NewChatButton");
+            var surface = Required<Border>(button, "PART_Surface");
+            var bounds = button.Bounds;
+            Assert.True(bounds.Width >= 48 && bounds.Height >= 48);
+            Assert.Equal(1, button.RenderTransform?.Value.M11 ?? 1);
+            var center = button.TranslatePoint(new Point(bounds.Width / 2, bounds.Height / 2), window)!.Value;
+            window.MouseDown(center, MouseButton.Left);
+            Pump(window);
+            await Task.Delay(65);
+            Pump(window);
+            Assert.InRange(surface.RenderTransform!.Value.M11, 0.961, 0.999);
+            Assert.Equal(bounds, button.Bounds);
+            Assert.Equal(1, button.RenderTransform?.Value.M11 ?? 1);
+            window.MouseUp(center, MouseButton.Left);
+            await Task.Delay(240);
+            Pump(window);
+            Assert.Equal(1, surface.RenderTransform!.Value.M11, precision: 3);
+            Assert.Equal(bounds, button.Bounds);
+        });
+
+    [Fact]
+    public Task DetachedOrDisposedEntranceCannotLeaveContentHidden() =>
+        RunUiAsync(360, async (_, view, window) =>
+        {
+            var root = Required<Panel>(view, "Root");
+            var target = new Border { Width = 100, Height = 40 };
+            using var entrance = new MobileEntrance(target);
+            entrance.Play();
+            Pump(window);
+            var starts = 0;
+            target.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == Visual.OpacityProperty && target.Opacity == 1)
+                    starts++;
+            };
+            root.Children.Add(target);
+            PumpFrame(window);
+            Assert.Equal(1, starts);
+            var bounds = target.Bounds;
+            await Task.Delay(65);
+            Pump(window);
+            Assert.Equal(1, target.Opacity);
+            Assert.True(SlideFadeEntrance.IsCompositedRunning(target));
+            Assert.Equal(bounds, target.Bounds);
+            root.Children.Remove(target);
+            Assert.False(SlideFadeEntrance.IsCompositedRunning(target));
+            Assert.Equal(1, target.Opacity);
+            Assert.Equal(TransformOperations.Identity.Value, target.RenderTransform!.Value);
+            entrance.Dispose();
+            entrance.Play();
+            entrance.Prepare();
+            entrance.Reveal();
+            root.Children.Add(target);
+            Pump(window);
+            Assert.Equal(1, target.Opacity);
+            Assert.Equal(1, starts);
         });
 
     [Fact]
@@ -2430,6 +2721,13 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
     private static void Pump(Window window)
     {
         window.InvalidateMeasure();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void PumpFrame(Window window)
+    {
+        Pump(window);
+        using var frame = window.CaptureRenderedFrame();
         Dispatcher.UIThread.RunJobs();
     }
 

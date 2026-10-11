@@ -125,7 +125,7 @@ public partial class MobileShellView : UserControl
         if (e.Property != IsVisibleProperty)
             return;
         UpdateSheetPresentation();
-        if (sender is not Control { IsVisible: true } page)
+        if (sender is not Control page)
             return;
 
         Control? content = page.Name switch
@@ -137,6 +137,13 @@ public partial class MobileShellView : UserControl
         };
         if (content is null)
             return;
+
+        if (!page.IsVisible)
+        {
+            if (_pageEntrances.TryGetValue(content, out var previous))
+                previous.Stop();
+            return;
+        }
 
         if (!_pageEntrances.TryGetValue(content, out var entrance))
             _pageEntrances[content] = entrance = new MobileEntrance(content);

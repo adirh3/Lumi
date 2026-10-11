@@ -13,6 +13,8 @@ namespace Lumi.Mobile.ViewModels;
 /// </summary>
 public abstract partial class TranscriptItemViewModel : ObservableObject, IDisposable
 {
+    private long? _entranceRequestedAt;
+
     protected TranscriptItemViewModel(RemoteTranscriptItem item)
     {
         Id = item.Id;
@@ -22,6 +24,16 @@ public abstract partial class TranscriptItemViewModel : ObservableObject, IDispo
     public string Id { get; }
 
     public string Kind { get; }
+
+    internal void RequestEntranceAnimation() => _entranceRequestedAt = Stopwatch.GetTimestamp();
+
+    internal bool TryConsumeEntranceAnimation()
+    {
+        var requestedAt = _entranceRequestedAt;
+        _entranceRequestedAt = null;
+        return requestedAt is { } timestamp
+               && Stopwatch.GetElapsedTime(timestamp) <= TimeSpan.FromSeconds(2);
+    }
 
     /// <summary>Applies a newer server projection of the same row in place, keeping the control alive.</summary>
     public abstract void Update(RemoteTranscriptItem item);
@@ -127,6 +139,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         Task<string>>? _resolveInlineImages;
     private readonly Action<string, IReadOnlyList<RemoteInlineImage>>? _releaseInlineImages;
     private CancellationTokenSource? _imageResolutionCts;
+    private IReadOnlyList<RemoteInlineImage>? _inlineImages;
     private IReadOnlyList<RemoteInlineImage>? _leasedInlineImages;
     private long _imageResolutionVersion;
 
@@ -175,11 +188,25 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
 
     public override void Update(RemoteTranscriptItem item)
     {
-        CancelImageResolution();
-        ReleaseInlineImages();
         var sourceText = item.Text ?? "";
-        SourceText = sourceText;
-        Text = sourceText;
+        var images = !item.IsStreaming && item.InlineImages is { Count: > 0 }
+            ? item.InlineImages
+            : null;
+        var retainImages = string.Equals(SourceText, sourceText, StringComparison.Ordinal)
+                           && IsStreaming == item.IsStreaming
+                           && HaveSameInlineImages(_inlineImages, images);
+        if (!retainImages)
+        {
+            CancelImageResolution();
+            ReleaseInlineImages();
+            SourceText = sourceText;
+            Text = sourceText;
+            _inlineImages = images?.Select(image => new RemoteInlineImage
+            {
+                Index = image.Index,
+                FileName = image.FileName
+            }).ToArray();
+        }
         IsStreaming = item.IsStreaming;
         Model = item.Model;
 
@@ -190,17 +217,20 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         OnPropertyChanged(nameof(SourceCountText));
         OnPropertyChanged(nameof(SourceSummary));
 
-        if (!item.IsStreaming
-            && item.InlineImages is { Count: > 0 }
-            && _resolveInlineImages is not null)
+        if (_inlineImages is { Count: > 0 }
+            && _resolveInlineImages is not null
+            && _imageResolutionCts is null
+            && (_leasedInlineImages?.Count ?? 0) < _inlineImages.Count)
         {
-            var images = item.InlineImages.ToArray();
+            var pendingImages = _inlineImages.Where(image =>
+                _leasedInlineImages?.Any(leased => leased.Index == image.Index) != true).ToArray();
             var version = Interlocked.Increment(ref _imageResolutionVersion);
             var current = new CancellationTokenSource();
             _imageResolutionCts = current;
             _ = ResolveInlineImagesAsync(
                 sourceText,
-                images,
+                Text,
+                pendingImages,
                 version,
                 current);
         }
@@ -210,6 +240,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     {
         CancelImageResolution();
         ReleaseInlineImages();
+        _inlineImages = null;
         SourceText = sourceText;
         Text = sourceText;
         IsStreaming = true;
@@ -219,6 +250,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     {
         CancelImageResolution();
         ReleaseInlineImages();
+        _inlineImages = null;
     }
 
     partial void OnTextChanged(string value) =>
@@ -231,8 +263,26 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         previous?.Cancel();
     }
 
+    private static bool HaveSameInlineImages(
+        IReadOnlyList<RemoteInlineImage>? current,
+        IReadOnlyList<RemoteInlineImage>? incoming)
+    {
+        if (current is null || incoming is null)
+            return current is null && incoming is null;
+        if (current.Count != incoming.Count)
+            return false;
+        for (var index = 0; index < current.Count; index++)
+        {
+            if (current[index].Index != incoming[index].Index
+                || !string.Equals(current[index].FileName, incoming[index].FileName, StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
     private async Task ResolveInlineImagesAsync(
         string sourceText,
+        string renderText,
         IReadOnlyList<RemoteInlineImage> images,
         long version,
         CancellationTokenSource cancellation)
@@ -243,11 +293,24 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         {
             var resolved = await _resolveInlineImages!(
                 Id,
-                sourceText,
+                renderText,
                 images,
                 cancellationToken);
             if (cancellationToken.IsCancellationRequested)
                 return;
+            var previousTargets = RemoteMarkdownImages.Find(renderText)
+                .ToDictionary(image => image.Index, image => image.Target);
+            var resolvedTargets = RemoteMarkdownImages.Find(resolved)
+                .ToDictionary(image => image.Index, image => image.Target);
+            var resolvedImages = images.Where(image =>
+                previousTargets.TryGetValue(image.Index, out var previousTarget)
+                && resolvedTargets.TryGetValue(image.Index, out var resolvedTarget)
+                && !string.Equals(previousTarget, resolvedTarget, StringComparison.Ordinal)).ToArray();
+            if (resolvedImages.Length == 0)
+            {
+                Trace.TraceWarning($"[Mobile] No inline images could be resolved for message {Id}.");
+                return;
+            }
 
             void ApplyResolvedText()
             {
@@ -255,7 +318,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
                     && string.Equals(SourceText, sourceText, StringComparison.Ordinal))
                 {
                     Text = resolved;
-                    _leasedInlineImages = images;
+                    _leasedInlineImages = (_leasedInlineImages ?? []).Concat(resolvedImages).ToArray();
                     leaseTransferred = true;
                 }
             }
@@ -1023,7 +1086,7 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         SynchronizeDisplayItems(DisplayItems, desired);
     }
 
-    private static void SynchronizeDisplayItems(
+    internal static void SynchronizeDisplayItems(
         ObservableCollection<TranscriptItemViewModel> target,
         IReadOnlyList<TranscriptItemViewModel> desired)
     {

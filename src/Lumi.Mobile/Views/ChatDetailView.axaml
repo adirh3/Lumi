@@ -65,7 +65,7 @@
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.start-setup:pressed">
+    <Style Selector="Button.start-setup:pressed /template/ Border#PART_Surface">
       <Setter Property="RenderTransform" Value="scale(0.99)" />
     </Style>
 
@@ -78,6 +78,8 @@
     </Style>
     <Style Selector="Button.starter:pressed">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface3}" />
+    </Style>
+    <Style Selector="Button.starter:pressed /template/ Border#PART_Surface">
       <Setter Property="RenderTransform" Value="scale(0.98)" />
     </Style>
 
@@ -98,6 +100,8 @@
     </Style>
     <Style Selector="Button.activity-card:pressed">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Button.activity-card:pressed /template/ Border#PART_Surface">
       <Setter Property="RenderTransform" Value="scale(0.99)" />
     </Style>
 
@@ -112,6 +116,8 @@
     </Style>
     <Style Selector="Button.source-card:pressed">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Button.source-card:pressed /template/ Border#PART_Surface">
       <Setter Property="RenderTransform" Value="scale(0.99)" />
     </Style>
 

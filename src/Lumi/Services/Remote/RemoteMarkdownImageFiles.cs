@@ -26,17 +26,28 @@ internal static class RemoteMarkdownImageFiles
                     paths.Add(path);
             }
 
-            if (!string.Equals(
+            string pathField;
+            if (string.Equals(
                     message.ToolName,
                     "announce_file",
                     StringComparison.OrdinalIgnoreCase))
+            {
+                pathField = "filePath";
+            }
+            else if (string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(message.ToolName, "view", StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(message.ToolStatus, "Completed", StringComparison.OrdinalIgnoreCase))
+            {
+                pathField = "path";
+            }
+            else
             {
                 continue;
             }
 
             var announcedPath = ToolDisplayHelper.ExtractJsonField(
                 message.Content,
-                "filePath");
+                pathField);
             if (announcedPath is not null
                 && TryResolveLocalPath(announcedPath, out var announced))
             {

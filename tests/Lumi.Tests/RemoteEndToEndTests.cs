@@ -1630,6 +1630,56 @@ public sealed class RemoteEndToEndTests
     });
 
     [Fact]
+    public async Task ViewedInlineImageDownloadsThroughTheAuthenticatedEndpointWithoutAnnouncement()
+    {
+        var imageBytes = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2uoAAAAASUVORK5CYII=");
+        var sourcePath = Path.Combine(Path.GetTempPath(), $"lumi-viewed-{Guid.NewGuid():N}.png");
+        string? downloadedPath = null;
+        File.WriteAllBytes(sourcePath, imageBytes);
+        try
+        {
+            await RunAsync(async rig =>
+            {
+                var paired = await rig.Client.PairAsync(
+                    rig.BaseUrl, rig.Server.BeginPairing(), CancellationToken.None);
+                Assert.True(paired.Ok, paired.Error);
+                var chat = Assert.Single(rig.DataStore.Data.Chats);
+                var transcript = Assert.IsType<RemoteTranscript>(
+                    await rig.Client.GetTranscriptAsync(chat.Id, CancellationToken.None));
+                var answer = Assert.Single(transcript.Turns.SelectMany(turn => turn.Items),
+                    item => item.Kind == RemoteProtocol.ItemKinds.Assistant);
+                var image = Assert.Single(answer.InlineImages!);
+                downloadedPath = await rig.Client.DownloadMarkdownImageAsync(
+                    chat.Id, Guid.ParseExact(answer.Id, "N"), image.Index, image.FileName,
+                    CancellationToken.None);
+                Assert.NotNull(downloadedPath);
+                Assert.Equal(imageBytes, await File.ReadAllBytesAsync(downloadedPath!));
+            }, seed: data =>
+            {
+                var chat = new Chat { Title = "Viewed inline image" };
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "tool", ToolName = "view", ToolStatus = "Completed",
+                    Content = JsonSerializer.Serialize(new { path = sourcePath })
+                });
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "assistant", Content = $"![Viewed screenshot]({sourcePath})"
+                });
+                chat.MessageCount = chat.Messages.Count;
+                data.Chats.Add(chat);
+            });
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            if (downloadedPath is not null)
+                File.Delete(downloadedPath);
+        }
+    }
+
+    [Fact]
     public Task TimedOutRetryWithTheSameRequestIdDoesNotDuplicateASteeredMessage() => RunAsync(async rig =>
     {
         var code = rig.Server.BeginPairing();

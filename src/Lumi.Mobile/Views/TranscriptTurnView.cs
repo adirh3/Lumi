@@ -1,10 +1,12 @@
 using System.Collections.Specialized;
+using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.ViewModels;
+using StrataTheme.Animation;
 
 namespace Lumi.Mobile.Views;
 
@@ -24,6 +26,14 @@ internal sealed class TranscriptTurnView : Decorator
     private bool _registeredAnchor;
     private int _version;
 
+    internal bool IsReadyForEntrance =>
+        !_updateQueued && (!IsNearViewport || _turn?.DisplayItems.Count == 0
+            || (Child is not null && IsMeasureValid && IsArrangeValid));
+
+    private bool IsNearViewport =>
+        _viewport.Width > 0 && _viewport.Height > 0 && double.IsFinite(_viewport.Height)
+        && new Rect(Bounds.Size).Intersects(_viewport.Inflate(new Thickness(0, _viewport.Height * 0.5)));
+
     public TranscriptTurnView()
     {
         EffectiveViewportChanged += (_, e) =>
@@ -36,6 +46,8 @@ internal sealed class TranscriptTurnView : Decorator
 
     protected override void OnDataContextChanged(EventArgs e)
     {
+        _version++;
+        _updateQueued = false;
         if (_attached && _turn is not null)
             _turn.DisplayItems.CollectionChanged -= OnItemsChanged;
         Child = null;
@@ -89,7 +101,7 @@ internal sealed class TranscriptTurnView : Decorator
             QueueUpdate();
     }
 
-    private void QueueUpdate()
+    internal void QueueUpdate()
     {
         if (!_attached || _updateQueued)
             return;
@@ -107,15 +119,26 @@ internal sealed class TranscriptTurnView : Decorator
             SetAnchor(visible);
             var nearby = hasViewport &&
                          bounds.Intersects(_viewport.Inflate(new Thickness(0, _viewport.Height * 0.5)));
-            if (!nearby || _turn is null)
+            var chat = this.FindAncestorOfType<ChatDetailView>();
+            if (!nearby || _turn is null || chat?.ShouldDeferTranscriptRealization == true)
             {
                 Child = null;
-                return;
             }
-
-            _items ??= new ItemsControl { DataContext = _turn };
-            Child = _items;
-            RefreshItems();
+            else
+            {
+                if (_items is null)
+                {
+                    _items = new ItemsControl
+                    {
+                        DataContext = _turn,
+                        ItemsSource = new ObservableCollection<TranscriptItemViewModel>()
+                    };
+                    _items.ContainerPrepared += OnContainerPrepared;
+                }
+                Child = _items;
+                RefreshItems();
+            }
+            chat?.QueueChatEntrance();
         }, DispatcherPriority.Background);
     }
 
@@ -126,9 +149,28 @@ internal sealed class TranscriptTurnView : Decorator
 
         // A detached host keeps its last item snapshot; collection changes are applied on return.
         // Existing item properties remain live, while retained markdown defers offscreen rebuilding.
-        if (_items.ItemsSource is not TranscriptItemViewModel[] snapshot ||
-            !snapshot.SequenceEqual(_turn.DisplayItems))
-            _items.ItemsSource = _turn.DisplayItems.ToArray();
+        if (_items.ItemsSource is ObservableCollection<TranscriptItemViewModel> snapshot)
+            TranscriptTurnViewModel.SynchronizeDisplayItems(snapshot, _turn.DisplayItems);
+    }
+
+    private void OnContainerPrepared(object? sender, ContainerPreparedEventArgs e)
+    {
+        var version = _version;
+        var container = e.Container;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_attached || version != _version
+                || container.DataContext is not TranscriptItemViewModel item
+                || !container.IsAttachedToVisualTree()
+                || !item.TryConsumeEntranceAnimation())
+                return;
+
+            var position = container.TranslatePoint(default, this);
+            if (this.FindAncestorOfType<ChatDetailView>()?.CanAnimateArrival == true
+                && position is { } point
+                && new Rect(point, container.Bounds.Size).Intersects(_viewport))
+                SlideFadeEntrance.PlayComposited(container, offsetY: 12, duration: TimeSpan.FromMilliseconds(260));
+        }, DispatcherPriority.Background);
     }
 
     private void SetAnchor(bool active)

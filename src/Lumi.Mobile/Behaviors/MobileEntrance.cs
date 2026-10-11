@@ -1,10 +1,9 @@
 using Avalonia;
-using Avalonia.Animation;
-using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Media.Transformation;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using StrataTheme.Animation;
 
 namespace Lumi.Mobile.Behaviors;
 
@@ -12,17 +11,35 @@ namespace Lumi.Mobile.Behaviors;
 public sealed class MobileEntrance : IDisposable
 {
     private readonly Control _target;
+    private readonly TransformOperations _hiddenTransform;
+    private readonly double _offsetY;
+    private readonly TimeSpan _duration;
     private int _version;
     private bool _disposed;
+    private bool _revealPending;
 
-    public MobileEntrance(Control target) => _target = target;
+    public MobileEntrance(Control target, double offsetY = 16, TimeSpan? duration = null)
+    {
+        _target = target;
+        _offsetY = offsetY;
+        _duration = duration ?? TimeSpan.FromMilliseconds(320);
+        _hiddenTransform = TransformOperations.Parse(
+            FormattableString.Invariant($"translateY({offsetY}px)"));
+        _target.AttachedToVisualTree += OnAttached;
+        _target.DetachedFromVisualTree += OnDetached;
+    }
 
     public void Prepare()
     {
+        if (_disposed)
+            return;
+
         _version++;
+        _revealPending = false;
+        SlideFadeEntrance.StopComposited(_target);
         _target.Transitions = null;
         _target.Opacity = 0;
-        _target.RenderTransform = TransformOperations.Parse("translateY(10px)");
+        _target.RenderTransform = _hiddenTransform;
     }
 
     public void Play()
@@ -33,43 +50,56 @@ public sealed class MobileEntrance : IDisposable
 
     public void Reveal()
     {
+        if (_disposed)
+            return;
+
+        _revealPending = true;
         var version = _version;
         void RevealCore()
         {
-            if (_disposed || version != _version || !_target.IsAttachedToVisualTree())
+            if (_disposed || !_revealPending || version != _version || !_target.IsAttachedToVisualTree())
                 return;
 
-            _target.Transitions = new Transitions
+            _revealPending = false;
+            if (!_target.IsEffectivelyVisible)
             {
-                new DoubleTransition
-                {
-                    Property = Visual.OpacityProperty,
-                    Duration = TimeSpan.FromMilliseconds(180),
-                    Easing = new CubicEaseOut()
-                },
-                new TransformOperationsTransition
-                {
-                    Property = Visual.RenderTransformProperty,
-                    Duration = TimeSpan.FromMilliseconds(220),
-                    Easing = new CubicEaseOut()
-                }
-            };
-            _target.RenderTransform = TransformOperations.Identity;
-            _target.Opacity = 1;
+                Stop();
+                return;
+            }
+
+            SlideFadeEntrance.PlayComposited(_target, _offsetY, _duration);
         }
 
-        if (_target.IsAttachedToVisualTree())
-            RevealCore();
-        else
-            Dispatcher.UIThread.Post(RevealCore, DispatcherPriority.Loaded);
+        // Visibility bindings and the initial viewport must settle before motion starts.
+        Dispatcher.UIThread.Post(RevealCore, DispatcherPriority.Loaded);
+    }
+
+    private void OnAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (_revealPending)
+            Reveal();
+    }
+
+    private void OnDetached(object? sender, VisualTreeAttachmentEventArgs e) => Stop();
+
+    public void Stop()
+    {
+        _version++;
+        _revealPending = false;
+        SlideFadeEntrance.StopComposited(_target);
+        _target.Transitions = null;
+        _target.Opacity = 1;
+        _target.RenderTransform = TransformOperations.Identity;
     }
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
         _disposed = true;
-        _version++;
-        _target.Transitions = null;
-        _target.Opacity = 1;
-        _target.RenderTransform = TransformOperations.Identity;
+        _target.AttachedToVisualTree -= OnAttached;
+        _target.DetachedFromVisualTree -= OnDetached;
+        Stop();
     }
 }

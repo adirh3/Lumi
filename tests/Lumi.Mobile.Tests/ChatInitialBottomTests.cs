@@ -153,7 +153,11 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
 
                 await OpenChatAsync(model, Guid.NewGuid());
                 Assert.Equal(48, model.Chat.Turns.Sum(turn => turn.Items.Count));
-                Assert.True(view.FindControl<Border>("ChatTranscriptSideInset")!.IsHitTestVisible);
+                Assert.True(view.FindControl<Border>("ChatTranscriptSideInset")!.IsHitTestVisible,
+                    $"Drawer moving={model.IsDrawerMoving}, presented={model.IsDrawerPresented}, "
+                    + $"loading={model.Chat.IsLoading}, bottom={shell.CurrentDistanceFromBottom}, "
+                    + $"ready turns={view.GetVisualDescendants().OfType<TranscriptTurnView>().Count(turn => turn.IsReadyForEntrance)}, "
+                    + $"total turns={model.Chat.Turns.Count}");
                 AssertAtBottom(shell, "initial landing");
 
                 // These changes happen AFTER the entrance and both initial scroll callbacks.

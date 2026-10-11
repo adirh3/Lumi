@@ -1784,6 +1784,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (!epochChanged && transcript.Revision < _revision)
             return;
 
+        var previousItemIds = _hasAuthoritativeTranscript
+                              && IsLatestWindow && transcript.IsLatestWindow
+                              && !epochChanged && transcript.Revision > _revision
+            ? Turns.SelectMany(turn => turn.DisplayItems).Select(item => item.Id)
+                .ToHashSet(StringComparer.Ordinal)
+            : null;
+        var hadPendingEcho = Turns.Any(turn => turn.Id == EchoTurnId);
+
         if (incomingEpoch is not null)
             _revisionEpoch = incomingEpoch;
         _revision = transcript.Revision;
@@ -1925,6 +1933,17 @@ public sealed partial class MobileChatViewModel : ObservableObject
             else
             {
                 SelectedSourceAnswer = reconciledAnswer;
+            }
+        }
+
+        if (previousItemIds is not null)
+        {
+            foreach (var item in Turns.SelectMany(turn => turn.DisplayItems))
+            {
+                // The optimistic bubble already arrived locally; its server copy is not a new send.
+                if (!previousItemIds.Contains(item.Id)
+                    && !(hadPendingEcho && item is UserTurnItemViewModel))
+                    item.RequestEntranceAnimation();
             }
         }
 
@@ -3071,7 +3090,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             EchoTurnId,
             OpenActivityAsync,
             OpenSources);
-        turn.Items.Add(new UserTurnItemViewModel(new RemoteTranscriptItem
+        var user = new UserTurnItemViewModel(new RemoteTranscriptItem
         {
             Id = EchoTurnId,
             Kind = RemoteProtocol.ItemKinds.User,
@@ -3083,7 +3102,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 Extension = Path.GetExtension(file.FileName)
             }).ToList(),
             SteerState = steer ? "Steering" : null
-        }));
+        });
+        user.RequestEntranceAnimation();
+        turn.Items.Add(user);
 
         Turns.Add(turn);
         OnPropertyChanged(nameof(IsEmpty));
