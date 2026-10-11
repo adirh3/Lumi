@@ -341,6 +341,7 @@ public partial class AgentsViewModel : ObservableObject
         ("announce_file", "Announce File", "Utility", "Announce a produced file, optionally opening its preview."),
         ("skill", "Load Lumi Skill", "Utility", "Allow the native skill tool to load Lumi-owned skills. Copilot's file-based skills are unchanged."),
         ("ask_question", "Ask Question", "Utility", "Ask the user a question with predefined options."),
+        ("ask_input", "Request Input", "Utility", "Collect related fields or a shortlist selection and continue the same task."),
         ("recall_memory", "Recall Memory", "Utility", "Search and recall stored memories about the user."),
         ("manage_projects", "Manage Projects", "Utility", "List, create, update, or delete Lumi projects on explicit request."),
         ("manage_skills", "Manage Skills", "Utility", "List, create, update, or delete Lumi skills on explicit request."),

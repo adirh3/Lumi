@@ -225,6 +225,7 @@ public partial class ChatViewModel
 
     private void NotifyChatPausePropertiesChanged()
     {
+        OnPropertyChanged(nameof(CanSubmitInteractions));
         OnPropertyChanged(nameof(IsPaused));
         OnPropertyChanged(nameof(IsPausePending));
         OnPropertyChanged(nameof(CanPauseChat));
@@ -238,7 +239,7 @@ public partial class ChatViewModel
         NotifyContextActionAvailabilityChanged();
         if (IsPaused)
             _transcriptBuilder.HideTypingIndicator();
-        else if (IsBusy)
+        else if (IsBusy && !IsAwaitingInput)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
     }
 

@@ -537,7 +537,8 @@ public partial class ChatViewModel
             AddActivity(activities, WorkspaceActivityKind.Search,
                 ToolDisplayHelper.ExtractJsonField(message.Content, "query"), index);
         }
-        else if (string.Equals(tool, "ask_question", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(tool, "ask_question", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tool, "ask_input", StringComparison.OrdinalIgnoreCase))
         {
             // Persisted ask-question messages keep the prompt in QuestionText with Content="";
             // only the legacy/fixture form embeds it as JSON in Content. Prefer the former.

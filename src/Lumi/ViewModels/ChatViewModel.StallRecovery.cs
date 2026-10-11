@@ -124,6 +124,7 @@ public partial class ChatViewModel
             var runtime = GetOrCreateRuntimeState(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Completed");
             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
+            SetInteractionReceiptStatus(runtime, runtime.ManualStopRequested ? "Stopped" : "ReplyReady");
             MarkRuntimeTerminal(runtime);
             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Idle);
             if (CurrentChat?.Id == chat.Id)
@@ -642,6 +643,7 @@ public partial class ChatViewModel
             ResolvePendingSteersAsDelivered(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Completed");
             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
+            SetInteractionReceiptStatus(runtime, "ReplyReady");
             MarkRuntimeTerminal(runtime);
             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Idle);
 

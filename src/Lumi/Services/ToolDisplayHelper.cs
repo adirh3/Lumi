@@ -237,6 +237,7 @@ public static partial class ToolDisplayHelper
             case "read_chat":
                 return ("Reading chat", ExtractJsonField(argsJson, "chat"));
             case "ask_question":
+            case "ask_input":
                 return (Loc.Tool_AskingQuestion, null);
             case "ui_inspect":
                 return (Loc.Tool_InspectingWindow, ExtractJsonField(argsJson, "title"));

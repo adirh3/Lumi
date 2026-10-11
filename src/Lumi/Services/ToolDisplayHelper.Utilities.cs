@@ -79,6 +79,7 @@ public static partial class ToolDisplayHelper
             "manage_mcps" => "Managing MCP servers",
             "manage_memories" => "Managing memories",
             "ask_question" => Loc.Tool_AskingQuestion,
+            "ask_input" => Loc.Tool_AskingQuestion,
             "code_review" => Loc.Tool_ReviewingCode,
             "generate_tests" => Loc.Tool_GeneratingTests,
             "explain_code" => Loc.Tool_ExplainingCode,

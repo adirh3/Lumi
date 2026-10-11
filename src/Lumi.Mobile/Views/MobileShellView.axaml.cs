@@ -107,11 +107,26 @@ public partial class MobileShellView : UserControl
     {
         if (e.Source is not StrataBottomSheet sheet)
             return;
-        if (sheet.IsPresented)
-            _presentedSheets.Add(sheet);
-        else
-            _presentedSheets.Remove(sheet);
+        if (!sheet.IsPresented)
+            ForgetSheet(sheet);
+        else if (_presentedSheets.Add(sheet))
+            sheet.DetachedFromVisualTree += OnPresentedSheetDetached;
         UpdateSheetPresentation();
+    }
+
+    // A sheet removed while presented, such as an interactive answer's picker, cannot report its
+    // dismissal from outside the tree, so leaving the tree ends its presentation.
+    private void OnPresentedSheetDetached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is StrataBottomSheet sheet)
+            ForgetSheet(sheet);
+        UpdateSheetPresentation();
+    }
+
+    private void ForgetSheet(StrataBottomSheet sheet)
+    {
+        if (_presentedSheets.Remove(sheet))
+            sheet.DetachedFromVisualTree -= OnPresentedSheetDetached;
     }
 
     private void UpdateSheetPresentation()
@@ -241,7 +256,8 @@ public partial class MobileShellView : UserControl
         foreach (var entrance in _pageEntrances.Values)
             entrance.Dispose();
         _pageEntrances.Clear();
-        _presentedSheets.Clear();
+        foreach (var sheet in _presentedSheets.ToList())
+            ForgetSheet(sheet);
 
         if (_insets is not null)
             _insets.SafeAreaChanged -= OnSafeAreaChanged;

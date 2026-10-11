@@ -242,10 +242,11 @@ public static class RemoteProtocol
         public const string CompactTranscriptV1 = "compact-transcript-v1";
         public const string FileSuggestionsV1 = "file-suggestions-v1";
         public const string GitChangesV1 = "git-changes-v1";
+        public const string InteractiveResponsesV1 = "interactive-responses-v1";
 
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
-            [ScopedEventsV1, CompactTranscriptV1, FileSuggestionsV1, GitChangesV1];
+            [ScopedEventsV1, CompactTranscriptV1, FileSuggestionsV1, GitChangesV1, InteractiveResponsesV1];
     }
 
     /// <summary>Largest upload the desktop will accept, so a phone cannot exhaust its disk.</summary>
@@ -272,6 +273,7 @@ public static class RemoteProtocol
         public const string StopGeneration = "stop_generation";
         public const string RevokeDevice = "revoke_device";
         public const string AnswerQuestion = "answer_question";
+        public const string UpdateInteraction = "update_interaction";
 
         /// <summary>
         /// Sets composer configuration on the open chat — model, reasoning effort, context-window
@@ -332,6 +334,7 @@ public static class RemoteProtocol
         public const string Tool = "tool";
         public const string Terminal = "terminal";
         public const string Question = "question";
+        public const string Input = "input";
         public const string Error = "error";
         public const string Typing = "typing";
         public const string Activity = "activity";

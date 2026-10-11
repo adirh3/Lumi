@@ -1631,7 +1631,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void OpenAgentDebugHarness()
     {
 #if DEBUG
-        ChatVM.LoadDebugTranscriptFixture();
+        if (Program.OpenInteractiveControlsFixture)
+        {
+            var fixtures = InteractiveControlsFixture.Create(_dataStore);
+            ChatVM.LoadDebugTranscriptFixture(fixtures.First(chat => chat.Title == "UI Lab - Forms"));
+            RefreshChatList();
+        }
+        else
+            ChatVM.LoadDebugTranscriptFixture();
         SelectedNavIndex = 0;
 #endif
     }

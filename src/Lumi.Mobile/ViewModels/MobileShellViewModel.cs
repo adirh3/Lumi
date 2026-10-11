@@ -413,6 +413,7 @@ public sealed partial class MobileShellViewModel :
     }
 
     public LumiRemoteClient Client { get; }
+    public bool SupportsInteractiveResponses => Client.SupportsInteractiveResponses;
 
     public ILumiDiscoveryClient Discovery { get; }
 
@@ -2420,6 +2421,7 @@ public sealed partial class MobileShellViewModel :
         var generation = Volatile.Read(ref _connectionGeneration);
         PostForConnection(generation, () =>
         {
+            Chat.RefreshInteractiveCapabilities();
             ConnectionMessage = message;
             IsGatewaySignInRequired = state == RemoteLinkState.GatewaySignInRequired;
 

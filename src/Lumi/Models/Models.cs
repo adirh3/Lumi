@@ -66,6 +66,19 @@ public class ChatMessage
     public string? QuestionOptions { get; set; }
     public bool? QuestionAllowFreeText { get; set; }
     public bool? QuestionAllowMultiSelect { get; set; }
+    /// <summary>User-owned UI state keyed by a response block's stable id.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? InteractionStates { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputKind { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputDefinition { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputAnswer { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool InputCanceled { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public InteractionReceipt? InteractionReceipt { get; set; }
     public bool IsStreaming { get; set; }
     public string? Model { get; set; }
     public string? ReasoningEffort { get; set; }
@@ -153,6 +166,12 @@ public class ChatMessage
         QuestionOptions = QuestionOptions,
         QuestionAllowFreeText = QuestionAllowFreeText,
         QuestionAllowMultiSelect = QuestionAllowMultiSelect,
+        InteractionStates = InteractionStates is null ? null : new Dictionary<string, string>(InteractionStates, StringComparer.Ordinal),
+        InputKind = InputKind,
+        InputDefinition = InputDefinition,
+        InputAnswer = InputAnswer,
+        InputCanceled = InputCanceled,
+        InteractionReceipt = InteractionReceipt?.Clone(),
         IsStreaming = IsStreaming,
         Model = Model,
         ReasoningEffort = ReasoningEffort,
@@ -224,6 +243,50 @@ public sealed class MessageReply
         Quote = Quote,
         IsSelection = IsSelection,
         Author = Author
+    };
+}
+
+/// <summary>The immutable selection submitted by a user action, with independent reply lifecycle state.</summary>
+public sealed class InteractionReceipt : INotifyPropertyChanged
+{
+    public Guid SourceMessageId { get; set; }
+    public string BlockId { get; init; } = "";
+    public string Title { get; init; } = "";
+    public string Summary { get; init; } = "";
+    public string Detail { get; init; } = "";
+    public string Action { get; init; } = "";
+    private string _status = "Submitted";
+    private string? _error;
+
+    public string Status
+    {
+        get => _status;
+        set
+        {
+            if (_status == value) return;
+            _status = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status)));
+        }
+    }
+
+    public string? Error
+    {
+        get => _error;
+        set
+        {
+            if (_error == value) return;
+            _error = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Error)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public InteractionReceipt Clone() => new()
+    {
+        SourceMessageId = SourceMessageId, BlockId = BlockId,
+        Title = Title, Summary = Summary, Detail = Detail,
+        Action = Action, Status = Status, Error = Error
     };
 }
 

@@ -34,6 +34,8 @@ public static class DebugAgentHarness
     public static bool IsUiHarnessFlag(string arg)
         => string.Equals(arg, "--debug-agent-harness", StringComparison.OrdinalIgnoreCase)
            || string.Equals(arg, "--debug-transcript-fixture", StringComparison.OrdinalIgnoreCase);
+    public static bool IsInteractiveControlsFlag(string arg) =>
+        string.Equals(arg, "--debug-interactive-controls", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsChatStressFlag(string arg)
         => string.Equals(arg, "--test-chat-stress", StringComparison.OrdinalIgnoreCase)

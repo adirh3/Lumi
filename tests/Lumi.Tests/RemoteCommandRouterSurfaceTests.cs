@@ -16,6 +16,45 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class RemoteCommandRouterSurfaceTests
 {
+    [Fact]
+    public Task InteractiveEditsSaveWithoutOpeningAnotherDesktopChat() => RunAsync(async () =>
+    {
+        var current = new Chat { Title = "Current" };
+        var answer = new ChatMessage
+        {
+            Role = "assistant",
+            Content = "```checklist\n{\"id\":\"prep\",\"title\":\"Prep\",\"items\":[{\"id\":\"one\",\"label\":\"First step\"}]}\n```"
+        };
+        var target = new Chat { Title = "Target" };
+        target.Messages.Add(answer);
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [current, target] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(current.Id);
+        var router = new RemoteCommandRouter(store, main);
+        var state = new StrataTheme.Controls.InteractiveState { CheckedIds = ["one"] }.ToJson();
+        var result = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.UpdateInteraction)
+            .With("chatId", target.Id.ToString()).With("messageId", answer.Id.ToString())
+            .With("blockId", "prep").With("state", state), CancellationToken.None);
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(current.Id, main.ChatVM.CurrentChat!.Id);
+        Assert.Equal(state, answer.InteractionStates!["prep"]);
+        Assert.Single(target.Messages);
+    });
+
+    [Fact]
+    public Task InteractiveCommandRejectsUnknownIdsAndDoesNotStartWork() => RunAsync(async () =>
+    {
+        var chat = new Chat();
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        var router = new RemoteCommandRouter(store, main);
+        var result = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.UpdateInteraction)
+            .With("chatId", chat.Id.ToString()).With("messageId", Guid.NewGuid().ToString())
+            .With("blockId", "missing").With("state", "{}").With("action", "execute"), CancellationToken.None);
+        Assert.False(result.Ok);
+        Assert.Empty(chat.Messages);
+    });
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

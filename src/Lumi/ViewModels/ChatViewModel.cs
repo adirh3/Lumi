@@ -1423,14 +1423,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private bool IsPendingQuestion(string questionId)
     {
         lock (_pendingQuestionsSync)
-            return _pendingQuestions.ContainsKey(questionId);
+            return _pendingQuestions.TryGetValue(questionId, out var completion) && !completion.Task.IsCompleted;
     }
 
     private bool HasPendingQuestion(Guid chatId)
     {
         lock (_pendingQuestionsSync)
         {
-            if (_pendingQuestionChatIds.Values.Contains(chatId))
+            if (_pendingQuestionChatIds.Any(pair => pair.Value == chatId
+                && _pendingQuestions.TryGetValue(pair.Key, out var completion) && !completion.Task.IsCompleted))
                 return true;
 
             var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
@@ -1438,7 +1439,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 message.ToolName == "ask_question"
                 && message.ToolStatus == "InProgress"
                 && message.QuestionId is { Length: > 0 } questionId
-                && _pendingQuestions.ContainsKey(questionId)) == true;
+                && _pendingQuestions.TryGetValue(questionId, out var tracked) && !tracked.Task.IsCompleted) == true;
         }
     }
 
@@ -1467,7 +1468,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Mirror first: even a surface disposed meanwhile must not leave the chat flagged as waiting.
             var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
             if (chat is not null)
-                chat.IsAwaitingInput = HasPendingQuestion(chatId);
+                RefreshInputWaitingState(chat);
 
             if (_isDisposed)
                 return;
@@ -1670,13 +1671,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnIsBusyChanged(bool value)
     {
+        OnPropertyChanged(nameof(CanSubmitInteractions));
         OnPropertyChanged(nameof(CanPauseChat));
         OnPropertyChanged(nameof(IsComposerBusy));
         OnPropertyChanged(nameof(HasBackgroundActivity));
         OnPropertyChanged(nameof(ShowInfoStrip));
         UpdateUserMessageEditState();
         NotifyContextActionAvailabilityChanged();
-        if (value && !IsPaused)
+        if (value && !IsPaused && !IsAwaitingInput)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
         else
         {
@@ -2569,6 +2571,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             try
             {
                 await _dataStore.LoadChatMessagesAsync(chat, loadToken);
+                if (!OwnsLiveChat(chat.Id) && InteractionHistory.SettleInterrupted(chat))
+                    await SaveChatAsync(chat, saveIndex: false, cancellationToken: loadToken);
 
                 if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
                     return;
@@ -2621,6 +2625,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             // Load messages from per-chat file if not already in memory
             await _dataStore.LoadChatMessagesAsync(chat, loadToken);
+            if (!OwnsLiveChat(chat.Id) && InteractionHistory.SettleInterrupted(chat))
+                await SaveChatAsync(chat, saveIndex: false, cancellationToken: loadToken);
 
             if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
                 return;
@@ -3347,7 +3353,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 Guid? reservedProjectId = null,
                 string? reservedProjectDirectory = null,
                 string? remoteDeviceId = null,
-                string? remoteRequestId = null)
+                string? remoteRequestId = null,
+                InteractionReceipt? interactionReceipt = null)
             {
             var accepted = new TaskCompletionSource<ExternalMessageStartResult>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -3371,7 +3378,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         reservedProjectId: reservedProjectId,
                         reservedProjectDirectory: reservedProjectDirectory,
                         remoteDeviceId: remoteDeviceId,
-                        remoteRequestId: remoteRequestId).ConfigureAwait(true);
+                        remoteRequestId: remoteRequestId,
+                        interactionReceipt: interactionReceipt).ConfigureAwait(true);
 
                     // A completed no-op path is still an accepted request.
                     accepted.TrySetResult(ExternalMessageStartResult.Success);
@@ -3397,7 +3405,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             string? reservedProjectDirectory = null,
             string? remoteDeviceId = null,
             string? remoteRequestId = null,
-            Action? validateBeforeSend = null)
+            Action? validateBeforeSend = null,
+            InteractionReceipt? interactionReceipt = null)
             {
             ArgumentNullException.ThrowIfNull(targetChat);
             validateBeforeSend?.Invoke();
@@ -3509,6 +3518,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Content = prompt,
             Author = author,
             RemoteRequestId = remoteRequestId,
+            InteractionReceipt = interactionReceipt,
             HasExternalModelSelection = hasModelOverride || hasEffortOverride,
             Model = hasModelOverride || hasEffortOverride ? modelRoute.SelectionToken : null,
             ReasoningEffort = hasModelOverride || hasEffortOverride
@@ -3606,6 +3616,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 needsSessionSetup = true;
 
             BeginChatLifecycleTurn(targetChat);
+            BeginInteractionReceiptTurn(runtime, userMsg);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             if (reservationToken is { } token)
             {
@@ -4666,6 +4677,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         BeginChatLifecycleTurn(targetChat);
+        BeginInteractionReceiptTurn(GetOrCreateRuntimeState(targetChat.Id), userMsg);
 
         CancellationTokenSource? cts = null;
         MessageOptions? sendOptions = null;
@@ -5503,6 +5515,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         var contextChat = targetChat ?? CurrentChat;
+        if (contextChat is not null)
+            builder.Append(InteractiveResponseState.BuildPromptContext(contextChat));
         if (contextChat is not null
             && _staleBackgroundJobPromptChats.Remove(contextChat.Id))
         {
@@ -5708,6 +5722,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Handles a send error by surfacing it as a status + error message in the transcript.</summary>
     private void HandleSendError(Exception ex, bool wasCancelledByUser, string? overrideMessage = null, Chat? chat = null)
     {
+        var receiptChat = chat ?? CurrentChat;
+        if (receiptChat is not null && _runtimeStates.TryGetValue(receiptChat.Id, out var receiptRuntime))
+            SetInteractionReceiptStatus(receiptRuntime, wasCancelledByUser ? "Stopped" : "Failed", wasCancelledByUser ? null : overrideMessage ?? ex.Message);
         if (ex is OperationCanceledException && wasCancelledByUser)
             return; // Cancelled by StopGeneration — expected
 

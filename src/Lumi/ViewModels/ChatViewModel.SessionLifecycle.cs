@@ -443,7 +443,10 @@ public partial class ChatViewModel
                 reasoningStream?.Clear();
 
                 if (IsAuthoritativeSession())
+                {
                     ReconcileInProgressSubagentTools(chat, "Failed");
+                    SettleInterruptedInteractionReceipt(runtime);
+                }
                 MarkRuntimeTerminal(runtime);
                 if (IsAuthoritativeSession())
                 {
@@ -875,6 +878,7 @@ public partial class ChatViewModel
 
         void CompleteAssistantResponse(bool updateDisplayed)
         {
+            SetInteractionReceiptStatus(runtime, runtime.ManualStopRequested ? "Stopped" : "ReplyReady");
             var wasBusy = runtime.IsBusy;
             FinalizeCompletedTurnStreams(updateDisplayed);
             AttachPendingSourcesToFinalAssistantMessage();
@@ -2596,6 +2600,10 @@ public partial class ChatViewModel
 
     private static void MarkRuntimeTerminal(ChatRuntimeState runtime, string? statusText = null)
     {
+        if (runtime.ManualStopRequested || runtime.Chat?.IsPaused == true)
+            SetInteractionReceiptStatus(runtime, "Stopped");
+        else if (!string.IsNullOrEmpty(statusText))
+            SetInteractionReceiptStatus(runtime, "Failed", statusText);
         runtime.PauseGate.CancelWaiters();
         runtime.IsBusy = false;
         runtime.IsStreaming = false;
@@ -2788,6 +2796,7 @@ public partial class ChatViewModel
             _activeSession = null;
 
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        SettleInterruptedInteractionReceipt(runtime);
         MarkRuntimeTerminal(runtime);
         // The session is gone, so nothing can deliver a deferred send any more.
         FailQueuedBusySends(chat.Id);
@@ -2906,6 +2915,7 @@ public partial class ChatViewModel
             runtime.RunningBackgroundShells.Clear();
             if (runtime.Chat is { } runtimeChat)
                 ReconcileInProgressSubagentTools(runtimeChat, "Failed");
+            SettleInterruptedInteractionReceipt(runtime);
             MarkRuntimeTerminal(runtime);
         }
 

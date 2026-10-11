@@ -357,6 +357,13 @@ public class TranscriptBuilder
             or "task_complete" or "read_agent" or "list_agents")
             return;
 
+        if (toolName == "ask_input")
+        {
+            if (IsRebuildingTranscript && msgVm.Message.InputDefinition is not null)
+                AddInputRequest(msgVm.Message);
+            return;
+        }
+
         if (toolName is "ask_question")
         {
             if (IsRebuildingTranscript)
@@ -1417,6 +1424,17 @@ public class TranscriptBuilder
             FlushPendingPlanCard();
             FlushPendingModelLabel();
             FinalizeCurrentTurn();
+
+            if (msgVm.Message.InteractionReceipt is not null)
+            {
+                var receipt = new InteractionReceiptItem(msgVm.Message);
+                if (!IsRebuildingTranscript && _dataStore.Data.Settings.ShowAnimations)
+                    receipt.RequestEntranceAnimation();
+                AppendToCurrentTurn(receipt, TurnStableIdFor($"message:{msgVm.Message.Id}"));
+                BeginFileChipTurn(msgVm.Message.Id);
+                FinalizeCurrentTurn();
+                return;
+            }
 
             // Only show skills that haven't been displayed yet in this transcript
             var newSkills = msgVm.Message.ActiveSkills
@@ -2547,6 +2565,18 @@ public class TranscriptBuilder
         CloseCurrentToolGroup();
         var card = new QuestionItem(questionId, question, optionsList, allowFreeText, _submitQuestionAnswerAction, allowMultiSelect);
         AppendToCurrentTurn(card, TurnStableIdFor($"question:{questionId}"));
+    }
+
+    public void AddInputRequest(ChatMessage message)
+    {
+        CloseCurrentToolGroup();
+        if (_liveTarget?.SelectMany(turn => turn.Items).OfType<InputRequestItem>()
+                .FirstOrDefault(item => item.Message.Id == message.Id) is { } existing)
+        {
+            existing.Refresh();
+            return;
+        }
+        AppendToCurrentTurn(new InputRequestItem(message), TurnStableIdFor($"input:{message.Id}"));
     }
 
     private void AppendToCurrentTurn(TranscriptItem item, string turnStableId)

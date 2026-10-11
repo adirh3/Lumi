@@ -150,6 +150,7 @@ public partial class ChatViewModel
         tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool(chatId));
         tools.Add(BuildAskQuestionTool(chatId));
+        tools.Add(BuildAskInputTool(chatId));
         tools.AddRange(BuildLumiManagementTools(chatId, skillProvider));
         tools.AddRange(BuildWebTools());
         if (NativeBrowserLogic.IsEmbeddedBrowserAvailable)
@@ -880,6 +881,7 @@ public partial class ChatViewModel
             return;
 
         chat.IsAwaitingInput = true;
+        RefreshInputWaitingState(chat);
 
         var toolMessage = chat.Messages.LastOrDefault(message =>
             message.ToolName == "ask_question"

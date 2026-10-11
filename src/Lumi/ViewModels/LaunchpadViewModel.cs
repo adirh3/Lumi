@@ -442,7 +442,7 @@ public sealed partial class LaunchpadViewModel : ObservableObject
         for (var index = chat.Messages.Count - 1; index >= 0; index--)
         {
             var message = chat.Messages[index];
-            if (message.ToolName == "ask_question"
+            if (message.ToolName is "ask_question" or "ask_input"
                 && message.ToolStatus == "InProgress"
                 && !string.IsNullOrWhiteSpace(message.QuestionText))
             {

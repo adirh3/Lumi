@@ -41,6 +41,8 @@ namespace Lumi.Remote.Protocol;
 [JsonSerializable(typeof(RemoteStreamDelta))]
 [JsonSerializable(typeof(RemoteTranscriptInvalidated))]
 [JsonSerializable(typeof(RemoteQuestion))]
+[JsonSerializable(typeof(RemoteInputRequest))]
+[JsonSerializable(typeof(RemoteInteractionReceipt))]
 [JsonSerializable(typeof(RemoteChip))]
 [JsonSerializable(typeof(List<RemoteChip>))]
 [JsonSerializable(typeof(RemoteChatPage))]

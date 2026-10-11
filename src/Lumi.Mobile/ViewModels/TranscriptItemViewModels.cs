@@ -130,6 +130,25 @@ public sealed partial class JobWakeItemViewModel : TranscriptItemViewModel
 
 public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
 {
+    private readonly Dictionary<string, string> _pendingInteractionStates = [];
+    [ObservableProperty] private IReadOnlyDictionary<string, string>? _interactionStates;
+    [ObservableProperty] private string _interactionLanguage = "en";
+
+    internal void StageInteractionState(string blockId, string json)
+    {
+        _pendingInteractionStates[blockId] = json;
+        var values = InteractionStates is null ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(InteractionStates);
+        values[blockId] = json;
+        InteractionStates = values;
+    }
+
+    internal void ConfirmInteractionState(string blockId, string json)
+    {
+        if (_pendingInteractionStates.GetValueOrDefault(blockId) == json)
+            _pendingInteractionStates.Remove(blockId);
+    }
+
     private readonly Action<AssistantItemViewModel>? _openSources;
     private readonly Func<
         string,
@@ -209,6 +228,17 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         }
         IsStreaming = item.IsStreaming;
         Model = item.Model;
+        InteractionLanguage = item.InteractionLanguage ?? "en";
+        var states = item.InteractionStates is null ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(item.InteractionStates);
+        foreach (var pending in _pendingInteractionStates.ToArray())
+        {
+            if (states.GetValueOrDefault(pending.Key) == pending.Value)
+                _pendingInteractionStates.Remove(pending.Key);
+            else
+                states[pending.Key] = pending.Value;
+        }
+        InteractionStates = states;
 
         Sources.Clear();
         foreach (var source in item.Sources ?? [])
@@ -859,12 +889,14 @@ public static class TranscriptItemFactory
     {
         RemoteProtocol.ItemKinds.User when RemoteJobWake.IsJobWake(item.Author, item.Text) =>
             new JobWakeItemViewModel(item, openJobWake),
+        RemoteProtocol.ItemKinds.User when item.InteractionReceipt is not null => new InteractionReceiptItemViewModel(item),
         RemoteProtocol.ItemKinds.User => new UserTurnItemViewModel(item),
         RemoteProtocol.ItemKinds.Activity => new ActivitySummaryItemViewModel(item, openActivity),
         RemoteProtocol.ItemKinds.Reasoning => new ReasoningItemViewModel(item),
         RemoteProtocol.ItemKinds.ToolGroup or RemoteProtocol.ItemKinds.Tool => new ToolGroupItemViewModel(item),
         RemoteProtocol.ItemKinds.Terminal => new TerminalItemViewModel(item),
         RemoteProtocol.ItemKinds.Question => new QuestionItemViewModel(item),
+        RemoteProtocol.ItemKinds.Input => new InputRequestItemViewModel(item),
         RemoteProtocol.ItemKinds.Error => new ErrorItemViewModel(item),
         RemoteProtocol.ItemKinds.File => new FileItemViewModel(item),
 
@@ -879,6 +911,7 @@ public static class TranscriptItemFactory
     /// <summary>True when an existing row can be updated in place instead of being replaced.</summary>
     public static bool CanReuse(TranscriptItemViewModel existing, RemoteTranscriptItem item) =>
         existing.Id == item.Id && existing.Kind == item.Kind
+        && (existing is InteractionReceiptItemViewModel) == (item.InteractionReceipt is not null)
         && (existing is JobWakeItemViewModel) == (item.Kind == RemoteProtocol.ItemKinds.User
             && RemoteJobWake.IsJobWake(item.Author, item.Text));
 }

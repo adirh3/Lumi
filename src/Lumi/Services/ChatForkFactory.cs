@@ -227,6 +227,9 @@ public static class ChatForkFactory
             var copy = CopyMessage(source);
             copiedIds[source.Id] = copy.Id;
             copy.ReplyTo = RepointReply(source.ReplyTo, copiedIds);
+            if (copy.InteractionReceipt is { } receipt
+                && copiedIds.TryGetValue(receipt.SourceMessageId, out var copiedSourceId))
+                receipt.SourceMessageId = copiedSourceId;
             copies.Add(copy);
         }
 
@@ -264,6 +267,8 @@ public static class ChatForkFactory
         copy.IsStreaming = false;
         copy.IsPendingPausedSend = false;
         copy.ToolStatus = NormalizeToolStatus(copy.ToolStatus);
+        if (copy.InteractionReceipt is { Status: "Submitted" or "Working" } receipt)
+            receipt.Status = "Stopped";
         return copy;
     }
 

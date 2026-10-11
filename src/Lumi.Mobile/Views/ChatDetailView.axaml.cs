@@ -25,6 +25,7 @@ namespace Lumi.Mobile.Views;
 
 public partial class ChatDetailView : UserControl
 {
+    public Panel? InteractivePickerHost => this.FindControl<Panel>("ChatRoot");
     private MobilePresenceController? _presence;
     private MobileShellViewModel? _shell;
     private StrataChatComposer? _composer;
@@ -59,10 +60,14 @@ public partial class ChatDetailView : UserControl
     private bool _chatEntranceQueued;
     private IDisposable? _loadingDelay;
     private bool _transcriptWidthHeld;
+    private StrataInteractiveBlock? _pickerOwner;
 
     public ChatDetailView()
     {
         InitializeComponent();
+        AddHandler(StrataInteractiveBlock.RequestedEvent, OnInteractiveRequest);
+        AddHandler(StrataActionReceipt.SourceRequestedEvent, OnInteractionSourceRequested);
+        AddHandler(StrataInteractiveBlock.PickerPresentationChangedEvent, OnPickerPresentationChanged);
         AddHandler(PointerPressedEvent, OnSurfacePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         LayoutUpdated += (_, _) =>
         {
@@ -106,6 +111,64 @@ public partial class ChatDetailView : UserControl
         if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
             transcript.IsHitTestVisible = true;
         base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnInteractiveRequest(object? sender, InteractiveRequestEventArgs request)
+    {
+        if (_shell is null || request.Source is not Control { DataContext: TranscriptItemViewModel item }
+            || item is not (AssistantItemViewModel or InputRequestItemViewModel))
+        {
+            request.Completion = Task.FromResult(new InteractiveActionResult(false, "That answer is no longer open."));
+            request.Handled = true;
+            return;
+        }
+        if (!_shell.Chat.SupportsInteractiveResponses && request.Action is null)
+        {
+            request.Handled = true;
+            return;
+        }
+        request.Completion = _shell.Chat.RequestInteractionAsync(
+            item.Id, request.Definition.Id, request.StateJson, request.Action);
+        request.Handled = true;
+    }
+
+    private async void OnInteractionSourceRequested(object? sender, RoutedEventArgs args)
+    {
+        if (_shell is null || args.Source is not Control { DataContext: InteractionReceiptItemViewModel item })
+            return;
+        args.Handled = true;
+        var shell = _shell;
+        var chatId = shell.Chat.ChatId;
+        var sourceId = item.Receipt.SourceMessageId.ToString("N");
+        while (!shell.Chat.Turns.SelectMany(turn => turn.Items).Any(item => item.Id == sourceId)
+            && shell.Chat.HasEarlierMessages && shell.Chat.CanNavigateTranscript)
+        {
+            var start = shell.Chat.WindowStartMessageIndex;
+            await shell.LoadEarlierActivityCommand.ExecuteAsync(null);
+            if (_shell != shell || shell.Chat.ChatId != chatId || shell.Chat.WindowStartMessageIndex >= start)
+                break;
+        }
+        if (shell.Chat.ChatId != chatId) return;
+        var source = shell.Chat.Turns.SelectMany(turn => turn.Items).FirstOrDefault(item => item.Id == sourceId);
+        if (source is null)
+        {
+            shell.Chat.ErrorText = InteractiveLabels.ForLanguage(item.Language)["sourceUnavailable"];
+            return;
+        }
+        var turn = shell.Chat.Turns.First(turn => turn.Items.Contains(source));
+        if (this.FindControl<ItemsControl>("Transcript") is { } transcript)
+        {
+            transcript.GetVisualDescendants().OfType<TranscriptTurnView>()
+                .FirstOrDefault(view => ReferenceEquals(view.DataContext, turn))?.BringIntoView();
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        }
+        var target = this.GetVisualDescendants().OfType<StrataInteractiveBlock>()
+            .FirstOrDefault(control => control.DataContext is AssistantItemViewModel answer && answer.Id == sourceId
+                && control.Definition?.Id == item.Receipt.BlockId);
+        if (target is null)
+            shell.Chat.ErrorText = InteractiveLabels.ForLanguage(item.Language)["sourceUnavailable"];
+        target?.BringIntoView();
+        target?.Focus();
     }
 
     private void AttachNativeComposerEditor()
@@ -880,6 +943,24 @@ public partial class ChatDetailView : UserControl
             RequestFollow(newContent: false);
     }
 
+    private void OnPickerPresentationChanged(object? sender, InteractivePickerEventArgs args) =>
+        SetPickerOwner(args.IsPresented ? args.Source as StrataInteractiveBlock : null);
+
+    // Tracking the owner lets system Back close its sheet, and a removed owner (chat switch, reset)
+    // cannot leave the chat believing a sheet still covers it.
+    private void SetPickerOwner(StrataInteractiveBlock? owner)
+    {
+        if (_pickerOwner is not null)
+            _pickerOwner.DetachedFromVisualTree -= OnPickerOwnerDetached;
+        _pickerOwner = owner;
+        if (owner is not null)
+            owner.DetachedFromVisualTree += OnPickerOwnerDetached;
+        if (_shell is not null)
+            _shell.Chat.IsInteractivePickerOpen = owner is not null;
+    }
+
+    private void OnPickerOwnerDetached(object? sender, VisualTreeAttachmentEventArgs e) => SetPickerOwner(null);
+
     private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MobileChatViewModel.IsWorking))
@@ -910,6 +991,13 @@ public partial class ChatDetailView : UserControl
 
         if (e.PropertyName == nameof(MobileChatViewModel.IsLoading) && _awaitingChatEntrance)
             QueueChatEntrance();
+
+        if (e.PropertyName == nameof(MobileChatViewModel.IsInteractivePickerOpen)
+            && _shell?.Chat.IsInteractivePickerOpen == false && _pickerOwner is { } pickerOwner)
+        {
+            pickerOwner.ClosePicker();
+            return;
+        }
 
         if (e.PropertyName == nameof(MobileChatViewModel.HasOpenSheet))
         {

@@ -141,6 +141,54 @@ public partial class ChatView : UserControl
             ApplyShellChrome();
     }
 
+    private void OnInteractiveRequest(object? sender, InteractiveRequestEventArgs request)
+    {
+        var messageId = request.Source is Control control ? control.DataContext switch
+        {
+            AssistantMessageItem item => item.MessageId,
+            InputRequestItem item => item.Message.Id,
+            _ => (Guid?)null
+        } : null;
+        request.Handled = true;
+        // A local preview, such as a fence quoted in the user's own message, has nothing to save or send.
+        if (messageId is null)
+            return;
+        if (_subscribedVm is null)
+        {
+            request.Completion = Task.FromResult(new InteractiveActionResult(false, "That answer is no longer open."));
+            return;
+        }
+        request.Completion = _subscribedVm.RequestInteractionAsync(
+            messageId.Value, request.Definition.Id, request.StateJson, request.Action);
+    }
+
+    private async void OnInteractionSourceRequested(object? sender, RoutedEventArgs args)
+    {
+        if (_subscribedVm?.CurrentChat is not { } chat
+            || args.Source is not Control { DataContext: InteractionReceiptItem item })
+            return;
+        args.Handled = true;
+        var sourceId = item.Receipt.SourceMessageId;
+        if (!chat.Messages.Any(message => message.Id == sourceId))
+        {
+            _subscribedVm.StatusText = InteractiveLabels.ForLanguage(Loc.Culture.Name)["sourceUnavailable"];
+            return;
+        }
+        var sourceTurn = _subscribedVm.TranscriptTurns.FirstOrDefault(turn => turn.Items.Any(child =>
+            child is AssistantMessageItem assistant && assistant.MessageId == sourceId));
+        if (sourceTurn is null) return;
+        var realized = await EnsureTurnRealizedAsync(sourceTurn);
+        var target = realized?.GetVisualDescendants().OfType<StrataInteractiveBlock>()
+            .FirstOrDefault(control => control.Definition?.Id == item.Receipt.BlockId);
+        if (target is null || _transcriptScrollViewer is null) return;
+        if (target.TranslatePoint(default, _transcriptScrollViewer) is { } position)
+        {
+            _chatShell?.PreserveViewport();
+            _chatShell?.ScrollToVerticalOffset(Math.Max(0, _chatShell.VerticalOffset + position.Y - 48));
+        }
+        target.Focus();
+    }
+
     private void InitializeComponent()
     {
         AvaloniaXamlLoader.Load(this);
@@ -198,6 +246,8 @@ public partial class ChatView : UserControl
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
         AddHandler(StrataChatMessage.ReplyRequestedEvent, OnReplyRequested);
         AddHandler(StrataChatMessage.ShareRequestedEvent, OnSharePromptRequested);
+        AddHandler(StrataInteractiveBlock.RequestedEvent, OnInteractiveRequest);
+        AddHandler(StrataActionReceipt.SourceRequestedEvent, OnInteractionSourceRequested);
         AddHandler(KeyDownEvent, OnLinkedChatKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnEmptyComposerScrollKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnTranscriptScrollKeyDown, RoutingStrategies.Bubble);
@@ -2082,6 +2132,8 @@ public partial class ChatView : UserControl
     {
         return dataContext switch
         {
+            InteractionReceiptItem receipt => CreatePayload(receipt.Receipt.Detail, [], [], []),
+            InputRequestItem input => CreatePayload(input.Message.ToolOutput ?? input.Definition.Title, [], [], []),
             UserMessageItem user => CreatePayload(
                 user.Content,
                 user.Attachments.Select(static a => a.FilePath),
@@ -2421,6 +2473,8 @@ public partial class ChatView : UserControl
                 var content = item switch
                 {
                     UserMessageItem u => u.Content,
+                    InteractionReceiptItem receipt => receipt.Receipt.Title + "\n" + receipt.Receipt.Summary + "\n" + receipt.Receipt.Detail,
+                    InputRequestItem input => input.Definition.Title + "\n" + input.Definition.Description,
                     JobWakeItem j => j.SearchText,
                     AssistantMessageItem a => a.Content,
                     ErrorMessageItem err => err.Content,

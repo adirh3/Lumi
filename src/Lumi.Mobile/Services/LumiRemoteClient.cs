@@ -129,6 +129,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     public int ConnectedProtocolVersion => _compatibleProtocolVersion;
     public bool SupportsScopedEvents =>
         _capabilities.Contains(RemoteProtocol.Capabilities.ScopedEventsV1);
+    public bool SupportsInteractiveResponses =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.InteractiveResponsesV1);
     public bool SupportsCompactTranscript =>
         _capabilities.Contains(RemoteProtocol.Capabilities.CompactTranscriptV1);
     public bool SupportsFileSuggestions =>

@@ -20,6 +20,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
+- **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
@@ -130,6 +131,64 @@ turned on, Auto uses the default external model. Stale or removed connections fa
 explicitly instead of sending context to GitHub; an explicit Copilot background
 choice is still blocked by BYOK Only. Existing Copilot and manual BYOK
 configurations remain supported under **Advanced endpoints & models**.
+
+### Interactive answers
+
+Lumi can choose a native control when it makes the next step easier. Every control shares one
+calm card language: an icon tile and title, the content, and a single action row. Short status
+(progress, selection count, "Needs your input") sits in a pill or beside the actions instead of
+repeated footnotes.
+
+- **Forms** collect related text, numbers, dates, selections, and preferences in one place, with
+  validation before **Continue**. Short option sets become one-tap chips, numbers show their unit or
+  currency inline, and dates open a calendar. A single question still uses the existing question card.
+- **Checklists** save the items *you* checked, with an optional quantity or time beside each item
+  and a progress ring. Set `numbered` for a **step-by-step guide**: steps are numbered and the next
+  unchecked step is highlighted. **Help with the rest** (or **Help with the next step**) sends only
+  the unchecked items; a user checkmark never claims that Lumi executed or verified a task.
+- **Choices** are selectable cards you can **Use selected** or **Compare** (two or more). A filter
+  appears for longer lists; filtering is local and does not discard selections.
+- **Calculators** recalculate locally with a headline result: bill splitting, a monthly budget with
+  an allocation bar, savings projections with a growth chart, a fixed-rate **loan/mortgage**
+  payment with its principal/interest split, and recipe quantities in kitchen-friendly fractions.
+  **Use these numbers** sends the inputs and computed results. Savings and loan figures are
+  illustrative and exclude taxes, fees, insurance, and inflation.
+- **Quizzes** save answers, revealed hints, checked feedback, and position; options turn green or
+  red when checked and a score summary appears at the end. **Discuss results** submits the
+  completed quiz; checking answers does not make a model call.
+
+Meaningful edits are saved with their original answer and survive reopening or restarting.
+When the task needs input before it can proceed, **Request Input** (`ask_input`) presents a form
+or shortlist marked **Needs your input** and waits. Submitting returns the inputs to the **same
+task as a tool result**, without a new user message; the card then collapses to a one-line
+summary marked **Sent**, with **View inputs** for the exact values. **Cancel** ends it gracefully;
+Stop, session loss, and restart expire the request, which keeps a summary of the draft but cannot
+silently start a new task.
+
+Actions on a completed answer start a new turn, shown as a **compact action receipt**: a
+right-aligned bubble in your message color with an icon for the action, a short summary, and
+**View inputs** for the exact submitted snapshot. Beneath it, **Show original** jumps to the source
+control and a quiet status shows *Working…*, *Needs attention*, or *Stopped* (nothing once the
+reply is ready). Later source edits never rewrite that snapshot. Status is not a claim that an
+external purchase, booking, or background task succeeded. Forks retain the snapshot with correct
+source links and do not inherit live work.
+
+Only explicit action buttons submit input, through the existing chat/tool flow.
+They do not consume an unrelated composer draft or authorize purchases, messages, or destructive
+changes. Actions wait while the assistant is busy or paused; local exploration remains available.
+Desktop and mobile share the controls. Touch forms use larger targets and bottom-sheet choices;
+older desktop hosts remain usable for local previews but cannot save or submit the new interactions.
+
+The LLM-facing schemas and selection guidance live in `SystemPromptBuilder`. Native JSON fences
+are `form`, `checklist`, `results`, `calculator`, and `quiz`, with a stable `id` unique
+within the answer. Definitions are declarative; arbitrary scripts or formula execution are not
+supported. Malformed completed definitions show an explicit error and their source rather than
+silently becoming an empty response.
+
+For isolated Debug inspection, run
+`dotnet run --project src\Lumi\Lumi.csproj -- --debug-interactive-controls`.
+The UI Lab creates synthetic control and action-receipt chats in the harness's isolated data directory, never in normal
+history. Reuse that `LUMI_APPDATA_DIR` to verify state across a restart.
 
 ### CSV file previews
 

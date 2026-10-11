@@ -1161,6 +1161,7 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        OnPropertyChanged(nameof(IsAwaitingInput));
         _launchpadBaseline = null;
         ResetContextDetailsForChatChange(value);
         IsSessionActive = value?.IsSessionActive == true;

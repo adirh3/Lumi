@@ -235,6 +235,12 @@
         <!-- IsInline drops StrataMarkdown's card surface. An answer is the page, not a document
              pinned to it, and a card border here would just be a bubble by another name. -->
         <sc:StrataMarkdown Markdown="{Binding Text}"
+                           InteractionStates="{Binding InteractionStates}"
+                           InteractionLanguage="{Binding InteractionLanguage}"
+                           InteractionTouchMode="True"
+                           InteractionPickerHost="{Binding $parent[views:ChatDetailView].InteractivePickerHost}"
+                           InteractionsHosted="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.SupportsInteractiveResponses}"
+                           CanSubmitInteractions="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.CanSubmitInteractions}"
                            IsInline="True"
                            RetainContentOnDetach="True"
                            behaviors:NativeTextSelection.IsEnabled="True"
@@ -269,6 +275,20 @@
         </Button>
 
       </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:InputRequestItemViewModel">
+      <sc:StrataInteractiveBlock Definition="{Binding Definition}" StateJson="{Binding StateJson}"
+                                Language="{Binding Language}" InputStatus="{Binding InputStatus}"
+                                CanSubmit="{Binding CanSubmit}" IsHosted="True" TouchMode="True"
+                                PickerHost="{Binding $parent[views:ChatDetailView].InteractivePickerHost}" />
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:InteractionReceiptItemViewModel">
+      <sc:StrataActionReceipt Title="{Binding Receipt.Title}" Summary="{Binding Receipt.Summary}"
+                             Detail="{Binding Receipt.Detail}" Status="{Binding Receipt.Status}"
+                             Error="{Binding Receipt.Error}" Action="{Binding Receipt.Action}"
+                             Language="{Binding Language}" TouchMode="True" />
     </DataTemplate>
 
     <DataTemplate DataType="vm:WorkSummaryItemViewModel">

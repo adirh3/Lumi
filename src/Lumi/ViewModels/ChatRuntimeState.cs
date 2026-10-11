@@ -116,6 +116,7 @@ internal sealed class ChatRuntimeState
     public long PendingTurnSequence { get; set; }
 
     public long LifecycleTurnSequence { get; set; }
+    public Guid? InteractionReceiptMessageId { get; set; }
 
     public CancellationTokenSource? PostToolReconciliationCts { get; set; }
 

@@ -28,11 +28,11 @@ public partial class ChatViewModel
         return await browser.OpenAndSnapshotAsync(url);
     }
 
-    public void LoadDebugTranscriptFixture()
+    public void LoadDebugTranscriptFixture(Chat? preparedFixture = null)
     {
         ClearChat();
 
-        var fixture = DebugAgentHarness.CreateTranscriptFixtureChat(_dataStore);
+        var fixture = preparedFixture ?? DebugAgentHarness.CreateTranscriptFixtureChat(_dataStore);
 
         BrowserHideRequested?.Invoke();
         DiffHideRequested?.Invoke();
@@ -46,7 +46,7 @@ public partial class ChatViewModel
         IsStreaming = false;
         HasUsedBrowser = false;
         IsBrowserOpen = false;
-        StatusText = "Debug transcript fixture";
+        StatusText = preparedFixture is null ? "Debug transcript fixture" : "Interactive UI lab";
         TotalInputTokens = fixture.TotalInputTokens;
         TotalOutputTokens = fixture.TotalOutputTokens;
         fixture.ContextCurrentTokens = fixture.TotalInputTokens + fixture.TotalOutputTokens;
@@ -54,7 +54,7 @@ public partial class ChatViewModel
         fixture.ContextTokenLimit = 128000;
         ContextCurrentTokens = fixture.ContextCurrentTokens;
         ContextTokenLimit = fixture.ContextTokenLimit;
-        HasPlan = true;
+        HasPlan = !string.IsNullOrWhiteSpace(fixture.PlanContent);
         PlanContent = fixture.PlanContent;
         ActiveAgent = null;
         SelectedSdkAgentName = null;
@@ -79,7 +79,8 @@ public partial class ChatViewModel
             LoadDebugContextWindowDetails();
             PromptText = "";
             RebuildTranscript();
-            _transcriptBuilder.AppendPlanCardToLastTurn("Debug plan", () => PlanShowRequested?.Invoke());
+            if (preparedFixture is null)
+                _transcriptBuilder.AppendPlanCardToLastTurn("Debug plan", () => PlanShowRequested?.Invoke());
         }
         finally
         {
@@ -98,13 +99,17 @@ public partial class ChatViewModel
         // Seed representative suggestion chips so the post-turn suggestion row is inspectable in the
         // fixture. SuggestionA is intentionally long enough to truncate at the chip MaxWidth, which
         // exercises the hover tooltip that reveals the full suggestion text.
-        SuggestionA = "Walk me through exactly how the streaming token accumulator throttles UI updates during a very long assistant response";
-        SuggestionB = "Summarize the root cause";
-        SuggestionC = "Show the diff that fixed the freeze";
+        if (preparedFixture is null)
+        {
+            SuggestionA = "Walk me through exactly how the streaming token accumulator throttles UI updates during a very long assistant response";
+            SuggestionB = "Summarize the root cause";
+            SuggestionC = "Show the diff that fixed the freeze";
+        }
 
         // Feed this tail through the live collection path, not Rebuild, so the fixture exercises
         // progressive folding before a final answer (without sending anything to Copilot).
-        foreach (var message in DebugAgentHarness.CreateActivityTrailFixtureMessages())
+        foreach (var message in preparedFixture is null
+                     ? DebugAgentHarness.CreateActivityTrailFixtureMessages() : [])
         {
             fixture.Messages.Add(message);
             Messages.Add(new ChatMessageViewModel(message));

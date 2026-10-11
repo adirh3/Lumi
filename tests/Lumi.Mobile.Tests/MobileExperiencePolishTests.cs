@@ -824,6 +824,28 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         }, new FocusEditorFactory());
 
     [Fact]
+    public Task NativeComposerReturnsWhenAPresentedSheetIsRemoved() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            var editor = Assert.IsType<NativeComposerEditorHost>(
+                Required<StrataChatComposer>(view, "Composer").EditorContent);
+            var root = Required<Panel>(view, "ChatRoot");
+            var sheet = new StrataBottomSheet { Title = "Departure", Content = new Border { Height = 200 } };
+            root.Children.Add(sheet);
+            sheet.IsOpen = true;
+            Pump(window);
+            await Task.Delay(260);
+            Assert.True(shell.IsModalSheetPresented);
+            Assert.False(editor.IsVisible);
+
+            // An interactive answer's picker leaves the tree when it closes.
+            root.Children.Remove(sheet);
+            Pump(window);
+            Assert.False(shell.IsModalSheetPresented);
+            Assert.True(editor.IsVisible);
+        }, new FocusEditorFactory());
+
+    [Fact]
     public Task FoldSidebarExitRemainsVisibleAboveTheReservedHingePane() =>
         RunUiAsync(884, async (shell, view, window) =>
         {

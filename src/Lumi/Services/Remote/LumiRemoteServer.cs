@@ -2736,7 +2736,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _serverOwnershipLock = null;
     }
 
-    private static ChatMessage CloneMessageForRemote(ChatMessage message) =>
+    internal static ChatMessage CloneMessageForRemote(ChatMessage message) =>
         new()
         {
             Id = message.Id,
@@ -2758,6 +2758,11 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             QuestionOptions = message.QuestionOptions,
             QuestionAllowFreeText = message.QuestionAllowFreeText,
             QuestionAllowMultiSelect = message.QuestionAllowMultiSelect,
+            InputKind = message.InputKind, InputDefinition = message.InputDefinition,
+            InputAnswer = message.InputAnswer, InputCanceled = message.InputCanceled,
+            InteractionReceipt = message.InteractionReceipt?.Clone(),
+            InteractionStates = message.InteractionStates is null
+                ? null : new Dictionary<string, string>(message.InteractionStates, StringComparer.Ordinal),
             IsStreaming = message.IsStreaming,
             Model = message.Model,
             ReasoningEffort = message.ReasoningEffort,

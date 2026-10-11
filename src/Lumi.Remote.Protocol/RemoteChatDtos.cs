@@ -49,6 +49,7 @@ public sealed class RemoteChatStatus
     /// <summary>The main assistant is working, independently of background session activity.</summary>
     public bool IsBusy { get; set; }
     public bool IsStreaming { get; set; }
+    public bool IsAwaitingInput { get; set; }
     /// <summary>Remains true after the main assistant is ready until all session work finishes.</summary>
     public bool IsSessionActive { get; set; }
     /// <summary>Desktop-owned read state. Null when connected to a host predating read-state status.</summary>
@@ -180,6 +181,27 @@ public sealed class RemoteQuestion
     public string? Answer { get; set; }
 }
 
+public sealed class RemoteInputRequest
+{
+    public string Kind { get; set; } = "form";
+    public string Definition { get; set; } = "";
+    public string? StateJson { get; set; }
+    public string Status { get; set; } = "Expired";
+}
+
+public sealed class RemoteInteractionReceipt
+{
+    public Guid SourceMessageId { get; set; }
+    public string BlockId { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Summary { get; set; } = "";
+    public string Detail { get; set; } = "";
+    public string Status { get; set; } = "Submitted";
+    public string? Error { get; set; }
+    /// <summary>The submitted action (use, compare, submit, remaining, assumptions, discuss); presentation only.</summary>
+    public string? Action { get; set; }
+}
+
 /// <summary>
 /// One renderable row in the mobile transcript. A single flat shape (rather than a polymorphic
 /// hierarchy) keeps the wire format trim-safe, source-generator friendly and forward compatible:
@@ -210,7 +232,11 @@ public sealed class RemoteTranscriptItem
     public List<RemoteAttachment>? Attachments { get; set; }
     public List<RemoteSource>? Sources { get; set; }
     public List<RemoteInlineImage>? InlineImages { get; set; }
+    public Dictionary<string, string>? InteractionStates { get; set; }
+    public string? InteractionLanguage { get; set; }
     public RemoteQuestion? Question { get; set; }
+    public RemoteInputRequest? InputRequest { get; set; }
+    public RemoteInteractionReceipt? InteractionReceipt { get; set; }
     public Guid? LinkedChatId { get; set; }
 }
 

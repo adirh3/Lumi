@@ -44,7 +44,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// </summary>
     private bool _applyingServerState;
 
-    [ObservableProperty] private Guid _chatId;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
+    private Guid _chatId;
     [ObservableProperty] private string _title = "";
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
@@ -52,6 +54,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private string _promptText = "";
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
     private bool _isBusy;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
@@ -61,6 +64,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private bool _isSessionActive;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    [NotifyPropertyChangedFor(nameof(CanSubmitInteractions))]
     private bool _isLoading;
     [ObservableProperty] private string? _statusText;
     [ObservableProperty] private string? _errorText;
@@ -596,11 +600,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// The transcript-level "thinking" row. It is asserted optimistically in the same frame as the
     /// user's message, then yields only once another visible response row can take over.
     /// </summary>
-    public bool ShowThinking => (IsBusy || IsStreaming) && _awaitingVisibleActivity;
+    public bool ShowThinking => !IsAwaitingInput && (IsBusy || IsStreaming) && _awaitingVisibleActivity;
 
     public bool IsWorking => IsBusy || IsStreaming;
 
-    public string WorkingStatusText => !string.IsNullOrWhiteSpace(StatusText) ? StatusText!
+    public string WorkingStatusText => IsAwaitingInput ? "Waiting for your input"
+        : !string.IsNullOrWhiteSpace(StatusText) ? StatusText!
         : ShowThinking ? "Thinking…"
         : IsStreaming ? "Writing…"
         : "Working…";
@@ -899,6 +904,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>Whether any modal sheet currently covers the conversation.</summary>
     public bool HasOpenSheet =>
+        IsInteractivePickerOpen ||
         IsGitChangesOpen ||
         IsJobWakeSheetOpen ||
         IsSourcesSheetOpen ||
@@ -912,6 +918,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Closes the visually topmost chat sheet.</summary>
     internal bool DismissTopmostSheet()
     {
+        if (IsInteractivePickerOpen)
+        {
+            IsInteractivePickerOpen = false;
+            return true;
+        }
+
         if (IsJobWakeSheetOpen)
         {
             IsJobWakeSheetOpen = false;
@@ -1662,6 +1674,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsLoading = isLoading;
             DisposeTurns();
             Turns.Clear();
+            IsInteractivePickerOpen = false;
             ChatSurfaceReset?.Invoke();
             Suggestions.Clear();
             SkillChips.Clear();
@@ -2133,6 +2146,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsSessionActive = true;
 
         StatusText = status.StatusText;
+        IsAwaitingInput = status.IsAwaitingInput;
         ContextCurrentTokens = status.ContextCurrentTokens;
         ContextTokenLimit = status.ContextTokenLimit;
         PlanContent = status.PlanContent;
@@ -3731,6 +3745,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 /// <summary>Narrow seam so view models can issue commands without owning the transport.</summary>
 public interface IRemoteCommandSink
 {
+    bool SupportsInteractiveResponses => false;
     Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command);
 
     /// <summary>Sends a file to the PC. Lumi reads by path, so attaching means uploading first.</summary>

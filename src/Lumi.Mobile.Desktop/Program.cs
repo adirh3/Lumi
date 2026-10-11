@@ -28,12 +28,19 @@ public static class Program
 
         var device = ReadOption(args, "--device");
         var host = ReadOption(args, "--host");
+#if DEBUG
+        var interactiveProfile = ReadOption(args, "--interactive-controls");
+#endif
 
         App.DesktopWindowFactory = () =>
         {
             var window = new SimulatorWindow();
             if (device is { Length: > 0 })
                 window.Opened += (_, _) => window.SelectDevice(device);
+#if DEBUG
+            if (interactiveProfile is { Length: > 0 })
+                window.Opened += (_, _) => window.OpenInteractiveControls(interactiveProfile);
+#endif
             return window;
         };
 

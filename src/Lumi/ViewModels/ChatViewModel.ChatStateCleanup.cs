@@ -762,7 +762,7 @@ public partial class ChatViewModel
         foreach (var pendingQuestion in pendingQuestions)
             pendingQuestion.TrySetCanceled();
 
-        chat.IsAwaitingInput = false;
+        RefreshInputWaitingState(chat);
         return ExpireUnansweredQuestions(chat);
     }
 
@@ -774,7 +774,7 @@ public partial class ChatViewModel
         var expiredAt = DateTimeOffset.UtcNow;
         foreach (var msg in chat.Messages)
         {
-            if (msg.ToolName == "ask_question"
+            if (msg.ToolName is "ask_question" or "ask_input"
                 && (questionId is null || msg.QuestionId == questionId)
                 && msg.ToolStatus == "InProgress"
                 && string.IsNullOrEmpty(msg.ToolOutput))
@@ -798,6 +798,9 @@ public partial class ChatViewModel
                     {
                         q.IsExpired = true;
                     }
+                    if (item is InputRequestItem input
+                        && (questionId is null || input.Message.QuestionId == questionId))
+                        input.Refresh();
                 }
             }
         }

@@ -362,6 +362,8 @@ public partial class AssistantMessageItem : TranscriptItem
     public string HeaderLabel => string.IsNullOrWhiteSpace(ModelName) ? Loc.Chat_ModelNotRecorded : ModelName;
     public string? TimestampToolTip => string.IsNullOrEmpty(TimestampText) ? null : _source.TimestampToolTip;
     internal Guid MessageId => _source.Message.Id;
+    public IReadOnlyDictionary<string, string>? InteractionStates => _source.Message.InteractionStates;
+    internal void RefreshInteractionState() => OnPropertyChanged(nameof(InteractionStates));
     public ObservableCollection<SkillReference> Skills { get; } = [];
     public ObservableCollection<SkillChipItem> SkillChips { get; } = [];
     public ObservableCollection<FileAttachmentItem> FileAttachments { get; } = [];

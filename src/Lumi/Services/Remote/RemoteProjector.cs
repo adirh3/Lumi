@@ -261,6 +261,7 @@ internal static class RemoteProjector
             ChatId = chatId,
             IsBusy = isActive ? chatVm.IsBusy : chat.IsRunning || chatVm.IsAssistantBusy(chatId),
             IsStreaming = isActive && chatVm.IsStreaming,
+            IsAwaitingInput = chat.IsAwaitingInput,
             IsSessionActive = chat.IsSessionActive || chat.IsRunning
                               || isActive && (chatVm.IsSessionActive || chatVm.IsBusy || chatVm.IsStreaming),
             HasUnreadMessages = chat.HasUnreadMessages,
@@ -1325,6 +1326,24 @@ internal static class RemoteProjector
         ref RemoteTranscriptItem? toolGroup,
         IReadOnlySet<string>? runningBackgroundToolCallIds)
     {
+        if (message.ToolName == "ask_input" && message.InputKind is { } kind && message.InputDefinition is { } definition)
+        {
+            toolGroup = null;
+            turn.Items.Add(new RemoteTranscriptItem
+            {
+                Id = message.Id.ToString("N"), Kind = RemoteProtocol.ItemKinds.Input,
+                Timestamp = message.Timestamp, Text = message.QuestionText,
+                InteractionLanguage = Loc.Culture.Name,
+                InputRequest = new RemoteInputRequest
+                {
+                    Kind = kind, Definition = definition,
+                    StateJson = message.InputAnswer ?? message.InteractionStates?.Values.FirstOrDefault(),
+                    Status = message.InputCanceled ? "Canceled" : message.InputAnswer is not null ? "Submitted"
+                        : message.ToolStatus == "InProgress" ? "Waiting" : "Expired"
+                }
+            });
+            return;
+        }
         if (IsQuestion(message))
         {
             toolGroup = null;
@@ -1927,6 +1946,13 @@ internal static class RemoteProjector
             Author = message.Author,
             RequestId = message.RemoteRequestId,
             Timestamp = message.Timestamp,
+            InteractionReceipt = message.InteractionReceipt is { } receipt ? new RemoteInteractionReceipt
+            {
+                SourceMessageId = receipt.SourceMessageId, BlockId = receipt.BlockId,
+                Title = receipt.Title, Summary = receipt.Summary, Detail = receipt.Detail, Status = receipt.Status, Error = receipt.Error,
+                Action = receipt.Action
+            } : null,
+            InteractionLanguage = Loc.Culture.Name,
             SteerState = message.SteerDelivery == MessageSteerState.None
                 ? null
                 : message.SteerDelivery.ToString(),
@@ -1947,6 +1973,8 @@ internal static class RemoteProjector
         Timestamp = message.Timestamp,
         IsStreaming = message.IsStreaming,
         Model = message.Model,
+        InteractionStates = message.InteractionStates is null ? null : new Dictionary<string, string>(message.InteractionStates),
+        InteractionLanguage = Loc.Culture.Name,
         LinkedChatId = message.LinkedChatId,
         Label = message.LinkedChatTitle,
         Sources = BuildSources(message.Sources),
@@ -2045,6 +2073,7 @@ internal static class RemoteProjector
             ChatId = transcript.Status.ChatId,
             IsBusy = transcript.Status.IsBusy,
             IsStreaming = transcript.Status.IsStreaming,
+            IsAwaitingInput = transcript.Status.IsAwaitingInput,
             IsSessionActive = transcript.Status.IsSessionActive,
             HasUnreadMessages = transcript.Status.HasUnreadMessages,
             ContextCurrentTokens = transcript.Status.ContextCurrentTokens,
@@ -2357,6 +2386,7 @@ internal static class RemoteProjector
             ChatId = status.ChatId,
             IsBusy = status.IsBusy,
             IsStreaming = status.IsStreaming,
+            IsAwaitingInput = status.IsAwaitingInput,
             IsSessionActive = status.IsSessionActive,
             HasUnreadMessages = status.HasUnreadMessages,
             StatusText = BoundOptional(status.StatusText, RemoteProtocol.MobileStatusTextLimit),

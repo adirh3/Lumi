@@ -1278,6 +1278,8 @@
         <sc:StrataChatMessage.Content>
           <StackPanel Spacing="6">
             <lc:TranscriptTextContent Text="{Binding Content}"
+                                      InteractionStates="{Binding InteractionStates}"
+                                      CanSubmitInteractions="{Binding $parent[views:ChatView].((vm:ChatViewModel)DataContext).CanSubmitInteractions}"
                                       PreferPlainText="{Binding IsStreaming}"
                                       RenderMarkdownWhileStreaming="True" />
 
@@ -1702,6 +1704,19 @@
 
 
     <!-- ── Question card ────────────────────────────── -->
+    <DataTemplate DataType="vm:InputRequestItem">
+      <sc:StrataInteractiveBlock Definition="{Binding Definition}" StateJson="{Binding StateJson}"
+                                Language="{Binding Language}" InputStatus="{Binding InputStatus}"
+                                CanSubmit="{Binding CanSubmit}" IsHosted="True" />
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:InteractionReceiptItem">
+      <sc:StrataActionReceipt Title="{Binding Receipt.Title}" Summary="{Binding Receipt.Summary}"
+                             Detail="{Binding Receipt.Detail}" Status="{Binding Receipt.Status}"
+                             Error="{Binding Receipt.Error}" Action="{Binding Receipt.Action}"
+                             Language="{Binding Language}" Margin="0,4" />
+    </DataTemplate>
+
     <DataTemplate DataType="vm:QuestionItem">
       <sc:StrataQuestionCard Question="{Binding Question}"
                              OptionsList="{Binding OptionsList}"

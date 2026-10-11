@@ -45,6 +45,33 @@ public sealed class TranscriptTextContentHeadlessTests
     }
 
     [Fact]
+    public async Task OnlyAssistantAnswersHostLiveInteractions()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            const string fence = "```checklist\n{\"id\":\"pack\",\"title\":\"Pack\",\"items\":[{\"id\":\"a\",\"label\":\"Passport\"}]}\n```";
+            var quoted = new TranscriptTextContent { Text = fence };
+            var answer = new TranscriptTextContent
+            {
+                Text = fence,
+                DataContext = new AssistantMessageItem(
+                    new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = fence }), showTimestamps: false)
+            };
+            var window = new Window { Width = 640, Height = 480, Content = new StackPanel { Children = { quoted, answer } } };
+            window.Show();
+            try
+            {
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(Assert.IsType<StrataMarkdown>(quoted.Content).InteractionsHosted);
+                Assert.True(Assert.IsType<StrataMarkdown>(answer.Content).InteractionsHosted);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task StreamingReasoningMarkdown_CanRenderMarkdownWhenEnabled()
     {
         using var session = HeadlessTestSession.Start();

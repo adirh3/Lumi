@@ -35,6 +35,7 @@ class Program
 #if DEBUG
     /// <summary>When true, opens Lumi directly into the agent debug transcript fixture.</summary>
     public static bool OpenAgentDebugHarness { get; private set; }
+    public static bool OpenInteractiveControlsFixture { get; private set; }
 
     /// <summary>When true, debug automation starts in the main app without first-run onboarding.</summary>
     public static bool SkipOnboarding { get; private set; }
@@ -70,7 +71,8 @@ class Program
         ForceOnboarding = args.Contains("--onboarding", StringComparer.OrdinalIgnoreCase);
 
 #if DEBUG
-        OpenAgentDebugHarness = args.Any(DebugAgentHarness.IsUiHarnessFlag);
+        OpenInteractiveControlsFixture = args.Any(DebugAgentHarness.IsInteractiveControlsFlag);
+        OpenAgentDebugHarness = OpenInteractiveControlsFixture || args.Any(DebugAgentHarness.IsUiHarnessFlag);
         SkipOnboarding = args.Contains("--skip-onboarding", StringComparer.OrdinalIgnoreCase)
             || args.Contains("--no-onboarding", StringComparer.OrdinalIgnoreCase);
         if (OpenAgentDebugHarness)
