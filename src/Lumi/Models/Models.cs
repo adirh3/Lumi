@@ -259,7 +259,7 @@ public enum ByokApiKeyMode
     /// <summary>Use a plaintext key stored in data.json. Insecure — UI must warn.</summary>
     Stored = 2,
     /// <summary>
-    /// Store the key in the OS credential store (Windows Credential Manager). Nothing
+    /// Store the key in the OS credential store (Credential Manager, Keychain, or Secret Service). Nothing
     /// sensitive reaches <c>data.json</c>. Default mode on platforms that support it; the
     /// UI hides this option where <c>ISecureKeyStore.IsSupported</c> is false.
     /// </summary>
@@ -292,6 +292,9 @@ public sealed class ByokEndpoint : INotifyPropertyChanged
         get => _id;
         set { if (_id != value) { _id = value; OnPropertyChanged(nameof(Id)); } }
     }
+
+    public string? ConnectionProviderId { get; set; }
+    public DateTimeOffset? CredentialExpiresAt { get; set; }
 
     public string Name
     {

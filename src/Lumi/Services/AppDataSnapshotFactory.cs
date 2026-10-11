@@ -52,6 +52,8 @@ internal static class AppDataSnapshotFactory
                     .Select(e => new ByokEndpoint
                     {
                         Id = e.Id,
+                        ConnectionProviderId = e.ConnectionProviderId,
+                        CredentialExpiresAt = e.CredentialExpiresAt,
                         Name = e.Name,
                         ProviderType = e.ProviderType,
                         BaseUrl = e.BaseUrl,

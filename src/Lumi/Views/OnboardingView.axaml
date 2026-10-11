@@ -106,18 +106,18 @@
                 </Border>
               </StackPanel>
 
-              <!-- GitHub Sign-In (shared component) -->
+              <!-- Lumi's AI: GitHub Copilot first, any other AI account one click away -->
               <Border CornerRadius="{DynamicResource Radius.Base}"
                       Background="{DynamicResource Brush.Surface0}"
                       BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                      BorderThickness="1" Padding="16,14">
-                <StackPanel Spacing="10">
-                  <StackPanel Spacing="2">
-                    <TextBlock Text="{loc:Str Onboarding_SignInTitle}" FontWeight="SemiBold" FontSize="13" />
-                    <TextBlock Text="{loc:Str Onboarding_SignInDescription}"
+                      BorderThickness="1" Padding="6,14,6,6">
+                <StackPanel Spacing="6">
+                  <StackPanel Spacing="2" Margin="10,0">
+                    <TextBlock Text="{loc:Str EasyConnect_OnboardingTitle}" FontWeight="SemiBold" FontSize="13" />
+                    <TextBlock Text="{loc:Str EasyConnect_OnboardingDescription}"
                                FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" TextWrapping="Wrap" />
                   </StackPanel>
-                  <ctrl:GitHubLoginView x:Name="OnboardingLoginView" />
+                  <ctrl:EasyConnectView x:Name="OnboardingEasyConnect" DataContext="{Binding EasyConnect}" />
                 </StackPanel>
               </Border>
 
@@ -192,11 +192,11 @@
               <StackPanel Spacing="8">
                 <Button Classes="accent" Content="{loc:Str Onboarding_LearnAccept}"
                         Command="{Binding AcceptLearningCommand}"
-                        IsEnabled="{Binding IsAuthenticated}"
+                        IsEnabled="{Binding CanLearn}"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                         Padding="12,10" FontWeight="SemiBold" />
                 <TextBlock Text="{loc:Str Onboarding_LearnRequiresSignIn}"
-                           IsVisible="{Binding !IsAuthenticated}"
+                           IsVisible="{Binding !CanLearn}"
                            FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
                            HorizontalAlignment="Center" TextAlignment="Center"
                            TextWrapping="Wrap" />

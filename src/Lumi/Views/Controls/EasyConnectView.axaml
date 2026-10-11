@@ -1,0 +1,276 @@
+<!-- Lumi's AI accounts: GitHub Copilot first (the default), then every connected account, then a
+     way to add another. Used by Settings > AI & Models and by onboarding. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sa="using:StrataTheme.Animation"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:ctrl="using:Lumi.Views.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.Controls.EasyConnectView"
+             x:DataType="vm:EasyConnectViewModel"
+             x:CompileBindings="True">
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Controls/EasyConnectIcons.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
+    <Style Selector="TextBlock.acct-title">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.acct-caption">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="LineHeight" Value="17" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.acct-divider">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Margin" Value="10,2" />
+      <Setter Property="Background" Value="{DynamicResource Brush.BorderSubtle}" />
+    </Style>
+    <Style Selector="Border.acct-chip">
+      <Setter Property="Padding" Value="7,1,8,2" />
+    </Style>
+    <Style Selector="Border.acct-chip TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+    </Style>
+    <Style Selector="Panel.acct-add-tile">
+      <Setter Property="Width" Value="40" />
+      <Setter Property="Height" Value="40" />
+    </Style>
+    <Style Selector="Panel.acct-add-tile Rectangle">
+      <Setter Property="RadiusX" Value="11" />
+      <Setter Property="RadiusY" Value="11" />
+      <Setter Property="Stroke" Value="{DynamicResource Brush.BorderStrong}" />
+      <Setter Property="StrokeThickness" Value="1.2" />
+      <Setter Property="StrokeDashArray" Value="3,2.5" />
+    </Style>
+    <Style Selector="Panel.acct-add-tile PathIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.acct-more">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.acct-more PathIcon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border.acct-code">
+      <Setter Property="Background" Value="{DynamicResource Mg.CodeBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="14,12" />
+      <Setter Property="Margin" Value="10,0,10,10" />
+    </Style>
+    <Style Selector="Button.acct-code-button">
+      <Setter Property="Padding" Value="10,5" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+    <Style Selector="Border.acct-pulse">
+      <Setter Property="Width" Value="7" />
+      <Setter Property="Height" Value="7" />
+      <Setter Property="CornerRadius" Value="3.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.1" />
+      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border.acct-confirm">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,10" />
+      <Setter Property="Margin" Value="0,4" />
+    </Style>
+  </UserControl.Styles>
+
+  <StackPanel Spacing="2">
+
+    <!-- ═══ GitHub Copilot — Lumi's default ═══ -->
+    <Border x:Name="GitHubAccountRow" Padding="10,10">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <ctrl:ProviderTile DataContext="{Binding GitHubBadge}" />
+        <StackPanel Grid.Column="1" Margin="12,0,10,0" Spacing="2" VerticalAlignment="Center">
+          <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="4">
+            <TextBlock Classes="acct-title" Text="{loc:Str EasyConnect_GitHubName}" />
+            <Border Classes="mg-chip accent acct-chip" IsVisible="{Binding IsGitHubDefault}">
+              <TextBlock Text="{loc:Str EasyConnect_Default}" />
+            </Border>
+            <Border Classes="mg-chip acct-chip" IsVisible="{Binding ShowGitHubRecommended}">
+              <TextBlock Text="{loc:Str EasyConnect_Recommended}" />
+            </Border>
+          </WrapPanel>
+          <TextBlock x:Name="GitHubAccountStatus" Classes="acct-caption" Text="{Binding GitHubDescription}" />
+          <TextBlock Classes="acct-caption" Text="{Binding GitHubUsageText}" IsVisible="{Binding HasGitHubUsage}" />
+        </StackPanel>
+        <Panel Grid.Column="2" VerticalAlignment="Center">
+          <Button x:Name="GitHubSignInButton" Classes="accent mg-button"
+                  Command="{Binding SignInGitHubCommand}" IsVisible="{Binding ShowGitHubSignIn}"
+                  IsEnabled="{Binding !IsGitHubSigningIn}">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <PathIcon Data="{StaticResource Ec.GitHub}" Width="13" Height="13" />
+              <TextBlock Text="{Binding GitHubSignInLabel}" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="GitHubMoreButton" Classes="subtle acct-more" IsVisible="{Binding IsGitHubSignedIn}"
+                  ToolTip.Tip="{loc:Str EasyConnect_MoreActions}" AutomationProperties.Name="{loc:Str EasyConnect_MoreActions}">
+            <PathIcon Data="{StaticResource Ec.More}" />
+            <Button.Flyout>
+              <MenuFlyout Placement="BottomEdgeAlignedRight">
+                <MenuItem Header="{loc:Str EasyConnect_SetDefault}" Command="{Binding MakeGitHubDefaultCommand}"
+                          IsVisible="{Binding CanMakeGitHubDefault}" />
+                <MenuItem Header="{loc:Str EasyConnect_SignOut}" Command="{Binding SignOutGitHubCommand}" />
+              </MenuFlyout>
+            </Button.Flyout>
+          </Button>
+        </Panel>
+      </Grid>
+    </Border>
+
+    <!-- GitHub device sign-in, shown only while it is in progress -->
+    <Border x:Name="GitHubSignInPanel" Classes="acct-code" IsVisible="{Binding IsGitHubSigningIn}">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="8">
+          <StackPanel Spacing="6" IsVisible="{Binding HasGitHubDeviceCode}">
+            <TextBlock Classes="acct-caption" Text="{loc:Str EasyConnect_GitHubCodeTitle}" />
+            <Button x:Name="GitHubCopyCodeButton" Classes="subtle acct-code-button" Command="{Binding CopyGitHubCodeCommand}"
+                    ToolTip.Tip="{loc:Str EasyConnect_GitHubCodeCopy}">
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="{Binding GitHubDeviceCode}" FontSize="20" FontWeight="Bold" LetterSpacing="2"
+                           FontFamily="{DynamicResource Font.FamilyMono}" Foreground="{DynamicResource Brush.AccentDefault}"
+                           VerticalAlignment="Center" />
+                <PathIcon Data="{StaticResource Ec.Copy}" Width="13" Height="13" VerticalAlignment="Center"
+                          Foreground="{DynamicResource Brush.TextTertiary}" IsVisible="{Binding !IsGitHubCodeCopied}" />
+                <PathIcon Data="{StaticResource Ec.Check}" Width="14" Height="14" VerticalAlignment="Center"
+                          Foreground="{DynamicResource Brush.SuccessDefault}" IsVisible="{Binding IsGitHubCodeCopied}" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Border Classes="acct-pulse" />
+            <TextBlock Classes="acct-caption" Text="{loc:Str EasyConnect_GitHubWaiting}" VerticalAlignment="Center" />
+          </StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
+          <Button Classes="mg-button" Command="{Binding OpenGitHubVerificationCommand}" IsVisible="{Binding HasGitHubDeviceCode}">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <TextBlock Text="{loc:Str EasyConnect_GitHubOpen}" />
+              <PathIcon Data="{StaticResource Ec.External}" Width="11" Height="11" />
+            </StackPanel>
+          </Button>
+          <Button Classes="subtle mg-button" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  Command="{Binding CancelGitHubSignInCommand}" Content="{loc:Str EasyConnect_Cancel}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+    <TextBlock Classes="acct-caption" Text="{Binding GitHubError}" IsVisible="{Binding HasGitHubError}"
+               Foreground="{DynamicResource Brush.DangerDefault}" Margin="10,0,10,8" />
+
+    <!-- ═══ Connected accounts ═══ -->
+    <ItemsControl x:Name="ConnectedAccounts" ItemsSource="{Binding Connections}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:ConnectedProviderCard">
+          <StackPanel>
+            <Border Classes="acct-divider" />
+            <Panel>
+              <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsConfirmingDisconnect}">
+                <Button x:Name="ConnectedAccountRow" Classes="mg-row" Command="{Binding ManageCommand}"
+                        AutomationProperties.Name="{Binding Name}">
+                  <Border Classes="mg-row-frame" Padding="10,10">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                      <ctrl:ProviderTile DataContext="{Binding Badge}" />
+                      <StackPanel Grid.Column="1" Margin="12,0,8,0" Spacing="2" VerticalAlignment="Center">
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="4">
+                          <TextBlock Classes="acct-title" Text="{Binding Name}" />
+                          <Border Classes="mg-chip accent acct-chip" IsVisible="{Binding IsDefault}">
+                            <TextBlock Text="{loc:Str EasyConnect_Default}" />
+                          </Border>
+                          <Border Classes="mg-chip warning acct-chip" IsVisible="{Binding IsExpired}">
+                            <TextBlock Text="{loc:Str EasyConnect_ExpiredChip}" />
+                          </Border>
+                        </WrapPanel>
+                        <TextBlock Classes="acct-caption" Text="{Binding Detail}" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                      <PathIcon Grid.Column="2" Classes="mg-row-chevron" Data="{StaticResource Ec.ChevronRight}" />
+                    </Grid>
+                  </Border>
+                </Button>
+                <Button Grid.Column="1" Classes="subtle acct-more" Margin="4,0,10,0" VerticalAlignment="Center"
+                        ToolTip.Tip="{loc:Str EasyConnect_MoreActions}" AutomationProperties.Name="{loc:Str EasyConnect_MoreActions}">
+                  <PathIcon Data="{StaticResource Ec.More}" />
+                  <Button.Flyout>
+                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                      <MenuItem Header="{loc:Str EasyConnect_ManageModels}" Command="{Binding ManageCommand}" />
+                      <MenuItem Header="{loc:Str EasyConnect_SetDefault}" Command="{Binding MakeDefaultCommand}"
+                                IsVisible="{Binding CanMakeDefault}" />
+                      <MenuItem Header="{loc:Str EasyConnect_Usage}" Command="{Binding UsageCommand}"
+                                IsVisible="{Binding HasUsageLink}" />
+                      <Separator />
+                      <MenuItem Header="{loc:Str EasyConnect_DisconnectMenu}" Command="{Binding RequestDisconnectCommand}" />
+                    </MenuFlyout>
+                  </Button.Flyout>
+                </Button>
+              </Grid>
+              <Border Classes="acct-confirm" IsVisible="{Binding IsConfirmingDisconnect}">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding DisconnectPrompt}" FontSize="12.5" LineHeight="18" TextWrapping="Wrap"
+                             VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextPrimary}" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0" VerticalAlignment="Center">
+                    <Button Classes="mg-button" Command="{Binding CancelDisconnectCommand}" Content="{loc:Str EasyConnect_Cancel}" />
+                    <Button Classes="danger mg-button" Command="{Binding ConfirmDisconnectCommand}" Content="{loc:Str EasyConnect_Disconnect}" />
+                  </StackPanel>
+                </Grid>
+              </Border>
+            </Panel>
+          </StackPanel>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <!-- ═══ Add another account ═══ -->
+    <Border Classes="acct-divider" />
+    <Button x:Name="AddAiAccountButton" Classes="mg-row" Command="{Binding OpenGalleryCommand}"
+            AutomationProperties.Name="{loc:Str EasyConnect_AddAccount}">
+      <Border Classes="mg-row-frame" Padding="10,10">
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <Panel Classes="acct-add-tile">
+            <Rectangle />
+            <PathIcon Data="{StaticResource Ec.Plus}" />
+          </Panel>
+          <StackPanel Grid.Column="1" Margin="12,0,8,0" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Classes="acct-title" Text="{loc:Str EasyConnect_AddAccount}" />
+            <TextBlock Classes="acct-caption" Text="{loc:Str EasyConnect_AddAccountHint}" />
+          </StackPanel>
+          <PathIcon Grid.Column="2" Classes="mg-row-chevron" Data="{StaticResource Ec.ChevronRight}" />
+        </Grid>
+      </Border>
+    </Button>
+    <TextBlock Classes="acct-caption" Text="{Binding Error}" IsVisible="{Binding ShowOverviewError}"
+               Foreground="{DynamicResource Brush.DangerDefault}" Margin="10,4,10,0" />
+  </StackPanel>
+</UserControl>

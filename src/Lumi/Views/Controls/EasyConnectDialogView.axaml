@@ -1,0 +1,674 @@
+<!-- Body of the "Add an AI account" dialog: the provider gallery, then Account → Model → Ready.
+     Its actions live in EasyConnectDialogFooter, pinned below this scrolling content. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sa="using:StrataTheme.Animation"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:ctrl="using:Lumi.Views.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.Controls.EasyConnectDialogView"
+             x:DataType="vm:EasyConnectViewModel"
+             x:CompileBindings="True"
+             Width="620">
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Controls/EasyConnectIcons.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
+
+    <!-- Type -->
+    <Style Selector="TextBlock.ec-name">
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="-0.2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.ec-strong">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.ec-hint">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="LineHeight" Value="17" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.ec-label">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+
+    <!-- Numbered guide step -->
+    <Style Selector="Border.ec-num">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mg.TileBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.ec-num TextBlock">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Account → Model → Ready -->
+    <Style Selector="Border.ec-step-dot">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.2" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.2" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.ec-step-dot.active, Border.ec-step-dot.done">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border.ec-step-dot TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.ec-step-dot.active TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="Border.ec-step-dot PathIcon">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="TextBlock.ec-step-label">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.ec-step-label.active">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.ec-step-label.done">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border.ec-step-line">
+      <Setter Property="Height" Value="2" />
+      <Setter Property="CornerRadius" Value="1" />
+      <Setter Property="Margin" Value="10,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.25" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.ec-step-line.done">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- Calls to action -->
+    <Style Selector="Button.ec-hero">
+      <Setter Property="Padding" Value="16,11" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.ec-hero TextBlock">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="Button.ec-hero PathIcon">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Information, errors, progress -->
+    <Style Selector="Border.ec-notice">
+      <Setter Property="Background" Value="{DynamicResource Mg.SectionBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="12,10" />
+    </Style>
+    <Style Selector="Border.ec-error">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,10" />
+    </Style>
+    <Style Selector="Border.ec-pulse">
+      <Setter Property="Width" Value="8" />
+      <Setter Property="Height" Value="8" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.9" />
+      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border.ec-progress-icon">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.ec-progress-icon.done">
+      <Setter Property="Background" Value="{DynamicResource Mg.SuccessBackground}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.ec-progress-icon.active">
+      <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
+    </Style>
+    <Style Selector="Border.ec-progress-icon PathIcon">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="Border.ec-success">
+      <Setter Property="Width" Value="64" />
+      <Setter Property="Height" Value="64" />
+      <Setter Property="CornerRadius" Value="32" />
+      <Setter Property="Background" Value="{DynamicResource Mg.SuccessBackground}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.ec-success PathIcon">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="Border.ec-or-line">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.BorderSubtle}" />
+    </Style>
+    <Style Selector="Button.mg-text-button.ec-centered">
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+
+  <Panel MinHeight="300">
+
+    <!-- ══════════════ PROVIDER GALLERY ══════════════ -->
+    <StackPanel x:Name="ProviderGallery" Spacing="20" IsVisible="{Binding IsGallery}">
+      <TextBox x:Name="ProviderSearch" Classes="mg-search" Text="{Binding Search}"
+               PlaceholderText="{loc:Str EasyConnect_Search}">
+        <TextBox.InnerLeftContent>
+          <PathIcon Data="{StaticResource Ec.Search}" Width="13" Height="13" Margin="11,0,3,0"
+                    Foreground="{DynamicResource Brush.TextTertiary}" />
+        </TextBox.InnerLeftContent>
+      </TextBox>
+
+      <ItemsControl x:Name="ProviderGroups" ItemsSource="{Binding ProviderGroups}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ProviderGroup">
+            <StackPanel Spacing="10" Margin="0,0,0,20">
+              <StackPanel Spacing="1">
+                <TextBlock Classes="mg-section-title" Text="{Binding Title}" />
+                <TextBlock Classes="mg-section-caption" Text="{Binding Caption}" />
+              </StackPanel>
+              <ItemsControl ItemsSource="{Binding Providers}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <ctrl:AdaptiveGridPanel MinItemWidth="250" ColumnSpacing="10" RowSpacing="10" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ProviderCard">
+                    <Button x:Name="ProviderCard" Classes="mg-card" Command="{Binding OpenCommand}"
+                            AutomationProperties.Name="{Binding Name}" ToolTip.Tip="{Binding Billing}">
+                      <Border Classes="mg-card-frame" Padding="13,12">
+                        <Grid ColumnDefinitions="Auto,*">
+                          <ctrl:ProviderTile DataContext="{Binding Badge}" VerticalAlignment="Top" />
+                          <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="3">
+                            <DockPanel>
+                              <Border DockPanel.Dock="Right" Classes="mg-chip success" Padding="6,1,7,2" Margin="6,0,0,0"
+                                      IsVisible="{Binding IsConnected}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                  <PathIcon Data="{StaticResource Ec.Check}" Width="9" Height="9" />
+                                  <TextBlock Text="{loc:Str EasyConnect_Connected}" FontSize="10.5" />
+                                </StackPanel>
+                              </Border>
+                              <TextBlock Classes="mg-card-title" Text="{Binding Name}" />
+                            </DockPanel>
+                            <TextBlock Classes="mg-card-text" Text="{Binding Description}" FontSize="12" LineHeight="17" />
+                            <TextBlock Classes="mg-meta" Text="{Binding MethodLabel}" Margin="0,1,0,0" />
+                          </StackPanel>
+                        </Grid>
+                      </Border>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <StackPanel IsVisible="{Binding !HasProviderResults}" Spacing="8" Margin="0,24,0,12" HorizontalAlignment="Center">
+        <TextBlock Classes="mg-empty-title" Text="{Binding NoProviderResultsText}" />
+        <TextBlock Classes="mg-empty-text" Text="{loc:Str EasyConnect_NoProvidersHint}" />
+        <Button Classes="mg-button" HorizontalAlignment="Center" Margin="0,6,0,0"
+                Command="{Binding UseCustomProviderCommand}" Content="{loc:Str EasyConnect_UseCustom}" />
+      </StackPanel>
+    </StackPanel>
+
+    <!-- ══════════════ CONNECT / MANAGE ══════════════ -->
+    <StackPanel x:Name="ProviderFlow" Spacing="20" IsVisible="{Binding ShowProviderHeader}">
+
+      <!-- Who you're connecting -->
+      <Grid ColumnDefinitions="Auto,*">
+        <ctrl:ProviderTile TileSize="52" DataContext="{Binding SelectedBadge}" VerticalAlignment="Top" />
+        <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="3" VerticalAlignment="Center">
+          <TextBlock x:Name="ConnectProviderName" Classes="ec-name" Text="{Binding SelectedName}" />
+          <TextBlock Classes="mg-section-caption" Text="{Binding SelectedDescription}" />
+          <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,4,0,0">
+            <Border Classes="mg-chip" Padding="8,2,9,3">
+              <TextBlock Text="{Binding SelectedBilling}" FontSize="11" />
+            </Border>
+            <Button Classes="mg-text-button" Command="{Binding OpenUsageCommand}" IsVisible="{Binding HasUsageLink}">
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <TextBlock Text="{loc:Str EasyConnect_Usage}" />
+                <PathIcon Data="{StaticResource Ec.External}" />
+              </StackPanel>
+            </Button>
+          </WrapPanel>
+        </StackPanel>
+      </Grid>
+
+      <!-- Account → Model → Ready -->
+      <Grid x:Name="ConnectStepper" ColumnDefinitions="Auto,*,Auto,*,Auto" IsVisible="{Binding ShowStepper}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Border Classes="ec-step-dot" Classes.active="{Binding IsAccountStepActive}" Classes.done="{Binding IsAccountStepDone}">
+            <Panel>
+              <TextBlock Text="1" IsVisible="{Binding !IsAccountStepDone}" />
+              <PathIcon Data="{StaticResource Ec.Check}" IsVisible="{Binding IsAccountStepDone}" />
+            </Panel>
+          </Border>
+          <TextBlock Classes="ec-step-label" Classes.active="{Binding IsAccountStepActive}" Classes.done="{Binding IsAccountStepDone}"
+                     Text="{loc:Str EasyConnect_StepAccount}" />
+        </StackPanel>
+        <Border Grid.Column="1" Classes="ec-step-line" Classes.done="{Binding IsAccountStepDone}" />
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+          <Border Classes="ec-step-dot" Classes.active="{Binding IsModelStepActive}" Classes.done="{Binding IsModelStepDone}">
+            <Panel>
+              <TextBlock Text="2" IsVisible="{Binding !IsModelStepDone}" />
+              <PathIcon Data="{StaticResource Ec.Check}" IsVisible="{Binding IsModelStepDone}" />
+            </Panel>
+          </Border>
+          <TextBlock Classes="ec-step-label" Classes.active="{Binding IsModelStepActive}" Classes.done="{Binding IsModelStepDone}"
+                     Text="{loc:Str EasyConnect_StepModel}" />
+        </StackPanel>
+        <Border Grid.Column="3" Classes="ec-step-line" Classes.done="{Binding IsModelStepDone}" />
+        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8">
+          <Border Classes="ec-step-dot" Classes.active="{Binding IsReadyStepActive}" Classes.done="{Binding IsReadyStepDone}">
+            <Panel>
+              <TextBlock Text="3" IsVisible="{Binding !IsReadyStepDone}" />
+              <PathIcon Data="{StaticResource Ec.Check}" IsVisible="{Binding IsReadyStepDone}" />
+            </Panel>
+          </Border>
+          <TextBlock Classes="ec-step-label" Classes.active="{Binding IsReadyStepActive}" Classes.done="{Binding IsReadyStepDone}"
+                     Text="{loc:Str EasyConnect_StepReady}" />
+        </StackPanel>
+      </Grid>
+
+      <!-- ── 1 · Account ── -->
+      <StackPanel x:Name="AccountStep" Spacing="16" IsVisible="{Binding IsAccountStage}">
+
+        <!-- Browser sign-in: the fast path -->
+        <StackPanel Spacing="10" IsVisible="{Binding ShowSignInChoice}">
+          <Button x:Name="ProviderSignIn" Classes="accent ec-hero" HorizontalAlignment="Stretch" Command="{Binding SignInCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Text="{Binding ContinueWithText}" />
+              <PathIcon Data="{StaticResource Ec.External}" />
+            </StackPanel>
+          </Button>
+          <TextBlock Classes="ec-hint" Text="{Binding SignInHint}" TextAlignment="Center" HorizontalAlignment="Center" />
+          <Grid ColumnDefinitions="*,Auto,*" Margin="0,6,0,0">
+            <Border Classes="ec-or-line" />
+            <TextBlock Grid.Column="1" Classes="ec-hint" Text="{loc:Str EasyConnect_Or}" Margin="12,0" />
+            <Border Grid.Column="2" Classes="ec-or-line" />
+          </Grid>
+          <Button x:Name="UseApiKeyInstead" Classes="mg-text-button ec-centered" Command="{Binding ToggleKeyEntryCommand}">
+            <TextBlock Text="{loc:Str EasyConnect_UseKeyInstead}" />
+          </Button>
+        </StackPanel>
+
+        <!-- Waiting for the browser -->
+        <Border x:Name="WaitingForBrowser" Classes="mg-inset" Padding="16,14" IsVisible="{Binding IsWaitingForBrowser}">
+          <Grid ColumnDefinitions="Auto,*">
+            <Border Classes="ec-progress-icon active" Margin="0,1,0,0" VerticalAlignment="Top">
+              <Border Classes="ec-pulse" />
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="4" Margin="12,0,0,0">
+              <TextBlock Classes="ec-strong" Text="{loc:Str EasyConnect_WaitingTitle}" />
+              <TextBlock Classes="ec-hint" Text="{Binding WaitingHint}" />
+              <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                <Button Classes="mg-button" Command="{Binding OpenAuthorizationCommand}" IsEnabled="{Binding HasAuthorizationUrl}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{loc:Str EasyConnect_OpenBrowser}" />
+                    <PathIcon Data="{StaticResource Ec.External}" Width="11" Height="11" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="subtle mg-button" Command="{Binding CancelCommand}" Content="{loc:Str EasyConnect_Cancel}" />
+              </StackPanel>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <!-- Local apps -->
+        <StackPanel Spacing="12" IsVisible="{Binding IsLocal}">
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <Border Classes="ec-num"><TextBlock Text="1" /></Border>
+            <TextBlock Grid.Column="1" Classes="ec-strong" Text="{Binding LocalInstallText}" Margin="10,0" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Classes="mg-button" Command="{Binding OpenKeyPageCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="{Binding LocalDownloadText}" />
+                <PathIcon Data="{StaticResource Ec.External}" Width="11" Height="11" />
+              </StackPanel>
+            </Button>
+          </Grid>
+          <Grid ColumnDefinitions="Auto,*">
+            <Border Classes="ec-num"><TextBlock Text="2" /></Border>
+            <TextBlock Grid.Column="1" Classes="ec-strong" Text="{loc:Str EasyConnect_LocalStep2}" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </Grid>
+        </StackPanel>
+
+        <Border Classes="mg-inset" Padding="12,10" IsVisible="{Binding IsFoundry}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="ec-hint" Text="{loc:Str EasyConnect_FoundryGuide}" />
+            <Button Classes="mg-button" HorizontalAlignment="Left" Command="{Binding OpenKeyPageCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="{loc:Str EasyConnect_OpenFoundry}" />
+                <PathIcon Data="{StaticResource Ec.External}" Width="11" Height="11" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+        </Border>
+
+        <!-- Server details (local, custom and Foundry) -->
+        <StackPanel Spacing="12" IsVisible="{Binding CanEditEndpoint}">
+          <StackPanel Spacing="6" IsVisible="{Binding IsCustom}">
+            <TextBlock Classes="ec-label" Text="{loc:Str EasyConnect_ApiType}" />
+            <Border Classes="mg-segmented" HorizontalAlignment="Left">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="mg-segment" Classes.selected="{Binding IsOpenAiType}"
+                        Command="{Binding SetProviderTypeCommand}" CommandParameter="openai" Content="{loc:Str EasyConnect_ApiOpenAi}" />
+                <Button Classes="mg-segment" Classes.selected="{Binding IsAzureType}"
+                        Command="{Binding SetProviderTypeCommand}" CommandParameter="azure" Content="{loc:Str EasyConnect_ApiAzure}" />
+                <Button Classes="mg-segment" Classes.selected="{Binding IsAnthropicType}"
+                        Command="{Binding SetProviderTypeCommand}" CommandParameter="anthropic" Content="{loc:Str EasyConnect_ApiAnthropic}" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+          <StackPanel Spacing="6">
+            <TextBlock Classes="ec-label" Text="{Binding ServerAddressLabel}" />
+            <TextBox x:Name="ConnectBaseUrl" Classes="mg-field mono" Text="{Binding BaseUrl}"
+                     PlaceholderText="{Binding ServerAddressPlaceholder}" />
+          </StackPanel>
+          <StackPanel Spacing="6" IsVisible="{Binding ShowWireChoice}">
+            <TextBlock Classes="ec-label" Text="{loc:Str EasyConnect_WireFormat}" />
+            <Border Classes="mg-segmented" HorizontalAlignment="Left">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="mg-segment" Classes.selected="{Binding IsCompletionsWire}"
+                        Command="{Binding SetWireApiCommand}" CommandParameter="completions" Content="{loc:Str EasyConnect_WireCompletions}" />
+                <Button Classes="mg-segment" Classes.selected="{Binding IsResponsesWire}"
+                        Command="{Binding SetWireApiCommand}" CommandParameter="responses" Content="{loc:Str EasyConnect_WireResponses}" />
+              </StackPanel>
+            </Border>
+            <TextBlock Classes="ec-hint" Text="{loc:Str EasyConnect_FoundryWireHint}" IsVisible="{Binding IsFoundry}" />
+          </StackPanel>
+          <StackPanel Spacing="6" IsVisible="{Binding IsAzureType}">
+            <TextBlock Classes="ec-label" Text="{loc:Str EasyConnect_AzureVersion}" />
+            <TextBox Classes="mg-field mono" Text="{Binding AzureApiVersion}" />
+          </StackPanel>
+          <CheckBox x:Name="RequiresApiKeyToggle" Content="{loc:Str EasyConnect_RequiresKey}"
+                    IsChecked="{Binding RequiresApiKey}" IsVisible="{Binding !IsFoundry}" />
+        </StackPanel>
+
+        <!-- API key -->
+        <StackPanel Spacing="12" IsVisible="{Binding ShowKeyEntry}">
+          <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding ShowKeyGuide}">
+            <Border Classes="ec-num"><TextBlock Text="1" /></Border>
+            <TextBlock Grid.Column="1" Classes="ec-strong" Text="{loc:Str EasyConnect_KeyStep1}" Margin="10,0" VerticalAlignment="Center" />
+            <Button Grid.Column="2" Classes="mg-button" Command="{Binding OpenKeyPageCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="{Binding GetKeyText}" />
+                <PathIcon Data="{StaticResource Ec.External}" Width="11" Height="11" />
+              </StackPanel>
+            </Button>
+          </Grid>
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="Auto,*">
+              <Border Classes="ec-num" IsVisible="{Binding ShowKeyGuide}" Margin="0,0,10,0"><TextBlock Text="2" /></Border>
+              <TextBlock Grid.Column="1" Classes="ec-strong" Text="{Binding KeyLabel}" VerticalAlignment="Center" />
+            </Grid>
+            <TextBox x:Name="ConnectApiKey" Classes="mg-field mono" Text="{Binding ApiKey}" PasswordChar="●"
+                     PlaceholderText="{Binding KeyPlaceholder}" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <PathIcon Data="{StaticResource Ec.Lock}" Width="11" Height="11" VerticalAlignment="Center"
+                        Foreground="{DynamicResource Brush.TextTertiary}" />
+              <TextBlock Classes="ec-hint" Text="{Binding StorageHint}" />
+            </StackPanel>
+            <CheckBox Content="{loc:Str EasyConnect_AllowPlaintext}" IsChecked="{Binding AllowPlaintextStorage}"
+                      IsVisible="{Binding !HasSecureStorage}" />
+          </StackPanel>
+          <Button Classes="mg-text-button" HorizontalAlignment="Left" Command="{Binding ToggleKeyEntryCommand}"
+                  IsVisible="{Binding ShowSignInInstead}">
+            <TextBlock Text="{loc:Str EasyConnect_UseSignInInstead}" />
+          </Button>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding IsFindingModels}">
+          <Border Classes="ec-pulse" />
+          <TextBlock Classes="ec-hint" Text="{loc:Str EasyConnect_FindingModels}" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <Border Classes="ec-notice">
+          <Grid ColumnDefinitions="Auto,*">
+            <PathIcon Data="{StaticResource Ec.Info}" Width="13" Height="13" VerticalAlignment="Top" Margin="0,2,10,0"
+                      Foreground="{DynamicResource Brush.TextTertiary}" />
+            <TextBlock Grid.Column="1" Classes="ec-hint" Text="{Binding SelectedNotice}" />
+          </Grid>
+        </Border>
+      </StackPanel>
+
+      <!-- ── 2 · Model ── -->
+      <StackPanel x:Name="ModelStep" Spacing="12" IsVisible="{Binding IsModelStage}">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top" IsVisible="{Binding IsManaging}">
+            <Button Classes="mg-text-button" Command="{Binding DiscoverCommand}" ToolTip.Tip="{loc:Str EasyConnect_RefreshModels}">
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <PathIcon Data="{StaticResource Ec.Refresh}" />
+                <TextBlock Text="{loc:Str EasyConnect_RefreshModels}" />
+              </StackPanel>
+            </Button>
+            <Button Classes="mg-text-button" Command="{Binding ReplaceKeyCommand}" IsVisible="{Binding HasKey}">
+              <TextBlock Text="{loc:Str EasyConnect_ReplaceKey}" />
+            </Button>
+          </StackPanel>
+          <StackPanel Spacing="2">
+            <TextBlock Classes="mg-section-title" Text="{loc:Str EasyConnect_ModelTitle}" />
+            <TextBlock Classes="mg-section-caption" Text="{Binding ModelCaption}" />
+          </StackPanel>
+        </DockPanel>
+
+        <StackPanel x:Name="FoundryModelWireFormat" Spacing="6" IsVisible="{Binding IsFoundry}">
+          <TextBlock Classes="ec-label" Text="{loc:Str EasyConnect_WireFormat}" />
+          <Border Classes="mg-segmented" HorizontalAlignment="Left">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button x:Name="FoundryUseResponses" Classes="mg-segment" Classes.selected="{Binding IsResponsesWire}"
+                      Command="{Binding SetWireApiCommand}" CommandParameter="responses" Content="{loc:Str EasyConnect_WireResponses}" />
+              <Button x:Name="FoundryUseChatCompletions" Classes="mg-segment" Classes.selected="{Binding IsCompletionsWire}"
+                      Command="{Binding SetWireApiCommand}" CommandParameter="completions" Content="{loc:Str EasyConnect_WireCompletions}" />
+            </StackPanel>
+          </Border>
+          <TextBlock Classes="ec-hint" Text="{loc:Str EasyConnect_FoundryWireHint}" />
+        </StackPanel>
+
+        <TextBox Classes="mg-search" Text="{Binding ModelSearch}" PlaceholderText="{loc:Str EasyConnect_SearchModels}"
+                 IsVisible="{Binding ShowModelSearch}">
+          <TextBox.InnerLeftContent>
+            <PathIcon Data="{StaticResource Ec.Search}" Width="13" Height="13" Margin="11,0,3,0"
+                      Foreground="{DynamicResource Brush.TextTertiary}" />
+          </TextBox.InnerLeftContent>
+        </TextBox>
+
+        <ScrollViewer MaxHeight="248" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                      IsVisible="{Binding HasModels}">
+          <ItemsControl x:Name="ModelChoices" ItemsSource="{Binding VisibleModels}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <VirtualizingStackPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ConnectModelChoice">
+                <ToggleButton Classes="mg-pick" IsChecked="{Binding IsSelected}" Margin="0,0,4,6"
+                              AutomationProperties.Name="{Binding Name}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Classes="mg-check">
+                      <PathIcon Data="{StaticResource Ec.Check}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="11,0,8,0" Spacing="1" VerticalAlignment="Center">
+                      <TextBlock Classes="mg-pick-title" Text="{Binding Name}" />
+                      <TextBlock Classes="mg-pick-text" Text="{Binding Id}" IsVisible="{Binding ShowId}"
+                                 FontFamily="{DynamicResource Font.FamilyMono}" FontSize="11" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                      <Border Classes="mg-chip success" Padding="7,1,8,2" IsVisible="{Binding IsFree}">
+                        <TextBlock Text="{loc:Str EasyConnect_FreeChip}" FontSize="10.5" />
+                      </Border>
+                      <Border Classes="mg-chip" Padding="7,1,8,2" IsVisible="{Binding HasContext}">
+                        <TextBlock Text="{Binding ContextLabel}" FontSize="10.5" />
+                      </Border>
+                    </StackPanel>
+                  </Grid>
+                </ToggleButton>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+
+        <Border Classes="mg-empty-note" IsVisible="{Binding ShowNoModels}">
+          <StackPanel Spacing="3">
+            <TextBlock Classes="ec-strong" Text="{loc:Str EasyConnect_NoModelsTitle}" />
+            <TextBlock Classes="ec-hint" Text="{Binding EmptyModelsHint}" />
+          </StackPanel>
+        </Border>
+
+        <Button x:Name="ShowManualModel" Classes="mg-text-button" HorizontalAlignment="Left"
+                Command="{Binding ToggleManualModelCommand}" IsVisible="{Binding !IsAddingManualModel}">
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <PathIcon Data="{StaticResource Ec.Plus}" />
+            <TextBlock Text="{Binding ManualModelLabel}" />
+          </StackPanel>
+        </Button>
+        <Grid ColumnDefinitions="*,8,Auto,4,Auto" IsVisible="{Binding IsAddingManualModel}">
+          <TextBox x:Name="ConnectManualModel" Classes="mg-field mono" Text="{Binding ManualModel}"
+                   PlaceholderText="{Binding ManualModelPlaceholder}" />
+          <Button Grid.Column="2" Classes="mg-button" Command="{Binding AddModelCommand}" Content="{loc:Str EasyConnect_AddModel}" />
+          <Button Grid.Column="4" Classes="subtle mg-button" Command="{Binding ToggleManualModelCommand}" Content="{loc:Str EasyConnect_Cancel}" />
+        </Grid>
+
+        <Border Classes="mg-card-divider" Margin="0,4" />
+
+        <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowDefaultChoice}">
+          <StackPanel Spacing="2" VerticalAlignment="Center">
+            <TextBlock Classes="ec-strong" Text="{loc:Str EasyConnect_MakeDefault}" />
+            <TextBlock Classes="ec-hint" Text="{Binding DefaultHint}" />
+          </StackPanel>
+          <ToggleSwitch x:Name="MakeDefaultToggle" Grid.Column="1" VerticalAlignment="Center" Margin="12,0,0,0"
+                        OnContent="" OffContent="" IsChecked="{Binding MakeDefault}" IsEnabled="{Binding CanToggleDefault}" />
+        </Grid>
+        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsCurrentDefault}">
+          <PathIcon Data="{StaticResource Ec.Check}" Width="12" Height="12" VerticalAlignment="Center"
+                    Foreground="{DynamicResource Brush.SuccessDefault}" />
+          <TextBlock Classes="ec-hint" Text="{loc:Str EasyConnect_IsDefaultNote}" VerticalAlignment="Center" />
+        </StackPanel>
+        <CheckBox x:Name="SkipModelCheckToggle" Content="{loc:Str EasyConnect_SkipModelCheck}"
+                  IsChecked="{Binding SkipModelCheck}" />
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <PathIcon Data="{StaticResource Ec.Info}" Width="11" Height="11" VerticalAlignment="Center"
+                    Foreground="{DynamicResource Brush.TextTertiary}" />
+          <TextBlock Classes="ec-hint" Text="{Binding VerifyCostText}" />
+        </StackPanel>
+        <CheckBox x:Name="ModelPlaintextConsent" Content="{loc:Str EasyConnect_AllowPlaintext}"
+                  IsChecked="{Binding AllowPlaintextStorage}" IsVisible="{Binding ShowPlaintextConsent}" />
+      </StackPanel>
+
+      <!-- ── 3 · Connecting ── -->
+      <StackPanel x:Name="ConnectingStep" Spacing="16" IsVisible="{Binding IsConnectingStage}" Margin="0,4,0,8">
+        <TextBlock Classes="mg-section-title" Text="{Binding ConnectingTitle}" />
+        <StackPanel Spacing="12">
+          <Grid ColumnDefinitions="Auto,*">
+            <Border Classes="ec-progress-icon done">
+              <PathIcon Data="{StaticResource Ec.Check}" />
+            </Border>
+            <TextBlock Grid.Column="1" Classes="ec-strong" Text="{loc:Str EasyConnect_ProgressAccount}" Margin="12,0,0,0" VerticalAlignment="Center" />
+          </Grid>
+          <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding !SkipModelCheck}">
+            <Border Classes="ec-progress-icon" Classes.active="{Binding IsTestingStage}" Classes.done="{Binding IsSavingStage}">
+              <Panel>
+                <Border Classes="ec-pulse" IsVisible="{Binding IsTestingStage}" />
+                <PathIcon Data="{StaticResource Ec.Check}" IsVisible="{Binding IsSavingStage}" />
+              </Panel>
+            </Border>
+            <TextBlock Grid.Column="1" Classes="ec-strong" Text="{Binding TestingText}" Margin="12,0,0,0" VerticalAlignment="Center" />
+          </Grid>
+          <Grid ColumnDefinitions="Auto,*">
+            <Border Classes="ec-progress-icon" Classes.active="{Binding IsSavingStage}">
+              <Border Classes="ec-pulse" IsVisible="{Binding IsSavingStage}" />
+            </Border>
+            <TextBlock Grid.Column="1" Classes="ec-strong" Text="{loc:Str EasyConnect_ProgressSaving}" Margin="12,0,0,0" VerticalAlignment="Center" />
+          </Grid>
+        </StackPanel>
+      </StackPanel>
+
+      <!-- ── Done ── -->
+      <StackPanel x:Name="ConnectDone" Spacing="10" IsVisible="{Binding IsComplete}" Margin="0,10,0,6">
+        <Border Classes="ec-success">
+          <PathIcon Data="{StaticResource Ec.Check}" />
+        </Border>
+        <TextBlock Classes="mg-empty-title" Text="{Binding DoneTitle}" Margin="0,6,0,0" />
+        <TextBlock Classes="mg-empty-text" Text="{Binding DoneText}" />
+      </StackPanel>
+
+      <TextBlock Classes="ec-hint" Text="{Binding Status}" IsVisible="{Binding HasStatus}" />
+      <Border x:Name="ConnectError" Classes="ec-error" IsVisible="{Binding HasError}">
+        <TextBlock Text="{Binding Error}" FontSize="12.5" LineHeight="18" TextWrapping="Wrap"
+                   Foreground="{DynamicResource Brush.DangerDefault}" />
+      </Border>
+    </StackPanel>
+  </Panel>
+</UserControl>

@@ -273,6 +273,8 @@ public static class ByokConfigHelper
     /// </param>
     public static string? ResolveApiKey(ByokEndpoint endpoint, ISecureKeyStore? keyStore = null)
     {
+        if (endpoint.CredentialExpiresAt is { } expiresAt && expiresAt <= DateTimeOffset.UtcNow)
+            throw new InvalidOperationException(Lumi.Localization.Loc.Get("EasyConnect_Expired"));
         if (endpoint.ApiKeyMode == ByokApiKeyMode.None)
             return null;
 
@@ -294,7 +296,7 @@ public static class ByokConfigHelper
         return ResolveApiKeyFromEnvironment(endpoint);
     }
 
-    private static string? ResolveApiKeyFromEnvironment(ByokEndpoint endpoint)
+    internal static string? ResolveApiKeyFromEnvironment(ByokEndpoint endpoint)
     {
         if (!string.IsNullOrWhiteSpace(endpoint.ApiKeyEnvVar))
         {
@@ -452,7 +454,7 @@ public static class ByokConfigHelper
     /// is the already-resolved endpoint API key (computed once by the caller) so a header using
     /// <c>${apiKey}</c> is guaranteed to match the <c>Authorization: Bearer</c> key the SDK sends.
     /// </summary>
-    private static bool TryResolveHeaderValue(string rawValue, string? resolvedKey, out string resolvedValue)
+    internal static bool TryResolveHeaderValue(string rawValue, string? resolvedKey, out string resolvedValue)
     {
         var value = rawValue ?? string.Empty;
         var trimmed = value.Trim();
@@ -499,6 +501,8 @@ public static class ByokConfigHelper
         => new()
         {
             Id = endpoint.Id,
+            ConnectionProviderId = endpoint.ConnectionProviderId,
+            CredentialExpiresAt = endpoint.CredentialExpiresAt,
             Name = endpoint.Name,
             ProviderType = endpoint.ProviderType,
             BaseUrl = endpoint.BaseUrl,

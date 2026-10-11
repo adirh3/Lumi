@@ -118,7 +118,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _autoGenerateTitles;
 
     // ── AI & Models ──
-    [ObservableProperty] private string _preferredModel;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BackgroundModelStatus))]
+    private string _preferredModel;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(BackgroundModelStatus))]
     private string _backgroundModel;
@@ -141,6 +143,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public string? BackgroundModelStatus
         => BackgroundModel != UserSettings.AutomaticBackgroundModel
             ? null
+            : _copilotService.UsesExternalModel
+                ? string.Format(Loc.SettingStatus_BackgroundModelAuto,
+                    ChatViewModel.FormatModelDisplay(PreferredModel), "BYOK")
             : UseBYOKOnly
                 ? Loc.SettingStatus_BackgroundModelByokOnly
                 : _automaticBackgroundModel is not { } model
@@ -152,12 +157,17 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
                             ? string.Format(Loc.SettingStatus_BackgroundModelTokenCost, tokenCost)
                             : ModelOptionCatalog.FormatCostMultiplier(CopilotService.GetModelCostMultiplier(model))
                                 ?? Loc.SettingStatus_BackgroundModelUnknownCost);
+    public ObservableCollection<ModelOption> ModelOptions { get; } = [];
+    private readonly Dictionary<string, ModelOptionMetadata> _modelOptionMetadata = new(StringComparer.OrdinalIgnoreCase);
 
     // ── BYOK (Bring Your Own Key) ──
     public ObservableCollection<ByokEndpoint> ByokEndpoints { get; } = [];
     public ObservableCollection<ByokModel> ByokModels { get; } = [];
+    public EasyConnectViewModel EasyConnect { get; }
 
     [ObservableProperty] private ByokEndpoint? _selectedByokEndpoint;
+    private readonly ByokEndpoint _emptyByokEditorEndpoint = new();
+    public ByokEndpoint ByokEditorEndpoint => SelectedByokEndpoint ?? _emptyByokEditorEndpoint;
     [ObservableProperty] private ByokModel? _selectedByokModel;
     [ObservableProperty] private ByokModel? _editingByokModel = new();
     [ObservableProperty] private bool _isByokModelEditorOpen;
@@ -272,6 +282,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             if (_loginVM is not null)
                 _loginVM.AuthenticationChanged -= OnLoginAuthChanged;
             _loginVM = value;
+            EasyConnect.LoginVM = value;
             if (_loginVM is not null)
                 _loginVM.AuthenticationChanged += OnLoginAuthChanged;
         }
@@ -650,13 +661,48 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _updateService.StatusChanged += OnUpdateStatusChanged;
         _dataStore.PresenceSettingsChanged += OnPresenceSettingsChanged;
         ApplyUpdateStatus(_updateService.CurrentStatus);
+        EasyConnect = new EasyConnectViewModel(dataStore, copilotService,
+            _secureKeyStore ?? Lumi.Services.Byok.SecureKeyStoreFactory.Instance, OnEasyConnectSaved)
+        {
+            CopilotModels = () => AvailableModels.ToList()
+        };
+        AvailableModels.CollectionChanged += (_, _) =>
+        {
+            EasyConnect.NotifyCopilotModelsChanged();
+            RebuildModelOptions();
+        };
+        RebuildModelOptions();
+    }
+
+    partial void OnQuotaDisplayTextChanged(string? value)
+    {
+        if (EasyConnect is not null)
+            EasyConnect.GitHubUsage = value;
     }
 
     public void Dispose()
     {
+        EasyConnect.Dispose();
         _updateService.StatusChanged -= OnUpdateStatusChanged;
         _dataStore.PresenceSettingsChanged -= OnPresenceSettingsChanged;
         DisposeRemoteState();
+    }
+
+    private void OnEasyConnectSaved()
+    {
+        var settings = _dataStore.Data.Settings;
+        SelectedByokEndpoint = null;
+        SelectedByokModel = null;
+        ByokEndpoints.Clear();
+        foreach (var endpoint in settings.ByokEndpoints)
+            ByokEndpoints.Add(endpoint);
+        ByokModels.Clear();
+        foreach (var model in settings.ByokModels)
+            ByokModels.Add(model);
+        PreferredModel = settings.PreferredModel;
+        UseBYOKOnly = settings.UseBYOKOnly;
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
     }
 
     private void OnPresenceSettingsChanged(
@@ -1203,6 +1249,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         SyncAvailableBackgroundModels(models);
         UpdateQualityLevels(PreferredModel);
         UpdateContextWindowTiers(PreferredModel);
+        RebuildModelOptions();
     }
 
     private void SyncAvailableBackgroundModels(IReadOnlyList<string> models)
@@ -1210,6 +1257,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             AvailableBackgroundModels,
             [UserSettings.AutomaticBackgroundModel, .. models],
             BackgroundModel);
+
+    private void RebuildModelOptions()
+        => ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
 
     /// <summary>
     /// Asks the Copilot service for a fresher model catalog. Bound to the preferred-model picker so
@@ -1219,6 +1269,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task RefreshModelCatalogAsync()
     {
+        RebuildModelOptions();
         try
         {
             await _copilotService.RefreshModelCatalogAsync().ConfigureAwait(false);
@@ -1241,6 +1292,15 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(BackgroundModelStatus));
         }
 
+        if (merge)
+        {
+            foreach (var id in _modelOptionMetadata.Keys.Where(ByokConfigHelper.IsByokModel).ToList())
+                _modelOptionMetadata.Remove(id);
+        }
+        else
+            _modelOptionMetadata.Clear();
+        foreach (var (id, metadata) in ModelOptionCatalog.BuildMetadata(models))
+            _modelOptionMetadata[id] = metadata;
         if (merge)
         {
             foreach (var modelId in _modelReasoningEfforts.Keys
@@ -1270,6 +1330,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             replaceExisting: !merge);
         UpdateQualityLevels(PreferredModel);
         UpdateContextWindowTiers(PreferredModel);
+        RebuildModelOptions();
     }
 
     private static HashSet<string> CopyModelIdSet(IEnumerable<string>? modelIds)
@@ -1350,6 +1411,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         var copy = new ByokEndpoint
         {
             Id = Guid.NewGuid().ToString("N"),
+            ConnectionProviderId = source.ConnectionProviderId,
+            CredentialExpiresAt = source.CredentialExpiresAt,
             Name = source.Name + " (copy)",
             ProviderType = source.ProviderType,
             BaseUrl = source.BaseUrl,
@@ -1602,6 +1665,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedByokEndpointChanged(ByokEndpoint? value)
     {
+        OnPropertyChanged(nameof(ByokEditorEndpoint));
         // Unsubscribe from the old endpoint's property changes.
         if (_subscribedByokEndpoint is not null)
             _subscribedByokEndpoint.PropertyChanged -= OnSelectedByokEndpointPropertyChanged;
@@ -1910,9 +1974,11 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             var remaining = snapshot.RemainingPercentage;
 
             if (total > 0)
-                QuotaDisplayText = $"{used:N0} / {total:N0} requests ({remaining:N0}% remaining)";
+                QuotaDisplayText = string.Format(System.Globalization.CultureInfo.CurrentCulture,
+                    Loc.Get("Settings_QuotaRequests"), used, total, remaining);
             else
-                QuotaDisplayText = $"{remaining:N0}% remaining";
+                QuotaDisplayText = string.Format(System.Globalization.CultureInfo.CurrentCulture,
+                    Loc.Get("Settings_QuotaRemaining"), remaining);
         }
         catch
         {

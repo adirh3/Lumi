@@ -172,6 +172,30 @@ public class CopilotService : IAsyncDisposable
     /// </summary>
     public bool IsUseByokOnly => _settingsProvider?.Invoke()?.UseBYOKOnly == true;
 
+    // Last live-confirmed GitHub auth state. Null until the first status check completes.
+    private bool? _isGitHubAuthenticated;
+
+    /// <summary>
+    /// True when the background-model policy selects an external account. An explicit background
+    /// choice takes precedence; Auto uses the external default when Copilot is unavailable or blocked.
+    /// </summary>
+    public bool UsesExternalModel
+        => _settingsProvider?.Invoke() is { } settings
+           && ByokConfigHelper.IsByokModel(ResolveConfiguredBackgroundModel(settings, _isGitHubAuthenticated == true));
+
+    /// <summary>
+    /// True when GitHub Copilot is unavailable and an external account is the default, so Lumi runs
+    /// on connected accounts alone and must not wait for the GitHub model catalog.
+    /// </summary>
+    public bool IsExternalOnly
+        => _settingsProvider?.Invoke() is { } settings
+           && _isGitHubAuthenticated != true
+           && ByokConfigHelper.IsByokModel(settings.PreferredModel);
+
+    internal static bool UsesExternalRuntime(UserSettings settings, bool isGitHubAuthenticated)
+        => settings.UseBYOKOnly
+           || (!isGitHubAuthenticated && ByokConfigHelper.IsByokModel(settings.PreferredModel));
+
     /// <summary>
     /// Throws <see cref="ByokOnlyRequestBlockedException"/> when the BYOK Only block is active and the
     /// caller did not supply a BYOK provider with a real endpoint URL. This is the hard guarantee
@@ -631,12 +655,22 @@ public class CopilotService : IAsyncDisposable
                 ? UserSettings.AutomaticBackgroundModel
                 : model.Trim();
 
-    /// <summary>Uses the live helper preference, or the cheapest usable Copilot model for Auto.</summary>
+    internal static string? ResolveConfiguredBackgroundModel(UserSettings? settings, bool isGitHubAuthenticated)
+    {
+        var selection = NormalizeBackgroundModel(settings?.BackgroundModel);
+        if (selection != UserSettings.AutomaticBackgroundModel)
+            return selection;
+        return settings is not null && UsesExternalRuntime(settings, isGitHubAuthenticated)
+            ? settings.PreferredModel : null;
+    }
+
+    /// <summary>Uses the explicit helper preference; Auto uses the external default when needed,
+    /// otherwise the cheapest usable Copilot model.</summary>
     public async Task<string> GetBackgroundModelIdAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        var selection = NormalizeBackgroundModel(_settingsProvider?.Invoke()?.BackgroundModel);
-        if (selection != UserSettings.AutomaticBackgroundModel)
+        var selection = ResolveConfiguredBackgroundModel(_settingsProvider?.Invoke(), _isGitHubAuthenticated == true);
+        if (selection is not null)
             return selection;
 
         var models = await GetModelsAsync(ct).ConfigureAwait(false);
@@ -1119,6 +1153,7 @@ public class CopilotService : IAsyncDisposable
         var status = await client.GetAuthStatusAsync(ct);
         if (!ReferenceEquals(client, _client))
             throw new InvalidOperationException("The Copilot connection changed while checking authentication.");
+        _isGitHubAuthenticated = status.IsAuthenticated == true;
         return status;
     }
 
@@ -1379,6 +1414,7 @@ public class CopilotService : IAsyncDisposable
         }
 
         await client.Rpc.Account.LogoutAsync(authInfo: identity, cancellationToken: ct);
+        _isGitHubAuthenticated = false;
 
         // Logout succeeded: the stored credential is gone, so the user IS signed out regardless of
         // what happens next. Tear down the authenticated client immediately so a signed-in session
@@ -2075,7 +2111,7 @@ public class CopilotService : IAsyncDisposable
 
     private bool IsBackgroundCopilotBlocked
         => IsUseByokOnly && !ByokConfigHelper.IsByokModel(
-            NormalizeBackgroundModel(_settingsProvider?.Invoke()?.BackgroundModel));
+            ResolveConfiguredBackgroundModel(_settingsProvider?.Invoke(), _isGitHubAuthenticated == true));
 
     public Task<List<string>?> GenerateSuggestionsAsync(
         string assistantMessage,

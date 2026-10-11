@@ -94,13 +94,45 @@ public partial class OnboardingViewModel : ObservableObject
             if (_loginVM is not null)
                 _loginVM.AuthenticationChanged += OnAuthChanged;
             OnPropertyChanged(nameof(IsAuthenticated));
+            OnPropertyChanged(nameof(CanLearn));
         }
     }
 
-    private void OnAuthChanged(bool _) => OnPropertyChanged(nameof(IsAuthenticated));
+    private void OnAuthChanged(bool _)
+    {
+        OnPropertyChanged(nameof(IsAuthenticated));
+        OnPropertyChanged(nameof(CanLearn));
+    }
 
     /// <summary>Whether the user is authenticated (delegates to LoginVM).</summary>
     public bool IsAuthenticated => LoginVM?.IsAuthenticated == true;
+
+    /// <summary>AI accounts shared with Settings; set by MainViewModel.</summary>
+    private EasyConnectViewModel? _easyConnect;
+    public EasyConnectViewModel? EasyConnect
+    {
+        get => _easyConnect;
+        set
+        {
+            if (_easyConnect is not null)
+                _easyConnect.PropertyChanged -= OnEasyConnectPropertyChanged;
+            _easyConnect = value;
+            if (_easyConnect is not null)
+                _easyConnect.PropertyChanged += OnEasyConnectPropertyChanged;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanLearn));
+        }
+    }
+
+    private void OnEasyConnectPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(EasyConnectViewModel.HasUsableConnections))
+            OnPropertyChanged(nameof(CanLearn));
+    }
+
+    /// <summary>Personalized learning needs an AI: GitHub Copilot or another connected account.</summary>
+    public bool CanLearn => (IsAuthenticated && !_dataStore.Data.Settings.UseBYOKOnly)
+        || EasyConnect?.HasUsableConnections == true;
 
     // ── Step 2+3: Discovery ──
     [ObservableProperty] private bool _isDiscovering;

@@ -6594,8 +6594,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrWhiteSpace(modelId)) return null;
 
-        // BYOK tokens have their own canonical display: "{DisplayName} — BYOK" (cached) or
-        // a fallback of "BYOK ({modelEntryId})" when the entry is missing/stale.
+        // Provider labels live in the picker groups, not in the model name.
+        // Missing entries retain the explicit stale-BYOK fallback.
         if (ByokConfigHelper.IsByokModel(modelId))
         {
             if (MainViewModel.ByokDisplayCache.TryGetValue(modelId, out var cached))

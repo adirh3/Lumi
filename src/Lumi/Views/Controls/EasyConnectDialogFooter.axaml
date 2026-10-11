@@ -1,0 +1,94 @@
+<!-- Actions for the "Add an AI account" dialog, pinned under its scrolling body. -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.Controls.EasyConnectDialogFooter"
+             x:DataType="vm:EasyConnectViewModel"
+             x:CompileBindings="True">
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Controls/EasyConnectIcons.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
+    <Style Selector="TextBlock.ec-footnote">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="StackPanel.ec-actions">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Spacing" Value="8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="12,0,0,0" />
+    </Style>
+  </UserControl.Styles>
+
+  <Panel MinHeight="34">
+    <!-- Gallery: a privacy promise instead of actions -->
+    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsGallery}" VerticalAlignment="Center">
+      <PathIcon Data="{StaticResource Ec.Lock}" Width="12" Height="12" VerticalAlignment="Center"
+                Foreground="{DynamicResource Brush.TextTertiary}" />
+      <TextBlock Classes="ec-footnote" Text="{loc:Str EasyConnect_ProviderPrivacy}" />
+    </StackPanel>
+
+    <!-- Account -->
+    <DockPanel IsVisible="{Binding IsAccountStage}">
+      <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
+        <Button x:Name="ConnectBack" Classes="mg-button" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}"
+                Content="{Binding BackText}" />
+        <Button x:Name="FindProviderModels" Classes="accent mg-button" Command="{Binding DiscoverCommand}"
+                IsVisible="{Binding ShowContinue}" IsEnabled="{Binding CanDiscover}" Content="{loc:Str EasyConnect_Continue}" />
+      </StackPanel>
+      <Panel />
+    </DockPanel>
+
+    <!-- Model -->
+    <DockPanel IsVisible="{Binding ShowModelFooter}">
+      <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
+        <Button Classes="mg-button" Command="{Binding BackCommand}" IsEnabled="{Binding CanGoBack}" Content="{Binding BackText}" />
+        <Button x:Name="VerifyProviderConnection" Classes="accent mg-button" Command="{Binding SaveConnectionCommand}"
+                IsEnabled="{Binding CanSave}" Content="{Binding PrimaryActionText}" />
+      </StackPanel>
+      <Button DockPanel.Dock="Left" Classes="subtle mg-button" Command="{Binding RequestRemoveCommand}"
+              IsVisible="{Binding IsManaging}" Margin="0,0,12,0" Foreground="{DynamicResource Brush.DangerDefault}">
+        <TextBlock Text="{loc:Str EasyConnect_Disconnect}" Foreground="{DynamicResource Brush.DangerDefault}" />
+      </Button>
+      <TextBlock Classes="ec-footnote" Text="{Binding SelectedCount}" />
+    </DockPanel>
+
+    <!-- Confirm disconnect (manage) -->
+    <DockPanel IsVisible="{Binding ShowRemoveConfirm}">
+      <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
+        <Button Classes="mg-button" Command="{Binding CancelRemoveCommand}" Content="{loc:Str EasyConnect_Cancel}" />
+        <Button x:Name="ConfirmRemoveConnection" Classes="danger mg-button" Command="{Binding ConfirmRemoveCommand}"
+                Content="{loc:Str EasyConnect_Disconnect}" />
+      </StackPanel>
+      <TextBlock Classes="ec-footnote" Text="{Binding RemovePrompt}" Foreground="{DynamicResource Brush.TextSecondary}" />
+    </DockPanel>
+
+    <!-- Connecting -->
+    <DockPanel IsVisible="{Binding IsConnectingStage}">
+      <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
+        <Button Classes="mg-button" Command="{Binding CancelCommand}" IsEnabled="{Binding CanCancel}"
+                Content="{loc:Str EasyConnect_Cancel}" />
+      </StackPanel>
+      <TextBlock Classes="ec-footnote" Text="{Binding ConnectingNote}" />
+    </DockPanel>
+
+    <!-- Done -->
+    <DockPanel IsVisible="{Binding IsComplete}">
+      <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
+        <Button x:Name="ConnectDoneButton" Classes="accent mg-button" Command="{Binding DoneCommand}"
+                Content="{loc:Str EasyConnect_Done}" />
+      </StackPanel>
+      <Panel />
+    </DockPanel>
+  </Panel>
+</UserControl>

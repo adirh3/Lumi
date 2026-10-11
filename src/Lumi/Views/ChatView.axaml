@@ -2935,6 +2935,10 @@
               <WrapPanel Orientation="Horizontal">
                 <!-- Badges are derived only from what the model catalog actually reports:
                      context window, premium-request multiplier, vision, reasoning and policy. -->
+                <Border Classes="model-tier-badge" Padding="5,1" CornerRadius="4" Margin="0,0,4,0"
+                        IsVisible="{Binding IsPinned}">
+                  <TextBlock Text="{Binding ProviderName}" />
+                </Border>
                 <Border Classes="model-tier-badge"
                         Padding="5,1"
                         CornerRadius="4"

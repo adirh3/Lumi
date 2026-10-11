@@ -33,7 +33,8 @@ public sealed class AnimationLifecycleRegressionTests
     [
         new("Views/McpServersView.axaml", "TextBlock", 0.3, 1, 0.8, "Alternate", "SineEaseInOut"),
         new("Views/OnboardingView.axaml", "Border[IsVisible=True]", 0.4, 1, 0.8, "Alternate"),
-        new("Views/Controls/GitHubLoginView.axaml", "Border.login-pulse", 0.3, 1, 1.2, "Alternate", "SineEaseInOut"),
+        new("Views/Controls/EasyConnectView.axaml", "Border.acct-pulse", 0.3, 1, 1.1, "Alternate", "SineEaseInOut"),
+        new("Views/Controls/EasyConnectDialogView.axaml", "Border.ec-pulse", 0.3, 1, 0.9, "Alternate", "SineEaseInOut"),
         new("Views/ChatView.axaml", "Border.steer-pill.steering Ellipse.steer-dot", 1, 0.25, 1.1, Easing: "SineEaseInOut"),
         new("Views/ChatView.axaml", "Border.suggestion-pill.pill-a", 0.3, 0.6, 0.95, PeakAt: 0.38),
         new("Views/ChatView.axaml", "Border.suggestion-pill.pill-b", 0.3, 0.6, 0.95, HoldUntil: 0.18, PeakAt: 0.56),

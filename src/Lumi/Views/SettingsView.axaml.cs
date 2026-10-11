@@ -30,7 +30,6 @@ public partial class SettingsView : UserControl
     private ScrollViewer? _mainScrollViewer;
     private Button? _clearSearchButton;
     private Button? _noResultsClearButton;
-    private Controls.GitHubLoginView? _loginView;
     private Button? _hotkeyRecorderButton;
     private Slider? _uiScaleSlider;
     private StrataSetting? _debugTransparencySetting;
@@ -54,6 +53,7 @@ public partial class SettingsView : UserControl
     private Button? _cookieImportCancelButton;
     private BrowserCookieService.BrowserProfile? _selectedCookieProfile;
     private bool _isCookieImportInProgress;
+    private bool? _advancedExpandedBeforeSearch;
 
     public bool IsRecordingHotkey => _isRecordingHotkey;
 
@@ -125,8 +125,6 @@ public partial class SettingsView : UserControl
             _clearSearchButton.Click += (_, _) => ClearSearch();
         if (_noResultsClearButton is not null)
             _noResultsClearButton.Click += (_, _) => ClearSearch();
-
-        _loginView = this.FindControl<Controls.GitHubLoginView>("SettingsLoginView");
 
         _hotkeyRecorderButton = this.FindControl<Button>("HotkeyRecorderButton");
         if (_hotkeyRecorderButton is not null)
@@ -366,10 +364,6 @@ public partial class SettingsView : UserControl
                     RevealMobileSetup();
             };
 
-            // Wire the shared login component
-            if (_loginView is not null)
-                _loginView.DataContext = vm.LoginVM;
-
             UpdateHotkeyButtonText();
 
             vm.CookieImportDialogRequested += () =>
@@ -449,6 +443,9 @@ public partial class SettingsView : UserControl
 
         var terms = query!.Trim();
         int matchCount = 0;
+        var advanced = this.FindControl<Expander>("AdvancedByokSettings");
+        if (advanced is not null)
+            _advancedExpandedBeforeSearch ??= advanced.IsExpanded;
 
         for (int i = 0; i < _pages.Length; i++)
         {
@@ -458,11 +455,19 @@ public partial class SettingsView : UserControl
 
             foreach (var child in pageStack.Children)
             {
-                if (child is StrataSettingGroup group)
+                var group = child as StrataSettingGroup ?? (child as Expander)?.Content as StrataSettingGroup;
+                if (group is not null)
                 {
                     // If the group header itself matches, show all its settings
-                    bool groupHeaderMatches = FuzzySearch.IsMatch(terms, group.Header, group.Description);
+                    bool groupHeaderMatches = FuzzySearch.IsMatch(terms, group.Header, group.Description,
+                            (child as Expander)?.Header as string)
+                        || group.Items.OfType<Controls.EasyConnectView>().Any() && MatchesAiAccount(terms);
                     bool groupHasResults = false;
+                    if (groupHeaderMatches && !group.Items.OfType<StrataSetting>().Any())
+                    {
+                        groupHasResults = true;
+                        matchCount++;
+                    }
 
                     foreach (var item in group.Items.OfType<StrataSetting>())
                     {
@@ -473,6 +478,11 @@ public partial class SettingsView : UserControl
                     }
 
                     group.IsVisible = groupHasResults;
+                    if (child is Expander expander)
+                    {
+                        expander.IsVisible = groupHasResults;
+                        expander.IsExpanded = groupHasResults;
+                    }
                     if (groupHasResults) pageHasResults = true;
                 }
             }
@@ -517,7 +527,14 @@ public partial class SettingsView : UserControl
 
             foreach (var child in pageStack.Children)
             {
-                if (child is StrataSettingGroup group)
+                if (child is Expander expander)
+                {
+                    expander.IsVisible = true;
+                    if (_advancedExpandedBeforeSearch is { } wasExpanded)
+                        expander.IsExpanded = wasExpanded;
+                }
+                var group = child as StrataSettingGroup ?? (child as Expander)?.Content as StrataSettingGroup;
+                if (group is not null)
                 {
                     group.IsVisible = true;
                     foreach (var item in group.Items.OfType<StrataSetting>())
@@ -532,6 +549,7 @@ public partial class SettingsView : UserControl
             if (i < _pageHeaders.Length)
                 _pageHeaders[i].Description.IsVisible = true;
         }
+        _advancedExpandedBeforeSearch = null;
     }
 
     private void ClearSearch()
@@ -546,6 +564,10 @@ public partial class SettingsView : UserControl
         var desc = setting.Description ?? "";
         return FuzzySearch.IsMatch(query, header, desc);
     }
+
+    private static bool MatchesAiAccount(string query)
+        => Lumi.Services.Byok.ProviderCatalog.All.Any(profile =>
+            FuzzySearch.IsMatch(query, profile.Name, profile.Description, profile.Billing));
 
     private void OnHotkeyRecorderButtonClick(object? sender, RoutedEventArgs e)
     {

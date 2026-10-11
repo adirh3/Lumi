@@ -136,6 +136,31 @@ public class ModelOptionCatalogTests
 
         Assert.True(metadata.SupportsReasoning);
     }
+
+    [Fact]
+    public void ProviderRowsSeparateAccountNamesFromLegacyModelLabels()
+    {
+        var settings = new UserSettings();
+        settings.ByokEndpoints.Add(new() { Id = "or", Name = "OpenRouter", ConnectionProviderId = "openrouter" });
+        settings.ByokEndpoints.Add(new() { Id = "poe", Name = "Poe" });
+        settings.ByokModels.Add(new() { Id = "or-model", EndpointId = "or", ModelId = "wire-id", DisplayName = "OpenRouter · Shared model" });
+        settings.ByokModels.Add(new() { Id = "poe-model", EndpointId = "poe", ModelId = "wire-id", DisplayName = "Shared model" });
+        var rows = new ObservableCollection<ModelOption>();
+        ModelOptionCatalog.SyncOptions(rows, ["gpt-5.4", "byok:or-model", "byok:poe-model"], settings,
+            new Dictionary<string, ModelOptionMetadata>());
+
+        Assert.Equal(["GitHub Copilot", "OpenRouter", "Poe"], rows.Select(row => row.ProviderName));
+        Assert.Equal(["GPT 5.4", "Shared model", "Shared model"], rows.Select(row => row.DisplayName));
+        Assert.Equal(["gpt-5.4", "byok:or-model", "byok:poe-model"], rows.Select(row => row.Id));
+        Assert.All(rows, row => Assert.DoesNotContain("BYOK", row.DisplayName));
+        var previous = rows[1];
+        settings.ByokEndpoints[0].Name = "Personal OpenRouter";
+        ModelOptionCatalog.SyncOptions(rows, ["gpt-5.4", "byok:or-model", "byok:poe-model"], settings,
+            new Dictionary<string, ModelOptionMetadata>());
+        Assert.Same(previous, rows[1]);
+        Assert.Equal("Personal OpenRouter", rows[1].ProviderName);
+        Assert.Equal("Shared model", rows[1].DisplayName);
+    }
 }
 
 /// <summary>Pinning is an app-wide preference that has to survive a restart.</summary>
@@ -270,6 +295,41 @@ public class ChatViewModelModelPinningTests
 [Collection("Headless UI")]
 public sealed class StrataModelPickerRichItemTests
 {
+    [Fact]
+    public async Task RichRowsUseAccountGroupsAndKeepCanonicalSelection()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var openRouter = new ModelOption("byok:or") { ProviderName = "OpenRouter", DisplayName = "Shared model" };
+            var picker = new StrataModelPicker
+            {
+                Models = new ObservableCollection<ModelOption>
+                {
+                    new("gpt-5.4"), openRouter,
+                    new("byok:poe") { ProviderName = "Poe", DisplayName = "Shared model" }
+                },
+                SelectedModel = "gpt-5.4"
+            };
+            var window = new Window { Width = 460, Height = 420, Content = picker };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                ClickPickerButton(window, picker);
+                await PumpAsync();
+                Assert.Equal(["GITHUB COPILOT", "OPENROUTER", "POE"], ReadGroupHeaders(picker));
+                openRouter.ProviderName = "Personal OpenRouter";
+                await PumpAsync();
+                Assert.Contains("PERSONAL OPENROUTER", ReadGroupHeaders(picker));
+                ClickRow(picker, "byok:or");
+                await PumpAsync();
+                Assert.Equal("byok:or", picker.SelectedModel);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task ChoosingARichRow_WritesThePlainModelIdToSelectedModel()
     {

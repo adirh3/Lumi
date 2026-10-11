@@ -252,39 +252,7 @@ public partial class ChatViewModel
     /// of re-creating rows the user may be pointing at.
     /// </summary>
     private void RebuildModelOptions()
-    {
-        var favorites = _dataStore.Data.Settings.FavoriteModelIds;
-        var ordered = ModelOptionCatalog.OrderPinnedFirst(AvailableModels, favorites);
-        var pinned = new HashSet<string>(favorites ?? [], StringComparer.Ordinal);
-
-        var existing = ModelOptions.ToDictionary(static option => option.Id, StringComparer.Ordinal);
-
-        for (var index = ModelOptions.Count - 1; index >= 0; index--)
-        {
-            if (!ordered.Contains(ModelOptions[index].Id, StringComparer.Ordinal))
-                ModelOptions.RemoveAt(index);
-        }
-
-        for (var index = 0; index < ordered.Count; index++)
-        {
-            var id = ordered[index];
-            if (!existing.TryGetValue(id, out var option))
-            {
-                option = new ModelOption(id);
-                existing[id] = option;
-            }
-
-            if (_modelOptionMetadata.TryGetValue(id, out var metadata))
-                option.Apply(metadata);
-            option.IsPinned = pinned.Contains(id);
-
-            var currentIndex = ModelOptions.IndexOf(option);
-            if (currentIndex < 0)
-                ModelOptions.Insert(Math.Min(index, ModelOptions.Count), option);
-            else if (currentIndex != index)
-                ModelOptions.Move(currentIndex, index);
-        }
-    }
+        => ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
 
     /// <summary>
     /// Pins or unpins a model in the picker. Favorites are an app-wide preference, so this writes

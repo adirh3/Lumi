@@ -688,25 +688,16 @@
                      Foreground="{DynamicResource Brush.TextTertiary}" />
         </StackPanel>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_GitHubAccount}">
-          <sc:StrataSetting Header="{loc:Str Setting_GitHubAccount}" Description="{loc:Str SettingDesc_GitHubAccount}">
-            <StackPanel Spacing="8" VerticalAlignment="Center">
-              <ctrl:GitHubLoginView x:Name="SettingsLoginView" />
-
-              <TextBlock Text="{Binding GitHubAuthErrorText}"
-                         IsVisible="{Binding GitHubAuthErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                         FontSize="{DynamicResource Font.SizeCaption}"
-                         Foreground="{DynamicResource Brush.DangerDefault}"
-                         TextWrapping="Wrap"
-                         MaxWidth="360" />
-            </StackPanel>
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="Usage Quota" Description="Your Copilot usage quota for the current billing period."
-                            IsVisible="{Binding QuotaDisplayText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-            <TextBlock Text="{Binding QuotaDisplayText}" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextSecondary}"
-                       VerticalAlignment="Center" />
-          </sc:StrataSetting>
+        <sc:StrataSettingGroup x:Name="AiAccountsGroup"
+                               Header="{loc:Str EasyConnect_AccountsTitle}"
+                               Description="{loc:Str EasyConnect_AccountsDescription}">
+          <ctrl:EasyConnectView x:Name="SettingsEasyConnect" DataContext="{Binding EasyConnect}" />
+          <TextBlock Text="{Binding GitHubAuthErrorText}"
+                     IsVisible="{Binding GitHubAuthErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                     FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.DangerDefault}"
+                     TextWrapping="Wrap"
+                     Margin="10,4,10,0" />
         </sc:StrataSettingGroup>
 
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Instructions}">
@@ -729,7 +720,7 @@
           <sc:StrataSetting Header="{loc:Str Setting_PreferredModel}" Description="{loc:Str SettingDesc_PreferredModel}"
                             IsModified="{Binding IsDefaultModelSelectionModified}">
             <sc:StrataModelPicker Width="300"
-                                  Models="{Binding AvailableModels}"
+                                  Models="{Binding ModelOptions}"
                                   PickerOpenedCommand="{Binding RefreshModelCatalogCommand}"
                                   SelectedModel="{Binding PreferredModel, Mode=TwoWay}"
                                   QualityLevels="{Binding QualityLevels}"
@@ -737,10 +728,15 @@
                                   ContextWindowTiers="{Binding ContextWindowTiers}"
                                   SelectedContextWindowTier="{Binding SelectedContextWindowTier, Mode=TwoWay}">
               <sc:StrataModelPicker.ModelItemTemplate>
+                <DataTemplate x:DataType="vm:ModelOption">
+                  <TextBlock Text="{Binding DisplayName}" ToolTip.Tip="{Binding ProviderName}" />
+                </DataTemplate>
+              </sc:StrataModelPicker.ModelItemTemplate>
+              <sc:StrataModelPicker.SelectedModelTemplate>
                 <DataTemplate>
                   <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
                 </DataTemplate>
-              </sc:StrataModelPicker.ModelItemTemplate>
+              </sc:StrataModelPicker.SelectedModelTemplate>
             </sc:StrataModelPicker>
           </sc:StrataSetting>
           <sc:StrataSetting x:Name="BackgroundModelSetting"
@@ -773,6 +769,7 @@
         </sc:StrataSettingGroup>
 
         <!-- ═══ BYOK ═══ -->
+        <Expander x:Name="AdvancedByokSettings" Header="{loc:Str EasyConnect_Advanced}">
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Byok}">
           <StackPanel Spacing="16">
             <TextBlock Text="{loc:Str Settings_Byok_Description}"
@@ -867,7 +864,7 @@
                   <StackPanel Spacing="4">
                     <TextBlock Text="{loc:Str Settings_Byok_EndpointName}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding SelectedByokEndpoint.Name, Mode=TwoWay}"
+                    <TextBox Text="{Binding ByokEditorEndpoint.Name, Mode=TwoWay}"
                              PlaceholderText="{loc:Str Settings_Byok_EndpointNamePlaceholder}" />
                   </StackPanel>
 
@@ -875,14 +872,14 @@
                     <TextBlock Text="{loc:Str Settings_Byok_ProviderType}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
                     <ComboBox ItemsSource="{Binding ByokProviderTypes}"
-                              SelectedItem="{Binding SelectedByokEndpoint.ProviderType, Mode=TwoWay}"
+                              SelectedItem="{Binding ByokEditorEndpoint.ProviderType, Mode=TwoWay}"
                               HorizontalAlignment="Stretch" />
                   </StackPanel>
 
                   <StackPanel Spacing="4">
                     <TextBlock Text="{loc:Str Settings_Byok_BaseUrl}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding SelectedByokEndpoint.BaseUrl, Mode=TwoWay}"
+                    <TextBox Text="{Binding ByokEditorEndpoint.BaseUrl, Mode=TwoWay}"
                              PlaceholderText="{loc:Str Settings_Byok_BaseUrlPlaceholder}" />
                   </StackPanel>
 
@@ -890,7 +887,7 @@
                     <TextBlock Text="{loc:Str Settings_Byok_WireApi}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
                     <ComboBox ItemsSource="{Binding ByokWireApiOptions}"
-                              SelectedItem="{Binding SelectedByokEndpoint.WireApi, Mode=TwoWay}"
+                              SelectedItem="{Binding ByokEditorEndpoint.WireApi, Mode=TwoWay}"
                               HorizontalAlignment="Stretch" />
                     <TextBlock Text="{loc:Str Settings_Byok_WireApiHint}"
                                FontSize="{DynamicResource Font.SizeCaption}"
@@ -900,7 +897,7 @@
                   <StackPanel Spacing="4" IsVisible="{Binding IsSelectedByokAzure}">
                     <TextBlock Text="{loc:Str Settings_Byok_AzureApiVersion}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding SelectedByokEndpoint.AzureApiVersion, Mode=TwoWay}"
+                    <TextBox Text="{Binding ByokEditorEndpoint.AzureApiVersion, Mode=TwoWay}"
                              PlaceholderText="{loc:Str Settings_Byok_AzureApiVersionPlaceholder}" />
                   </StackPanel>
 
@@ -917,7 +914,7 @@
                   <StackPanel Spacing="4" IsVisible="{Binding UsesEnvVarApiKey}">
                     <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVar}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding SelectedByokEndpoint.ApiKeyEnvVar, Mode=TwoWay}"
+                    <TextBox Text="{Binding ByokEditorEndpoint.ApiKeyEnvVar, Mode=TwoWay}"
                              PlaceholderText="{loc:Str Settings_Byok_ApiKeyEnvVarPlaceholder}" />
                     <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVarHint}"
                                FontSize="{DynamicResource Font.SizeCaption}"
@@ -927,7 +924,7 @@
                   <StackPanel Spacing="4" IsVisible="{Binding UsesStoredApiKey}">
                     <TextBlock Text="{loc:Str Settings_Byok_ApiKey}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding SelectedByokEndpoint.ApiKey, Mode=TwoWay}"
+                    <TextBox Text="{Binding ByokEditorEndpoint.ApiKey, Mode=TwoWay}"
                              PasswordChar="•" RevealPassword="False" />
                     <Border Background="{DynamicResource Brush.WarningSubtle}" CornerRadius="4" Padding="8,4">
                       <TextBlock Text="{loc:Str Settings_Byok_ApiKeyInsecureWarning}"
@@ -961,7 +958,7 @@
                   </StackPanel>
 
                   <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
-                    <ToggleSwitch IsChecked="{Binding SelectedByokEndpoint.IsEnabled, Mode=TwoWay}" />
+                    <ToggleSwitch IsChecked="{Binding ByokEditorEndpoint.IsEnabled, Mode=TwoWay}" />
                     <TextBlock Text="{loc:Str Settings_Byok_IsEnabled}" VerticalAlignment="Center" />
                   </StackPanel>
 
@@ -1016,6 +1013,7 @@
             </StackPanel>
           </StackPanel>
         </sc:StrataSettingGroup>
+        </Expander>
 
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_McpServers}">
           <sc:StrataSetting Header="{loc:Str Setting_UseMcpProxy}" Description="{loc:Str SettingDesc_UseMcpProxy}"

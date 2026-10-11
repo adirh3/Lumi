@@ -9,6 +9,7 @@
         xmlns:services="using:Lumi.Services"
         xmlns:loc="using:Lumi.Localization"
         xmlns:conv="using:Lumi.Converters"
+        xmlns:ctrl="using:Lumi.Views.Controls"
         x:Class="Lumi.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         x:CompileBindings="True"
@@ -3199,6 +3200,21 @@
           </StackPanel>
         </StackPanel>
       </sc:StrataDialog.DialogContent>
+    </sc:StrataDialog>
+
+    <!-- ═══ Add or manage an AI account (shared by Settings and onboarding) ═══ -->
+    <sc:StrataDialog x:Name="EasyConnectDialog"
+                     Title="{Binding SettingsVM.EasyConnect.DialogTitle}"
+                     IsDialogOpen="{Binding SettingsVM.EasyConnect.IsDialogOpen, Mode=TwoWay}"
+                     CloseCommand="{Binding SettingsVM.EasyConnect.CloseDialogCommand}"
+                     MaxDialogWidth="680"
+                     ZIndex="205">
+      <sc:StrataDialog.DialogContent>
+        <ctrl:EasyConnectDialogView DataContext="{Binding SettingsVM.EasyConnect}" />
+      </sc:StrataDialog.DialogContent>
+      <sc:StrataDialog.DialogFooter>
+        <ctrl:EasyConnectDialogFooter DataContext="{Binding SettingsVM.EasyConnect}" />
+      </sc:StrataDialog.DialogFooter>
     </sc:StrataDialog>
     <!-- ═══ Duplicating-chat status pill ═══
          Duplicating is usually fast enough to feel instant, so MainViewModel only raises

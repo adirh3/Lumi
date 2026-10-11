@@ -59,6 +59,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly CancellationTokenSource _searchIndexCts = new();
     private bool _isDisposed;
     private bool _isRefreshingCopilotState;
+    private bool _wasExternalOnly;
     private bool _isSyncingDefaultModelSelectionFromChat;
     private readonly ChatNavigationHistory _chatNavigationHistory = new();
 
@@ -330,6 +331,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             () => SelectedNavIndex = 0);
         SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService, updateService, _secureKeyStore);
         SettingsVM.LoginVM = LoginVM;
+        OnboardingVM.EasyConnect = SettingsVM.EasyConnect;
         SearchOverlayVM = new SearchOverlayViewModel(
             _globalSearchService,
             () => SelectedNavIndex);
@@ -373,8 +375,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     _ = RefreshCopilotStateAsync(refreshAuthStatus: false);
                 else if (!_isRefreshingCopilotState && !IsConnecting)
                 {
-                    IsConnected = false;
-                    ConnectionStatus = Loc.Status_Disconnected;
+                    IsConnected = _copilotService.IsExternalOnly && _copilotService.IsConnected;
+                    ConnectionStatus = IsConnected ? Loc.Status_Connected : Loc.Status_Disconnected;
                 }
             }
             else if (args.PropertyName == nameof(SettingsViewModel.UserName))
@@ -429,6 +431,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             InjectByokModels();
             RefreshChatList();
+            // Only a switch into or out of running on external accounts alone needs a reconnect pass.
+            var isExternalOnly = _copilotService.IsExternalOnly;
+            if (isExternalOnly != _wasExternalOnly && !_isRefreshingCopilotState)
+                _ = RefreshCopilotStateAsync(refreshAuthStatus: false);
+            _wasExternalOnly = isExternalOnly;
         };
 
         AttachChatViewModel(ChatVM);
@@ -887,6 +894,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (refreshAuthStatus)
                 await SettingsVM.RefreshAuthStatusAsync();
 
+            _wasExternalOnly = _copilotService.IsExternalOnly;
+            if (_wasExternalOnly)
+            {
+                if (_isDisposed)
+                    return;
+                InjectByokModels();
+                if (ChatVM.CurrentChat is null || ChatVM.CurrentChat.Messages.Count == 0)
+                    ChatVM.RestoreDefaultModelSelection();
+                IsConnected = true;
+                ConnectionStatus = Loc.Status_Connected;
+                _chatSessionStore.RefreshCapabilitiesAfterConnectionChange();
+                return;
+            }
+
             var models = await _copilotService.GetModelsAsync();
             var contextWindowCatalog = await _copilotService.GetContextWindowCatalogAsync();
 
@@ -939,7 +960,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
             .Concat(ByokConfigHelper.GetValidModels(_dataStore.Data.Settings)
                 .Select(ByokConfigHelper.BuildModelToken))
             .ToList();
-
         // Auto-select best model on clean state (no user preference saved)
         var selected = ChatVM.SelectedModel;
         var isCleanState = string.IsNullOrWhiteSpace(selected)
@@ -1004,13 +1024,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 var defaultEffort = supportedEfforts.FirstOrDefault(effort =>
                     string.Equals(effort, model.DefaultReasoningEffort?.Trim(), StringComparison.OrdinalIgnoreCase));
 
-                return new ModelInfo
+                var info = new ModelInfo
                 {
                     Id = ByokConfigHelper.BuildModelToken(model),
                     Name = model.DisplayName,
                     SupportedReasoningEfforts = supportedEfforts,
                     DefaultReasoningEffort = defaultEffort,
                 };
+                if (model.DefaultContextWindowTokens is > 0)
+                    info.Capabilities = new ModelCapabilities
+                    { Limits = new ModelLimits { MaxContextWindowTokens = model.DefaultContextWindowTokens.Value } };
+                return info;
             })
             .ToList();
         var byokLongContextModelIds = validModels
@@ -1029,7 +1053,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // Rebuild the display cache (idempotent — adds, replaces, and prunes missing entries).
         var newCacheEntries = validModels.ToDictionary(
             ByokConfigHelper.BuildModelToken,
-            m => $"{m.DisplayName} \u2014 BYOK",
+            model => ModelOptionCatalog.GetByokDisplayName(model,
+                settings.ByokEndpoints.FirstOrDefault(endpoint => endpoint.Id == model.EndpointId)),
             StringComparer.Ordinal);
         // Replace cache contents: remove stale entries that are no longer valid.
         foreach (var existing in _byokDisplayCache.Keys.ToList())

@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using GitHub.Copilot;
+using Lumi.Models;
+using Lumi.Services;
 using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
@@ -31,6 +34,7 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
     {
         Id = id;
         _displayName = ChatViewModel.FormatModelDisplay(id) ?? id;
+        _providerName = ByokConfigHelper.IsByokModel(id) ? null : "GitHub Copilot";
     }
 
     /// <summary>Model id exactly as the catalog reports it (also the value written back on select).</summary>
@@ -39,6 +43,7 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
     string IStrataModelOption.ModelId => Id;
 
     [ObservableProperty] private string _displayName;
+    [ObservableProperty] private string? _providerName;
 
     /// <summary>Max context window in tokens, or 0 when the catalog does not report one.</summary>
     [ObservableProperty] private long _contextTokens;
@@ -81,9 +86,17 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
 
     /// <summary>Copies freshly fetched catalog metadata onto an option that is already on screen, so a
     /// live catalog refresh updates badges without replacing (and re-rendering) the row.</summary>
-    public void Apply(ModelOptionMetadata metadata)
+    public void Apply(ModelOptionMetadata metadata, UserSettings? settings = null)
     {
         DisplayName = ChatViewModel.FormatModelDisplay(Id) ?? Id;
+        if (settings is not null && ByokConfigHelper.IsByokModel(Id))
+        {
+            var model = settings.ByokModels.FirstOrDefault(model => ByokConfigHelper.BuildModelToken(model) == Id);
+            var endpoint = settings.ByokEndpoints.FirstOrDefault(endpoint => endpoint.Id == model?.EndpointId);
+            ProviderName = endpoint?.Name;
+            if (model is not null)
+                DisplayName = ModelOptionCatalog.GetByokDisplayName(model, endpoint);
+        }
         ContextTokens = metadata.ContextTokens;
         CostMultiplier = metadata.CostMultiplier;
         SupportsVision = metadata.SupportsVision;
@@ -95,11 +108,13 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
 }
 
 /// <summary>
-/// Pure helpers that turn the SDK model catalog and the user's favorites into picker rows. Kept free
-/// of view-model state so ordering and badge formatting are directly testable.
+/// Helpers that turn model catalogs, connected accounts and favorites into picker rows.
+/// Presentation and ordering stay shared between the composer and Settings.
 /// </summary>
 public static class ModelOptionCatalog
 {
+    private static readonly ModelOptionMetadata UnknownMetadata = new(0, null, false, false, false);
+
     public static ModelOptionMetadata Describe(ModelInfo model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -137,6 +152,44 @@ public static class ModelOptionCatalog
         }
 
         return metadata;
+    }
+
+    public static string GetByokDisplayName(ByokModel model, ByokEndpoint? endpoint)
+    {
+        var name = string.IsNullOrWhiteSpace(model.DisplayName) ? model.ModelId : model.DisplayName;
+        var prefix = endpoint?.Name + " · ";
+        if (endpoint is not null && name.StartsWith(prefix, StringComparison.Ordinal))
+            return name[prefix.Length..];
+        var originalName = Services.Byok.ProviderCatalog.Find(endpoint?.ConnectionProviderId)?.Name;
+        var originalPrefix = originalName + " · ";
+        return originalName is not null && name.StartsWith(originalPrefix, StringComparison.Ordinal)
+            ? name[originalPrefix.Length..] : name;
+    }
+
+    /// <summary>Updates provider labels, badges and pin order without replacing existing row instances.</summary>
+    public static void SyncOptions(
+        ObservableCollection<ModelOption> target, IEnumerable<string> modelIds, UserSettings settings,
+        IReadOnlyDictionary<string, ModelOptionMetadata> metadata)
+    {
+        var ordered = OrderPinnedFirst(modelIds, settings.FavoriteModelIds);
+        var pinned = new HashSet<string>(settings.FavoriteModelIds ?? [], StringComparer.Ordinal);
+        var existing = target.ToDictionary(static option => option.Id, StringComparer.Ordinal);
+        for (var index = target.Count - 1; index >= 0; index--)
+            if (!ordered.Contains(target[index].Id, StringComparer.Ordinal))
+                target.RemoveAt(index);
+
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            var id = ordered[index];
+            var option = existing.TryGetValue(id, out var current) ? current : new ModelOption(id);
+            option.Apply(metadata.TryGetValue(id, out var facts) ? facts : UnknownMetadata, settings);
+            option.IsPinned = pinned.Contains(id);
+            var currentIndex = target.IndexOf(option);
+            if (currentIndex < 0)
+                target.Insert(index, option);
+            else if (currentIndex != index)
+                target.Move(currentIndex, index);
+        }
     }
 
     /// <summary>

@@ -6,6 +6,8 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 
 ## Features
 
+- **AI accounts** — GitHub Copilot is the default. Add OpenRouter, Poe, other supported plans, API credits, or local models in a few clicks; the Copilot agent runtime stays the same.
+
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
 - **Reply actions** — A compact footer below each answer groups its model name with copy, Share prompt, reply, and a more-actions menu for formatted copying and branching. The quiet actions stay discoverable without moving the answer; hovering over its timestamp shows the full date, time, and UTC offset. Missing snippet models use the recorded model for that turn; genuinely missing historical metadata is marked "Model not recorded" rather than guessed from the current model picker
 - **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
@@ -22,6 +24,112 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
 - **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
+
+### AI accounts
+
+Open **Settings > AI & Models > AI accounts**, or use **Choose your AI** on the
+onboarding welcome step. **GitHub Copilot** is always listed first and remains
+Lumi's default when you are signed in. Other accounts are added alongside it:
+their models appear in every model menu, but they only become the default when you
+turn on **Use for new chats** or choose **Use as default**. Without a GitHub
+sign-in, the first connected account becomes the default so Lumi can work.
+
+Desktop model pickers group models under GitHub Copilot or the connected account
+name. Model names no longer repeat the account or append a BYOK suffix; model IDs
+and saved selections are unchanged. Pinned models stay at the top, with their
+account shown as a separate badge.
+
+**Add an AI account** opens a searchable gallery grouped by how you connect: sign
+in with your account, plans and credits, developer API keys, apps on this
+computer, or a custom compatible endpoint. Each connection follows the same three
+steps:
+
+1. **Account** — continue in the provider's official browser sign-in where
+   available (OpenRouter, Poe, NanoGPT), or open the provider's key page and paste
+   a key. Local apps only need their server address.
+2. **Model** — Lumi discovers models, prioritizes tool-capable and listed-free
+   options, and carries the provider's context-window metadata. New lists start
+   with nothing selected; explicitly choose the models you want. Refreshing keeps
+   your selections, including manually added IDs. If the provider does not expose
+   a model list, Lumi opens manual model entry instead.
+3. **Ready** — **Connect** makes one small AI request and a read-only tool call
+   through the actual Copilot runtime before saving by default. Only the first
+   selected model is tested, and the request may use a little plan allowance or
+   API credit. **Skip the model check** saves without that request; the result
+   explicitly says model access and tool support were not verified. Local
+   configuration validation and secure-key storage still apply. Skipping is
+   opt-in each time you add or manage an account.
+
+Each account row shows its billing source and default status. Select it to manage
+its models, replace its key, or open usage and billing; the **⋯** menu also offers
+**Use as default** and **Disconnect**. Selecting an already connected provider in
+the gallery opens its existing connection instead of adding a duplicate.
+
+When a provider reports supported reasoning-effort levels and a default, Lumi
+stores the levels supported by the Copilot runtime and exposes the effort selector for that model. OpenRouter's
+`reasoning.supported_efforts` metadata is supported. Reasoning tokens alone do
+not imply adjustable effort. For an existing connection, **Manage models >
+Refresh models** updates configured models' reasoning metadata without a new
+inference request or changing their selection; unreported manually configured
+capabilities are retained.
+The `none` effort is not offered because the runtime omits that request
+field rather than forwarding an explicit off setting to the provider.
+
+Connections include OpenRouter, Poe, NanoGPT, MiniMax M Plan, Mistral, Ollama
+Cloud, Microsoft Foundry, standard model APIs, and local Ollama/LM Studio. The provider cards explain
+the billing source and restrictions: **Claude API** does not reuse Claude Pro/Max,
+**OpenAI API** does not reuse ChatGPT, and **Gemini API** does not reuse Google AI
+Pro/Ultra. Poe uses eligible Poe subscription/add-on points. Restricted consumer
+OAuth tokens and unsupported coding-plan keys are not imported.
+
+**Microsoft Foundry** has its own API-key option in both onboarding and Settings.
+Paste the Foundry/Azure OpenAI resource endpoint and resource API key. Resource
+root URLs are normalized to `/openai/v1`; full `/openai/v1` URLs also work.
+Lumi configures the `api-key` header, tries the v1 model list, and shows models
+under the account's provider group. You can enter the exact deployment name when
+listing is unavailable or catalog IDs differ from deployment names. The selected
+model/deployment is tool-call checked unless you explicitly skip verification.
+Responses is the default for new Foundry connections, supporting tool calls with
+reasoning on newer GPT deployments. Chat Completions remains available for other
+deployments, including directly on the model step; saved request formats are
+preserved. Azure resource billing applies, not Microsoft 365 Copilot.
+Foundry's model list does not report reasoning-effort levels. For recognized
+model IDs, Lumi uses Microsoft's documented model-specific levels; GPT-6 Luna
+with Responses offers Low, Medium, High, X-High and Max. Reported or explicitly
+configured effort lists take precedence. Arbitrary deployment aliases and unknown
+models need their capabilities configured in **Advanced endpoints & models**.
+For an older connection, **Refresh list** or save it again to add known reasoning
+metadata; this does not require a GitHub subscription.
+Entra sign-in, Azure resource browsing, Foundry Agent Service and legacy model
+inference endpoints are outside this preset; existing manual BYOK remains available.
+
+Keys are stored in Windows Credential Manager, macOS Keychain, or Linux's
+libsecret credential store when available. If secure storage is unavailable,
+Lumi requires explicit consent before saving a key as plaintext. Browser sign-in
+users can give that consent on the model step without copying a key manually.
+API keys, authorization codes, and tokens are not shown in connection errors. Disconnect
+removes the local connection and stored key; removing authentication from a
+connection also removes its saved OS key. Disconnect does not cancel the provider's
+subscription or revoke its key remotely. Existing chats remain available. If the
+disconnected account was the default, GitHub Copilot becomes the default again
+when you are signed in and Copilot requests are allowed. Otherwise Lumi uses a
+remaining enabled, unexpired external model, or leaves the default unset when no
+account is ready. Personalized onboarding is available only when an allowed
+GitHub account or a usable external model is connected.
+
+Lumi never purchases credits or connects another paid provider automatically.
+Default fallbacks stay within accounts you have already connected. Provider-side
+paid overage and auto-reload settings still apply. A model catalog entry is not a
+guarantee of paid entitlement or reliable tool use.
+
+The **Background model** setting controls helpers such as titles, suggestions and
+memory processing. An explicit choice takes precedence. **Auto** uses the cheapest
+usable Copilot model while GitHub is signed in, even if another account is the
+chat default. Without a GitHub sign-in, or with **Block internal Copilot requests**
+turned on, Auto uses the default external model. Stale or removed connections fail
+explicitly instead of sending context to GitHub; an explicit Copilot background
+choice is still blocked by BYOK Only. Existing Copilot and manual BYOK
+configurations remain supported under **Advanced endpoints & models**.
 
 ### CSV file previews
 
