@@ -157,7 +157,7 @@
   </UserControl.Styles>
 
   <sc:StrataDialog x:Name="ImportDialog"
-                   Title="{loc:Str Import_Title}"
+                   Title="{Binding DialogTitle}"
                    IsDialogOpen="{Binding IsOpen, Mode=TwoWay}"
                    CloseCommand="{Binding CloseCommand}"
                    MaxDialogWidth="580">
@@ -263,7 +263,44 @@
 
           <views:CapabilityCardView x:Name="ImportCard" DataContext="{Binding Card}" />
 
-          <StackPanel>
+          <StackPanel x:Name="PromptUsePanel" IsVisible="{Binding IsPrompt}" Spacing="14">
+            <TextBlock Text="{loc:Str Prompt_Personalize}" Classes="sheet-section" />
+            <ItemsControl x:Name="PromptUseInputs" ItemsSource="{Binding PromptInputs}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:PromptInputValueViewModel">
+                  <StackPanel Spacing="5" Margin="0,0,0,12">
+                    <TextBlock Text="{Binding Input.Label}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding Input.Description}" Classes="caption secondary" TextWrapping="Wrap" />
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBox Name="{Binding ControlName}" Text="{Binding Value, Mode=TwoWay}"
+                               PlaceholderText="{Binding Placeholder}" AutomationProperties.Name="{Binding Input.Label}" />
+                      <Button Name="{Binding BrowseControlName}" Grid.Column="1" Margin="8,0,0,0"
+                              IsVisible="{Binding CanBrowse}" Click="OnPromptBrowseClick"
+                              Content="{loc:Str Prompt_Browse}" />
+                    </Grid>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Spacing="5">
+              <TextBlock Text="{loc:Str Prompt_Requirements}" Classes="sheet-section" />
+              <TextBlock x:Name="PromptUseSetupNotes" Text="{Binding PromptSetupNotes}"
+                         Classes="caption secondary" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Spacing="6">
+              <TextBlock Text="{loc:Str Prompt_WhatWillBeSent}" Classes="sheet-section" />
+              <Border Background="{DynamicResource Brush.Surface0}" CornerRadius="8" Padding="12,10" MaxHeight="260">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <SelectableTextBlock x:Name="PromptUsePreview" Text="{Binding PromptPreviewText}"
+                                       FontSize="12" TextWrapping="Wrap" />
+                </ScrollViewer>
+              </Border>
+            </StackPanel>
+            <TextBlock Text="{Binding PromptUseError}" Classes="caption" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Brush.DangerDefault}" />
+          </StackPanel>
+
+          <StackPanel IsVisible="{Binding !IsPrompt}">
             <TextBlock Classes="sheet-section" Text="{loc:Str Import_WillBeAdded}" />
             <ItemsControl x:Name="ImportItems" ItemsSource="{Binding Items}">
               <ItemsControl.ItemTemplate>

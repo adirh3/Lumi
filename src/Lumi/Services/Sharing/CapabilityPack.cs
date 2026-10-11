@@ -5,7 +5,8 @@ public enum SharedCapabilityKind
 {
     Skill,
     Lumi,
-    McpServer
+    McpServer,
+    Prompt
 }
 
 /// <summary>The text format a pack was read from, or is written as.</summary>
@@ -97,6 +98,7 @@ public sealed class CapabilityPack
     public string IconGlyph { get; init; } = "";
     public IReadOnlyList<SharedSkill> Skills { get; init; } = [];
     public SharedLumi? Lumi { get; init; }
+    public SharedPrompt? Prompt { get; init; }
     public IReadOnlyList<SharedMcpServer> McpServers { get; init; } = [];
 
     /// <summary>Reader observations worth telling the user (dangling references, skipped entries).</summary>

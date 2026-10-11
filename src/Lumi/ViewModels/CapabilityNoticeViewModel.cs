@@ -127,6 +127,8 @@ public partial class CapabilityNoticeViewModel : ObservableObject
     /// </summary>
     private bool IsAlreadyInLibrary(CapabilityPack pack)
     {
+        if (pack.Prompt is not null)
+            return false;
         if (CapabilityImporter.Plan(pack, _dataStore).NewItemCount == 0)
             return true;
 

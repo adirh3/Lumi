@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Net;
+using System.Diagnostics;
 using System.Text;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -123,6 +124,10 @@ public partial class ShareSheetViewModel : ObservableObject
 
     private void Load(CapabilityShare share, string title, bool hasUnsavedEdits)
     {
+        CancelPromptPreparation();
+        IsPrompt = false;
+        _promptSource = null;
+        _preparePrompt = null;
         _share = share;
         _copyGeneration++;
         var pack = share.Pack;
@@ -175,6 +180,7 @@ public partial class ShareSheetViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(ShareText));
+        NotifyShareAvailability();
         IsOpen = true;
     }
 
@@ -261,41 +267,76 @@ public partial class ShareSheetViewModel : ObservableObject
                 code: string.Join(", ", group.Select(static finding => finding.Detail)));
         }
 
-        yield return pack.McpServers.Count > 0
+        yield return pack.Prompt is not null
+            ? new ReceiptNoteViewModel("\uD83D\uDEE1", Loc.Prompt_PrivacyNote, ReceiptTone.Info)
+            : pack.McpServers.Count > 0
             ? new ReceiptNoteViewModel("🛡", Loc.ShareNote_NeverShared, ReceiptTone.Safe)
             : new ReceiptNoteViewModel("🛡", Loc.ShareNote_InstructionsOnly, ReceiptTone.Safe);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanShare))]
     private async Task Copy()
     {
-        if (_share is null)
+        if (_share is not { } share)
             return;
 
-        CapabilityNoticeViewModel.RememberOwnCopy(_share.Text);
-        await ClipboardHelper.CopyTextAsync(_share.Text);
+        var generation = ++_copyGeneration;
+        var text = share.Pack.Prompt is { } prompt ? PromptSharing.ComposeText(prompt) : share.Text;
+        CapabilityNoticeViewModel.RememberOwnCopy(text);
+        try
+        {
+            await ClipboardHelper.CopyTextAsync(text, throwOnFailure: share.Pack.Prompt is not null);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or NotSupportedException
+                                  or System.Runtime.InteropServices.COMException or System.ComponentModel.Win32Exception)
+        {
+            Debug.WriteLine($"[Lumi] Prompt copy failed: {ex.Message}");
+            if (generation == _copyGeneration)
+                SetStatus(string.Format(CultureInfo.CurrentCulture, Loc.Prompt_CopyFailed, ex.Message), isError: true);
+            return;
+        }
+        if (generation != _copyGeneration)
+            return;
         IsConfigCopied = false;
         IsChatCopied = false;
         IsCopied = true;
-        await ResetCopiedAsync(++_copyGeneration);
+        await ResetCopiedAsync(generation);
     }
 
     /// <summary>
     /// The chat hand-off: a title line and the compact code in a code block, as rich text for
     /// Teams, Outlook and Slack and as a fenced block for everything else.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanShare))]
     private async Task CopyForChat()
     {
-        if (_share is null)
+        if (_share is not { } share)
             return;
 
-        await CopyChatSnippetAsync(_share.Pack, ChatCode);
+        var generation = ++_copyGeneration;
+        var code = ChatCode;
+        ChatCodeSize = PackText.FormatSize(code);
+        IsChatCodeLong = code.Length > ShareCode.LongCodeThreshold;
+        ChatCodeNote = IsChatCodeLong ? string.Format(CultureInfo.CurrentCulture, Loc.Share_ChatCodeLong, ChatCodeSize) : "";
+        try
+        {
+            await CopyChatSnippetAsync(share.Pack, code);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or NotSupportedException
+                                  or System.Runtime.InteropServices.COMException or System.ComponentModel.Win32Exception)
+        {
+            Debug.WriteLine($"[Lumi] Prompt copy failed: {ex.Message}");
+            if (generation == _copyGeneration)
+                SetStatus(string.Format(CultureInfo.CurrentCulture, Loc.Prompt_CopyFailed, ex.Message), isError: true);
+            return;
+        }
+        if (generation != _copyGeneration)
+            return;
         IsCopied = false;
         IsConfigCopied = false;
         IsChatCopied = true;
         SetStatus(Loc.Share_ChatCopiedStatus);
-        await ResetCopiedAsync(++_copyGeneration);
+        await ResetCopiedAsync(generation);
     }
 
     private string? _chatCode;
@@ -307,7 +348,7 @@ public partial class ShareSheetViewModel : ObservableObject
     {
         var (text, html) = ComposeChatSnippet(pack, code);
         CapabilityNoticeViewModel.RememberOwnCopy(text);
-        await ClipboardHelper.CopyTextAndHtmlAsync(text, html);
+        await ClipboardHelper.CopyTextAndHtmlAsync(text, html, throwOnFailure: pack.Prompt is not null);
     }
 
     /// <summary>
@@ -321,6 +362,7 @@ public partial class ShareSheetViewModel : ObservableObject
         {
             SharedCapabilityKind.Skill => Loc.ChatSnippet_KindSkill,
             SharedCapabilityKind.Lumi => Loc.ChatSnippet_KindLumi,
+            SharedCapabilityKind.Prompt => Loc.Prompt_ChatSnippetKind,
             _ => Loc.ChatSnippet_KindMcp
         };
         var description = PackText.SingleLine(card.Description, 160);
@@ -329,7 +371,8 @@ public partial class ShareSheetViewModel : ObservableObject
         text.Append(card.Glyph).Append(' ').Append(card.Name).Append(" · ").Append(kind).Append('\n');
         if (description.Length > 0)
             text.Append(description).Append('\n');
-        text.Append(Loc.ChatSnippet_Hint).Append('\n');
+        var hint = pack.Prompt is not null ? Loc.Prompt_ChatSnippetHint : Loc.ChatSnippet_Hint;
+        text.Append(hint).Append('\n');
         text.Append("```lumi\n").Append(code).Append("\n```\n");
 
         var html = new StringBuilder();
@@ -337,7 +380,7 @@ public partial class ShareSheetViewModel : ObservableObject
             .Append("</b> · ").Append(WebUtility.HtmlEncode(kind));
         if (description.Length > 0)
             html.Append("<br>").Append(WebUtility.HtmlEncode(description));
-        html.Append("<br><i>").Append(WebUtility.HtmlEncode(Loc.ChatSnippet_Hint)).Append("</i></p>");
+        html.Append("<br><i>").Append(WebUtility.HtmlEncode(hint)).Append("</i></p>");
         html.Append("<pre><code>").Append(code).Append("</code></pre>");
 
         return (text.ToString(), AsciiHtml(html.ToString()));
@@ -395,7 +438,7 @@ public partial class ShareSheetViewModel : ObservableObject
     internal static bool NeedsReview(IReadOnlyList<ShareFinding> findings)
         => findings.Any(static finding => finding.Kind != ShareFindingKind.SecretValueRemoved);
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanShare))]
     private async Task CopyConfig()
     {
         if (_share is null)
@@ -465,7 +508,7 @@ public partial class ShareSheetViewModel : ObservableObject
 
     public async Task SaveToFileAsync(IStorageFile file)
     {
-        if (_share is null)
+        if (_share is not { } share)
             return;
 
         try
@@ -474,8 +517,9 @@ public partial class ShareSheetViewModel : ObservableObject
             if (stream.CanSeek)
                 stream.SetLength(0);
             await using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
-                await writer.WriteAsync(_share.Text);
-            SetStatus(string.Format(CultureInfo.CurrentCulture, Loc.Share_SavedTo, file.TryGetLocalPath() ?? file.Name));
+                await writer.WriteAsync(share.Text);
+            if (ReferenceEquals(_share, share))
+                SetStatus(string.Format(CultureInfo.CurrentCulture, Loc.Share_SavedTo, file.TryGetLocalPath() ?? file.Name));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

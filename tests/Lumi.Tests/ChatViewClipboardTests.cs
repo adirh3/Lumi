@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Sharing;
 using Lumi.ViewModels;
 using Lumi.Views;
 using StrataTheme.Controls;
@@ -17,6 +18,86 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatViewClipboardTests
 {
+    [Fact]
+    public async Task SharedPromptCode_PasteOpensReviewWithoutChangingTheCurrentDraft()
+    {
+        using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        var reviewOpened = false;
+        string? draft = null;
+        var inputCount = 0;
+        await session.Dispatch(async () =>
+        {
+            using var main = new MainViewModel(new DataStore(new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false, EnableMemoryAutoSave = false, OfferCopiedCapabilities = false
+                }
+            }), TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false, skipOnboarding: true);
+            var view = new ChatView { DataContext = main.ChatVM };
+            var window = new Window { Width = 1100, Height = 820, Content = view };
+            window.Show();
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                var prompt = new SharedPrompt
+                {
+                    Name = "Create a report", Description = "A portable report task.",
+                    Content = "Create a report from {{source_file}} without changing the source.",
+                    Inputs = [new("source_file", "Source file", "Your own file.", PromptInputKind.File)]
+                };
+                var pack = CapabilityPackWriter.ForPrompt(prompt);
+                var snippet = ShareSheetViewModel.ComposeChatSnippet(pack.Pack, ShareCode.Encode(CapabilityPackWriter.WriteCompact(pack)));
+                using var clipboard = new DataTransfer();
+                clipboard.Add(DataTransferItem.CreateText(snippet.Text));
+                await window.Clipboard!.SetDataAsync(clipboard);
+
+                var composer = view.FindControl<StrataChatComposer>("Composer")!;
+                var input = composer.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "PART_Input");
+                input.Text = "My unsent draft";
+                input.Focus();
+                input.RaiseEvent(new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent, Key = Key.V,
+                    KeyModifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control
+                });
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while (!main.ImportVM.IsOpen)
+                    await Task.Delay(10, timeout.Token);
+                reviewOpened = main.ImportVM.IsPrompt && main.ImportVM.IsReviewing;
+                inputCount = main.ImportVM.PromptInputs.Count;
+                draft = input.Text;
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+        Assert.True(reviewOpened);
+        Assert.Equal(1, inputCount);
+        Assert.Equal("My unsent draft", draft);
+    }
+
+    [Fact]
+    public async Task SharedPromptCopy_ReportsAnUnavailableClipboardInsteadOfSuccess()
+    {
+        using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        var error = false;
+        var copied = false;
+        await session.Dispatch(async () =>
+        {
+            var sheet = new ShareSheetViewModel(new DataStore(new AppData()), static () => []);
+            await sheet.OpenForPromptAsync(new PromptShareSource("Visible context", 2, false), (_, _) =>
+                Task.FromResult(new SharedPrompt { Name = "Task", Description = "", Content = "Create a useful report." }));
+            await sheet.CopyForChatCommand.ExecuteAsync(null);
+            error = sheet.IsStatusError;
+            copied = sheet.IsChatCopied;
+            sheet.CloseCommand.Execute(null);
+        }, CancellationToken.None);
+        Assert.True(error);
+        Assert.False(copied);
+    }
+
     [Theory]
     [InlineData("Text copied from PowerPoint", true, false)]
     [InlineData("Plain text", false, false)]

@@ -1262,6 +1262,8 @@
                             CanFork="True"
                             ForkMenuHeader="{loc:Str Menu_ForkFromHere}"
                             CanReply="{Binding CanReply}"
+                            CanShare="{Binding CanSharePrompt}"
+                            ShareLabel="{loc:Str Prompt_ShareTitle}"
                             ReplyLabel="{loc:Str Chat_Reply}"
                             ReplySelectionLabel="{loc:Str Chat_ReplyToSelection}"
                             IsReplySource="{Binding IsReplySource}"

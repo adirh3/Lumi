@@ -41,6 +41,10 @@ if ($classes.Count -eq 0) {
 
 $isolatedClasses = @(
     "Lumi.Tests.AnimationLifecycleRegressionTests",
+    # These use a separate Skia dispatcher; delayed callbacks from drawing-free tests
+    # must not run on it and access controls owned by the assembly UI thread.
+    "Lumi.Tests.AvaloniaTextInputTests",
+    "Lumi.Tests.AvaloniaTextLayoutTests",
     # Its native STA dispatcher must not reset dispatcher state owned by earlier headless tests.
     "Lumi.Tests.BrowserServiceIntegrationTests",
     "Lumi.Tests.ChatViewClipboardTests",

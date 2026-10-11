@@ -319,15 +319,20 @@ public partial class AssistantMessageItem : TranscriptItem
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanReply))]
+    [NotifyPropertyChangedFor(nameof(CanSharePrompt))]
     private string _content;
     [ObservableProperty] private string _timestampText;
-    [ObservableProperty] private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSharePrompt))]
+    private bool _isStreaming;
 
     /// <summary>True while the composer holds a reply to this message.</summary>
     [ObservableProperty] private bool _isReplySource;
 
     /// <summary>Only an answer with text can be quoted; a bubble that just carries files cannot.</summary>
     public bool CanReply => !string.IsNullOrWhiteSpace(Content);
+    public bool CanSharePrompt => !IsStreaming && !string.IsNullOrWhiteSpace(Content)
+        && _source.Message.ParentToolCallId is null;
 
     // Extras — populated when streaming ends
     [ObservableProperty] private bool _hasSkills;

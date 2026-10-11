@@ -6,6 +6,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lumi.Localization;
+using Lumi.Services.Sharing;
 using Lumi.ViewModels;
 using StrataTheme.Animation;
 using StrataTheme.Controls;
@@ -95,6 +96,33 @@ public partial class ImportSheetView : UserControl
 
         if (files.Count > 0)
             await _viewModel.LoadStorageItemAsync(files[0]);
+    }
+
+    private async void OnPromptBrowseClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { DataContext: PromptInputValueViewModel input }
+            || TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage)
+            return;
+        if (input.Input.Kind == PromptInputKind.Folder)
+        {
+            var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = input.Input.Label,
+                AllowMultiple = false
+            });
+            if (folders.Count > 0 && folders[0].TryGetLocalPath() is { } path)
+                input.Value = path;
+        }
+        else
+        {
+            var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = input.Input.Label,
+                AllowMultiple = false
+            });
+            if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
+                input.Value = path;
+        }
     }
 
     private void OnDragEnter(object? sender, DragEventArgs e)

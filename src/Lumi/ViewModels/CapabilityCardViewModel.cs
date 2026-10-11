@@ -52,7 +52,8 @@ public sealed class CapabilityCardViewModel
     {
         [SharedCapabilityKind.Skill] = Color.Parse("#FBBF24"),
         [SharedCapabilityKind.Lumi] = Color.Parse("#A78BFA"),
-        [SharedCapabilityKind.McpServer] = Color.Parse("#2DD4BF")
+        [SharedCapabilityKind.McpServer] = Color.Parse("#2DD4BF"),
+        [SharedCapabilityKind.Prompt] = Color.Parse("#60A5FA")
     };
 
     private readonly Color _hue;
@@ -119,6 +120,7 @@ public sealed class CapabilityCardViewModel
     {
         SharedCapabilityKind.Skill => Loc.Capability_KindSkill,
         SharedCapabilityKind.Lumi => Loc.Capability_KindLumi,
+        SharedCapabilityKind.Prompt => Loc.Prompt_Kind,
         _ => Loc.Capability_KindMcp
     };
 
@@ -144,6 +146,7 @@ public sealed class CapabilityCardViewModel
     {
         SharedCapabilityKind.Skill => "⚡",
         SharedCapabilityKind.Lumi => "✦",
+        SharedCapabilityKind.Prompt => "\u2728",
         _ => "🔌"
     };
 
@@ -151,6 +154,9 @@ public sealed class CapabilityCardViewModel
     public static string DescribeContents(CapabilityPack pack)
     {
         var parts = new List<string>();
+        if (pack.Prompt is { } prompt)
+            return prompt.Inputs.Count == 0 ? Loc.Prompt_ReadyToPersonalize
+                : string.Format(CultureInfo.CurrentCulture, Loc.Prompt_InputCount, prompt.Inputs.Count);
         if (pack.Lumi is { } lumi)
         {
             if (pack.Skills.Count > 0)

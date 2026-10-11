@@ -4,6 +4,7 @@
              xmlns:views="using:Lumi.Views"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:sharing="using:Lumi.Services.Sharing"
              x:Class="Lumi.Views.ShareSheetView"
              x:DataType="vm:ShareSheetViewModel"
              x:CompileBindings="True">
@@ -126,7 +127,53 @@
           </DockPanel>
         </Border>
 
-        <views:CapabilityCardView x:Name="ShareCard" DataContext="{Binding Card}" />
+        <Panel IsVisible="{Binding !IsPreparingPrompt}">
+          <views:CapabilityCardView x:Name="ShareCard" DataContext="{Binding Card}" />
+        </Panel>
+
+        <StackPanel x:Name="PromptShareEditor" IsVisible="{Binding IsPrompt}" Spacing="12">
+          <TextBlock Text="{Binding PromptSourceDescription}" Classes="caption tertiary" TextWrapping="Wrap" />
+          <StackPanel x:Name="PromptPreparingPanel" IsVisible="{Binding IsPreparingPrompt}" Spacing="8">
+            <ProgressBar IsIndeterminate="True" Height="3" />
+            <TextBlock Text="{loc:Str Prompt_Preparing}" Classes="caption secondary" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel IsVisible="{Binding !IsPreparingPrompt}" Spacing="12">
+            <StackPanel Spacing="5">
+              <TextBlock Text="{loc:Str Prompt_Name}" Classes="sheet-section" />
+              <TextBox x:Name="SharePromptName" Text="{Binding PromptName, Mode=TwoWay}" MaxLength="120" />
+            </StackPanel>
+            <TextBox x:Name="SharePromptDescription" Text="{Binding PromptDescription, Mode=TwoWay}"
+                     PlaceholderText="{loc:Str Prompt_Description}" MaxLength="1000" TextWrapping="Wrap" />
+            <StackPanel Spacing="5">
+              <TextBlock Text="{loc:Str Prompt_Task}" Classes="sheet-section" />
+              <TextBox x:Name="SharePromptContent" Text="{Binding PromptContent, Mode=TwoWay}"
+                       AcceptsReturn="True" TextWrapping="Wrap" MinHeight="150" MaxHeight="300"
+                       MaxLength="60000" PlaceholderText="{loc:Str Prompt_TaskPlaceholder}" />
+            </StackPanel>
+            <StackPanel IsVisible="{Binding HasPromptInputs}" Spacing="6">
+              <TextBlock Text="{loc:Str Prompt_RecipientInputs}" Classes="sheet-section" />
+              <ItemsControl x:Name="SharePromptInputs" ItemsSource="{Binding PromptInputs}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="sharing:PromptInput">
+                    <StackPanel Spacing="2" Margin="0,0,0,7">
+                      <TextBlock Text="{Binding Label}" FontWeight="SemiBold" FontSize="12" />
+                      <TextBlock Text="{Binding Description}" Classes="caption secondary" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+            <StackPanel Spacing="5">
+              <TextBlock Text="{loc:Str Prompt_Requirements}" Classes="sheet-section" />
+              <TextBox x:Name="SharePromptRequirements" Text="{Binding PromptRequirements, Mode=TwoWay}"
+                       AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="130"
+                       PlaceholderText="{loc:Str Prompt_RequirementsPlaceholder}" />
+            </StackPanel>
+          </StackPanel>
+          <Button x:Name="SharePromptRegenerate" Classes="subtle" HorizontalAlignment="Left"
+                  IsEnabled="{Binding !IsPreparingPrompt}" Command="{Binding PreparePromptAgainCommand}"
+                  Content="{loc:Str Prompt_PrepareAgain}" />
+        </StackPanel>
 
         <!-- Send the skill straight into other agent tools found on this computer -->
         <StackPanel IsVisible="{Binding HasTargets}">
@@ -262,6 +309,7 @@
           <!-- The everyday hand-off: a compact code in a code block, for Teams, Slack or any chat -->
           <Button x:Name="ShareCopyForChatButton"
                   Classes="accent copy-primary"
+                  IsEnabled="{Binding CanShare}"
                   Command="{Binding CopyForChatCommand}"
                   ToolTip.Tip="{loc:Str Share_CopyForChatTooltip}"
                   AutomationProperties.Name="{loc:Str Share_CopyForChat}"
@@ -281,6 +329,7 @@
 
           <Button x:Name="ShareCopyButton"
                   Classes="copy-primary"
+                  IsEnabled="{Binding CanShare}"
                   Command="{Binding CopyCommand}"
                   AutomationProperties.Name="{Binding CopyTextLabel}"
                   Margin="0,0,8,6">
@@ -300,6 +349,7 @@
           <Button x:Name="ShareSaveFileButton"
                   Classes="copy-primary"
                   IsVisible="{Binding !IsSkill}"
+                  IsEnabled="{Binding CanShare}"
                   Click="OnSaveFileClick"
                   Margin="0,0,8,6">
             <StackPanel Orientation="Horizontal" Spacing="7">
