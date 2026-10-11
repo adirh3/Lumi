@@ -31,9 +31,10 @@ public sealed class ChatViewClipboardTests
             {
                 Settings = new UserSettings
                 {
-                    AutoSaveChats = false, EnableMemoryAutoSave = false, OfferCopiedCapabilities = false
+                    IsOnboarded = true, AutoSaveChats = false, EnableMemoryAutoSave = false, OfferCopiedCapabilities = false
                 }
-            }), TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false, skipOnboarding: true);
+            }), TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false);
+            Assert.True(main.IsOnboarded);
             var view = new ChatView { DataContext = main.ChatVM };
             var window = new Window { Width = 1100, Height = 820, Content = view };
             window.Show();
