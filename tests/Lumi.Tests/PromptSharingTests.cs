@@ -404,6 +404,7 @@ public sealed class PromptSharingTests
     {
         using var session = HeadlessTestSession.Start();
         var store = Store();
+        store.Data.Settings.IsOnboarded = true;
         var source = new Chat
         {
             Title = "Existing conversation",
@@ -416,7 +417,8 @@ public sealed class PromptSharingTests
         string? oldDraft = null;
         await session.Dispatch(() =>
         {
-            using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false, skipOnboarding: true);
+            using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false);
+            Assert.True(main.IsOnboarded);
             before = main.ChatVM;
             before.CurrentChat = source;
             before.PromptText = "My unsent follow-up";
