@@ -29,7 +29,7 @@ function eventTarget(properties = {}) {
 function host({
     hidden = false, secure = true, dark = false, registrationError,
     origin = 'https://lumi.test', storage = new Map(), storageError, registration,
-    controller = null, updateError, updateTask
+    controller = null, updateError, updateTask, fetchResource
 } = {}) {
     const meta = {};
     const media = eventTarget({ matches: dark });
@@ -98,7 +98,7 @@ function host({
         }
     });
     const context = vm.createContext({
-        document, window, URL, queueMicrotask,
+        document, window, URL, queueMicrotask, TypeError, fetch: fetchResource,
         setTimeout(callback, ms) {
             const id = ++timerId;
             timers.set(id, { callback, ms });
@@ -121,6 +121,92 @@ const settle = async () => {
     for (let i = 0; i < 8; i++)
         await Promise.resolve();
 };
+
+test('binary boot resources use the cached fetch with original integrity and credentials', async () => {
+    for (const type of ['assembly', 'dotnetwasm', 'globalization']) {
+        const calls = [];
+        const response = { status: 200 };
+        const app = host({ fetchResource: async (url, options) => {
+            calls.push({ url, ...options });
+            return response;
+        } });
+        assert.equal(await app.context.loadBootResource(
+            type, 'runtime.wasm', '/app/_framework/runtime.wasm', 'sha256-expected'), response);
+        assert.deepEqual(calls, [{
+            url: '/app/_framework/runtime.wasm', cache: 'force-cache',
+            credentials: 'same-origin', integrity: 'sha256-expected'
+        }]);
+        assert.equal(app.warnings.length, 0);
+    }
+});
+
+test('a rejected cached boot fetch retries once without dropping integrity or credentials', async () => {
+    const calls = [];
+    const response = { status: 200 };
+    const app = host({ fetchResource: async (url, options) => {
+        calls.push({ url, ...options });
+        if (calls.length === 1)
+            throw new TypeError('Failed to fetch');
+        return response;
+    } });
+    assert.equal(await app.context.loadBootResource(
+        'assembly', 'Pipelines.wasm', '/app/_framework/Pipelines.wasm', 'sha256-expected'), response);
+    assert.deepEqual(calls, ['force-cache', 'reload'].map(cache => ({
+        url: '/app/_framework/Pipelines.wasm', cache,
+        credentials: 'same-origin', integrity: 'sha256-expected'
+    })));
+    assert.equal(app.warnings.length, 1);
+    assert.match(app.warnings[0][0], /Pipelines\.wasm/);
+});
+
+test('a failed fresh boot download stays rejected rather than looping or accepting unchecked bytes', async () => {
+    let calls = 0;
+    const failure = new TypeError('Integrity mismatch');
+    const app = host({ fetchResource: async () => {
+        calls++;
+        throw failure;
+    } });
+    await assert.rejects(app.context.loadBootResource(
+        'dotnetwasm', 'runtime.wasm', '/app/_framework/runtime.wasm', 'sha256-expected'),
+        error => error === failure);
+    assert.equal(calls, 2);
+    assert.equal(app.warnings.length, 1);
+});
+
+test('HTTP authentication errors and aborted boot fetches do not trigger cache recovery', async () => {
+    for (const status of [401, 403, 404, 500]) {
+        let calls = 0;
+        const response = { status };
+        const app = host({ fetchResource: async () => { calls++; return response; } });
+        assert.equal(await app.context.loadBootResource(
+            'assembly', 'app.wasm', '/app/_framework/app.wasm', 'sha256-expected'), response);
+        assert.equal(calls, 1);
+        assert.equal(app.warnings.length, 0);
+    }
+    let calls = 0;
+    const failure = new DOMException('Cancelled', 'AbortError');
+    const app = host({ fetchResource: async () => { calls++; throw failure; } });
+    await assert.rejects(app.context.loadBootResource(
+        'assembly', 'app.wasm', '/app/_framework/app.wasm', 'sha256-expected'),
+        error => error === failure);
+    assert.equal(calls, 1);
+    assert.equal(app.warnings.length, 0);
+});
+
+test('boot JavaScript modules and other resource types retain the runtime default loader', () => {
+    const app = host({ fetchResource: () => { assert.fail('Unexpected custom fetch'); } });
+    for (const type of ['dotnetjs', 'pdb', 'symbols', 'unknown'])
+        assert.equal(app.context.loadBootResource(type, 'module.js', '/module.js', ''), undefined);
+    assert.equal(app.warnings.length, 0);
+});
+
+test('unhashed boot resources do not gain a fabricated integrity value', async () => {
+    let options;
+    const app = host({ fetchResource: async (_url, value) => { options = value; } });
+    await app.context.loadBootResource('globalization', 'icu.dat', '/app/_framework/icu.dat', '');
+    assert.equal(Object.hasOwn(options, 'integrity'), false);
+    assert.equal(options.credentials, 'same-origin');
+});
 
 function viewportHost({
     height = 844, visibleHeight = height, offsetTop = 0, scale = 1,
@@ -293,13 +379,15 @@ test('native editors prevent Safari focus zoom while preserving larger typograph
     assert.ok(!/user-scalable\s*=\s*no|maximum-scale\s*=\s*1/i.test(source('index.html')));
 });
 
-function startup(failedModule) {
+function startup(failedModule, { fetchResource } = {}) {
     const retry = eventTarget({ hidden: true });
     const label = { textContent: 'Opening Lumi...' };
     const errors = [];
     const modules = [];
     let reloads = 0;
     let recoveries = 0;
+    let loader;
+    let mainStarted = false;
     const window = eventTarget({
         location: { href: 'https://lumi.test/app/', reload: () => reloads++ }
     });
@@ -318,9 +406,33 @@ function startup(failedModule) {
             if (name === failedModule)
                 throw new Error(`HTTP 503 loading ${name}`);
             if (name === './browserHost.js')
-                return {};
+                return { configureNativeTextInputs() {}, configureViewportInsets() {} };
             if (name === './pwaHost.js')
-                return { checkAppUpdate() {}, reloadWebApp: () => recoveries++ };
+                return {
+                    checkAppUpdate() {}, reloadWebApp: () => recoveries++,
+                    configureAppLifecycle() {}, configureAppUpdates() {},
+                    loadBootResource: host({ fetchResource }).context.loadBootResource
+                };
+            if (name === './_framework/dotnet.js') {
+                const dotnet = {
+                    withDiagnosticTracing() { return this; },
+                    withApplicationArgumentsFromQuery() { return this; },
+                    withResourceLoader(value) { loader = value; return this; },
+                    async create() {
+                        assert.equal(typeof loader, 'function');
+                        await loader('assembly', 'Pipelines.wasm',
+                            '/app/_framework/Pipelines.wasm', 'sha256-expected');
+                        return {
+                            getConfig: () => ({ mainAssemblyName: 'Lumi.Mobile.Browser' }),
+                            async runMain() { mainStarted = true; },
+                            async getAssemblyExports() {
+                                return { Lumi: { Mobile: { Browser: { BrowserInterop: {} } } } };
+                            }
+                        };
+                    }
+                };
+                return { dotnet };
+            }
             throw new Error(`Unexpected fixture module ${name}`);
         }
     });
@@ -333,7 +445,8 @@ function startup(failedModule) {
     return {
         retry, label, errors, modules, ready,
         get reloads() { return reloads; },
-        get recoveries() { return recoveries; }
+        get recoveries() { return recoveries; },
+        get mainStarted() { return mainStarted; }
     };
 }
 
@@ -356,6 +469,36 @@ test('a runtime import failure retains explicit PWA recovery once the host modul
     app.retry.dispatch('click');
     assert.equal(app.recoveries, 1);
     assert.equal(app.reloads, 0);
+});
+
+test('the real startup entry registers cache recovery before creating and running the runtime', async () => {
+    const modes = [];
+    const app = startup(undefined, { fetchResource: async (_url, options) => {
+        modes.push(options.cache);
+        if (modes.length === 1)
+            throw new TypeError('Failed to fetch');
+        return { status: 200 };
+    } });
+    await app.ready;
+    assert.deepEqual(modes, ['force-cache', 'reload']);
+    assert.equal(app.mainStarted, true);
+    assert.equal(app.retry.hidden, true);
+    assert.equal(app.errors.length, 0);
+});
+
+test('a permanent boot fetch failure reaches the visible startup error and manual recovery', async () => {
+    let calls = 0;
+    const app = startup(undefined, { fetchResource: async () => {
+        calls++;
+        throw new TypeError('Failed to fetch');
+    } });
+    await app.ready;
+    assert.equal(calls, 2);
+    assert.equal(app.mainStarted, false);
+    assert.equal(app.retry.hidden, false);
+    assert.match(app.label.textContent, /Lumi could not start: Failed to fetch/);
+    app.retry.dispatch('click');
+    assert.equal(app.recoveries, 1);
 });
 
 function waitingWorker() {
@@ -854,10 +997,10 @@ function worker({
             });
             await pending;
         },
-        async fetch(url, { method = 'GET', mode = 'cors' } = {}) {
+        async fetch(url, { method = 'GET', mode = 'cors', cache = 'default' } = {}) {
             let pending;
             handlers.get('fetch')({
-                request: { url, method, mode },
+                request: { url, method, mode, cache },
                 respondWith(value) { pending = value; }
             });
             return pending;
@@ -940,6 +1083,21 @@ test('warm icon navigation and WASM resources use the installed cache without ne
     assert.deepEqual(await app.fetch('https://lumi.test/app/_framework/runtime.wasm'),
         { cached: 'https://lumi.test/app/_framework/runtime.wasm' });
     assert.equal(app.network.length, 0);
+});
+
+test('fresh boot retries bypass current and legacy service-worker caches only for runtime resources', async () => {
+    const app = worker({ legacyFramework: 'https://lumi.test/app/_framework/runtime.oldhash.wasm' });
+    for (const file of ['runtime.wasm', 'runtime.oldhash.wasm']) {
+        const url = 'https://lumi.test/app/_framework/' + file;
+        assert.equal(await app.fetch(url, { cache: 'reload' }), undefined);
+        const cached = await app.fetch(url, { cache: 'force-cache' });
+        assert.equal(cached.cached ?? cached.legacy, url);
+    }
+    assert.deepEqual(await app.fetch('https://lumi.test/app/main.js', { cache: 'reload' }),
+        { cached: 'https://lumi.test/app/main.js' });
+    assert.equal(await app.fetch('https://lumi.test/lumi/hello', { cache: 'reload' }), undefined);
+    assert.equal(app.network.length, 0);
+    assert.equal(app.requests.length, 0);
 });
 
 test('every private Dev Tunnel launch checks document sign-in even when the shell is cached', async () => {

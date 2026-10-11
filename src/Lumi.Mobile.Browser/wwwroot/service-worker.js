@@ -58,6 +58,11 @@ self.addEventListener('fetch', event => {
     if (isAppNavigation && url.searchParams.has('lumi-refresh'))
         return;
 
+    // A failed integrity-checked boot fetch must not receive the same cached bytes again.
+    if (request.cache === 'reload'
+        && url.pathname.startsWith(new URL('_framework/', appUrl).pathname))
+        return;
+
     if (isAppNavigation
         && appUrl.protocol === 'https:'
         && appUrl.hostname.endsWith('.devtunnels.ms')) {

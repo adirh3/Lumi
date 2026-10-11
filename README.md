@@ -353,6 +353,12 @@ Otherwise, **Sign in again** appears in the connection banner. The existing
 available. Pairing stays saved, but copy any unsent work before a manual reload.
 Startup failures also offer **Try again**.
 
+Binary startup downloads keep their integrity checks and use the normal cache first.
+If a fetch fails with a browser network/integrity error, Lumi retries it once from
+the network, bypassing both the HTTP cache and the PWA's static cache. A failed
+retry remains a visible startup error; this does not clear pairing, bypass
+Microsoft sign-in, or relax managed-browser security policies.
+
 The explicit reload goes through a small, non-cached recovery document. It
 unregisters only Lumi's `/app/` service-worker registration before opening a
 fresh document, so a browser retaining an older controller does not reload the

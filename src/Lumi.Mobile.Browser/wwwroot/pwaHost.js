@@ -16,6 +16,24 @@ let reloadPending = false;
 let reloading = false;
 const observedWorkers = new WeakSet();
 
+export function loadBootResource(type, name, defaultUri, integrity) {
+    if (type !== 'assembly' && type !== 'dotnetwasm' && type !== 'globalization')
+        return undefined;
+
+    const options = { cache: 'force-cache', credentials: 'same-origin' };
+    if (integrity)
+        options.integrity = integrity;
+
+    return fetch(defaultUri, options).catch(error => {
+        if (!(error instanceof TypeError))
+            throw error;
+
+        // The runtime's normal retries can reuse cached bytes that fail integrity.
+        console.warn(`[Lumi PWA] Retrying startup download '${name}' from the network.`, error);
+        return fetch(defaultUri, { ...options, cache: 'reload' });
+    });
+}
+
 function publishUpdateState(state) {
     if (state === updateState)
         return;

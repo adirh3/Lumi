@@ -25,7 +25,8 @@ try {
         configureAppLifecycle,
         configureAppUpdates,
         checkAppUpdate,
-        reloadWebApp
+        reloadWebApp,
+        loadBootResource
     } = await import('./pwaHost.js');
     retryStartup = reloadWebApp;
     void checkAppUpdate();
@@ -34,6 +35,7 @@ try {
     const runtime = await dotnet
         .withDiagnosticTracing(false)
         .withApplicationArgumentsFromQuery()
+        .withResourceLoader(loadBootResource)
         .create();
     const config = runtime.getConfig();
 
