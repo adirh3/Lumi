@@ -7,6 +7,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 ## Features
 
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
+- **Reply actions** — A compact footer below each answer groups its model name with copy, Share prompt, reply, and a more-actions menu for formatted copying and branching. The quiet actions stay discoverable without moving the answer; hovering over its timestamp shows the full date, time, and UTC offset. Missing snippet models use the recorded model for that turn; genuinely missing historical metadata is marked "Model not recorded" rather than guessed from the current model picker
 - **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
 - **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities

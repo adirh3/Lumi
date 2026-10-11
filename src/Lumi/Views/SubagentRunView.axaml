@@ -118,6 +118,7 @@
                             HorizontalAlignment="Stretch"
                             Author="{Binding Author}"
                             Timestamp="{Binding TimestampText}"
+                            TimestampToolTip="{Binding TimestampToolTip}"
                             IsStreaming="{Binding IsStreaming}">
         <sc:StrataChatMessage.Content>
           <lc:TranscriptTextContent Text="{Binding Content}"
@@ -329,4 +330,3 @@
     </Panel>
   </DockPanel>
 </UserControl>
-

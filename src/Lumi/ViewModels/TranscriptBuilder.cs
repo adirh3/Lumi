@@ -1450,7 +1450,7 @@ public class TranscriptBuilder
             assistantItem.RequestEntranceAnimation();
         var chipTurn = _fileChipTurn;
         chipTurn.LastAssistant = assistantItem;
-        _pendingModelName = ChatViewModel.FormatModelDisplay(msgVm.Message.Model);
+        _pendingModelName = ChatViewModel.FormatModelDisplay(msgVm.Message.Model) ?? _pendingModelName;
         if (!msgVm.IsStreaming && (PendingToolFileChips.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
         {
             assistantItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null, _shownSkillNames);
@@ -1595,7 +1595,7 @@ public class TranscriptBuilder
             return;
         }
 
-        AppendToCurrentTurn(new TurnModelItem(_pendingModelName), TurnStableIdFor("turn-model"));
+        AppendToCurrentTurn(CreateTurnModelItem(_pendingModelName), TurnStableIdFor("turn-model"));
         _fileChipTurn.HasEnded = true;
         FlushPendingFileChips(_fileChipTurn);
         _pendingModelName = null;
@@ -1612,9 +1612,26 @@ public class TranscriptBuilder
         if (_currentTurn is not null && _currentTurn.Items.Any(static i => i is TurnModelItem))
             return;
 
-        AppendToCurrentTurn(new TurnModelItem(displayName), TurnStableIdFor("turn-model"));
+        AppendToCurrentTurn(CreateTurnModelItem(displayName), TurnStableIdFor("turn-model"));
         _fileChipTurn.HasEnded = true;
         FlushPendingFileChips(_fileChipTurn);
+    }
+
+    private TurnModelItem CreateTurnModelItem(string displayName)
+    {
+        var hasModelCaption = false;
+        if (_currentTurn is not null)
+        {
+            foreach (var assistant in _currentTurn.Items.OfType<AssistantMessageItem>())
+            {
+                // The completed turn's actual model fills missing snippet metadata, never the current picker.
+                if (string.IsNullOrWhiteSpace(assistant.ModelName))
+                    assistant.ModelName = displayName;
+                hasModelCaption |= assistant.IsItemVisible && assistant.ModelName == displayName;
+            }
+        }
+
+        return new TurnModelItem(displayName) { IsItemVisible = !hasModelCaption };
     }
 
     private List<FileChangeItem> GroupFileEdits()

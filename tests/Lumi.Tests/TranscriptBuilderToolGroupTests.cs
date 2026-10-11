@@ -15,6 +15,110 @@ namespace Lumi.Tests;
 public sealed class TranscriptBuilderToolGroupTests
 {
     [Fact]
+    public void AppendModelLabel_KeepsTurnBoundaryWithoutRepeatingTheReplyCaption()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Content = "Answer",
+            Model = "gpt-5.5"
+        }));
+
+        builder.AppendModelLabel("gpt-5.5");
+
+        var marker = Assert.Single(turns.SelectMany(turn => turn.Items).OfType<TurnModelItem>());
+        Assert.False(marker.IsItemVisible);
+        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), marker.ModelName);
+    }
+
+    [Fact]
+    public void Rebuild_KeepsTurnBoundaryWithoutRepeatingTheReplyCaption()
+    {
+        var turns = CreateBuilder().Rebuild([new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Content = "Answer",
+            Model = "gpt-5.5"
+        })]);
+
+        var marker = Assert.Single(turns.SelectMany(turn => turn.Items).OfType<TurnModelItem>());
+        Assert.False(marker.IsItemVisible);
+    }
+
+    [Fact]
+    public void AppendModelLabel_FillsMissingSnippetModelsInTheirOwnFooters()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Author = "Lumi",
+            Content = "Legacy answer"
+        }));
+
+        builder.AppendModelLabel("gpt-5.5");
+
+        var marker = Assert.Single(turns.SelectMany(turn => turn.Items).OfType<TurnModelItem>());
+        Assert.False(marker.IsItemVisible);
+        var answer = Assert.Single(turns.SelectMany(turn => turn.Items).OfType<AssistantMessageItem>());
+        Assert.Equal(marker.ModelName, answer.ModelName);
+        Assert.Equal(marker.ModelName, answer.HeaderLabel);
+    }
+
+    [Fact]
+    public void Rebuild_UsesTheSameTurnsRecordedModelWithoutOverwritingKnownModels()
+    {
+        var turns = CreateBuilder().Rebuild([
+            new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Question" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "First step" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Known other model", Model = "gpt-5.5" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Final answer", Model = "claude-sonnet-4.6" })
+        ]);
+        var answers = turns.SelectMany(turn => turn.Items).OfType<AssistantMessageItem>().ToList();
+
+        Assert.Equal(ChatViewModel.FormatModelDisplay("claude-sonnet-4.6"), answers[0].ModelName);
+        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), answers[1].ModelName);
+        Assert.Equal(ChatViewModel.FormatModelDisplay("claude-sonnet-4.6"), answers[2].ModelName);
+    }
+
+    [Fact]
+    public void Rebuild_NeverUsesAnotherTurnsModelForUnrecordedHistory()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var turns = CreateBuilder().Rebuild([
+            new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Old question" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Old answer" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "New question" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "New answer", Model = "gpt-5.5" })
+        ]);
+        var answers = turns.SelectMany(turn => turn.Items).OfType<AssistantMessageItem>().ToList();
+
+        Assert.Null(answers[0].ModelName);
+        Assert.Equal(Lumi.Localization.Loc.Chat_ModelNotRecorded, answers[0].HeaderLabel);
+        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), answers[1].ModelName);
+    }
+
+    [Fact]
+    public void Rebuild_RetainsTheKnownTurnModelWhenTheLastSnippetHasNone()
+    {
+        var turns = CreateBuilder().Rebuild([
+            new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Question" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "First step", Model = "gpt-5.5" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Final answer" })
+        ]);
+        var answers = turns.SelectMany(turn => turn.Items).OfType<AssistantMessageItem>().ToList();
+
+        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), answers[0].ModelName);
+        Assert.Equal(answers[0].ModelName, answers[1].ModelName);
+        Assert.False(Assert.Single(turns.SelectMany(turn => turn.Items).OfType<TurnModelItem>()).IsItemVisible);
+    }
+
+    [Fact]
     public void InterruptedCompletedLaunch_RefreshesItsAlreadyFlattenedPill()
     {
         Lumi.Localization.Loc.Load("en");

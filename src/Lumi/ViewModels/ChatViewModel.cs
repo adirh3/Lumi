@@ -7309,6 +7309,7 @@ public partial class ChatMessageViewModel : ObservableObject
     public string? Author => Message.Author;
     public string? ModelName => ChatViewModel.FormatModelDisplay(Message.Model);
     public string TimestampText => Message.Timestamp.ToString("HH:mm");
+    public string TimestampToolTip => $"{Message.Timestamp:F} ({Message.Timestamp:zzz})";
     public string? ToolName => Message.ToolName;
 
     public ChatMessageViewModel(ChatMessage message)

@@ -76,11 +76,14 @@ public partial class UserMessageItem : TranscriptItem
     private readonly Action<ChatMessage, bool>? _resendAction;
 
     [ObservableProperty] private string _content;
-    [ObservableProperty] private string _timestampText;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TimestampToolTip))]
+    private string _timestampText;
     [ObservableProperty] private bool _isBeingEdited;
     [ObservableProperty] private bool _isEditEnabled = true;
 
     public string? Author => _source.Author;
+    public string? TimestampToolTip => string.IsNullOrEmpty(TimestampText) ? null : _source.TimestampToolTip;
     public ChatMessage Message => _source.Message;
 
     /// <summary>The backing message view-model, exposed so the transcript template can bind live
@@ -321,10 +324,15 @@ public partial class AssistantMessageItem : TranscriptItem
     [NotifyPropertyChangedFor(nameof(CanReply))]
     [NotifyPropertyChangedFor(nameof(CanSharePrompt))]
     private string _content;
-    [ObservableProperty] private string _timestampText;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TimestampToolTip))]
+    private string _timestampText;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSharePrompt))]
     private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HeaderLabel))]
+    private string? _modelName;
 
     /// <summary>True while the composer holds a reply to this message.</summary>
     [ObservableProperty] private bool _isReplySource;
@@ -351,7 +359,8 @@ public partial class AssistantMessageItem : TranscriptItem
     partial void OnHasSourcesChanged(bool value) => OnPropertyChanged(nameof(DisplaySourcesSection));
 
     public string? Author => _source.Author;
-    public string? ModelName => _source.ModelName;
+    public string HeaderLabel => string.IsNullOrWhiteSpace(ModelName) ? Loc.Chat_ModelNotRecorded : ModelName;
+    public string? TimestampToolTip => string.IsNullOrEmpty(TimestampText) ? null : _source.TimestampToolTip;
     internal Guid MessageId => _source.Message.Id;
     public ObservableCollection<SkillReference> Skills { get; } = [];
     public ObservableCollection<SkillChipItem> SkillChips { get; } = [];
@@ -369,6 +378,7 @@ public partial class AssistantMessageItem : TranscriptItem
         _content = source.Content;
         _timestampText = showTimestamps ? source.TimestampText : "";
         _isStreaming = source.IsStreaming;
+        _modelName = source.ModelName;
 
         // Hide the bubble when content is only whitespace (e.g. the SDK sends "\n\n"
         // before tool calls / reasoning). Shows automatically when real content arrives.
@@ -391,6 +401,7 @@ public partial class AssistantMessageItem : TranscriptItem
         else if (e.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && !_source.IsStreaming)
         {
             IsStreaming = false;
+            ModelName = _source.ModelName ?? ModelName;
             _source.PropertyChanged -= OnSourcePropertyChanged;
         }
     }

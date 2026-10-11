@@ -241,10 +241,6 @@
     <Style Selector="sc|StrataChatMessage:user /template/ Button#PART_RegenerateButton">
       <Setter Property="IsVisible" Value="True" />
     </Style>
-    <!-- Hide entire action toolbar on assistant messages -->
-    <Style Selector="sc|StrataChatMessage:assistant /template/ Border#PART_ActionLayer">
-      <Setter Property="IsVisible" Value="False" />
-    </Style>
     <!-- Compact tool calls: hide the status pill and reduce padding -->
     <Style Selector="sc|StrataAiToolCall.compact /template/ Border#PART_StatusPill">
       <Setter Property="IsVisible" Value="False" />
@@ -1129,6 +1125,7 @@
                               MaxWidth="640"
                               Author="{Binding Author}"
                               Timestamp="{Binding TimestampText}"
+                              TimestampToolTip="{Binding TimestampToolTip}"
                               IsEditable="{Binding IsEditEnabled}"
                               UseInlineEdit="False"
                               EditText="{Binding Content, Mode=OneWay}"
@@ -1257,8 +1254,18 @@
       <sc:StrataChatMessage Role="Assistant"
                             HorizontalAlignment="Left"
                             MaxWidth="900"
-                            Author="{Binding Author}"
+                            Author="{Binding HeaderLabel}"
                             Timestamp="{Binding TimestampText}"
+                            TimestampToolTip="{Binding TimestampToolTip}"
+                            IsEditable="False"
+                            CanRegenerate="False"
+                            CopyLabel="{loc:Str Chat_CopyMessage}"
+                            CopySelectionLabel="{loc:Str Chat_CopySelection}"
+                            CopyMarkdownLabel="{loc:Str Chat_CopyMarkdown}"
+                            CopyRichTextLabel="{loc:Str Chat_CopyRichText}"
+                            CopyTurnLabel="{loc:Str Chat_CopyTurn}"
+                            CopiedLabel="{loc:Str Chat_Copied}"
+                            MoreActionsLabel="{loc:Str Chat_MoreMessageActions}"
                             CanFork="True"
                             ForkMenuHeader="{loc:Str Menu_ForkFromHere}"
                             CanReply="{Binding CanReply}"

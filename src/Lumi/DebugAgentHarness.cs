@@ -61,13 +61,13 @@ public static class DebugAgentHarness
             Content = "Create an Excel expense dashboard from my CSV with monthly and category charts."
         };
         user.Attachments = [expensePath];
-        var result = new LumiChatMessage { Role = "assistant", Content = """
+        var result = new LumiChatMessage { Role = "assistant", Author = "Lumi", Model = "gpt-5.5", Content = """
             **Prompt sharing sample**
 
             The expense dashboard has monthly/category charts, recurring-charge highlights and a
             dark blue theme. The source CSV was left unchanged and no data was uploaded.
 
-            Choose **Share prompt** above this result to turn the request and refinements into a
+            Choose **Share prompt** below this result to turn the request and refinements into a
             reusable task. This is a synthetic fixture: sharing does not send a message in this chat.
             """ };
         if (dataStore.Data.Skills.FirstOrDefault(static skill => skill.Name == "Document Creator") is { } skill)
@@ -682,6 +682,10 @@ public static class DebugAgentHarness
             JsonProperty("pattern", JsonString("ActivityPreview")),
             JsonProperty("glob", JsonString("*.cs"))), "InProgress"));
 
+        foreach (var message in chat.Messages.Where(message => message.Role == "assistant"
+                     && message.ParentToolCallId is null && !string.IsNullOrWhiteSpace(message.Content)))
+            message.Model ??= "gpt-5.5";
+
         return chat;
 
         void AddStandaloneSubagentFixture(
@@ -786,6 +790,7 @@ public static class DebugAgentHarness
         {
             Role = role,
             Author = role == "user" ? "You" : "Lumi",
+            Model = role == "assistant" ? "gpt-5.5" : null,
             Content = content,
             Timestamp = DateTimeOffset.Now,
         };
