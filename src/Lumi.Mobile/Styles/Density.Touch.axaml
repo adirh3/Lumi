@@ -97,6 +97,28 @@
   <Thickness x:Key="Mobile.Chat.ComposerHostPadding">12,10,12,12</Thickness>
   <Thickness x:Key="Mobile.Chat.TranscriptPadding">16,12,16,16</Thickness>
 
+  <!--
+    Scroll-edge glass. The conversation runs under the floating top bar and composer; these bands
+    frost it only where it passes beneath them. The top band extends below the bar to fade out, and
+    the bottom band reaches past the composer host's padding to the screen edges and the gesture area.
+  -->
+  <Thickness x:Key="Mobile.Chat.TopEdgeMargin">0,0,0,-28</Thickness>
+  <x:Double x:Key="Mobile.Chat.EdgeFadeLength">36</x:Double>
+  <x:Double x:Key="Glass.BlurRadius">20</x:Double>
+  <x:Double x:Key="Glass.Saturation">1.7</x:Double>
+
+  <!--
+    In chat and navigation every floating control is its own lens, so the scroll-edge glass is only a scrim over
+    the system bars: the status bar or gesture area plus a short fade, frosted most at the screen edge.
+    It stays out from behind the controls, which would otherwise show a frost of a frost. The bottom
+    scrim reaches past the composer host's padding to the screen edges.
+  -->
+  <x:Double x:Key="Mobile.Chat.EdgeScrimExtent">20</x:Double>
+  <Thickness x:Key="Mobile.Chat.BottomEdgeMargin">-12,0,-12,-12</Thickness>
+  <!-- A light blur keeps the conversation recognisable through each control. -->
+  <x:Double x:Key="Glass.ControlBlurRadius">3</x:Double>
+  <x:Double x:Key="Glass.ControlSaturation">1.8</x:Double>
+
   <!-- The chat column is the full width of a phone; there is no room for a desktop reading column. -->
   <x:Double x:Key="Chat.ReadingColumnWidth">760</x:Double>
 

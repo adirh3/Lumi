@@ -21,6 +21,14 @@ public interface ITextSelectionPresenter
     void Dismiss();
 }
 
+/// <summary>Hands text to the platform's share sheet. Hosts without one leave Share hidden.</summary>
+public interface ITextShareService
+{
+    bool IsAvailable { get; }
+
+    bool TryShare(string text, string? subject);
+}
+
 internal readonly record struct NativeTextInputOverlayOptions(
     bool IsMultiline,
     int MaxLength,
@@ -138,6 +146,8 @@ public static class MobilePlatformServices
 
     public static ITextSelectionPresenter TextSelectionPresenter { get; set; } =
         new DefaultTextSelectionPresenter();
+
+    public static ITextShareService TextShare { get; set; } = new DefaultTextShareService();
 
     internal static INativeTextInputOverlayPresenter TextInputOverlayPresenter { get; set; } =
         new DefaultNativeTextInputOverlayPresenter();
@@ -285,6 +295,13 @@ internal sealed class DefaultTextSelectionPresenter : ITextSelectionPresenter
     public void Dismiss()
     {
     }
+}
+
+internal sealed class DefaultTextShareService : ITextShareService
+{
+    public bool IsAvailable => false;
+
+    public bool TryShare(string text, string? subject) => false;
 }
 
 internal sealed class DefaultNativeTextInputOverlayPresenter : INativeTextInputOverlayPresenter

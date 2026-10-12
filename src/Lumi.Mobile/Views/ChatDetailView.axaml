@@ -17,9 +17,11 @@
       <Setter Property="Padding" Value="0" />
     </Style>
 
+    <!-- The floating top bar's scroll-edge glass extends below the bar, so it must not be clipped. -->
     <Style Selector="sc|StrataChatShell.mobile /template/ Border#PART_HeaderChrome">
       <Setter Property="CornerRadius" Value="0" />
       <Setter Property="Background" Value="Transparent" />
+      <Setter Property="ClipToBounds" Value="False" />
     </Style>
 
     <Style Selector="sc|StrataChatMessage.mobile-message:user /template/ Border#PART_Bubble">
@@ -50,6 +52,34 @@
     <Style Selector="sc|StrataChatShell:has-header /template/ Border#PART_HeaderSeparator">
       <Setter Property="IsVisible" Value="False" />
       <Setter Property="Height" Value="0" />
+    </Style>
+
+    <!-- The chat shell reports when history is behind its floating bars. -->
+    <Style Selector="sc|StrataChatShell:content-under-header Panel#TopEdgeMaterial,
+                     sc|StrataChatShell:content-under-composer Panel#BottomEdgeMaterial">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <Style Selector="Border.floating-status">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="24" />
+      <Setter Property="Padding" Value="16,0,4,0" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControl}" />
+    </Style>
+
+    <!-- The jump-to-latest control floats over moving history, so it gets its own small frost. -->
+    <Style Selector="sc|StrataChatShell.mobile /template/ sc|StrataBackdropBlur#PART_ScrollToBottomBackdrop">
+      <Setter Property="IsVisible" Value="True" />
+      <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
+      <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+    </Style>
+    <Style Selector="sc|StrataChatShell.mobile /template/ Border#PART_ScrollToBottomChrome">
+      <Setter Property="CornerRadius" Value="24" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControl}" />
     </Style>
 
     <Style Selector="Button.start-setup">
@@ -105,6 +135,50 @@
       <Setter Property="RenderTransform" Value="scale(0.99)" />
     </Style>
 
+    <Style Selector="Button.work-disclosure">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="Padding" Value="14,0,12,0" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="Medium" />
+    </Style>
+    <!-- A 40dp pill inside the full 48dp target. -->
+    <Style Selector="Button.work-disclosure /template/ Border#PART_Surface">
+      <Setter Property="Margin" Value="0,4" />
+    </Style>
+    <Style Selector="Button.work-disclosure /template/ Border#PART_Aurora,
+                     Button.answer-action /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.work-disclosure:pressed /template/ Border#PART_Surface">
+      <Setter Property="RenderTransform" Value="scale(0.97)" />
+    </Style>
+    <Style Selector="Button.work-disclosure PathIcon.work-glyph">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.work-disclosure PathIcon.disclosure-chevron">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.work-disclosure.expanded PathIcon.disclosure-chevron">
+      <Setter Property="RenderTransform" Value="rotate(90deg)" />
+    </Style>
+
     <Style Selector="Button.source-card">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
@@ -125,6 +199,50 @@
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Padding" Value="10,7" />
+    </Style>
+
+    <Style Selector="Button.answer-action">
+      <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="24" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.answer-action:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.answer-action:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+      <Setter Property="RenderTransform" Value="scale(0.92)" />
+    </Style>
+    <Style Selector="Button.answer-action PathIcon">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.answer-action PathIcon.copied-glyph">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="scale(0.6)" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="Button.answer-action.copied PathIcon.copy-glyph">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="scale(0.6)" />
+    </Style>
+    <Style Selector="Button.answer-action.copied PathIcon.copied-glyph">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
     </Style>
 
     <Style Selector="sc|StrataAiToolCall.mobile-activity /template/ Border#PART_Root,
@@ -274,6 +392,28 @@
           </Grid>
         </Button>
 
+        <!-- The everyday actions on a finished answer, one thumb-tap away instead of a selection drag.
+             The negative margin keeps each 48dp target while aligning the glyphs with the text edge. -->
+        <StackPanel x:Name="AnswerActions" Orientation="Horizontal"
+                    Margin="-14,2,0,-8" IsVisible="{Binding ShowAnswerActions}">
+          <Button x:Name="CopyAnswerButton" Classes="answer-action"
+                  AutomationProperties.Name="Copy answer"
+                  Click="OnCopyAnswerClick">
+            <Panel>
+              <PathIcon x:Name="CopyGlyph" Classes="copy-glyph"
+                        Data="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+              <PathIcon x:Name="CopiedGlyph" Classes="copied-glyph"
+                        Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+            </Panel>
+          </Button>
+          <Button x:Name="ShareAnswerButton" Classes="answer-action"
+                  AutomationProperties.Name="Share answer"
+                  IsVisible="{Binding CanShare}"
+                  Click="OnShareAnswerClick">
+            <PathIcon Data="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z" />
+          </Button>
+        </StackPanel>
+
       </StackPanel>
     </DataTemplate>
 
@@ -293,11 +433,18 @@
 
     <DataTemplate DataType="vm:WorkSummaryItemViewModel">
       <StackPanel Margin="0,4,0,6">
-        <Button Classes="activity-card"
+        <!-- A compact disclosure, not a full-width card: finished work is context, the answer is the
+             content. The chevron turns as the steps open beneath it. -->
+        <Button Classes="work-disclosure"
+                Classes.expanded="{Binding IsExpanded}"
                 Command="{Binding ToggleCommand}"
                 AutomationProperties.Name="{Binding Label}">
-          <StackPanel Orientation="Horizontal" Spacing="10">
-            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <PathIcon Classes="work-glyph"
+                      Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm4.59-12.42L10 14.17l-2.59-2.58L6 13l4 4 8-8z" />
+            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+            <PathIcon Classes="disclosure-chevron"
+                      Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z" />
           </StackPanel>
         </Button>
         <Border IsVisible="{Binding IsExpanded}"
@@ -462,11 +609,22 @@
 
     <sc:StrataChatShell x:Name="ChatShell"
                        Classes="mobile"
+                       ExtendsTranscriptBehindChrome="True"
                        IsVisible="{Binding !Chat.IsGitChangesOpen}"
                         IsOnline="{Binding IsLive}"
                         IsStreaming="{Binding Chat.IsStreaming}">
 
       <sc:StrataChatShell.Header>
+        <Panel x:Name="ChatHeaderLayer">
+        <!-- Status-bar scrim: appears only while the conversation passes under the floating top bar,
+             frosting it most at the screen edge. The bar's controls are glass of their own. -->
+        <Panel x:Name="TopEdgeMaterial" Classes="chrome-edge" VerticalAlignment="Top">
+          <sc:StrataBackdropBlur x:Name="TopEdgeFrost" Classes="chrome-frost" Fade="Bottom" FadeLength="0" />
+          <Border x:Name="TopEdgeTint" Background="{DynamicResource Brush.ChromeEdgeTop}" />
+          <Border Padding="{Binding SafeAreaTop}">
+            <Panel Height="{DynamicResource Mobile.Chat.EdgeScrimExtent}" />
+          </Border>
+        </Panel>
         <Border x:Name="ChatHeaderSideInset" Padding="{Binding SafeAreaSides}">
           <StackPanel>
           <Border x:Name="TopBarInset" Padding="{Binding SafeAreaTop}" BorderThickness="0">
@@ -540,11 +698,13 @@
         </Border>
         <!-- A ready assistant is not a busy session. Keep attached work visible and explicitly
              stoppable without driving the composer or the assistant's typing indicator. -->
-        <Grid x:Name="BackgroundSessionStatus"
-              IsVisible="{Binding Chat.HasBackgroundActivity}"
-              ColumnDefinitions="*,Auto" ColumnSpacing="8"
-              MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
-              Margin="16,0,12,4">
+        <Panel x:Name="BackgroundSessionStatusHost"
+               IsVisible="{Binding Chat.HasBackgroundActivity}"
+               MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
+               Margin="12,0,12,6">
+        <sc:StrataBackdropBlur Classes="control-frost" CornerRadius="24" />
+        <Border x:Name="BackgroundSessionStatus" Classes="floating-status">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
           <TextBlock Text="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
                      FontSize="{DynamicResource Font.SizeCaption}"
                      Foreground="{DynamicResource Brush.TextSecondary}"
@@ -555,8 +715,11 @@
                   Command="{Binding Chat.StopCommand}"
                   IsEnabled="{Binding IsLive}" />
         </Grid>
+        </Border>
+        </Panel>
         </StackPanel>
         </Border>
+        </Panel>
       </sc:StrataChatShell.Header>
 
       <sc:StrataChatShell.Transcript>
@@ -652,6 +815,18 @@
       </sc:StrataChatShell.Transcript>
 
       <sc:StrataChatShell.Composer>
+        <Panel x:Name="ComposerLayer">
+        <!-- Gesture-area scrim while history passes under the floating composer, which is glass of its
+             own. It reaches the screen edges; behind an open keyboard there is nothing to frost. -->
+        <Panel x:Name="BottomEdgeMaterial" Classes="chrome-edge" VerticalAlignment="Bottom"
+               Margin="{DynamicResource Mobile.Chat.BottomEdgeMargin}">
+          <sc:StrataBackdropBlur x:Name="BottomEdgeFrost" Classes="chrome-frost" Fade="Top" FadeLength="0" />
+          <Border x:Name="BottomEdgeTint" Background="{DynamicResource Brush.ChromeEdgeBottom}" />
+          <StackPanel>
+            <Panel Height="{DynamicResource Mobile.Chat.EdgeScrimExtent}" />
+            <Border Padding="{Binding SafeAreaBottom}" IsVisible="{Binding !IsKeyboardOpen}" />
+          </StackPanel>
+        </Panel>
         <!-- Bottom inset lives here: the gesture bar normally, the keyboard while it is open. -->
         <Border x:Name="ComposerInset" Padding="{Binding SafeAreaBottom}">
           <Border x:Name="ComposerSideInset" Padding="{Binding SafeAreaSides}">
@@ -760,6 +935,7 @@
           </StackPanel>
           </Border>
         </Border>
+        </Panel>
       </sc:StrataChatShell.Composer>
     </sc:StrataChatShell>
 

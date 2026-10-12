@@ -82,7 +82,7 @@
                 Background="{DynamicResource Brush.ChatCanvas}"
                 ClipToBounds="True">
         <Panel>
-          <views:ChatDetailView x:Name="ChatSurface" />
+          <views:ChatDetailView x:Name="ChatSurface" IsVisible="{Binding IsChatPage}" />
           <!-- Pages stack OVER the chat rather than replacing it, so coming back never costs a
                transcript rebuild. -->
           <Panel x:Name="LibraryHost" IsVisible="{Binding IsLibraryPage}"

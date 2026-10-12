@@ -25,6 +25,9 @@ namespace Lumi.Mobile.Views;
 
 public partial class ChatDetailView : UserControl
 {
+    /// <summary>Latest copy confirmation per button, so an earlier tap's timer cannot cut a newer one short.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Button, object> CopyFeedback = new();
+
     public Panel? InteractivePickerHost => this.FindControl<Panel>("ChatRoot");
     private MobilePresenceController? _presence;
     private MobileShellViewModel? _shell;
@@ -1140,6 +1143,52 @@ public partial class ChatDetailView : UserControl
 
         if (DataContext is MobileShellViewModel shell)
             _ = shell.Chat.AnswerQuestionAsync(question.QuestionId, answer);
+    }
+
+    private async void OnCopyAnswerClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AssistantItemViewModel answer } button
+            || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+        {
+            return;
+        }
+
+        // Confirm on tap: a platform clipboard can take a moment, and the check must not lag the finger.
+        var feedback = new object();
+        CopyFeedback.AddOrUpdate(button, feedback);
+        button.Classes.Set("copied", true);
+        try
+        {
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.CreateText(answer.SelectionText));
+            await clipboard.SetDataAsync(data);
+        }
+        catch (Exception ex)
+        {
+            button.Classes.Set("copied", false);
+            if (_shell is { } shell)
+                shell.Chat.ErrorText = "The answer could not be copied.";
+            Trace.TraceWarning($"[Mobile] Answer copy failed: {ex}");
+            return;
+        }
+
+        DispatcherTimer.RunOnce(() =>
+        {
+            if (CopyFeedback.TryGetValue(button, out var current) && ReferenceEquals(current, feedback))
+                button.Classes.Set("copied", false);
+        }, TimeSpan.FromSeconds(1.6));
+    }
+
+    private void OnShareAnswerClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AssistantItemViewModel answer })
+            return;
+
+        if (!MobilePlatformServices.TextShare.TryShare(answer.SelectionText, _shell?.Chat.Title)
+            && _shell is { } shell)
+        {
+            shell.Chat.ErrorText = "The answer could not be shared.";
+        }
     }
 
     private async void OnSourceClick(object? sender, RoutedEventArgs e)

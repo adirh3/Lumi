@@ -5,6 +5,8 @@
              xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:textInput="using:Avalonia.Input.TextInput"
              xmlns:sa="using:StrataTheme.Animation"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              x:Class="Lumi.Mobile.Views.MobileSearchView"
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.Surface0}">
@@ -17,7 +19,13 @@
   -->
   <Grid RowDefinitions="Auto,*">
 
-    <Border x:Name="SearchTopInset" Grid.Row="0" Padding="{Binding SafeAreaTop}">
+    <Panel x:Name="SearchHeaderChrome" Grid.Row="0" ZIndex="1" Background="Transparent">
+    <Panel Classes="chrome-edge" Margin="{DynamicResource Mobile.Chat.TopEdgeMargin}">
+      <sc:StrataBackdropBlur Classes="chrome-frost" Fade="Bottom"
+                             FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
+      <Border Background="{DynamicResource Brush.PageEdgeTop}" />
+    </Panel>
+    <Border x:Name="SearchTopInset" Padding="{Binding SafeAreaTop}">
       <Border x:Name="SearchHeaderSideInset" Padding="{Binding SafeAreaSides}">
         <Grid x:Name="SearchHeaderLayout"
               RowDefinitions="Auto,Auto"
@@ -51,10 +59,14 @@
         </Grid>
       </Border>
     </Border>
+    </Panel>
 
-    <Border x:Name="SearchBottomInset" Grid.Row="1" Padding="{Binding SafeAreaBottom}">
+    <!-- Results run under the floating search bar; ScrollEdgeChrome keeps them clear of it at rest. -->
+    <Border x:Name="SearchBottomInset" Grid.Row="0" Grid.RowSpan="2" Padding="{Binding SafeAreaBottom}">
       <Border x:Name="SearchResultsSideInset" Padding="{Binding SafeAreaSides}">
-        <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer x:Name="SearchScroll" Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled"
+                      behaviors:ScrollEdgeChrome.Header="{Binding #SearchHeaderChrome}">
+          <Border x:Name="SearchScrollInset">
           <StackPanel x:Name="SearchResultsContent"
                       MaxWidth="720"
                       HorizontalAlignment="Stretch"
@@ -151,6 +163,7 @@
               <TextBlock Text="Load more chats" Foreground="{DynamicResource Brush.TextSecondary}" />
             </Button>
           </StackPanel>
+          </Border>
         </ScrollViewer>
       </Border>
     </Border>

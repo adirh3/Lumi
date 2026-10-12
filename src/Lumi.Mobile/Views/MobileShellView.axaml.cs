@@ -9,6 +9,7 @@ using Lumi.Mobile.Layout;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Behaviors;
 using StrataTheme.Controls;
+using StrataTheme.Animation;
 
 namespace Lumi.Mobile.Views;
 
@@ -331,6 +332,7 @@ public partial class MobileShellView : UserControl
     public void NotifyApplicationDeactivated()
     {
         _isApplicationActive = false;
+        LifecycleOpacityPulse.SetIsPaused(this, true);
         _keyboardInset = 0;
         _keyboardTop = double.NaN;
         ApplyInsets();
@@ -341,6 +343,7 @@ public partial class MobileShellView : UserControl
     public void NotifyApplicationActivated()
     {
         _isApplicationActive = true;
+        LifecycleOpacityPulse.SetIsPaused(this, false);
         _keyboardInset = 0;
         _keyboardTop = double.NaN;
         ApplyInsets();

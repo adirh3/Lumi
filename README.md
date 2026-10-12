@@ -438,6 +438,30 @@ shift scroll anchors. Chat switches finish closing the drawer before realizing h
 then reveal the settled viewport; the animation does not run unseen behind the drawer or during
 the initial layout. Rendered-pixel tests check partial-opacity frames and visible travel.
 
+The mobile conversation is an unlimited canvas: history runs edge to edge underneath the floating
+top bar and composer, resting clear of both. Every floating control (the top-bar buttons, the
+composer, jump-to-latest and the background-work pill) is glass of its own, a light frost from
+Strata's `StrataBackdropBlur`, so the conversation stays visible through it as it scrolls. A
+scrim frosts only the status bar and gesture area while content passes beneath them. The drawer's
+search, close, project and settings buttons likewise frost the scrolling list directly; its
+noninteractive brand label is plain typography with no background, border or blur.
+Mobile uses one continuous, theme-aware presence field, following the desktop choreography:
+it gathers at the welcome greeting, rises into the live answer while working, and settles
+back behind the glass composer when an existing chat is idle. There is no separate composer
+light. The resting field is steady rather than a continuous animation.
+Continuous presence drift and breathing are disabled on mobile, including while working;
+focus travel and event pulses remain finite. Typing and loading indicators animate only
+while active and visible. The cached chat is hidden on other pages without being unloaded,
+and application backgrounding pauses lifecycle-managed activity across the shell. The
+presence follow timer stops when covered/backgrounded and shortly after the turn settles.
+The Settings
+and Search pages also scroll under their floating headers. Glass surfaces share quiet, uniform
+keylines and soft elevation; their blur is painted before the tint and border so the chrome stays
+crisp instead of being filtered into itself. At rest no
+scrim is drawn, so idle screens spend no extra GPU time. A settled final answer offers one-tap
+**Copy** (confirmed on the tap, before the clipboard write completes) and, on Android, **Share**
+through the system share sheet. Finished work collapses to a compact "Work" disclosure.
+
 ### Lumi tool availability
 
 Lumi preloads its own tool definitions for new, resumed, and helper sessions,

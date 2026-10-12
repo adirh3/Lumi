@@ -93,11 +93,47 @@
   <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#20232B" />
   <BoxShadows x:Key="Shadow.ChatPaneSeparation">2 0 6 0 #48000000</BoxShadows>
   <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#29233E" />
-  <SolidColorBrush x:Key="Brush.FloatingControl" Color="#D12B2F3D" />
-  <SolidColorBrush x:Key="Brush.FloatingControlPressed" Color="#D9383D50" />
-  <SolidColorBrush x:Key="Brush.GlassBorder" Color="#28D8D5FF" />
-  <SolidColorBrush x:Key="Brush.GlassBorderStrong" Color="#55C6C4FA" />
-  <SolidColorBrush x:Key="Brush.ComposerGlass" Color="#A3202330" />
-  <BoxShadows x:Key="Shadow.FloatingControl">0 2 4 0 #32000000, 0 4 12 0 #32000000</BoxShadows>
-  <BoxShadows x:Key="Shadow.Composer">0 2 4 0 #2B000000, 0 5 18 0 #3D000000</BoxShadows>
+  <!-- Quiet glass: a subtle neutral tint, one uniform keyline, and soft elevation. -->
+  <LinearGradientBrush x:Key="Brush.FloatingControl" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#70303945" />
+    <GradientStop Offset="1" Color="#61212A36" />
+  </LinearGradientBrush>
+  <SolidColorBrush x:Key="Brush.FloatingControlPressed" Color="#99343D4A" />
+  <SolidColorBrush x:Key="Brush.GlassBorder" Color="#26FFFFFF" />
+  <SolidColorBrush x:Key="Brush.GlassBorderStrong" Color="#42FFFFFF" />
+  <LinearGradientBrush x:Key="Brush.ComposerGlass" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#55242E3A" />
+    <GradientStop Offset="1" Color="#48202935" />
+  </LinearGradientBrush>
+  <BoxShadows x:Key="Shadow.FloatingControl">0 3 10 -2 #26000000</BoxShadows>
+  <BoxShadows x:Key="Shadow.FloatingControlPressed">0 1 4 -1 #1A000000</BoxShadows>
+  <BoxShadows x:Key="Shadow.Composer">0 4 14 -3 #33000000</BoxShadows>
+
+  <!-- Scroll-edge tints over the frost: dense at the screen edge, where the status bar and gesture
+       area need contrast, and nearly clear behind the floating controls. -->
+  <LinearGradientBrush x:Key="Brush.ChromeEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#8C050608" />
+    <GradientStop Offset="0.5" Color="#29050608" />
+    <GradientStop Offset="1" Color="#00050608" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.ChromeEdgeBottom" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#00050608" />
+    <GradientStop Offset="0.5" Color="#1F050608" />
+    <GradientStop Offset="1" Color="#8C050608" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.NavigationEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#B30D0F16" />
+    <GradientStop Offset="0.62" Color="#800D0F16" />
+    <GradientStop Offset="1" Color="#000D0F16" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.NavigationEdgeBottom" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#000D0F16" />
+    <GradientStop Offset="0.3" Color="#800D0F16" />
+    <GradientStop Offset="1" Color="#B30D0F16" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.PageEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#B30D0F16" />
+    <GradientStop Offset="0.62" Color="#800D0F16" />
+    <GradientStop Offset="1" Color="#000D0F16" />
+  </LinearGradientBrush>
 </ResourceDictionary>

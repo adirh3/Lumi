@@ -1086,7 +1086,7 @@ public sealed class MobileShellViewTests
             Layout(window, shell, 412, 892);
 
             var presence = Assert.IsType<StrataPresence>(Named(window, "Presence"));
-            Assert.True(presence.AnimateWhileWorking);
+            Assert.False(presence.AnimateWhileWorking);
 
             var resting = presence.FocusPoint.Y;
             Assert.True(resting > 0.6, $"idle field sat at {resting:F2}, expected it low near the composer");
@@ -1484,11 +1484,15 @@ public sealed class MobileShellViewTests
     [Fact]
     public async Task WelcomeStarters_AreActuallyHittableAndNotCoveredByTheTranscript()
     {
-        await Run((shell, window) =>
+        await RunAsync(async (shell, window) =>
         {
             Pair(shell);
             OpenChat(shell);
             Layout(window, shell, 412, 892);
+            await Task.Delay(320);
+            Pump(window);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            using var frame = window.CaptureRenderedFrame();
 
             var starter = Named(window, "WelcomeStarters")
                 .GetVisualDescendants().OfType<Button>().First();
@@ -1506,7 +1510,8 @@ public sealed class MobileShellViewTests
             var hitVisual = Assert.IsAssignableFrom<Visual>(hit);
             Assert.True(
                 ReferenceEquals(hitVisual, starter) || hitVisual.GetVisualAncestors().Contains(starter),
-                $"tap at the starter's centre landed on {hitVisual.GetType().Name}, not the starter");
+                $"tap at {centre} landed on {hitVisual.GetType().Name}, not the starter " +
+                $"'{string.Join(" ", starter.GetVisualDescendants().OfType<TextBlock>().Select(text => text.Text))}'");
         });
     }
 

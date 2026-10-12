@@ -8,6 +8,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.ViewModels;
+using StrataTheme.Animation;
 using StrataTheme.Controls;
 
 namespace Lumi.Mobile.Views;
@@ -63,7 +64,6 @@ internal sealed class MobilePresenceController : IDisposable
 
     /// <summary>Keeps the follow alive briefly after work ends so the descent lands on real layout.</summary>
     private DateTime _followUntil;
-    private Point? _composerLightTarget;
 
     public MobilePresenceController(Panel host)
     {
@@ -72,24 +72,18 @@ internal sealed class MobilePresenceController : IDisposable
         {
             Name = "Presence",
             IsHitTestVisible = false,
-            // A phone screen is small and mostly dark; the field has to read as atmosphere behind
-            // the text, never as a wash over it.
             Halo = true,
-            AnimateWhileWorking = true,
             FocusPoint = GreetingFocus
         };
 
         host.Children.Insert(0, _presence);
+        host.PropertyChanged += OnHostPropertyChanged;
+        host.DetachedFromVisualTree += (_, _) => _followTimer?.Stop();
+        host.AttachedToVisualTree += (_, _) => Sync();
 
-        // On white the same field reads as a heavy purple wash bleeding over the cards, because
-        // the aurora is additive: it has a dark canvas to build on and none to spend itself
-        // against. Ambience has to stay ambient, so light mode gets roughly a third of the strength.
         _presence.ActualThemeVariantChanged += (_, _) =>
         {
-            _presence.Merge();
-            _composerLightTarget = null;
             ApplyThemeIntensity();
-            UpdateComposerLight();
         };
         ApplyThemeIntensity();
     }
@@ -97,10 +91,20 @@ internal sealed class MobilePresenceController : IDisposable
     private void ApplyThemeIntensity()
     {
         var isLight = _presence.ActualThemeVariant == ThemeVariant.Light;
-        _presence.Intensity = isLight ? 0.10 : 0.26;
+        _presence.Intensity = isLight ? 0.20 : 0.56;
     }
 
     public StrataPresence Visual => _presence;
+
+    private bool CanAnimate => _shell is { IsChatPage: true } shell
+                               && !shell.IsNavigationCoveringContent && !shell.Chat.IsGitChangesOpen
+                               && _host.IsEffectivelyVisible && !LifecycleOpacityPulse.GetIsPaused(_host);
+
+    private void OnHostPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == LifecycleOpacityPulse.IsPausedProperty)
+            Sync();
+    }
 
     public void Attach(MobileShellViewModel shell)
     {
@@ -117,8 +121,8 @@ internal sealed class MobilePresenceController : IDisposable
         Dispatcher.UIThread.Post(() =>
         {
             if (ReferenceEquals(_shell, shell))
-                UpdateComposerLight();
-        }, DispatcherPriority.Loaded);
+                UpdateFocusTarget(shell.Chat);
+        }, DispatcherPriority.Background);
     }
 
     public void Detach()
@@ -131,8 +135,6 @@ internal sealed class MobilePresenceController : IDisposable
         _shell.Chat.Turns.CollectionChanged -= OnTurnsChanged;
         _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
         _host.LayoutUpdated -= OnHostLayoutUpdated;
-        _presence.Merge();
-        _composerLightTarget = null;
 
         ClearObservers();
 
@@ -254,7 +256,8 @@ internal sealed class MobilePresenceController : IDisposable
     private void OnShellChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(MobileShellViewModel.IsLive)
-            or nameof(MobileShellViewModel.Page))
+            or nameof(MobileShellViewModel.Page)
+            or nameof(MobileShellViewModel.IsNavigationCoveringContent))
         {
             Sync();
         }
@@ -279,7 +282,6 @@ internal sealed class MobilePresenceController : IDisposable
             return;
 
         var chat = shell.Chat;
-        ApplyThemeIntensity();
         _attentionPending = chat.HasChat
                             && !chat.IsStreaming
                             && chat.Turns
@@ -296,12 +298,15 @@ internal sealed class MobilePresenceController : IDisposable
 
         if (_presence.State != state)
             _presence.State = state;
+        _presence.Halo = !chat.HasChat;
+        ApplyThemeIntensity();
+        if (!CanAnimate)
+            _followTimer?.Stop();
 
         // Fire the felt vertical gesture BEFORE re-aiming, so its gate reads the field's
         // pre-move resting height rather than the height it is about to travel to.
         UpdateWorkEdge(chat);
         UpdateFocusTarget(chat);
-        UpdateComposerLight();
 
         // A finished answer earns a quiet bloom: the moment work completes is exactly when a
         // little life makes the app feel like it is with you.
@@ -317,30 +322,11 @@ internal sealed class MobilePresenceController : IDisposable
         _wasBusy = chat.IsBusy;
     }
 
-    private void OnHostLayoutUpdated(object? sender, EventArgs e) => UpdateComposerLight();
-
-    private void UpdateComposerLight()
+    private void OnHostLayoutUpdated(object? sender, EventArgs e)
     {
-        if (_shell is not { IsChatPage: true } shell || shell.Chat.IsGitChangesOpen
-            || ResolveNamed("Composer") is not { IsEffectivelyVisible: true })
-        {
-            if (_composerLightTarget is not null)
-            {
-                _presence.Merge();
-                _composerLightTarget = null;
-            }
-            return;
-        }
-
-        if (TryGetControlFocus("Composer", 0.55, 0.05, 0.99) is not { } target)
-            return;
-        if (_composerLightTarget is { } previous
-            && Math.Abs(previous.X - target.X) + Math.Abs(previous.Y - target.Y) < 0.006)
-            return;
-
-        // Reuse the presence's companion light: it stays under the glass while the main field works.
-        if (_presence.SplitToIsland(target, followFieldHeight: false))
-            _composerLightTarget = target;
+        if (_shell is { IsChatPage: true } shell
+            && !shell.Chat.IsBusy && !shell.Chat.IsStreaming && !_attentionPending)
+            UpdateFocusTarget(shell.Chat);
     }
 
     /// <summary>
@@ -352,7 +338,7 @@ internal sealed class MobilePresenceController : IDisposable
     /// </summary>
     private void UpdateWorkEdge(MobileChatViewModel chat)
     {
-        if (!chat.HasChat)
+        if (!CanAnimate || !chat.HasChat)
             return;
 
         var working = chat.IsBusy || chat.IsStreaming;
@@ -372,6 +358,8 @@ internal sealed class MobilePresenceController : IDisposable
     /// </summary>
     private void UpdateFocusTarget(MobileChatViewModel chat)
     {
+        if (!CanAnimate)
+            return;
         var working = chat.IsBusy || chat.IsStreaming || _attentionPending;
 
         Point target;
@@ -389,7 +377,7 @@ internal sealed class MobilePresenceController : IDisposable
         }
         else
         {
-            target = TryGetControlFocus("Composer", 0.28, 0.16, 0.86) ?? ComposerFocus;
+            target = TryGetControlFocus("Composer", 0.28, 0.16, 0.99) ?? ComposerFocus;
         }
 
         // Dedup micro-moves so the follow timer never restarts the glide in place; the threshold is
@@ -478,6 +466,8 @@ internal sealed class MobilePresenceController : IDisposable
     /// </summary>
     private void EnsureFollow()
     {
+        if (!CanAnimate)
+            return;
         _followUntil = DateTime.UtcNow + TimeSpan.FromMilliseconds(1400);
 
         _followTimer ??= CreateFollowTimer();
@@ -494,7 +484,7 @@ internal sealed class MobilePresenceController : IDisposable
 
         timer.Tick += (_, _) =>
         {
-            if (_shell is not { } shell)
+            if (!CanAnimate || _shell is not { } shell)
             {
                 _followTimer?.Stop();
                 return;
@@ -513,6 +503,8 @@ internal sealed class MobilePresenceController : IDisposable
 
     private void Pulse(PresencePulse pulse)
     {
+        if (!CanAnimate)
+            return;
         // Pulses are visual flourishes; a failure to render one must never surface as a crash.
         try
         {

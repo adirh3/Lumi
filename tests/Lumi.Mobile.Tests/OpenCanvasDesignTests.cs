@@ -112,23 +112,29 @@ public sealed class OpenCanvasDesignTests
             var composer = Required<StrataChatComposer>(chat, "Composer");
             Assert.False(composer.ClipToBounds);
             var composerSurface = Required<Border>(composer, "PART_Root");
-            Assert.InRange(ColorOf(composerSurface.Background).A, (byte)1, (byte)254);
+            AssertTranslucent(composerSurface.Background);
+            Assert.True(Required<StrataBackdropBlur>(composer, "PART_Backdrop").IsVisible);
             Assert.True(composerSurface.BoxShadow.Count > 0);
             var bubble = chat.GetVisualDescendants().OfType<Border>()
                 .First(border => border.Name == "PART_Bubble");
             Assert.Equal(default, bubble.BorderThickness);
 
             var menu = Required<Button>(chat, "MenuButton");
-            var menuColor = ColorOf(menu.Background);
+            var menuTint = TintOf(menu.Background);
             model.IsNavigationOpen = true;
             await SettleAsync(window);
-            Assert.Equal(menuColor, ColorOf(menu.Background));
+            Assert.Equal(menuTint, TintOf(menu.Background));
             Assert.DoesNotContain("active", menu.Classes);
             Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<Button>(),
                 button => button.Name == "DrawerNewChatButton");
             AssertGlass(Required<Button>(drawer, "DrawerSearchButton"));
             AssertGlass(Required<Button>(drawer, "DrawerAccountButton"));
             Assert.Equal("Lumi", Required<TextBlock>(drawer, "DrawerBrandTitle").Text);
+            var brand = Required<Panel>(drawer, "DrawerBrandSurface");
+            Assert.False(brand.IsHitTestVisible);
+            Assert.Null(brand.Background);
+            Assert.IsType<TextBlock>(Assert.Single(brand.GetVisualChildren()));
+            Assert.DoesNotContain(brand.GetVisualDescendants(), control => control is Border or StrataBackdropBlur);
             Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<TextBlock>(),
                 text => text.Text == "Conversations");
             Assert.Equal(!model.CanDockDrawer, Required<Button>(drawer, "DrawerCloseButton").IsEffectivelyVisible);
@@ -161,6 +167,91 @@ public sealed class OpenCanvasDesignTests
             var refresh = Required<Button>(settings, "RefreshButton");
             var label = refresh.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "Refresh");
             Assert.Equal(ColorOf(refresh.Foreground), ColorOf(label.Foreground));
+        });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task SinglePresenceMovesFromWelcomeToWorkAndBackToTheComposer(bool dark) =>
+        RunAsync(412, dark, async (model, view, window) =>
+        {
+            var presence = Required<StrataPresence>(view, "Presence");
+            var composer = Required<StrataChatComposer>(view, "Composer");
+            Assert.Equal(PresenceState.Idle, presence.State);
+            Assert.False(presence.IsHitTestVisible);
+            Assert.Equal(dark ? 0.56 : 0.20, presence.Intensity, 3);
+            Assert.False(presence.Halo);
+            AssertNoCompanion();
+            AssertAtComposer();
+            var restingFocus = presence.FocusPoint;
+
+            var originalHeight = composer.Height;
+            composer.Height = 180;
+            await SettleAsync(window);
+            AssertAtComposer();
+            composer.Height = originalHeight;
+            await SettleAsync(window);
+            AssertAtComposer();
+
+            model.Chat.ApplyStatus(new RemoteChatStatus { ChatId = model.Chat.ChatId, IsBusy = true });
+            Pump(window);
+            Assert.Contains(presence.State, new[] { PresenceState.Thinking, PresenceState.Streaming });
+            Assert.Equal(dark ? 0.56 : 0.20, presence.Intensity, 3);
+            Assert.True(presence.FocusPoint.Y < restingFocus.Y - 0.10);
+            AssertNoCompanion();
+            model.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = model.Chat.ChatId, IsBusy = true, IsStreaming = true
+            });
+            Pump(window);
+            Assert.Equal(PresenceState.Streaming, presence.State);
+            AssertNoCompanion();
+            model.Chat.ApplyTranscript(new RemoteTranscript
+            {
+                ChatId = model.Chat.ChatId, Revision = 2, IsLatestWindow = true,
+                Turns =
+                [
+                    new()
+                    {
+                        Id = "completed",
+                        Items = [new() { Id = "done", Kind = RemoteProtocol.ItemKinds.Assistant, Text = "Done" }]
+                    }
+                ],
+                Status = new RemoteChatStatus { ChatId = model.Chat.ChatId, IsBusy = false }
+            });
+            Pump(window);
+            Assert.Equal(PresenceState.Idle, presence.State);
+            Assert.Equal(dark ? 0.56 : 0.20, presence.Intensity, 3);
+            AssertAtComposer();
+            AssertNoCompanion();
+
+            window.RequestedThemeVariant = dark ? ThemeVariant.Light : ThemeVariant.Dark;
+            await SettleAsync(window);
+            Assert.Equal(dark ? 0.20 : 0.56, presence.Intensity, 3);
+            AssertNoCompanion();
+
+            model.Chat.Reset(Guid.Empty, "New conversation");
+            Pump(window);
+            Assert.Same(presence, Required<StrataPresence>(view, "Presence"));
+            Assert.True(presence.Halo);
+            Assert.InRange(presence.FocusPoint.Y, 0.30, 0.74);
+            AssertNoCompanion();
+
+            model.IsConnected = false;
+            Pump(window);
+            Assert.Equal(PresenceState.Dormant, presence.State);
+            AssertNoCompanion();
+
+            void AssertNoCompanion() =>
+                Assert.Equal(0, Assert.IsType<Border>(Assert.IsType<Border>(presence.Children[^1]).Child).Opacity);
+
+            void AssertAtComposer()
+            {
+                var anchor = composer.TranslatePoint(
+                    new Point(composer.Bounds.Width / 2, composer.Bounds.Height * 0.28), presence)!.Value;
+                Assert.InRange(Math.Abs(presence.FocusPoint.X - anchor.X / presence.Bounds.Width), 0, 0.014);
+                Assert.InRange(Math.Abs(presence.FocusPoint.Y - anchor.Y / presence.Bounds.Height), 0, 0.014);
+            }
         });
 
     [Theory]
@@ -304,11 +395,32 @@ public sealed class OpenCanvasDesignTests
 
     private static Color ColorOf(IBrush? brush) => Assert.IsAssignableFrom<ISolidColorBrush>(brush).Color;
 
+    // Glass surfaces may carry a vertical sheen, so every stop of their tint counts.
+    private static Color[] TintOf(IBrush? brush) => brush switch
+    {
+        ISolidColorBrush solid => [solid.Color],
+        IGradientBrush gradient => [.. gradient.GradientStops.Select(stop => stop.Color)],
+        _ => throw new Xunit.Sdk.XunitException($"Expected a glass tint, got {brush}.")
+    };
+
+    private static void AssertTranslucent(IBrush? brush)
+    {
+        var tint = TintOf(brush);
+        Assert.NotEmpty(tint);
+        Assert.All(tint, color => Assert.InRange(color.A, (byte)1, (byte)254));
+    }
+
     private static void AssertGlass(Button button)
     {
-        Assert.InRange(ColorOf(button.Background).A, (byte)1, (byte)254);
+        AssertTranslucent(button.Background);
         Assert.Equal(new CornerRadius(22), button.CornerRadius);
         Assert.Equal(new Thickness(1), button.BorderThickness);
+        Assert.IsAssignableFrom<ISolidColorBrush>(button.BorderBrush);
+        var surface = Required<Border>(button, "PART_Surface");
+        Assert.Equal(1, surface.BoxShadow.Count);
+        var frost = Assert.Single(button.GetVisualDescendants().OfType<StrataBackdropBlur>());
+        Assert.Equal(surface.Bounds, frost.Bounds);
+        Assert.Equal(surface.CornerRadius, frost.CornerRadius);
     }
 
     private static void AssertTransparent(IBrush? brush) =>

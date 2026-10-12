@@ -162,15 +162,26 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     private IReadOnlyList<RemoteInlineImage>? _leasedInlineImages;
     private long _imageResolutionVersion;
 
-    [ObservableProperty] private string _text = "";
-    [ObservableProperty] private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAnswerActions))]
+    private string _text = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAnswerActions))]
+    private bool _isStreaming;
     [ObservableProperty] private string? _model;
+
+    /// <summary>The settled reply that closes its turn; only it carries Copy and Share.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAnswerActions))]
+    private bool _isFinalAnswer;
 
     internal string SourceText { get; private set; } = "";
 
     public ObservableCollection<RemoteSource> Sources { get; } = [];
 
     public bool HasSources => Sources.Count > 0;
+    public bool ShowAnswerActions => IsFinalAnswer && !IsStreaming && !string.IsNullOrWhiteSpace(Text);
+    public bool CanShare => Services.MobilePlatformServices.TextShare.IsAvailable;
     public string SelectionText => RemoteMarkdownImages.ToSelectionText(Text);
     public string SourceCountText => Sources.Count == 1 ? "1 source" : $"{Sources.Count} sources";
     public string SourceSummary
@@ -1036,6 +1047,11 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
             ? turn.Items.FindIndex(item => item.Id == finalId
                 && item.Kind == RemoteProtocol.ItemKinds.Assistant && !item.IsStreaming)
             : -1;
+        for (var index = 0; index < Items.Count; index++)
+        {
+            if (Items[index] is AssistantItemViewModel answer)
+                answer.IsFinalAnswer = index == finalAnswerIndex;
+        }
         for (var index = 0; index < finalAnswerIndex; index++)
         {
             var item = turn.Items[index];

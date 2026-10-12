@@ -303,17 +303,14 @@ public sealed class MobileSpatialDisciplineTests
                 Pump(window);
                 Assert.True(composerRoot.IsPointerOver);
                 Assert.Equal(elevation, composerRoot.BoxShadow);
-                var neutralBorderColor =
-                    Assert.IsAssignableFrom<ISolidColorBrush>(composerRoot.BorderBrush).Color;
+                var neutralBorder = TintOf(composerRoot.BorderBrush);
 
                 Assert.True(input.Focus());
                 Thread.Sleep(200);
                 Pump(window);
                 Assert.True(input.IsFocused);
                 Assert.Equal(elevation, composerRoot.BoxShadow);
-                var focusedBorderColor =
-                    Assert.IsAssignableFrom<ISolidColorBrush>(composerRoot.BorderBrush).Color;
-                Assert.Equal(neutralBorderColor, focusedBorderColor);
+                Assert.Equal(neutralBorder, TintOf(composerRoot.BorderBrush));
                 var focusAccentBar = input.GetVisualDescendants()
                     .OfType<Border>()
                     .Single(border => border.Name == "FocusAccentBar");
@@ -508,6 +505,14 @@ public sealed class MobileSpatialDisciplineTests
     private static T Required<T>(Control root, string name)
         where T : Control =>
         root.GetVisualDescendants().OfType<T>().Single(control => control.Name == name);
+
+    // Glass rims are gradients, so a border is compared stop by stop.
+    private static Color[] TintOf(IBrush? brush) => brush switch
+    {
+        ISolidColorBrush solid => [solid.Color],
+        IGradientBrush gradient => [.. gradient.GradientStops.Select(stop => stop.Color)],
+        _ => throw new Xunit.Sdk.XunitException($"Expected a solid or gradient brush, got {brush}.")
+    };
 
     private static double Left(Control control, Visual relativeTo) =>
         control.TranslatePoint(default, relativeTo)?.X

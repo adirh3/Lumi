@@ -3,16 +3,18 @@
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:sa="using:StrataTheme.Animation"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              xmlns:input="using:Avalonia.Input"
              x:Class="Lumi.Mobile.Views.MobileDrawerView"
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.NavigationSurface}">
 
   <!--
-    Search and the project scope stay reachable while the conversation list scrolls.
+    Search and the project scope stay reachable while the conversation list scrolls underneath them.
     Everything editable is behind one Library row.
   -->
-  <Grid RowDefinitions="Auto,*,Auto">
+  <Panel x:Name="DrawerLayout">
 
     <!--
       Safe-area insets are applied here, not on the shell: the drawer's surface has to run edge to
@@ -21,13 +23,25 @@
     -->
 
     <!-- A compact identity bar keeps search and pane navigation reachable while the list scrolls. -->
-    <Border Grid.Row="0" Padding="{Binding SafeAreaTop}">
+    <Panel x:Name="DrawerHeaderChrome" VerticalAlignment="Top" ZIndex="1" Background="Transparent">
+    <!-- Only the system bar needs a full-width scrim; the controls frost the list themselves. -->
+    <Panel x:Name="DrawerTopEdgeMaterial" Classes="chrome-edge" VerticalAlignment="Top">
+      <sc:StrataBackdropBlur x:Name="DrawerTopEdgeFrost" Classes="chrome-frost" Fade="Bottom" FadeLength="0" />
+      <Border Background="{DynamicResource Brush.NavigationEdgeTop}" />
+      <Border Padding="{Binding SafeAreaTop}">
+        <Panel Height="{DynamicResource Mobile.Chat.EdgeScrimExtent}" />
+      </Border>
+    </Panel>
+    <Border Padding="{Binding SafeAreaTop}">
       <Border x:Name="DrawerHeaderSideInset" Padding="{Binding SafeAreaSides}">
         <Grid x:Name="DrawerBrandHeader" ColumnDefinitions="*,Auto,Auto"
               ColumnSpacing="8" MinHeight="{DynamicResource Touch.MinTarget}"
               Margin="{DynamicResource Mobile.Navigation.HeaderMargin}">
-          <TextBlock x:Name="DrawerBrandTitle" Text="Lumi" FontSize="{DynamicResource Font.SizeTitle}"
-                     FontWeight="SemiBold" VerticalAlignment="Center" />
+          <Panel x:Name="DrawerBrandSurface" HorizontalAlignment="Left" VerticalAlignment="Center"
+                 IsHitTestVisible="False">
+            <TextBlock x:Name="DrawerBrandTitle" Text="Lumi" FontSize="{DynamicResource Font.SizeTitle}"
+                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,6" />
+          </Panel>
           <Button x:Name="DrawerSearchButton" Grid.Column="1" Classes="navigation-icon-button floating-action"
                   AutomationProperties.Name="Search chats" Command="{Binding OpenSearchCommand}">
             <PathIcon Width="20" Height="20"
@@ -42,16 +56,19 @@
         </Grid>
       </Border>
     </Border>
+    </Panel>
 
     <!--
       ═══ Everything else scrolls as ONE surface ═══
 
-      Library and history share the scrolling surface. Project selection lives in the footer
-      rather than consuming conversation rows.
+      Library and history share the scrolling surface, which runs underneath the floating header and
+      footer. Project selection lives in the footer rather than consuming conversation rows.
     -->
-    <Border x:Name="DrawerContentSideInset" Grid.Row="1" Padding="{Binding SafeAreaSides}">
-      <ScrollViewer Classes="mobile-scroll" Padding="0,0,0,8"
-                    HorizontalScrollBarVisibility="Disabled">
+    <Border x:Name="DrawerContentSideInset" Padding="{Binding SafeAreaSides}">
+      <ScrollViewer x:Name="DrawerScroll" Classes="mobile-scroll" Padding="0,0,0,8"
+                    HorizontalScrollBarVisibility="Disabled"
+                    behaviors:ScrollEdgeChrome.Header="{Binding #DrawerHeaderChrome}"
+                    behaviors:ScrollEdgeChrome.Footer="{Binding #DrawerFooterChrome}">
         <StackPanel Spacing="2">
 
     <!-- ═══ Library: everything editable behind one row ═══ -->
@@ -150,8 +167,17 @@
       </ScrollViewer>
     </Border>
 
-    <!-- Project scope and settings remain available while history scrolls. -->
-    <Border Grid.Row="2" Padding="{Binding SafeAreaBottom}">
+    <!-- Project scope and settings remain available while history scrolls underneath. -->
+    <Panel x:Name="DrawerFooterChrome" VerticalAlignment="Bottom" ZIndex="1" Background="Transparent">
+    <Panel x:Name="DrawerBottomEdgeMaterial" Classes="chrome-edge" VerticalAlignment="Bottom">
+      <sc:StrataBackdropBlur x:Name="DrawerBottomEdgeFrost" Classes="chrome-frost" Fade="Top" FadeLength="0" />
+      <Border Background="{DynamicResource Brush.NavigationEdgeBottom}" />
+      <StackPanel>
+        <Panel Height="{DynamicResource Mobile.Chat.EdgeScrimExtent}" />
+        <Border Padding="{Binding SafeAreaBottom}" IsVisible="{Binding !IsKeyboardOpen}" />
+      </StackPanel>
+    </Panel>
+    <Border Padding="{Binding SafeAreaBottom}">
       <Border x:Name="DrawerAccountSideInset" Padding="{Binding SafeAreaSides}">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="16,12,12,12">
             <Button x:Name="DrawerProjectButton" Classes="floating-action"
@@ -177,5 +203,6 @@
           </Grid>
       </Border>
     </Border>
-  </Grid>
+    </Panel>
+  </Panel>
 </UserControl>

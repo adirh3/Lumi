@@ -506,6 +506,11 @@
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Composer}" />
   </Style>
+  <Style Selector="sc|StrataChatComposer.mobile /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Setter Property="IsVisible" Value="True" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+  </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_Root:pointerover">
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorderStrong}" />
@@ -727,6 +732,33 @@
     <Setter Property="BorderThickness" Value="0" />
   </Style>
 
+  <!--
+    ══ Scroll-edge glass ══
+    Content runs underneath floating chrome. A chrome-edge band frosts and tints it only while content
+    is actually behind the chrome (the chat shell's :content-under-* states or ScrollEdgeChrome's
+    content-under class), so at rest it costs nothing and the canvas stays clean.
+  -->
+  <Style Selector="Panel.chrome-edge">
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Panel.content-under > Panel.chrome-edge">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="sc|StrataBackdropBlur.chrome-frost">
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.BlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.Saturation}" />
+  </Style>
+  <Style Selector="sc|StrataBackdropBlur.control-frost">
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+  </Style>
+
   <!-- Attachment chips: a file staged for the next message, with its own removal target. -->
   <Style Selector="Border.attachment-chip">
     <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
@@ -791,7 +823,9 @@
     <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
   </Style>
 
+  <!-- Floating controls are glass: each frosts the content moving beneath it inside its own surface. -->
   <Style Selector="Button.floating-action">
+    <Setter Property="Theme" Value="{DynamicResource StrataGlassButton}" />
     <Setter Property="ClipToBounds" Value="False" />
     <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
@@ -800,11 +834,16 @@
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
   </Style>
+  <Style Selector="Button.floating-action /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+  </Style>
   <Style Selector="Button.floating-action /template/ Panel">
     <Setter Property="Background" Value="Transparent" />
   </Style>
   <Style Selector="Button.floating-action /template/ Border#PART_FocusRing">
     <Setter Property="Margin" Value="0" />
+    <Setter Property="CornerRadius" Value="24" />
   </Style>
   <Style Selector="Button.floating-action /template/ Border#PART_Surface">
     <Setter Property="Margin" Value="2" />
@@ -817,7 +856,7 @@
   </Style>
   <Style Selector="Button.floating-action:pressed /template/ Border#PART_Surface">
     <Setter Property="Background" Value="{DynamicResource Brush.FloatingControlPressed}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level1}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControlPressed}" />
   </Style>
   <Style Selector="Button.floating-action:pointerover /template/ Border#PART_Aurora">
     <Setter Property="Opacity" Value="0" />
