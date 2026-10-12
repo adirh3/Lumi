@@ -113,6 +113,18 @@ gcroot <object-address>
 
 The fix is only proven when the retaining root is identified and a repeated after-fix run shows the object count stops growing.
 
+## Transcript UI hangs
+
+For a hang, start with `clrstack -all` and inspect the UI dispatcher's queued callbacks rather than assuming a memory leak.
+An attached subagent `RunTimeline` can temporarily have a zero-height `RunTranscriptScroller` viewport.
+Viewport realization must wait for size/scroll notifications in that state: continually reposting itself at `Loaded`
+priority prevents layout and input from running. The focused regression checks both dispatcher progress at zero height
+and successful realization after the viewport grows:
+
+```powershell
+dotnet test tests\Lumi.Tests\Lumi.Tests.csproj --filter "FullyQualifiedName~ZeroHeightViewport_DoesNotStarveDispatcher_AndRealizesAfterResize"
+```
+
 ## Privacy warning
 
 Dump files can include chat contents, prompts, file paths, URLs, environment values, and credentials held in process memory. `diagnostics\memory` is git-ignored; do not commit or share raw dump artifacts.

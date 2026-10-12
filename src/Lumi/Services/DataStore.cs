@@ -24,6 +24,16 @@ public class DataStore
     private static readonly string DataFile = Path.Combine(AppDir, "data.json");
     private static readonly string IndexLockFile = Path.Combine(AppDir, "data.lock");
     private static readonly TimeSpan StartupIndexLockTimeout = TimeSpan.FromSeconds(10);
+    private static readonly string[] CodingLumiBrowserTools =
+    [
+        ToolDisplayHelper.BrowserOpenToolName,
+        ToolDisplayHelper.BrowserTabsToolName,
+        ToolDisplayHelper.BrowserScreenshotToolName,
+        ToolDisplayHelper.BrowserLookToolName,
+        ToolDisplayHelper.BrowserFindToolName,
+        ToolDisplayHelper.BrowserDoToolName,
+        ToolDisplayHelper.BrowserJsToolName
+    ];
 
     public static string SkillsDir { get; } = Path.Combine(AppDir, "skills");
     public static string ChatsDir { get; } = Path.Combine(AppDir, "chats");
@@ -110,6 +120,10 @@ public class DataStore
         SeedDefaults();
         SeedCodingLumi();
         EnsureCurrentChatManagementTool();
+        if (MigrateCodingLumiBrowserTools(_data))
+        {
+            Save();
+        }
         if (RemoveRetiredFeatureManagerSkill(_data))
         {
             Save();
@@ -1916,6 +1930,7 @@ public class DataStore
                 "code_review", "generate_tests", "explain_code", "analyze_project",
                 "lumi_fetch",
                 "announce_file", "skill", "recall_memory", "manage_current_chat",
+                .. CodingLumiBrowserTools
             ],
             SystemPrompt = """
                 You are **Coding Lumi** — an elite software engineering agent. You combine deep technical expertise with practical engineering wisdom to produce exceptional code and solve hard problems.
@@ -2024,8 +2039,31 @@ public class DataStore
         });
 
         _data.Settings.CodingLumiSeeded = true;
+        _data.Settings.CodingLumiBrowserToolsSeeded = true;
         Save();
         SyncSkillFiles();
+    }
+
+    internal static bool MigrateCodingLumiBrowserTools(AppData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (data.Settings.CodingLumiBrowserToolsSeeded)
+            return false;
+
+        var codingLumi = data.Agents.FirstOrDefault(agent =>
+            agent.IsBuiltIn
+            && string.Equals(agent.Name, "Coding Lumi", StringComparison.OrdinalIgnoreCase));
+        if (codingLumi is { HasToolRestrictions: true })
+        {
+            foreach (var toolName in CodingLumiBrowserTools)
+            {
+                if (!codingLumi.ToolNames.Contains(toolName, StringComparer.Ordinal))
+                    codingLumi.ToolNames.Add(toolName);
+            }
+        }
+
+        data.Settings.CodingLumiBrowserToolsSeeded = true;
+        return true;
     }
 
     private void EnsureCurrentChatManagementTool()

@@ -905,6 +905,9 @@ Windows also provides browser phase-timing diagnostics and JavaScript promise
 awaiting with a bounded timeout. Native browser tools keep synchronous JavaScript
 and do not expose those Windows-only options.
 
+Coding Lumi includes all seven browser tools by default. Existing built-in Coding
+Lumi agents receive a one-time tool upgrade; later permission changes are preserved.
+
 Linux needs WebKitGTK 4.1 (`sudo apt install libwebkit2gtk-4.1-0` on Ubuntu).
 The native macOS browser requires macOS 14 or later for private per-profile
 storage; older macOS versions use the system browser instead.

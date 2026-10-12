@@ -892,7 +892,8 @@ public sealed class TranscriptItemsControl : ItemsControl
         var viewportHeight = scrollViewer.Viewport.Height;
         if (!double.IsFinite(viewportHeight) || viewportHeight <= 0)
         {
-            QueueViewportRealizationUpdate();
+            // A hidden or not-yet-arranged scroller can stay at zero. Reposting at Loaded
+            // starves layout and input; wait for the existing size/scroll notifications instead.
             return;
         }
 
