@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -32,6 +33,65 @@ public sealed class TranscriptPagingHeadlessTests
     }
 
     private readonly record struct Anchor(string StableId, double ViewportY);
+
+    [Fact]
+    public async Task ZeroHeightViewport_DoesNotStarveDispatcher_AndRealizesAfterResize()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new TranscriptItemsControl
+            {
+                ItemsSource = CreateVisualTurns(3),
+                ItemsPanel = new FuncTemplate<Panel?>(() => new StackPanel()),
+                ItemTemplate = new FuncDataTemplate<TranscriptTurn>((turn, _) => new TranscriptTurnControl
+                {
+                    Turn = turn,
+                    IsViewportManaged = true,
+                }),
+            };
+            var scrollViewer = new ScrollViewer { Height = 0, Content = transcript };
+            var window = new Window { Width = 480, Height = 360, Content = scrollViewer };
+            window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new Border
+            {
+                Height = item.DesiredHeight,
+                Child = new TextBlock { Text = item.Text },
+            }));
+
+            window.Show();
+            try
+            {
+                window.UpdateLayout();
+                Assert.Equal(0, scrollViewer.Viewport.Height);
+                transcript.RealizeCurrentViewportNow();
+
+                // Assert before pumping so the old retry loop fails instead of hanging the test host.
+                var queuedField = typeof(TranscriptItemsControl).GetField(
+                    "_viewportUpdateQueued", BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.NotNull(queuedField);
+                Assert.False(Assert.IsType<bool>(queuedField.GetValue(transcript)),
+                    "A zero-height viewport must wait for layout, not continually repost Loaded work.");
+
+                await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+                Assert.Equal(0, scrollViewer.Viewport.Height);
+
+                scrollViewer.Height = 240;
+                window.UpdateLayout();
+                await PumpAsync(window);
+                await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+
+                Assert.True(scrollViewer.Viewport.Height > 0);
+                var firstTurn = transcript.GetVisualDescendants().OfType<TranscriptTurnControl>().First();
+                Assert.IsType<StackPanel>(firstTurn.Content);
+                Assert.Equal(1, GetHostedItemCount(firstTurn));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
 
     [Fact]
     public async Task OpeningLongTranscript_RealizesOnlyMountedTurns()
