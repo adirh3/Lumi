@@ -1083,6 +1083,11 @@
   "ModelPicker_NeedsEnabling": "Needs enabling",
   "ModelPicker_Pin": "Pin to top",
   "ModelPicker_Unpin": "Unpin",
+  "ModelPicker_SearchWatermark": "Search models...",
+  "ModelPicker_Context": "Context",
+  "ModelPicker_NoResults": "No models found",
+  "ModelPicker_Models": "Models",
+  "ModelPicker_Pinned": "Pinned",
 
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "File",

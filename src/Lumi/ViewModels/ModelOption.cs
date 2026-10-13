@@ -43,27 +43,36 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
     string IStrataModelOption.ModelId => Id;
 
     [ObservableProperty] private string _displayName;
+    [NotifyPropertyChangedFor(nameof(DetailsText), nameof(HasDetails), nameof(DetailsToolTip), nameof(PinnedProviderSuffix))]
     [ObservableProperty] private string? _providerName;
 
     /// <summary>Max context window in tokens, or 0 when the catalog does not report one.</summary>
+    [NotifyPropertyChangedFor(nameof(DetailsText), nameof(HasDetails), nameof(DetailsToolTip))]
     [ObservableProperty] private long _contextTokens;
 
     /// <summary>Copilot premium-request multiplier (e.g. 1, 0.33), or null when not reported.</summary>
     [ObservableProperty] private double? _costMultiplier;
 
+    [NotifyPropertyChangedFor(nameof(DetailsText), nameof(HasDetails), nameof(DetailsToolTip))]
     [ObservableProperty] private bool _supportsVision;
 
+    [NotifyPropertyChangedFor(nameof(DetailsText), nameof(HasDetails), nameof(DetailsToolTip))]
     [ObservableProperty] private bool _supportsReasoning;
 
     /// <summary>True when the model's policy still has to be accepted before it can be used.</summary>
+    [NotifyPropertyChangedFor(nameof(DetailsText), nameof(HasDetails), nameof(DetailsToolTip))]
     [ObservableProperty] private bool _requiresOptIn;
 
+    [NotifyPropertyChangedFor(nameof(DetailsText), nameof(HasDetails), nameof(DetailsToolTip), nameof(PinnedProviderSuffix))]
     [ObservableProperty] private bool _isPinned;
 
     /// <summary>"200K context" style badge, or null when the catalog reports no context limit.</summary>
     public string? ContextBadge => ModelOptionCatalog.FormatContextTokens(ContextTokens) is { } tokens
         ? string.Format(CultureInfo.CurrentCulture, Localization.Loc.ModelPicker_ContextBadge, tokens)
         : null;
+
+    /// <summary>Bare context size for the row's metadata column ("200K"), or null when unknown.</summary>
+    public string? ContextShort => ModelOptionCatalog.FormatContextTokens(ContextTokens);
 
     /// <summary>"1×" / "0.33×" / "Included" cost badge, or null when the catalog reports no multiplier.</summary>
     public string? CostBadge => ModelOptionCatalog.FormatCostMultiplier(CostMultiplier);
@@ -72,9 +81,44 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
 
     public bool HasCostBadge => CostBadge is not null;
 
+    /// <summary>
+    /// Connected-account name shown after a pinned BYOK model's name: the Pinned group hides the
+    /// account heading, and Copilot models need no qualifier.
+    /// </summary>
+    public string? PinnedProviderSuffix => IsPinned && ByokConfigHelper.IsByokModel(Id) && !string.IsNullOrWhiteSpace(ProviderName)
+        ? "  " + ProviderName
+        : null;
+
+    /// <summary>Every known fact on one line: the row's tooltip, where the row itself shows only
+    /// context size and cost.</summary>
+    public string DetailsText
+    {
+        get
+        {
+            var details = new List<string>(5);
+            if (IsPinned && !string.IsNullOrWhiteSpace(ProviderName))
+                details.Add(ProviderName);
+            if (RequiresOptIn)
+                details.Add(Localization.Loc.ModelPicker_NeedsEnabling);
+            if (ContextBadge is { } context)
+                details.Add(context);
+            if (SupportsReasoning)
+                details.Add(Localization.Loc.ModelPicker_Reasoning);
+            if (SupportsVision)
+                details.Add(Localization.Loc.ModelPicker_Vision);
+            return string.Join(" \u00b7 ", details);
+        }
+    }
+
+    public bool HasDetails => DetailsText.Length > 0;
+
+    /// <summary>Row tooltip; null rather than empty so a model without facts shows no tooltip.</summary>
+    public string? DetailsToolTip => HasDetails ? DetailsText : null;
+
     partial void OnContextTokensChanged(long value)
     {
         OnPropertyChanged(nameof(ContextBadge));
+        OnPropertyChanged(nameof(ContextShort));
         OnPropertyChanged(nameof(HasContextBadge));
     }
 

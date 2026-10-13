@@ -1072,6 +1072,11 @@
   "ModelPicker_NeedsEnabling": "דורש הפעלה",
   "ModelPicker_Pin": "הצמדה לראש הרשימה",
   "ModelPicker_Unpin": "ביטול הצמדה",
+  "ModelPicker_SearchWatermark": "חיפוש מודלים...",
+  "ModelPicker_Context": "הקשר",
+  "ModelPicker_NoResults": "לא נמצאו מודלים",
+  "ModelPicker_Models": "מודלים",
+  "ModelPicker_Pinned": "מוצמדים",
 
   "FieldLabel_URL": "כתובת URL",
   "FieldLabel_File": "קובץ",

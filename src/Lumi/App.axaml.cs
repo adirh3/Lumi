@@ -62,6 +62,7 @@ public partial class App : Application
             _dataStore = dataStore;
 
             Loc.Load(dataStore.Data.Settings.Language);
+            Styles.Add(CreateModelPickerTextStyle());
             RequestedThemeVariant = dataStore.Data.Settings.IsDarkTheme
                 ? ThemeVariant.Dark
                 : ThemeVariant.Light;
@@ -94,6 +95,23 @@ public partial class App : Application
 
         base.OnFrameworkInitializationCompleted();
     }
+
+    /// <summary>
+    /// Localized labels for every model picker, in every window. Applied once the saved language is
+    /// loaded: App.axaml is parsed before that, so markup there would always resolve English.
+    /// </summary>
+    internal static Style CreateModelPickerTextStyle() => new(selector => selector.OfType<StrataTheme.Controls.StrataModelPicker>())
+    {
+        Setters =
+        {
+            new Setter(StrataTheme.Controls.StrataModelPicker.SearchWatermarkProperty, Loc.ModelPicker_SearchWatermark),
+            new Setter(StrataTheme.Controls.StrataModelPicker.NoResultsTextProperty, Loc.ModelPicker_NoResults),
+            new Setter(StrataTheme.Controls.StrataModelPicker.ModelsLabelProperty, Loc.ModelPicker_Models),
+            new Setter(StrataTheme.Controls.StrataModelPicker.PinnedLabelProperty, Loc.ModelPicker_Pinned),
+            new Setter(StrataTheme.Controls.StrataModelPicker.ReasoningLabelProperty, Loc.ModelPicker_Reasoning),
+            new Setter(StrataTheme.Controls.StrataModelPicker.ContextLabelProperty, Loc.ModelPicker_Context)
+        }
+    };
 
     private void InitializeDesktop(DataStore dataStore)
     {

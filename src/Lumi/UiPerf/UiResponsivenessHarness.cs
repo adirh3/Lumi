@@ -10,6 +10,7 @@ using Avalonia;
 using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Models;
@@ -37,6 +38,7 @@ internal sealed class UiResponsivenessHarness
     private readonly Action<int> _requestShutdown;
     private readonly UiResponsivenessProbe _probe;
     private int _exitCode;
+    private bool _reportedModelPickerSurface;
 
     /// <summary>Describes one measurable UX action.</summary>
     private sealed record UiAction(
@@ -409,6 +411,27 @@ internal sealed class UiResponsivenessHarness
                 "Hello Lumi, this is a quick composer responsiveness probe message."),
             Prepare: NewChatAsync);
 
+        yield return new UiAction(
+            "model-picker-open", "Model picker", "Open model picker with 64 rich models",
+            RunAsync: () => SetModelPickerOpenAsync(true),
+            Prepare: () => PrepareModelPickerAsync(warm: false),
+            Note: "Real composer picker with provider groups, pins and metadata badges; includes popup layout.");
+        yield return new UiAction(
+            "model-picker-reopen", "Model picker", "Reopen an unchanged model catalog",
+            RunAsync: () => SetModelPickerOpenAsync(true),
+            Prepare: () => PrepareModelPickerAsync(warm: true),
+            Note: "Opening the same catalog again should not rebuild its rows or segmented controls.");
+        yield return new UiAction(
+            "model-picker-search", "Model picker", "Type a model/provider search query",
+            RunAsync: DriveModelPickerSearchAsync,
+            Prepare: PrepareOpenModelPickerAsync,
+            Note: "Types one character at a time through the real search field and verifies the exact matching model.");
+        yield return new UiAction(
+            "model-picker-scroll", "Model picker", "Scroll through the model catalog",
+            RunAsync: DriveModelPickerScrollAsync,
+            Prepare: PrepareOpenModelPickerAsync,
+            Note: "Traverses eight viewports through the real virtualized list, including layout and row recycling.");
+
         // Chat list (sidebar).
         yield return new UiAction(
             "chatlist-refresh", "Chat list", "Rebuild the chat sidebar list",
@@ -610,6 +633,126 @@ internal sealed class UiResponsivenessHarness
         }
 
         await OnUiAsync(() => _mainVm.ChatVM.PromptText = string.Empty);
+    }
+
+    private StrataModelPicker GetModelPicker()
+        => GetWindow().GetVisualDescendants().OfType<StrataModelPicker>()
+            .FirstOrDefault(picker => picker.IsEffectivelyVisible)
+            ?? throw new InvalidOperationException("The composer's model picker was not found.");
+
+    private Popup GetModelPickerPopup()
+        => GetModelPicker().GetVisualDescendants().OfType<Popup>()
+            .Single(popup => popup.Name == "PART_ModelPickerPopup");
+
+    private void UpdateModelPickerLayout()
+        => GetWindow().UpdateLayout();
+
+    private async Task PrepareModelPickerAsync(bool warm)
+    {
+        await NewChatAsync();
+        await DrainAsync(DispatcherPriority.Loaded);
+        await SetModelPickerOpenAsync(false);
+        await OnUiAsync(() =>
+        {
+            var picker = GetModelPicker();
+            picker.Models = Enumerable.Range(0, 64).Select(index => new ModelOption($"lab-model-{index:00}")
+            {
+                DisplayName = $"Lab model {index:00}",
+                ProviderName = index < 32 ? "GitHub Copilot" : "Personal provider",
+                ContextTokens = 200_000,
+                CostMultiplier = index % 3 == 0 ? 0 : 1,
+                SupportsReasoning = true,
+                SupportsVision = true,
+                IsPinned = index < 4
+            }).ToArray();
+            picker.SelectedModel = "lab-model-00";
+            picker.QualityLevels = new[] { "Low", "Medium", "High", "Extra High" };
+            picker.SelectedQuality = "High";
+            picker.ContextWindowTiers = new[] { "Default", "Long context" };
+            picker.SelectedContextWindowTier = "Default";
+        });
+        if (warm)
+        {
+            await SetModelPickerOpenAsync(true);
+            await OnUiAsync(UpdateModelPickerLayout);
+            await SetModelPickerOpenAsync(false);
+        }
+    }
+
+    private async Task SetModelPickerOpenAsync(bool open)
+    {
+        if (await OnUiAsync(() => GetModelPickerPopup().IsOpen != open))
+            await ClickButtonAsync(_ => GetModelPicker().GetVisualDescendants().OfType<Button>()
+                .Single(button => button.Name == "PART_ModelPickerButton"));
+        await WaitForUiAsync(() => GetModelPickerPopup().IsOpen == open,
+            open ? "the model picker to open" : "the model picker to close");
+        if (open && !_reportedModelPickerSurface)
+        {
+            var surface = await OnUiAsync(() =>
+            {
+                var popup = GetModelPickerPopup();
+                if (!popup.IsUsingOverlayLayer)
+                    throw new InvalidOperationException("The model picker created a native popup instead of an in-window overlay.");
+                var host = popup.Child is { } child ? TopLevel.GetTopLevel(child) : null;
+                return $"host={host?.GetType().Name}, overlay={popup.IsUsingOverlayLayer}";
+            });
+            Console.WriteLine($"[ui-perf] Model picker surface: {surface}");
+            _reportedModelPickerSurface = true;
+        }
+    }
+
+    private async Task PrepareOpenModelPickerAsync()
+    {
+        await PrepareModelPickerAsync(warm: false);
+        await SetModelPickerOpenAsync(true);
+        await OnUiAsync(UpdateModelPickerLayout);
+    }
+
+    private async Task DriveModelPickerSearchAsync()
+    {
+        var search = await OnUiAsync(() => GetModelPickerPopup().Child!.GetSelfAndVisualDescendants()
+            .OfType<TextBox>().Single(box => box.Name == "PART_ModelPickerSearch"));
+        var query = new StringBuilder();
+        foreach (var character in "personal 63")
+        {
+            query.Append(character);
+            var text = query.ToString();
+            // SetCurrentValue is what typing does; a plain assignment would detach the box from the
+            // picker's search text, so the next opening would show a stale query.
+            await OnUiAsync(() => search.SetCurrentValue(TextBox.TextProperty, text));
+            await DrainAsync(DispatcherPriority.Background);
+            await OnUiAsync(UpdateModelPickerLayout);
+        }
+        await OnUiAsync(() =>
+        {
+            var picker = GetModelPicker();
+            if (picker.FilteredModelCount != 1)
+                throw new InvalidOperationException($"Expected one model search result, got {picker.FilteredModelCount}.");
+            var row = GetModelPickerPopup().Child!.GetSelfAndVisualDescendants().OfType<Control>()
+                .Single(control => control.Classes.Contains("model-picker-row"));
+            if (row.Tag as string != "lab-model-63")
+                throw new InvalidOperationException("The model search returned the wrong canonical model id.");
+        });
+    }
+
+    private async Task DriveModelPickerScrollAsync()
+    {
+        var scroll = await OnUiAsync(() => GetModelPickerPopup().Child!.GetSelfAndVisualDescendants()
+            .OfType<ListBox>().Single(list => list.Name == "PART_ModelPickerList")
+            .GetVisualDescendants().OfType<ScrollViewer>().Single());
+        for (var step = 1; step <= 8; step++)
+        {
+            var fraction = step / 8d;
+            await OnUiAsync(() =>
+            {
+                var maximum = scroll.Extent.Height - scroll.Viewport.Height;
+                if (maximum <= 0)
+                    throw new InvalidOperationException("The populated model catalog did not provide a scrollable viewport.");
+                scroll.Offset = scroll.Offset.WithY(maximum * fraction);
+                UpdateModelPickerLayout();
+            });
+            await DrainAsync(DispatcherPriority.Background);
+        }
     }
 
     private async Task DriveScrollToTopAsync()

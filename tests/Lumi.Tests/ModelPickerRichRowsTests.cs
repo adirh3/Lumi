@@ -138,6 +138,57 @@ public class ModelOptionCatalogTests
     }
 
     [Fact]
+    public void CompactDetails_OnlyShowKnownFactsAndNotifyWhenTheyChange()
+    {
+        var option = new ModelOption("gpt-5.4");
+        Assert.False(option.HasDetails);
+        Assert.Equal(string.Empty, option.DetailsText);
+
+        var changed = new List<string?>();
+        option.PropertyChanged += (_, change) => changed.Add(change.PropertyName);
+        option.ContextTokens = 128_000;
+        option.SupportsReasoning = true;
+        option.SupportsVision = true;
+        option.RequiresOptIn = true;
+        option.IsPinned = true;
+
+        Assert.Contains("GitHub Copilot", option.DetailsText);
+        Assert.Contains(option.ContextBadge!, option.DetailsText);
+        Assert.Contains(Lumi.Localization.Loc.ModelPicker_Reasoning, option.DetailsText);
+        Assert.Contains(Lumi.Localization.Loc.ModelPicker_Vision, option.DetailsText);
+        Assert.Contains(Lumi.Localization.Loc.ModelPicker_NeedsEnabling, option.DetailsText);
+        Assert.Contains(nameof(ModelOption.DetailsText), changed);
+        Assert.Contains(nameof(ModelOption.HasDetails), changed);
+
+        option.ContextTokens = 0;
+        option.SupportsReasoning = option.SupportsVision = option.RequiresOptIn = option.IsPinned = false;
+        Assert.False(option.HasDetails);
+        Assert.Null(option.DetailsToolTip);
+    }
+
+    [Fact]
+    public void RowFacts_ShowContextSizeAndQualifyOnlyPinnedAccountModels()
+    {
+        var copilot = new ModelOption("gpt-5.4") { ContextTokens = 400_000, IsPinned = true };
+        Assert.Equal("400K", copilot.ContextShort);
+        Assert.Null(copilot.PinnedProviderSuffix);
+        Assert.Equal(copilot.DetailsText, copilot.DetailsToolTip);
+
+        var byok = new ModelOption("byok:local") { ProviderName = "Personal" };
+        Assert.Null(byok.ContextShort);
+        Assert.Null(byok.PinnedProviderSuffix);
+        var changed = new List<string?>();
+        byok.PropertyChanged += (_, change) => changed.Add(change.PropertyName);
+        byok.IsPinned = true;
+        byok.ContextTokens = 1_000_000;
+        Assert.Equal("  Personal", byok.PinnedProviderSuffix);
+        Assert.Equal("1M", byok.ContextShort);
+        Assert.Contains(nameof(ModelOption.PinnedProviderSuffix), changed);
+        Assert.Contains(nameof(ModelOption.ContextShort), changed);
+        Assert.Contains(nameof(ModelOption.DetailsToolTip), changed);
+    }
+
+    [Fact]
     public void ProviderRowsSeparateAccountNamesFromLegacyModelLabels()
     {
         var settings = new UserSettings();
@@ -510,7 +561,7 @@ public sealed class StrataModelPickerRichItemTests
                 "CreateModelRow",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                 ?? throw new InvalidOperationException("CreateModelRow was not found.");
-            var row = (Border)(createRow.Invoke(picker, [option, option.Id, false])
+            var row = (Control)(createRow.Invoke(picker, [option, option.Id, false])
                 ?? throw new InvalidOperationException("CreateModelRow returned null."));
 
             var window = new Window { Width = 360, Height = 100, Content = row };
@@ -561,23 +612,23 @@ public sealed class StrataModelPickerRichItemTests
             await PumpAsync();
 
             activeBefore = ReadActiveSegment(picker);
-            readoutBefore = ReadSegmentReadout(picker);
+            readoutBefore = ReadSettingAccessibleName(picker);
 
             // Exactly what a host does when the effort is changed from outside the popup.
             picker.SelectedQuality = "High";
             await PumpAsync();
 
             activeAfter = ReadActiveSegment(picker);
-            readoutAfter = ReadSegmentReadout(picker);
+            readoutAfter = ReadSettingAccessibleName(picker);
             thumbVisible = FindThumbs(picker).Any(thumb => thumb.IsVisible);
 
             window.Close();
         }, CancellationToken.None);
 
         Assert.Equal("Low", activeBefore);
-        Assert.Equal("Low", readoutBefore);
+        Assert.Equal("Reasoning: Low", readoutBefore);
         Assert.Equal("High", activeAfter);
-        Assert.Equal("High", readoutAfter);
+        Assert.Equal("Reasoning: High", readoutAfter);
         Assert.True(thumbVisible, "the selection thumb should be shown once a segment is active");
     }
 
@@ -647,20 +698,17 @@ public sealed class StrataModelPickerRichItemTests
             .FirstOrDefault(button => button.Classes.Contains("active"))?
             .Content?.ToString() ?? string.Empty;
 
-    private static string ReadSegmentReadout(StrataModelPicker picker)
+    private static string ReadSettingAccessibleName(StrataModelPicker picker)
     {
         var panel = FindPart<Border>(picker, "PART_ModelPickerPanel");
-        return panel is null
-            ? string.Empty
-            : panel.GetSelfAndVisualDescendants()
-                .OfType<TextBlock>()
-                .FirstOrDefault(text => text.Classes.Contains("segment-readout"))?
-                .Text ?? string.Empty;
+        var setting = panel?.GetSelfAndVisualDescendants().OfType<Border>()
+            .FirstOrDefault(border => border.Classes.Contains("model-setting"));
+        return setting is null ? string.Empty : AutomationProperties.GetName(setting) ?? string.Empty;
     }
 
     private static string[] ReadGroupHeaders(StrataModelPicker picker)
     {
-        var list = FindPart<StackPanel>(picker, "PART_ModelPickerList");
+        var list = FindPart<ListBox>(picker, "PART_ModelPickerList");
         return list is null
             ? []
             : list.GetVisualDescendants()
@@ -673,19 +721,19 @@ public sealed class StrataModelPickerRichItemTests
     private static string[] ReadRowIds(StrataModelPicker picker) =>
         FindRows(picker).Select(row => row.Tag as string ?? string.Empty).ToArray();
 
-    private static List<Border> FindRows(StrataModelPicker picker)
+    private static List<Control> FindRows(StrataModelPicker picker)
     {
-        var list = FindPart<StackPanel>(picker, "PART_ModelPickerList");
+        var list = FindPart<ListBox>(picker, "PART_ModelPickerList");
         return list is null
             ? []
             : list.GetVisualDescendants()
-                .OfType<Border>()
-                .Where(border => border.Classes.Contains("model-picker-row"))
+                .OfType<Control>()
+                .Where(row => row.Classes.Contains("model-picker-row"))
                 .ToList();
     }
 
-    private static Border FindRow(StrataModelPicker picker, string modelId)
-        => FindRows(picker).FirstOrDefault(border => (border.Tag as string) == modelId)
+    private static Control FindRow(StrataModelPicker picker, string modelId)
+        => FindRows(picker).FirstOrDefault(row => (row.Tag as string) == modelId)
            ?? throw new InvalidOperationException($"No picker row for '{modelId}'.");
 
     private static void ClickRow(StrataModelPicker picker, string modelId)
@@ -721,6 +769,8 @@ public sealed class StrataModelPickerRichItemTests
 
     private static void ClickPickerButton(Window window, StrataModelPicker picker)
     {
+        picker.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom;
+        window.UpdateLayout();
         var button = FindPart<Button>(picker, "PART_ModelPickerButton")
             ?? throw new InvalidOperationException("PART_ModelPickerButton was not found.");
 

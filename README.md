@@ -37,8 +37,25 @@ sign-in, the first connected account becomes the default so Lumi can work.
 
 Desktop model pickers group models under GitHub Copilot or the connected account
 name. Model names no longer repeat the account or append a BYOK suffix; model IDs
-and saved selections are unchanged. Pinned models stay at the top, with their
-account shown as a separate badge.
+and saved selections are unchanged. Pinned models stay at the top; a pinned model
+from a connected account shows that account's name after its own.
+
+The picker opens with search focused: type any combination of model name, ID or
+provider (for example, `opus claude` or `gpt 5.4`). Each model takes one line, with
+a check on the current model and its cost (when the catalog reports one) and
+context size aligned on the right; hover a row for its capabilities and its pin
+button. The pin beside search shows only pinned models. One highlight follows both
+the pointer and Up/Down, Enter chooses the highlighted model, Ctrl+P (⌘P on macOS)
+pins or unpins it, and Escape closes the picker. Reasoning effort and context
+window choices sit in a compact footer under the list; hover either for its name.
+The list only renders nearby rows and reuses unchanged contents on reopening, so
+large catalogs do not block the UI.
+
+The Debug UI responsiveness harness includes a **Model picker** category:
+`dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness --ui-perf-filter model-picker`.
+It measures opening, reopening, searching and scrolling a synthetic 64-model
+catalog through the real composer; reports use dispatcher latency, not
+input-to-pixel timings.
 
 **Add an AI account** opens a searchable gallery grouped by how you connect: sign
 in with your account, plans and credits, developer API keys, apps on this

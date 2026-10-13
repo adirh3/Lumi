@@ -95,7 +95,7 @@ public sealed class StrataModelPickerRefreshTests
 
     private static string[] ReadModelRows(StrataModelPicker picker)
     {
-        var list = FindPart<StackPanel>(picker, "PART_ModelPickerList");
+        var list = FindPart<ListBox>(picker, "PART_ModelPickerList");
         return list is null
             ? []
             : list.GetVisualDescendants()
@@ -107,6 +107,8 @@ public sealed class StrataModelPickerRefreshTests
 
     private static void ClickPickerButton(Window window, StrataModelPicker picker)
     {
+        picker.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom;
+        window.UpdateLayout();
         var button = FindPart<Button>(picker, "PART_ModelPickerButton")
             ?? throw new InvalidOperationException("PART_ModelPickerButton was not found.");
 
