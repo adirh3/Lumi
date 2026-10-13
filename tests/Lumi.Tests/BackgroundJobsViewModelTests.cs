@@ -8,6 +8,70 @@ namespace Lumi.Tests;
 
 public sealed class BackgroundJobsViewModelTests
 {
+    [Theory]
+    [InlineData(BackgroundJobTriggerTypes.Time)]
+    [InlineData(BackgroundJobTriggerTypes.Script)]
+    public void IconOnlyEditorSave_PreservesScheduleAndInFlightConfiguration(string triggerType)
+    {
+        var chat = CreateChat("Monitoring");
+        var job = CreateJob(chat.Id, "Monitor");
+        job.TriggerType = triggerType;
+        job.ScriptContent = "echo completed";
+        job.IsEnabled = true;
+        job.IsRunning = true;
+        job.IsTemporary = triggerType == BackgroundJobTriggerTypes.Script;
+        BackgroundJobSchedule.Normalize(job);
+        job.NextRunAt = DateTimeOffset.Now.AddHours(1);
+        var nextRun = job.NextRunAt;
+        var version = job.ConfigurationVersion;
+        using var harness = CreateHarness(new AppData { Chats = [chat], BackgroundJobs = [job] });
+
+        harness.ViewModel.EditIconGlyph = "\U0001F50E";
+        harness.ViewModel.EditUseIconInChatTitles = true;
+        harness.ViewModel.SaveJobCommand.Execute(null);
+
+        Assert.Empty(harness.ViewModel.ValidationMessage);
+        Assert.Equal("\U0001F50E", job.IconGlyph);
+        Assert.Equal(nextRun, job.NextRunAt);
+        Assert.Equal(version, job.ConfigurationVersion);
+        Assert.True(job.IsRunning);
+        Assert.True(job.IsEnabled);
+    }
+
+    [Fact]
+    public void IconEditor_SavesCustomIconAndResetsNewJobDefaults()
+    {
+        var chat = CreateChat("Monitoring");
+        var job = CreateJob(chat.Id, "Monitor");
+        job.IconGlyph = "\U0001F50E";
+        job.UseIconInChatTitles = true;
+        using var harness = CreateHarness(new AppData { Chats = [chat], BackgroundJobs = [job] });
+        Assert.Equal(job.IconGlyph, harness.ViewModel.EditIconGlyph);
+        Assert.True(harness.ViewModel.EditUseIconInChatTitles);
+
+        harness.ViewModel.EditIconGlyph = " \U0001F4E9 ";
+        harness.ViewModel.EditUseIconInChatTitles = false;
+        harness.ViewModel.RefreshFromStore(preserveEditorBuffer: true);
+        Assert.Equal(" \U0001F4E9 ", harness.ViewModel.EditIconGlyph);
+        var changedProperties = new List<string?>();
+        job.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        harness.ViewModel.SaveJobCommand.Execute(null);
+        Assert.Equal("\U0001F4E9", job.IconGlyph);
+        Assert.False(job.UseIconInChatTitles);
+        Assert.Contains(nameof(BackgroundJob.DisplayIconGlyph), changedProperties);
+        Assert.Equal("Monitoring", chat.Title);
+
+        harness.ViewModel.EditIconGlyph = " ";
+        harness.ViewModel.SaveJobCommand.Execute(null);
+        Assert.Equal(BackgroundJob.DefaultIconGlyph, job.IconGlyph);
+        Assert.Equal(BackgroundJob.DefaultIconGlyph, harness.ViewModel.EditIconGlyph);
+        harness.ViewModel.EditIconGlyph = "\U0001F4A1";
+        harness.ViewModel.EditUseIconInChatTitles = true;
+        harness.ViewModel.NewJobCommand.Execute(null);
+        Assert.Equal(BackgroundJob.DefaultIconGlyph, harness.ViewModel.EditIconGlyph);
+        Assert.False(harness.ViewModel.EditUseIconInChatTitles);
+    }
+
     [Fact]
     public void RefreshFromStore_SelectsFirstJob_WhenJobsExistAndNothingIsSelected()
     {

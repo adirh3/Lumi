@@ -58,6 +58,8 @@ public partial class BackgroundJobsViewModel : ObservableObject
     [ObservableProperty] private string _editName = "";
     [ObservableProperty] private string _editDescription = "";
     [ObservableProperty] private string _editPrompt = "";
+    [ObservableProperty] private string _editIconGlyph = BackgroundJob.DefaultIconGlyph;
+    [ObservableProperty] private bool _editUseIconInChatTitles;
     [ObservableProperty] private Chat? _editChat;
     [ObservableProperty] private Chat? _editSourceChat;
     [ObservableProperty] private int _editTriggerTypeIndex;
@@ -506,6 +508,8 @@ public partial class BackgroundJobsViewModel : ObservableObject
         EditName = job.Name;
         EditDescription = job.Description;
         EditPrompt = job.Prompt;
+        EditIconGlyph = job.DisplayIconGlyph;
+        EditUseIconInChatTitles = job.UseIconInChatTitles;
         EditChat = AvailableChats.FirstOrDefault(chat => chat.Id == job.ChatId);
         EditSourceChat = job.SourceChatId is { } sourceChatId
             ? AvailableChats.FirstOrDefault(chat => chat.Id == sourceChatId)
@@ -577,6 +581,8 @@ public partial class BackgroundJobsViewModel : ObservableObject
         EditName = "";
         EditDescription = "";
         EditPrompt = "";
+        EditIconGlyph = BackgroundJob.DefaultIconGlyph;
+        EditUseIconInChatTitles = false;
         EditChat = GetPreferredChat() ?? AvailableChats.FirstOrDefault();
         EditSourceChat = AvailableChats.FirstOrDefault(chat => chat.Id != EditChat?.Id);
         EditTriggerTypeIndex = 0;
@@ -718,9 +724,12 @@ public partial class BackgroundJobsViewModel : ObservableObject
         var shouldRunImmediately = false;
         lock (job.SyncRoot)
         {
+            var previousConfiguration = AppDataSnapshotFactory.CloneBackgroundJob(job);
             job.Name = EditName.Trim();
             job.Description = EditDescription.Trim();
             job.Prompt = EditPrompt.Trim();
+            job.IconGlyph = string.IsNullOrWhiteSpace(EditIconGlyph) ? BackgroundJob.DefaultIconGlyph : EditIconGlyph.Trim();
+            job.UseIconInChatTitles = EditUseIconInChatTitles;
             job.ChatId = EditChat.Id;
             job.TriggerType = IsScriptTrigger
                 ? BackgroundJobTriggerTypes.Script
@@ -751,10 +760,17 @@ public partial class BackgroundJobsViewModel : ObservableObject
             job.RunAt = parsedRunAt;
 
             BackgroundJobSchedule.Normalize(job);
-            job.NextRunAt = job.IsEnabled ? BackgroundJobSchedule.ComputeNextRun(job, now, afterRun: false) : null;
-            shouldRunImmediately = job.IsEnabled && job.NextRunAt is not null && job.NextRunAt <= now;
-            if (!isNewJob)
-                job.MarkConfigurationChanged();
+            var presentationOnly = !isNewJob
+                && (previousConfiguration.IconGlyph != job.IconGlyph
+                    || previousConfiguration.UseIconInChatTitles != job.UseIconInChatTitles)
+                && previousConfiguration.HasSameRunConfiguration(job);
+            if (!presentationOnly)
+            {
+                job.NextRunAt = job.IsEnabled ? BackgroundJobSchedule.ComputeNextRun(job, now, afterRun: false) : null;
+                shouldRunImmediately = job.IsEnabled && job.NextRunAt is not null && job.NextRunAt <= now;
+                if (!isNewJob)
+                    job.MarkConfigurationChanged();
+            }
         }
 
         if (isNewJob)
@@ -764,6 +780,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
 
         _isCreatingNewJob = false;
         SelectedJob = job;
+        EditIconGlyph = job.DisplayIconGlyph;
         _hydratedIsEnabled = job.IsEnabled;
         _ = _dataStore.SaveAsync();
         IsEditing = true;

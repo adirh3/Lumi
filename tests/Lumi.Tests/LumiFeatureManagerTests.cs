@@ -12,6 +12,54 @@ namespace Lumi.Tests;
 public sealed class LumiFeatureManagerTests
 {
     [Fact]
+    public void ManageJobs_IconsRoundTripWithoutReschedulingPresentationOnlyUpdates()
+    {
+        var chat = new Chat { Title = "Review results" };
+        var data = new AppData { Chats = [chat] };
+        var manager = new LumiFeatureManager(new DataStore(data));
+        var created = manager.ManageJobs(
+            "create", name: "PR watcher", prompt: "Review new PRs.",
+            defaultChatId: chat.Id, iconGlyph: " \U0001F50E ", useIconInChatTitles: true);
+        Assert.True(created.DataChanged);
+        var job = Assert.Single(data.BackgroundJobs);
+        Assert.Equal("\U0001F50E", job.IconGlyph);
+        Assert.True(job.UseIconInChatTitles);
+        Assert.Contains("icon: \U0001F50E", manager.ManageJobs("list").Message);
+
+        var nextRun = job.NextRunAt;
+        var configurationVersion = job.ConfigurationVersion;
+        var updated = manager.ManageJobs("update", identifier: job.Name, iconGlyph: "\U0001F4E9");
+        Assert.True(updated.DataChanged);
+        Assert.Equal("\U0001F4E9", job.IconGlyph);
+        Assert.True(job.UseIconInChatTitles);
+        Assert.Equal(nextRun, job.NextRunAt);
+        Assert.Equal(configurationVersion, job.ConfigurationVersion);
+        Assert.Equal("Review results", chat.Title);
+
+        Assert.True(manager.ManageJobs("update", identifier: job.Name, description: "Changed").DataChanged);
+        Assert.Equal("\U0001F4E9", job.IconGlyph);
+        Assert.True(job.UseIconInChatTitles);
+
+        Assert.True(manager.ManageJobs(
+            "update", identifier: job.Name, iconGlyph: "", useIconInChatTitles: false).DataChanged);
+        Assert.Equal(BackgroundJob.DefaultIconGlyph, job.IconGlyph);
+        Assert.False(job.UseIconInChatTitles);
+    }
+
+    [Fact]
+    public void ManageJobs_DefaultIconsDoNotOptIntoTitleChanges()
+    {
+        var chat = new Chat();
+        var data = new AppData { Chats = [chat] };
+        var manager = new LumiFeatureManager(new DataStore(data));
+        Assert.True(manager.ManageJobs(
+            "create", name: "Reminder", prompt: "Remind me.", defaultChatId: chat.Id).DataChanged);
+        var job = Assert.Single(data.BackgroundJobs);
+        Assert.Equal(BackgroundJob.DefaultIconGlyph, job.DisplayIconGlyph);
+        Assert.False(job.UseIconInChatTitles);
+    }
+
+    [Fact]
     public void SkillResults_IdentifyOnlyTheCreatedUpdatedOrListedSkills()
     {
         var data = new AppData();
@@ -216,12 +264,16 @@ public sealed class LumiFeatureManagerTests
             "update",
             identifier: job.Name,
             name: "Mutated name",
+            iconGlyph: "\U0001F4A1",
+            useIconInChatTitles: true,
             triggerType: BackgroundJobTriggerTypes.Time,
             scheduleType: BackgroundJobScheduleTypes.Cron,
             cronExpression: "invalid cron");
 
         Assert.False(result.DataChanged);
         Assert.Equal("Worker completion", job.Name);
+        Assert.Equal(BackgroundJob.DefaultIconGlyph, job.IconGlyph);
+        Assert.False(job.UseIconInChatTitles);
         Assert.Equal(BackgroundJobTriggerTypes.ChatEvent, job.TriggerType);
         Assert.Equal(workerChat.Id, job.SourceChatId);
         Assert.Equal([ChatLifecycleEventTypes.Idle], job.ChatEventTypes);

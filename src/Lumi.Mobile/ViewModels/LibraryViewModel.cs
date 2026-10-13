@@ -565,7 +565,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             Identifier = j.Id.ToString(),
             Name = j.Name,
             Description = j.Description ?? j.ScheduleSummary,
-            Glyph = "◷",
+            Glyph = string.IsNullOrWhiteSpace(j.IconGlyph) ? "\u23F0" : j.IconGlyph,
             IsEnabled = j.IsEnabled,
             Badge = j.LastRunStatus
         }),

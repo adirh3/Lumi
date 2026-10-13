@@ -265,6 +265,29 @@
                 <TextBlock Text="{loc:Str Field_Name}" Classes="field-label" />
                 <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Jobs_WatermarkName}" />
 
+                <TextBlock Text="{loc:Str Jobs_FieldIcon}" Classes="field-label" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Button x:Name="JobIconPickerButton"
+                          ToolTip.Tip="{loc:Str Mg_ChangeIcon}"
+                          AutomationProperties.Name="{loc:Str Mg_ChangeIcon}">
+                    <Button.Flyout>
+                      <Flyout Placement="BottomEdgeAlignedLeft">
+                        <sc:StrataIconPicker SelectedIcon="{Binding EditIconGlyph, Mode=TwoWay}"
+                                             IconSelected="OnIconSelected" />
+                      </Flyout>
+                    </Button.Flyout>
+                    <TextBlock Text="{Binding EditIconGlyph}" FontSize="22" />
+                  </Button>
+                  <TextBox x:Name="JobIconTextBox" Text="{Binding EditIconGlyph}" Width="110"
+                           VerticalAlignment="Center"
+                           AutomationProperties.Name="{loc:Str Jobs_FieldIcon}" />
+                </StackPanel>
+                <CheckBox x:Name="JobUseIconInChatTitles"
+                          Content="{loc:Str Jobs_UseIconInChatTitles}"
+                          IsChecked="{Binding EditUseIconInChatTitles}" />
+                <TextBlock Text="{loc:Str Jobs_ChatTitleIconDescription}"
+                           Classes="caption tertiary" TextWrapping="Wrap" />
+
                 <TextBlock Text="{loc:Str Jobs_FieldPrompt}" Classes="field-label" />
                 <TextBox Text="{Binding EditPrompt}"
                          AcceptsReturn="True"
