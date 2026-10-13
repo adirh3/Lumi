@@ -10,8 +10,16 @@
              x:DataType="vm:ChatViewModel"
              x:CompileBindings="True">
 
+  <!-- The Workspace's Agents page. Two panes, both read-only:
+       · the index — every agent Lumi delegated to in this chat, live ones first, as flat rows in the
+         same language as the rest of the Workspace (filterable by status once there is a mix);
+       · one run — a headline block (who, what, how it is going), the task it was given, and its
+         work rendered by the chat's own transcript pipeline, folded the way the chat folds finished
+         activity. The Workspace header above names the page and owns back/close. -->
+
   <UserControl.Resources>
     <conv:ChartBrushConverter x:Key="ChartBrush" />
+    <x:Double x:Key="Chat.ToolGroupContentMaxHeight">420</x:Double>
   </UserControl.Resources>
 
   <UserControl.Styles>
@@ -24,48 +32,222 @@
       <Setter Property="IsVisible" Value="False" />
     </Style>
 
-    <!-- Index rows wrap a compact agent-run card; the button itself is pure hit area. -->
+    <!-- ── Index rows: flat, hover-lit, whole-row hit area (the Workspace's row language) ── -->
     <Style Selector="Button.run-row">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Padding" Value="0" />
+      <Setter Property="Padding" Value="10,8" />
+      <Setter Property="Margin" Value="0,1" />
       <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    </Style>
-    <Style Selector="Button.run-row /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Name="PART_ContentPresenter"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            Content="{TemplateBinding Content}"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Center">
+            <ContentPresenter.Transitions>
+              <Transitions>
+                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
+              </Transitions>
+            </ContentPresenter.Transitions>
+          </ContentPresenter>
+        </ControlTemplate>
+      </Setter>
     </Style>
     <Style Selector="Button.run-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Button.run-row:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Button.run-row:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+
+    <!-- ── Status filters: calm tabs; the selected one wears the accent ── -->
+    <Style Selector="Button.run-filter">
       <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="8,0,7,0" />
+      <Setter Property="Margin" Value="0,0,2,4" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Name="PART_ContentPresenter"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            Content="{TemplateBinding Content}"
+                            VerticalContentAlignment="Center">
+            <ContentPresenter.Transitions>
+              <Transitions>
+                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
+              </Transitions>
+            </ContentPresenter.Transitions>
+          </ContentPresenter>
+        </ControlTemplate>
+      </Setter>
     </Style>
-
-    <!-- Section label above the index list -->
-    <Style Selector="TextBlock.run-section">
-      <Setter Property="FontSize" Value="10" />
+    <Style Selector="Button.run-filter:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    </Style>
+    <Style Selector="Button.run-filter.selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="TextBlock.run-filter-title">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.run-filter.selected TextBlock.run-filter-title">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.run-filter-count">
+      <Setter Property="FontSize" Value="11" />
       <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="Margin" Value="2,2,2,0" />
+    </Style>
+    <Style Selector="Button.run-filter.selected TextBlock.run-filter-count">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
-    <!-- Header/footer rules that separate chrome from the transcript column -->
-    <Style Selector="Border.run-rule">
-      <Setter Property="Height" Value="1" />
-      <Setter Property="Background" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="Opacity" Value="0.7" />
+    <!-- ── Section labels ("Running now", "Task", "Activity") ── -->
+    <Style Selector="TextBlock.run-kicker">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.run-kicker-count">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="PathIcon.run-kicker-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <!-- A live section breathes like the header's agents badge. -->
+    <Style Selector="Border.run-live-dot">
+      <Setter Property="Width" Value="6" />
+      <Setter Property="Height" Value="6" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.35" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+
+    <!-- ── Run page ── -->
+    <Style Selector="TextBlock.run-meta">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Button.run-pager">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.run-pager PathIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.run-pager:pointerover PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.run-pager:disabled PathIcon">
+      <Setter Property="Opacity" Value="0.35" />
+    </Style>
+
+    <!-- The task the agent was given: a quiet card, folded to its opening lines when long. -->
+    <Style Selector="Border.run-task">
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceCard}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="Padding" Value="13,10,13,12" />
+    </Style>
+    <Style Selector="Border.run-error">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="Padding" Value="12,10,13,11" />
+    </Style>
+    <Style Selector="TextBlock.run-task-preview">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="LineHeight" Value="20" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.run-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="8,3" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Name="PART_ContentPresenter"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            Content="{TemplateBinding Content}"
+                            VerticalContentAlignment="Center">
+            <ContentPresenter.Transitions>
+              <Transitions>
+                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
+              </Transitions>
+            </ContentPresenter.Transitions>
+          </ContentPresenter>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.run-link TextBlock">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.run-link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
 
     <!-- Navigating between the agent index and one run reads as forward/back: the arriving pane
          eases in from the side it came from. Driven by a property selector so the animation replays
          every time that pane is shown again, which a plain Transition cannot do (a pane restored
          from IsVisible="False" already holds its final values). -->
-    <Style Selector="ScrollViewer.run-pane-back[IsVisible=True]">
+    <Style Selector="DockPanel.run-pane-back[IsVisible=True]">
       <Style.Animations>
-        <Animation Duration="0:0:0.22" Easing="CubicEaseOut" FillMode="Forward">
+        <Animation Duration="0:0:0.2" Easing="CubicEaseOut" FillMode="Forward">
           <KeyFrame Cue="0%">
             <Setter Property="Opacity" Value="0" />
-            <Setter Property="TranslateTransform.X" Value="-14" />
+            <Setter Property="TranslateTransform.X" Value="-12" />
           </KeyFrame>
           <KeyFrame Cue="100%">
             <Setter Property="Opacity" Value="1" />
@@ -76,10 +258,10 @@
     </Style>
     <Style Selector="ContentControl.run-pane-forward[IsVisible=True]">
       <Style.Animations>
-        <Animation Duration="0:0:0.22" Easing="CubicEaseOut" FillMode="Forward">
+        <Animation Duration="0:0:0.2" Easing="CubicEaseOut" FillMode="Forward">
           <KeyFrame Cue="0%">
             <Setter Property="Opacity" Value="0" />
-            <Setter Property="TranslateTransform.X" Value="14" />
+            <Setter Property="TranslateTransform.X" Value="12" />
           </KeyFrame>
           <KeyFrame Cue="100%">
             <Setter Property="Opacity" Value="1" />
@@ -91,38 +273,19 @@
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
-    <!-- The Agents page renders TranscriptTurns built by the chat's own TranscriptBuilder, so tool
-         calls group, reasoning folds and every card matches Lumi's transcript. Only the message
-         bubbles are re-declared here: a delegated agent has no attachments, sources or fork/edit
-         affordances, and the page is a narrow column, so these are the same Strata controls with
-         the chat's extras left out. Everything else resolves from Application.DataTemplates. -->
-    <DataTemplate DataType="vm:UserMessageItem">
-      <StackPanel Spacing="4" HorizontalAlignment="Right" MaxWidth="380">
-        <!-- One meta line: what this block is, who asked, and when. The bubble below carries no
-             second metadata row of its own, so the request reads as a single unit. -->
-        <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right">
-          <PathIcon Width="9" Height="9" VerticalAlignment="Center"
-                    Foreground="{DynamicResource Brush.AccentDefault}"
-                    Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-          <TextBlock Text="{loc:Str Subagent_TaskGiven}"
-                     FontSize="9.5" FontWeight="SemiBold"
-                     VerticalAlignment="Center"
-                     Foreground="{DynamicResource Brush.AccentDefault}" />
-        </StackPanel>
-        <sc:StrataChatMessage Role="User" HorizontalAlignment="Right">
-          <sc:StrataChatMessage.Content>
-            <lc:TranscriptTextContent Text="{Binding Content}" />
-          </sc:StrataChatMessage.Content>
-        </sc:StrataChatMessage>
-      </StackPanel>
-    </DataTemplate>
-
+    <!-- The run page renders TranscriptTurns built by the chat's own TranscriptBuilder, so tool
+         calls group, finished activity folds and every card matches Lumi's transcript. The chat's
+         item templates are local to ChatView, so the ones a run needs are declared here in a leaner
+         form: a delegated agent has no attachments, sources or fork/edit affordances, the author is
+         always the same agent, and the page is a narrow column. Tool cards themselves resolve from
+         Application.DataTemplates. -->
     <DataTemplate DataType="vm:AssistantMessageItem">
       <sc:StrataChatMessage Role="Assistant"
                             HorizontalAlignment="Stretch"
-                            Author="{Binding Author}"
                             Timestamp="{Binding TimestampText}"
                             TimestampToolTip="{Binding TimestampToolTip}"
+                            IsEditable="False"
+                            CanRegenerate="False"
                             IsStreaming="{Binding IsStreaming}">
         <sc:StrataChatMessage.Content>
           <lc:TranscriptTextContent Text="{Binding Content}"
@@ -176,6 +339,26 @@
       </sc:StrataThink>
     </DataTemplate>
 
+    <!-- Finished stretches of reasoning and steps between the agent's messages fold into one line,
+         the same summary the chat uses, and open in place. -->
+    <DataTemplate DataType="vm:TurnSummaryItem">
+      <sc:StrataTurnSummary Label="{Binding Label}"
+                            IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                            HasFailures="{Binding HasFailures}">
+        <sc:StrataTurnSummary.Content>
+          <ScrollViewer MaxHeight="{StaticResource Chat.ToolGroupContentMaxHeight}"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding InnerItems}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+            </ItemsControl>
+          </ScrollViewer>
+        </sc:StrataTurnSummary.Content>
+      </sc:StrataTurnSummary>
+    </DataTemplate>
+
     <!-- An agent this run delegated to in turn: identity and outcome, without a second nesting
          level of transcripts inside the page. -->
     <DataTemplate DataType="vm:SubagentToolCallItem">
@@ -211,47 +394,77 @@
     </DataTemplate>
   </UserControl.DataTemplates>
 
-  <!-- One gutter value governs the whole page so the list and the transcript share a single
-       left/right measure and nothing runs into the edge. The Workspace header above names the page
-       ("Agents" or the open agent) and owns back/close. -->
-  <DockPanel ClipToBounds="True">
-    <!-- ── Read-only footer ───────────────────────────────────────── -->
-    <StackPanel DockPanel.Dock="Bottom" IsVisible="{Binding !IsSubagentIndexVisible}">
-      <Border Classes="run-rule" />
-      <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center"
-                  Margin="14,7,14,9">
-        <PathIcon Width="9" Height="9" Opacity="0.5"
-                  Foreground="{DynamicResource Brush.TextTertiary}"
-                  Data="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6z" />
-        <TextBlock Text="{loc:Str Subagent_ReadOnly}" FontSize="9.5"
-                   Foreground="{DynamicResource Brush.TextTertiary}"
-                   VerticalAlignment="Center" />
-      </StackPanel>
-    </StackPanel>
+  <Panel ClipToBounds="True">
+    <!-- ── Index: every agent in this chat ─────────────────────── -->
+    <DockPanel x:Name="RunIndexPane" Classes="run-pane-back" IsVisible="{Binding IsSubagentIndexVisible}">
+      <ItemsControl DockPanel.Dock="Top"
+                    x:Name="RunFilterBar"
+                    ItemsSource="{Binding SubagentFilterChips}"
+                    IsVisible="{Binding ShowSubagentFilters}"
+                    Margin="12,12,12,2">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate DataType="vm:SubagentFilterChip">
+            <Button Classes="run-filter"
+                    Classes.selected="{Binding IsSelected}"
+                    IsVisible="{Binding IsAvailable}"
+                    Command="{Binding SelectCommand}"
+                    AutomationProperties.Name="{Binding Title}">
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <TextBlock Classes="run-filter-title" Text="{Binding Title}" />
+                <TextBlock Classes="run-filter-count" Text="{Binding CountLabel}" />
+              </StackPanel>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
 
-    <Panel>
-      <!-- ── Index: every agent in this chat ─────────────────────── -->
-      <ScrollViewer Classes="run-pane-back"
-                    IsVisible="{Binding IsSubagentIndexVisible}"
-                    HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto">
-        <!-- Gutters live on the content, not on the ScrollViewer: Padding only offsets the arrange
-             pass, so children keep measuring against the full viewport and spill past the page
-             edge. A Margin is subtracted during measure, which is what actually constrains them. -->
-        <StackPanel Spacing="6" Margin="14,12,14,12">
-          <TextBlock Text="{loc:Str Subagent_NoRuns}"
-                     IsVisible="{Binding !HasSubagentRuns}"
-                     FontSize="11" TextWrapping="Wrap"
+      <Panel>
+        <!-- Nothing delegated yet: say what will appear here. -->
+        <StackPanel IsVisible="{Binding !HasSubagentRuns}"
+                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                    MaxWidth="280" Margin="24" Spacing="10">
+          <Border Width="44" Height="44" CornerRadius="14" HorizontalAlignment="Center"
+                  Background="{DynamicResource Brush.AccentSubtle}">
+            <PathIcon Width="22" Height="22" Foreground="{DynamicResource Brush.AccentDefault}"
+                      Data="{x:Static vm:WorkspaceIcons.Agents}" />
+          </Border>
+          <TextBlock Text="{loc:Str Subagent_NoRunsTitle}" HorizontalAlignment="Center"
+                     FontSize="13.5" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextPrimary}" />
+          <TextBlock Text="{loc:Str Subagent_NoRuns}" TextAlignment="Center" TextWrapping="Wrap"
+                     FontSize="12" LineHeight="18"
                      Foreground="{DynamicResource Brush.TextTertiary}" />
-          <ItemsControl ItemsSource="{Binding SubagentRuns}">
+        </StackPanel>
+
+        <!-- Gutters live on the content, not on the ScrollViewer: Padding only offsets the arrange
+             pass, so children keep measuring against the full viewport and spill past the page edge.
+             The list virtualizes, so a chat with hundreds of agents opens instantly. -->
+        <ScrollViewer x:Name="RunIndexScroller"
+                      IsVisible="{Binding HasSubagentRuns}"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+          <ItemsControl x:Name="RunIndexList" ItemsSource="{Binding SubagentIndexRows}" Margin="8,6,8,14">
             <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Spacing="5" /></ItemsPanelTemplate>
+              <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
+            <ItemsControl.DataTemplates>
+              <DataTemplate DataType="vm:SubagentIndexSection">
+                <StackPanel Orientation="Horizontal" Spacing="7" Margin="10,10,10,4">
+                  <Border Classes="run-live-dot" IsVisible="{Binding IsLive}" />
+                  <TextBlock Classes="run-kicker" Text="{Binding Title}" />
+                  <TextBlock Classes="run-kicker-count" Text="{Binding CountLabel}" />
+                </StackPanel>
+              </DataTemplate>
+              <!-- The whole row opens the run; the Strata card inside owns identity, state and motion. -->
               <DataTemplate DataType="vm:SubagentToolCallItem">
-                <!-- The whole row opens the run; the card underneath owns all its own chrome. -->
-                <Button Classes="run-row" Command="{Binding OpenRunCommand}">
-                  <sc:StrataAgentRun Classes="compact" Focusable="False"
+                <Button Classes="run-row"
+                        Command="{Binding OpenRunCommand}"
+                        ToolTip.Tip="{Binding Title}"
+                        AutomationProperties.Name="{Binding Title}">
+                  <sc:StrataAgentRun Classes="list"
                                      AgentName="{Binding DisplayName}"
                                      Title="{Binding Title}"
                                      Initial="{Binding Initial}"
@@ -265,73 +478,136 @@
                                      ProgressValue="{Binding ProgressValue}" />
                 </Button>
               </DataTemplate>
-            </ItemsControl.ItemTemplate>
+            </ItemsControl.DataTemplates>
           </ItemsControl>
-        </StackPanel>
-      </ScrollViewer>
+        </ScrollViewer>
+      </Panel>
+    </DockPanel>
 
-      <!-- ── Detail: one agent's run as a read-only chat ─────────── -->
-      <ContentControl Classes="run-pane-forward"
-                      Content="{Binding SelectedSubagentRun}"
-                      IsVisible="{Binding !IsSubagentIndexVisible}">
-        <ContentControl.ContentTemplate>
-          <DataTemplate DataType="vm:SubagentToolCallItem">
-            <DockPanel>
-              <!-- Pinned identity + live state, in the same card language as the index. -->
-              <StackPanel DockPanel.Dock="Top">
-                <sc:StrataAgentRun Classes="compact" Focusable="False"
-                                   Margin="14,12,14,12"
-                                   AgentName="{Binding DisplayName}"
-                                   Title="{Binding Title}"
-                                   Initial="{Binding Initial}"
-                                   AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
-                                   ModelName="{Binding ModelDisplayName}"
-                                   ModeLabel="{Binding ModeLabel}"
-                                   Activity="{Binding LatestActivityText}"
-                                   Status="{Binding Status}"
-                                   StatusLabel="{Binding StatusText}"
-                                   DurationMs="{Binding DurationMs}"
-                                   RunningSince="{Binding StartedAt}"
-                                   ProgressValue="{Binding ProgressValue}" />
-                <Border Classes="run-rule" />
-              </StackPanel>
+    <!-- ── One run, as a read-only page ─────────────────────────── -->
+    <ContentControl Classes="run-pane-forward"
+                    Content="{Binding SelectedSubagentRun}"
+                    IsVisible="{Binding !IsSubagentIndexVisible}">
+      <ContentControl.ContentTemplate>
+        <DataTemplate DataType="vm:SubagentToolCallItem">
+          <ScrollViewer x:Name="RunTranscriptScroller"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="16,16,16,24">
+              <!-- Who ran, what it was asked to do, and how it is going. -->
+              <sc:StrataAgentRun x:Name="RunHero"
+                                 Classes="hero"
+                                 AgentName="{Binding DisplayName}"
+                                 Title="{Binding Title}"
+                                 Initial="{Binding Initial}"
+                                 AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
+                                 ModelName="{Binding ModelDisplayName}"
+                                 ModeLabel="{Binding ModeLabel}"
+                                 Activity="{Binding LatestActivityText}"
+                                 Status="{Binding Status}"
+                                 StatusLabel="{Binding StatusText}"
+                                 DurationMs="{Binding DurationMs}"
+                                 RunningSince="{Binding StartedAt}"
+                                 ProgressValue="{Binding ProgressValue}" />
 
-              <ScrollViewer x:Name="RunTranscriptScroller"
-                            HorizontalScrollBarVisibility="Disabled"
-                            VerticalScrollBarVisibility="Auto">
-                <StackPanel Spacing="12" Margin="14,12,14,14">
-                  <TextBlock Text="{loc:Str Subagent_NoActivity}"
-                             IsVisible="{Binding !$parent[UserControl].((vm:ChatViewModel)DataContext).HasSubagentRunContent}"
-                             FontSize="11" TextWrapping="Wrap"
-                             Foreground="{DynamicResource Brush.TextTertiary}" />
-
-                  <!-- The chat's own turn control: one definition of how a transcript renders. -->
-                  <vm:TranscriptItemsControl
-                      x:Name="RunTimeline"
-                      ItemsSource="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).SubagentRunTurns}">
-                    <vm:TranscriptItemsControl.ItemTemplate>
-                      <DataTemplate DataType="vm:TranscriptTurn">
-                        <vm:TranscriptTurnControl Turn="{Binding}" />
-                      </DataTemplate>
-                    </vm:TranscriptItemsControl.ItemTemplate>
-                    <vm:TranscriptItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate><StackPanel Spacing="12" /></ItemsPanelTemplate>
-                    </vm:TranscriptItemsControl.ItemsPanel>
-                  </vm:TranscriptItemsControl>
-
-                  <StackPanel Orientation="Horizontal" Spacing="8"
-                              IsVisible="{Binding IsInProgress}">
-                    <sc:StrataTypingIndicator VerticalAlignment="Center" />
-                    <TextBlock Text="{loc:Str Subagent_Waiting}" FontSize="10.5"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource Brush.TextTertiary}" />
-                  </StackPanel>
+              <!-- Size and start of the run, and stepping to the neighbouring runs. -->
+              <Grid ColumnDefinitions="*,Auto" Margin="50,8,0,0" MinHeight="26">
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasRunMeta}">
+                  <PathIcon Classes="run-kicker-icon" Width="13" Height="13" Data="{x:Static vm:WorkspaceIcons.Clock}" />
+                  <TextBlock Classes="run-meta" Text="{Binding RunMetaText}" />
                 </StackPanel>
-              </ScrollViewer>
-            </DockPanel>
-          </DataTemplate>
-        </ContentControl.ContentTemplate>
-      </ContentControl>
-    </Panel>
-  </DockPanel>
+                <StackPanel Grid.Column="1" x:Name="RunPager" Orientation="Horizontal" Spacing="1"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).HasSubagentRunPager}">
+                  <Button Classes="subtle run-pager"
+                          Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).OpenPreviousSubagentRunCommand}"
+                          ToolTip.Tip="{loc:Str Subagent_PreviousRun}"
+                          AutomationProperties.Name="{loc:Str Subagent_PreviousRun}">
+                    <PathIcon Data="{x:Static vm:WorkspaceIcons.Chevron}" RenderTransform="rotate(180deg)" />
+                  </Button>
+                  <TextBlock Classes="run-meta" Margin="3,0"
+                             Text="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).SubagentRunPositionText}" />
+                  <Button Classes="subtle run-pager"
+                          Command="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).OpenNextSubagentRunCommand}"
+                          ToolTip.Tip="{loc:Str Subagent_NextRun}"
+                          AutomationProperties.Name="{loc:Str Subagent_NextRun}">
+                    <PathIcon Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+                  </Button>
+                </StackPanel>
+              </Grid>
+
+              <!-- A failed run says why, right under its outcome. -->
+              <Border Classes="run-error" Margin="0,14,0,0" IsVisible="{Binding HasError}">
+                <Grid ColumnDefinitions="Auto,*">
+                  <PathIcon Width="15" Height="15" Margin="0,1,0,0" VerticalAlignment="Top"
+                            Foreground="{DynamicResource Brush.DangerDefault}"
+                            Data="{x:Static vm:WorkspaceIcons.Error}" />
+                  <StackPanel Grid.Column="1" Margin="9,0,0,0" Spacing="3">
+                    <TextBlock Text="{loc:Str Subagent_FailureTitle}"
+                               FontSize="12" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.DangerDefault}" />
+                    <SelectableTextBlock Text="{Binding ErrorText}"
+                                         FontSize="12.5" LineHeight="19" TextWrapping="Wrap"
+                                         Foreground="{DynamicResource Brush.TextSecondary}" />
+                  </StackPanel>
+                </Grid>
+              </Border>
+
+              <!-- The task the agent was given, folded to its opening lines when long. -->
+              <Border Classes="run-task" Margin="0,16,0,0" IsVisible="{Binding HasPrompt}">
+                <StackPanel Spacing="7">
+                  <Grid ColumnDefinitions="Auto,*,Auto" MinHeight="22">
+                    <PathIcon Classes="run-kicker-icon" Data="{x:Static vm:WorkspaceIcons.Intent}" />
+                    <TextBlock Grid.Column="1" Classes="run-kicker" Margin="7,0,0,0"
+                               Text="{loc:Str Subagent_Task}" />
+                    <Button Grid.Column="2" Classes="run-link" Margin="0,-3,-6,-3"
+                            IsVisible="{Binding IsPromptLong}"
+                            Command="{Binding TogglePromptCommand}">
+                      <TextBlock Text="{Binding PromptToggleLabel}" />
+                    </Button>
+                  </Grid>
+                  <TextBlock Classes="run-task-preview"
+                             Text="{Binding PromptPreview}"
+                             IsVisible="{Binding ExpandedPrompt, Converter={x:Static ObjectConverters.IsNull}}" />
+                  <lc:TranscriptTextContent Text="{Binding ExpandedPrompt}"
+                                            IsVisible="{Binding ExpandedPrompt, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+              </Border>
+
+              <!-- What it did: the chat's own transcript, folded the way the chat folds. -->
+              <StackPanel Margin="0,22,0,0" Spacing="12">
+                <StackPanel Orientation="Horizontal" Spacing="7" Margin="2,0,0,0">
+                  <PathIcon Classes="run-kicker-icon" Data="{x:Static vm:WorkspaceIcons.Activity}" />
+                  <TextBlock Classes="run-kicker" Text="{loc:Str Subagent_Activity}" />
+                </StackPanel>
+
+                <TextBlock Text="{loc:Str Subagent_NoActivity}"
+                           IsVisible="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).ShowSubagentRunEmptyState}"
+                           Margin="2,0,0,0" FontSize="12" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextTertiary}" />
+
+                <!-- The chat's own turn control: one definition of how a transcript renders. -->
+                <vm:TranscriptItemsControl
+                    x:Name="RunTimeline"
+                    ItemsSource="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).SubagentRunTurns}">
+                  <vm:TranscriptItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:TranscriptTurn">
+                      <vm:TranscriptTurnControl Turn="{Binding}" />
+                    </DataTemplate>
+                  </vm:TranscriptItemsControl.ItemTemplate>
+                  <vm:TranscriptItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="12" /></ItemsPanelTemplate>
+                  </vm:TranscriptItemsControl.ItemsPanel>
+                </vm:TranscriptItemsControl>
+
+                <sc:StrataTypingIndicator IsVisible="{Binding IsInProgress}"
+                                          Label="{loc:Str Subagent_Working}"
+                                          HorizontalAlignment="Left" />
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </DataTemplate>
+      </ContentControl.ContentTemplate>
+    </ContentControl>
+  </Panel>
 </UserControl>

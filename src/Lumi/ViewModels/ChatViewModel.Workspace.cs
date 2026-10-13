@@ -249,23 +249,9 @@ public partial class ChatViewModel
         => GitService.FindRepoRoot(GetEffectiveWorkingDirectory()) ?? GetEffectiveWorkingDirectory();
 
     // ── Agents at a glance ──
-    private void RefreshWorkspaceAgents()
+    /// <summary>Shows the runs in index order: running agents lead, then newest first.</summary>
+    private void RefreshWorkspaceAgents(IReadOnlyList<SubagentToolCallItem> ordered)
     {
-        // Running agents lead so live work is visible without scrolling; then newest first.
-        var runs = SubagentRuns;
-        var ordered = new List<SubagentToolCallItem>(runs.Count);
-        for (var i = runs.Count - 1; i >= 0; i--)
-        {
-            if (runs[i].IsInProgress)
-                ordered.Add(runs[i]);
-        }
-
-        for (var i = runs.Count - 1; i >= 0; i--)
-        {
-            if (!runs[i].IsInProgress)
-                ordered.Add(runs[i]);
-        }
-
         // Runs update many times a second while agents stream; only a first/last run can change what
         // the rest of the workspace shows. The category bar still follows the count and live dot.
         var hadAgents = WorkspaceAgents.TotalCount > 0;

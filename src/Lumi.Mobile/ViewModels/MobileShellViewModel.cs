@@ -297,6 +297,7 @@ public sealed partial class MobileShellViewModel :
                 or nameof(MobileChatViewModel.Title))
             {
                 OnPropertyChanged(nameof(HeaderTitle));
+                OnPropertyChanged(nameof(ChatDetailsTitle));
             }
             if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
                 or nameof(MobileChatViewModel.IsBusy)
@@ -945,6 +946,11 @@ public sealed partial class MobileShellViewModel :
     public string HeaderTitle => Chat.HasChat && !string.IsNullOrWhiteSpace(Chat.Title)
         ? Chat.Title
         : "Lumi";
+
+    /// <summary>The details popup is titled by the chat it configures; a blank chat is a new chat.</summary>
+    public string ChatDetailsTitle => Chat.HasChat && !string.IsNullOrWhiteSpace(Chat.Title)
+        ? Chat.Title
+        : "New chat";
 
     partial void OnUserNameChanged(string value)
     {

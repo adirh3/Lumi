@@ -11,12 +11,19 @@ namespace Lumi.ViewModels;
 /// <summary>
 /// Renders one sub-agent run as a real chat transcript.
 /// <para>
-/// The run island does not draw its own conversation: it feeds the agent's work through the very
-/// same <see cref="TranscriptBuilder"/> the main chat uses, so consecutive tool calls collapse into
-/// one group, reasoning folds into a think card, and every tool renders with the card Lumi uses for
-/// its own steps. The only thing synthesized here are the messages the run never had as real
-/// <see cref="ChatMessage"/>s — the instruction it was given and its assistant/reasoning text, which
-/// live on the tool payload's run log rather than in the chat.
+/// The run page does not draw its own conversation: it feeds the agent's work through the very same
+/// <see cref="TranscriptBuilder"/> the main chat uses, so consecutive tool calls group, finished
+/// stretches of activity fold into a "Reasoned · 12 actions" line between the agent's messages, and
+/// every tool renders with the card Lumi uses for its own steps. The only things synthesized here are
+/// the agent's assistant/reasoning messages, which live on the tool payload's run log rather than in
+/// the chat. The instruction the agent was given is shown by the page's Task card, not as a message.
+/// </para>
+/// <para>
+/// A running agent changes constantly: its text streams, it starts and finishes tools, and its
+/// messages finalize. Rebuilding the whole transcript for each of those would re-create and re-parse
+/// every item several times a second, so a sync extends the existing transcript in place through
+/// the builder's live path — the same one the main chat streams through — and only rebuilds when the
+/// run's history itself changed (a different run, a setting, something already shown going away).
 /// </para>
 /// </summary>
 internal sealed class SubagentRunTranscript
@@ -34,47 +41,34 @@ internal sealed class SubagentRunTranscript
             submitQuestionAnswerAction: static (_, _) => { },
             beginEditMessageAction: static _ => { },
             resendFromMessageAction: static (_, _) => System.Threading.Tasks.Task.CompletedTask,
-            getSelectedModel: static () => null)
-        {
-            CollapseCompletedTurns = false,
-        };
+            getSelectedModel: static () => null);
     }
 
     /// <summary>The run rendered as transcript turns, ready for the chat's own turn control.</summary>
     public ObservableCollection<TranscriptTurn> Turns { get; private set; } = [];
 
     /// <summary>
-    /// Brings the rendered run up to date.
-    /// <para>
-    /// A streaming agent changes its tail text many times a second. Rebuilding for each of those
-    /// would re-create every transcript item and defeat the incremental machinery, so a rebuild only
-    /// happens when the run's <em>shape</em> changes — a new step, a finalized message, a status
-    /// flip. A growing tail is pushed straight into the live items instead, through the very same
-    /// streaming path the main chat uses.
-    /// </para>
+    /// Brings the rendered run up to date: new steps and messages are appended to the live
+    /// transcript, a growing tail is pushed into the bubble already bound to it, and the transcript
+    /// is rebuilt only when what is already on screen no longer matches the run.
     /// </summary>
     public void Sync(SubagentToolCallItem run, IReadOnlyList<ChatMessageViewModel> chatMessages)
     {
         if (!string.Equals(_runStableId, run.StableId, StringComparison.Ordinal))
             ResetForRun(run.StableId);
 
-        EvictMissingTail("live:reasoning", run.ReasoningText);
-        EvictMissingTail("live:assistant", run.TranscriptText);
+        var entries = run.RunEntries;
+        SettleTail(ReasoningTailKey, run.ReasoningText, SubagentRunEntryKind.Reasoning, entries);
+        SettleTail(AssistantTailKey, run.TranscriptText, SubagentRunEntryKind.Assistant, entries);
 
-        var tools = CollectRunToolMessages(chatMessages, run.ToolCallId);
-        var shape = BuildShape(run, tools);
+        var shape = BuildShape(run);
+        var messages = BuildRunMessages(run, CollectRunToolMessages(chatMessages, run.ToolCallId));
+        _syncedEntryCount = entries.Count;
 
-        if (Turns.Count > 0 && shape == _shape)
-        {
-            UpdateStreamingTail(run);
+        if (shape == _shape && TryExtend(messages))
             return;
-        }
 
-        _shape = shape;
-        var expansion = CaptureExpansion();
-        DetachStreamingItemsBeforeRebuild();
-        Turns = _builder.Rebuild(BuildRunMessages(run, tools));
-        RestoreExpansion(expansion);
+        Rebuild(messages, shape);
     }
 
     /// <summary>Drops the built turns and releases the builder's listeners.</summary>
@@ -82,13 +76,38 @@ internal sealed class SubagentRunTranscript
     {
         _builder.ResetState();
         EndAndClearSynthesizedMessages();
+        ForgetFedMessages();
         _runStableId = null;
         _shape = null;
+        _syncedEntryCount = 0;
         Turns = [];
     }
 
+    private const string ReasoningTailKey = "live:reasoning";
+    private const string AssistantTailKey = "live:assistant";
+
     private string? _runStableId;
     private RunShape? _shape;
+    private int _syncedEntryCount;
+    private int _tailGeneration;
+
+    /// <summary>Every message handed to the builder since its last rebuild, in transcript order.</summary>
+    private readonly List<ChatMessageViewModel> _fed = [];
+    private readonly HashSet<ChatMessageViewModel> _fedSet = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The tool messages on screen, with the state the transcript last reflected.</summary>
+    private readonly Dictionary<ChatMessageViewModel, FedTool> _fedTools = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// <see cref="IsLive"/> cards were appended through the builder's live path and follow their own
+    /// status; cards built by a rebuild have no such link, so a later status change rebuilds.
+    /// </summary>
+    private sealed class FedTool(long revision, string? status, bool isLive)
+    {
+        public long Revision { get; set; } = revision;
+        public string? Status { get; set; } = status;
+        public bool IsLive { get; } = isLive;
+    }
 
     /// <summary>
     /// A direct agent-row click can switch A → B without passing through the index (and therefore
@@ -97,80 +116,165 @@ internal sealed class SubagentRunTranscript
     /// </summary>
     private void ResetForRun(string stableId)
     {
-        EndAndClearSynthesizedMessages();
+        Clear();
         _runStableId = stableId;
-        _shape = null;
-        Turns = [];
+    }
+
+    private void ForgetFedMessages()
+    {
+        _fed.Clear();
+        _fedSet.Clear();
+        _fedTools.Clear();
     }
 
     /// <summary>
-    /// Everything that decides which items the run renders — deliberately excluding the streaming
-    /// tail text, which is what the in-place path handles.
+    /// What decides how the run's existing items render, beyond the items themselves. Anything here
+    /// changing means the items on screen are stale, so the transcript is rebuilt.
     /// </summary>
-    private RunShape BuildShape(
-        SubagentToolCallItem run,
-        List<ChatMessageViewModel> tools)
-    {
-        var toolSignature = new StringBuilder();
-        foreach (var tool in tools)
-            AppendValue(toolSignature, tool.Message.ToolCallId);
-        foreach (var tool in tools)
-            toolSignature.Append('|').Append(tool.PresentationRevision);
-
-        return new RunShape(
+    private RunShape BuildShape(SubagentToolCallItem run)
+        => new(
             run.StableId,
             run.DisplayName,
-            run.Prompt,
             run.StartedAt,
-            // SyncRunEntries replaces this immutable list only when the entries JSON changes, so
-            // reference equality is a constant-time structural version check.
-            run.RunEntries,
-            run.IsInProgress,
-            !string.IsNullOrWhiteSpace(run.ReasoningText),
-            !string.IsNullOrWhiteSpace(run.TranscriptText),
-            toolSignature.ToString(),
             _dataStore.Data.Settings.ShowTimestamps,
             _dataStore.Data.Settings.ShowToolCalls,
             _dataStore.Data.Settings.ShowReasoning,
             _dataStore.Data.Settings.ExpandReasoningWhileStreaming);
 
-        static void AppendValue(StringBuilder target, string? value)
-        {
-            target.Append('|').Append(value?.Length ?? -1).Append(':');
-            if (value is not null)
-                target.Append(value);
-        }
-    }
-
     private readonly record struct RunShape(
         string StableId,
         string DisplayName,
-        string? Prompt,
         DateTimeOffset? StartedAt,
-        IReadOnlyList<SubagentRunEntry> Entries,
-        bool IsInProgress,
-        bool HasReasoningTail,
-        bool HasAssistantTail,
-        string ToolSignature,
         bool ShowTimestamps,
         bool ShowToolCalls,
         bool ShowReasoning,
         bool ExpandReasoningWhileStreaming);
 
     /// <summary>
-    /// A finalized tail disappears from the payload before it reappears as a run-log entry. End its
-    /// VM's streaming state first so detached transcript items unsubscribe, then evict the cache
-    /// entry; otherwise every later update would keep notifying obsolete item trees.
+    /// Appends what is new since the last sync through the builder's live path. Returns false when
+    /// the transcript can't simply be extended — something already shown is gone, or a card built by
+    /// a rebuild changed — and must be rebuilt instead.
     /// </summary>
-    private void EvictMissingTail(string key, string? text)
+    private bool TryExtend(List<ChatMessageViewModel> messages)
     {
-        if (!string.IsNullOrWhiteSpace(text)
-            || !_synthesized.Remove(key, out var message))
+        if (messages.Count < _fed.Count)
+            return false;
+
+        var current = new HashSet<ChatMessageViewModel>(messages, ReferenceEqualityComparer.Instance);
+        foreach (var message in _fed)
         {
-            return;
+            if (!current.Contains(message))
+                return false;
         }
 
-        EndStreaming(message);
+        List<ChatMessageViewModel>? changedTools = null;
+        foreach (var (tool, fed) in _fedTools)
+        {
+            if (tool.PresentationRevision == fed.Revision)
+                continue;
+
+            var isShell = ToolDisplayHelper.IsShellCommandTool(tool.ToolName);
+            if (!fed.IsLive)
+            {
+                // A rebuilt card doesn't follow its message: its outcome changing needs a rebuild.
+                if (!string.Equals(tool.ToolStatus, fed.Status, StringComparison.Ordinal))
+                    return false;
+
+                // A nested agent's payload churns while it streams; its card shows who and how it
+                // ended, which the status change above refreshes. Other detail changes do rebuild.
+                if (!isShell && !ToolDisplayHelper.IsSubagentTool(tool.ToolName))
+                    return false;
+            }
+
+            (changedTools ??= []).Add(tool);
+        }
+
+        if (changedTools is not null)
+        {
+            foreach (var tool in changedTools)
+            {
+                var fed = _fedTools[tool];
+                fed.Revision = tool.PresentationRevision;
+                fed.Status = tool.ToolStatus;
+
+                // A live card follows its own status; a terminal's output is pushed in, like the main
+                // chat does for its own shells.
+                if (ToolDisplayHelper.IsShellCommandTool(tool.ToolName)
+                    && tool.Message.ToolCallId is { } toolCallId
+                    && tool.Message.ToolOutput is { Length: > 0 } output)
+                {
+                    _builder.UpdateTerminalOutput(toolCallId, output, replaceExistingOutput: true);
+                }
+            }
+        }
+
+        // New messages extend the transcript in the order they arrived, after everything on screen.
+        foreach (var message in messages)
+        {
+            if (_fedSet.Contains(message))
+                continue;
+
+            _builder.ProcessMessageToTranscript(message);
+            Remember(message, isLive: true);
+        }
+
+        return true;
+    }
+
+    private void Rebuild(List<ChatMessageViewModel> messages, RunShape shape)
+    {
+        _shape = shape;
+        var expansion = CaptureExpansion();
+
+        RestartStreamingMessages();
+        ForgetFedMessages();
+        Turns = _builder.Rebuild(messages);
+        foreach (var message in messages)
+            Remember(message, isLive: false);
+
+        // The whole run is one continuous turn: live work extends it rather than opening another.
+        _builder.ContinueLastTurn();
+        RestoreExpansion(expansion);
+    }
+
+    private void Remember(ChatMessageViewModel message, bool isLive)
+    {
+        _fed.Add(message);
+        _fedSet.Add(message);
+        if (message.Role == "tool")
+            _fedTools[message] = new FedTool(message.PresentationRevision, message.ToolStatus, isLive);
+    }
+
+    /// <summary>
+    /// Settles a streaming tail. A message finalizes in the same update that clears its live field
+    /// and appends it to the run log — and the agent's next message of the same kind may already be
+    /// streaming by the time the page syncs. Either way the first new entry of this kind is the
+    /// message the tail was showing, so the tail's message (and the bubble already bound to it)
+    /// becomes that entry and keeps its place; newer streaming text starts a tail of its own. A tail
+    /// that vanished without becoming an entry ends its streaming state so detached items
+    /// unsubscribe, and is dropped (which rebuilds).
+    /// </summary>
+    private void SettleTail(string key, string? text, SubagentRunEntryKind kind, IReadOnlyList<SubagentRunEntry> entries)
+    {
+        if (!_synthesized.TryGetValue(key, out var tail))
+            return;
+
+        for (var i = _syncedEntryCount; i < entries.Count; i++)
+        {
+            var entryKey = EntryKey(i);
+            if (entries[i].Kind == kind && !_synthesized.ContainsKey(entryKey))
+            {
+                _synthesized.Remove(key);
+                _synthesized[entryKey] = tail;
+                return;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            _synthesized.Remove(key);
+            EndStreaming(tail);
+        }
     }
 
     private void EndAndClearSynthesizedMessages()
@@ -191,49 +295,30 @@ internal sealed class SubagentRunTranscript
     }
 
     /// <summary>
-    /// Transcript items subscribe directly to a synthetic VM while it streams. Before replacing the
-    /// tree, send the terminal edge so the old items detach; Synthesize restores the VM to streaming
-    /// before the replacement items are built.
+    /// Items built from a streaming message follow it until it ends. Before the tree is replaced,
+    /// each streaming message sends that end so the old items let go, then streams again so the
+    /// replacement items follow it.
     /// </summary>
-    private void DetachStreamingItemsBeforeRebuild()
+    private void RestartStreamingMessages()
     {
         foreach (var message in _synthesized.Values)
-            EndStreaming(message);
-    }
-
-    /// <summary>
-    /// Pushes the agent's still-growing text into the messages the live items are already bound to.
-    /// Both <see cref="AssistantMessageItem"/> and <see cref="ReasoningItem"/> subscribe to their
-    /// source while it streams, so this updates the rendered bubble without touching the tree.
-    /// </summary>
-    private void UpdateStreamingTail(SubagentToolCallItem run)
-    {
-        PushText("live:reasoning", run.ReasoningText);
-        PushText("live:assistant", run.TranscriptText);
-
-        void PushText(string key, string? text)
         {
-            if (text is null
-                || !_synthesized.TryGetValue(key, out var message)
-                || string.Equals(message.Message.Content, text, StringComparison.Ordinal))
-            {
-                return;
-            }
+            if (!message.IsStreaming)
+                continue;
 
-            message.Message.Content = text;
-            message.NotifyContentChanged();
+            EndStreaming(message);
+            message.Message.IsStreaming = true;
+            message.IsStreaming = true;
         }
     }
 
-    private IEnumerable<ChatMessageViewModel> BuildRunMessages(
+    private static string EntryKey(int index) => $"entry:{index}";
+
+    private List<ChatMessageViewModel> BuildRunMessages(
         SubagentToolCallItem run,
         List<ChatMessageViewModel> tools)
     {
-        var ordered = new List<(DateTimeOffset At, ChatMessageViewModel Message)>();
-
-        // The instruction always opens the run, whatever the surrounding clocks say.
-        if (!string.IsNullOrWhiteSpace(run.Prompt))
-            ordered.Add((DateTimeOffset.MinValue, Synthesize(run, "prompt", "user", run.Prompt!, run.StartedAt)));
+        var ordered = new List<(DateTimeOffset At, ChatMessageViewModel Message)>(run.RunEntries.Count + tools.Count + 2);
 
         var previous = run.StartedAt ?? DateTimeOffset.MinValue;
         var entries = run.RunEntries;
@@ -243,7 +328,7 @@ internal sealed class SubagentRunTranscript
             var at = entry.Timestamp == default ? previous : entry.Timestamp;
             previous = at;
             var role = entry.Kind == SubagentRunEntryKind.Reasoning ? "reasoning" : "assistant";
-            ordered.Add((at, Synthesize(run, $"entry:{i}", role, entry.Text, at)));
+            ordered.Add((at, Synthesize(run, EntryKey(i), role, entry.Text, at)));
         }
 
         foreach (var tool in tools)
@@ -251,11 +336,12 @@ internal sealed class SubagentRunTranscript
 
         // Whatever is still streaming trails the run exactly like a live reply trails a chat.
         if (!string.IsNullOrWhiteSpace(run.ReasoningText))
-            ordered.Add((DateTimeOffset.MaxValue, Synthesize(run, "live:reasoning", "reasoning", run.ReasoningText!, null, run.IsInProgress)));
+            ordered.Add((DateTimeOffset.MaxValue, Synthesize(run, ReasoningTailKey, "reasoning", run.ReasoningText!, null, run.IsInProgress)));
         if (!string.IsNullOrWhiteSpace(run.TranscriptText))
-            ordered.Add((DateTimeOffset.MaxValue, Synthesize(run, "live:assistant", "assistant", run.TranscriptText!, null, run.IsInProgress)));
+            ordered.Add((DateTimeOffset.MaxValue, Synthesize(run, AssistantTailKey, "assistant", run.TranscriptText!, null, run.IsInProgress)));
 
-        return ordered.OrderBy(static entry => entry.At).Select(static entry => entry.Message);
+        // A stable sort: entries and tools recorded at the same instant keep their log order.
+        return ordered.OrderBy(static entry => entry.At).Select(static entry => entry.Message).ToList();
     }
 
     /// <summary>
@@ -290,9 +376,11 @@ internal sealed class SubagentRunTranscript
     /// <summary>
     /// Wraps run-log text in a message the transcript builder can consume, reusing the instance
     /// created for the same key on an earlier pass. Reuse is what lets the streaming tail update in
-    /// place: the live items stay subscribed to the very message this returns. The id is derived
-    /// from the run and the key so it is identical on every rebuild — transcript stable ids hang off
-    /// it, and reusing them is what lets turns, scroll position and disclosure state survive.
+    /// place: the live items stay subscribed to the very message this returns. A message keeps the id
+    /// it was created with — transcript stable ids hang off it, and keeping them is what lets turns,
+    /// scroll position and disclosure state survive rebuilds. Run-log entries get an id derived from
+    /// the run and their position; each streaming tail gets its own, since a finalized tail carries
+    /// its id on into the run log while a later tail streams under the same key.
     /// </summary>
     private ChatMessageViewModel Synthesize(
         SubagentToolCallItem run,
@@ -302,11 +390,9 @@ internal sealed class SubagentRunTranscript
         DateTimeOffset? timestamp,
         bool isStreaming = false)
     {
-        var id = DeterministicId($"{run.StableId}|{key}");
         if (_synthesized.TryGetValue(key, out var existing))
         {
             var message = existing.Message;
-            message.Id = id;
             message.Role = role;
             message.Author = run.DisplayName;
             message.Timestamp = timestamp ?? DateTimeOffset.Now;
@@ -326,9 +412,12 @@ internal sealed class SubagentRunTranscript
             return existing;
         }
 
+        var idKey = key.StartsWith("live:", StringComparison.Ordinal)
+            ? $"{run.StableId}|{key}|{++_tailGeneration}"
+            : $"{run.StableId}|{key}";
         var created = new ChatMessageViewModel(new ChatMessage
         {
-            Id = id,
+            Id = DeterministicId(idKey),
             Role = role,
             Content = content,
             Author = run.DisplayName,
@@ -348,11 +437,20 @@ internal sealed class SubagentRunTranscript
     {
         var expansion = new Dictionary<string, bool>(StringComparer.Ordinal);
         foreach (var turn in Turns)
-            foreach (var item in turn.Items)
-                if (TryGetExpansion(item, out var isExpanded))
-                    expansion[item.StableId] = isExpanded;
+            Capture(turn.Items);
 
         return expansion;
+
+        void Capture(IEnumerable<TranscriptItem> items)
+        {
+            foreach (var item in items)
+            {
+                if (TryGetExpansion(item, out var isExpanded))
+                    expansion[item.StableId] = isExpanded;
+                if (item is TurnSummaryItem summary)
+                    Capture(summary.InnerItems);
+            }
+        }
     }
 
     private void RestoreExpansion(Dictionary<string, bool> expansion)
@@ -361,9 +459,18 @@ internal sealed class SubagentRunTranscript
             return;
 
         foreach (var turn in Turns)
-            foreach (var item in turn.Items)
+            Restore(turn.Items);
+
+        void Restore(IEnumerable<TranscriptItem> items)
+        {
+            foreach (var item in items)
+            {
                 if (expansion.TryGetValue(item.StableId, out var isExpanded))
                     SetExpansion(item, isExpanded);
+                if (item is TurnSummaryItem summary)
+                    Restore(summary.InnerItems);
+            }
+        }
     }
 
     private static bool TryGetExpansion(TranscriptItem item, out bool isExpanded)
@@ -375,6 +482,12 @@ internal sealed class SubagentRunTranscript
                 return true;
             case ReasoningItem reasoning:
                 isExpanded = reasoning.IsExpanded;
+                return true;
+            case TurnSummaryItem summary:
+                isExpanded = summary.IsExpanded;
+                return true;
+            case SingleToolItem single:
+                isExpanded = single.IsExpanded;
                 return true;
             default:
                 isExpanded = false;
@@ -391,6 +504,12 @@ internal sealed class SubagentRunTranscript
                 break;
             case ReasoningItem reasoning:
                 reasoning.IsExpanded = isExpanded;
+                break;
+            case TurnSummaryItem summary:
+                summary.IsExpanded = isExpanded;
+                break;
+            case SingleToolItem single:
+                single.IsExpanded = isExpanded;
                 break;
         }
     }

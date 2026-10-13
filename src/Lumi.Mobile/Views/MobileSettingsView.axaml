@@ -143,32 +143,36 @@
 
   <sc:StrataBottomSheet x:Name="DisconnectSheet" Classes="safe-area"
                         IsOpen="{Binding IsDisconnectConfirmationOpen, Mode=TwoWay}"
-                        Title="Disconnect from this PC?">
+                        Title="Disconnect from this PC?"
+                        Description="This phone loses access and returns to setup. Your chats and files stay on the PC.">
     <Border>
       <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="20,4,20,16" Spacing="16">
-          <TextBlock Text="{Binding HostName}" FontSize="{DynamicResource Font.SizeTitle}"
-                     FontWeight="SemiBold" TextWrapping="Wrap" />
-          <TextBlock Text="Revoke this phone's access and return to setup. Your chats and files won't be deleted."
-                     Classes="supporting" />
-          <Button x:Name="ConfirmDisconnectButton" Classes="touch danger"
+        <StackPanel Margin="16,0,16,8" Spacing="10">
+          <Border Classes="sheet-card" Margin="0,0,0,6">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+              <PathIcon Classes="sheet-leading"
+                        Data="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z" />
+              <TextBlock Grid.Column="1" Text="{Binding HostName}" FontWeight="Medium"
+                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </Grid>
+          </Border>
+          <Button x:Name="ConfirmDisconnectButton" Classes="sheet-action destructive"
                   Content="Disconnect and revoke access"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                   Command="{Binding ForgetPcCommand}" />
-          <StackPanel Spacing="6">
-            <TextBlock Text="Can't reach your PC?" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeMeta}" />
-            <TextBlock Text="You can remove the saved connection from this phone instead. This does not revoke its access on the PC."
-                       Classes="supporting" />
-            <Button x:Name="ForgetLocalButton" Classes="touch" Content="Remove from this phone only"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+          <Button x:Name="CancelDisconnectButton" Classes="sheet-action" Content="Keep connected"
+                  Command="{Binding CancelDisconnectCommand}" />
+          <TextBlock Text="{Binding ConnectionMessage}" Classes="sheet-body" Margin="8,4"
+                     IsVisible="{Binding ConnectionMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <StackPanel Spacing="10" Margin="0,12,0,0">
+            <StackPanel Spacing="2" Margin="8,0">
+              <TextBlock Text="Can't reach your PC?" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeMeta}" />
+              <TextBlock Text="Remove the saved connection from this phone only. Its access on the PC stays active."
+                         Classes="sheet-body" FontSize="{DynamicResource Font.SizeMeta}" LineHeight="20" />
+            </StackPanel>
+            <Button x:Name="ForgetLocalButton" Classes="sheet-action" Content="Remove from this phone only"
                     IsEnabled="{Binding !ForgetPcCommand.IsRunning}"
                     Command="{Binding ForgetPcLocallyCommand}" />
           </StackPanel>
-          <TextBlock Text="{Binding ConnectionMessage}" Classes="supporting"
-                     IsVisible="{Binding ConnectionMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <Button x:Name="CancelDisconnectButton" Classes="touch subtle" Content="Keep connected"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                  Command="{Binding CancelDisconnectCommand}" />
         </StackPanel>
       </ScrollViewer>
     </Border>

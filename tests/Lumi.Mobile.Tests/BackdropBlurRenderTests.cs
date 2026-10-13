@@ -22,6 +22,82 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class BackdropBlurRenderTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PopupGlassFrostsOnlyBeneathTheSheetWhileThePageStaysSharp(bool darkTheme)
+    {
+        using var session = HeadlessUnitTestSession.StartNew(
+            typeof(MobileMotionRenderApp), AvaloniaTestIsolationLevel.PerTest);
+        await session.Dispatch<bool>(async () =>
+        {
+            // A hard light/dark edge runs down the whole page, beneath the sheet and above it.
+            var light = new Border
+            {
+                Width = 120, Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left
+            };
+            var content = new Border { Height = 160 };
+            var sheet = new StrataBottomSheet
+            {
+                Title = "Projects",
+                Classes = { "safe-area" },
+                SheetMargin = new Thickness(12),
+                Content = content
+            };
+            var window = new Window
+            {
+                Width = 240, Height = 420, Background = Brushes.Black,
+                RequestedThemeVariant = darkTheme ? ThemeVariant.Dark : ThemeVariant.Light,
+                Content = new Panel { Children = { light, sheet } }
+            };
+            try
+            {
+                window.Show();
+                await PumpAsync(TimeSpan.FromMilliseconds(80));
+                var pageRow = 40;
+                Assert.True(Step(Row(pageRow)) > 240, "The page edge starts crisp.");
+
+                sheet.IsOpen = true;
+                await PumpAsync(TimeSpan.FromMilliseconds(320));
+                var sheetRow = (int)content.TranslatePoint(new Point(0, content.Bounds.Height / 2), window)!.Value.Y;
+                Assert.InRange(sheetRow, pageRow + 120, 400);
+
+                var page = Row(pageRow);
+                Assert.True(Step(page) > 100, $"Outside the popup the page is only dimmed, never blurred: step {Step(page)}.");
+
+                var glass = Row(sheetRow);
+                Assert.True(Step(glass) < 10, $"Beneath the popup the edge must be frosted: step {Step(glass)}.");
+                Assert.True(glass[40] - glass[200] > 12,
+                    $"The popup is glass, not an opaque card: {glass[40]} over light, {glass[200]} over dark.");
+
+                sheet.Close();
+                await PumpAsync(TimeSpan.FromMilliseconds(240));
+                Assert.False(sheet.IsPresented);
+                Assert.True(Step(Row(sheetRow)) > 240, "Dismissal restores the crisp page.");
+            }
+            finally
+            {
+                window.Close();
+            }
+            return true;
+
+            byte[] Row(int y)
+            {
+                using var frame = window.CaptureRenderedFrame()!;
+                var pixels = Luma(frame);
+                return Enumerable.Range(0, 240).Select(x => pixels[x, y]).ToArray();
+            }
+
+            static int Step(byte[] row)
+            {
+                var steepest = 0;
+                for (var x = 24; x < row.Length - 25; x++)
+                    steepest = Math.Max(steepest, Math.Abs(row[x + 1] - row[x]));
+                return steepest;
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public Task FrostBlursOnlyTheContentBeneathItsBounds() =>
         RenderAsync(StrataBackdropFade.None, pixels =>

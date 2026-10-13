@@ -107,6 +107,24 @@
   <BoxShadows x:Key="Shadow.FloatingControlPressed">0 1 4 -1 #100C1730</BoxShadows>
   <BoxShadows x:Key="Shadow.Composer">0 4 14 -3 #1C0C1730</BoxShadows>
 
+  <!-- Popup glass: a bright translucent tint over the frost beneath the sheet, a crisp top edge,
+       and a soft lift that separates it from the lightly dimmed page. -->
+  <LinearGradientBrush x:Key="Brush.SheetSurface" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#C2FFFFFF" />
+    <GradientStop Offset="1" Color="#D1F7F8FC" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.SheetBorder" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#F2FFFFFF" />
+    <GradientStop Offset="1" Color="#1A0F1428" />
+  </LinearGradientBrush>
+  <SolidColorBrush x:Key="Brush.SheetScrim" Color="#2E0F1428" />
+  <SolidColorBrush x:Key="Brush.SheetControl" Color="#0D0F1428" />
+  <SolidColorBrush x:Key="Brush.SheetRowHover" Color="#080F1428" />
+  <SolidColorBrush x:Key="Brush.SheetRowPressed" Color="#140F1428" />
+  <SolidColorBrush x:Key="Brush.SheetRowSelected" Color="#1A4F46E5" />
+  <SolidColorBrush x:Key="Brush.SheetGrip" Color="#330F1428" />
+  <BoxShadows x:Key="Shadow.Sheet">0 12 36 -10 #3D0F1428, 0 1 3 0 #0F0F1428</BoxShadows>
+
   <!-- Scroll-edge tints over the frost: dense at the screen edge, where the status bar and gesture
        area need contrast, and nearly clear behind the floating controls. -->
   <LinearGradientBrush x:Key="Brush.ChromeEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">

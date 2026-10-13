@@ -183,10 +183,18 @@ public partial class MobileShellView : UserControl
 
     private void OnChatRenameKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && DataContext is MobileShellViewModel shell
-            && shell.SaveChatNameCommand.CanExecute(null))
+        if (DataContext is not MobileShellViewModel shell)
+            return;
+
+        if (e.Key == Key.Enter && shell.SaveChatNameCommand.CanExecute(null))
         {
             shell.SaveChatNameCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            // Android delivers Back as Escape: step back to the actions, as GoBack does, before the sheet can close.
+            shell.CancelChatActionCommand.Execute(null);
             e.Handled = true;
         }
     }

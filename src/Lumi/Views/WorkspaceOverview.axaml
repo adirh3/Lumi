@@ -685,13 +685,13 @@
             </Button>
             <ItemsControl ItemsSource="{Binding WorkspaceAgents.Items}">
               <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><StackPanel Spacing="5" /></ItemsPanelTemplate>
+                <ItemsPanelTemplate><StackPanel Spacing="1" /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate DataType="vm:SubagentToolCallItem">
-                  <Button Classes="ws-row" x:Name="WsAgentRow" Padding="0" Command="{Binding OpenRunCommand}"
+                  <Button Classes="ws-row" x:Name="WsAgentRow" Command="{Binding OpenRunCommand}"
                           ToolTip.Tip="{loc:Str Subagent_OpenTranscriptTip}">
-                    <sc:StrataAgentRun Classes="compact" Focusable="False"
+                    <sc:StrataAgentRun Classes="list"
                                        AgentName="{Binding DisplayName}"
                                        Title="{Binding Title}"
                                        Initial="{Binding Initial}"

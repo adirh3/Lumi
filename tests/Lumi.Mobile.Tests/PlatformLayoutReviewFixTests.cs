@@ -401,10 +401,16 @@ public sealed class PlatformLayoutReviewFixTests
 
                 Assert.Equal(shell.SafeAreaSheetMargin, runSettings.SheetMargin);
                 Assert.Equal(
-                    new Thickness(20, 0, 20, 14),
+                    default,
                     runSettings.GetVisualDescendants()
                         .OfType<TextBlock>()
                         .Single(control => control.Name == "PART_Title")
+                        .Margin);
+                Assert.Equal(
+                    new Thickness(24, 0, 12, 12),
+                    runSettings.GetVisualDescendants()
+                        .OfType<Grid>()
+                        .Single(control => control.Name == "PART_HeaderContent")
                         .Margin);
                 var runSettingsContent = Required<Border>(chat, "RunSettingsSideInset");
                 Assert.Equal(

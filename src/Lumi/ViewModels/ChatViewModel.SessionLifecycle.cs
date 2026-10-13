@@ -255,7 +255,7 @@ public partial class ChatViewModel
             viewModel?.NotifyToolStatusChanged();
 
             if (!string.IsNullOrWhiteSpace(message.ToolCallId))
-                _transcriptBuilder.UpdateSubagentToolStatus(message.ToolCallId, terminalStatus, message.ToolDurationMs);
+                _transcriptBuilder.UpdateSubagentToolStatus(message.ToolCallId, terminalStatus, message.ToolDurationMs, message.ToolOutput);
         }
     }
 
@@ -588,6 +588,11 @@ public partial class ChatViewModel
             SubagentRunEntryKind? appendEntryKind = null,
             string? appendEntryText = null)
         {
+            // Stamped when the event arrives rather than when the UI thread applies it: the tool calls
+            // that follow a finalized message are stamped on arrival too, and the run page orders the
+            // agent's messages against its tool calls by these clocks.
+            var entryStampedAt = DateTimeOffset.Now;
+
             void Apply()
             {
                 var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == toolCallId);
@@ -619,7 +624,7 @@ public partial class ChatViewModel
                         entriesJson,
                         entryKind,
                         appendEntryText,
-                        DateTimeOffset.Now);
+                        entryStampedAt);
                 }
 
                 var nextContent = BuildSubagentPayloadJson(
@@ -2277,7 +2282,7 @@ public partial class ChatViewModel
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subFail.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
-                        _transcriptBuilder.UpdateSubagentToolStatus(subFail.Data.ToolCallId, "Failed", failedSubagentDurationMs);
+                        _transcriptBuilder.UpdateSubagentToolStatus(subFail.Data.ToolCallId, "Failed", failedSubagentDurationMs, subFail.Data.Error);
                     }
                     });
                     break;

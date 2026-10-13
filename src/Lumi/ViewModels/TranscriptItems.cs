@@ -760,7 +760,13 @@ public abstract partial class ToolCallItemBase : ObservableObject
 // ── Subagent card (standalone turn-level item) ─────────
 
 public partial class SubagentToolCallItem : TranscriptItem
-{    [ObservableProperty] private string _displayName;
+{
+    /// <summary>A task longer than this folds to its opening lines on the run page.</summary>
+    private const int PromptFoldLength = 320;
+    private const int PromptFoldLines = 5;
+    private const int PromptPreviewMaxLength = 1200;
+
+    [ObservableProperty] private string _displayName;
     [ObservableProperty] private string? _taskDescription;
     [ObservableProperty] private string? _agentDescription;
     [ObservableProperty] private string? _currentIntent;
@@ -776,6 +782,14 @@ public partial class SubagentToolCallItem : TranscriptItem
     [ObservableProperty] private int _accentIndex = 1;
     [ObservableProperty] private DateTimeOffset? _startedAt;
     [ObservableProperty] private string? _latestActivityText;
+
+    /// <summary>Whether the run page shows the whole task rather than its opening lines.</summary>
+    [ObservableProperty] private bool _isPromptExpanded;
+
+    /// <summary>Why a failed run failed (the error the SDK reported), shown on its run page.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasError))]
+    private string? _errorText;
 
     internal TodoProgressItem? TodoItem { get; set; }
     internal string TodoToolStatus { get; set; } = "InProgress";
@@ -822,7 +836,50 @@ public partial class SubagentToolCallItem : TranscriptItem
     public bool IsInProgress => Status == StrataAiToolCallStatus.InProgress;
     public bool IsCompleted => Status == StrataAiToolCallStatus.Completed;
     public bool IsFailed => Status == StrataAiToolCallStatus.Failed;
-    public string? DurationText => DurationMs <= 0 ? null : DurationMs >= 1000 ? $"{DurationMs / 1000:F1}s" : $"{DurationMs:F0} ms";
+    public bool HasError => IsFailed && !string.IsNullOrWhiteSpace(ErrorText);
+    public string? DurationText => StrataAgentRun.FormatDuration(DurationMs) is { Length: > 0 } text ? text : null;
+
+    /// <summary>
+    /// The task with its markdown markers removed, for the run page's folded preview. Bounded, so a
+    /// multi-page prompt costs a few lines of plain text until the reader asks for the rest.
+    /// </summary>
+    public string PromptPreview => _promptPreview ??= BuildPromptPreview(Prompt);
+
+    /// <summary>True when the task is long enough that the run page folds it.</summary>
+    public bool IsPromptLong
+        => Prompt is { } prompt
+           && (prompt.Length > PromptFoldLength || prompt.AsSpan().Count('\n') >= PromptFoldLines);
+
+    /// <summary>
+    /// The task rendered as markdown: always for a short task, and for a long one only once it is
+    /// expanded, so a folded prompt is never parsed or laid out.
+    /// </summary>
+    public string? ExpandedPrompt => IsPromptLong && !IsPromptExpanded ? null : Prompt;
+
+    public string PromptToggleLabel => IsPromptExpanded ? Loc.Subagent_ShowLessTask : Loc.Subagent_ShowFullTask;
+
+    /// <summary>How many steps (tool calls) the run has taken so far.</summary>
+    public int StepCount => Activities.Count;
+
+    /// <summary>"53 steps · Started 14:48" under the run page's headline.</summary>
+    public string RunMetaText
+    {
+        get
+        {
+            var parts = new List<string>(2);
+            if (StepCount > 0)
+                parts.Add(StepCount == 1
+                    ? Loc.Subagent_OneStep
+                    : string.Format(Loc.Culture, Loc.Subagent_Steps, StepCount));
+            if (StartedAt is { } startedAt)
+                parts.Add(string.Format(Loc.Culture, Loc.Subagent_StartedAt, FormatStartedAt(startedAt)));
+            return string.Join(" · ", parts);
+        }
+    }
+
+    public bool HasRunMeta => StepCount > 0 || StartedAt is not null;
+
+    private string? _promptPreview;
 
     /// <summary>Short status word shown in the card's state pill.</summary>
     public string StatusText => Status switch
@@ -862,6 +919,56 @@ public partial class SubagentToolCallItem : TranscriptItem
     {
         _displayName = displayName;
         _status = status;
+        _accentIndex = AccentIndexFor(displayName);
+        Activities.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(StepCount));
+            OnPropertyChanged(nameof(RunMetaText));
+            OnPropertyChanged(nameof(HasRunMeta));
+        };
+    }
+
+    /// <summary>
+    /// A stable colour per kind of agent (a 1-based chart palette slot). Every "Code Review Agent"
+    /// wears the same colour in the chat, the Workspace and on its run page, so kinds of agent are
+    /// recognisable at a glance instead of being coloured by their position in a batch.
+    /// </summary>
+    internal static int AccentIndexFor(string? agentName)
+    {
+        if (string.IsNullOrWhiteSpace(agentName))
+            return 1;
+
+        // FNV-1a over the case-folded name: deterministic across runs and processes.
+        var hash = 2166136261u;
+        foreach (var ch in agentName.Trim())
+        {
+            hash ^= char.ToLowerInvariant(ch);
+            hash *= 16777619u;
+        }
+
+        return (int)(hash % 6) + 1;
+    }
+
+    private static string FormatStartedAt(DateTimeOffset startedAt)
+    {
+        var local = startedAt.ToLocalTime();
+        return local.Date == DateTime.Today
+            ? local.ToString("HH:mm", Loc.Culture)
+            : local.ToString("MMM d, HH:mm", Loc.Culture);
+    }
+
+    private static string BuildPromptPreview(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return "";
+
+        var source = prompt.Length > PromptPreviewMaxLength * 2 ? prompt[..(PromptPreviewMaxLength * 2)] : prompt;
+        var lines = MessageReplyFormatter.StripMarkdown(source)
+            .Split('\n')
+            .Select(static line => line.Trim())
+            .Where(static line => line.Length > 0);
+        var preview = string.Join("\n", lines);
+        return preview.Length > PromptPreviewMaxLength ? preview[..PromptPreviewMaxLength] : preview;
     }
 
     partial void OnDisplayNameChanged(string value)
@@ -869,6 +976,7 @@ public partial class SubagentToolCallItem : TranscriptItem
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Initial));
         OnPropertyChanged(nameof(AgentSubtitle));
+        AccentIndex = AccentIndexFor(value);
     }
     partial void OnTaskDescriptionChanged(string? value) => OnPropertyChanged(nameof(Title));
     partial void OnCurrentIntentChanged(string? value) => OnPropertyChanged(nameof(Title));
@@ -876,8 +984,21 @@ public partial class SubagentToolCallItem : TranscriptItem
     partial void OnModeLabelChanged(string? value) => OnPropertyChanged(nameof(HasModeLabel));
     partial void OnPromptChanged(string? value)
     {
+        _promptPreview = null;
         OnPropertyChanged(nameof(HasPrompt));
-        RunContentChanged?.Invoke();
+        OnPropertyChanged(nameof(PromptPreview));
+        OnPropertyChanged(nameof(IsPromptLong));
+        OnPropertyChanged(nameof(ExpandedPrompt));
+    }
+    partial void OnIsPromptExpandedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ExpandedPrompt));
+        OnPropertyChanged(nameof(PromptToggleLabel));
+    }
+    partial void OnStartedAtChanged(DateTimeOffset? value)
+    {
+        OnPropertyChanged(nameof(RunMetaText));
+        OnPropertyChanged(nameof(HasRunMeta));
     }
     partial void OnProgressValueChanged(double value) => OnPropertyChanged(nameof(HasProgressValue));
     partial void OnDurationMsChanged(double value) => OnPropertyChanged(nameof(DurationText));
@@ -888,6 +1009,7 @@ public partial class SubagentToolCallItem : TranscriptItem
         OnPropertyChanged(nameof(IsInProgress));
         OnPropertyChanged(nameof(IsCompleted));
         OnPropertyChanged(nameof(IsFailed));
+        OnPropertyChanged(nameof(HasError));
         OnPropertyChanged(nameof(StatusText));
 
         // The live tail is only a streaming message while the run is in flight, and a run can reach a
@@ -900,6 +1022,9 @@ public partial class SubagentToolCallItem : TranscriptItem
 
     [RelayCommand]
     private void OpenRun() => OpenRunAction?.Invoke(this);
+
+    [RelayCommand]
+    private void TogglePrompt() => IsPromptExpanded = !IsPromptExpanded;
 
     // ── Run content ───────────────────────────────────────
 
