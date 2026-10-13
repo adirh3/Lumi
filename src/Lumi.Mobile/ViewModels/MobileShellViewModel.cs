@@ -442,7 +442,7 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Greeting))]
     private bool _hasDesktopNewChat;
-    [ObservableProperty] private string _newChatBrief = "Ask a question or get something done on your PC.";
+    [ObservableProperty] private string _newChatBrief = "Ask a question or get something done on your computer.";
     [ObservableProperty] private string _startSetupsTitle = "Your usual setups";
     private string? _desktopGreeting;
 
@@ -450,7 +450,7 @@ public sealed partial class MobileShellViewModel :
     {
         _desktopGreeting = experience?.Greeting;
         HasDesktopNewChat = experience is not null;
-        NewChatBrief = experience?.Brief ?? "Ask a question or get something done on your PC.";
+        NewChatBrief = experience?.Brief ?? "Ask a question or get something done on your computer.";
         StartSetupsTitle = experience?.SetupsTitle ?? "Your usual setups";
         StartSetups = experience?.Setups.Take(3).Select(setup => new ChatStartSetup(setup)).ToArray() ?? [];
         Chat.ApplyNewChatStarters(experience?.Starters);
@@ -1007,7 +1007,7 @@ public sealed partial class MobileShellViewModel :
 
             if (!IsConnected)
             {
-                var host = string.IsNullOrWhiteSpace(HostName) ? "your PC" : HostName;
+                var host = string.IsNullOrWhiteSpace(HostName) ? "your computer" : HostName;
                 return string.IsNullOrWhiteSpace(ConnectionMessage)
                     ? $"Reconnecting to {host}..."
                     : $"Reconnecting to {host}... {ConnectionMessage}";
@@ -1516,7 +1516,7 @@ public sealed partial class MobileShellViewModel :
             return Task.CompletedTask;
 
         ConnectionMessage =
-            $"This phone is already paired with {HostName}. Disconnect it before connecting to another PC.";
+            $"This phone is already paired with {HostName}. Disconnect it before connecting to another computer.";
         return Task.CompletedTask;
     }
 
@@ -1671,13 +1671,13 @@ public sealed partial class MobileShellViewModel :
                     _connectionLifetime.Token);
                 if (!result.Ok)
                 {
-                    ConnectionMessage = result.Error ?? "Lumi could not revoke this phone. Try again while the PC is online.";
+                    ConnectionMessage = result.Error ?? "Lumi could not revoke this phone. Try again while the computer is online.";
                     return;
                 }
             }
             catch (OperationCanceledException)
             {
-                ConnectionMessage = "Lumi could not revoke this phone. Try again while the PC is online.";
+                ConnectionMessage = "Lumi could not revoke this phone. Try again while the computer is online.";
                 return;
             }
         }
@@ -2248,7 +2248,7 @@ public sealed partial class MobileShellViewModel :
                     .ConfigureAwait(false);
 
                 if (transcript is null)
-                    error = Client.StateMessage ?? "Could not load this activity from your PC.";
+                    error = Client.StateMessage ?? "Could not load this activity from your computer.";
                 else if (transcript.ChatId != request.ChatId)
                 {
                     transcript = null;
@@ -2261,7 +2261,7 @@ public sealed partial class MobileShellViewModel :
             }
             catch (Exception ex)
             {
-                error = "Could not load this activity from your PC.";
+                error = "Could not load this activity from your computer.";
                 Trace.TraceWarning($"[Mobile] Transcript refresh failed: {ex}");
             }
             finally
@@ -2669,7 +2669,7 @@ public sealed partial class MobileShellViewModel :
             {
                 result = new RemoteCommandResult
                 {
-                    Error = "The PC connection changed before this action completed.",
+                    Error = "The computer connection changed before this action completed.",
                     RequestId = command.RequestId,
                     IsOutcomeUnknown = true
                 };
@@ -2695,7 +2695,7 @@ public sealed partial class MobileShellViewModel :
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
-            return new RemoteUploadResponse { Error = "The PC connection changed during the upload." };
+            return new RemoteUploadResponse { Error = "The computer connection changed during the upload." };
         }
     }
 

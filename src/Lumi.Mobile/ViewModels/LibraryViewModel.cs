@@ -169,7 +169,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     public string DiscardDescription =>
         $"Your changes to “{(string.IsNullOrWhiteSpace(EditName) ? EditorTitle : EditName)}” will be lost. " +
-        "Nothing will be deleted from your PC.";
+        "Nothing will be deleted from your computer.";
 
     private (string, string, string, string, string) CurrentDraft =>
         (EditName, EditDescription, EditBody, EditGlyph, EditWorkingDirectory);
@@ -223,7 +223,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         $"{(ActionEntry?.IsEnabled == true ? "Disable" : "Enable")} {SingularName(ActionEntry?.Section ?? Section)}";
     public string DeleteConfirmationDescription =>
         $"Delete “{ActionEntryName}” from your shared Library? " +
-        "It will be deleted on your PC as well as this phone. This cannot be undone.";
+        "It will be deleted on your computer as well as this phone. This cannot be undone.";
 
     /// <summary>Only MCP servers and jobs have an enabled state worth toggling.</summary>
     public bool CanToggleActionEntry =>
@@ -371,19 +371,19 @@ public sealed partial class LibraryViewModel : ObservableObject
         ? $"Try another name or clear the search to see all {PluralName}."
         : Section switch
         {
-            LibrarySection.McpServers => "Add MCP servers on your PC. You can enable or disable them here.",
-            LibrarySection.Jobs => "Create jobs on your PC. You can enable or disable them here.",
-            _ => $"Use New to add a {SingularName(Section)}, or add one on your PC. Your Library is shared."
+            LibrarySection.McpServers => "Add MCP servers on your computer. You can enable or disable them here.",
+            LibrarySection.Jobs => "Create jobs on your computer. You can enable or disable them here.",
+            _ => $"Use New to add a {SingularName(Section)}, or add one on your computer. Your Library is shared."
         };
 
     public string SectionDescription => Section switch
     {
-        LibrarySection.Projects => "Shared projects, instructions and PC workspaces for your chats.",
+        LibrarySection.Projects => "Shared projects, instructions and computer workspaces for your chats.",
         LibrarySection.Skills => "Reusable instructions that help Lumi handle familiar tasks.",
         LibrarySection.Lumis => "Your assistants, each with their own role and instructions.",
         LibrarySection.Memories => "Facts Lumi remembers and uses across your conversations.",
-        LibrarySection.McpServers => "Tool connections on your PC. Manage their availability here; configure them on your PC.",
-        LibrarySection.Jobs => "Automations that run on your PC. Manage their availability here; edit their schedules on your PC.",
+        LibrarySection.McpServers => "Tool connections on your computer. Manage their availability here; configure them on your computer.",
+        LibrarySection.Jobs => "Automations that run on your computer. Manage their availability here; edit their schedules on your computer.",
         _ => ""
     };
 
@@ -662,7 +662,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             if (detail is null)
             {
                 HasEditorLoadFailed = true;
-                StatusMessage = "Lumi could not load the full item. Try again when your PC is connected.";
+                StatusMessage = "Lumi could not load the full item. Try again when your computer is connected.";
                 return;
             }
 
@@ -809,7 +809,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 return;
             }
 
-            var message = await RefreshAfterSuccessAsync(result.Message ?? "Saved on your PC.");
+            var message = await RefreshAfterSuccessAsync(result.Message ?? "Saved on your computer.");
             if (!IsCurrentEditor())
                 return;
 
@@ -913,7 +913,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
 
             entry.IsEnabled = enabled;
-            var message = await RefreshAfterSuccessAsync(enabled ? "Enabled on your PC." : "Disabled on your PC.");
+            var message = await RefreshAfterSuccessAsync(enabled ? "Enabled on your computer." : "Disabled on your computer.");
             if (generation != _actionGeneration)
                 return;
 
@@ -937,7 +937,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
-            return $"{message} The list could not refresh. Reconnect to your PC to reload it.";
+            return $"{message} The list could not refresh. Reconnect to your computer to reload it.";
         }
     }
 }

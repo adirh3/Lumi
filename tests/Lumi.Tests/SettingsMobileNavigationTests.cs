@@ -87,6 +87,12 @@ public sealed class SettingsMobileNavigationTests
                 Assert.NotNull(settingsView.FindControl<Button>("MobileUseLocalNetworkButton"));
                 Assert.Null(settingsView.FindControl<ToggleSwitch>("RemoteInsecureLanToggle"));
                 Assert.NotNull(settingsView.FindControl<QrCodeControl>("MobileSetupQrCode"));
+                var mobilePage = settingsView.FindControl<Control>("PageMobile")!;
+                var copy = string.Join("\n", mobilePage.GetVisualDescendants()
+                    .OfType<TextBlock>().Select(block => block.Text));
+                Assert.Contains($"Let Lumi mobile apps connect to this {Loc.ComputerName}.", copy);
+                if (!OperatingSystem.IsWindows())
+                    Assert.DoesNotMatch(@"\bPC\b", copy);
             }
             finally
             {

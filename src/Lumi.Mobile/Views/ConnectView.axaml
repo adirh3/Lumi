@@ -67,7 +67,7 @@
 
               <Grid x:Name="SetupProgress" ColumnDefinitions="*,*" ColumnSpacing="8">
                 <Border Classes="setup-step" Classes.current="{Binding IsFindStep}">
-                  <TextBlock Text="1  Find your PC" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" />
+                  <TextBlock Text="1  Find Lumi" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" />
                 </Border>
                 <Border Grid.Column="1" Classes="setup-step" Classes.current="{Binding !IsFindStep}">
                   <TextBlock Text="2  Pair your phone" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" />
@@ -81,14 +81,14 @@
                              Text="Your Lumi, on the go."
                              FontSize="{DynamicResource Font.SizeHeadline}"
                              FontWeight="SemiBold" TextWrapping="Wrap" />
-                  <TextBlock Text="Pick up your conversations and get things done on your PC, from your phone."
+                  <TextBlock Text="Pick up your conversations and get things done on your computer, from your phone."
                              Classes="supporting"
                              TextWrapping="Wrap" />
                 </StackPanel>
 
                 <Border Classes="mobile-card">
                   <StackPanel Spacing="6">
-                    <TextBlock Text="First, open Lumi on your PC"
+                    <TextBlock Text="First, open Lumi on your computer"
                                FontWeight="SemiBold" />
                     <TextBlock Text="Go to Settings → Mobile and turn on phone access. Open its setup link, or enter the address below."
                                Classes="supporting"
@@ -100,7 +100,7 @@
                         Margin="0,2,0,0">
                   <StackPanel Spacing="12">
                     <StackPanel Spacing="6">
-                      <TextBlock Text="PC address"
+                      <TextBlock Text="Computer address"
                                  FontWeight="SemiBold" />
                       <TextBlock Text="Use the address shown by Lumi Desktop."
                                  Classes="supporting"
@@ -113,7 +113,7 @@
                              textInput:TextInputOptions.AutoCapitalization="False"
                              textInput:TextInputOptions.ShowSuggestions="False"
                              PlaceholderText="e.g. 100.100.20.10"
-                             AutomationProperties.Name="PC address"
+                             AutomationProperties.Name="Computer address"
                              Text="{Binding ManualAddress}"
                              KeyDown="OnManualAddressKeyDown" />
                     <Border x:Name="ConnectError" Classes="mobile-card"
@@ -206,7 +206,7 @@
                   <TextBlock Text="One last step."
                              FontSize="{DynamicResource Font.SizeHeadline}"
                              FontWeight="SemiBold" TextWrapping="Wrap" />
-                  <TextBlock Text="Enter the 6-digit code from Settings → Mobile on your PC to pair this phone."
+                  <TextBlock Text="Enter the 6-digit code from Settings → Mobile on your computer to pair this phone."
                              Classes="supporting"
                              TextWrapping="Wrap" />
                 </StackPanel>
@@ -263,7 +263,7 @@
                         Classes="touch subtle"
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center"
-                        Content="Use a different PC"
+                        Content="Use a different computer"
                         IsVisible="{Binding CanChooseDifferentPc}"
                         Command="{Binding BackCommand}" />
               </StackPanel>

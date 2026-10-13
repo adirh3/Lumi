@@ -389,6 +389,31 @@ public sealed class MobileShellViewTests
     }
 
     [Fact]
+    public async Task ConnectionAndSettingsCopyDoesNotAssumeAWindowsHost()
+    {
+        await Run((shell, window) =>
+        {
+            Layout(window, shell, 412, 892);
+            var connect = Named(window, "ConnectHost");
+            var connectText = string.Join("\n", connect.GetVisualDescendants()
+                .OfType<TextBlock>().Select(block => block.Text));
+            Assert.Contains("First, open Lumi on your computer", connectText);
+            Assert.Contains("Computer address", connectText);
+            Assert.DoesNotMatch(@"\bPC\b", connectText);
+            Assert.Equal("Computer address",
+                Avalonia.Automation.AutomationProperties.GetName(Named(window, "ManualAddressBox")));
+
+            Pair(shell);
+            shell.ShowPageCommand.Execute("Settings");
+            Pump(window);
+            var settingsText = string.Join("\n", Named(window, "SettingsPage").GetVisualDescendants()
+                .OfType<TextBlock>().Select(block => block.Text));
+            Assert.Contains("Your chats and files stay on your computer.", settingsText);
+            Assert.DoesNotMatch(@"\bPC\b", settingsText);
+        });
+    }
+
+    [Fact]
     public async Task BrowserPairingInputTracksTheRenderedFieldAndHidesWhenPairingStarts()
     {
         var presenter = new RecordingNativeTextInputOverlayPresenter();

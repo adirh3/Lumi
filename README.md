@@ -23,6 +23,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
+- **Platform-aware wording** — English desktop copy and assistant instructions use Mac, PC, or Linux computer for the host OS. Mobile copy says computer, since the paired host can run any of them; saved host names and user content stay unchanged.
 - **Desktop notifications** — Toast notifications when responses complete in the background
 - **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
@@ -290,7 +291,7 @@ Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior
 | Chat titles | A new conversation starts, when automatic titles are enabled | Produces a short title from the first user message |
 | Follow-up suggestions | An eligible assistant reply completes | Proposes three concise next messages using the current exchange and frequently typed requests as low-priority context |
 | Automatic memories | A completed exchange contains potential lasting facts, when auto-save is enabled | Saves, updates, or removes personal facts and durable project conventions using restricted memory tools |
-| Onboarding discovery | The optional getting-to-know-you flow | Analyzes deterministic PC scans, investigates with restricted tools, asks questions, and records durable memories |
+| Onboarding discovery | The optional getting-to-know-you flow | Analyzes deterministic computer scans, investigates with restricted tools, asks questions, and records durable memories |
 | Reusable prompt drafts | You choose Share prompt on a completed reply | Turns the bounded, redacted conversation snapshot into a portable task |
 | Coding helpers | The assistant invokes `code_review`, `generate_tests`, `explain_code`, or `analyze_project` | Performs the requested specialized analysis in an isolated, tool-free session |
 
@@ -415,7 +416,7 @@ stopping background work. Queued follow-ups drain when the assistant becomes idl
 not only when every background task finishes.
 Explicit external model selections stay with a queued message even if the composer
 changes before delivery, including automatic steering.
-Mobile attachments show their original filenames instead of PC upload paths, and
+Mobile attachments show their original filenames instead of computer upload paths, and
 background-job wakes appear as compact events with instructions and output in a
 details sheet. Both presentations also work with older desktop hosts.
 Larger attachment selections are parsed before display limits are applied, so the
@@ -569,7 +570,7 @@ Desktop setup is guided after selecting **Dev Tunnel**:
    and QR code. The Web app setup opens automatically when you select Dev Tunnel.
    Lumi generates its separate pairing code only once the link is ready.
 4. Open that link on your phone, sign in with **the same account**, and enter the
-   separate, single-use Lumi pairing code displayed on the PC.
+   separate, single-use Lumi pairing code displayed on the computer.
 
 Only the current setup step is shown. Browser fallbacks and error details stay
 collapsed until needed. Once connected, the setup card is replaced by the phone
@@ -629,7 +630,7 @@ not refreshed after updating Lumi.
 Published PWAs cache their static app shell and WebAssembly runtime locally after
 the first successful load. Later icon launches can open the app without waiting
 for those assets to cross the tunnel again. Chats, pairing responses, event
-streams, commands, and downloaded files are **not** service-worker cached; the PC,
+streams, commands, and downloaded files are **not** service-worker cached; the computer,
 tunnel sign-in, and device pairing are still required for live use. Plain HTTP
 LAN addresses do not support service workers; HTTPS and localhost do.
 
@@ -701,11 +702,11 @@ arbitrary public hostnames.
 
 The URL is reachable at Microsoft's public gateway, but Lumi is **not publicly
 accessible**: Microsoft authenticates and authorizes the tunnel owner first.
-HTTPS terminates at Microsoft's gateway and the relay connection to the PC is
+HTTPS terminates at Microsoft's gateway and the relay connection to the computer is
 encrypted; this is not Tailscale's device-to-device WireGuard trust model.
 Do not manually broaden the managed tunnel's access rules or issue/share tunnel
-access tokens. Keep the PC awake and Lumi running; the phone cannot reach a sleeping
-or powered-off PC.
+access tokens. Keep the computer awake and Lumi running; the phone cannot reach a sleeping
+or powered-off computer.
 
 The tunnel ID, Microsoft service cluster, and actual listener port are saved, so
 reconnecting and restarting keep the same link and browser pairing. A saved port
@@ -716,7 +717,7 @@ relay outage, and a manual retry saves again before hosting.
 Turning off phone access or switching transport stops the owned relay immediately
 but retains the private tunnel resource for reuse. Its idle expiration is configured
 to 30 days. Microsoft automatically extends this inactivity window with activity;
-Lumi does not run a separate renewal timer. If the PC remains inactive long enough
+Lumi does not run a separate renewal timer. If the computer remains inactive long enough
 for Microsoft to expire the resource, Lumi recreates the saved route in its original
 cluster when available.
 

@@ -423,7 +423,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             if (!IsCurrentHost(hostGeneration))
                 return;
 
-            ApplyUploadError(surface, "Could not send that file to your PC.");
+            ApplyUploadError(surface, "Could not send that file to your computer.");
             Trace.TraceWarning($"[Mobile] Upload failed: {ex}");
         }
         finally

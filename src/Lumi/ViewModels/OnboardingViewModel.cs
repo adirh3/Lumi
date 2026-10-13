@@ -300,7 +300,7 @@ public partial class OnboardingViewModel : ObservableObject
         {
             // ── Phase 1: Deterministic scans with per-category loading ──
             IsScanPhase = true;
-            ScanPhaseStatus = Loc.Onboarding_ScanningYourPC ?? "Scanning your PC…";
+            ScanPhaseStatus = Loc.Onboarding_ScanningYourPC;
             await RunDeterministicScansAsync(ct);
             IsScanPhase = false;
 
@@ -498,7 +498,7 @@ public partial class OnboardingViewModel : ObservableObject
                     return await RunSafeCommandAsync(command, ct);
                 },
                 "run_command",
-                $"Execute a read-only {OnboardingShellLabel} command to investigate the user's PC. Use this to dig deeper into specific areas of interest discovered in the scan data. Examples: read config files, check git repos, inspect app settings, list recent browser history."),
+                $"Execute a read-only {OnboardingShellLabel} command to investigate the user's {Loc.ComputerName}. Use this to dig deeper into specific areas of interest discovered in the scan data. Examples: read config files, check git repos, inspect app settings, list recent browser history."),
 
             // Read a specific file
             AIFunctionFactory.Create(
@@ -508,7 +508,7 @@ public partial class OnboardingViewModel : ObservableObject
                     return await ReadFileAsync(path, maxLines ?? 50, ct);
                 },
                 "read_file",
-                "Read the contents of a file on the user's PC. Use this to inspect configuration files, project files, or other interesting files discovered during scanning."),
+                $"Read the contents of a file on the user's {Loc.ComputerName}. Use this to inspect configuration files, project files, or other interesting files discovered during scanning."),
 
             // List directory contents
             AIFunctionFactory.Create(
@@ -1000,7 +1000,7 @@ public partial class OnboardingViewModel : ObservableObject
     private string BuildAgentPromptWithContext()
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Hi, I'm {UserName}! Here's what the quick scan found on my PC:");
+        sb.AppendLine($"Hi, I'm {UserName}! Here's what the quick scan found on my {Loc.ComputerName}:");
         sb.AppendLine();
 
         foreach (var (key, value) in _scanResults)

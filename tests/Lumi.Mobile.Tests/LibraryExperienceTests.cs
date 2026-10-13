@@ -120,7 +120,7 @@ public sealed class LibraryExperienceTests
         Assert.True(library.IsRowActionsOpen);
         Assert.True(library.IsConfirmingDelete);
         Assert.Contains(entry.Name, library.DeleteConfirmationDescription);
-        Assert.Contains("PC", library.DeleteConfirmationDescription);
+        Assert.Contains("computer", library.DeleteConfirmationDescription);
         Assert.Contains("phone", library.DeleteConfirmationDescription);
 
         Assert.True(library.DismissTopmostSurface());
@@ -393,7 +393,7 @@ public sealed class LibraryExperienceTests
         Assert.True(library.IsEmpty);
         Assert.False(library.IsNoResults);
         Assert.Equal($"No {plural} yet", library.EmptyTitle);
-        Assert.Contains("PC", library.EmptyDescription);
+        Assert.Contains("computer", library.EmptyDescription);
         Assert.False(string.IsNullOrWhiteSpace(library.SectionDescription));
 
         library.SearchText = "missing";
