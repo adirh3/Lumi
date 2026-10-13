@@ -35,8 +35,8 @@ public partial class SkillsView : UserControl
         }
 
         if (DataContext is SkillsViewModel page
-            && ManagementPage.TryHandleEscape(e, page.IsEditing, page.IsConfirmingDelete,
-                page.HasUnsavedChanges || page.IsNewSkill,
+            && ManagementPage.TryHandleEscape(e, page.IsEditing || page.External.IsViewing, page.IsConfirmingDelete,
+                page.IsEditing && (page.HasUnsavedChanges || page.IsNewSkill),
                 () => page.CancelDeleteCommand.Execute(null), () => page.CloseDetailCommand.Execute(null)))
             return;
 

@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using StrataSearch;
 
 namespace Lumi.ViewModels;
@@ -27,7 +28,7 @@ public partial class SkillsViewModel : ObservableObject
     /// <summary>Raised for one-click "Copy for chat"; the flag has the same meaning as for <see cref="ShareRequested"/>.</summary>
     public event Action<Skill, bool>? CopyForChatRequested;
 
-    /// <summary>Raised when a Lumi in "Used by" is clicked; the shell switches to the Lumis page.</summary>
+    /// <summary>Raised when an agent in "Used by" is clicked; the shell switches to the Agents page.</summary>
     public event Action<Guid>? OpenAgentRequested;
 
     private string? _editorBaseline;
@@ -72,8 +73,86 @@ public partial class SkillsViewModel : ObservableObject
      public SkillsViewModel(DataStore dataStore)
      {
          _dataStore = dataStore;
+         External.Opened += OnExternalOpened;
+         External.CopyRequested += CopyExternal;
+         External.PropertyChanged += OnExternalPropertyChanged;
          RefreshList();
      }
+
+    /// <summary>Skills from plugins and the GitHub Copilot folder: listed, usable, read-only.</summary>
+    public ExternalCapabilitiesViewModel External { get; } = new(CapabilityKind.Skill);
+
+    /// <summary>The front page shows: not a Lumi skill's editor, not a read-only skill.</summary>
+    public bool ShowOverview => !IsEditing && !External.IsViewing;
+
+    /// <summary>Lumi's own skills get a "Yours" heading when other sections follow them.</summary>
+    public bool ShowYoursHeading => External.HasGroups && (HasResults || ShowCompactEmpty);
+
+    /// <summary>No skills of the user's own yet, while plugins or Copilot provide some.</summary>
+    public bool ShowCompactEmpty => !HasAnySkills && External.HasAnyItems && !IsSearching;
+
+    public bool ShowStats => HasAnySkills || External.HasAnyItems;
+    public bool HasExternal => External.HasAnyItems;
+    public string ExternalCountText => External.TotalCountText;
+
+    /// <summary>Every skill a chat can use, Lumi's and those from plugins and Copilot, for the Customize row.</summary>
+    public string SectionCountText => (TotalCount + External.TotalCount).ToString(CultureInfo.CurrentCulture);
+
+    [ObservableProperty] private string _savedToastText = Loc.Mg_Saved;
+
+    /// <summary>Raised to open Customize → Discover.</summary>
+    public event Action? DiscoverRequested;
+
+    [RelayCommand]
+    private void FindInDiscover() => DiscoverRequested?.Invoke();
+
+    private void OnExternalOpened(ExternalCapabilityItem item)
+    {
+        IsConfirmingDelete = false;
+        _restoringSelection = true;
+        try
+        {
+            SelectedSkill = null;
+        }
+        finally
+        {
+            _restoringSelection = false;
+        }
+
+        IsEditing = false;
+    }
+
+    private void OnExternalPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(ExternalCapabilitiesViewModel.IsViewing):
+                OnPropertyChanged(nameof(ShowOverview));
+                break;
+            case nameof(ExternalCapabilitiesViewModel.HasGroups):
+            case nameof(ExternalCapabilitiesViewModel.HasAnyItems):
+            case nameof(ExternalCapabilitiesViewModel.TotalCountText):
+                NotifyOverviewChanged();
+                break;
+        }
+    }
+
+    /// <summary>Makes an editable Lumi skill from a read-only one, files included, and opens it.</summary>
+    private void CopyExternal(ExternalCapabilityItem item)
+    {
+        if (ExternalCapabilityCopier.CopySkill(_dataStore, item.Descriptor) is not { } skill)
+            return;
+
+        _ = _dataStore.SaveAsync();
+        _dataStore.SyncSkillFiles();
+        External.Close();
+        if (!string.IsNullOrEmpty(SearchQuery))
+            SearchQuery = "";
+        RefreshList();
+        SelectedSkill = skill;
+        FlashSaved(Loc.External_CopiedToast);
+        SkillsChanged?.Invoke();
+    }
 
     public bool IsNewSkill => IsEditing && SelectedSkill is null;
     public bool ShowSaveBar => IsEditing && (HasUnsavedChanges || IsNewSkill) && !IsConfirmingDelete;
@@ -85,8 +164,8 @@ public partial class SkillsViewModel : ObservableObject
     public bool HasAnySkills => _dataStore.Data.Skills.Count > 0;
     public bool HasResults => SkillCards.Count > 0;
     public bool IsSearching => !string.IsNullOrWhiteSpace(SearchQuery);
-    public bool ShowNoResults => HasAnySkills && !HasResults;
-    public bool ShowEmptyState => !HasAnySkills;
+    public bool ShowNoResults => IsSearching && !HasResults && !External.HasGroups;
+    public bool ShowEmptyState => !HasAnySkills && !External.HasAnyItems;
     public string NoResultsText => string.Format(CultureInfo.CurrentCulture, Loc.Mg_NoResults, SearchQuery.Trim());
     public int TotalCount => _dataStore.Data.Skills.Count;
     public int InUseCount => _dataStore.Data.Skills.Count(skill => _dataStore.Data.Agents.Any(agent => agent.SkillIds.Contains(skill.Id)));
@@ -215,6 +294,12 @@ public partial class SkillsViewModel : ObservableObject
         OnPropertyChanged(nameof(TotalCountText));
         OnPropertyChanged(nameof(InUseCount));
         OnPropertyChanged(nameof(InUseCountText));
+        OnPropertyChanged(nameof(ShowYoursHeading));
+        OnPropertyChanged(nameof(ShowCompactEmpty));
+        OnPropertyChanged(nameof(ShowStats));
+        OnPropertyChanged(nameof(HasExternal));
+        OnPropertyChanged(nameof(ExternalCountText));
+        OnPropertyChanged(nameof(SectionCountText));
     }
 
     [RelayCommand]
@@ -239,6 +324,7 @@ public partial class SkillsViewModel : ObservableObject
         IsPreviewExpanded = false;
         IsConfirmingDelete = false;
         UsedByAgents.Clear();
+        External.Close();
         IsEditing = true;
         UpdateDirtyState();
     }
@@ -273,11 +359,13 @@ public partial class SkillsViewModel : ObservableObject
         IsConfirmingDelete = false;
         SelectedSkill = null;
         IsEditing = false;
+        External.Close();
     }
 
      partial void OnSelectedSkillChanged(Skill? value)
      {
          if (value is null || _restoringSelection) return;
+         External.Close();
          SyncEditorFromSkill(value);
          IsPreviewingContent = !string.IsNullOrWhiteSpace(value.Content);
          IsPreviewExpanded = false;
@@ -356,7 +444,11 @@ public partial class SkillsViewModel : ObservableObject
     partial void OnEditDescriptionChanged(string value) => UpdateDirtyState();
     partial void OnEditContentChanged(string value) => UpdateDirtyState();
     partial void OnEditIconGlyphChanged(string value) => UpdateDirtyState();
-    partial void OnIsEditingChanged(bool value) => UpdateDirtyState();
+    partial void OnIsEditingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowOverview));
+        UpdateDirtyState();
+    }
     partial void OnHasUnsavedChangesChanged(bool value) => OnPropertyChanged(nameof(ShowSaveBar));
     partial void OnIsConfirmingDeleteChanged(bool value)
     {
@@ -403,7 +495,7 @@ public partial class SkillsViewModel : ObservableObject
         RefreshRelations(saved);
         IsEditing = true;
         UpdateDirtyState();
-        FlashSaved();
+        FlashSaved(Loc.Mg_Saved);
         SkillsChanged?.Invoke();
     }
 
@@ -421,9 +513,10 @@ public partial class SkillsViewModel : ObservableObject
         UpdateDirtyState();
     }
 
-    private async void FlashSaved()
+    private async void FlashSaved(string text)
     {
         var version = ++_savedToastVersion;
+        SavedToastText = text;
         ShowSavedToast = true;
         await Task.Delay(1800);
         if (version == _savedToastVersion)
@@ -523,5 +616,9 @@ public partial class SkillsViewModel : ObservableObject
     [RelayCommand]
     private void Import() => ImportRequested?.Invoke();
 
-    partial void OnSearchQueryChanged(string value) => RefreshList();
+    partial void OnSearchQueryChanged(string value)
+    {
+        External.ApplySearch(value);
+        RefreshList();
+    }
 }

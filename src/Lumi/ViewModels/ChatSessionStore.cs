@@ -102,6 +102,7 @@ public sealed class ChatSessionStore : IDisposable
         _orchestrationService = new ChatOrchestrationService(dataStore, registry, this);
         OrchestrationService = _orchestrationService;
         _copilotService.Reconnected += OnCopilotReconnected;
+        _copilotService.PluginsChanged += OnPluginsChanged;
     }
 
     /// <summary>
@@ -121,6 +122,9 @@ public sealed class ChatSessionStore : IDisposable
     /// </summary>
     public ChatOrchestrationService OrchestrationService { get; set; }
     internal ChatEventHub ChatEvents => _chatEvents;
+
+    /// <summary>The capability catalog every surface reads; Customize lists external items from it too.</summary>
+    internal CapabilityCatalog CapabilityCatalog => _capabilityCatalog;
 
     public ChatViewModel AcquireDraft(Guid? projectId, Action<ChatViewModel>? configure = null)
     {
@@ -288,6 +292,7 @@ public sealed class ChatSessionStore : IDisposable
 
         _isDisposed = true;
         _copilotService.Reconnected -= OnCopilotReconnected;
+        _copilotService.PluginsChanged -= OnPluginsChanged;
         if (_ownsCapabilityCatalog)
             _capabilityCatalog.Dispose();
         foreach (var surface in _surfaces.ToArray())
@@ -335,6 +340,32 @@ public sealed class ChatSessionStore : IDisposable
     }
 
     private void OnCopilotReconnected() => _capabilityCatalog.Reset();
+
+    /// <summary>
+    /// A plugin was added, updated or removed: rediscover what the runtime offers, and rebuild each
+    /// chat's session configuration before its next message so the plugin's parts load (or stop
+    /// loading) without disturbing a turn already running.
+    /// </summary>
+    private void OnPluginsChanged()
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            ApplyPluginsChange();
+        else
+            Avalonia.Threading.Dispatcher.UIThread.Post(ApplyPluginsChange);
+    }
+
+    private void ApplyPluginsChange()
+    {
+        if (_isDisposed)
+            return;
+
+        _capabilityCatalog.Reset();
+        ApplyToSurfaces(static surface =>
+        {
+            surface.InvalidateMcpSession();
+            surface.RefreshCapabilities();
+        });
+    }
 
     private void TrackSurface(ChatViewModel surface)
     {

@@ -304,7 +304,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     SetMcpChipError(
                         chatId,
                         serverName,
-                        $"MCP server '{displayName}' did not finish connecting within {settleBudget.TotalSeconds:0} seconds. Its tools may appear after startup completes.");
+                        $"Connector '{displayName}' did not finish connecting within {settleBudget.TotalSeconds:0} seconds. Its tools may appear after startup completes.");
                 }
             });
         }
@@ -474,12 +474,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     internal static string BuildMcpOAuthOpenedMessage(string displayName)
-        => $"Lumi opened your browser to sign in to MCP server '{displayName}'. " +
+        => $"Lumi opened your browser to sign in to connector '{displayName}'. " +
            "Finish signing in and it reconnects automatically.";
 
     internal static string BuildMcpOAuthFailureMessage(string displayName, string failure)
-        => $"Lumi couldn't start sign-in for MCP server '{displayName}' automatically " +
-           $"({failure}). Open it from the MCP servers page to sign in.";
+        => $"Lumi couldn't start sign-in for connector '{displayName}' automatically " +
+           $"({failure}). Open it in Customize → Connectors to sign in.";
 
     /// <summary>
     /// Records the final OAuth chip message for a session+server and shows it, so later repeated
@@ -578,8 +578,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (status == McpServerStatus.NeedsAuth)
         {
             return config is McpHttpServerConfig authRemote
-                ? $"Sign-in required for MCP server '{serverName}' at {SanitizeMcpDiagnosticUrl(authRemote.Url)}. Lumi is signing you in…"
-                : $"Sign-in required for MCP server '{serverName}'. If it supports OAuth, Lumi will sign you in and reconnect automatically.";
+                ? $"Sign-in required for connector '{serverName}' at {SanitizeMcpDiagnosticUrl(authRemote.Url)}. Lumi is signing you in…"
+                : $"Sign-in required for connector '{serverName}'. If it supports OAuth, Lumi will sign you in and reconnect automatically.";
         }
 
         if (config is McpHttpServerConfig remote)
@@ -601,13 +601,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             var diagnostic = await ProbeHttpMcpEndpointAsync(remote, ct).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(diagnostic))
-                return $"HTTP MCP server '{serverName}' failed. {diagnostic}";
+                return $"Remote connector '{serverName}' failed. {diagnostic}";
         }
 
         var safeUrl = SanitizeMcpDiagnosticUrl(remote.Url);
         return string.IsNullOrWhiteSpace(rawError)
-            ? $"HTTP MCP server '{serverName}' failed to connect to {safeUrl}."
-            : $"HTTP MCP server '{serverName}' failed for {safeUrl}: {rawError}";
+            ? $"Remote connector '{serverName}' failed to connect to {safeUrl}."
+            : $"Remote connector '{serverName}' failed for {safeUrl}: {rawError}";
     }
 
     private static string BuildStdioMcpStatusErrorMessage(
@@ -620,7 +620,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             || rawError.Contains("ENOENT", StringComparison.OrdinalIgnoreCase))
         {
             var cwd = string.IsNullOrWhiteSpace(local.WorkingDirectory) ? Environment.CurrentDirectory : local.WorkingDirectory;
-            return $"Command not found for MCP server '{serverName}': '{local.Command}'. Working directory: '{cwd}'. Install '{local.Command}' or add it to the PATH used by Lumi.";
+            return $"Command not found for connector '{serverName}': '{local.Command}'. Working directory: '{cwd}'. Install '{local.Command}' or add it to the PATH used by Lumi.";
         }
 
         return BuildGenericMcpStatusErrorMessage(rawError);
@@ -633,7 +633,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _ when rawError.Contains("Connection closed", StringComparison.OrdinalIgnoreCase)
                 => "Server process exited immediately. Verify the command is installed and runnable.",
             _ when string.IsNullOrWhiteSpace(rawError)
-                => "Failed to connect to MCP server.",
+                => "Failed to connect to the connector.",
             _ => rawError
         };
     }
@@ -667,10 +667,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var status = $"{(int)response.StatusCode} {response.ReasonPhrase}".Trim();
             var hint = response.StatusCode switch
             {
-                HttpStatusCode.Unauthorized => " Authentication is required; configure headers/token for this MCP server.",
-                HttpStatusCode.Forbidden => " Authentication or permission is required for this MCP server.",
-                HttpStatusCode.NotFound => " Endpoint was not found; check the MCP URL and protocol for this server.",
-                HttpStatusCode.MethodNotAllowed => " Endpoint rejected POST; check whether this server uses a different MCP transport or URL.",
+                HttpStatusCode.Unauthorized => " Authentication is required; configure headers/token for this connector.",
+                HttpStatusCode.Forbidden => " Authentication or permission is required for this connector.",
+                HttpStatusCode.NotFound => " Endpoint was not found; check the MCP URL and protocol for this connector.",
+                HttpStatusCode.MethodNotAllowed => " Endpoint rejected POST; check whether this connector uses a different MCP transport or URL.",
                 _ => ""
             };
             var summary = string.IsNullOrWhiteSpace(body) ? "" : $" Response: {body}";
@@ -2388,14 +2388,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
-                modelCapabilities: byokModelCapabilities);
+                modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
 
         ResumeSessionConfig buildResumeConfig() =>
             SessionConfigBuilder.BuildForResume(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
-                modelCapabilities: byokModelCapabilities);
+                modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
 
         if (chat.CopilotSessionId is not null)
             await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);
@@ -4944,14 +4944,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException) when (cts is not null && !cts.IsCancellationRequested)
         {
             // SDK cancelled internally (e.g. MCP server failure) — surface as error
-            var errorText = string.Format(Loc.Status_Error, "Session cancelled unexpectedly. MCP servers may have failed to connect.");
+            var errorText = string.Format(Loc.Status_Error, "Session cancelled unexpectedly. A connector may have failed to connect.");
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
             PublishTerminalChatLifecycleEventOnce(
                 targetChat,
                 ChatLifecycleEventTypes.Error,
-                "Session cancelled unexpectedly. MCP servers may have failed to connect.");
+                "Session cancelled unexpectedly. A connector may have failed to connect.");
             // Terminal failure with no further session events to release the queue.
             FailQueuedBusySends(targetChat.Id);
             ClearPendingTurnTracking(targetChat.Id);

@@ -35,8 +35,8 @@ public partial class AgentsView : UserControl
         }
 
         if (DataContext is AgentsViewModel page
-            && ManagementPage.TryHandleEscape(e, page.IsEditing, page.IsConfirmingDelete,
-                page.HasUnsavedChanges || page.IsNewAgent,
+            && ManagementPage.TryHandleEscape(e, page.IsEditing || page.External.IsViewing, page.IsConfirmingDelete,
+                page.IsEditing && (page.HasUnsavedChanges || page.IsNewAgent),
                 () => page.CancelDeleteCommand.Execute(null), () => page.CloseDetailCommand.Execute(null)))
             return;
 

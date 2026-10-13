@@ -96,7 +96,8 @@ public sealed class LightweightSessionOptions
         GitHub.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
         ISkillProvider? skillProvider = null,
-        ModelCapabilitiesOverride? modelCapabilities = null)
+        ModelCapabilitiesOverride? modelCapabilities = null,
+        IReadOnlyList<string>? pluginDirectories = null)
     {
         var config = new SessionConfig
         {
@@ -120,6 +121,7 @@ public sealed class LightweightSessionOptions
 
         Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
             customAgents, tools, userInputHandler, hooks, agentName, enableCapabilityDiscovery);
+        ApplySessionPluginDirectories(config, enableCapabilityDiscovery, pluginDirectories);
 
         return config;
     }
@@ -144,7 +146,8 @@ public sealed class LightweightSessionOptions
         GitHub.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
         ISkillProvider? skillProvider = null,
-        ModelCapabilitiesOverride? modelCapabilities = null)
+        ModelCapabilitiesOverride? modelCapabilities = null,
+        IReadOnlyList<string>? pluginDirectories = null)
     {
         var config = new ResumeSessionConfig
         {
@@ -168,6 +171,7 @@ public sealed class LightweightSessionOptions
 
         Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
             customAgents, tools, userInputHandler, hooks, agentName, enableCapabilityDiscovery);
+        ApplySessionPluginDirectories(config, enableCapabilityDiscovery, pluginDirectories);
 
         return config;
     }
@@ -261,6 +265,26 @@ public sealed class LightweightSessionOptions
             return;
 
         config.SkillDirectories = skillDirectories;
+    }
+
+    /// <summary>
+    /// Loads the user's installed Copilot plugins into a session.
+    /// </summary>
+    /// <remarks>
+    /// The runtime installs plugins into its own home and only loads them for sessions configured
+    /// from there; Lumi's sessions use Lumi's folder. Like discovery itself this needs a resolved
+    /// snapshot: a plugin's MCP servers start unless named in DisabledMcpServers, which is derived
+    /// from that snapshot.
+    /// </remarks>
+    private static void ApplySessionPluginDirectories(
+        SessionConfigBase config,
+        bool enableCapabilityDiscovery,
+        IReadOnlyList<string>? pluginDirectories)
+    {
+        if (!enableCapabilityDiscovery || pluginDirectories is not { Count: > 0 })
+            return;
+
+        config.PluginDirectories = pluginDirectories.ToList();
     }
 
     internal static ContextTier? CreateContextTier(string? contextTier)

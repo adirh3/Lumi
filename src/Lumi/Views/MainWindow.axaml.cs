@@ -44,10 +44,22 @@ public partial class MainWindow : Window
     private const double ChatListDoubleClickMaxDistance = 8;
     private static readonly AttachedProperty<bool> ChatListHandlersAttachedProperty =
         AvaloniaProperty.RegisterAttached<MainWindow, ListBox, bool>("ChatListHandlersAttached");
-    private static readonly Thickness NavButtonBasePadding = new(6, 0);
-    private static readonly Thickness NavButtonCompactPadding = new(1, 0);
-    private const double NavLabelGap = 3;
-    private const double NavLabelMaxWidth = 52;
+
+    // Pill positions, in order. Ctrl+1..5 follow the same order.
+    internal const int NavChatButton = 0;
+    internal const int NavLibraryButton = 1;
+    internal const int NavJobsButton = 2;
+    internal const int NavCustomizeButton = 3;
+    internal const int NavSettingsButton = 4;
+
+    // Fixed sizes from the nav styles (Button.nav-icon, Border.nav-pill, NavRow), used to decide
+    // whether the active place's name fits before laying it out.
+    private const double NavIconButtonWidth = 31;
+    private const double NavRowSpacing = 3;
+    private const double NavPillPadding = 4;
+    private const double NavPillBorder = 1;
+    private const double NavLabelMargin = 9;
+    private const double NavLabelMaxWidth = 96;
 
     private Panel? _onboardingPanel;
     private ContentControl? _onboardingHost;
@@ -72,7 +84,6 @@ public partial class MainWindow : Window
     private StackPanel? _projectFilterResults;
     private TextBlock? _projectSwitchTitleText;
     private TextBlock? _projectSwitchSubtitleText;
-    private TextBlock? _projectSwitchCountText;
     private TextBlock? _projectFilterMoreText;
     private Border? _unreadInboxRoot;
     private Button? _unreadInboxToggle;
@@ -91,6 +102,7 @@ public partial class MainWindow : Window
     private ContentControl? _agentsHost;
     private ContentControl? _memoriesHost;
     private ContentControl? _mcpServersHost;
+    private ContentControl? _discoverHost;
     private ContentControl? _settingsHost;
     private SettingsView? _settingsView;
     private ContentControl? _libraryHost;
@@ -98,9 +110,8 @@ public partial class MainWindow : Window
     private Border? _contentArea;
     private Thumb? _sidebarResizeThumb;
     private Border? _navPill;
+    private Border? _navPillHost;
     private TextBlock?[] _navLabels = [];
-    private Rect[] _navHitRegions = [];
-    private ImplicitAnimationCollection?[] _navButtonOffsetAnimations = [];
     private CancellationTokenSource? _sidebarAnimCts;
     private CancellationTokenSource? _navHoverIntentCts;
     private CancellationTokenSource? _projectSwitcherDrawerCts;
@@ -112,10 +123,10 @@ public partial class MainWindow : Window
     private bool _isUnreadPanelOpen;
     private int _chatListRevealVersion;
     private int _currentShellIndex = -1;
+    private int _currentSidebarIndex = -1;
     private int _activeNavIndex = -1;
     private int _hoveredNavIndex = -1;
     private int _pendingNavHoverIndex = -1;
-    private bool _isNavPillWidthLocked;
     private bool _navHoverInitPending;
     private double _expandedSidebarWidth = DefaultSidebarWidth;
     private Guid? _lastChatListClickChatId;
@@ -123,10 +134,11 @@ public partial class MainWindow : Window
     private Point _lastChatListClickPosition;
     private sealed record ProjectFilterCandidate(Project Project, int ChatCount, DateTimeOffset? LastActivity, double SearchScore);
 
-    private double[] _navBaseButtonWidths = [];
-    private double[] _navMinButtonWidths = [];
     private MainViewModel? _wiredVm;
     private const int NavHoverIntentDelayMs = 85;
+    // How far the pointer must travel after a switch before the bar's tips come back.
+    private const double NavTipResumeDistance = 12;
+    private Point? _navTipsPausedAt;
 
     public bool IsPrimaryWindow { get; set; } = true;
     public int SecondaryWindowCascadeIndex { get; set; }
@@ -265,6 +277,7 @@ public partial class MainWindow : Window
         _contentArea = this.FindControl<Border>("ContentArea");
         _sidebarResizeThumb = this.FindControl<Thumb>("SidebarResizeThumb");
         _navPill = this.FindControl<Border>("NavPill");
+        _navPillHost = this.FindControl<Border>("NavPillHost");
 
         _pages =
         [
@@ -277,6 +290,7 @@ public partial class MainWindow : Window
             this.FindControl<Control>("PageMcpServers"),       // 6
             this.FindControl<Control>("PageSettings"),         // 7
             this.FindControl<Control>("PageLibrary"),          // 8
+            this.FindControl<Control>("PageDiscover"),         // 9 = Customize → Discover
         ];
 
         _sidebarPanels =
@@ -286,33 +300,30 @@ public partial class MainWindow : Window
             this.FindControl<Panel>("SidebarProjects"),        // 2
             this.FindControl<Panel>("SidebarSkills"),          // 3
             this.FindControl<Panel>("SidebarAgents"),          // 4
-            this.FindControl<Panel>("SidebarMemories"),        // 5
+            null,                                              // 5 — Memories keeps the Settings sidebar (SidebarForPage)
             this.FindControl<Panel>("SidebarMcpServers"),      // 6
             this.FindControl<Panel>("SidebarSettings"),        // 7
             this.FindControl<Panel>("SidebarLibrary"),         // 8
+            this.FindControl<Panel>("SidebarDiscover"),        // 9
         ];
 
+        // Indexed by position in the nav pill, which no longer matches page indices: the Customize
+        // sections share one button, Projects light Chats and Memories light Settings (see NavButtonForPage).
         _navButtons =
         [
             this.FindControl<Button>("NavChat"),
+            this.FindControl<Button>("NavLibrary"),
             this.FindControl<Button>("NavJobs"),
-            this.FindControl<Button>("NavProjects"),
-            this.FindControl<Button>("NavSkills"),
-            this.FindControl<Button>("NavAgents"),
-            this.FindControl<Button>("NavMemories"),
-            this.FindControl<Button>("NavMcpServers"),
+            this.FindControl<Button>("NavCustomize"),
             this.FindControl<Button>("NavSettings"),
         ];
 
         _railNavButtons =
         [
             this.FindControl<Button>("RailChat"),
+            this.FindControl<Button>("RailLibrary"),
             this.FindControl<Button>("RailJobs"),
-            this.FindControl<Button>("RailProjects"),
-            this.FindControl<Button>("RailSkills"),
-            this.FindControl<Button>("RailAgents"),
-            this.FindControl<Button>("RailMemories"),
-            this.FindControl<Button>("RailMcpServers"),
+            this.FindControl<Button>("RailCustomize"),
             this.FindControl<Button>("RailSettings"),
         ];
 
@@ -328,7 +339,7 @@ public partial class MainWindow : Window
         AddHandler(PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         WireNavHoverEvents();
-        Dispatcher.UIThread.Post(InitializeNavHoverVisuals, DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(InitializeNavVisuals, DispatcherPriority.Loaded);
 
         _renameOverlay = this.FindControl<Panel>("RenameOverlay");
         _renameTextBox = this.FindControl<TextBox>("RenameTextBox");
@@ -340,7 +351,6 @@ public partial class MainWindow : Window
         _projectFilterResults = this.FindControl<StackPanel>("ProjectFilterResults");
         _projectSwitchTitleText = this.FindControl<TextBlock>("ProjectSwitchTitleText");
         _projectSwitchSubtitleText = this.FindControl<TextBlock>("ProjectSwitchSubtitleText");
-        _projectSwitchCountText = this.FindControl<TextBlock>("ProjectSwitchCountText");
         _projectFilterMoreText = this.FindControl<TextBlock>("ProjectFilterMoreText");
         _unreadInboxRoot = this.FindControl<Border>("UnreadInboxRoot");
         _unreadInboxToggle = this.FindControl<Button>("UnreadInboxToggle");
@@ -379,6 +389,7 @@ public partial class MainWindow : Window
         _mcpServersHost = this.FindControl<ContentControl>("PageMcpServersHost");
         _settingsHost = this.FindControl<ContentControl>("PageSettingsHost");
         _libraryHost = this.FindControl<ContentControl>("PageLibraryHost");
+        _discoverHost = this.FindControl<ContentControl>("PageDiscoverHost");
 
         if (_sidebarResizeThumb is not null)
         {
@@ -391,18 +402,15 @@ public partial class MainWindow : Window
     {
         AutomationProperties.SetName(this, "Lumi main window");
         AutomationProperties.SetHelpText(this,
-            "Agent map: navigation indices are Chat=0, Jobs=1, Projects=2, Skills=3, Lumis=4, Memories=5, MCP Servers=6, Settings=7.");
+            "Agent map: navigation indices are Chat=0, Jobs=1, Projects=2, Skills=3, Agents=4, Memories=5, MCP Servers=6, Settings=7, Library=8, Discover=9. The nav pill holds Chat, Library, Jobs, Customize and Settings. Skills, Agents, MCP Servers and Discover are sections of Customize; Memories is a Settings page; Projects open from the chat sidebar's project switcher.");
 
         var navNames = new[]
         {
             "NavChat - navigation index 0 - Chat",
+            "NavLibrary - navigation index 8 - Library",
             "NavJobs - navigation index 1 - Background Jobs",
-            "NavProjects - navigation index 2 - Projects",
-            "NavSkills - navigation index 3 - Skills",
-            "NavAgents - navigation index 4 - Lumis",
-            "NavMemories - navigation index 5 - Memories",
-            "NavMcpServers - navigation index 6 - MCP Servers",
-            "NavSettings - navigation index 7 - Settings",
+            "NavCustomize - Customize (Discover 9, Agents 4, Skills 3, MCP Servers 6)",
+            "NavSettings - navigation index 7 - Settings (Memories 5 is a Settings page)",
         };
         for (var i = 0; i < _navButtons.Length && i < navNames.Length; i++)
         {
@@ -420,10 +428,12 @@ public partial class MainWindow : Window
             ("PageJobs", "Page 1 Background Jobs"),
             ("PageProjects", "Page 2 Projects"),
             ("PageSkills", "Page 3 Skills"),
-            ("PageAgents", "Page 4 Lumis"),
+            ("PageAgents", "Page 4 Agents"),
             ("PageMemories", "Page 5 Memories"),
             ("PageMcpServers", "Page 6 MCP Servers"),
             ("PageSettings", "Page 7 Settings"),
+            ("PageLibrary", "Page 8 Library"),
+            ("PageDiscover", "Page 9 Customize Discover"),
             ("AgentDebugMap", "Debug-only agent map and fixture launcher"),
         };
         foreach (var (controlName, name) in pageNames)
@@ -922,29 +932,27 @@ public partial class MainWindow : Window
         // ── Ctrl+, — Settings ──
         if (ctrl && !alt && !shift && e.Key == Key.OemComma)
         {
-            vm.SelectedNavIndex = 7;
+            vm.OpenSettingsCommand.Execute(null);
             e.Handled = true;
             return;
         }
 
-        // ── Ctrl+1..8 — Tab navigation ──
+        // ── Ctrl+1..5 — the nav pill's places, in order ──
         if (ctrl && !alt && !shift)
         {
-            var tabIndex = e.Key switch
+            var buttonIndex = e.Key switch
             {
-                Key.D1 => 0,
-                Key.D2 => 1,
-                Key.D3 => 2,
-                Key.D4 => 3,
-                Key.D5 => 4,
-                Key.D6 => 5,
-                Key.D7 => 6,
-                Key.D8 => 7,
+                Key.D1 => NavChatButton,
+                Key.D2 => NavLibraryButton,
+                Key.D3 => NavJobsButton,
+                Key.D4 => NavCustomizeButton,
+                Key.D5 => NavSettingsButton,
                 _ => -1
             };
-            if (tabIndex >= 0)
+            if (buttonIndex >= 0 && _navButtons[buttonIndex] is Button place)
             {
-                vm.SelectedNavIndex = tabIndex;
+                // The place's own command, so a shortcut always does what clicking the place does.
+                ExecuteNavButton(place);
                 e.Handled = true;
                 return;
             }
@@ -1253,6 +1261,9 @@ public partial class MainWindow : Window
 
         var sectionChanged = _currentShellIndex != index;
         _currentShellIndex = index;
+        var sidebarIndex = SidebarForPage(index);
+        var sidebarChanged = _currentSidebarIndex != sidebarIndex;
+        _currentSidebarIndex = sidebarIndex;
 
         for (int i = 0; i < _pages.Length; i++)
         {
@@ -1264,7 +1275,7 @@ public partial class MainWindow : Window
         for (int i = 0; i < _sidebarPanels.Length; i++)
         {
             if (_sidebarPanels[i] is not null)
-                _sidebarPanels[i]!.IsVisible = i == index;
+                _sidebarPanels[i]!.IsVisible = i == sidebarIndex;
         }
 
         // Leaving the chat closes Workspace pages: the native browser can't float over other pages
@@ -1292,9 +1303,14 @@ public partial class MainWindow : Window
 
         if (sectionChanged && _mainPanel?.IsVisible == true)
         {
-            AnimateShellSectionChange(_pages[index], _sidebarPanels[index]);
+            // Memories shares the Settings sidebar, so moving between them only moves the page.
+            AnimateShellSectionChange(_pages[index], sidebarChanged ? _sidebarPanels[sidebarIndex] : null);
         }
     }
+
+    /// <summary>The sidebar a page shows. Memories is a Settings page, so it keeps the Settings list.</summary>
+    internal static int SidebarForPage(int pageIndex)
+        => pageIndex == MainViewModel.MemoriesNavIndex ? 7 : pageIndex;
 
     private void AnimateShellSectionChange(Control? page, Control? sidebar)
     {
@@ -1387,10 +1403,10 @@ public partial class MainWindow : Window
         if (_sidebarResizeThumb is not null)
             _sidebarResizeThumb.IsVisible = !collapse;
 
-        // Nav-pill hover metrics can't be measured while the sidebar is collapsed (zero width).
-        // Once it's expanded again, run the initialization that was deferred at startup/collapse.
+        // The pill can't be measured while the sidebar is collapsed (zero width). Once it's expanded
+        // again, size the active place's label that was deferred at startup/collapse.
         if (!collapse && _navHoverInitPending)
-            Dispatcher.UIThread.Post(InitializeNavHoverVisuals, DispatcherPriority.Render);
+            Dispatcher.UIThread.Post(InitializeNavVisuals, DispatcherPriority.Render);
     }
 
     private static Thickness GetContentAreaMargin(bool collapsed)
@@ -1412,41 +1428,65 @@ public partial class MainWindow : Window
         PersistSidebarWidth();
     }
 
-    private void UpdateNavHighlight(int index)
+    /// <summary>
+    /// The pill position lit for a page. Projects belong to Chats (they are opened from the chat
+    /// sidebar's project switcher) and Memories to Settings (a Settings page).
+    /// </summary>
+    internal static int NavButtonForPage(int pageIndex) => pageIndex switch
     {
+        0 or 2 => NavChatButton,
+        MainViewModel.LibraryNavIndex => NavLibraryButton,
+        1 => NavJobsButton,
+        7 or MainViewModel.MemoriesNavIndex => NavSettingsButton,
+        _ when MainViewModel.IsCustomizeIndex(pageIndex) => NavCustomizeButton,
+        _ => -1,
+    };
+
+    /// <summary>The page a pill position opens; Customize and Settings return to the section used last.</summary>
+    internal static int PageForNavButton(MainViewModel vm, int buttonIndex) => buttonIndex switch
+    {
+        NavChatButton => 0,
+        NavLibraryButton => MainViewModel.LibraryNavIndex,
+        NavJobsButton => 1,
+        NavCustomizeButton => vm.CustomizeTarget,
+        NavSettingsButton => vm.SettingsTarget,
+        _ => -1,
+    };
+
+    /// <summary>
+    /// Width the pill needs to name its active place, from the fixed sizes in the nav styles. When
+    /// the sidebar is narrower than this, the active place keeps only its highlight.
+    /// </summary>
+    internal static double NavPillWidthWithLabel(int placeCount, double labelWidth)
+        => placeCount * NavIconButtonWidth
+           + Math.Max(0, placeCount - 1) * NavRowSpacing
+           + 2 * (NavPillPadding + NavPillBorder)
+           + NavLabelMargin
+           + labelWidth;
+
+    private void UpdateNavHighlight(int pageIndex)
+    {
+        var index = NavButtonForPage(pageIndex);
         _activeNavIndex = index;
         for (int i = 0; i < _navButtons.Length; i++)
         {
-            var btn = _navButtons[i];
-            if (btn is null) continue;
-
-            if (i == index)
-                btn.Classes.Add("active");
-            else
-                btn.Classes.Remove("active");
+            if (_navButtons[i] is { } btn)
+                SetClass(btn, "active", i == index);
         }
 
         for (int i = 0; i < _railNavButtons.Length; i++)
         {
-            var btn = _railNavButtons[i];
-            if (btn is null) continue;
-
-            if (i == index)
-                btn.Classes.Add("active");
-            else
-                btn.Classes.Remove("active");
+            if (_railNavButtons[i] is { } btn)
+                SetClass(btn, "active", i == index);
         }
 
-        if (_hoveredNavIndex >= 0)
-            ApplyNavButtonLayout(_hoveredNavIndex);
+        UpdateNavLabels();
     }
 
-    private void InitializeNavHoverVisuals()
+    private void InitializeNavVisuals()
     {
-        // The nav pill and its buttons live inside the sidebar. While the sidebar is collapsed
-        // they report zero width, and the metric/lock helpers below would re-post themselves
-        // every frame waiting for a non-zero width — pegging the UI thread. Defer the whole
-        // initialization until the sidebar is expanded again (see AnimateSidebarCollapse).
+        // The pill lives inside the sidebar; while it is collapsed nothing can be measured, so the
+        // labels are sized once it opens again (see AnimateSidebarCollapse).
         if (IsSidebarCollapsedNow())
         {
             _navHoverInitPending = true;
@@ -1454,102 +1494,50 @@ public partial class MainWindow : Window
         }
 
         _navHoverInitPending = false;
-        CaptureNavLayoutMetrics();
-        InitNavLabelVisuals();
-        LockNavPillWidth();
-        ApplyNavButtonLayout(-1);
+        _navLabels = _navButtons
+            .Select(button => button?
+                .GetVisualDescendants()
+                .OfType<TextBlock>()
+                .FirstOrDefault(textBlock => textBlock.Classes.Contains("nav-label")))
+            .ToArray();
+        UpdateNavLabels();
     }
 
     private bool IsSidebarCollapsedNow()
         => DataContext is MainViewModel { IsSidebarCollapsed: true };
 
-    private void InitNavLabelVisuals()
+    /// <summary>Names the active place, unless the sidebar is too narrow to fit the label.</summary>
+    private void UpdateNavLabels()
     {
-        EnsureNavButtonOffsetAnimationCacheSize();
-
-        for (var i = 0; i < _navButtons.Length; i++)
-            SetNavButtonOffsetAnimation(i, enabled: true);
-    }
-
-    private void EnsureNavButtonOffsetAnimationCacheSize()
-    {
-        if (_navButtonOffsetAnimations.Length != _navButtons.Length)
-            Array.Resize(ref _navButtonOffsetAnimations, _navButtons.Length);
-    }
-
-    private void CaptureNavLayoutMetrics()
-    {
-        if (_navButtons.Length == 0)
+        if (_navLabels.Length != _navButtons.Length)
             return;
 
-        if (_navButtons.Any(static button => button?.Bounds.Width <= 0))
+        var labelIndex = -1;
+        if (_activeNavIndex >= 0 && _activeNavIndex < _navLabels.Length && _navLabels[_activeNavIndex] is { } activeLabel)
         {
-            if (IsSidebarCollapsedNow())
-                _navHoverInitPending = true;
-            else
-                Dispatcher.UIThread.Post(InitializeNavHoverVisuals, DispatcherPriority.Render);
-            return;
+            var available = _navPillHost?.Bounds.Width ?? 0;
+            var fits = available <= 0
+                || NavPillWidthWithLabel(_navButtons.Length, MeasureNavLabelWidth(activeLabel)) <= available;
+            if (fits)
+                labelIndex = _activeNavIndex;
         }
-
-        _navLabels = new TextBlock?[_navButtons.Length];
-        _navHitRegions = new Rect[_navButtons.Length];
-        _navBaseButtonWidths = new double[_navButtons.Length];
-        _navMinButtonWidths = new double[_navButtons.Length];
-        EnsureNavButtonOffsetAnimationCacheSize();
-        var centers = new double[_navButtons.Length];
 
         for (var i = 0; i < _navButtons.Length; i++)
         {
             if (_navButtons[i] is not Button button)
                 continue;
 
-            _navLabels[i] = button
-                .GetVisualDescendants()
-                .OfType<TextBlock>()
-                .FirstOrDefault(textBlock => textBlock.Classes.Contains("nav-label"));
-
-            _navBaseButtonWidths[i] = button.Bounds.Width;
-            var contentWidth = Math.Max(0, button.Bounds.Width - (NavButtonBasePadding.Left + NavButtonBasePadding.Right));
-            _navMinButtonWidths[i] = contentWidth + NavButtonCompactPadding.Left + NavButtonCompactPadding.Right;
-
-            if (_navPill is not null)
-            {
-                var topLeft = button.TranslatePoint(default, _navPill);
-                centers[i] = (topLeft?.X ?? 0) + (button.Bounds.Width / 2d);
-            }
-        }
-
-        if (_activeNavIndex < 0)
-            _activeNavIndex = Array.FindIndex(_navButtons, button => button?.Classes.Contains("active") == true);
-
-        if (_navPill is null)
-            return;
-
-        for (var i = 0; i < _navHitRegions.Length; i++)
-        {
-            var left = i == 0 ? 0 : (centers[i - 1] + centers[i]) / 2d;
-            var right = i == _navHitRegions.Length - 1 ? _navPill.Bounds.Width : (centers[i] + centers[i + 1]) / 2d;
-            _navHitRegions[i] = new Rect(left, 0, Math.Max(0, right - left), _navPill.Bounds.Height);
+            var labeled = i == labelIndex;
+            SetClass(button, "labeled", labeled);
+            if (_navLabels[i] is TextBlock label)
+                label.MaxWidth = labeled ? MeasureNavLabelWidth(label) : 0;
         }
     }
 
-    private void LockNavPillWidth()
+    private void OnNavPillHostSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        if (_isNavPillWidthLocked || _navPill is null)
-            return;
-
-        var width = _navPill.Bounds.Width;
-        if (width <= 0)
-        {
-            if (IsSidebarCollapsedNow())
-                _navHoverInitPending = true;
-            else
-                Dispatcher.UIThread.Post(LockNavPillWidth, DispatcherPriority.Render);
-            return;
-        }
-
-        _navPill.Width = Math.Ceiling(width);
-        _isNavPillWidthLocked = true;
+        if (Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > 0.5)
+            UpdateNavLabels();
     }
 
     private void WireNavHoverEvents()
@@ -1559,8 +1547,12 @@ public partial class MainWindow : Window
             _navPill.PointerEntered += OnNavPillPointerEntered;
             _navPill.PointerMoved += OnNavPillPointerMoved;
             _navPill.PointerExited += OnNavPillPointerExited;
+            _navPill.PointerReleased += OnNavPillPointerReleased;
             _navPill.AddHandler(PointerPressedEvent, OnNavPillPointerPressed, RoutingStrategies.Tunnel);
         }
+
+        if (_navPillHost is not null)
+            _navPillHost.SizeChanged += OnNavPillHostSizeChanged;
     }
 
     private void OnNavPillPointerMoved(object? sender, PointerEventArgs e)
@@ -1568,7 +1560,31 @@ public partial class MainWindow : Window
         if (sender is not Border pill)
             return;
 
+        if (_navTipsPausedAt is { } pausedAt
+            && Point.Distance(e.GetPosition(this), pausedAt) > NavTipResumeDistance)
+            ResumeNavTips(pill);
+
         UpdateHoveredNavButton(pill, e);
+    }
+
+    /// <summary>
+    /// A switch resizes the labels, so the places slide under a cursor that hasn't moved. A tip shown
+    /// then would name whichever place drifted under it, not one you pointed at, so tips pause from
+    /// the press until you move on (in window coordinates: the pill itself re-centres) or leave.
+    /// </summary>
+    private void PauseNavTips(Border pill, Point windowPosition)
+    {
+        _navTipsPausedAt = windowPosition;
+        ToolTip.SetServiceEnabled(pill, false);
+    }
+
+    private void ResumeNavTips(Border pill)
+    {
+        if (_navTipsPausedAt is null)
+            return;
+
+        _navTipsPausedAt = null;
+        pill.ClearValue(ToolTip.ServiceEnabledProperty);
     }
 
     private void UpdateHoveredNavButton(Border pill, PointerEventArgs e)
@@ -1576,35 +1592,36 @@ public partial class MainWindow : Window
         RequestHoveredNavButton(GetHoveredNavButtonIndex(pill, e.GetPosition(pill)));
     }
 
+    /// <summary>
+    /// The place nearest the pointer. The whole pill is a target, so the gaps between icons and the
+    /// pill's rim still open the place beside them.
+    /// </summary>
     private int GetHoveredNavButtonIndex(Border pill, Point pointerPosition)
     {
-        if (_navHitRegions.Length == _navButtons.Length)
-        {
-            for (var i = 0; i < _navHitRegions.Length; i++)
-            {
-                if (_navButtons[i] is null)
-                    continue;
-
-                if (_navHitRegions[i].Contains(pointerPosition))
-                    return i;
-            }
-        }
-
+        var nearest = -1;
+        var nearestDistance = double.MaxValue;
         for (var i = 0; i < _navButtons.Length; i++)
         {
-            if (_navButtons[i] is not Button button || !button.IsVisible)
+            if (_navButtons[i] is not Button { IsVisible: true } button)
                 continue;
 
             var topLeft = button.TranslatePoint(default, pill);
             if (topLeft is null)
                 continue;
 
-            var bounds = new Rect(topLeft.Value, button.Bounds.Size);
-            if (bounds.Contains(pointerPosition))
-                return i;
+            var left = topLeft.Value.X;
+            var right = left + button.Bounds.Width;
+            var distance = pointerPosition.X < left ? left - pointerPosition.X
+                : pointerPosition.X > right ? pointerPosition.X - right
+                : 0;
+            if (distance < nearestDistance)
+            {
+                nearest = i;
+                nearestDistance = distance;
+            }
         }
 
-        return -1;
+        return nearest;
     }
 
     private void OnNavPillPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -1620,6 +1637,7 @@ public partial class MainWindow : Window
         if (index < 0 || _navButtons[index] is not Button button)
             return;
 
+        PauseNavTips(pill, e.GetPosition(this));
         ExecuteNavButton(button);
         e.Handled = true;
     }
@@ -1630,7 +1648,11 @@ public partial class MainWindow : Window
             return;
 
         _hoveredNavIndex = index;
-        ApplyNavButtonLayout(index);
+        for (var i = 0; i < _navButtons.Length; i++)
+        {
+            if (_navButtons[i] is { } button)
+                SetClass(button, "hovered", i == index);
+        }
     }
 
     private void RequestHoveredNavButton(int index)
@@ -1685,134 +1707,13 @@ public partial class MainWindow : Window
             // By click time the heavy one-time XAML/template inflation is already paid, turning a
             // cold first-visit hitch (worst: the MCP servers page) into an instant warm switch.
             // Idempotent: EnsurePageViewLoaded no-ops once the page's host content exists.
-            if (index > 0)
-                Dispatcher.UIThread.Post(() => EnsurePageViewLoaded(index), DispatcherPriority.Background);
-        }, DispatcherPriority.Input);
-    }
-
-    private void ApplyNavButtonLayout(int hoveredIndex)
-    {
-        if (_navBaseButtonWidths.Length != _navButtons.Length || _navMinButtonWidths.Length != _navButtons.Length)
-            CaptureNavLayoutMetrics();
-
-        if (_navBaseButtonWidths.Length != _navButtons.Length || _navMinButtonWidths.Length != _navButtons.Length)
-            return;
-
-        var reductions = hoveredIndex >= 0
-            ? DistributeNavReduction(hoveredIndex, GetHoveredNavExpansionWidth(hoveredIndex))
-            : new double[_navButtons.Length];
-
-        for (var i = 0; i < _navButtons.Length; i++)
-        {
-            if (_navButtons[i] is not Button button)
-                continue;
-
-            var isHovered = i == hoveredIndex;
-            SetNavButtonOffsetAnimation(i, enabled: !isHovered);
-            SetClass(button, "hovered", isHovered);
-            button.Padding = GetNavButtonPadding(reductions[i]);
-
-            if (i < _navLabels.Length && _navLabels[i] is TextBlock label)
-                label.MaxWidth = isHovered ? MeasureNavLabelWidth(label) : 0;
-        }
-    }
-
-    private void SetNavButtonOffsetAnimation(int index, bool enabled)
-    {
-        if (index < 0 || index >= _navButtons.Length || _navButtons[index] is not Button button)
-            return;
-
-        var visual = ElementComposition.GetElementVisual(button);
-        if (visual is null)
-            return;
-
-        if (!enabled)
-        {
-            if (visual.ImplicitAnimations is not null)
-                visual.ImplicitAnimations = null;
-            return;
-        }
-
-        EnsureNavButtonOffsetAnimationCacheSize();
-
-        var implicitAnims = _navButtonOffsetAnimations[index];
-        if (implicitAnims is null)
-        {
-            implicitAnims = CreateNavButtonOffsetAnimation(visual);
-            _navButtonOffsetAnimations[index] = implicitAnims;
-        }
-
-        if (!ReferenceEquals(visual.ImplicitAnimations, implicitAnims))
-            visual.ImplicitAnimations = implicitAnims;
-    }
-
-    private static ImplicitAnimationCollection CreateNavButtonOffsetAnimation(CompositionVisual visual)
-    {
-        var compositor = visual.Compositor;
-        var offsetAnim = compositor.CreateStableVector3DKeyFrameAnimation();
-        offsetAnim.Target = "Offset";
-        offsetAnim.InsertExpressionKeyFrame(1f, "this.FinalValue");
-        offsetAnim.Duration = TimeSpan.FromMilliseconds(140);
-
-        var implicitAnims = compositor.CreateImplicitAnimationCollection();
-        implicitAnims["Offset"] = offsetAnim;
-        return implicitAnims;
-    }
-
-    private double[] DistributeNavReduction(int hoveredIndex, double requiredReduction)
-    {
-        var reductions = new double[_navButtons.Length];
-        var remaining = requiredReduction;
-        var remainingIndices = Enumerable.Range(0, _navButtons.Length)
-            .Where(index => index != hoveredIndex && index != _activeNavIndex && _navButtons[index] is not null)
-            .ToList();
-
-        while (remaining > 0.01 && remainingIndices.Count > 0)
-        {
-            var share = remaining / remainingIndices.Count;
-            for (var i = remainingIndices.Count - 1; i >= 0; i--)
+            if (index > 0 && DataContext is MainViewModel hovered)
             {
-                var index = remainingIndices[i];
-                var remainingCapacity = (_navBaseButtonWidths[index] - _navMinButtonWidths[index]) - reductions[index];
-                if (remainingCapacity <= 0)
-                {
-                    remainingIndices.RemoveAt(i);
-                    continue;
-                }
-
-                var appliedReduction = Math.Min(share, remainingCapacity);
-                reductions[index] += appliedReduction;
-                remaining -= appliedReduction;
-                if (remainingCapacity - appliedReduction <= 0.01)
-                    remainingIndices.RemoveAt(i);
+                var page = PageForNavButton(hovered, index);
+                if (page >= 0)
+                    Dispatcher.UIThread.Post(() => EnsurePageViewLoaded(page), DispatcherPriority.Background);
             }
-        }
-
-        return reductions;
-    }
-
-    private double GetHoveredNavExpansionWidth(int hoveredIndex)
-    {
-        if (hoveredIndex < 0 || hoveredIndex >= _navLabels.Length || _navLabels[hoveredIndex] is not TextBlock label)
-            return 0;
-
-        var labelWidth = MeasureNavLabelWidth(label);
-        var desiredExpansionWidth = labelWidth > 0 ? labelWidth + NavLabelGap : 0;
-        return Math.Min(desiredExpansionWidth, GetAvailableNavReductionWidth(hoveredIndex));
-    }
-
-    private double GetAvailableNavReductionWidth(int hoveredIndex)
-    {
-        var availableWidth = 0d;
-        for (var i = 0; i < _navButtons.Length; i++)
-        {
-            if (i == hoveredIndex || i == _activeNavIndex || _navButtons[i] is null)
-                continue;
-
-            availableWidth += _navBaseButtonWidths[i] - _navMinButtonWidths[i];
-        }
-
-        return availableWidth;
+        }, DispatcherPriority.Input);
     }
 
     private static double MeasureNavLabelWidth(TextBlock label)
@@ -1831,19 +1732,8 @@ public partial class MainWindow : Window
         };
 
         probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        return Math.Min(probe.DesiredSize.Width, NavLabelMaxWidth);
+        return Math.Min(Math.Ceiling(probe.DesiredSize.Width), NavLabelMaxWidth);
     }
-
-    private static Thickness GetNavButtonPadding(double widthReduction)
-    {
-        var horizontalPadding = Math.Clamp(
-            NavButtonBasePadding.Left - (widthReduction / 2d),
-            NavButtonCompactPadding.Left,
-            NavButtonBasePadding.Left);
-
-        return new Thickness(horizontalPadding, NavButtonBasePadding.Top, horizontalPadding, NavButtonBasePadding.Bottom);
-    }
-
     private static void ExecuteNavButton(Button button)
     {
         var command = button.Command;
@@ -1872,15 +1762,38 @@ public partial class MainWindow : Window
         if (sender is not Border pill) return;
 
         UpdateHoveredNavButton(pill, e);
-        AnimateNavPillScale(pill, new Avalonia.Vector3D(1.12, 1.12, 1), TimeSpan.FromMilliseconds(250));
+        AnimateNavPillScale(pill, new Avalonia.Vector3D(1.04, 1.04, 1), TimeSpan.FromMilliseconds(250));
     }
 
     private void OnNavPillPointerExited(object? sender, PointerEventArgs e)
     {
-        RequestHoveredNavButton(-1);
+        if (sender is not Border pill)
+            return;
 
-        if (sender is Border pill)
-            AnimateNavPillScale(pill, new Avalonia.Vector3D(1, 1, 1), TimeSpan.FromMilliseconds(250));
+        // A press captures the pointer; when the places then slide under it, Avalonia clears
+        // pointer-over and reports an exit although the pointer never left. Treating that as leaving
+        // would drop the hover, shrink the pill mid-click and bring the paused tips back.
+        if (e.Pointer.Captured is not null && new Rect(pill.Bounds.Size).Contains(e.GetPosition(pill)))
+            return;
+
+        LeaveNavPill(pill);
+    }
+
+    /// <summary>
+    /// The exit a press swallows (see <see cref="OnNavPillPointerExited"/>) is the only one the pill
+    /// gets while the pointer is captured, so dragging off the bar leaves it on release.
+    /// </summary>
+    private void OnNavPillPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (sender is Border pill && !new Rect(pill.Bounds.Size).Contains(e.GetPosition(pill)))
+            LeaveNavPill(pill);
+    }
+
+    private void LeaveNavPill(Border pill)
+    {
+        RequestHoveredNavButton(-1);
+        ResumeNavTips(pill);
+        AnimateNavPillScale(pill, new Avalonia.Vector3D(1, 1, 1), TimeSpan.FromMilliseconds(250));
     }
 
     private static void AnimateNavPillScale(Border pill, Avalonia.Vector3D targetScale, TimeSpan duration)
@@ -2440,6 +2353,17 @@ public partial class MainWindow : Window
         SetProjectSwitcherOpen(!_isProjectSwitcherOpen);
     }
 
+    /// <summary>New project / Manage projects leave the chat list, so the drawer closes behind them.</summary>
+    private void OnProjectSwitcherActionClick(object? sender, RoutedEventArgs e)
+        => SetProjectSwitcherOpen(false);
+
+    /// <summary>The chevron before "Projects": the page is opened from the chat list, so it returns there.</summary>
+    private void OnProjectsBackClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm)
+            vm.SelectedNavIndex = 0;
+    }
+
     private void SetProjectSwitcherOpen(bool isOpen)
     {
         if (_projectSwitchRevealHost is null || _projectSwitchPanel is null)
@@ -2589,8 +2513,9 @@ public partial class MainWindow : Window
         if (_projectSwitchPanel is null)
             return 0;
 
-        var width = _projectSwitchButton?.Bounds.Width
-            ?? _projectSwitcherRoot?.Bounds.Width
+        // The drawer spans the whole switcher row, which is wider than the toggle while the edit gear shows.
+        var width = _projectSwitcherRoot?.Bounds.Width
+            ?? _projectSwitchButton?.Bounds.Width
             ?? 255;
         if (width <= 0 || double.IsNaN(width) || double.IsInfinity(width))
             width = 255;
@@ -2602,7 +2527,9 @@ public partial class MainWindow : Window
         if (height <= 0 || double.IsNaN(height) || double.IsInfinity(height))
             height = 216;
 
-        return Math.Ceiling(Math.Clamp(height, 1, 288));
+        // The project list caps its own height; this only guards a runaway measure, and must leave room
+        // for the search box, a full list, the "more" line and the New / Manage footer.
+        return Math.Ceiling(Math.Clamp(height, 1, 360));
     }
 
     private void OnProjectSwitcherClosed()
@@ -2754,7 +2681,7 @@ public partial class MainWindow : Window
         _projectFilterResults.Children.Add(CreateProjectFilterRow(
             vm,
             project: null,
-            title: Loc.ProjectSwitcher_AllProjects,
+            title: Loc.ProjectSwitcher_AllChats,
             subtitle: string.Format(Loc.ProjectSwitcher_AllSubtitle, vm.Projects.Count, totalChats),
             isSelected: isAll,
             isRunning: false,
@@ -2765,8 +2692,10 @@ public partial class MainWindow : Window
         {
             var empty = new TextBlock
             {
-                Text = Loc.ProjectSwitcher_NoMatches,
+                Text = string.IsNullOrWhiteSpace(query) ? Loc.ProjectSwitcher_NoProjects : Loc.ProjectSwitcher_NoMatches,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(8, 8, 8, 4),
                 FontSize = 11,
             };
@@ -2833,18 +2762,16 @@ public partial class MainWindow : Window
 
     private void UpdateProjectSwitcherSummary(MainViewModel vm)
     {
-        if (_projectSwitchTitleText is null || _projectSwitchSubtitleText is null || _projectSwitchCountText is null)
+        if (_projectSwitchTitleText is null || _projectSwitchSubtitleText is null)
             return;
 
         var selectedProject = vm.SelectedProjectFilter.HasValue
             ? vm.Projects.FirstOrDefault(project => project.Id == vm.SelectedProjectFilter.Value)
             : null;
 
-        _projectSwitchCountText.Text = vm.Projects.Count.ToString(Loc.Culture);
-
         if (selectedProject is null)
         {
-            _projectSwitchTitleText.Text = Loc.ProjectSwitcher_AllProjects;
+            _projectSwitchTitleText.Text = Loc.ProjectSwitcher_AllChats;
             _projectSwitchSubtitleText.Text = string.Format(
                 Loc.ProjectSwitcher_AllSubtitle,
                 vm.Projects.Count,
@@ -3321,9 +3248,6 @@ public partial class MainWindow : Window
             case (AgentsViewModel vm, LumiAgent agent) when !ReferenceEquals(vm.SelectedAgent, agent):
                 vm.SelectedAgent = agent;
                 break;
-            case (MemoriesViewModel vm, Memory memory) when !ReferenceEquals(vm.SelectedMemory, memory):
-                vm.SelectedMemory = memory;
-                break;
             case (McpServersViewModel vm, McpServer server) when !ReferenceEquals(vm.SelectedServer, server):
                 vm.SelectedServer = server;
                 break;
@@ -3446,6 +3370,10 @@ public partial class MainWindow : Window
             case 8:
                 if (_libraryHost is not null && _libraryHost.Content is null)
                     _libraryHost.Content = new LibraryView { DataContext = vm.LibraryVM };
+                break;
+            case MainViewModel.DiscoverNavIndex:
+                if (_discoverHost is not null && _discoverHost.Content is null)
+                    _discoverHost.Content = new DiscoverView { DataContext = vm.DiscoverVM };
                 break;
         }
     }

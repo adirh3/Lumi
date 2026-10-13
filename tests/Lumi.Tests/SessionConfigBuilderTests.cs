@@ -101,6 +101,27 @@ public sealed class SessionConfigBuilderTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void InstalledPlugins_ReachSessionsOnlyOnceDiscoveryIsResolved(bool resume)
+    {
+        List<string> plugins = [@"C:\copilot-home\installed-plugins\awesome-copilot\azure"];
+        SessionConfigBase Build(bool discovery) => resume
+            ? SessionConfigBuilder.BuildForResume(
+                "prompt", null, null, null, [], [], [], null, null, null, null,
+                enableCapabilityDiscovery: discovery, pluginDirectories: plugins)
+            : SessionConfigBuilder.Build(
+                "prompt", null, null, null, [], [], [], null, null, null, null,
+                enableCapabilityDiscovery: discovery, pluginDirectories: plugins);
+
+        // Lumi's sessions use their own config folder, so the runtime only loads what plugins
+        // install when it is told where they are.
+        Assert.Equal(plugins, Build(discovery: true).PluginDirectories);
+        // Plugin MCP servers start on load; until discovery is resolved they must stay out.
+        Assert.Null(Build(discovery: false).PluginDirectories);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void UnresolvedExternalDiscovery_DoesNotDisableTheLumiProvider(bool resume)
     {
         var provider = new LumiSkillProvider(_ =>

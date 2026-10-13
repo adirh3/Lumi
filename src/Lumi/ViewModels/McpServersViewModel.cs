@@ -3,17 +3,13 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
-using System.Net.Http;
-using System.Runtime.InteropServices;
-using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using StrataSearch;
 
 namespace Lumi.ViewModels;
@@ -21,14 +17,6 @@ namespace Lumi.ViewModels;
 public partial class McpServersViewModel : ObservableObject
 {
     private readonly DataStore _dataStore;
-    private CancellationTokenSource? _searchCts;
-
-    private static readonly HttpClient Http = new()
-    {
-        Timeout = TimeSpan.FromSeconds(10),
-        DefaultRequestHeaders = { { "Accept", "application/json" } }
-    };
-
     /// <summary>Raised when MCP server config changes (add/edit/delete/toggle) so chat sessions can be invalidated.</summary>
     public event Action? McpConfigChanged;
 
@@ -41,7 +29,7 @@ public partial class McpServersViewModel : ObservableObject
     /// <summary>Raised for one-click "Copy for chat"; the flag has the same meaning as for <see cref="ShareRequested"/>.</summary>
     public event Action<McpServer, bool>? CopyForChatRequested;
 
-    /// <summary>Raised when a Lumi in "Used by" is clicked; the shell switches to the Lumis page.</summary>
+    /// <summary>Raised when an agent in "Used by" is clicked; the shell switches to the Agents page.</summary>
     public event Action<Guid>? OpenAgentRequested;
 
     private string? _editorBaseline;
@@ -54,8 +42,6 @@ public partial class McpServersViewModel : ObservableObject
 
     [ObservableProperty] private McpServer? _selectedServer;
     [ObservableProperty] private bool _isEditing;
-    [ObservableProperty] private bool _isBrowsing;
-    [ObservableProperty] private bool _isSearchingNpm;
     [ObservableProperty] private string _editName = "";
     [ObservableProperty] private string _editDescription = "";
     [ObservableProperty] private int _editServerTypeIndex; // 0 = local, 1 = remote
@@ -82,10 +68,7 @@ public partial class McpServersViewModel : ObservableObject
     [RelayCommand]
     private void ClearSearch() => SearchQuery = "";
 
-    [ObservableProperty] private string _browseSearchQuery = "";
-
     public ObservableCollection<McpServer> Servers { get; } = [];
-    public ObservableCollection<McpCatalogEntry> CatalogEntries { get; } = [];
 
     /// <summary>The overview gallery: the same filtered list as <see cref="Servers"/>, with usage.</summary>
     public ObservableCollection<McpServerCard> ServerCards { get; } = [];
@@ -96,11 +79,101 @@ public partial class McpServersViewModel : ObservableObject
      public McpServersViewModel(DataStore dataStore)
      {
          _dataStore = dataStore;
+         External.Opened += OnExternalOpened;
+         External.CopyRequested += CopyExternal;
+         External.PropertyChanged += OnExternalPropertyChanged;
          RefreshList();
-         ShowFeaturedCatalog();
      }
 
-    public bool ShowOverview => !IsEditing && !IsBrowsing;
+    /// <summary>MCP servers from plugins and the GitHub Copilot folder: listed, used in chats, read-only.</summary>
+    public ExternalCapabilitiesViewModel External { get; } = new(CapabilityKind.McpServer);
+
+    /// <summary>Raised to open Discover's MCP servers.</summary>
+    public event Action? DiscoverRequested;
+
+    public bool ShowOverview => !IsEditing && !External.IsViewing;
+    public bool ShowYoursHeading => External.HasGroups && (HasResults || ShowCompactEmpty);
+    public bool ShowCompactEmpty => !HasAnyServers && External.HasAnyItems && !IsSearching;
+    public bool ShowStats => HasAnyServers || External.HasAnyItems;
+    public bool HasExternal => External.HasAnyItems;
+    public string ExternalCountText => External.TotalCountText;
+
+    /// <summary>Every MCP server a chat can use, Lumi's and those from plugins and Copilot, for the Customize row.</summary>
+    public string SectionCountText => (_dataStore.Data.McpServers.Count + External.TotalCount).ToString(CultureInfo.CurrentCulture);
+
+    [ObservableProperty] private string _savedToastText = Loc.Mg_Saved;
+
+    /// <summary>Shown after Discover adds a server that still needs keys or other values.</summary>
+    [ObservableProperty] private bool _isFinishingSetup;
+
+    [RelayCommand]
+    private void FindInDiscover() => DiscoverRequested?.Invoke();
+
+    /// <summary>Opens a server added from Discover that still needs values filled in.</summary>
+    public void OpenForSetup(Guid id)
+    {
+        OpenById(id);
+        IsFinishingSetup = SelectedServer?.Id == id;
+    }
+
+    private void OnExternalOpened(ExternalCapabilityItem item)
+    {
+        IsConfirmingDelete = false;
+        _restoringSelection = true;
+        try
+        {
+            SelectedServer = null;
+        }
+        finally
+        {
+            _restoringSelection = false;
+        }
+
+        IsEditing = false;
+    }
+
+    private void OnExternalPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(ExternalCapabilitiesViewModel.IsViewing):
+                OnPropertyChanged(nameof(ShowOverview));
+                break;
+            case nameof(ExternalCapabilitiesViewModel.HasGroups):
+            case nameof(ExternalCapabilitiesViewModel.HasAnyItems):
+            case nameof(ExternalCapabilitiesViewModel.TotalCountText):
+                NotifyExternalOverview();
+                break;
+        }
+    }
+
+    private void NotifyExternalOverview()
+    {
+        OnPropertyChanged(nameof(ShowNoResults));
+        OnPropertyChanged(nameof(ShowEmptyState));
+        OnPropertyChanged(nameof(ShowYoursHeading));
+        OnPropertyChanged(nameof(ShowCompactEmpty));
+        OnPropertyChanged(nameof(ShowStats));
+        OnPropertyChanged(nameof(HasExternal));
+        OnPropertyChanged(nameof(ExternalCountText));
+        OnPropertyChanged(nameof(SectionCountText));
+    }
+
+    /// <summary>Makes an editable Lumi server from a read-only one and opens it.</summary>
+    private void CopyExternal(ExternalCapabilityItem item)
+    {
+        if (ExternalCapabilityCopier.CopyMcpServer(_dataStore, item.Descriptor) is not { } server)
+            return;
+
+        _ = _dataStore.SaveAsync();
+        External.Close();
+        if (!string.IsNullOrEmpty(SearchQuery))
+            SearchQuery = "";
+        RefreshList();
+        SelectedServer = server;
+        FlashSaved(Loc.External_CopiedToast);
+        McpConfigChanged?.Invoke();
+    }
     public bool IsNewServer => IsEditing && SelectedServer is null;
     public bool ShowSaveBar => IsEditing && (HasUnsavedChanges || IsNewServer) && !IsConfirmingDelete;
     public bool IsLocal => EditServerTypeIndex == 0;
@@ -115,8 +188,8 @@ public partial class McpServersViewModel : ObservableObject
     public bool HasAnyServers => _dataStore.Data.McpServers.Count > 0;
     public bool HasResults => ServerCards.Count > 0;
     public bool IsSearching => !string.IsNullOrWhiteSpace(SearchQuery);
-    public bool ShowNoResults => HasAnyServers && !HasResults;
-    public bool ShowEmptyState => !HasAnyServers;
+    public bool ShowNoResults => IsSearching && !HasResults && !External.HasGroups;
+    public bool ShowEmptyState => !HasAnyServers && !External.HasAnyItems;
     public string NoResultsText => string.Format(CultureInfo.CurrentCulture, Loc.Mg_NoResults, SearchQuery.Trim());
     public string TotalCountText => _dataStore.Data.McpServers.Count.ToString(CultureInfo.CurrentCulture);
     public string EnabledCountText => _dataStore.Data.McpServers.Count(server => server.IsEnabled).ToString(CultureInfo.CurrentCulture);
@@ -169,11 +242,10 @@ public partial class McpServersViewModel : ObservableObject
      {
          // Rebuilding the list clears the sidebar's selection, and through its two-way binding the
          // open server. Put it back quietly afterwards: the editor stays attached, the page stays in
-         // the editor or the catalog as it was, and edits in progress are kept.
+         // the editor as it was, and edits in progress are kept.
          var open = SelectedServer;
          var hasUnsavedEdits = IsEditing && CaptureEditor() != _editorBaseline;
          RefreshList();
-         RefreshCatalogInstallState();
 
          if (open is null)
              return;
@@ -247,6 +319,7 @@ public partial class McpServersViewModel : ObservableObject
         OnPropertyChanged(nameof(NoResultsText));
         OnPropertyChanged(nameof(TotalCountText));
         OnPropertyChanged(nameof(EnabledCountText));
+        NotifyExternalOverview();
     }
 
     [RelayCommand]
@@ -277,7 +350,8 @@ public partial class McpServersViewModel : ObservableObject
         _editorBaseline = CaptureEditor();
         UsedByAgents.Clear();
         IsConfirmingDelete = false;
-        IsBrowsing = false;
+        IsFinishingSetup = false;
+        External.Close();
         IsEditing = true;
         UpdateDirtyState();
         RefreshRelationFacts();
@@ -299,7 +373,7 @@ public partial class McpServersViewModel : ObservableObject
             SearchQuery = "";
         if (ReferenceEquals(SelectedServer, server))
         {
-            IsBrowsing = false;
+            External.Close();
             IsEditing = true;
             return;
         }
@@ -307,24 +381,26 @@ public partial class McpServersViewModel : ObservableObject
         SelectedServer = server;
     }
 
-    /// <summary>Back to the overview, from a server or from the catalog.</summary>
+    /// <summary>Back to the overview.</summary>
     [RelayCommand]
     private void CloseDetail()
     {
         IsConfirmingDelete = false;
+        IsFinishingSetup = false;
         SelectedServer = null;
         IsEditing = false;
-        IsBrowsing = false;
+        External.Close();
     }
 
      partial void OnSelectedServerChanged(McpServer? value)
      {
          if (value is null || _restoringSelection) return;
+         External.Close();
+         IsFinishingSetup = false;
          SyncEditorFromServer(value);
          RefreshRelations(value);
 
          IsConfirmingDelete = false;
-         IsBrowsing = false;
          IsEditing = true;
      }
 
@@ -429,7 +505,6 @@ public partial class McpServersViewModel : ObservableObject
         UpdateDirtyState();
     }
 
-    partial void OnIsBrowsingChanged(bool value) => OnPropertyChanged(nameof(ShowOverview));
     partial void OnHasUnsavedChangesChanged(bool value) => OnPropertyChanged(nameof(ShowSaveBar));
     partial void OnIsConfirmingDeleteChanged(bool value)
     {
@@ -494,9 +569,10 @@ public partial class McpServersViewModel : ObservableObject
         SyncEditorFromServer(SelectedServer);
     }
 
-    private async void FlashSaved()
+    private async void FlashSaved(string? text = null)
     {
         var version = ++_savedToastVersion;
+        SavedToastText = text ?? Loc.Mg_Saved;
         ShowSavedToast = true;
         await Task.Delay(1800);
         if (version == _savedToastVersion)
@@ -517,16 +593,6 @@ public partial class McpServersViewModel : ObservableObject
             EditEnvVars,
             EditHeaders,
             EditIsEnabled);
-
-     private void RefreshCatalogInstallState()
-     {
-         var installedPackages = _dataStore.Data.McpServers
-             .SelectMany(server => server.Args)
-             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-         foreach (var entry in CatalogEntries)
-             entry.IsInstalled = installedPackages.Contains(entry.NpmPackage);
-     }
 
     partial void OnEditCommandChanged(string value)
     {
@@ -590,6 +656,7 @@ public partial class McpServersViewModel : ObservableObject
             RefreshRelations(saved);
             IsEditing = true;
             UpdateDirtyState();
+            IsFinishingSetup = false;
             FlashSaved();
         }
 
@@ -665,378 +732,9 @@ public partial class McpServersViewModel : ObservableObject
     [RelayCommand]
     private void Import() => ImportRequested?.Invoke();
 
-    partial void OnSearchQueryChanged(string value) => RefreshList();
-
-    partial void OnBrowseSearchQueryChanged(string value)
+    partial void OnSearchQueryChanged(string value)
     {
-        _searchCts?.Cancel();
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            ShowFeaturedCatalog();
-            return;
-        }
-
-        // Immediately filter featured catalog entries
-        FilterFeaturedCatalog(value);
-
-        // Also search npm after a debounce delay for broader results
-        _searchCts = new CancellationTokenSource();
-        var token = _searchCts.Token;
-        _ = Task.Delay(400, token).ContinueWith(_ =>
-        {
-            if (!token.IsCancellationRequested)
-                Dispatcher.UIThread.Post(() => _ = SearchNpmAsync(value, token));
-        }, TaskScheduler.Default);
-    }
-
-    [RelayCommand]
-    private void BrowseCatalog()
-    {
-        IsConfirmingDelete = false;
-        SelectedServer = null;
-        IsBrowsing = true;
-        IsEditing = false;
-        BrowseSearchQuery = "";
-        ShowFeaturedCatalog();
-    }
-
-    [RelayCommand]
-    private void InstallCatalogEntry(McpCatalogEntry entry)
-    {
-        // Check if already installed by npm package name
-        if (_dataStore.Data.McpServers.Any(s =>
-            s.Args.Any(a => a.Equals(entry.NpmPackage, StringComparison.OrdinalIgnoreCase))))
-            return;
-
-        var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-
-        var server = new McpServer
-        {
-            Name = entry.Name,
-            Description = entry.Description,
-            ServerType = "local",
-            Command = isWindows ? "npx.cmd" : "npx",
-            Args = ["-y", entry.NpmPackage],
-            IsEnabled = true
-        };
-
-        // Auto-populate required env vars with placeholder values
-        if (entry.RequiredEnvVars.Count > 0)
-        {
-            foreach (var (key, hint) in entry.RequiredEnvVars)
-                server.Env[key] = $"YOUR_{key}_HERE";
-        }
-
-        _dataStore.Data.McpServers.Add(server);
-        _ = _dataStore.SaveAsync();
-        entry.IsInstalled = true;
+        External.ApplySearch(value);
         RefreshList();
-        McpConfigChanged?.Invoke();
-
-        // If env vars are required, open the editor so user fills them in
-        if (entry.RequiredEnvVars.Count > 0)
-        {
-            IsBrowsing = false;
-            EditServer(server);
-        }
     }
-
-    private void ShowFeaturedCatalog()
-    {
-        CatalogEntries.Clear();
-        var installedPackages = _dataStore.Data.McpServers
-            .SelectMany(s => s.Args)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var entry in _featuredCatalog)
-        {
-            entry.IsInstalled = installedPackages.Contains(entry.NpmPackage);
-            CatalogEntries.Add(entry);
-        }
-    }
-
-    private void FilterFeaturedCatalog(string query)
-    {
-        CatalogEntries.Clear();
-        var installedPackages = _dataStore.Data.McpServers
-            .SelectMany(s => s.Args)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var entry in SearchPipeline.Rank(
-                     _featuredCatalog.OrderByDescending(static entry => entry.MonthlyDownloads),
-                     query,
-                     static entry =>
-                     [
-                         SearchField.Primary(entry.Name, 3.2),
-                         new SearchField(entry.Description, 1.7),
-                         new SearchField(entry.NpmPackage, 1.2),
-                         new SearchField(entry.Category, 1.0)
-                     ]))
-        {
-            entry.IsInstalled = installedPackages.Contains(entry.NpmPackage);
-            CatalogEntries.Add(entry);
-        }
-    }
-
-    private async Task SearchNpmAsync(string query, CancellationToken ct)
-    {
-        IsSearchingNpm = true;
-        try
-        {
-            var url = $"https://registry.npmjs.org/-/v1/search?text=keywords:mcp-server+{Uri.EscapeDataString(query)}&size=50";
-            var json = await Http.GetStringAsync(url, ct);
-            if (ct.IsCancellationRequested) return;
-
-            using var doc = JsonDocument.Parse(json);
-            var objects = doc.RootElement.GetProperty("objects");
-
-            var installedPackages = _dataStore.Data.McpServers
-                .SelectMany(s => s.Args)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            // Keep track of packages already shown from featured catalog
-            var existingPackages = CatalogEntries.Select(e => e.NpmPackage).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            var candidates = new List<McpCatalogEntry>();
-            foreach (var obj in objects.EnumerateArray())
-            {
-                var pkg = obj.GetProperty("package");
-                var name = pkg.GetProperty("name").GetString() ?? "";
-                var desc = pkg.TryGetProperty("description", out var descProp) ? descProp.GetString() ?? "" : "";
-                var downloads = obj.TryGetProperty("downloads", out var dlProp)
-                    && dlProp.TryGetProperty("monthly", out var monthlyProp)
-                    ? monthlyProp.GetInt64() : 0;
-
-                // Skip SDK/inspector/non-server packages and duplicates of featured entries
-                if (name.EndsWith("/sdk") || name.EndsWith("/inspector") || name.EndsWith("/ext-apps"))
-                    continue;
-                if (existingPackages.Contains(name))
-                    continue;
-
-                var icon = InferIcon(name, desc);
-                var category = InferCategory(name, desc);
-                var displayName = FormatPackageName(name);
-                var entry = new McpCatalogEntry(displayName, desc, name, icon, category, downloads);
-                entry.IsInstalled = installedPackages.Contains(name);
-                candidates.Add(entry);
-            }
-
-            foreach (var entry in SearchPipeline.Rank(
-                         candidates.OrderByDescending(static entry => entry.MonthlyDownloads),
-                         query,
-                         static entry =>
-                         [
-                             SearchField.Primary(entry.Name, 3.2),
-                             new SearchField(entry.Description, 1.7),
-                             new SearchField(entry.NpmPackage, 1.2),
-                             new SearchField(entry.Category, 1.0)
-                         ]))
-            {
-                CatalogEntries.Add(entry);
-            }
-        }
-        catch (OperationCanceledException) { /* debounce cancelled */ }
-        catch { /* network error — silently show empty results */ }
-        finally
-        {
-            IsSearchingNpm = false;
-        }
-    }
-
-    private static string FormatPackageName(string npmName)
-    {
-        // "@modelcontextprotocol/server-memory" → "Memory"
-        // "playwright-mcp-server" → "Playwright"
-        var name = npmName;
-        var slashIdx = name.LastIndexOf('/');
-        if (slashIdx >= 0) name = name[(slashIdx + 1)..];
-        name = name.Replace("server-", "").Replace("-server", "").Replace("-mcp", "").Replace("mcp-", "");
-        if (string.IsNullOrWhiteSpace(name)) name = npmName;
-        // Title case
-        return string.Join(' ', name.Split('-', StringSplitOptions.RemoveEmptyEntries)
-            .Select(w => char.ToUpperInvariant(w[0]) + w[1..]));
-    }
-
-    private static string InferIcon(string name, string desc)
-    {
-        var combined = (name + " " + desc).ToLowerInvariant();
-        if (combined.Contains("memory") || combined.Contains("knowledge")) return "🧠";
-        if (combined.Contains("filesystem") || combined.Contains("file")) return "📁";
-        if (combined.Contains("github")) return "🐙";
-        if (combined.Contains("git")) return "📋";
-        if (combined.Contains("search")) return "🔍";
-        if (combined.Contains("fetch") || combined.Contains("web") || combined.Contains("http")) return "🌐";
-        if (combined.Contains("browser") || combined.Contains("puppeteer") || combined.Contains("playwright")) return "🎭";
-        if (combined.Contains("postgres") || combined.Contains("mysql") || combined.Contains("database") || combined.Contains("sql")) return "🐘";
-        if (combined.Contains("slack") || combined.Contains("discord") || combined.Contains("chat") || combined.Contains("message")) return "💬";
-        if (combined.Contains("map") || combined.Contains("geo") || combined.Contains("location")) return "🗺️";
-        if (combined.Contains("think") || combined.Contains("reason")) return "💭";
-        if (combined.Contains("docker") || combined.Contains("container")) return "🐳";
-        if (combined.Contains("video") || combined.Contains("youtube") || combined.Contains("media")) return "📺";
-        if (combined.Contains("mail") || combined.Contains("email")) return "📧";
-        if (combined.Contains("calendar") || combined.Contains("time")) return "📅";
-        if (combined.Contains("pdf") || combined.Contains("document")) return "📄";
-        if (combined.Contains("image") || combined.Contains("photo")) return "🖼️";
-        if (combined.Contains("test")) return "🧪";
-        return "🔌";
-    }
-
-    private static string InferCategory(string name, string desc)
-    {
-        var combined = (name + " " + desc).ToLowerInvariant();
-        if (combined.Contains("browser") || combined.Contains("puppeteer") || combined.Contains("playwright")) return "Browser";
-        if (combined.Contains("database") || combined.Contains("postgres") || combined.Contains("mysql") || combined.Contains("sqlite") || combined.Contains("sql")) return "Database";
-        if (combined.Contains("search")) return "Search";
-        if (combined.Contains("github") || combined.Contains("git") || combined.Contains("code")) return "Development";
-        if (combined.Contains("file") || combined.Contains("filesystem")) return "Files";
-        if (combined.Contains("docker") || combined.Contains("deploy") || combined.Contains("kubernetes")) return "DevOps";
-        if (combined.Contains("slack") || combined.Contains("discord") || combined.Contains("email") || combined.Contains("mail")) return "Communication";
-        if (combined.Contains("memory") || combined.Contains("knowledge")) return "Knowledge";
-        if (combined.Contains("fetch") || combined.Contains("web") || combined.Contains("http") || combined.Contains("crawl")) return "Web";
-        return "Tool";
-    }
-
-    // Each page gets its own entries: their install state is bound in the view, so a shared
-    // instance would be updated by every view model that exists at the same time.
-    private readonly McpCatalogEntry[] _featuredCatalog = FeaturedCatalog.Select(static entry => entry.Copy()).ToArray();
-
-    private static readonly McpCatalogEntry[] FeaturedCatalog =
-    [
-        new("Memory", "Persistent knowledge graph for long-term memory across sessions",
-            "@modelcontextprotocol/server-memory", "🧠", "Knowledge"),
-        new("Filesystem", "Read, write, and manage files and directories",
-            "@modelcontextprotocol/server-filesystem", "📁", "Files"),
-        new("GitHub", "Manage repositories, issues, pull requests, and more",
-            "@modelcontextprotocol/server-github", "🐙", "Development",
-            requiredEnvVars: new() { ["GITHUB_PERSONAL_ACCESS_TOKEN"] = "Personal access token from github.com/settings/tokens" }),
-        new("Git", "Git operations — status, diff, log, branch, commit",
-            "@modelcontextprotocol/server-git", "📋", "Development"),
-        new("Brave Search", "Web search powered by Brave Search API",
-            "@modelcontextprotocol/server-brave-search", "🔍", "Search",
-            requiredEnvVars: new() { ["BRAVE_API_KEY"] = "API key from brave.com/search/api" }),
-        new("Fetch", "Fetch and extract content from any URL",
-            "@modelcontextprotocol/server-fetch", "🌐", "Web"),
-        new("Puppeteer", "Browser automation — navigate, click, screenshot, scrape",
-            "@modelcontextprotocol/server-puppeteer", "🎭", "Browser"),
-        new("PostgreSQL", "Query and inspect PostgreSQL databases",
-            "@modelcontextprotocol/server-postgres", "🐘", "Database"),
-        new("SQLite", "Query and manage SQLite databases",
-            "@modelcontextprotocol/server-sqlite", "💾", "Database"),
-        new("Slack", "Read and send Slack messages, manage channels",
-            "@modelcontextprotocol/server-slack", "💬", "Communication",
-            requiredEnvVars: new() { ["SLACK_BOT_TOKEN"] = "Bot token from api.slack.com/apps", ["SLACK_TEAM_ID"] = "Team/workspace ID" }),
-        new("Google Maps", "Geocoding, directions, and place search",
-            "@modelcontextprotocol/server-google-maps", "🗺️", "Location",
-            requiredEnvVars: new() { ["GOOGLE_MAPS_API_KEY"] = "API key from console.cloud.google.com" }),
-        new("Sequential Thinking", "Dynamic problem-solving through thought sequences",
-            "@modelcontextprotocol/server-sequential-thinking", "💭", "Reasoning"),
-        new("Playwright", "Browser automation with Playwright — test, scrape, interact",
-            "@executeautomation/playwright-mcp-server", "🎪", "Browser"),
-        new("Everything", "Reference server with all MCP capabilities for testing",
-            "@modelcontextprotocol/server-everything", "🧪", "Testing"),
-        new("YouTube Transcript", "Fetch transcripts and captions from YouTube videos",
-            "@kimtaeyoon83/mcp-server-youtube-transcript", "📺", "Media"),
-        new("Docker", "Manage Docker containers, images, volumes, and networks",
-            "@modelcontextprotocol/server-docker", "🐳", "DevOps"),
-        new("PDF", "Load and extract text from PDF files with pagination",
-            "@modelcontextprotocol/server-pdf", "📄", "Documents"),
-        new("Time", "Current time and timezone conversions",
-            "@modelcontextprotocol/server-time", "⏰", "Utilities"),
-        new("Notion", "Read and manage Notion pages, databases, and content",
-            "notion-mcp-server", "📝", "Productivity",
-            requiredEnvVars: new() { ["NOTION_API_KEY"] = "Integration token from notion.so/my-integrations" }),
-        new("Linear", "Manage Linear issues, projects, and workflows",
-            "linear-mcp-server", "🎯", "Project Management",
-            requiredEnvVars: new() { ["LINEAR_API_KEY"] = "API key from linear.app/settings/api" }),
-        new("Todoist", "Manage tasks and projects in Todoist",
-            "todoist-mcp-server", "✅", "Productivity",
-            requiredEnvVars: new() { ["TODOIST_API_TOKEN"] = "API token from todoist.com/app/settings/integrations/developer" }),
-        new("Sentry", "Query and manage Sentry error monitoring",
-            "@sentry/mcp-server-sentry", "🐛", "Monitoring",
-            requiredEnvVars: new() { ["SENTRY_AUTH_TOKEN"] = "Auth token from sentry.io/settings/auth-tokens" }),
-        new("Cloudflare", "Manage Cloudflare Workers, KV, R2, and DNS",
-            "@nicepkg/cloudflare-mcp-server", "☁️", "Cloud",
-            requiredEnvVars: new() { ["CLOUDFLARE_API_TOKEN"] = "API token from dash.cloudflare.com/profile/api-tokens" }),
-        new("Supabase", "Manage Supabase projects, database, and auth",
-            "supabase-mcp-server", "⚡", "Database",
-            requiredEnvVars: new() { ["SUPABASE_ACCESS_TOKEN"] = "Access token from app.supabase.com/account/tokens" }),
-        new("Stripe", "Interact with Stripe payments, customers, and subscriptions",
-            "@stripe/mcp", "💳", "Payments",
-            requiredEnvVars: new() { ["STRIPE_API_KEY"] = "Secret key from dashboard.stripe.com/apikeys" }),
-        new("AWS", "Manage AWS resources — S3, Lambda, EC2, and more",
-            "aws-mcp-server", "🟧", "Cloud",
-            requiredEnvVars: new() { ["AWS_ACCESS_KEY_ID"] = "Access key ID", ["AWS_SECRET_ACCESS_KEY"] = "Secret access key" }),
-        new("Figma", "Access Figma designs, components, and styles",
-            "figma-mcp", "🎨", "Design",
-            requiredEnvVars: new() { ["FIGMA_PERSONAL_ACCESS_TOKEN"] = "Token from figma.com/developers/api" }),
-        new("Twilio", "Send SMS, make calls, and manage Twilio services",
-            "twilio-mcp-server", "📱", "Communication",
-            requiredEnvVars: new() { ["TWILIO_ACCOUNT_SID"] = "Account SID", ["TWILIO_AUTH_TOKEN"] = "Auth token" }),
-        new("Obsidian", "Read and manage Obsidian vault notes and metadata",
-            "obsidian-mcp-server", "🗄️", "Knowledge"),
-        new("Jira", "Manage Jira issues, sprints, and projects",
-            "jira-mcp-server", "📊", "Project Management",
-            requiredEnvVars: new() { ["JIRA_API_TOKEN"] = "API token from id.atlassian.com/manage-profile/security/api-tokens",
-                ["JIRA_BASE_URL"] = "Your Jira instance URL (e.g. https://yourteam.atlassian.net)",
-                ["JIRA_EMAIL"] = "Your Atlassian account email" }),
-    ];
-
-    private static Dictionary<string, string> ParseKeyValueLines(string text)
-    {
-        var dict = new Dictionary<string, string>();
-        if (string.IsNullOrWhiteSpace(text)) return dict;
-        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var eqIdx = line.IndexOf('=');
-            if (eqIdx > 0)
-            {
-                var key = line[..eqIdx].Trim();
-                var val = line[(eqIdx + 1)..].Trim();
-                if (!string.IsNullOrEmpty(key))
-                    dict[key] = val;
-            }
-        }
-        return dict;
-    }
-}
-
-public partial class McpCatalogEntry : ObservableObject
-{
-    public string Name { get; }
-    public string Description { get; }
-    public string NpmPackage { get; }
-    public string Icon { get; }
-    public string Category { get; }
-    public long MonthlyDownloads { get; }
-    /// <summary>Environment variables required for this MCP server (key=description).</summary>
-    public Dictionary<string, string> RequiredEnvVars { get; }
-    [ObservableProperty] private bool _isInstalled;
-
-    public McpCatalogEntry(string name, string description, string npmPackage, string icon, string category,
-        long monthlyDownloads = 0, Dictionary<string, string>? requiredEnvVars = null)
-    {
-        Name = name;
-        Description = description;
-        NpmPackage = npmPackage;
-        Icon = icon;
-        Category = category;
-        MonthlyDownloads = monthlyDownloads;
-        RequiredEnvVars = requiredEnvVars ?? [];
-    }
-
-    internal McpCatalogEntry Copy()
-        => new(Name, Description, NpmPackage, Icon, Category, MonthlyDownloads, new Dictionary<string, string>(RequiredEnvVars));
-
-    public bool HasRequiredEnvVars => RequiredEnvVars.Count > 0;
-    public string EnvVarHint => RequiredEnvVars.Count > 0
-        ? string.Join(", ", RequiredEnvVars.Keys)
-        : "";
-
-    public string DownloadsDisplay => MonthlyDownloads switch
-    {
-        >= 1_000_000 => $"{MonthlyDownloads / 1_000_000.0:F1}M/mo",
-        >= 1_000 => $"{MonthlyDownloads / 1_000.0:F1}K/mo",
-        > 0 => $"{MonthlyDownloads}/mo",
-        _ => ""
-    };
 }

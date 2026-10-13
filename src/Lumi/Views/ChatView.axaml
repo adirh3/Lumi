@@ -2863,6 +2863,8 @@
                              IsEditing="{Binding IsEditingMessage}"
                              CancelEditCommand="{Binding CancelComposerEditCommand}"
                              EditingSubmitLabel="{loc:Str Chat_EditSubmit}"
+                             McpToolTip="{loc:Str Chat_ConnectorsTooltip}"
+                             McpHeader="{loc:Str Chat_ConnectorsHeader}"
                              IsRecording="{Binding IsRecording}"
                              CanVoice="{Binding IsVoiceAvailable}"
                              SendWithEnter="{Binding SendWithEnter}"

@@ -27,7 +27,7 @@ public partial class McpServersView : UserControl
         }
 
         if (DataContext is McpServersViewModel page
-            && ManagementPage.TryHandleEscape(e, page.IsEditing || page.IsBrowsing, page.IsConfirmingDelete,
+            && ManagementPage.TryHandleEscape(e, page.IsEditing || page.External.IsViewing, page.IsConfirmingDelete,
                 page.IsEditing && (page.HasUnsavedChanges || page.IsNewServer),
                 () => page.CancelDeleteCommand.Execute(null), () => page.CloseDetailCommand.Execute(null)))
             return;

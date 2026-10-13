@@ -100,6 +100,27 @@ public partial class ChatViewModel
         }
     }
 
+    /// <summary>
+    /// Declines an MCP server's request to borrow the chat's model (MCP sampling). Lumi can't run it:
+    /// the SDK's typed <see cref="SamplingRequestedData"/> omits the CreateMessage payload that
+    /// <c>mcp.executeSampling</c> needs. Unanswered, the runtime waits forever and the server's tool
+    /// call hangs the turn; declined, servers fall back (Azure MCP returns its command list instead).
+    /// </summary>
+    internal static async Task DeclineMcpSamplingAsync(CopilotSession session, SamplingRequestedData request)
+    {
+        try
+        {
+            await session.Rpc.Ui.HandlePendingSamplingAsync(request.RequestId).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                "[Chat] Declining MCP sampling from '{0}' failed: {1}",
+                request.ServerName,
+                ex.Message);
+        }
+    }
+
     internal static string? CaptureTurnModelId(string? currentTurnModelId, string? selectedModelId)
         => currentTurnModelId ?? selectedModelId;
 
@@ -2519,6 +2540,10 @@ public partial class ChatViewModel
                         mcpStatusChanged.Data.Status,
                         mcpStatusChanged.Data.Error,
                         CancellationToken.None);
+                    break;
+
+                case SamplingRequestedEvent samplingRequested:
+                    _ = DeclineMcpSamplingAsync(session, samplingRequested.Data);
                     break;
 
                 case SessionPlanChangedEvent planChanged:

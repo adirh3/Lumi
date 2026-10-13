@@ -340,8 +340,8 @@ public sealed class LibraryExperienceTests
     }
 
     [Theory]
-    [InlineData(LibrarySection.McpServers, true, "Disable MCP server")]
-    [InlineData(LibrarySection.McpServers, false, "Enable MCP server")]
+    [InlineData(LibrarySection.McpServers, true, "Disable connector")]
+    [InlineData(LibrarySection.McpServers, false, "Enable connector")]
     [InlineData(LibrarySection.Jobs, true, "Disable job")]
     [InlineData(LibrarySection.Jobs, false, "Enable job")]
     public async Task AvailabilityActionsDescribeTheCurrentStateWithoutOfferingEditing(
@@ -381,19 +381,21 @@ public sealed class LibraryExperienceTests
     [Theory]
     [InlineData(LibrarySection.Projects, "projects")]
     [InlineData(LibrarySection.Skills, "skills")]
-    [InlineData(LibrarySection.Lumis, "Lumis")]
+    [InlineData(LibrarySection.Lumis, "agents")]
     [InlineData(LibrarySection.Memories, "memories")]
-    [InlineData(LibrarySection.McpServers, "MCP servers")]
+    [InlineData(LibrarySection.McpServers, "connectors")]
     [InlineData(LibrarySection.Jobs, "jobs")]
     public void EmptyAndNoResultsGuidanceNamesTheCurrentSection(LibrarySection section, string plural)
     {
         var library = new LibraryViewModel(new LibrarySink()) { Section = section };
-        Assert.Equal(new[] { "Projects", "Skills", "Lumis", "Memories", "MCP", "Jobs" }, library.SectionNames);
+        Assert.Equal(new[] { "Projects", "Skills", "Agents", "Memories", "Connectors", "Jobs" }, library.SectionNames);
         Assert.Equal((int)section, library.SectionIndex);
         Assert.True(library.IsEmpty);
         Assert.False(library.IsNoResults);
         Assert.Equal($"No {plural} yet", library.EmptyTitle);
         Assert.Contains("PC", library.EmptyDescription);
+        if (section == LibrarySection.Lumis)
+            Assert.Contains("add an agent", library.EmptyDescription);
         Assert.False(string.IsNullOrWhiteSpace(library.SectionDescription));
 
         library.SearchText = "missing";
@@ -433,7 +435,7 @@ public sealed class LibraryExperienceTests
     [Theory]
     [InlineData(LibrarySection.Projects, "New project")]
     [InlineData(LibrarySection.Skills, "New skill")]
-    [InlineData(LibrarySection.Lumis, "New Lumi")]
+    [InlineData(LibrarySection.Lumis, "New agent")]
     [InlineData(LibrarySection.Memories, "New memory")]
     public async Task EditorHidesBrowsingControlsAndPinsLabeledActionsAboveTheKeyboard(
         LibrarySection section, string title)

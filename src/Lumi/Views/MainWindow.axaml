@@ -22,6 +22,41 @@
 
   <Window.Resources>
     <Thickness x:Key="MainLayout.IslandOuterMargin">0,38,6,6</Thickness>
+    <!-- A plugin's (or the Copilot folder's) parts fold under one row so a large plugin never buries
+         the user's own items; rows open the read-only page. No tooltips: searches replace these rows,
+         and Avalonia 12 crashes closing a tooltip whose control has left the tree. -->
+    <DataTemplate x:Key="ExternalSidebarGroupTemplate" x:DataType="vm:ExternalCapabilityGroup">
+      <StackPanel Spacing="1">
+        <Button Classes="library-facet" Command="{Binding ToggleExpandedCommand}"
+                AutomationProperties.Name="{Binding Title}">
+          <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+            <PathIcon Grid.Column="0" Classes="mg-side-chevron" Classes.open="{Binding IsExpanded}"
+                      Data="{StaticResource Icon.ChevronRight}" Width="8" Height="8" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding Glyph}" FontSize="13" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+              <TextBlock Classes="facet-label" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+              <TextBlock Classes="mg-side-subtitle" Text="{Binding SourceCaption}" />
+            </StackPanel>
+            <TextBlock Grid.Column="3" Classes="facet-count" Text="{Binding CountText}" />
+          </Grid>
+        </Button>
+        <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding IsExpanded}" Margin="16,0,0,4">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ExternalCapabilityItem">
+              <Button Classes="library-facet mg-side-row" Classes.selected="{Binding IsSelected}" Classes.muted="{Binding !IsEnabled}"
+                      Command="{Binding OpenCommand}" AutomationProperties.Name="{Binding Name}">
+                <DockPanel>
+                  <PathIcon DockPanel.Dock="Right" Data="{StaticResource Icon.Lock}" Width="9" Height="9" Margin="8,0,0,0"
+                            Foreground="{DynamicResource Brush.TextTertiary}" Opacity="0.7" VerticalAlignment="Center" />
+                  <TextBlock DockPanel.Dock="Left" Text="{Binding Glyph}" FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center" />
+                  <TextBlock Classes="facet-label" Text="{Binding Name}" FontSize="12.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                </DockPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
     <x:Double x:Key="MainLayout.SplitIslandMinWidth">220</x:Double>
     <conv:ChatTagBrushConverter x:Key="ChatTagBrush" />
     <!-- ── SVG Icon Paths ── -->
@@ -69,10 +104,66 @@
     <StreamGeometry x:Key="Icon.FolderOpen">M3 6a2 2 0 0 1 2-2h4.2l2 2H19a2 2 0 0 1 2 2v1H7.4a2 2 0 0 0-1.9 1.4L3 18.2V6zm1.2 14 2.8-8.4a1 1 0 0 1 .9-.6h14.4a.8.8 0 0 1 .8 1l-2.4 7.3a1 1 0 0 1-.9.7H4.2z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Branch">M7 3a3 3 0 0 0-1 5.83v6.34a3 3 0 1 0 2 0V13.4c.8.4 1.7.6 2.6.6h2.3a3 3 0 1 0 0-2h-2.3A2.6 2.6 0 0 1 8 9.4v-.57A3 3 0 0 0 7 3z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Layers">M12 2 2 7l10 5 10-5-10-5zm-8.2 9.1L2 12l10 5 10-5-1.8-.9L12 15.2l-8.2-4.1zm0 5L2 17l10 5 10-5-1.8-.9L12 20.2l-8.2-4.1z</StreamGeometry>
+    <!-- Customize: two sliders, in layers so the knobs can slide along their tracks. Icons are scaled
+         to their geometry's bounds, so each layer carries two invisible marks at the corners of one
+         shared frame; that keeps the stacked layers registered with each other. -->
+    <StreamGeometry x:Key="Icon.CustomizeTracks">M3 4h.01v.01h-.01z M20.99 19.99h.01v.01h-.01z M4 6h16a1 1 0 0 1 0 2H4a1 1 0 0 1 0-2z M4 16h16a1 1 0 0 1 0 2H4a1 1 0 0 1 0-2z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.CustomizeKnobTop">M3 4h.01v.01h-.01z M20.99 19.99h.01v.01h-.01z M13.2 6a2.6 2.6 0 0 1 5 0v2a2.6 2.6 0 0 1-5 0z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.CustomizeKnobBottom">M3 4h.01v.01h-.01z M20.99 19.99h.01v.01h-.01z M5.8 16a2.6 2.6 0 0 1 5 0v2a2.6 2.6 0 0 1-5 0z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Compass">F1 M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 1.9a8.1 8.1 0 1 0 0 16.2 8.1 8.1 0 0 0 0-16.2zm4.3 3.8-2.1 6.1a.9.9 0 0 1-.5.5l-6.1 2.1 2.1-6.1a.9.9 0 0 1 .5-.5l6.1-2.1zM12 10.9a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Lock">M12 2a5 5 0 0 1 5 5v3h.5A2.5 2.5 0 0 1 20 12.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 19.5v-7A2.5 2.5 0 0 1 6.5 10H7V7a5 5 0 0 1 5-5zm0 2a3 3 0 0 0-3 3v3h6V7a3 3 0 0 0-3-3zm0 9.5a1.6 1.6 0 0 0-.8 3v1.5h1.6v-1.5a1.6 1.6 0 0 0-.8-3z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Duplicate">M9 3h9a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-1v-2h1a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v1H6V6a3 3 0 0 1 3-3zM6 8h9a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H6zm4.5 1.5h1.5v2.5h2.5v1.5H12v2.5h-1.5v-2.5H8V14h2.5v-2.5z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Puzzle">M10 2.5a2.5 2.5 0 0 1 2.45 3H16a2 2 0 0 1 2 2v3.05a2.5 2.5 0 1 1 0 4.9V19a2 2 0 0 1-2 2h-3.55a2.5 2.5 0 1 0-4.9 0H4a2 2 0 0 1-2-2v-3.55a2.5 2.5 0 1 0 0-4.9V7.5a2 2 0 0 1 2-2h3.55A2.5 2.5 0 0 1 10 2.5z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Star">M12 2.6l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8L12 2.6z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Shield">M12 2l8 3v6.2c0 5-3.4 9.4-8 10.8-4.6-1.4-8-5.8-8-10.8V5l8-3zm0 2.1L6 6.4v4.8c0 3.9 2.5 7.4 6 8.7 3.5-1.3 6-4.8 6-8.7V6.4l-6-2.3zm-1 4.4h2v5h-2v-5zm0 6.5h2v2h-2v-2z</StreamGeometry>
     <StreamGeometry x:Key="Icon.External">M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42L17.59 5H14V3zM5 5h6v2H6v11h11v-5h2v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
+    <!-- ── Customize section rows: the Library facet row, with the section's hue on its glyph ── -->
+    <Style Selector="Button.customize-section PathIcon.section-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
+      <Setter Property="Opacity" Value="0.85" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.customize-section:pointerover PathIcon.section-icon">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.customize-section.selected PathIcon.section-icon">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Border.customize-divider">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Margin" Value="8,8,8,2" />
+      <Setter Property="Background" Value="{DynamicResource Brush.BorderSubtle}" />
+    </Style>
+    <!-- ── Read-only groups in the Skills, Lumis and MCP sidebars ── -->
+    <Style Selector="Button.library-facet.mg-side-row">
+      <Setter Property="Padding" Value="9,5" />
+    </Style>
+    <Style Selector="Button.library-facet.mg-side-row.muted">
+      <Setter Property="Opacity" Value="0.55" />
+    </Style>
+    <Style Selector="PathIcon.mg-side-chevron">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.16" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="PathIcon.mg-side-chevron.open">
+      <Setter Property="RenderTransform" Value="rotate(90deg)" />
+    </Style>
+
     <!-- Sidebar ListBox: transparent, borderless, blends in -->
     <Style Selector="ListBox.sidebar-list">
       <Setter Property="Background" Value="Transparent" />
@@ -87,8 +178,8 @@
     </Style>
     <!-- Nav pill — always visible, glass effect -->
     <Style Selector="Border.nav-pill">
-      <Setter Property="CornerRadius" Value="18" />
-      <Setter Property="Padding" Value="5" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="Padding" Value="4" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="BoxShadow" Value="0 1 6 0 #16000000" />
@@ -102,43 +193,62 @@
       <Setter Property="BoxShadow" Value="0 4 16 0 #28000000" />
     </Style>
 
-    <!-- Nav icon buttons inside pill -->
+    <!-- Places in the pill. Only the place you're on shows its name (see UpdateNavLabels); the label
+         grows out of the icon, so a switch reads as the highlight travelling to the new place.
+         The 1px border is always there (transparent until active) so the selection ring never nudges
+         the icon; 7 + 1 keeps each place 31px wide, which NavIconButtonWidth relies on. -->
     <Style Selector="Button.nav-icon">
-      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="Padding" Value="7,0" />
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Height" Value="26" />
-      <Setter Property="CornerRadius" Value="9" />
-      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="CornerRadius" Value="15" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Focusable" Value="False" />
       <Setter Property="Cursor" Value="Hand" />
+      <!-- Names sit above the bar, centred on their place: never under the cursor, and they travel
+           with their place while the labels resize instead of re-anchoring to the pointer. -->
+      <Setter Property="ToolTip.Placement" Value="Top" />
+      <Setter Property="ToolTip.VerticalOffset" Value="-10" />
+    </Style>
+    <Style Selector="Button.nav-icon /template/ Border#PART_Surface">
+      <!-- The button template's resting drop shadow drew a faint ring around every transparent place. -->
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
       <Setter Property="Transitions">
         <Transitions>
-          <ThicknessTransition Property="Padding" Duration="0:0:0.18" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.2" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="BorderBrush" Duration="0:0:0.2" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
+    <Style Selector="Button.nav-icon /template/ Border#PART_Aurora">
+      <Setter Property="Opacity" Value="0" />
+    </Style>
     <Style Selector="Button.nav-icon:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="#12FFFFFF" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
     <Style Selector="Button.nav-icon.hovered /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="#12FFFFFF" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     </Style>
     <Style Selector="Button.nav-icon:pressed /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="#0CFFFFFF" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     </Style>
-    <Style Selector="Button.nav-icon.active">
-      <Setter Property="Background" Value="#1CFFFFFF" />
-    </Style>
-    <Style Selector="Button.nav-icon.active:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="#24FFFFFF" />
-    </Style>
-    <Style Selector="Button.nav-icon.active.hovered /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="#24FFFFFF" />
+    <!-- The place you're on: accent-tinted glass with a hairline ring. A solid fill read as a dark
+         hole in the translucent pill; the tint keeps it part of the glass and distinct from the
+         neutral hover wash. -->
+    <Style Selector="Button.nav-icon.active /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
     </Style>
     <Style Selector="Button.nav-icon PathIcon">
-      <Setter Property="Opacity" Value="0.4" />
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Opacity" Value="0.6" />
       <Setter Property="Transitions">
         <Transitions>
           <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
@@ -147,58 +257,58 @@
       </Setter>
     </Style>
     <Style Selector="Button.nav-icon:pointerover PathIcon">
-      <Setter Property="Opacity" Value="0.85" />
+      <Setter Property="Opacity" Value="0.95" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
     <Style Selector="Button.nav-icon.hovered PathIcon">
-      <Setter Property="Opacity" Value="0.85" />
+      <Setter Property="Opacity" Value="0.95" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
     <Style Selector="Button.nav-icon:pressed PathIcon">
-      <Setter Property="Opacity" Value="0.65" />
+      <Setter Property="Opacity" Value="0.75" />
     </Style>
     <Style Selector="Button.nav-icon.active PathIcon">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-
-    <!-- Inline nav label — expands via code-behind hover classes -->
+    <!-- Each place's hover motion lives with the rail's at the end of these styles ("Signs of life"). -->
     <Style Selector="Button.nav-icon TextBlock.nav-label">
-      <Setter Property="FontSize" Value="11" />
-      <Setter Property="FontWeight" Value="Medium" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextWrapping" Value="NoWrap" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Opacity" Value="0" />
       <Setter Property="MaxWidth" Value="0" />
       <Setter Property="Margin" Value="0" />
-      <Setter Property="RenderTransform" Value="translateX(-2px)" />
+      <Setter Property="RenderTransform" Value="translateX(-3px)" />
       <Setter Property="IsHitTestVisible" Value="False" />
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.16" Delay="0:0:0.04" Easing="CubicEaseOut" />
-          <DoubleTransition Property="MaxWidth" Duration="0:0:0.2" Easing="CubicEaseOut" />
-          <ThicknessTransition Property="Margin" Duration="0:0:0.2" Easing="CubicEaseOut" />
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Delay="0:0:0.04" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Delay="0:0:0.05" Easing="CubicEaseOut" />
+          <DoubleTransition Property="MaxWidth" Duration="0:0:0.24" Easing="CubicEaseOut" />
+          <ThicknessTransition Property="Margin" Duration="0:0:0.24" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Delay="0:0:0.05" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.nav-icon.label-left TextBlock.nav-label">
-      <Setter Property="RenderTransform" Value="translateX(2px)" />
-    </Style>
-    <Style Selector="Button.nav-icon.hovered TextBlock.nav-label">
-      <Setter Property="Opacity" Value="0.85" />
-      <Setter Property="Margin" Value="3,0,0,0" />
+    <Style Selector="Button.nav-icon.labeled TextBlock.nav-label">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="Margin" Value="6,0,3,0" />
       <Setter Property="RenderTransform" Value="translateX(0px)" />
     </Style>
-    <Style Selector="Button.nav-icon.label-left.hovered TextBlock.nav-label">
-      <Setter Property="Margin" Value="0,0,3,0" />
-    </Style>
-    <Style Selector="Button.nav-icon.active.hovered TextBlock.nav-label">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="Opacity" Value="1" />
-    </Style>
 
+    <!-- Something is happening behind this place: a job running, an update waiting. -->
+    <Style Selector="Border.nav-live-dot">
+      <Setter Property="Width" Value="7" />
+      <Setter Property="Height" Value="7" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,-2,-3,0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
     <Style Selector="Button.project-pill">
       <Setter Property="Padding" Value="10,4" />
       <Setter Property="MinHeight" Value="0" />
@@ -237,108 +347,26 @@
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="translateX(0)" />
     </Style>
-    <Style Selector="Border.project-switcher-count-pill">
-      <Setter Property="MinWidth" Value="18" />
-      <Setter Property="Height" Value="18" />
-      <Setter Property="Padding" Value="5,0" />
-      <Setter Property="CornerRadius" Value="9" />
-      <Setter Property="Background" Value="{DynamicResource Brush.ControlDefault}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="BorderThickness" Value="1" />
-    </Style>
-    <Style Selector="Button.project-switcher-toggle:pointerover Border.project-switcher-count-pill">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
-    </Style>
-
-    <!-- ── Library nav rows ──────────────────────────────
-         One shared row shape used twice: "Library" at the top of the chat sidebar, and
-         "Back to chats" in the very same slot at the top of the Library sidebar. Entering
-         and leaving therefore happen at one fixed point on screen, so the trip is
-         reversible without hunting for the way out.
-
-         Quiet at rest: a permanently filled, bordered card sitting above the transparent
-         New Chat button read as though the Library were the selected tab. The surface,
-         border and lift are hover-only now. -->
-    <Style Selector="Button.library-nav">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="9,7" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    </Style>
-    <Style Selector="Button.library-nav /template/ Border#PART_Surface">
-      <!-- Premultiplied so the fade out of Transparent does not dip through black. -->
+    <!-- The switcher is a dropdown, so it says so: the chevron turns over while the drawer is open. -->
+    <Style Selector="PathIcon.project-switcher-chevron">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Margin" Value="0,0,4,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
       <Setter Property="Transitions">
         <Transitions>
-          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
-          <sa:PremultipliedBrushTransition Property="BorderBrush" Duration="0:0:0.16" Easing="CubicEaseOut" />
-          <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" Easing="CubicEaseOut" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Button.library-nav:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.ControlHover}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
-      <Setter Property="BoxShadow" Value="0 4 14 0 #12000000" />
-    </Style>
-    <Style Selector="Button.library-nav:pointerover /template/ Border#PART_Aurora">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="RenderTransform" Value="translateX(0)" />
-    </Style>
-    <Style Selector="Button.library-nav Border.library-nav-glyph">
-      <!-- Rest colours live here rather than inline: a local value outranks a style setter in
-           Avalonia, so an inline Background would make the :pointerover setter below dead. -->
-      <Setter Property="Width" Value="26" />
-      <Setter Property="Height" Value="26" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Margin" Value="0,0,9,0" />
-      <Setter Property="Background" Value="{DynamicResource Brush.ControlDefault}" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Button.library-nav:pointerover Border.library-nav-glyph">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    </Style>
-    <!-- The books tilt off their spines on hover. The pivot sits at the foot of the stack so
-         they lean like volumes being tipped off a shelf rather than spinning in place, and the
-         slight overshoot of BackEaseOut is what sells it as physical. -->
-    <Style Selector="Button.library-nav PathIcon#LibraryEntryBooks">
-      <Setter Property="RenderTransformOrigin" Value="50%,88%" />
-      <Setter Property="RenderTransform" Value="rotate(0deg) scale(1)" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="BackEaseOut" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Button.library-nav:pointerover PathIcon#LibraryEntryBooks">
-      <Setter Property="RenderTransform" Value="rotate(-8deg) scale(1.12)" />
-    </Style>
-    <!-- Each chevron leans the way it travels: in on the entry row, back out on the exit row. -->
-    <Style Selector="Button.library-nav PathIcon.library-nav-chevron">
-      <Setter Property="Opacity" Value="0.6" />
-      <Setter Property="RenderTransform" Value="translateX(0)" />
-      <Setter Property="Transitions">
-        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
           <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="CubicEaseOut" />
-          <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.library-nav:pointerover PathIcon.library-nav-chevron">
-      <Setter Property="RenderTransform" Value="translateX(3px)" />
-      <Setter Property="Opacity" Value="1" />
+    <Style Selector="Button.project-switcher-toggle:pointerover PathIcon.project-switcher-chevron">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.library-nav.back:pointerover PathIcon.library-nav-chevron">
-      <Setter Property="RenderTransform" Value="translateX(-3px)" />
+    <Style Selector="Button.project-switcher-toggle.open PathIcon.project-switcher-chevron">
+      <Setter Property="RenderTransform" Value="rotate(180deg)" />
     </Style>
 
     <!-- ── Library sidebar facet rows ── -->
@@ -406,10 +434,10 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
-    <!-- ── Management sidebars (Projects, Skills, Lumis, Memories, MCP) ──
+    <!-- ── Management sidebars (Projects, Skills, Lumis, MCP) ──
          Neutral rows, like the chat list: only the item glyphs take their page's muted hue, from the
-         Hue.*.axaml each sidebar merges. The "All …" row reuses the Library facet row and goes back
-         to the page's overview. -->
+         Hue.*.axaml each sidebar merges. Projects' "All projects" row reuses the Library facet row and
+         goes back to the page's overview. -->
     <Style Selector="Button.mg-side-overview">
       <Setter Property="Margin" Value="10,8,10,2" />
     </Style>
@@ -470,6 +498,53 @@
     <Style Selector="Panel.mg-side-muted">
       <Setter Property="Opacity" Value="0.55" />
     </Style>
+    <!-- Import and New, beside a section's search. -->
+    <Style Selector="Button.mg-side-action">
+      <Setter Property="Padding" Value="7,6" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+    </Style>
+    <Style Selector="Button.mg-side-action PathIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.mg-side-action:pointerover PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <!-- The chevron before "Projects": the page is opened from the chat list's project switcher, so
+         the way back sits where its title starts, as in Windows Settings. -->
+    <Style Selector="Button.sidebar-back">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.sidebar-back PathIcon">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.sidebar-back:pointerover PathIcon">
+      <Setter Property="RenderTransform" Value="translateX(-2px)" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
 
     <Style Selector="Border.project-switcher-panel">
       <Setter Property="Padding" Value="0" />
@@ -478,6 +553,59 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="Background" Value="{DynamicResource Brush.Background}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+
+    <!-- Project switcher: edit the narrowed-to project; create and manage projects from its drawer. -->
+    <Style Selector="Button.project-switcher-edit">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.project-switcher-edit PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.project-switcher-edit:pointerover PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border.project-switcher-footer">
+      <Setter Property="BorderThickness" Value="0,1,0,0" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Padding" Value="0,5,0,0" />
+      <Setter Property="Margin" Value="0,1,0,0" />
+    </Style>
+    <Style Selector="Button.project-switcher-action">
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.project-switcher-action PathIcon">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.project-switcher-action TextBlock">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="Button.project-switcher-action:pointerover TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
 
     <Style Selector="Border.project-switcher-search">
@@ -780,14 +908,30 @@
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="Padding" Value="0" />
       <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="Focusable" Value="False" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
+      <!-- Names to the right of the rail, level with their place (the default offset drops a tip
+           20px, beside the next place down). -->
+      <Setter Property="ToolTip.Placement" Value="Right" />
+      <Setter Property="ToolTip.HorizontalOffset" Value="8" />
+      <Setter Property="ToolTip.VerticalOffset" Value="0" />
       <Setter Property="Transitions">
         <Transitions>
           <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.rail-nav-icon /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" />
+          <sa:PremultipliedBrushTransition Property="BorderBrush" Duration="0:0:0.16" />
         </Transitions>
       </Setter>
     </Style>
@@ -805,14 +949,113 @@
     <Style Selector="Button.rail-nav-icon:pointerover PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.rail-nav-icon.active">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    </Style>
-    <Style Selector="Button.rail-nav-icon.active:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+    <!-- Same selection as the pill. Set on the surface so a hover can't wash it out. -->
+    <Style Selector="Button.rail-nav-icon.active /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
     </Style>
     <Style Selector="Button.rail-nav-icon.active PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- ── Signs of life on the places (bar and rail) ──
+         Hovering a place moves its icon the way the thing itself moves: a message pops up from
+         its tail, the books tip off their spines, the clock's hands sweep round, the knobs slide,
+         the gear turns. Physical motions overshoot slightly (BackEaseOut); mechanical ones glide.
+         The clock and gear end where they began, so a hovered icon still reads at rest. Off when
+         animations are off in Settings. Declared last so these transitions replace the colour-only
+         ones above. -->
+    <Style Selector="PathIcon.nav-chat">
+      <Setter Property="RenderTransformOrigin" Value="15%,95%" />
+      <Setter Property="RenderTransform" Value="rotate(0deg) scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="PathIcon.nav-books">
+      <Setter Property="RenderTransformOrigin" Value="50%,88%" />
+      <Setter Property="RenderTransform" Value="rotate(0deg) scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="PathIcon.nav-clock">
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.7" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="PathIcon.nav-knob-left, PathIcon.nav-knob-right">
+      <Setter Property="RenderTransform" Value="translateX(0px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.4" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="PathIcon.nav-gear">
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.45" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-chat, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-chat, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-chat">
+      <Setter Property="RenderTransform" Value="rotate(-8deg) scale(1.12)" />
+    </Style>
+    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-books, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-books, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-books">
+      <Setter Property="RenderTransform" Value="rotate(-8deg) scale(1.12)" />
+    </Style>
+    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-clock, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-clock, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-clock">
+      <Setter Property="RenderTransform" Value="rotate(360deg)" />
+    </Style>
+    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-left, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-knob-left, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-left">
+      <Setter Property="RenderTransform" Value="translateX(-3.3px)" />
+    </Style>
+    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-right, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-knob-right, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-right">
+      <Setter Property="RenderTransform" Value="translateX(3.3px)" />
+    </Style>
+    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-gear, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-gear, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-gear">
+      <Setter Property="RenderTransform" Value="rotate(60deg)" />
+    </Style>
+
+    <!-- The Customize glyph is three layers (tracks and two knobs). In the bar the dimming goes on
+         the group: layers dimmed one by one would show darker where a knob overlaps its track. -->
+    <Style Selector="Button.nav-icon Panel.nav-tune">
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.nav-icon:pointerover Panel.nav-tune, Button.nav-icon.hovered Panel.nav-tune">
+      <Setter Property="Opacity" Value="0.95" />
+    </Style>
+    <Style Selector="Button.nav-icon.active Panel.nav-tune">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Panel.nav-tune > PathIcon">
+      <Setter Property="Opacity" Value="1" />
     </Style>
 
   </Window.Styles>
@@ -870,138 +1113,158 @@
             </Button>
           </Border>
 
-          <!-- ── Bottom: Nav pill (always visible) ── -->
-          <Border DockPanel.Dock="Bottom" Margin="14,4,14,12" ClipToBounds="False">
+          <!-- ── Bottom: the app's places. The one you're on wears its name; the others show theirs as a
+               tooltip. The pill sizes to its content, so moving between places slides the label across. ── -->
+          <Border x:Name="NavPillHost" DockPanel.Dock="Bottom" Margin="12,4,12,12" ClipToBounds="False">
             <Border Classes="nav-pill" x:Name="NavPill"
+                    Classes.motion-disabled="{Binding !SettingsVM.ShowAnimations}"
                     BorderBrush="#10FFFFFF" ClipToBounds="False">
               <Border.Background>
                 <SolidColorBrush Color="{DynamicResource Color.Surface1}" Opacity="0.55" />
               </Border.Background>
               <StackPanel x:Name="NavRow" Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
                 <Button Classes="subtle nav-icon" x:Name="NavChat"
-                        Command="{Binding SetNavCommand}" CommandParameter="0">
+                        Command="{Binding SetNavCommand}" CommandParameter="0"
+                        ToolTip.Tip="{loc:Str NavTip_Chats}">
                   <StackPanel Orientation="Horizontal">
                     <Panel>
-                      <PathIcon Data="{StaticResource Icon.Chat}" Width="14" Height="14"
-                                VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                      <PathIcon Classes="nav-chat" Data="{StaticResource Icon.Chat}" />
                       <Border x:Name="NavChatUnreadBadge"
                               Classes="unread-nav-badge"
-                              Margin="0,-4,-7,0"
-                              IsVisible="{Binding HasUnreadChats}"
-                              ToolTip.Tip="{loc:Str Unread_NavBadgeTooltip}">
+                              Margin="0,-5,-8,0"
+                              IsVisible="{Binding HasUnreadChats}">
                         <TextBlock Text="{Binding UnreadBadgeText}" />
                       </Border>
                     </Panel>
                     <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Chats}" />
                   </StackPanel>
-                 </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavJobs"
-                        Command="{Binding SetNavCommand}" CommandParameter="1">
+                </Button>
+                <Button Classes="subtle nav-icon" x:Name="NavLibrary"
+                        Command="{Binding OpenLibraryCommand}"
+                        ToolTip.Tip="{loc:Str NavTip_Library}">
                   <StackPanel Orientation="Horizontal">
-                    <PathIcon Data="{StaticResource Icon.Clock}" Width="14" Height="14"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <PathIcon Classes="nav-books" Data="{StaticResource Icon.Library}" />
+                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Library}" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="subtle nav-icon" x:Name="NavJobs"
+                        Command="{Binding SetNavCommand}" CommandParameter="1"
+                        ToolTip.Tip="{Binding JobsNavTip}">
+                  <StackPanel Orientation="Horizontal">
+                    <Panel>
+                      <PathIcon Classes="nav-clock" Data="{StaticResource Icon.Clock}" />
+                      <Border x:Name="NavJobsRunningDot" Classes="nav-live-dot" IsVisible="{Binding HasRunningJobs}" />
+                    </Panel>
                     <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Jobs}" />
                   </StackPanel>
                 </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavProjects"
-                        Command="{Binding SetNavCommand}" CommandParameter="2">
+                <Button Classes="subtle nav-icon" x:Name="NavCustomize"
+                        Command="{Binding OpenCustomizeCommand}"
+                        ToolTip.Tip="{loc:Str Customize_NavTip}">
                   <StackPanel Orientation="Horizontal">
-                    <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Projects}" />
+                    <Panel Classes="nav-tune">
+                      <PathIcon Data="{StaticResource Icon.CustomizeTracks}" />
+                      <PathIcon Classes="nav-knob-left" Data="{StaticResource Icon.CustomizeKnobTop}" />
+                      <PathIcon Classes="nav-knob-right" Data="{StaticResource Icon.CustomizeKnobBottom}" />
+                    </Panel>
+                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Customize}" />
                   </StackPanel>
                 </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavSkills"
-                        Command="{Binding SetNavCommand}" CommandParameter="3">
+                <Button Classes="subtle nav-icon" x:Name="NavSettings"
+                        Command="{Binding OpenSettingsCommand}"
+                        ToolTip.Tip="{loc:Str NavTip_Settings}">
                   <StackPanel Orientation="Horizontal">
-                    <PathIcon Data="{StaticResource Icon.Bolt}" Width="14" Height="14"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Skills}" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavAgents"
-                        Command="{Binding SetNavCommand}" CommandParameter="4">
-                  <StackPanel Orientation="Horizontal">
-                    <PathIcon Data="{StaticResource Icon.Sparkle}" Width="14" Height="14"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Lumis}" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="subtle nav-icon label-left" x:Name="NavMemories"
-                        Command="{Binding SetNavCommand}" CommandParameter="5">
-                  <StackPanel Orientation="Horizontal">
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Memories}" />
-                    <PathIcon Data="{StaticResource Icon.Memory}" Width="14" Height="14"
-                               VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="subtle nav-icon label-left" x:Name="NavMcpServers"
-                        Command="{Binding SetNavCommand}" CommandParameter="6">
-                  <StackPanel Orientation="Horizontal">
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_McpServers}" />
-                    <PathIcon Data="{StaticResource Icon.Plug}" Width="14" Height="14"
-                               VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="subtle nav-icon label-left" x:Name="NavSettings"
-                        Command="{Binding SetNavCommand}" CommandParameter="7">
-                  <StackPanel Orientation="Horizontal">
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Settings}" />
                     <Panel>
-                      <PathIcon Data="{StaticResource Icon.Gear}" Width="14" Height="14"
-                                 VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
-                       <Border x:Name="UpdateBadge" Width="7" Height="7" CornerRadius="4"
-                               Background="{DynamicResource Brush.AccentDefault}"
-                               HorizontalAlignment="Right" VerticalAlignment="Top"
-                               Margin="0,-1,-1,0"
-                               IsVisible="{Binding SettingsVM.ShouldShowUpdateBadge}" />
-                     </Panel>
-                   </StackPanel>
-                 </Button>
+                      <PathIcon Classes="nav-gear" Data="{StaticResource Icon.Gear}" />
+                      <Border x:Name="UpdateBadge" Classes="nav-live-dot"
+                              IsVisible="{Binding SettingsVM.ShouldShowUpdateBadge}" />
+                    </Panel>
+                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Settings}" />
+                  </StackPanel>
+                </Button>
               </StackPanel>
             </Border>
           </Border>
-
+          <!-- ── Customize: what Lumi can do, which is exactly what plugins bring (Lumis, skills, MCP
+               servers) plus Discover to find more. Its sections are rows, like every other list in the
+               sidebar; each keeps its own hue on the glyph and the selection uses Lumi's accent. The
+               section's own list follows below the divider. ── -->
+          <Border x:Name="CustomizeSwitcher" DockPanel.Dock="Top" Margin="10,4,10,0"
+                  IsVisible="{Binding IsCustomizeOpen}">
+            <StackPanel Spacing="1">
+              <Button x:Name="CustomizeDiscoverTab" Classes="library-facet customize-section" Classes.selected="{Binding IsDiscoverSection}"
+                      Command="{Binding OpenCustomizeSectionCommand}" CommandParameter="9"
+                      AutomationProperties.Name="{loc:Str Customize_Discover}">
+                <Button.Resources>
+                  <ResourceDictionary>
+                    <ResourceDictionary.MergedDictionaries>
+                      <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Discover.axaml" />
+                    </ResourceDictionary.MergedDictionaries>
+                  </ResourceDictionary>
+                </Button.Resources>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <PathIcon Grid.Column="0" Classes="section-icon" Data="{StaticResource Icon.Compass}" />
+                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Customize_Discover}" VerticalAlignment="Center" />
+                </Grid>
+              </Button>
+              <Button x:Name="CustomizeLumisTab" Classes="library-facet customize-section" Classes.selected="{Binding IsLumisSection}"
+                      Command="{Binding OpenCustomizeSectionCommand}" CommandParameter="4"
+                      AutomationProperties.Name="{loc:Str Customize_Lumis}">
+                <Button.Resources>
+                  <ResourceDictionary>
+                    <ResourceDictionary.MergedDictionaries>
+                      <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Lumi.axaml" />
+                    </ResourceDictionary.MergedDictionaries>
+                  </ResourceDictionary>
+                </Button.Resources>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <PathIcon Grid.Column="0" Classes="section-icon" Data="{StaticResource Icon.Sparkle}" />
+                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Customize_Lumis}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding AgentsVM.SectionCountText}" />
+                </Grid>
+              </Button>
+              <Button x:Name="CustomizeSkillsTab" Classes="library-facet customize-section" Classes.selected="{Binding IsSkillsSection}"
+                      Command="{Binding OpenCustomizeSectionCommand}" CommandParameter="3"
+                      AutomationProperties.Name="{loc:Str Customize_Skills}">
+                <Button.Resources>
+                  <ResourceDictionary>
+                    <ResourceDictionary.MergedDictionaries>
+                      <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Skill.axaml" />
+                    </ResourceDictionary.MergedDictionaries>
+                  </ResourceDictionary>
+                </Button.Resources>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <PathIcon Grid.Column="0" Classes="section-icon" Data="{StaticResource Icon.Bolt}" />
+                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Customize_Skills}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding SkillsVM.SectionCountText}" />
+                </Grid>
+              </Button>
+              <Button x:Name="CustomizeMcpTab" Classes="library-facet customize-section" Classes.selected="{Binding IsMcpSection}"
+                      Command="{Binding OpenCustomizeSectionCommand}" CommandParameter="6"
+                      AutomationProperties.Name="{loc:Str Customize_McpServers}">
+                <Button.Resources>
+                  <ResourceDictionary>
+                    <ResourceDictionary.MergedDictionaries>
+                      <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Mcp.axaml" />
+                    </ResourceDictionary.MergedDictionaries>
+                  </ResourceDictionary>
+                </Button.Resources>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <PathIcon Grid.Column="0" Classes="section-icon" Data="{StaticResource Icon.Plug}" />
+                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Customize_McpServers}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding McpServersVM.SectionCountText}" />
+                </Grid>
+              </Button>
+              <Border Classes="customize-divider" />
+            </StackPanel>
+          </Border>
           <!-- ═══ SIDEBAR CONTENT PANELS (one per tab, wrapped for DockPanel fill) ═══ -->
           <Panel>
 
           <!-- ── 0: Chat sidebar ── -->
           <Panel x:Name="SidebarChat">
             <DockPanel>
-              <!-- ── Library entry: aggregated files, artifacts and links from every chat ── -->
-              <Button x:Name="LibraryEntryButton"
-                      DockPanel.Dock="Top"
-                      Classes="library-nav"
-                      Margin="16,10,16,0"
-                      ToolTip.Tip="{loc:Str Library_EntryTooltip}"
-                      Command="{Binding OpenLibraryCommand}">
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                  <Border x:Name="LibraryEntryGlyph"
-                          Classes="library-nav-glyph"
-                          Grid.Column="0">
-                    <PathIcon x:Name="LibraryEntryBooks"
-                              Data="{StaticResource Icon.Library}" Width="13" Height="13"
-                              Foreground="{DynamicResource Brush.AccentDefault}" />
-                  </Border>
-                  <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                    <TextBlock Text="{loc:Str Library_SidebarEntry}"
-                               FontWeight="SemiBold"
-                               FontSize="{DynamicResource Font.SizeBody}"
-                               Foreground="{DynamicResource Brush.TextPrimary}" />
-                    <TextBlock Text="{loc:Str Library_SidebarEntryHint}"
-                               FontSize="10.5"
-                               Foreground="{DynamicResource Brush.TextTertiary}"
-                               TextTrimming="CharacterEllipsis" />
-                  </StackPanel>
-                  <PathIcon Grid.Column="2"
-                            Classes="library-nav-chevron"
-                            Data="{StaticResource Icon.ChevronRight}"
-                            Width="11" Height="11"
-                            VerticalAlignment="Center"
-                            Foreground="{DynamicResource Brush.TextTertiary}" />
-                </Grid>
-              </Button>
-              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0" LastChildFill="True">
+              <DockPanel DockPanel.Dock="Top" Margin="16,10,16,0" LastChildFill="True">
                 <Button DockPanel.Dock="Right"
                         x:Name="ChatActionsButton"
                         Classes="subtle"
@@ -1076,42 +1339,47 @@
                   </StackPanel>
                 </Button>
               </DockPanel>
-              <!-- ── Project lens: compact selector that scales to many projects ── -->
+              <!-- ── Project lens: compact selector that scales to many projects. Projects live here
+                       rather than in the nav pill: they are where chats live, so they are created,
+                       edited and managed from the chat list (shown even before the first project). ── -->
               <Border x:Name="ProjectSwitcherRoot"
                       DockPanel.Dock="Top"
-                      Margin="14,6,14,0"
-                      IsVisible="{Binding Projects.Count}">
+                      Margin="14,6,14,0">
                 <StackPanel>
-                  <Button x:Name="ProjectSwitchButton"
-                          Classes="project-switcher-toggle"
-                          ToolTip.Tip="{loc:Str ProjectSwitcher_OpenTooltip}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                      <PathIcon Grid.Column="0"
-                                Data="{StaticResource Icon.Folder}"
-                                Width="13" Height="13"
-                                Foreground="{DynamicResource Brush.AccentDefault}"
-                                VerticalAlignment="Center" />
-                      <TextBlock x:Name="ProjectSwitchTitleText"
-                                 Grid.Column="1"
-                                 FontSize="12"
-                                 FontWeight="Medium"
-                                 Foreground="{DynamicResource Brush.TextSecondary}"
-                                 VerticalAlignment="Center"
-                                 TextTrimming="CharacterEllipsis" />
-                      <Border Grid.Column="2"
-                              Classes="project-switcher-count-pill"
-                              VerticalAlignment="Center">
-                        <TextBlock x:Name="ProjectSwitchCountText"
-                                   FontSize="9.8"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Brush.TextTertiary}"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center" />
-                      </Border>
-                      <TextBlock x:Name="ProjectSwitchSubtitleText"
-                                 IsVisible="False" />
-                    </Grid>
-                  </Button>
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                    <Button x:Name="ProjectSwitchButton"
+                            Classes="project-switcher-toggle"
+                            ToolTip.Tip="{loc:Str ProjectSwitcher_OpenTooltip}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
+                        <PathIcon Grid.Column="0"
+                                  Data="{StaticResource Icon.Folder}"
+                                  Width="13" Height="13"
+                                  Foreground="{DynamicResource Brush.AccentDefault}"
+                                  VerticalAlignment="Center" />
+                        <TextBlock x:Name="ProjectSwitchTitleText"
+                                   Grid.Column="1"
+                                   FontSize="12"
+                                   FontWeight="Medium"
+                                   Foreground="{DynamicResource Brush.TextSecondary}"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                        <PathIcon Grid.Column="2"
+                                  Classes="project-switcher-chevron"
+                                  Data="{StaticResource Icon.ChevronDown}" />
+                        <TextBlock x:Name="ProjectSwitchSubtitleText"
+                                   IsVisible="False" />
+                      </Grid>
+                    </Button>
+                    <Button Grid.Column="1"
+                            x:Name="ProjectEditButton"
+                            Classes="subtle project-switcher-edit"
+                            Command="{Binding EditSelectedProjectCommand}"
+                            IsVisible="{Binding HasSelectedProjectFilter}"
+                            ToolTip.Tip="{loc:Str ProjectSwitcher_EditTooltip}"
+                            AutomationProperties.Name="{loc:Str ProjectSwitcher_EditTooltip}">
+                      <PathIcon Data="{StaticResource Icon.Gear}" Width="13" Height="13" />
+                    </Button>
+                  </Grid>
 
                   <Border x:Name="ProjectSwitchRevealHost"
                           Height="0"
@@ -1150,6 +1418,32 @@
                                    HorizontalAlignment="Center"
                                    Margin="4,0,4,1"
                                    IsVisible="False" />
+
+                        <Border Classes="project-switcher-footer">
+                          <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
+                            <Button x:Name="ProjectSwitcherNewButton"
+                                    Classes="subtle project-switcher-action"
+                                    Command="{Binding NewProjectFromSwitcherCommand}"
+                                    Click="OnProjectSwitcherActionClick"
+                                    AutomationProperties.Name="{loc:Str Projects_New}">
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource Icon.Plus}" />
+                                <TextBlock Text="{loc:Str Projects_New}" />
+                              </StackPanel>
+                            </Button>
+                            <Button Grid.Column="1"
+                                    x:Name="ProjectSwitcherManageButton"
+                                    Classes="subtle project-switcher-action"
+                                    Command="{Binding ManageProjectsCommand}"
+                                    Click="OnProjectSwitcherActionClick"
+                                    AutomationProperties.Name="{loc:Str ProjectSwitcher_Manage}">
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource Icon.FolderOpen}" />
+                                <TextBlock Text="{loc:Str ProjectSwitcher_Manage}" />
+                              </StackPanel>
+                            </Button>
+                          </Grid>
+                        </Border>
                       </StackPanel>
                     </Border>
                   </Border>
@@ -1753,16 +2047,20 @@
               </ResourceDictionary>
             </Panel.Resources>
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
-                <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
-                        CornerRadius="{DynamicResource Radius.Base}"
+              <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
+                <Button DockPanel.Dock="Right" Classes="subtle mg-side-action"
                         Command="{Binding NewProjectCommand}" ToolTip.Tip="{loc:Str Sidebar_NewProjectTooltip}">
-                  <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
-                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <PathIcon Data="{StaticResource Icon.Plus}" />
+                </Button>
+                <Button DockPanel.Dock="Left" x:Name="ProjectsBackButton" Classes="subtle sidebar-back"
+                        Click="OnProjectsBackClick"
+                        ToolTip.Tip="{loc:Str Projects_BackToChats}"
+                        AutomationProperties.Name="{loc:Str Projects_BackToChats}">
+                  <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
                 </Button>
                 <TextBlock Text="{loc:Str Sidebar_Projects}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" Margin="6,0,0,0" />
+                           VerticalAlignment="Center" Margin="4,0,0,0" />
               </DockPanel>
               <Border DockPanel.Dock="Top"
                       Classes="project-switcher-search"
@@ -1866,94 +2164,88 @@
               </ResourceDictionary>
             </Panel.Resources>
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
-                  <Button x:Name="ImportSkillsButton" Classes="subtle" AutomationProperties.Name="{loc:Str Import_Tooltip}" Padding="7,5" MinHeight="0"
-                          CornerRadius="{DynamicResource Radius.Base}"
+              <!-- Search and the section's actions share one row; the Customize rows above already name the section. -->
+              <DockPanel DockPanel.Dock="Top" Margin="16,6,12,4">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1" Margin="4,0,0,0" VerticalAlignment="Center">
+                  <Button x:Name="ImportSkillsButton" Classes="subtle mg-side-action" AutomationProperties.Name="{loc:Str Import_Tooltip}"
                           Command="{Binding ImportCommand}" ToolTip.Tip="{loc:Str Import_Tooltip}">
-                    <PathIcon Data="{StaticResource Icon.Import}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <PathIcon Data="{StaticResource Icon.Import}" />
                   </Button>
-                  <Button Classes="subtle" Padding="7,5" MinHeight="0"
-                          CornerRadius="{DynamicResource Radius.Base}"
+                  <Button Classes="subtle mg-side-action"
                           Command="{Binding NewSkillCommand}" ToolTip.Tip="{loc:Str Sidebar_NewSkillTooltip}">
-                    <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <PathIcon Data="{StaticResource Icon.Plus}" />
                   </Button>
                 </StackPanel>
-                <TextBlock Text="{loc:Str Sidebar_Skills}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" Margin="6,0,0,0" />
+                <Border Classes="project-switcher-search">
+                  <DockPanel>
+                    <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                    <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
+                            IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+                      <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
+                    </Button>
+                    <TextBox x:Name="SkillsSidebarSearchBox" Classes="project-switcher-search-box"
+                             Text="{Binding SearchQuery, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Skills_SearchPlaceholder}" />
+                  </DockPanel>
+                </Border>
               </DockPanel>
-              <Border DockPanel.Dock="Top" Classes="project-switcher-search" Margin="16,8,16,0">
-                <DockPanel>
-                  <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
-                  <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
-                          IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
-                    <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
-                  </Button>
-                  <TextBox x:Name="SkillsSidebarSearchBox" Classes="project-switcher-search-box"
-                           Text="{Binding SearchQuery, Mode=TwoWay}"
-                           PlaceholderText="{loc:Str Skills_SearchPlaceholder}" />
-                </DockPanel>
-              </Border>
-              <Button DockPanel.Dock="Top" x:Name="SkillsOverviewButton" Classes="library-facet mg-side-overview"
-                      Classes.selected="{Binding !IsEditing}" Command="{Binding CloseDetailCommand}">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                  <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Browse}" Width="13" Height="13"
-                            VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Skills_Overview}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding TotalCountText}" />
-                </Grid>
-              </Button>
-              <ListBox x:Name="SkillsListBox" Classes="sidebar-list mg-side-list" Margin="8,4,8,8"
-                       ItemsSource="{Binding Skills}"
-                       SelectedItem="{Binding SelectedSkill, Mode=OneWay}"
-                       SelectionChanged="OnManagementListSelectionChanged"
-                       SelectionMode="Single">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="models:Skill">
-                    <Panel Background="Transparent">
-                      <Panel.ContextMenu>
-                        <ContextMenu x:CompileBindings="False">
-                          <MenuItem Header="{loc:Str Menu_CopyForChat}"
-                                    Command="{Binding $parent[Window].DataContext.SkillsVM.CopySkillForChatCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.CopyForChat}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                          <MenuItem Header="{loc:Str Menu_Share}"
-                                    Command="{Binding $parent[Window].DataContext.SkillsVM.ShareSkillCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.Share}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                          <MenuItem Header="{loc:Str Menu_Delete}"
-                                    Command="{Binding $parent[Window].DataContext.SkillsVM.DeleteSkillCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                        </ContextMenu>
-                      </Panel.ContextMenu>
-                      <DockPanel>
-                        <Border DockPanel.Dock="Left" Classes="mg-side-tile" Margin="0,0,10,0">
-                          <TextBlock Text="{Binding IconGlyph}" />
-                        </Border>
-                        <StackPanel Spacing="1" VerticalAlignment="Center">
-                          <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Classes="mg-side-subtitle" Text="{Binding Description}"
-                                     IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        </StackPanel>
-                      </DockPanel>
-                    </Panel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,0,10">
+                  <ListBox x:Name="SkillsListBox" Classes="sidebar-list mg-side-list" Margin="8,4,8,0" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                           ItemsSource="{Binding Skills}"
+                           SelectedItem="{Binding SelectedSkill, Mode=OneWay}"
+                           SelectionChanged="OnManagementListSelectionChanged"
+                           SelectionMode="Single">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:Skill">
+                        <Panel Background="Transparent">
+                          <Panel.ContextMenu>
+                            <ContextMenu x:CompileBindings="False">
+                              <MenuItem Header="{loc:Str Menu_CopyForChat}"
+                                        Command="{Binding $parent[Window].DataContext.SkillsVM.CopySkillForChatCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.CopyForChat}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <MenuItem Header="{loc:Str Menu_Share}"
+                                        Command="{Binding $parent[Window].DataContext.SkillsVM.ShareSkillCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Share}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <MenuItem Header="{loc:Str Menu_Delete}"
+                                        Command="{Binding $parent[Window].DataContext.SkillsVM.DeleteSkillCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                            </ContextMenu>
+                          </Panel.ContextMenu>
+                          <DockPanel>
+                            <Border DockPanel.Dock="Left" Classes="mg-side-tile" Margin="0,0,10,0">
+                              <TextBlock Text="{Binding IconGlyph}" />
+                            </Border>
+                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Classes="mg-side-subtitle" Text="{Binding Description}"
+                                         IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+                          </DockPanel>
+                        </Panel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <Border Classes="library-section-head" IsVisible="{Binding External.HasGroups}">
+                    <TextBlock Text="{loc:Str External_SidebarHeading}" />
+                  </Border>
+                  <ItemsControl x:Name="SkillsListBoxExternal" ItemsSource="{Binding External.Groups}" Margin="10,0"
+                                ItemTemplate="{StaticResource ExternalSidebarGroupTemplate}" />
+                </StackPanel>
+              </ScrollViewer>
             </DockPanel>
           </Panel>
 
@@ -1967,172 +2259,88 @@
               </ResourceDictionary>
             </Panel.Resources>
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
-                  <Button x:Name="ImportLumisButton" Classes="subtle" AutomationProperties.Name="{loc:Str Import_Tooltip}" Padding="7,5" MinHeight="0"
-                          CornerRadius="{DynamicResource Radius.Base}"
+              <!-- Search and the section's actions share one row; the Customize rows above already name the section. -->
+              <DockPanel DockPanel.Dock="Top" Margin="16,6,12,4">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1" Margin="4,0,0,0" VerticalAlignment="Center">
+                  <Button x:Name="ImportLumisButton" Classes="subtle mg-side-action" AutomationProperties.Name="{loc:Str Import_Tooltip}"
                           Command="{Binding ImportCommand}" ToolTip.Tip="{loc:Str Import_Tooltip}">
-                    <PathIcon Data="{StaticResource Icon.Import}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <PathIcon Data="{StaticResource Icon.Import}" />
                   </Button>
-                  <Button Classes="subtle" Padding="7,5" MinHeight="0"
-                          CornerRadius="{DynamicResource Radius.Base}"
+                  <Button Classes="subtle mg-side-action"
                           Command="{Binding NewAgentCommand}" ToolTip.Tip="{loc:Str Sidebar_NewLumiTooltip}">
-                    <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <PathIcon Data="{StaticResource Icon.Plus}" />
                   </Button>
                 </StackPanel>
-                <TextBlock Text="{loc:Str Sidebar_Lumis}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" Margin="6,0,0,0" />
+                <Border Classes="project-switcher-search">
+                  <DockPanel>
+                    <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                    <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
+                            IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+                      <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
+                    </Button>
+                    <TextBox x:Name="LumisSidebarSearchBox" Classes="project-switcher-search-box"
+                             Text="{Binding SearchQuery, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Lumis_SearchPlaceholder}" />
+                  </DockPanel>
+                </Border>
               </DockPanel>
-              <Border DockPanel.Dock="Top" Classes="project-switcher-search" Margin="16,8,16,0">
-                <DockPanel>
-                  <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
-                  <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
-                          IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
-                    <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
-                  </Button>
-                  <TextBox x:Name="LumisSidebarSearchBox" Classes="project-switcher-search-box"
-                           Text="{Binding SearchQuery, Mode=TwoWay}"
-                           PlaceholderText="{loc:Str Lumis_SearchPlaceholder}" />
-                </DockPanel>
-              </Border>
-              <Button DockPanel.Dock="Top" x:Name="LumisOverviewButton" Classes="library-facet mg-side-overview"
-                      Classes.selected="{Binding !IsEditing}" Command="{Binding CloseDetailCommand}">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                  <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Browse}" Width="13" Height="13"
-                            VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Lumis_Overview}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding TotalCountText}" />
-                </Grid>
-              </Button>
-              <ListBox x:Name="LumisListBox" Classes="sidebar-list mg-side-list" Margin="8,4,8,8"
-                       ItemsSource="{Binding Agents}"
-                       SelectedItem="{Binding SelectedAgent, Mode=OneWay}"
-                       SelectionChanged="OnManagementListSelectionChanged"
-                       SelectionMode="Single">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="models:LumiAgent">
-                    <Panel Background="Transparent">
-                      <Panel.ContextMenu>
-                        <ContextMenu x:CompileBindings="False">
-                          <MenuItem Header="{loc:Str Menu_CopyForChat}"
-                                    Command="{Binding $parent[Window].DataContext.AgentsVM.CopyAgentForChatCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.CopyForChat}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                          <MenuItem Header="{loc:Str Menu_Share}"
-                                    Command="{Binding $parent[Window].DataContext.AgentsVM.ShareAgentCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.Share}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                          <MenuItem Header="{loc:Str Menu_Delete}"
-                                    Command="{Binding $parent[Window].DataContext.AgentsVM.DeleteAgentCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                        </ContextMenu>
-                      </Panel.ContextMenu>
-                      <DockPanel>
-                        <Border DockPanel.Dock="Left" Classes="mg-side-tile round" Margin="0,0,10,0">
-                          <TextBlock Text="{Binding IconGlyph}" />
-                        </Border>
-                        <StackPanel Spacing="1" VerticalAlignment="Center">
-                          <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Classes="mg-side-subtitle" Text="{Binding Description}"
-                                     IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        </StackPanel>
-                      </DockPanel>
-                    </Panel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-            </DockPanel>
-          </Panel>
-
-          <!-- ── 5: Memories sidebar ── -->
-          <Panel x:Name="SidebarMemories" IsVisible="False" DataContext="{Binding MemoriesVM}" x:DataType="vm:MemoriesViewModel">
-            <Panel.Resources>
-              <ResourceDictionary>
-                <ResourceDictionary.MergedDictionaries>
-                  <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Memory.axaml" />
-                </ResourceDictionary.MergedDictionaries>
-              </ResourceDictionary>
-            </Panel.Resources>
-            <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
-                <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
-                        CornerRadius="{DynamicResource Radius.Base}"
-                        Command="{Binding NewMemoryCommand}" ToolTip.Tip="{loc:Str Sidebar_NewMemoryTooltip}">
-                  <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
-                            Foreground="{DynamicResource Brush.TextSecondary}" />
-                </Button>
-                <TextBlock Text="{loc:Str Sidebar_Memories}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" Margin="6,0,0,0" />
-              </DockPanel>
-              <Border DockPanel.Dock="Top" Classes="project-switcher-search" Margin="16,8,16,0">
-                <DockPanel>
-                  <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
-                  <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
-                          IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
-                    <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
-                  </Button>
-                  <TextBox x:Name="MemoriesSidebarSearchBox" Classes="project-switcher-search-box"
-                           Text="{Binding SearchQuery, Mode=TwoWay}"
-                           PlaceholderText="{loc:Str Memories_SearchPlaceholder}" />
-                </DockPanel>
-              </Border>
-              <Button DockPanel.Dock="Top" x:Name="MemoriesOverviewButton" Classes="library-facet mg-side-overview"
-                      Classes.selected="{Binding !IsEditing}" Command="{Binding CloseDetailCommand}">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                  <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Browse}" Width="13" Height="13"
-                            VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Memories_Overview}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding TotalCountText}" />
-                </Grid>
-              </Button>
-              <ListBox x:Name="MemoriesListBox" Classes="sidebar-list mg-side-list" Margin="8,4,8,8"
-                       ItemsSource="{Binding Memories}"
-                       SelectedItem="{Binding SelectedMemory, Mode=OneWay}"
-                       SelectionChanged="OnManagementListSelectionChanged"
-                       SelectionMode="Single">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="models:Memory">
-                    <Panel Background="Transparent">
-                      <Panel.ContextMenu>
-                        <ContextMenu x:CompileBindings="False">
-                          <MenuItem Header="{loc:Str Menu_Delete}"
-                                    Command="{Binding $parent[Window].DataContext.MemoriesVM.DeleteMemoryCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                        </ContextMenu>
-                      </Panel.ContextMenu>
-                      <DockPanel>
-                        <Border DockPanel.Dock="Right" Classes="mg-side-count" MaxWidth="96" Margin="8,0,0,0">
-                          <TextBlock Text="{Binding Category}" TextTrimming="CharacterEllipsis" />
-                        </Border>
-                        <StackPanel Spacing="1" VerticalAlignment="Center">
-                          <TextBlock Text="{Binding Key}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Classes="mg-side-subtitle" Text="{Binding Content}" />
-                        </StackPanel>
-                      </DockPanel>
-                    </Panel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,0,10">
+                  <ListBox x:Name="LumisListBox" Classes="sidebar-list mg-side-list" Margin="8,4,8,0" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                           ItemsSource="{Binding Agents}"
+                           SelectedItem="{Binding SelectedAgent, Mode=OneWay}"
+                           SelectionChanged="OnManagementListSelectionChanged"
+                           SelectionMode="Single">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:LumiAgent">
+                        <Panel Background="Transparent">
+                          <Panel.ContextMenu>
+                            <ContextMenu x:CompileBindings="False">
+                              <MenuItem Header="{loc:Str Menu_CopyForChat}"
+                                        Command="{Binding $parent[Window].DataContext.AgentsVM.CopyAgentForChatCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.CopyForChat}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <MenuItem Header="{loc:Str Menu_Share}"
+                                        Command="{Binding $parent[Window].DataContext.AgentsVM.ShareAgentCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Share}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <MenuItem Header="{loc:Str Menu_Delete}"
+                                        Command="{Binding $parent[Window].DataContext.AgentsVM.DeleteAgentCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                            </ContextMenu>
+                          </Panel.ContextMenu>
+                          <DockPanel>
+                            <Border DockPanel.Dock="Left" Classes="mg-side-tile round" Margin="0,0,10,0">
+                              <TextBlock Text="{Binding IconGlyph}" />
+                            </Border>
+                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Classes="mg-side-subtitle" Text="{Binding Description}"
+                                         IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+                          </DockPanel>
+                        </Panel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <Border Classes="library-section-head" IsVisible="{Binding External.HasGroups}">
+                    <TextBlock Text="{loc:Str External_SidebarHeading}" />
+                  </Border>
+                  <ItemsControl x:Name="LumisListBoxExternal" ItemsSource="{Binding External.Groups}" Margin="10,0"
+                                ItemTemplate="{StaticResource ExternalSidebarGroupTemplate}" />
+                </StackPanel>
+              </ScrollViewer>
             </DockPanel>
           </Panel>
 
@@ -2146,113 +2354,172 @@
               </ResourceDictionary>
             </Panel.Resources>
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
-                  <Button x:Name="ImportMcpServersButton" Classes="subtle" AutomationProperties.Name="{loc:Str Import_Tooltip}" Padding="7,5" MinHeight="0"
-                          CornerRadius="{DynamicResource Radius.Base}"
+              <!-- Search and the section's actions share one row; the Customize rows above already name the section. -->
+              <DockPanel DockPanel.Dock="Top" Margin="16,6,12,4">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="1" Margin="4,0,0,0" VerticalAlignment="Center">
+                  <Button x:Name="ImportMcpServersButton" Classes="subtle mg-side-action" AutomationProperties.Name="{loc:Str Import_Tooltip}"
                           Command="{Binding ImportCommand}" ToolTip.Tip="{loc:Str Import_Tooltip}">
-                    <PathIcon Data="{StaticResource Icon.Import}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <PathIcon Data="{StaticResource Icon.Import}" />
                   </Button>
-                  <Button Classes="subtle" Padding="7,5" MinHeight="0"
-                          CornerRadius="{DynamicResource Radius.Base}"
-                          Command="{Binding BrowseCatalogCommand}" ToolTip.Tip="{loc:Str Sidebar_BrowseMcpTooltip}">
-                    <PathIcon Data="{StaticResource Icon.Library}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
-                  </Button>
-                  <Button Classes="subtle" Padding="7,5" MinHeight="0"
-                          CornerRadius="{DynamicResource Radius.Base}"
+                  <Button Classes="subtle mg-side-action"
                           Command="{Binding NewServerCommand}" ToolTip.Tip="{loc:Str Sidebar_NewMcpServerTooltip}">
-                    <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <PathIcon Data="{StaticResource Icon.Plus}" />
                   </Button>
                 </StackPanel>
-                <TextBlock Text="{loc:Str Sidebar_McpServers}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" Margin="6,0,0,0" />
+                <Border Classes="project-switcher-search">
+                  <DockPanel>
+                    <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                    <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
+                            IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+                      <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
+                    </Button>
+                    <TextBox x:Name="McpSidebarSearchBox" Classes="project-switcher-search-box"
+                             Text="{Binding SearchQuery, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Mcp_SearchPlaceholder}" />
+                  </DockPanel>
+                </Border>
               </DockPanel>
-              <Border DockPanel.Dock="Top" Classes="project-switcher-search" Margin="16,8,16,0">
-                <DockPanel>
-                  <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
-                  <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
-                          IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
-                    <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
-                  </Button>
-                  <TextBox x:Name="McpSidebarSearchBox" Classes="project-switcher-search-box"
-                           Text="{Binding SearchQuery, Mode=TwoWay}"
-                           PlaceholderText="{loc:Str Mcp_SearchPlaceholder}" />
-                </DockPanel>
-              </Border>
-              <Button DockPanel.Dock="Top" x:Name="McpOverviewButton" Classes="library-facet mg-side-overview"
-                      Classes.selected="{Binding ShowOverview}" Command="{Binding CloseDetailCommand}">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                  <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Browse}" Width="13" Height="13"
-                            VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Mcp_Overview}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding TotalCountText}" />
-                </Grid>
-              </Button>
-              <Button DockPanel.Dock="Top" x:Name="McpCatalogButton" Classes="library-facet mg-side-overview"
-                      Classes.selected="{Binding IsBrowsing}" Command="{Binding BrowseCatalogCommand}" Margin="10,0,10,2">
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                  <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Library}" Width="13" Height="13"
-                            VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Mcp_Browse}" VerticalAlignment="Center" />
-                </Grid>
-              </Button>
-              <ListBox x:Name="McpServersListBox" Classes="sidebar-list mg-side-list" Margin="8,4,8,8"
-                       ItemsSource="{Binding Servers}"
-                       SelectedItem="{Binding SelectedServer, Mode=OneWay}"
-                       SelectionChanged="OnManagementListSelectionChanged"
-                       SelectionMode="Single">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="models:McpServer">
-                    <Panel Background="Transparent" Classes.mg-side-muted="{Binding !IsEnabled}">
-                      <Panel.ContextMenu>
-                        <ContextMenu x:CompileBindings="False">
-                          <MenuItem Header="{loc:Str Menu_CopyForChat}"
-                                    Command="{Binding $parent[Window].DataContext.McpServersVM.CopyServerForChatCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.CopyForChat}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                          <MenuItem Header="{loc:Str Menu_Share}"
-                                    Command="{Binding $parent[Window].DataContext.McpServersVM.ShareServerCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.Share}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                          <MenuItem Header="{loc:Str Menu_Delete}"
-                                    Command="{Binding $parent[Window].DataContext.McpServersVM.DeleteServerCommand}"
-                                    CommandParameter="{Binding}">
-                            <MenuItem.Icon>
-                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
-                            </MenuItem.Icon>
-                          </MenuItem>
-                        </ContextMenu>
-                      </Panel.ContextMenu>
-                      <DockPanel>
-                        <Panel DockPanel.Dock="Left" Margin="0,0,10,0" VerticalAlignment="Center">
-                          <Border Classes="mg-side-tile">
-                            <PathIcon Data="{StaticResource Icon.Plug}" />
-                          </Border>
-                          <Ellipse Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-2,-2"
-                                   Fill="{DynamicResource Brush.SuccessDefault}" Stroke="{DynamicResource Brush.Background}"
-                                   StrokeThickness="1.5" IsVisible="{Binding IsEnabled}" />
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,0,10">
+                  <ListBox x:Name="McpServersListBox" Classes="sidebar-list mg-side-list" Margin="8,4,8,0" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                           ItemsSource="{Binding Servers}"
+                           SelectedItem="{Binding SelectedServer, Mode=OneWay}"
+                           SelectionChanged="OnManagementListSelectionChanged"
+                           SelectionMode="Single">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:McpServer">
+                        <Panel Background="Transparent" Classes.mg-side-muted="{Binding !IsEnabled}">
+                          <Panel.ContextMenu>
+                            <ContextMenu x:CompileBindings="False">
+                              <MenuItem Header="{loc:Str Menu_CopyForChat}"
+                                        Command="{Binding $parent[Window].DataContext.McpServersVM.CopyServerForChatCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.CopyForChat}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <MenuItem Header="{loc:Str Menu_Share}"
+                                        Command="{Binding $parent[Window].DataContext.McpServersVM.ShareServerCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Share}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <MenuItem Header="{loc:Str Menu_Delete}"
+                                        Command="{Binding $parent[Window].DataContext.McpServersVM.DeleteServerCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                            </ContextMenu>
+                          </Panel.ContextMenu>
+                          <DockPanel>
+                            <Panel DockPanel.Dock="Left" Margin="0,0,10,0" VerticalAlignment="Center">
+                              <Border Classes="mg-side-tile">
+                                <PathIcon Data="{StaticResource Icon.Plug}" />
+                              </Border>
+                              <Ellipse Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-2,-2"
+                                       Fill="{DynamicResource Brush.SuccessDefault}" Stroke="{DynamicResource Brush.Background}"
+                                       StrokeThickness="1.5" IsVisible="{Binding IsEnabled}" />
+                            </Panel>
+                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Classes="mg-side-subtitle" Text="{Binding Description}"
+                                         IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+                          </DockPanel>
                         </Panel>
-                        <StackPanel Spacing="1" VerticalAlignment="Center">
-                          <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Classes="mg-side-subtitle" Text="{Binding Description}"
-                                     IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        </StackPanel>
-                      </DockPanel>
-                    </Panel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <Border Classes="library-section-head" IsVisible="{Binding External.HasGroups}">
+                    <TextBlock Text="{loc:Str External_SidebarHeading}" />
+                  </Border>
+                  <ItemsControl x:Name="McpServersListBoxExternal" ItemsSource="{Binding External.Groups}" Margin="10,0"
+                                ItemTemplate="{StaticResource ExternalSidebarGroupTemplate}" />
+                </StackPanel>
+              </ScrollViewer>
+            </DockPanel>
+          </Panel>
+
+          <!-- ── 9: Discover sidebar: what to browse, and where it comes from ── -->
+          <Panel x:Name="SidebarDiscover" IsVisible="False" DataContext="{Binding DiscoverVM}" x:DataType="vm:DiscoverViewModel">
+            <Panel.Resources>
+              <ResourceDictionary>
+                <ResourceDictionary.MergedDictionaries>
+                  <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Discover.axaml" />
+                </ResourceDictionary.MergedDictionaries>
+              </ResourceDictionary>
+            </Panel.Resources>
+            <DockPanel>
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,0,14">
+                  <Border Classes="library-section-head" Margin="20,10,16,6">
+                    <TextBlock Text="{loc:Str Discover_BrowseHeading}" />
+                  </Border>
+                  <StackPanel Margin="10,0" Spacing="1">
+                    <Button x:Name="DiscoverFacetAll" AutomationProperties.Name="{loc:Str Discover_FacetAll}" Classes="library-facet" Classes.selected="{Binding IsAll}" Command="{Binding ShowAllCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Compass}" Width="13" Height="13" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Discover_FacetAll}" VerticalAlignment="Center" />
+                      </Grid>
+                    </Button>
+                    <Button x:Name="DiscoverFacetPlugins" AutomationProperties.Name="{loc:Str Discover_FacetPlugins}" Classes="library-facet" Classes.selected="{Binding IsPluginsFacet}" Command="{Binding ShowPluginsCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Puzzle}" Width="13" Height="13" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Discover_FacetPlugins}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding PluginCountText}" />
+                      </Grid>
+                    </Button>
+                    <Button x:Name="DiscoverFacetServers" AutomationProperties.Name="{loc:Str Discover_FacetServers}" Classes="library-facet" Classes.selected="{Binding IsServersFacet}" Command="{Binding ShowServersCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Plug}" Width="13" Height="13" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Discover_FacetServers}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding ServerCountText}" />
+                      </Grid>
+                    </Button>
+                    <Button x:Name="DiscoverFacetInstalled" AutomationProperties.Name="{loc:Str Discover_FacetInstalled}" Classes="library-facet" Classes.selected="{Binding IsInstalled}" Command="{Binding ShowInstalledCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Check}" Width="13" Height="13" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Discover_FacetInstalled}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding InstalledCountText}" />
+                      </Grid>
+                    </Button>
+                  </StackPanel>
+
+                  <Border Classes="library-section-head">
+                    <TextBlock Text="{loc:Str Discover_SourcesHeading}" />
+                  </Border>
+                  <ItemsControl x:Name="DiscoverSourceList" ItemsSource="{Binding SourceRows}" Margin="10,0">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:DiscoverSourceRow">
+                        <!-- No tooltip: rows are replaced when sources arrive, and Avalonia 12 crashes closing
+                             a tooltip whose control has left the tree. Sources lists each one in full. -->
+                        <Button Classes="library-facet" Classes.selected="{Binding IsSelected}" Command="{Binding SelectCommand}"
+                                AutomationProperties.Name="{Binding Title}">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                            <Panel Grid.Column="0" VerticalAlignment="Center">
+                              <PathIcon Classes="facet-icon" Data="{StaticResource Icon.Puzzle}" Width="13" Height="13" IsVisible="{Binding IsPluginSource}" />
+                              <PathIcon Classes="facet-icon" Data="{StaticResource Icon.Plug}" Width="13" Height="13" IsVisible="{Binding !IsPluginSource}" />
+                            </Panel>
+                            <TextBlock Grid.Column="1" Classes="facet-label" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding CountText}" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <Button x:Name="DiscoverFacetSources" AutomationProperties.Name="{loc:Str Discover_ManageSources}" Classes="library-facet" Margin="10,1,10,0"
+                          Classes.selected="{Binding IsSources}" Command="{Binding ShowSourcesCommand}">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                      <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Layers}" Width="13" Height="13" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Discover_ManageSources}" VerticalAlignment="Center" />
+                    </Grid>
+                  </Button>
+                </StackPanel>
+              </ScrollViewer>
             </DockPanel>
           </Panel>
 
@@ -2264,8 +2531,10 @@
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <ListBox Classes="sidebar-list" Margin="14,12,14,8"
-                       SelectedIndex="{Binding SelectedPageIndex, Mode=TwoWay}"
+              <!-- Rows map to pages through SettingsSidebarPositionConverter: Memories sits under Profile
+                   but is shown by its own page (nav 5), which keeps this sidebar. -->
+              <ListBox x:Name="SettingsPagesList" Classes="sidebar-list" Margin="14,12,14,8"
+                       SelectedIndex="{Binding SelectedPageIndex, Mode=TwoWay, Converter={x:Static conv:SettingsSidebarPositionConverter.Instance}}"
                        SelectionMode="Single">
                 <ListBoxItem>
                   <StackPanel Orientation="Horizontal" Spacing="10">
@@ -2275,6 +2544,12 @@
                       </PathIcon.Data>
                     </PathIcon>
                     <TextBlock Text="{loc:Str Settings_Profile}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ListBoxItem>
+                <ListBoxItem x:Name="SettingsMemoriesItem">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Data="{StaticResource Icon.Memory}" Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBlock Text="{loc:Str Settings_Memories}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem>
@@ -2361,37 +2636,11 @@
           <!-- ── 8: Library sidebar ── -->
           <Panel x:Name="SidebarLibrary" IsVisible="False" DataContext="{Binding LibraryVM}" x:DataType="vm:LibraryViewModel">
             <DockPanel>
-              <!-- Occupies the exact slot the "Library" row holds in the chat sidebar, so the way
-                   out is where the way in was. -->
-              <Button x:Name="LibraryBackButton"
-                      DockPanel.Dock="Top"
-                      Classes="library-nav back"
-                      Margin="16,10,16,0"
-                      Command="{Binding BackToChatsCommand}">
-                <Grid ColumnDefinitions="Auto,*">
-                  <Border Classes="library-nav-glyph" Grid.Column="0">
-                    <PathIcon Classes="library-nav-chevron"
-                              Data="{StaticResource Icon.ChevronLeft}" Width="13" Height="13"
-                              Foreground="{DynamicResource Brush.AccentDefault}" />
-                  </Border>
-                  <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                    <TextBlock Text="{loc:Str Library_BackToChats}"
-                               FontWeight="SemiBold"
-                               FontSize="{DynamicResource Font.SizeBody}"
-                               Foreground="{DynamicResource Brush.TextPrimary}" />
-                    <TextBlock Text="{loc:Str Library_BackToChatsHint}"
-                               FontSize="10.5"
-                               Foreground="{DynamicResource Brush.TextTertiary}"
-                               TextTrimming="CharacterEllipsis" />
-                  </StackPanel>
-                </Grid>
-              </Button>
-
               <!-- Named for what the column does, not for the page it belongs to: every control
                    below narrows the results, and the page header already says "Library". Undo
                    lives on the chips above the results, not here, so there is one place to look. -->
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8"
-                          Margin="20,16,16,4" VerticalAlignment="Center">
+                          Margin="20,10,16,4" VerticalAlignment="Center">
                 <PathIcon Data="{StaticResource Icon.Filter}" Width="13" Height="13"
                           Foreground="{DynamicResource Brush.AccentDefault}" />
                 <TextBlock Text="{loc:Str Library_FiltersHeading}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
@@ -2629,6 +2878,13 @@
                 BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageLibraryHost" />
         </Border>
+        <Border x:Name="PageDiscover" IsVisible="False"
+                CornerRadius="{DynamicResource Radius.Overlay}"
+                Background="{DynamicResource Brush.SurfaceCard}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
+          <ContentControl x:Name="PageDiscoverHost" />
+        </Border>
 
         <!-- "Copied for chat", and "a Lumi code is on your clipboard": centred over the page, just
              below its header row so the buttons that triggered it stay visible. -->
@@ -2697,6 +2953,7 @@
 
     <!-- ═══ Collapsed icon rail: quick nav shown in place of the hidden sidebar ═══ -->
     <StackPanel x:Name="SidebarRail"
+                Classes.motion-disabled="{Binding !SettingsVM.ShowAnimations}"
                 Orientation="Vertical"
                 Spacing="3"
                 HorizontalAlignment="Left"
@@ -2706,9 +2963,9 @@
                 ZIndex="29">
       <Button Classes="subtle rail-nav-icon" x:Name="RailChat"
               Command="{Binding SetNavCommand}" CommandParameter="0"
-              ToolTip.Tip="{loc:Str NavLabel_Chats}" ToolTip.Placement="Right">
+              ToolTip.Tip="{loc:Str NavTip_Chats}">
         <Panel>
-          <PathIcon Data="{StaticResource Icon.Chat}" Width="17" Height="17" />
+          <PathIcon Classes="nav-chat" Data="{StaticResource Icon.Chat}" Width="17" Height="17" />
           <Border x:Name="RailChatUnreadBadge"
                   Classes="unread-nav-badge"
                   Margin="0,-4,-6,0"
@@ -2717,46 +2974,34 @@
           </Border>
         </Panel>
       </Button>
+      <Button Classes="subtle rail-nav-icon" x:Name="RailLibrary"
+              Command="{Binding OpenLibraryCommand}"
+              ToolTip.Tip="{loc:Str NavTip_Library}">
+        <PathIcon Classes="nav-books" Data="{StaticResource Icon.Library}" Width="17" Height="17" />
+      </Button>
       <Button Classes="subtle rail-nav-icon" x:Name="RailJobs"
               Command="{Binding SetNavCommand}" CommandParameter="1"
-              ToolTip.Tip="{loc:Str NavLabel_Jobs}" ToolTip.Placement="Right">
-        <PathIcon Data="{StaticResource Icon.Clock}" Width="17" Height="17" />
+              ToolTip.Tip="{Binding JobsNavTip}">
+        <Panel>
+          <PathIcon Classes="nav-clock" Data="{StaticResource Icon.Clock}" Width="17" Height="17" />
+          <Border Classes="nav-live-dot" IsVisible="{Binding HasRunningJobs}" />
+        </Panel>
       </Button>
-      <Button Classes="subtle rail-nav-icon" x:Name="RailProjects"
-              Command="{Binding SetNavCommand}" CommandParameter="2"
-              ToolTip.Tip="{loc:Str NavLabel_Projects}" ToolTip.Placement="Right">
-        <PathIcon Data="{StaticResource Icon.Folder}" Width="17" Height="17" />
-      </Button>
-      <Button Classes="subtle rail-nav-icon" x:Name="RailSkills"
-              Command="{Binding SetNavCommand}" CommandParameter="3"
-              ToolTip.Tip="{loc:Str NavLabel_Skills}" ToolTip.Placement="Right">
-        <PathIcon Data="{StaticResource Icon.Bolt}" Width="17" Height="17" />
-      </Button>
-      <Button Classes="subtle rail-nav-icon" x:Name="RailAgents"
-              Command="{Binding SetNavCommand}" CommandParameter="4"
-              ToolTip.Tip="{loc:Str NavLabel_Lumis}" ToolTip.Placement="Right">
-        <PathIcon Data="{StaticResource Icon.Sparkle}" Width="17" Height="17" />
-      </Button>
-      <Button Classes="subtle rail-nav-icon" x:Name="RailMemories"
-              Command="{Binding SetNavCommand}" CommandParameter="5"
-              ToolTip.Tip="{loc:Str NavLabel_Memories}" ToolTip.Placement="Right">
-        <PathIcon Data="{StaticResource Icon.Memory}" Width="17" Height="17" />
-      </Button>
-      <Button Classes="subtle rail-nav-icon" x:Name="RailMcpServers"
-              Command="{Binding SetNavCommand}" CommandParameter="6"
-              ToolTip.Tip="{loc:Str NavLabel_McpServers}" ToolTip.Placement="Right">
-        <PathIcon Data="{StaticResource Icon.Plug}" Width="17" Height="17" />
+      <Button Classes="subtle rail-nav-icon" x:Name="RailCustomize"
+              Command="{Binding OpenCustomizeCommand}"
+              ToolTip.Tip="{loc:Str Customize_NavTip}">
+        <Panel Classes="nav-tune">
+          <PathIcon Data="{StaticResource Icon.CustomizeTracks}" Width="17" Height="17" />
+          <PathIcon Classes="nav-knob-left" Data="{StaticResource Icon.CustomizeKnobTop}" Width="17" Height="17" />
+          <PathIcon Classes="nav-knob-right" Data="{StaticResource Icon.CustomizeKnobBottom}" Width="17" Height="17" />
+        </Panel>
       </Button>
       <Button Classes="subtle rail-nav-icon" x:Name="RailSettings"
-              Command="{Binding SetNavCommand}" CommandParameter="7"
-              ToolTip.Tip="{loc:Str NavLabel_Settings}" ToolTip.Placement="Right">
+              Command="{Binding OpenSettingsCommand}"
+              ToolTip.Tip="{loc:Str NavTip_Settings}">
         <Panel>
-          <PathIcon Data="{StaticResource Icon.Gear}" Width="17" Height="17" />
-          <Border Width="7" Height="7" CornerRadius="4"
-                  Background="{DynamicResource Brush.AccentDefault}"
-                  HorizontalAlignment="Right" VerticalAlignment="Top"
-                  Margin="0,-1,-1,0"
-                  IsVisible="{Binding SettingsVM.ShouldShowUpdateBadge}" />
+          <PathIcon Classes="nav-gear" Data="{StaticResource Icon.Gear}" Width="17" Height="17" />
+          <Border Classes="nav-live-dot" IsVisible="{Binding SettingsVM.ShouldShowUpdateBadge}" />
         </Panel>
       </Button>
     </StackPanel>

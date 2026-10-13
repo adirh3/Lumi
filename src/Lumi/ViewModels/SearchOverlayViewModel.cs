@@ -917,9 +917,9 @@ public partial class SearchOverlayViewModel : ObservableObject
         GlobalSearchCategory.BackgroundJobs => "Jobs",
         GlobalSearchCategory.Projects => "Projects",
         GlobalSearchCategory.Skills => "Skills",
-        GlobalSearchCategory.Lumis => "Lumis",
+        GlobalSearchCategory.Lumis => "Agents",
         GlobalSearchCategory.Memories => "Memories",
-        GlobalSearchCategory.McpServers => "MCP Servers",
+        GlobalSearchCategory.McpServers => "Connectors",
         GlobalSearchCategory.Settings => "Settings",
         _ => "Results"
     };

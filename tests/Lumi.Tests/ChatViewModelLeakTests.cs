@@ -3115,6 +3115,8 @@ public sealed class ChatViewModelLeakTests
     {
         Assert.True(CopilotService.IsMcpSetupTimeoutError(CopilotService.McpSetupTimeoutMessage));
         Assert.True(CopilotService.IsMcpSetupTimeoutError($"Error: {CopilotService.McpSetupTimeoutMessage}"));
+        // Chats saved before connectors were named so still read as the same recoverable timeout.
+        Assert.True(CopilotService.IsMcpSetupTimeoutError("Error: MCP server connection timed out. Check that your MCP servers are installed and responding."));
         Assert.False(CopilotService.IsMcpSetupTimeoutError("Session not found"));
         Assert.False(CopilotService.IsMcpSetupTimeoutError("quota exceeded"));
         Assert.False(CopilotService.IsMcpSetupTimeoutError(null));

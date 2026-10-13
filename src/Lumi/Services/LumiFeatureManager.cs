@@ -1347,6 +1347,7 @@ public sealed class LumiFeatureManager
         }
 
         _dataStore.Data.Skills.Remove(skill);
+        _dataStore.DeleteSkillBundle(skill.Id);
         return Success(
             $"Skill deleted: {skill.Name}. Removed from {removedFromAgents} Lumi(s) and {removedFromChats} chat(s).",
             syncSkillFiles: true);

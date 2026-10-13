@@ -23,6 +23,22 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public const int AiModelsPageIndex = 5;
     public const int AboutPageIndex = 7;
 
+    /// <summary>
+    /// Memories, listed under Profile in the Settings sidebar but shown by its own page (nav 5). It
+    /// takes the next free index so every existing page keeps the index other code relies on.
+    /// </summary>
+    public const int MemoriesPageIndex = 8;
+
+    // The Settings sidebar, top to bottom, as page indices.
+    private static readonly int[] SidebarPageOrder = [0, MemoriesPageIndex, 1, 2, 3, 4, AiModelsPageIndex, 6, AboutPageIndex];
+
+    /// <summary>Row of a page in the Settings sidebar; -1 when it has none.</summary>
+    public static int SidebarPositionForPage(int pageIndex) => Array.IndexOf(SidebarPageOrder, pageIndex);
+
+    /// <summary>Page shown by a row of the Settings sidebar; -1 for no row.</summary>
+    public static int PageForSidebarPosition(int position)
+        => position >= 0 && position < SidebarPageOrder.Length ? SidebarPageOrder[position] : -1;
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
@@ -60,6 +76,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             _ = RefreshAuthStatusAsync();
     }
 
+    // Indexed by page, so Memories (MemoriesPageIndex) comes last although the sidebar lists it under Profile.
     public ObservableCollection<string> Pages { get; } =
     [
         Loc.Settings_Profile,
@@ -69,7 +86,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         Loc.Settings_Chat,
         Loc.Settings_AIModels,
         Loc.Settings_PrivacyData,
-        Loc.Settings_About
+        Loc.Settings_About,
+        Loc.Settings_Memories
     ];
 
     // ── General ──

@@ -200,9 +200,9 @@ public static partial class ToolDisplayHelper
             case "manage_skills":
                 return ("Managing Lumi skills", ExtractJsonField(argsJson, "action"));
             case "manage_lumis":
-                return ("Managing Lumis", ExtractJsonField(argsJson, "action"));
+                return ("Managing agents", ExtractJsonField(argsJson, "action"));
             case "manage_mcps":
-                return ("Managing MCP servers", ExtractJsonField(argsJson, "action"));
+                return ("Managing connectors", ExtractJsonField(argsJson, "action"));
             case "manage_memories":
                 return ("Managing memories", ExtractJsonField(argsJson, "action"));
             case "manage_current_chat":

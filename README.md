@@ -11,11 +11,12 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
 - **Reply actions** — A compact footer below each answer groups its model name with copy, Share prompt, reply, and a more-actions menu for formatted copying and branching. The quiet actions stay discoverable without moving the answer; hovering over its timestamp shows the full date, time, and UTC offset. Missing snippet models use the recorded model for that turn; genuinely missing historical metadata is marked "Model not recorded" rather than guessed from the current model picker
 - **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
-- **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
+- **Agents** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
-- **Sharing** — Share reusable prompts, skills, Lumis and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
-- **Projects** — Organize chats with custom instructions that shape Lumi's behavior. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
-- **Memories** — Persistent facts extracted from conversations, remembered across all sessions
+- **Customize & Discover** — One place for agents, skills and connectors (MCP servers), plus Discover: browse and install GitHub Copilot plugins from plugin marketplaces and add connectors from MCP registries
+- **Sharing** — Share reusable prompts, skills, agents and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
+- **Projects** — Organize chats with custom instructions that shape Lumi's behavior; create, edit and manage them from the project switcher at the top of the chat list. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
+- **Memories** — Persistent facts extracted from conversations, remembered across all sessions; review and edit them in Settings → Memories
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access
@@ -231,19 +232,67 @@ and only complete records, never a misleading partial row. **Refresh** reloads
 the file, and **Open** still opens it in its default app. Previewing never edits
 the source file.
 
-### Sharing prompts, skills, Lumis and MCP servers
+### Navigation
+
+The bar at the bottom of the sidebar has five places: **Chats**, **Library**, **Jobs**, **Customize**
+and **Settings** (`Ctrl+1`–`Ctrl+5`, `⌘1`–`⌘5` on macOS; `Ctrl+,` / `⌘,` also opens Settings). The open
+place is highlighted and named when the sidebar is wide enough; a narrower sidebar shows icons only,
+and the collapsed sidebar shows the same places as a rail.
+
+- **Projects** live with your chats. The project switcher at the top of the chat list narrows the list
+  to a project; the gear beside it edits that project, and its drawer has **New project** and
+  **Manage projects**. The chevron before "Projects" returns to your chats.
+- **Memories** is a Settings page, listed under **Profile**. Settings reopens on the page used last,
+  so it reopens Memories if that is where you left it.
+
+### Customize and Discover
+
+**Customize** (the fourth place in the bar, `Ctrl+4`, `⌘4` on macOS) gathers everything that shapes what
+Lumi can do: **Discover**, **Agents**, **Skills** and **Connectors**, listed at the top of its sidebar
+with how many of each you have. It reopens on the section used last; choosing the open section again
+returns to its overview. Connectors are MCP (Model Context Protocol) servers: Lumi's UI names them by
+what they do, and keeps "MCP" for the protocol, config files and registries.
+
+**Discover** finds things to add, from sources you control under **Sources**:
+
+- **Plugins** come from *plugin marketplaces*: Git repositories with a `marketplace.json`
+  (`.github/plugin/marketplace.json` or `.claude-plugin/marketplace.json`), the format GitHub Copilot,
+  VS Code and Claude Code share. Lumi lists, installs, updates and removes plugins through the GitHub
+  Copilot runtime, so they are the same plugins the Copilot CLI sees in `~/.copilot`. The runtime's
+  marketplaces appear automatically; add any other with `owner/repo` or a Git URL. A plugin's page
+  previews what it brings — skills, agents, MCP servers and whether it has hooks —
+  read from its repository before you install.
+- **Connectors** come from *MCP registries* that serve the official registry API (`/v0.1/servers`).
+  GitHub's MCP Registry (`https://api.mcp.github.com`) is the default; add others the same way.
+  Adding one creates a normal Lumi connector: the hosted endpoint when the server offers one,
+  otherwise its package through `npx`, `uvx`, `dnx` or `docker`. A connector that needs keys or values
+  opens in the connector editor to finish setup. Lumi never installs runtimes; a missing one is named on
+  the connector's page.
+
+What installed plugins bring shows up in the **Skills**, **Agents** and **Connectors** sections, grouped by
+plugin, next to items from your GitHub Copilot folder. These are read-only because they update with
+their source: **Make a copy** creates an editable Lumi item, and **Manage in Discover** updates or
+removes the plugin. New chats load installed plugins automatically, and plugin MCP servers start like
+other servers Copilot discovers. The runtime describes skills to the model only up to a character budget
+and lists the rest by name alone, so Lumi raises that budget (`SKILL_CHAR_BUDGET`, 40,000 characters
+unless you set your own) to keep a large plugin from hiding every skill installed after it. Lumi declines
+MCP sampling requests (a server asking to borrow the chat's model), which the C# SDK can't yet carry out;
+answering at once lets servers such as Azure MCP fall back to explicit commands instead of waiting forever. In Debug builds run with `LUMI_APPDATA_DIR`, plugins install into
+that folder's `copilot-home` instead of `~/.copilot`, so testing never changes your real Copilot setup.
+
+### Sharing prompts, skills, agents and MCP servers
 
 **Share** (editor header, or right-click an item) opens a card with a receipt of what leaves the
 computer. A skill is shared as a standard Agent Skills `SKILL.md` (slug `name`, Lumi's display name
 and icon under `metadata`), so it works in Claude Code, Codex, Cursor and Gemini CLI; **Send to**
 installs it as `<skills folder>/<name>/SKILL.md` for those tools when they are present, and
-**Save to folder** writes the same layout anywhere (for example a repo's `.github/skills`). A Lumi or
+**Save to folder** writes the same layout anywhere (for example a repo's `.github/skills`). An agent or
 MCP server becomes a `*.lumi.md` capability pack: readable markdown whose tagged code blocks carry the
-Lumi, its skills and its MCP servers (as a standard `mcpServers` config).
+agent, its skills and its MCP servers (as a standard `mcpServers` config).
 
 Secrets never travel: environment variable and header values are left out (only their names are
 shared), and credentials inlined into arguments or URLs are replaced with `<REDACTED>`. **Import**
-(sidebar, empty state, or drop a file on the Skills, Lumis or MCP Servers page) accepts Lumi packs,
+(sidebar, empty state, or drop a file on the Skills, Agents or Connectors page) accepts Lumi packs,
 any `SKILL.md` or skill folder, and MCP JSON from Claude Desktop, VS Code or a README. It shows a
 receipt first — the exact commands and URLs, the keys you will need to add, and anything reused or
 renamed — and adds nothing until you confirm. Imported MCP servers arrive turned off with empty
@@ -755,8 +804,8 @@ Developer builds need the browser assets published to the desktop executable's
 
 ### Lazy MCP initialization
 
-In **Settings > AI & Models > MCP Servers**, enable **Fast MCP Initialization**, then
-**Lazy MCP Initialization** (off by default). Changes apply to new sessions; existing
+In **Settings > AI & Models > Connectors**, enable **Fast Connector Initialization**, then
+**Lazy Connector Initialization** (off by default). Changes apply to new sessions; existing
 sessions keep their configuration.
 
 The first connection starts the real local MCP server and learns its initialization
@@ -769,7 +818,7 @@ forwarding the operation. Each client keeps its own stable discovery view, even
 when clients share one running backend. Tool results are never cached, and tool
 calls are not replayed after an uncertain failure.
 
-Use **Refresh MCP Tools > Refresh catalogs** in the same settings group to clear
+Use **Refresh Connector Tools > Refresh catalogs** in the same settings group to clear
 stored catalog snapshots and mark current chats for safe reconnect on their next
 turn, preserving their session history and preferences. Active work finishes
 normally: refresh does not force an interruption or kill a busy backend.
@@ -814,7 +863,7 @@ The proxy rejects the newer `server/discover` request with method-not-found with
 starting or binding a backend, so Copilot can fall back to the supported
 `initialize` handshake with its actual client profile.
 Servers requiring bidirectional client callbacks still need direct Copilot
-connections (turn off Fast MCP Initialization); lazy mode does not add live
+connections (turn off Fast Connector Initialization); lazy mode does not add live
 callback forwarding.
 
 Package-launcher text on stdout (for example, NuGet credential-provider startup

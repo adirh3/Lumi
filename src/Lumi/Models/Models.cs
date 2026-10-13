@@ -998,6 +998,9 @@ public class McpServer
     public int? Timeout { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>The MCP registry name (for example <c>io.github.owner/server</c>) this server was added from in Discover.</summary>
+    public string? CatalogId { get; set; }
 }
 
 public static class BackgroundJobTriggerTypes
@@ -1448,6 +1451,11 @@ public class UserSettings
 
     // Applied to session configurations only; explicit server timeouts still take precedence.
     public int McpToolTimeoutSeconds { get; set; } = DefaultMcpToolTimeoutSeconds;
+
+    public const string DefaultMcpRegistryUrl = "https://api.mcp.github.com";
+
+    /// <summary>MCP registries (the official registry API) that Customize → Discover lists servers from.</summary>
+    public List<string> McpRegistryUrls { get; set; } = [DefaultMcpRegistryUrl];
 
     // ── Privacy & Data ──
     public bool EnableMemoryAutoSave { get; set; } = true;

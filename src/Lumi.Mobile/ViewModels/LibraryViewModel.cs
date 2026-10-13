@@ -351,7 +351,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     public ObservableCollection<string> SectionNames { get; } =
-        ["Projects", "Skills", "Lumis", "Memories", "MCP", "Jobs"];
+        ["Projects", "Skills", "Agents", "Memories", "Connectors", "Jobs"];
 
     public int SectionIndex
     {
@@ -371,9 +371,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         ? $"Try another name or clear the search to see all {PluralName}."
         : Section switch
         {
-            LibrarySection.McpServers => "Add MCP servers on your PC. You can enable or disable them here.",
+            LibrarySection.McpServers => "Add connectors on your PC. You can enable or disable them here.",
             LibrarySection.Jobs => "Create jobs on your PC. You can enable or disable them here.",
-            _ => $"Use New to add a {SingularName(Section)}, or add one on your PC. Your Library is shared."
+            _ => $"Use New to add {(Section == LibrarySection.Lumis ? "an" : "a")} {SingularName(Section)}, or add one on your PC. Your Library is shared."
         };
 
     public string SectionDescription => Section switch
@@ -387,20 +387,15 @@ public sealed partial class LibraryViewModel : ObservableObject
         _ => ""
     };
 
-    private string PluralName => Section switch
-    {
-        LibrarySection.McpServers => "MCP servers",
-        LibrarySection.Lumis => "Lumis",
-        _ => SectionNames[SectionIndex].ToLowerInvariant()
-    };
+    private string PluralName => SectionNames[SectionIndex].ToLowerInvariant();
 
     private static string SingularName(LibrarySection section) => section switch
     {
         LibrarySection.Projects => "project",
         LibrarySection.Skills => "skill",
-        LibrarySection.Lumis => "Lumi",
+        LibrarySection.Lumis => "agent",
         LibrarySection.Memories => "memory",
-        LibrarySection.McpServers => "MCP server",
+        LibrarySection.McpServers => "connector",
         LibrarySection.Jobs => "job",
         _ => "item"
     };

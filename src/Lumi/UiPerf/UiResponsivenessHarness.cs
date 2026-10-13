@@ -192,16 +192,21 @@ internal sealed class UiResponsivenessHarness
 
     // ---- Action catalogs -------------------------------------------------
 
+    // Customize sections are reached through the one Customize button, which reopens the last
+    // section used, and Memories through the Settings gear, which reopens the Settings page last
+    // used; preparing that section or page first makes each click land on the page being measured.
+    // Projects are managed from the chat sidebar's project switcher, so its drawer opens first.
     private static readonly (int Index, string Name, string ControlName)[] NavPages =
     {
-        (2, "Projects", "NavProjects"),
-        (3, "Skills", "NavSkills"),
-        (4, "Lumis", "NavAgents"),
-        (5, "Memories", "NavMemories"),
-        (6, "MCP servers", "NavMcpServers"),
+        (2, "Projects", "ProjectSwitcherManageButton"),
+        (3, "Skills", "NavCustomize"),
+        (4, "Agents", "NavCustomize"),
+        (MainViewModel.MemoriesNavIndex, "Memories", "NavSettings"),
+        (6, "MCP Servers", "NavCustomize"),
+        (MainViewModel.DiscoverNavIndex, "Discover", "NavCustomize"),
         (1, "Jobs", "NavJobs"),
         (7, "Settings", "NavSettings"),
-        (8, "Library", "LibraryEntryButton"),
+        (MainViewModel.LibraryNavIndex, "Library", "NavLibrary"),
     };
 
     private IEnumerable<UiAction> BuildColdNavigationActions()
@@ -213,9 +218,25 @@ internal sealed class UiResponsivenessHarness
                 "Navigation",
                 $"Open {name} page (first time)",
                 RunAsync: () => ClickNavigationAsync(index, controlName),
-                Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 0),
+                Prepare: () => PrepareNavigationAsync(index),
                 Note: "First realization of the page view — heavy XAML/template inflation happens here.");
         }
+    }
+
+    /// <summary>Starts from the chat page with the route to <paramref name="index"/> set up, so the measured click lands on it.</summary>
+    private async Task PrepareNavigationAsync(int index)
+    {
+        await OnUiAsync(() =>
+        {
+            _mainVm.SelectedNavIndex = 0;
+            if (MainViewModel.IsCustomizeIndex(index))
+                _mainVm.LastCustomizeNavIndex = index;
+            if (index == MainViewModel.MemoriesNavIndex)
+                _mainVm.SettingsVM.SelectedPageIndex = SettingsViewModel.MemoriesPageIndex;
+            else if (index == 7 && _mainVm.SettingsVM.SelectedPageIndex == SettingsViewModel.MemoriesPageIndex)
+                _mainVm.SettingsVM.SelectedPageIndex = 0;
+        });
+        await SetProjectSwitcherAsync(index == 2);
     }
 
     /// <summary>
@@ -241,15 +262,15 @@ internal sealed class UiResponsivenessHarness
         yield return new UiAction(
             "nav-warm-settings", "Navigation", "Switch to Settings (warm)",
             RunAsync: () => ClickNavigationAsync(7, "NavSettings"),
-            Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 0));
+            Prepare: () => PrepareNavigationAsync(7));
         yield return new UiAction(
             "nav-warm-projects", "Navigation", "Switch to Projects (warm)",
-            RunAsync: () => ClickNavigationAsync(2, "NavProjects"),
-            Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 0));
+            RunAsync: () => ClickNavigationAsync(2, "ProjectSwitcherManageButton"),
+            Prepare: () => PrepareNavigationAsync(2));
         yield return new UiAction(
             "nav-warm-chat", "Navigation", "Return to Chat page (warm)",
             RunAsync: () => ClickNavigationAsync(0, "NavChat"),
-            Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 5));
+            Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = MainViewModel.MemoriesNavIndex));
 
         yield return new UiAction(
             "project-switcher-open", "Project selection", "Open the chat project switcher",

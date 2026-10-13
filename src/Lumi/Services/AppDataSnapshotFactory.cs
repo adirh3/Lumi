@@ -48,6 +48,7 @@ internal static class AppDataSnapshotFactory
                 UseMcpProxy = settings.UseMcpProxy,
                 UseLazyMcpInitialization = settings.UseLazyMcpInitialization,
                 McpToolTimeoutSeconds = settings.McpToolTimeoutSeconds,
+                McpRegistryUrls = settings.McpRegistryUrls is null ? [] : [.. settings.McpRegistryUrls],
                 ContextWindowTier = settings.ContextWindowTier,
                 ByokEndpoints = settings.ByokEndpoints
                     .Select(e => new ByokEndpoint
@@ -186,7 +187,8 @@ internal static class AppDataSnapshotFactory
                     Tools = [..s.Tools],
                     Timeout = s.Timeout,
                     IsEnabled = s.IsEnabled,
-                    CreatedAt = s.CreatedAt
+                    CreatedAt = s.CreatedAt,
+                    CatalogId = s.CatalogId
                 })
                 .ToList(),
             BackgroundJobs = source.BackgroundJobs

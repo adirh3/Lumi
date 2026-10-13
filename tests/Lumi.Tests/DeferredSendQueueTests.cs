@@ -1490,6 +1490,39 @@ public sealed class DeferredSendQueueTests
         }, CancellationToken.None);
     }
 
+    /// <summary>
+    /// An MCP server's sampling request (Azure MCP asks the client's model to pick a command) blocks the
+    /// server's tool call until the host answers. Lumi can't run the inference, so it must decline at once;
+    /// leaving the request pending hung the plugin tool call and the whole turn forever.
+    /// </summary>
+    [Fact]
+    public async Task McpSamplingRequest_IsDeclinedInsteadOfLeftPending()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+
+            rpc.Emit(new SamplingRequestedEvent
+            {
+                Data = new SamplingRequestedData
+                {
+                    RequestId = "sampling-request",
+                    ServerName = "azure",
+                    McpRequestId = JsonSerializer.SerializeToElement(1)
+                }
+            });
+
+            await rpc.SamplingDecided.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var decision = Assert.Single(rpc.SamplingDecisions);
+            Assert.Equal("sampling-request", decision.GetProperty("requestId").GetString());
+            Assert.True(!decision.TryGetProperty("response", out var response)
+                || response.ValueKind == JsonValueKind.Null);
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task SendNow_OnReadyActiveSession_DoesNotWaitForAnotherAssistantStart()
     {
@@ -2637,6 +2670,18 @@ public sealed class DeferredSendQueueTests
         {
             DrainPaused = JsonSerializer.SerializeToElement(request["paused"]).GetBoolean();
             return new { };
+        }
+
+        public List<JsonElement> SamplingDecisions { get; } = [];
+        public TaskCompletionSource SamplingDecided { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        [JsonRpcMethod("session.ui.handlePendingSampling", UseSingleObjectParameterDeserialization = true)]
+        public object HandlePendingSampling(Dictionary<string, object> request)
+        {
+            SamplingDecisions.Add(JsonSerializer.Deserialize<JsonElement>(
+                Newtonsoft.Json.JsonConvert.SerializeObject(request)));
+            SamplingDecided.TrySetResult();
+            return new { success = true };
         }
 
         public void RegisterTool(AIFunction tool)

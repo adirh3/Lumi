@@ -1217,6 +1217,30 @@ public class DataStore
     /// <summary>Directory holding rolling per-skill content backups.</summary>
     public string SkillBackupsDirectory => Path.Combine(SkillsDirectory, ".backups");
 
+    /// <summary>
+    /// Folder for the files a skill added from a catalog brought with it (scripts, references,
+    /// templates). Keyed by id so renaming the skill never orphans them.
+    /// </summary>
+    public string GetSkillBundleDirectory(Guid skillId)
+        => Path.Combine(SkillsDirectory, ".files", skillId.ToString("N"));
+
+    /// <summary>Removes a deleted skill's bundled files. Best effort: a locked file is left behind.</summary>
+    public void DeleteSkillBundle(Guid skillId)
+    {
+        var folder = GetSkillBundleDirectory(skillId);
+        try
+        {
+            if (Directory.Exists(folder))
+                Directory.Delete(folder, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     private const int MaxSkillBackupsPerSkill = 10;
 
     /// <summary>

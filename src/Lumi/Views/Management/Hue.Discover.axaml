@@ -1,0 +1,21 @@
+<!-- Page hue for Discover: coral. Like the other Customize hues it only tints identity glyphs and a
+     barely-there header wash; selection and focus keep Lumi's own accent. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#E39A7B" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#10E39A7B" />
+        <GradientStop Offset="1" Color="#00E39A7B" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#A4532F" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0CA4532F" />
+        <GradientStop Offset="1" Color="#00A4532F" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

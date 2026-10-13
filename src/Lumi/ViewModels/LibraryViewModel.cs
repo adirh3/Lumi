@@ -440,7 +440,6 @@ public partial class LibraryViewModel : ObservableObject
     private readonly DataStore _dataStore;
     private readonly LibraryService _libraryService;
     private readonly Func<Guid, Task>? _openChatAsync;
-    private readonly Action? _closeLibrary;
 
     private IReadOnlyList<LibraryArtifact> _artifacts = [];
     private readonly Dictionary<string, LibraryItemViewModel> _itemCache = new(StringComparer.OrdinalIgnoreCase);
@@ -544,19 +543,14 @@ public partial class LibraryViewModel : ObservableObject
 
     public LibraryViewModel(
         DataStore dataStore,
-        Func<Guid, Task>? openChatAsync = null,
-        Action? closeLibrary = null)
+        Func<Guid, Task>? openChatAsync = null)
     {
         _dataStore = dataStore;
         _libraryService = new LibraryService(dataStore);
         _openChatAsync = openChatAsync;
-        _closeLibrary = closeLibrary;
 
         BuildStaticFilters();
     }
-
-    [RelayCommand]
-    private void BackToChats() => _closeLibrary?.Invoke();
 
     /// <summary>Marks the cached scan stale so the next page visit refreshes it.</summary>
     public void MarkDirty() => _isDirty = true;

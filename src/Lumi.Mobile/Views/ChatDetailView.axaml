@@ -874,6 +874,7 @@
                                AvailableAgents="{Binding Chat.AvailableAgents}"
                                AvailableSkills="{Binding Chat.AvailableSkills}"
                                AvailableMcps="{Binding Chat.AvailableMcps}"
+                               McpHeader="CONNECTORS"
                                AvailableProjects="{Binding Chat.AvailableProjects}"
                                AvailableFiles="{Binding Chat.AvailableFiles}"
                                AgentRemovedCommand="{Binding Chat.RemoveAgentCommand}"

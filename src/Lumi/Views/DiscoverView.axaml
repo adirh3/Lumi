@@ -1,0 +1,895 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:sa="using:StrataTheme.Animation"
+             xmlns:controls="using:Lumi.Views.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.DiscoverView"
+             x:DataType="vm:DiscoverViewModel"
+             x:CompileBindings="True">
+
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Discover.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+
+      <!-- One card for plugins and MCP servers alike: who made it, what it is, whether it's added. -->
+      <DataTemplate x:Key="DiscoverCardTemplate" x:DataType="vm:DiscoverCard">
+        <!-- No tooltip: cards are replaced as filters and searches change, and Avalonia 12 crashes
+             closing a tooltip whose control has left the tree. The title is on the card anyway. -->
+        <Button Classes="mg-card dc-card" Command="{Binding OpenCommand}"
+                AutomationProperties.Name="{Binding Title}">
+          <Border Classes="mg-card-frame">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Bottom">
+                <Border Classes="mg-card-divider" />
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" Margin="10,0,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasStars}">
+                      <PathIcon Classes="mg-meta-icon" Data="{StaticResource Icon.Star}" />
+                      <TextBlock Classes="mg-meta" Text="{Binding StarsText}" />
+                    </StackPanel>
+                    <TextBlock Classes="mg-meta" Text="{Binding VersionText}" IsVisible="{Binding HasVersion}"
+                               MaxWidth="90" TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <DockPanel>
+                    <PathIcon DockPanel.Dock="Left" Margin="0,0,6,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Puzzle}" IsVisible="{Binding IsPlugin}" />
+                    <PathIcon DockPanel.Dock="Left" Margin="0,0,6,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Plug}" IsVisible="{Binding IsServer}" />
+                    <TextBlock Classes="mg-meta" Text="{Binding KindLabel}" TextTrimming="CharacterEllipsis" />
+                  </DockPanel>
+                </DockPanel>
+              </StackPanel>
+              <DockPanel DockPanel.Dock="Top">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
+                  <Border Classes="mg-chip accent" Padding="8,2,9,3" IsVisible="{Binding HasUpdate}">
+                    <TextBlock Text="{loc:Str Discover_UpdateAvailable}" FontSize="11" />
+                  </Border>
+                  <Border Classes="mg-chip success" Padding="7,2,9,3" IsVisible="{Binding IsAdded}">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                      <PathIcon Data="{StaticResource Icon.Check}" />
+                      <TextBlock Text="{Binding AddedLabel}" FontSize="11" />
+                    </StackPanel>
+                  </Border>
+                </StackPanel>
+                <Border Classes="mg-tile dc-avatar">
+                  <Panel>
+                    <TextBlock Classes="mg-glyph dc-initial" Text="{Binding Initial}" IsVisible="{Binding !HasAvatar}" />
+                    <Image Source="{Binding Avatar}" IsVisible="{Binding HasAvatar}" Stretch="UniformToFill" />
+                  </Panel>
+                </Border>
+              </DockPanel>
+              <StackPanel Spacing="3" Margin="0,12,0,0">
+                <TextBlock Classes="mg-card-title" Text="{Binding Title}" />
+                <TextBlock Classes="mg-meta" Text="{Binding PublisherLine}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Classes="mg-card-text" Text="{Binding Description}" IsVisible="{Binding HasDescription}" Margin="0,4,0,0" />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+        </Button>
+      </DataTemplate>
+      <!-- Placeholder cards while a source loads. -->
+      <DataTemplate x:Key="DiscoverSkeleton" x:DataType="vm:DiscoverViewModel">
+        <UniformGrid Columns="3" ColumnSpacing="14" RowSpacing="14">
+          <Border Classes="mg-card-frame" Height="150">
+            <StackPanel Classes="dc-pulse" Spacing="10">
+              <Border Classes="dc-skeleton" Width="40" Height="40" CornerRadius="11" />
+              <Border Classes="dc-skeleton" Width="140" Height="12" />
+              <Border Classes="dc-skeleton" Width="90" Height="10" />
+              <Border Classes="dc-skeleton" Width="190" Height="10" />
+            </StackPanel>
+          </Border>
+          <Border Classes="mg-card-frame" Height="150">
+            <StackPanel Classes="dc-pulse" Spacing="10">
+              <Border Classes="dc-skeleton" Width="40" Height="40" CornerRadius="11" />
+              <Border Classes="dc-skeleton" Width="120" Height="12" />
+              <Border Classes="dc-skeleton" Width="80" Height="10" />
+              <Border Classes="dc-skeleton" Width="170" Height="10" />
+            </StackPanel>
+          </Border>
+          <Border Classes="mg-card-frame" Height="150">
+            <StackPanel Classes="dc-pulse" Spacing="10">
+              <Border Classes="dc-skeleton" Width="40" Height="40" CornerRadius="11" />
+              <Border Classes="dc-skeleton" Width="150" Height="12" />
+              <Border Classes="dc-skeleton" Width="100" Height="10" />
+              <Border Classes="dc-skeleton" Width="160" Height="10" />
+            </StackPanel>
+          </Border>
+        </UniformGrid>
+      </DataTemplate>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
+
+    <Style Selector="Border.dc-avatar">
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.dc-avatar.lg">
+      <Setter Property="Width" Value="72" />
+      <Setter Property="Height" Value="72" />
+      <Setter Property="CornerRadius" Value="18" />
+    </Style>
+    <Style Selector="TextBlock.dc-initial">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.dc-avatar.lg TextBlock.dc-initial">
+      <Setter Property="FontSize" Value="28" />
+    </Style>
+    <Style Selector="TextBlock.dc-title">
+      <Setter Property="FontSize" Value="24" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.dc-meta">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.dc-body">
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="LineHeight" Value="20" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.dc-skeleton">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+    <Style Selector="StackPanel.dc-pulse">
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.45" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.9" />
+      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border.dc-banner">
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="16,12" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.dc-banner.success">
+      <Setter Property="Background" Value="{DynamicResource Mg.SectionBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="Border.dc-banner.danger">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="Border.dc-banner.neutral">
+      <Setter Property="Background" Value="{DynamicResource Mg.SectionBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    </Style>
+    <Style Selector="Border.dc-part-chip">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="9,4" />
+      <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+    </Style>
+    <Style Selector="Border.dc-part-chip TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border.dc-source-row">
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,10" />
+      <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+  </UserControl.Styles>
+
+  <Panel>
+
+    <!-- ══════════════════════════ GALLERY ══════════════════════════ -->
+    <Panel x:Name="DiscoverGallery" Classes="mg-surface" IsVisible="{Binding ShowGallery}">
+      <Border Classes="mg-wash" />
+      <ScrollViewer x:Name="DiscoverScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,30,32,56" Spacing="22">
+
+          <!-- Header -->
+          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+            <Border Grid.RowSpan="2" Classes="mg-tile" Width="48" Height="48" CornerRadius="14" Margin="0,0,16,0" VerticalAlignment="Top">
+              <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Compass}" Width="22" Height="22" />
+            </Border>
+            <DockPanel Grid.Column="1" MinHeight="48">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
+                <Button x:Name="DiscoverRefreshButton" Classes="mg-icon-button subtle" Command="{Binding RefreshCommand}"
+                        IsEnabled="{Binding !IsAnyLoading}" ToolTip.Tip="{loc:Str Discover_RefreshTooltip}">
+                  <PathIcon Data="{StaticResource Icon.Refresh}" />
+                </Button>
+                <Button x:Name="DiscoverSourcesButton" AutomationProperties.Name="{loc:Str Discover_ManageSources}" Classes="mg-button" Command="{Binding ShowSourcesCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Layers}" />
+                    <TextBlock Text="{loc:Str Discover_ManageSources}" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+              <TextBlock Classes="mg-page-title" Text="{Binding GridTitle}" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="mg-page-lede" Margin="0,2,0,0" Text="{loc:Str Discover_Lede}" IsVisible="{Binding IsAll}" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="mg-page-lede" Margin="0,2,0,0" Text="{Binding GridCaption}" IsVisible="{Binding IsGrid}" />
+          </Grid>
+
+          <!-- Search -->
+          <Panel MaxWidth="560" HorizontalAlignment="Stretch">
+            <TextBox x:Name="DiscoverSearchBox" Classes="mg-search" Text="{Binding SearchQuery}"
+                     Padding="10,8,34,8" PlaceholderText="{loc:Str Discover_SearchWatermark}">
+              <TextBox.InnerLeftContent>
+                <PathIcon Data="{StaticResource Icon.Search}" Width="13" Height="13" Margin="11,0,3,0"
+                          Foreground="{DynamicResource Brush.TextTertiary}" />
+              </TextBox.InnerLeftContent>
+            </TextBox>
+            <Button Classes="subtle" Padding="5" MinHeight="0" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,9,0"
+                    CornerRadius="{DynamicResource Radius.Full}" Command="{Binding ClearSearchCommand}"
+                    IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+              <PathIcon Data="{StaticResource Icon.Close}" Width="9" Height="9" Foreground="{DynamicResource Brush.TextTertiary}" />
+            </Button>
+          </Panel>
+
+          <!-- ── Everything: a front page with both kinds ── -->
+          <StackPanel Spacing="34" IsVisible="{Binding IsAll}">
+
+            <StackPanel Spacing="14">
+              <DockPanel>
+                <Button DockPanel.Dock="Right" x:Name="DiscoverSeeAllPlugins" AutomationProperties.Name="{Binding PluginSeeAllText}" Classes="subtle mg-text-button" VerticalAlignment="Center"
+                        Command="{Binding ShowPluginsCommand}" IsVisible="{Binding HasMorePlugins}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{Binding PluginSeeAllText}" />
+                    <PathIcon Data="{StaticResource Icon.ChevronRight}" Width="9" Height="9" />
+                  </StackPanel>
+                </Button>
+                <Border DockPanel.Dock="Left" Classes="mg-section-icon" VerticalAlignment="Center">
+                  <PathIcon Data="{StaticResource Icon.Puzzle}" />
+                </Border>
+                <StackPanel Spacing="1" VerticalAlignment="Center">
+                  <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_PluginsSection}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_PluginsSectionCaption}" />
+                </StackPanel>
+              </DockPanel>
+
+              <Border Classes="mg-empty-note" IsVisible="{Binding IsWaitingForCopilot}">
+                <StackPanel Classes="dc-pulse" Orientation="Horizontal" Spacing="9">
+                  <PathIcon Data="{StaticResource Icon.Clock}" Width="13" Height="13" Foreground="{DynamicResource Brush.TextTertiary}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_WaitingForCopilot}" />
+                </StackPanel>
+              </Border>
+              <ContentControl Content="{Binding}" IsVisible="{Binding IsLoadingPlugins}" ContentTemplate="{StaticResource DiscoverSkeleton}" />
+              <Border Classes="dc-banner danger" IsVisible="{Binding HasPluginError}">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="mg-button" Content="{loc:Str Discover_Retry}" Command="{Binding RetryCommand}" Margin="12,0,0,0" />
+                  <TextBlock Classes="dc-body" Text="{Binding PluginError}" VerticalAlignment="Center" />
+                </DockPanel>
+              </Border>
+              <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_NoPlugins}" IsVisible="{Binding ShowPluginEmpty}" />
+              <ItemsControl x:Name="DiscoverPluginPreview" ItemsSource="{Binding PluginPreview}"
+                            ItemTemplate="{StaticResource DiscoverCardTemplate}" IsVisible="{Binding HasPluginPreview}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <controls:AdaptiveGridPanel MinItemWidth="250" ColumnSpacing="14" RowSpacing="14" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+              </ItemsControl>
+            </StackPanel>
+
+            <StackPanel Spacing="14">
+              <DockPanel>
+                <Button DockPanel.Dock="Right" x:Name="DiscoverSeeAllServers" AutomationProperties.Name="{Binding ServerSeeAllText}" Classes="subtle mg-text-button" VerticalAlignment="Center"
+                        Command="{Binding ShowServersCommand}" IsVisible="{Binding HasMoreServers}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{Binding ServerSeeAllText}" />
+                    <PathIcon Data="{StaticResource Icon.ChevronRight}" Width="9" Height="9" />
+                  </StackPanel>
+                </Button>
+                <Border DockPanel.Dock="Left" Classes="mg-section-icon" VerticalAlignment="Center">
+                  <PathIcon Data="{StaticResource Icon.Plug}" />
+                </Border>
+                <StackPanel Spacing="1" VerticalAlignment="Center">
+                  <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_ServersSection}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_ServersSectionCaption}" />
+                </StackPanel>
+              </DockPanel>
+
+              <ContentControl Content="{Binding}" IsVisible="{Binding IsLoadingServers}" ContentTemplate="{StaticResource DiscoverSkeleton}" />
+              <Border Classes="dc-banner danger" IsVisible="{Binding HasServerError}">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="mg-button" Content="{loc:Str Discover_Retry}" Command="{Binding RetryCommand}" Margin="12,0,0,0" />
+                  <TextBlock Classes="dc-body" Text="{Binding ServerError}" VerticalAlignment="Center" />
+                </DockPanel>
+              </Border>
+              <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_NoServers}" IsVisible="{Binding ShowServerEmpty}" />
+              <ItemsControl x:Name="DiscoverServerPreview" ItemsSource="{Binding ServerPreview}"
+                            ItemTemplate="{StaticResource DiscoverCardTemplate}" IsVisible="{Binding HasServerPreview}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <controls:AdaptiveGridPanel MinItemWidth="250" ColumnSpacing="14" RowSpacing="14" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+              </ItemsControl>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- ── One kind, a source, or what's installed ── -->
+          <StackPanel Spacing="16" IsVisible="{Binding IsGrid}">
+            <Border Classes="mg-empty-note" IsVisible="{Binding IsWaitingForCopilot}">
+              <StackPanel Classes="dc-pulse" Orientation="Horizontal" Spacing="9">
+                <PathIcon Data="{StaticResource Icon.Clock}" Width="13" Height="13" Foreground="{DynamicResource Brush.TextTertiary}" />
+                <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_WaitingForCopilot}" />
+              </StackPanel>
+            </Border>
+            <ContentControl Content="{Binding}" IsVisible="{Binding IsGridLoading}" ContentTemplate="{StaticResource DiscoverSkeleton}" />
+            <Border Classes="dc-banner danger" IsVisible="{Binding HasServerError}">
+              <DockPanel>
+                <Button DockPanel.Dock="Right" Classes="mg-button" Content="{loc:Str Discover_Retry}" Command="{Binding RetryCommand}" Margin="12,0,0,0" />
+                <TextBlock Classes="dc-body" Text="{Binding ServerError}" VerticalAlignment="Center" />
+              </DockPanel>
+            </Border>
+            <StackPanel IsVisible="{Binding ShowGridEmpty}" Spacing="10" Margin="0,40,0,0" HorizontalAlignment="Center">
+              <Border Classes="mg-empty-hero">
+                <PathIcon Data="{StaticResource Icon.Compass}" />
+              </Border>
+              <TextBlock Classes="mg-empty-text" Text="{Binding EmptyGridText}" MaxWidth="420" TextAlignment="Center" />
+              <Button Classes="mg-button" HorizontalAlignment="Center" Command="{Binding ShowAllCommand}" IsVisible="{Binding IsInstalled}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Compass}" />
+                  <TextBlock Text="{loc:Str Discover_FacetAll}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+            <ItemsControl x:Name="DiscoverGrid" ItemsSource="{Binding Cards}" ItemTemplate="{StaticResource DiscoverCardTemplate}"
+                          IsVisible="{Binding HasCards}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <controls:AdaptiveGridPanel MinItemWidth="250" ColumnSpacing="14" RowSpacing="14" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+            </ItemsControl>
+            <Button x:Name="DiscoverLoadMore" AutomationProperties.Name="{loc:Str Discover_LoadMore}" Classes="mg-button" HorizontalAlignment="Center" Margin="0,6,0,0"
+                    Command="{Binding LoadMoreServersCommand}" IsVisible="{Binding CanLoadMoreServers}">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <PathIcon Data="{StaticResource Icon.ChevronDown}" />
+                <TextBlock Text="{loc:Str Discover_LoadMore}" />
+              </StackPanel>
+            </Button>
+            <ProgressBar IsIndeterminate="True" Width="160" HorizontalAlignment="Center" IsVisible="{Binding IsLoadingMoreServers}" />
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Panel>
+
+    <!-- ══════════════════════════ SOURCES ══════════════════════════ -->
+    <Panel x:Name="DiscoverSources" Classes="mg-surface" IsVisible="{Binding IsSources}">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="mg-topbar">
+          <DockPanel>
+            <Button DockPanel.Dock="Left" x:Name="DiscoverSourcesBackButton" Classes="subtle mg-back" Command="{Binding ShowAllCommand}"
+                    AutomationProperties.Name="{loc:Str Discover_Title}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
+                <TextBlock Text="{loc:Str Discover_Title}" />
+              </StackPanel>
+            </Button>
+            <TextBlock DockPanel.Dock="Left" Classes="mg-crumb" Text="/" Margin="2,0,6,0" />
+            <TextBlock Classes="mg-crumb current" Text="{loc:Str Discover_SourcesTitle}" />
+          </DockPanel>
+        </Border>
+
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="40,30,40,56" MaxWidth="880" Spacing="20">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="mg-page-title" Text="{loc:Str Discover_SourcesTitle}" />
+              <TextBlock Classes="mg-page-lede" Text="{loc:Str Discover_SourcesLede}" />
+            </StackPanel>
+
+            <Border Classes="dc-banner danger" IsVisible="{Binding HasSourceError}">
+              <TextBlock Classes="dc-body" Text="{Binding SourceError}" />
+            </Border>
+
+            <!-- Plugin marketplaces -->
+            <Border Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <PathIcon Data="{StaticResource Icon.Puzzle}" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_Marketplaces}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_MarketplacesCaption}" />
+                  </StackPanel>
+                </DockPanel>
+                <ItemsControl x:Name="DiscoverMarketplaceRows" ItemsSource="{Binding MarketplaceRows}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Spacing="8" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:MarketplaceRow">
+                      <Border Classes="dc-source-row">
+                        <DockPanel>
+                          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Border Classes="mg-chip" IsVisible="{Binding IsDefault}">
+                              <TextBlock Text="{loc:Str Discover_Default}" />
+                            </Border>
+                            <Border Classes="mg-chip" IsVisible="{Binding IsManaged}">
+                              <TextBlock Text="{loc:Str Discover_Managed}" />
+                            </Border>
+                            <Button Classes="subtle mg-button" Content="{loc:Str Discover_Remove}" Command="{Binding RemoveCommand}"
+                                    IsVisible="{Binding CanRemove}" />
+                          </StackPanel>
+                          <Border DockPanel.Dock="Left" Classes="mg-tile sm" Margin="0,0,12,0" VerticalAlignment="Center">
+                            <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Puzzle}" Width="13" Height="13" />
+                          </Border>
+                          <StackPanel Spacing="1" VerticalAlignment="Center">
+                            <TextBlock Classes="mg-card-title" Text="{Binding Name}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                              <TextBlock Classes="mg-meta mg-mono" Text="{Binding Location}" />
+                              <TextBlock Classes="mg-meta" Text="·" />
+                              <TextBlock Classes="mg-meta" Text="{Binding PluginCountText}" />
+                            </StackPanel>
+                          </StackPanel>
+                        </DockPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" x:Name="DiscoverAddMarketplaceButton" AutomationProperties.Name="{loc:Str Discover_AddSource}" Classes="mg-button accent" Margin="8,0,0,0"
+                          Command="{Binding AddMarketplaceCommand}" IsEnabled="{Binding !IsAddingSource}">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <PathIcon Data="{StaticResource Icon.Plus}" />
+                      <TextBlock Text="{loc:Str Discover_AddSource}" />
+                    </StackPanel>
+                  </Button>
+                  <TextBox x:Name="DiscoverMarketplaceInput" Classes="mg-field mono" Text="{Binding NewMarketplace}"
+                           PlaceholderText="{loc:Str Discover_AddMarketplaceWatermark}" />
+                </DockPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- MCP registries -->
+            <Border Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <PathIcon Data="{StaticResource Icon.Plug}" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_Registries}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_RegistriesCaption}" />
+                  </StackPanel>
+                </DockPanel>
+                <ItemsControl x:Name="DiscoverRegistryRows" ItemsSource="{Binding RegistryRows}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Spacing="8" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RegistryRow">
+                      <Border Classes="dc-source-row">
+                        <DockPanel>
+                          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Border Classes="mg-chip" IsVisible="{Binding IsDefault}">
+                              <TextBlock Text="{loc:Str Discover_Default}" />
+                            </Border>
+                            <Button Classes="subtle mg-button" Content="{loc:Str Discover_Remove}" Command="{Binding RemoveCommand}" />
+                          </StackPanel>
+                          <Border DockPanel.Dock="Left" Classes="mg-tile sm" Margin="0,0,12,0" VerticalAlignment="Center">
+                            <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Plug}" Width="13" Height="13" />
+                          </Border>
+                          <StackPanel Spacing="1" VerticalAlignment="Center">
+                            <TextBlock Classes="mg-card-title" Text="{Binding Name}" />
+                            <TextBlock Classes="mg-meta mg-mono" Text="{Binding Url}" />
+                          </StackPanel>
+                        </DockPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" x:Name="DiscoverAddRegistryButton" AutomationProperties.Name="{loc:Str Discover_AddSource}" Classes="mg-button accent" Margin="8,0,0,0"
+                          Command="{Binding AddRegistryCommand}" IsEnabled="{Binding !IsAddingSource}">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <PathIcon Data="{StaticResource Icon.Plus}" />
+                      <TextBlock Text="{loc:Str Discover_AddSource}" />
+                    </StackPanel>
+                  </Button>
+                  <TextBox x:Name="DiscoverRegistryInput" Classes="mg-field mono" Text="{Binding NewRegistry}"
+                           PlaceholderText="{loc:Str Discover_AddRegistryWatermark}" />
+                </DockPanel>
+              </StackPanel>
+            </Border>
+
+            <ProgressBar IsIndeterminate="True" Width="160" HorizontalAlignment="Center" IsVisible="{Binding IsAddingSource}" />
+
+            <!-- Suggestions -->
+            <StackPanel Spacing="10" IsVisible="{Binding HasSourceSuggestions}">
+              <TextBlock Classes="mg-eyebrow" Text="{loc:Str Discover_Suggestions}" />
+              <ItemsControl ItemsSource="{Binding SourceSuggestions}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Spacing="8" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SourceSuggestion">
+                    <Border Classes="dc-source-row">
+                      <DockPanel>
+                        <Button DockPanel.Dock="Right" Classes="mg-button" VerticalAlignment="Center" Command="{Binding AddCommand}"
+                                AutomationProperties.Name="{Binding Title}">
+                          <StackPanel Orientation="Horizontal" Spacing="7">
+                            <PathIcon Data="{StaticResource Icon.Plus}" />
+                            <TextBlock Text="{loc:Str Discover_AddSource}" />
+                          </StackPanel>
+                        </Button>
+                        <Border DockPanel.Dock="Left" Classes="mg-tile sm" Margin="0,0,12,0" VerticalAlignment="Center">
+                          <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Plus}" Width="12" Height="12" />
+                        </Border>
+                        <StackPanel Spacing="1" VerticalAlignment="Center">
+                          <TextBlock Classes="mg-card-title" Text="{Binding Title}" />
+                          <TextBlock Classes="mg-section-caption" Text="{Binding Caption}" />
+                          <TextBlock Classes="mg-meta mg-mono" Text="{Binding Value}" />
+                        </StackPanel>
+                      </DockPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+    </Panel>
+
+    <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
+    <Panel x:Name="DiscoverDetail" Classes="mg-surface" IsVisible="{Binding IsViewingDetail}">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="mg-topbar">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+              <Button Classes="mg-button" Command="{Binding OpenHomepageCommand}" IsVisible="{Binding HasHomepage}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Globe}" />
+                  <TextBlock Text="{loc:Str Discover_Homepage}" />
+                </StackPanel>
+              </Button>
+              <Button Classes="mg-button" Command="{Binding OpenRepositoryCommand}" IsVisible="{Binding HasRepository}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.External}" />
+                  <TextBlock Text="{loc:Str Discover_Repository}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+            <DockPanel>
+              <Button DockPanel.Dock="Left" x:Name="DiscoverBackButton" AutomationProperties.Name="{loc:Str Discover_Title}" Classes="subtle mg-back" Command="{Binding CloseDetailCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
+                  <TextBlock Text="{loc:Str Discover_Title}" />
+                </StackPanel>
+              </Button>
+              <TextBlock DockPanel.Dock="Left" Classes="mg-crumb" Text="/" Margin="2,0,6,0" />
+              <TextBlock Classes="mg-crumb current" DataContext="{Binding OpenCard}" x:DataType="vm:DiscoverCard" Text="{Binding Title}" />
+            </DockPanel>
+          </DockPanel>
+        </Border>
+
+        <ScrollViewer x:Name="DiscoverDetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="40,32,40,96" MaxWidth="900" Spacing="20">
+
+            <!-- Hero -->
+            <DockPanel>
+              <Border DockPanel.Dock="Left" Classes="mg-tile dc-avatar lg" Margin="0,0,22,0">
+                <Panel>
+                  <!-- Scoped to the card, so a closed detail has nothing to bind rather than a null path. -->
+                  <Panel DataContext="{Binding OpenCard}" x:DataType="vm:DiscoverCard">
+                    <TextBlock Classes="mg-glyph dc-initial" Text="{Binding Initial}" IsVisible="{Binding !HasAvatar}" />
+                    <Image Source="{Binding Avatar}" Stretch="UniformToFill" IsVisible="{Binding HasAvatar}" />
+                  </Panel>
+                  <Image Source="{Binding DetailLogo}" Stretch="UniformToFill" IsVisible="{Binding HasDetailLogo}" />
+                </Panel>
+              </Border>
+              <StackPanel Spacing="5" VerticalAlignment="Center">
+                <StackPanel Spacing="5" DataContext="{Binding OpenCard}" x:DataType="vm:DiscoverCard">
+                  <TextBlock Classes="dc-title" Text="{Binding Title}" />
+                  <TextBlock Classes="dc-meta" Text="{Binding PublisherLine}" />
+                </StackPanel>
+                <TextBlock Classes="dc-meta" Text="{Binding DetailMeta}" />
+              </StackPanel>
+            </DockPanel>
+
+            <TextBlock Classes="dc-body" DataContext="{Binding OpenCard}" x:DataType="vm:DiscoverCard"
+                       Text="{Binding Description}" IsVisible="{Binding HasDescription}" />
+
+            <ItemsControl DataContext="{Binding OpenCard}" x:DataType="vm:DiscoverCard"
+                          ItemsSource="{Binding Tags}" IsVisible="{Binding HasTags}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <Border Classes="mg-chip hue">
+                    <TextBlock Text="{Binding}" />
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Actions -->
+            <StackPanel Spacing="10">
+              <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                <Button x:Name="DiscoverAddButton" AutomationProperties.Name="{Binding AddButtonText}" Classes="mg-button accent" Padding="16,8" Command="{Binding AddCommand}"
+                        IsVisible="{Binding CanAdd}">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Plus}" />
+                    <TextBlock Text="{Binding AddButtonText}" />
+                  </StackPanel>
+                </Button>
+                <Border Classes="mg-chip success" Padding="10,6,12,6" IsVisible="{Binding IsDetailAdded}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Data="{StaticResource Icon.Check}" />
+                    <TextBlock DataContext="{Binding OpenCard}" x:DataType="vm:DiscoverCard" Text="{Binding AddedLabel}" FontWeight="SemiBold" />
+                  </StackPanel>
+                </Border>
+                <Button x:Name="DiscoverUpdateButton" AutomationProperties.Name="{Binding UpdateButtonText}" Classes="mg-button accent" Command="{Binding UpdateCommand}" IsVisible="{Binding CanUpdate}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Refresh}" />
+                    <TextBlock Text="{Binding UpdateButtonText}" />
+                  </StackPanel>
+                </Button>
+                <Button x:Name="DiscoverOpenServerButton" AutomationProperties.Name="{loc:Str Discover_OpenInServers}" Classes="mg-button" Command="{Binding OpenAddedServerCommand}"
+                        IsVisible="{Binding HasAddedServer}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Plug}" />
+                    <TextBlock Text="{loc:Str Discover_OpenInServers}" />
+                  </StackPanel>
+                </Button>
+                <Button x:Name="DiscoverRemoveButton" AutomationProperties.Name="{Binding RemoveButtonText}" Classes="subtle mg-button" Command="{Binding RequestRemoveCommand}" IsVisible="{Binding CanRemove}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Trash}" />
+                    <TextBlock Text="{Binding RemoveButtonText}" />
+                  </StackPanel>
+                </Button>
+              </WrapPanel>
+              <ProgressBar IsIndeterminate="True" Width="220" HorizontalAlignment="Left" IsVisible="{Binding IsDetailBusy}" />
+
+              <Border Classes="dc-banner success" IsVisible="{Binding HasResult}">
+                <StackPanel Spacing="10">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Check}" Width="13" Height="13" Foreground="{DynamicResource Brush.SuccessDefault}" />
+                    <TextBlock Classes="dc-body" Text="{Binding ResultMessage}" Foreground="{DynamicResource Brush.TextPrimary}" />
+                  </StackPanel>
+                  <ItemsControl ItemsSource="{Binding NextSteps}" IsVisible="{Binding HasNextSteps}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:DiscoverLink">
+                        <Button Classes="mg-button" Command="{Binding Command}" AutomationProperties.Name="{Binding Label}">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding Label}" />
+                            <PathIcon Data="{StaticResource Icon.ChevronRight}" Width="9" Height="9" />
+                          </StackPanel>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <Border Classes="mg-inset" IsVisible="{Binding HasPostInstallMessage}">
+                    <sc:StrataMarkdown Markdown="{Binding PostInstallMessage}" IsInline="True" />
+                  </Border>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="dc-banner danger" IsVisible="{Binding HasActionError}">
+                <TextBlock Classes="dc-body" Text="{Binding ActionError}" />
+              </Border>
+            </StackPanel>
+
+            <!-- ── Plugin: trust and contents ── -->
+            <Border Classes="mg-section" IsVisible="{Binding IsPluginDetail}" Padding="18,14">
+              <DockPanel>
+                <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                  <PathIcon Data="{StaticResource Icon.Shield}" />
+                </Border>
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_TrustTitle}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_TrustText}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+
+            <Border Classes="mg-section" IsVisible="{Binding IsPluginDetail}">
+              <StackPanel Spacing="16">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <PathIcon Data="{StaticResource Icon.Layers}" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_WhatItAdds}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_WhatItAddsCaption}" IsVisible="{Binding !IsDetailAdded}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_WhatItAddedCaption}" IsVisible="{Binding IsDetailAdded}" />
+                  </StackPanel>
+                </DockPanel>
+
+                <StackPanel Classes="dc-pulse" Spacing="8" IsVisible="{Binding IsInspecting}">
+                  <Border Classes="dc-skeleton" Width="220" Height="12" />
+                  <Border Classes="dc-skeleton" Width="340" Height="12" />
+                  <Border Classes="dc-skeleton" Width="180" Height="12" />
+                </StackPanel>
+                <Border Classes="mg-empty-note" IsVisible="{Binding IsPreviewUnavailable}">
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_PreviewUnavailable}" />
+                </Border>
+                <Border Classes="mg-empty-note" IsVisible="{Binding ShowsNothingToPreview}">
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_NothingToPreview}" />
+                </Border>
+
+                <ItemsControl x:Name="DiscoverParts" ItemsSource="{Binding Parts}" IsVisible="{Binding HasParts}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Spacing="16" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DiscoverPart">
+                      <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <TextBlock Text="{Binding Glyph}" FontSize="14" VerticalAlignment="Center" />
+                          <TextBlock Classes="mg-section-title" FontSize="13" Text="{Binding Title}" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <ItemsControl ItemsSource="{Binding Items}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                              <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" />
+                            </ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                              <Border Classes="dc-part-chip">
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="560" />
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="mg-section-caption" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Border Classes="dc-banner neutral" IsVisible="{Binding HasHooks}">
+                  <DockPanel>
+                    <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Terminal}" Width="14" Height="14" Margin="0,2,10,0"
+                              VerticalAlignment="Top" Foreground="{DynamicResource Brush.WarningDefault}" />
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="mg-section-title" FontSize="13" Text="{loc:Str Discover_Hooks}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_HooksNote}" />
+                    </StackPanel>
+                  </DockPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+
+            <!-- ── MCP server: how it runs, what it needs, about ── -->
+            <Border Classes="mg-section" IsVisible="{Binding IsServerDetail}">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <Panel>
+                      <PathIcon Data="{StaticResource Icon.Globe}" IsVisible="{Binding IsRemotePlan}" />
+                      <PathIcon Data="{StaticResource Icon.Terminal}" IsVisible="{Binding !IsRemotePlan}" />
+                    </Panel>
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_HowItRuns}" />
+                    <TextBlock Classes="mg-section-caption" Text="{Binding RunsTitle}" />
+                  </StackPanel>
+                </DockPanel>
+                <Border Classes="mg-inset" IsVisible="{Binding HasRunsCommand}">
+                  <SelectableTextBlock Text="{Binding RunsCommand}" FontFamily="{DynamicResource Font.FamilyMono}" FontSize="12"
+                                       TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextPrimary}" />
+                </Border>
+                <Border Classes="dc-banner neutral" IsVisible="{Binding HasRuntimeWarning}">
+                  <DockPanel>
+                    <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Wrench}" Width="13" Height="13" Margin="0,2,10,0"
+                              VerticalAlignment="Top" Foreground="{DynamicResource Brush.WarningDefault}" />
+                    <TextBlock Classes="dc-body" Text="{Binding RuntimeWarning}" />
+                  </DockPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="mg-section" IsVisible="{Binding HasRequiredInputs}">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <PathIcon Data="{StaticResource Icon.Key}" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_NeedsFromYou}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Discover_NeedsFromYouCaption}" />
+                  </StackPanel>
+                </DockPanel>
+                <ItemsControl ItemsSource="{Binding RequiredInputs}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Spacing="10" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DiscoverInput">
+                      <StackPanel Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <TextBlock Text="{Binding Name}" FontFamily="{DynamicResource Font.FamilyMono}" FontSize="12"
+                                     Foreground="{DynamicResource Brush.TextPrimary}" VerticalAlignment="Center" />
+                          <Border Classes="mg-chip warning" Padding="6,0,7,1" IsVisible="{Binding IsSecret}">
+                            <TextBlock Text="{loc:Str Discover_Secret}" FontSize="10.5" />
+                          </Border>
+                        </StackPanel>
+                        <TextBlock Classes="mg-section-caption" Text="{Binding Description}" IsVisible="{Binding HasDescription}" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="mg-section" IsVisible="{Binding HasReadme}">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <PathIcon Data="{StaticResource Icon.Document}" />
+                  </Border>
+                  <TextBlock Classes="mg-section-title" Text="{loc:Str Discover_About}" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border Classes="mg-inset" Padding="20,16">
+                  <sc:StrataMarkdown Markdown="{Binding ReadmeMarkdown}" IsInline="True" />
+                </Border>
+                <Button Classes="subtle mg-text-button" HorizontalAlignment="Center" IsVisible="{Binding IsReadmeLong}"
+                        Command="{Binding ToggleReadmeCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{Binding ReadmeToggleText}" />
+                    <PathIcon Classes="mg-chevron" Classes.flipped="{Binding IsReadmeExpanded}" Data="{StaticResource Icon.ChevronDown}" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+
+      <!-- Remove confirmation -->
+      <Border Classes="mg-floatbar danger" IsVisible="{Binding IsConfirmingRemove}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Trash}" Width="13" Height="13"
+                      Foreground="{DynamicResource Brush.DangerDefault}" Margin="0,0,9,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{Binding RemoveConfirmText}" TextWrapping="Wrap" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{loc:Str Common_Cancel}" Command="{Binding CancelRemoveCommand}" />
+            <Button x:Name="DiscoverConfirmRemoveButton" Classes="danger mg-button" Content="{loc:Str Discover_Remove}" Command="{Binding ConfirmRemoveCommand}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Panel>
+
+    <!-- Confirmation toast -->
+    <Border x:Name="DiscoverToast" Classes="mg-saved-toast" IsVisible="{Binding HasToast}">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12" Foreground="{DynamicResource Brush.SuccessDefault}" />
+        <TextBlock Text="{Binding Toast}" FontSize="12.5" FontWeight="Medium" Foreground="{DynamicResource Brush.TextPrimary}" />
+      </StackPanel>
+    </Border>
+  </Panel>
+</UserControl>

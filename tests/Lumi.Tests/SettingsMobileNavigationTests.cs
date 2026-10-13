@@ -69,7 +69,11 @@ public sealed class SettingsMobileNavigationTests
                         .Text)
                     .ToArray();
 
-                Assert.Equal(viewModel.SettingsVM.Pages, labels);
+                // Rows follow the sidebar's order: Memories sits under Profile but has the last page index.
+                Assert.Equal(
+                    Enumerable.Range(0, viewModel.SettingsVM.Pages.Count)
+                        .Select(row => viewModel.SettingsVM.Pages[SettingsViewModel.PageForSidebarPosition(row)]),
+                    labels);
 
                 viewModel.SettingsVM.SelectedPageIndex = 2;
                 await PumpAsync();

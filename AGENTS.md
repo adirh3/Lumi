@@ -17,26 +17,26 @@ Lumi is a cross-platform Avalonia desktop app — a personal agentic assistant t
 - **Chat** — A chat session with Lumi. Primary interaction surface. Has message history and can be linked to a project and/or agent.
 - **Project** — Named collection of chats with custom instructions injected into the system prompt.
 - **Skill** — Reusable capability definition in markdown (e.g., "Word creator" converts markdown to Word via Python). Listed in system prompt so the LLM knows what's available.
-- **Lumis (Agents)** — Custom agent personas combining system prompt, skills, and tools (e.g., "Daily Lumi" checks mail/todos and plans the day). Users create and select them.
+- **Agents** — Custom agent personas combining system prompt, skills, and tools (e.g., "Daily Lumi" checks mail/todos and plans the day). Users create and select them.
 - **Memory** — Persistent facts extracted from conversations, included in system prompt across all sessions.
 
 ## User Flows
 
 - **Onboarding** — First launch asks the user's name, then greets them personally.
 - **Chat** — Streaming chat with tool call visualization, reasoning display, typing indicators.
-- **Memories** — Important info is remembered across sessions via system prompt injection.
+- **Memories** — Important info is remembered across sessions via system prompt injection; users review and edit it in Settings → Memories.
 - **Skills** — Users create skills and reference them from any chat.
 - **Agents** — Users create agents and select them in the agents tab.
-- **Projects** — Chats are organized into projects with custom instructions.
+- **Projects** — Chats are organized into projects with custom instructions. Projects are created, edited and managed from the project switcher at the top of the chat list.
 - **Context awareness** — `SystemPromptBuilder` assembles: active project, agent, time of day, user name, skills, and memories.
 
 ## UX Principles
 
 - Modern and alive — animated components, responsive interactions, StrataTheme design system.
-- Not bloated — main interface focuses on chats with clean navigation.
+- Not bloated — main interface focuses on chats with clean navigation. The bar at the bottom of the sidebar has five places — Chats, Library, Jobs, Customize, Settings — and names the open one when the sidebar is wide enough (icons only below that). Every page lights exactly one place: Projects light Chats, Memories lights Settings.
 - Welcome experience — the new-chat launchpad (`LaunchpadViewModel`, `ChatView.Launchpad.cs`) greets the user for the time of day, says what needs them across all chats (questions, replies, work in progress), lists chats worth picking up, offers the setups they usually start with (project, checkout, agent, model) and time-aware starters. It only observes chats and the store while a chat view is in the new-chat state.
 - Transparency — tool calls grouped with friendly names, reasoning tokens displayed, streaming indicators.
-- Dedicated management — projects, skills, Lumis, memories and MCP servers each open on an overview gallery (stats, sort, search, cards) and a full-page editor with a floating save bar.
+- Dedicated management — projects, skills, agents, memories and MCP servers each open on an overview gallery (stats, sort, search, cards) and a full-page editor with a floating save bar. Skills, agents and MCP servers (shown as **Connectors**) are sections of **Customize**, next to **Discover** (plugins from plugin marketplaces, connectors from MCP registries), listed as rows at the top of its sidebar. Memories is a Settings page (listed under Profile); projects open from the chat list's project switcher. Hovering a place in the bar or rail moves its icon (bubble pops, books tip, clock sweeps, knobs slide, gear turns) unless animations are off in Settings.
 
 ## Architecture
 
@@ -203,7 +203,7 @@ Lumi includes focused Debug-only harnesses for coding agents:
 - `dotnet run --project src\Lumi\Lumi.csproj -- --test-chat-stress` runs a headless real Copilot stress check. It requires a deterministic tool invocation and exits nonzero if the expected `LUMI_CHAT_STRESS_OK` response is not produced.
 - `dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness` runs the **UI responsiveness harness**: it measures how laggy the UI feels *from the user's perspective* under a full stress load, then prints a console report and writes JSON ranking the worst UX actions/categories. Details below.
 - When running a Debug build, the top-right `#AgentDebugMap` overlay shows stable navigation indices, current page landmarks, chat control IDs, and an `Open fixture` button.
-- Stable MCP/UI automation landmarks are available by name: `#NavChat`, `#NavProjects`, `#NavSkills`, `#NavAgents`, `#NavMemories`, `#NavMcpServers`, `#NavSettings`, `#PageChat`, `#ChatShell`, `#Transcript`, and `#Composer`.
+- Stable MCP/UI automation landmarks are available by name: the bar `#NavChat`, `#NavLibrary`, `#NavJobs`, `#NavCustomize`, `#NavSettings`; the Customize section rows `#CustomizeDiscoverTab`, `#CustomizeLumisTab`, `#CustomizeSkillsTab`, `#CustomizeMcpTab`; Settings → Memories `#SettingsMemoriesItem` (in `#SettingsPagesList`); the project switcher `#ProjectSwitchButton`, `#ProjectEditButton`, `#ProjectSwitcherNewButton`, `#ProjectSwitcherManageButton`; and `#PageChat`, `#PageLibrary`, `#PageDiscover`, `#ChatShell`, `#Transcript`, `#Composer`. Page indices are unchanged by the navigation redesign (2 Projects, 3 Skills, 4 Agents, 5 Memories, 6 MCP, 7 Settings, 8 Library, 9 Discover); `#NavCustomize` reopens the last Customize section and `#NavSettings` the last Settings page, which may be Memories (page 5, Settings page index `SettingsViewModel.MemoriesPageIndex`).
 
 Use these harnesses before making transcript or chat UI changes, and keep the specific debug PID running when the user should inspect the visible result.
 
@@ -273,7 +273,12 @@ Keep the debug window open only until the user has confirmed the work is done. O
 - **Chat transcript is built in code-behind** (`ChatView.axaml.cs`), not with data templates. New message types need a case in `AddMessageControl()`
 - **System prompt assembly** — new context sources should extend `SystemPromptBuilder.Build()`
 - **Tool display names** — add friendly mappings in `ChatView.axaml.cs` `GetFriendlyToolDisplay()` and `ChatViewModel.cs` `FormatToolDisplayName()`
-- **Management pages** (Projects, Skills, Lumis, Memories, MCP) share one pattern — `SelectedX`, `IsEditing`, `EditX` properties, card collections for the overview, `HasUnsavedChanges`/`ShowSaveBar`, `Save` (keeps the item open), `DiscardChanges`, `RequestDelete`/`ConfirmDelete`, `CloseDetail`. Views reuse `Views/Management/ManagementStyles.axaml` and take their colour from one `Hue.*.axaml`; sidebars bind `SelectedItem` one way and open items through `OnManagementListSelectionChanged`
+- **Connectors naming** — user-facing text calls MCP servers **connectors** ("Connectors" in Customize, Discover, Settings, chips and the phone app). Keep "MCP" for the protocol, `mcpServers` config files, MCP registries and LLM-facing tool descriptions; code, `Mcp*` types, page index 6 and automation IDs such as `#CustomizeMcpTab` keep their names.
+- **Agents naming** — user-facing text calls custom personas **agents** ("Agents" in Customize, search, Discover and the phone app); built-in agents keep their names ("Coding Lumi"), and "Lumi" still names the app, Lumi packs, Lumi codes and Lumi tools. LLM-facing text (`manage_lumis`), code (`LumiAgent`, `Lumis_*` keys, `LibrarySection.Lumis`), page index 4 and automation IDs such as `#CustomizeLumisTab` keep their names.
+- **Tooltips** — Strata's `ToolTip` theme is click-through, so a tip can never swallow a click. Lumi's overlay tips default to pointer placement (+20px, and near a window edge they flip or slide onto the cursor); give controls at an edge, in rows or in moving layouts a control-relative `ToolTip.Placement` with an offset that clears them, and don't repeat a visible label in a tip.
+- **Management pages** (Projects, Skills, Agents, Memories, MCP) share one pattern — `SelectedX`, `IsEditing`, `EditX` properties, card collections for the overview, `HasUnsavedChanges`/`ShowSaveBar`, `Save` (keeps the item open), `DiscardChanges`, `RequestDelete`/`ConfirmDelete`, `CloseDetail`. Views reuse `Views/Management/ManagementStyles.axaml` and take their colour from one `Hue.*.axaml`; sidebars (Projects, Skills, Agents, MCP) bind `SelectedItem` one way and open items through `OnManagementListSelectionChanged`
+- **Customize and Discover** — skills, agents and MCP servers that plugins install or that live in the Copilot folder are read-only in their section: each page's `External` (`ExternalCapabilitiesViewModel`) is fed from the chats' capability catalog (`CapabilitySnapshot.External`) and shown by `ExternalCapabilitySections`/`ExternalCapabilityDetail`; edits go through "Make a copy" (`ExternalCapabilityCopier`). Plugins install through the SDK plugin RPCs (`PluginCatalogService`), never by writing into `~/.copilot` directly; after a change call `CopilotService.NotifyPluginsChanged()`. Lumi sessions use their own config directory, so installed plugins reach chats only through `SessionPluginRoots` → `SessionConfigBase.PluginDirectories`. Registry MCP servers become ordinary Lumi `McpServer`s tagged with `CatalogId`
+- **Avalonia list pitfalls** — Avalonia 12 crashes (`Target control is not attached to the visual tree`) when a tooltip closes after its control left the tree, so don't put `ToolTip.Tip` on items of collections that are replaced or refiltered while the pointer may rest on them, and update such collections in place rather than clearing them. Large galleries build their items a page at a time across frames (see `DiscoverViewModel.SyncGrid`); schedule that work with a short `DispatcherTimer.RunOnce(..., DispatcherPriority.Normal)`, because `Background`/`Input` priority jobs wait while Windows reports pending input, such as during scrolling
 - **Strata controls** — always use Strata UI components for chat elements. Inspect the StrataTheme source for API
 - **Modify StrataTheme when needed** — if a UI change makes more sense as a StrataTheme feature or fix (new control, new property, style tweak, bug fix), go ahead and make the change directly in the `Strata/` submodule. Don't work around library limitations in Lumi when the right fix belongs in Strata.
 - **No over-engineering** — this is a personal app, keep implementations simple and direct

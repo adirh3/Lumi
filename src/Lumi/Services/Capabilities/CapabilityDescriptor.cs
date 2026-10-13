@@ -146,6 +146,18 @@ public sealed record CapabilityDescriptor
     /// </summary>
     public McpServer? McpDefinition { get; init; }
 
+    /// <summary>The Copilot plugin that installed this capability, when one did.</summary>
+    public string? PluginName { get; init; }
+
+    /// <summary>For a discovered MCP server: the configuration file that declares it.</summary>
+    public string? ConfigFilePath { get; init; }
+
+    /// <summary>For a discovered MCP server: the JSON pointer to its entry in <see cref="ConfigFilePath"/>.</summary>
+    public string? ConfigPointer { get; init; }
+
+    /// <summary>For a discovered MCP server: stdio, http or sse.</summary>
+    public string? McpTransport { get; init; }
+
     /// <summary>Label shown as the source hint in the composer.</summary>
     public string SourceLabel => Origin.Label;
 
