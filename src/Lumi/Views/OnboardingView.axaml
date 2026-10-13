@@ -304,7 +304,7 @@
                   <StackPanel Spacing="12" HorizontalAlignment="Center" VerticalAlignment="Center"
                               Margin="0,20">
                     <sc:StrataOrb State="Active" HorizontalAlignment="Center" />
-                    <TextBlock Text="Lumi is exploring your PC…" FontSize="13"
+                    <TextBlock Text="{loc:Str Onboarding_ExploringComputer}" FontSize="13"
                                Foreground="{DynamicResource Brush.TextTertiary}"
                                HorizontalAlignment="Center" />
                   </StackPanel>

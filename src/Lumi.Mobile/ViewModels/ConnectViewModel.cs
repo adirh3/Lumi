@@ -107,8 +107,8 @@ public sealed partial class ConnectViewModel : ObservableObject
         ManualAddress = request.BaseUrl;
         Step = ConnectStep.FindPc;
         StatusText = RequiresTrustedAddressConfirmation(request.BaseUrl)
-            ? "Your PC address is ready. Confirm the trusted local network, then tap Continue."
-            : "Your PC address is ready. Review it below, then tap Continue.";
+            ? "Your computer address is ready. Confirm the trusted local network, then tap Continue."
+            : "Your computer address is ready. Review it below, then tap Continue.";
         return Task.CompletedTask;
     }
 
@@ -177,7 +177,7 @@ public sealed partial class ConnectViewModel : ObservableObject
             }
 
             StatusText = Hosts.Count == 0
-                ? "No Lumi found. Make sure Lumi is open on your PC with phone access turned on, or type its address below."
+                ? "No Lumi found. Make sure Lumi is open on your computer with phone access turned on, or type its address below."
                 : null;
         }
         catch (OperationCanceledException) when (searchCts.IsCancellationRequested)

@@ -266,7 +266,7 @@
             <StackPanel Spacing="16" x:Name="LibraryEditor" MaxWidth="720"
                         HorizontalAlignment="Stretch"
                         Margin="{DynamicResource Mobile.Page.FormContentMargin}">
-              <TextBlock Text="Changes are saved to your shared Library on your PC."
+              <TextBlock Text="Changes are saved to your shared Library on your computer."
                          Classes="supporting" />
               <Button x:Name="LibraryRetryEditorButton" Classes="touch subtle"
                       IsVisible="{Binding HasEditorLoadFailed}" HorizontalAlignment="Left"
@@ -299,11 +299,11 @@
                   </StackPanel>
 
                   <StackPanel Spacing="6" IsVisible="{Binding ShowProjectWorkingDirectory}">
-                    <TextBlock x:Name="EditWorkingDirectoryLabel" Text="PC workspace" Classes="field-label" />
+                    <TextBlock x:Name="EditWorkingDirectoryLabel" Text="Computer workspace" Classes="field-label" />
                     <TextBox x:Name="EditWorkingDirectoryBox" Classes="mobile" PlaceholderText="Working directory"
-                             AutomationProperties.Name="PC workspace" Text="{Binding EditWorkingDirectory}"
+                             AutomationProperties.Name="Computer workspace" Text="{Binding EditWorkingDirectory}"
                              textInput:TextInputOptions.ShowSuggestions="False" />
-                    <TextBlock Text="Optional. A folder path on your PC, not this phone."
+                    <TextBlock Text="Optional. A folder path on your computer, not this phone."
                                Classes="muted" TextWrapping="Wrap" />
                   </StackPanel>
 
@@ -333,7 +333,7 @@
           <TextBlock x:Name="LibraryActionStatus" Text="{Binding StatusMessage}"
                      Classes="sheet-body" Margin="24,0,24,8"
                      IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <TextBlock Text="Working on your PC…" Classes="sheet-body" Margin="24,0,24,8"
+          <TextBlock Text="Working on your computer…" Classes="sheet-body" Margin="24,0,24,8"
                      IsVisible="{Binding IsActionBusy}" />
           <StackPanel x:Name="LibraryActionOptions" IsVisible="{Binding !IsConfirmingDelete}"
                       IsEnabled="{Binding !IsActionBusy}">

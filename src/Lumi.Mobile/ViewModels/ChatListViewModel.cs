@@ -183,7 +183,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         ? "Try a different word or a shorter phrase."
         : ProjectFilterId.HasValue
             ? "Start a chat in this project, or show all chats."
-            : "Start a new chat. Your conversations will appear here and on your PC.";
+            : "Start a new chat. Your conversations will appear here and on your computer.";
 
     public string ResultsLabel => IsRefreshing
         ? HasSearchQuery ? "Searching your chats..." : "Updating chats..."
@@ -572,7 +572,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
                 else if (page is null && generation == Volatile.Read(ref _reloadGeneration)
                          && !cancellationToken.IsCancellationRequested)
                 {
-                    LoadErrorText = "Couldn't load more chats. Check your PC connection and try again.";
+                    LoadErrorText = "Couldn't load more chats. Check your computer connection and try again.";
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -644,7 +644,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             else if (page is null && generation == Volatile.Read(ref _reloadGeneration)
                      && !cancellationToken.IsCancellationRequested)
             {
-                LoadErrorText = "Couldn't update your chats. Check your PC connection and try again.";
+                LoadErrorText = "Couldn't update your chats. Check your computer connection and try again.";
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

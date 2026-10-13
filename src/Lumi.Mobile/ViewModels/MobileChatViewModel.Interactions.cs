@@ -31,7 +31,7 @@ public sealed partial class MobileChatViewModel
         string messageId, string blockId, string stateJson, string? action)
     {
         if (!SupportsInteractiveResponses)
-            return new(false, "Update Lumi on your PC to enable saved interactive replies.");
+            return new(false, "Update Lumi on your computer to enable saved interactive replies.");
         var chatId = ChatId;
         var hostGeneration = _hostGeneration;
         var item = Turns.SelectMany(turn => turn.Items)
@@ -55,7 +55,7 @@ public sealed partial class MobileChatViewModel
             try
             {
                 if (hostGeneration != _hostGeneration || chatId != ChatId)
-                    return new(false, "The open chat or PC changed. This input wasn't sent to a different chat.");
+                    return new(false, "The open chat or computer changed. This input wasn't sent to a different chat.");
                 if (action is null && _interactionEditVersions.GetValueOrDefault(widgetKey) != editVersion)
                     return new(true);
                 var key = $"{widgetKey}:{action}:{state.Fingerprint()}";

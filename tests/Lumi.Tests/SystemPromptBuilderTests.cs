@@ -6,6 +6,22 @@ namespace Lumi.Tests;
 
 public sealed class SystemPromptBuilderTests
 {
+    [Theory]
+    [InlineData("Windows", "PC")]
+    [InlineData("MacOS", "Mac")]
+    [InlineData("Linux", "Linux computer")]
+    public void Build_UsesTheHostComputerName(string platformName, string computerName)
+    {
+        var platform = System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName);
+        var prompt = SystemPromptBuilder.Build(new UserSettings { Language = "en" },
+            agent: null, project: null, allSkills: [], activeSkills: [], memories: [], platform: platform);
+
+        Assert.Contains($"personal {computerName} assistant", prompt);
+        Assert.Contains($"## Your {computerName} Environment", prompt);
+        if (platform != SystemPromptBuilder.PromptPlatform.Windows)
+            Assert.DoesNotMatch(@"\bPC\b", prompt);
+    }
+
     [Fact]
     public void InteractiveResponsesDocumentAllNativeContractsAndPermissionBoundaries()
     {

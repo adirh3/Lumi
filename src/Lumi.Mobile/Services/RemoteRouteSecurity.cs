@@ -29,7 +29,7 @@ public static class RemoteRouteSecurity
         if (!routeVerifier.IsTrustedTailscaleRoute(address))
         {
             throw new InvalidOperationException(
-                "Tailscale is not connected for this PC address. Reconnect Tailscale and try again.");
+                "Tailscale is not connected for this computer address. Reconnect Tailscale and try again.");
         }
     }
 

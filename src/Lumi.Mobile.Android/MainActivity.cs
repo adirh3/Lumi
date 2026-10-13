@@ -212,7 +212,7 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
         {
             Toast.MakeText(
                     this,
-                    "Local network access is required to connect to your Lumi PC.",
+                    "Local network access is required to connect to your Lumi computer.",
                     ToastLength.Long)
                 ?.Show();
         }
