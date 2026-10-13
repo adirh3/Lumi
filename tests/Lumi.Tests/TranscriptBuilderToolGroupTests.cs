@@ -637,23 +637,6 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
-    public void ActivityHistory_RespectsSubagentShowAllWorkMode()
-    {
-        var builder = new TranscriptBuilder(CreateDataStore(), _ => { }, (_, _) => { }, _ => { },
-            (_, _) => Task.CompletedTask, () => null) { CollapseCompletedTurns = false };
-        var turns = new ObservableCollection<TranscriptTurn>();
-        builder.SetLiveTarget(turns);
-        builder.ProcessMessageToTranscript(CreateToolVm("first", "view", "Completed", "{}"));
-        builder.ProcessMessageToTranscript(CreateReasoningVm("Thought one"));
-        builder.ProcessMessageToTranscript(CreateReasoningVm("Thought two"));
-        builder.ProcessMessageToTranscript(CreateToolVm("second", "view", "Completed", "{}"));
-
-        Assert.Equal(3, turns[0].Items.Count);
-        Assert.DoesNotContain(turns[0].Items, item => item is TurnSummaryItem);
-        Assert.Equal("Thought one\n\nThought two", Assert.IsType<ReasoningItem>(turns[0].Items[1]).Content);
-    }
-
-    [Fact]
     public void ProcessMessageToTranscript_SameMessageTwice_RendersOnce()
     {
         var builder = CreateBuilder();

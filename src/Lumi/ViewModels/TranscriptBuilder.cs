@@ -73,13 +73,6 @@ public class TranscriptBuilder
     private IList<TranscriptTurn>? _rebuildTarget;
     public bool IsRebuildingTranscript { get; set; }
 
-    /// <summary>
-    /// Whether a finished turn folds its reasoning and tool activity into a one-line summary. On by
-    /// default so a long chat stays scannable, and switched off by the sub-agent run island: that
-    /// surface exists precisely to show the work, so summarizing it away defeats opening it.
-    /// </summary>
-    public bool CollapseCompletedTurns { get; init; } = true;
-
     public HashSet<string> ShownFileChips { get; } = new(FilePathComparer);
     private readonly HashSet<Guid> _processedMessageIds = [];
     private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
@@ -88,6 +81,22 @@ public class TranscriptBuilder
     private string? _pendingModelName;
 
     public void SetLiveTarget(ObservableCollection<TranscriptTurn> target) => _liveTarget = target;
+
+    /// <summary>
+    /// Lets live messages extend the last rebuilt turn instead of opening a new one. A rebuild closes
+    /// its final turn because the chat's next message usually starts one; a surface whose whole
+    /// transcript is one continuous turn (a sub-agent's run) keeps extending it, so its activity keeps
+    /// folding together.
+    /// </summary>
+    public void ContinueLastTurn()
+    {
+        if (_liveTarget is { Count: > 0 } turns
+            && turns[^1].Items.Count > 0
+            && turns[^1].Items[0] is not (UserMessageItem or JobWakeItem or InteractionReceiptItem))
+        {
+            _currentTurn = turns[^1];
+        }
+    }
 
     private ObservableCollection<TranscriptTurn>? _liveTarget;
 
@@ -1095,6 +1104,7 @@ public class TranscriptBuilder
                     return;
 
                 subagent.Status = MapToolStatus(msgVm.ToolStatus);
+                subagent.ErrorText = FailureReason(msgVm.Message);
                 if (subagent.Status is not StrataAiToolCallStatus.InProgress)
                     subagent.DurationMs = msgVm.Message.ToolDurationMs ?? 0;
 
@@ -1152,7 +1162,7 @@ public class TranscriptBuilder
 
     /// <summary>Applies an authoritative sub-agent status even when the wrapping task tool already
     /// reported the same terminal status and its property-change listener has been released.</summary>
-    public void UpdateSubagentToolStatus(string toolCallId, string? status, double? durationMs = null)
+    public void UpdateSubagentToolStatus(string toolCallId, string? status, double? durationMs = null, string? error = null)
     {
         if (!_subagentsByToolCallId.TryGetValue(toolCallId, out var subagent))
             return;
@@ -1160,9 +1170,17 @@ public class TranscriptBuilder
         subagent.Status = MapToolStatus(status);
         if (durationMs is > 0 && subagent.Status is not StrataAiToolCallStatus.InProgress)
             subagent.DurationMs = durationMs.Value;
+        if (subagent.Status == StrataAiToolCallStatus.Failed && !string.IsNullOrWhiteSpace(error))
+            subagent.ErrorText = error;
 
         UpdateSubagentState(subagent);
     }
+
+    /// <summary>The error a failed sub-agent reported, kept on its message's tool output.</summary>
+    private static string? FailureReason(ChatMessage message)
+        => message.ToolStatus == "Failed" && !string.IsNullOrWhiteSpace(message.ToolOutput)
+            ? message.ToolOutput.Trim()
+            : null;
 
     private SubagentToolCallItem? FindOwningSubagent(string? parentToolCallId)
     {
@@ -1205,6 +1223,7 @@ public class TranscriptBuilder
         subagent.ReasoningText = payload.Reasoning;
         subagent.StartedAt = message.ToolStartedAt ?? message.Timestamp;
         subagent.DurationMs = message.ToolDurationMs ?? 0;
+        subagent.ErrorText = FailureReason(message);
         subagent.SyncRunEntries(payload.EntriesJson);
     }
 
@@ -1314,7 +1333,6 @@ public class TranscriptBuilder
         for (var i = 0; i < total; i++)
         {
             var agent = group.Subagents[i];
-            agent.AccentIndex = (i % 6) + 1;
             switch (agent.Status)
             {
                 case StrataAiToolCallStatus.Completed:
@@ -2046,9 +2064,6 @@ public class TranscriptBuilder
 
     private void CollapseCompletedTurnBlocks(TranscriptTurn turn, AssistantMessageItem assistantItem)
     {
-        if (!CollapseCompletedTurns)
-            return;
-
         var items = turn.Items;
         var idx = items.IndexOf(assistantItem);
         if (idx < 0)
@@ -2071,9 +2086,6 @@ public class TranscriptBuilder
 
     private void CollapseActivityOnlyBlocks(TranscriptTurn turn, bool keepLatest = false)
     {
-        if (!CollapseCompletedTurns)
-            return;
-
         var runs = new List<(int StartIndex, List<TranscriptItem> Blocks)>();
         var currentRun = new List<TranscriptItem>();
         var currentRunStart = -1;

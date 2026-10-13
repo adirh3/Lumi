@@ -407,6 +407,8 @@ public static class DebugAgentHarness
             JsonProperty("filePath", JsonString(researchNotesPath)),
             JsonProperty("file_text", JsonString("# OLED research notes\n\n- Compared LG C4, Samsung S90D, Sony Bravia 8.\n- Tracked retailer pricing for 65-inch panels.\n"))), "Completed", output: "Created OLED-Research-Notes.md"));
 
+        const string SyntheticAgentFailure =
+            "Failed to get response from the AI model; retried 5 times (synthetic fixture failure).";
         var subagentId = "debug-subagent-fixture";
         chat.Messages.Add(Tool("task", JsonObject(
             JsonProperty("description", JsonString("Inspect transcript fixture in a separate coding-agent card")),
@@ -419,14 +421,24 @@ public static class DebugAgentHarness
             JsonProperty("prompt", JsonString(
                 "Map how the Lumi chat transcript is rendered. Find the transcript builder, the "
                 + "data templates for each item type, and the debug entry points. Report the exact "
-                + "file paths and the responsibilities of each piece.")),
+                + "file paths and the responsibilities of each piece.\n\n"
+                + "## Scope\n\n"
+                + "- Start from `ChatViewModel` and follow how messages become transcript items.\n"
+                + "- Note which items are built in code and which come from data templates.\n"
+                + "- Include the read-only sub-agent run page, which reuses the same builder.\n\n"
+                + "## Constraints\n\n"
+                + "1. Read only: do not edit, build artifacts into the repo, or stash anything.\n"
+                + "2. Prefer exact file paths and member names over summaries.\n"
+                + "3. Flag anything that renders a message twice or out of order.\n\n"
+                + "## Report\n\n"
+                + "A short table of *piece → path → responsibility*, then any risks you noticed.")),
             JsonProperty("reasoning", JsonString("")),
             JsonProperty("transcript", JsonString("")),
             JsonProperty("entries", SubagentRunEntries(
-                ("r", "Start by locating the transcript builder and the view that renders it."),
-                ("a", "Found `TranscriptBuilder.cs` — it converts `ChatMessageViewModel`s into transcript items.\n\nChecking the view next."),
-                ("r", "Now confirm which templates ChatView declares, and where the debug harness enters."),
-                ("a", "**Summary**\n\n| Piece | Path |\n| --- | --- |\n| Builder | `src/Lumi/ViewModels/TranscriptBuilder.cs` |\n| Templates | `src/Lumi/Views/ChatView.axaml` |\n| Debug entry | `src/Lumi/DebugAgentHarness.cs` |\n\nAll three are reachable from `ChatViewModel`.")))),
+                ("r", "Start by locating the transcript builder and the view that renders it.", 20),
+                ("a", "Found `TranscriptBuilder.cs` — it converts `ChatMessageViewModel`s into transcript items.\n\nChecking the view next.", 38),
+                ("r", "Now confirm which templates ChatView declares, and where the debug harness enters.", 40),
+                ("a", "**Summary**\n\n| Piece | Path |\n| --- | --- |\n| Builder | `src/Lumi/ViewModels/TranscriptBuilder.cs` |\n| Templates | `src/Lumi/Views/ChatView.axaml` |\n| Debug entry | `src/Lumi/DebugAgentHarness.cs` |\n\nAll three are reachable from `ChatViewModel`.", 56)))),
             "Completed", toolCallId: subagentId, output: "Subagent completed"));
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString("E:\\Git\\Lumi\\src\\Lumi\\ViewModels\\TranscriptBuilder.cs"))),
@@ -625,7 +637,8 @@ public static class DebugAgentHarness
             "task",
             SubagentPayload("QA failed grouped sub-agent", "explore"),
             "Failed",
-            toolCallId: "debug-group-failed"));
+            toolCallId: "debug-group-failed",
+            output: SyntheticAgentFailure));
         chat.Messages.Add(Tool(
             "task",
             SubagentPayload("QA stopped grouped sub-agent", "code-review"),
@@ -703,7 +716,8 @@ public static class DebugAgentHarness
                 "task",
                 SubagentPayload(description, "explore"),
                 status,
-                toolCallId: toolCallId));
+                toolCallId: toolCallId,
+                output: status == "Failed" ? SyntheticAgentFailure : null));
             chat.Messages.Add(Message("assistant", $"Standalone sub-agent fixture status: {status}."));
         }
 
@@ -712,18 +726,20 @@ public static class DebugAgentHarness
                 JsonProperty("description", JsonString(description)),
                 JsonProperty("agent_type", JsonString(agentType)),
                 JsonProperty("agentName", JsonString(agentType)),
-                JsonProperty("agentDisplayName", JsonString($"{agentType} agent")),
+                JsonProperty("agentDisplayName", JsonString(
+                    $"{char.ToUpperInvariant(agentType[0])}{agentType[1..].Replace('-', ' ')} agent")),
                 JsonProperty("mode", JsonString("background")),
                 JsonProperty("model", JsonString("claude-haiku-4.5")),
                 JsonProperty("prompt", JsonString($"{description}. Report back with a short, concrete summary.")),
                 JsonProperty("entries", SubagentRunEntries(
-                    ("r", $"Planning how to handle: {description}."),
-                    ("a", $"Done. **{description}** produced a short synthetic result for the fixture."))));
+                    ("r", $"Planning how to handle: {description}.", 1),
+                    ("a", $"Done. **{description}** produced a short synthetic result for the fixture.", 2))));
 
         // Builds the ordered run log persisted with a sub-agent ("r" = reasoning, "a" = assistant),
         // stamped just after the fixture's current clock so the read-only run transcript orders text
-        // against the agent's tool calls exactly as it would live.
-        string SubagentRunEntries(params (string Kind, string Text)[] entries)
+        // against the agent's tool calls exactly as it would live. An entry's offset (seconds) places it
+        // among the run's tool calls, which the fixture records 18 seconds apart.
+        string SubagentRunEntries(params (string Kind, string Text, int AtSecond)[] entries)
         {
             var stamped = new string[entries.Length];
             for (var i = 0; i < entries.Length; i++)
@@ -731,7 +747,7 @@ public static class DebugAgentHarness
                 stamped[i] = JsonObject(
                     JsonProperty("k", JsonString(entries[i].Kind)),
                     JsonProperty("t", JsonString(
-                        t.AddSeconds(i + 1).ToString("O", CultureInfo.InvariantCulture))),
+                        t.AddSeconds(entries[i].AtSecond).ToString("O", CultureInfo.InvariantCulture))),
                     JsonProperty("c", JsonString(entries[i].Text)));
             }
 

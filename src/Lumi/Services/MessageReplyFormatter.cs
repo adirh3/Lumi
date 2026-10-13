@@ -109,7 +109,8 @@ public static partial class MessageReplyFormatter
         return Truncate(Whitespace().Replace(text, " ").Trim(), maxLength);
     }
 
-    private static string StripMarkdown(string markdown)
+    /// <summary>Removes markdown markers (fences, links, list/heading prefixes, emphasis) for plain previews.</summary>
+    internal static string StripMarkdown(string markdown)
     {
         var text = CodeFence().Replace(markdown, "");
         text = Image().Replace(text, "$1");

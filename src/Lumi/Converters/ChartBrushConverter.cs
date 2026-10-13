@@ -8,7 +8,7 @@ namespace Lumi.Converters;
 
 /// <summary>
 /// Maps a 1-based accent index onto the theme's cycling chart palette (Brush.Chart1..6),
-/// used to give each parallel sub-agent a distinct, stable color.
+/// used to give each kind of sub-agent a stable color.
 /// </summary>
 public sealed class ChartBrushConverter : IValueConverter
 {
