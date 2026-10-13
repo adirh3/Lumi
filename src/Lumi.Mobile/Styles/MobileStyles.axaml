@@ -3,6 +3,7 @@
         xmlns:behaviors="using:Lumi.Mobile.Behaviors"
         xmlns:views="using:Lumi.Mobile.Views"
         xmlns:sa="using:StrataTheme.Animation"
+        xmlns:primitives="using:Avalonia.Controls.Primitives"
         xmlns:textInput="using:Avalonia.Input.TextInput"
         xmlns:sc="using:StrataTheme.Controls">
 
@@ -654,42 +655,304 @@
     <Setter Property="RenderTransform" Value="scale(0.96)" />
   </Style>
 
-  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_SheetMotion">
-    <Setter Property="MaxWidth" Value="640" />
+  <!--
+    ══ Popups ══
+    Every popup is a floating glass sheet. Only the content beneath the sheet is frosted; the page
+    around it stays sharp behind a light dim. Rows stay calm: an optional leading icon, a trailing
+    check for the current choice, a chevron for navigation, and red only for destructive actions.
+    The sheet parts are declared in the Strata template, so these selectors carry a class to win.
+  -->
+  <Style Selector="sc|StrataBottomSheet">
+    <Setter Property="ShowCloseButton" Value="True" />
   </Style>
 
-  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Sheet">
-    <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level2}" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="24" />
+  <Style Selector="sc|StrataBottomSheet /template/ Border#PART_SheetMotion">
+    <Setter Property="MaxWidth" Value="{DynamicResource Mobile.Sheet.MaxWidth}" />
   </Style>
 
-  <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Title">
-    <Setter Property="FontSize" Value="{DynamicResource Font.SizeSubtitle}" />
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Scrim,
+                   sc|StrataBottomSheet.touch-picker /template/ Border#PART_Scrim">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetScrim}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ sc|StrataBackdropBlur#PART_Backdrop,
+                   sc|StrataBottomSheet.touch-picker /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Setter Property="IsVisible" Value="True" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.SheetBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.SheetSaturation}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Sheet,
+                   sc|StrataBottomSheet.touch-picker /template/ Border#PART_Sheet">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetSurface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.SheetBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mobile.Sheet.CornerRadius}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Sheet}" />
+    <!-- Scrollers clip their own content; the sheet must not clip away its own shadow. -->
+    <Setter Property="ClipToBounds" Value="False" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Grip,
+                   sc|StrataBottomSheet.touch-picker /template/ Border#PART_Grip">
+    <Setter Property="Width" Value="36" />
+    <Setter Property="Margin" Value="0,8,0,12" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetGrip}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Grid#PART_HeaderContent,
+                   sc|StrataBottomSheet.touch-picker /template/ Grid#PART_HeaderContent">
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Sheet.HeaderMargin}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Title,
+                   sc|StrataBottomSheet.touch-picker /template/ TextBlock#PART_Title">
+    <Setter Property="FontSize" Value="{DynamicResource Mobile.Sheet.TitleSize}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="LineHeight" Value="26" />
     <Setter Property="TextWrapping" Value="Wrap" />
     <Setter Property="MaxLines" Value="2" />
     <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
-  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Scrim">
-    <Setter Property="Background" Value="{DynamicResource Brush.OverlayScrim}" />
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Description,
+                   sc|StrataBottomSheet.touch-picker /template/ TextBlock#PART_Description">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="LineHeight" Value="20" />
+    <Setter Property="MaxLines" Value="3" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
+  <!-- A quiet 32 DIP close circle inside a full 48 DIP target, centred on the title's first line. -->
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close">
+    <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Margin" Value="8,-11,0,0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close /template/ Panel">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close /template/ Border#PART_Surface">
+    <Setter Property="Margin" Value="8" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close /template/ Border#PART_FocusRing">
+    <Setter Property="Margin" Value="6" />
+    <Setter Property="CornerRadius" Value="18" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close:pointerover /template/ Border#PART_Surface,
+                   sc|StrataBottomSheet Button.sheet-close:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.9)" />
+  </Style>
+
+  <!-- Rows are full-width thumb targets with a soft, inset press and selection state. -->
   <Style Selector="sc|StrataBottomSheet Button.sheet-item">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Sheet.ItemMargin}" />
+    <Setter Property="Padding" Value="{DynamicResource Mobile.Sheet.ItemPadding}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Mobile.Sheet.RowHeight}" />
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowHover}" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item.selected /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowSelected}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+    <Setter Property="BoxShadow" Value="none" />
+    <Setter Property="RenderTransform" Value="scale(0.985)" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item:disabled">
+    <Setter Property="Opacity" Value="0.45" />
   </Style>
 
-  <Style Selector="sc|StrataBottomSheet Button.sheet-item.model-option">
-    <Setter Property="CornerRadius" Value="14" />
-    <Setter Property="Padding" Value="14,14" />
+  <Style Selector="sc|StrataBottomSheet PathIcon.sheet-leading">
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
   </Style>
-
-  <Style Selector="sc|StrataBottomSheet Button.sheet-item.model-option.selected">
-    <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item.destructive,
+                   sc|StrataBottomSheet Button.sheet-item.destructive PathIcon.sheet-leading">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet PathIcon.sheet-check">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet PathIcon.sheet-chevron">
+    <Setter Property="Width" Value="12" />
+    <Setter Property="Height" Value="12" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet TextBlock.sheet-value">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="MaxWidth" Value="168" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet TextBlock.sheet-label">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
     <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Sheet.LabelMargin}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet TextBlock.sheet-body">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="LineHeight" Value="22" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Border.sheet-card">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+    <Setter Property="CornerRadius" Value="18" />
+    <Setter Property="Padding" Value="16,14" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Border.context-meter:not(.critical)">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+  </Style>
+
+  <!-- Confirmations use pill actions: neutral, primary and destructive. -->
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action">
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="CornerRadius" Value="24" />
+    <Setter Property="Padding" Value="20,0" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action:pointerover /template/ Border#PART_Surface,
+                   sc|StrataBottomSheet Button.sheet-action:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.primary">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.primary:pointerover /template/ Border#PART_Surface,
+                   sc|StrataBottomSheet Button.sheet-action.primary:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentGradientPressed}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.destructive">
+    <Setter Property="Background" Value="{DynamicResource Brush.DangerDefault}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnDanger}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.destructive:pointerover /template/ Border#PART_Surface,
+                   sc|StrataBottomSheet Button.sheet-action.destructive:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.DangerPressed}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.98)" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action:disabled">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.touch-picker Calendar">
+    <Setter Property="MaxWidth" Value="392" />
+    <Setter Property="Margin" Value="0,0,0,16" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker Calendar /template/ StackPanel#PART_Root">
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem /template/ Border">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem /template/ Grid > Rectangle">
+    <Setter Property="Fill" Value="Transparent" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem /template/ Grid#PART_MonthView">
+    <Setter Property="Margin" Value="0,8,0,8" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem /template/ Grid#PART_MonthView > TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Margin" Value="0,4,0,8" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker Button.CalendarNavigation">
+    <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker Button.CalendarHeader">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton">
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <!-- Seven columns stay inside compact cover displays; rows retain the full touch height. -->
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton">
+    <Setter Property="MinWidth" Value="40" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton:inactive">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton:selected,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton:selected">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton /template/ Rectangle,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton /template/ Rectangle">
+    <Setter Property="RadiusX" Value="14" />
+    <Setter Property="RadiusY" Value="14" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton /template/ Rectangle#SelectedBackground,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton /template/ Rectangle#SelectedBackground">
+    <Setter Property="Fill" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton /template/ Rectangle#TodayBackground">
+    <Setter Property="Fill" Value="{DynamicResource Brush.AccentSubtle}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton /template/ Rectangle#Background,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton /template/ Rectangle#Background">
+    <Setter Property="Fill" Value="{DynamicResource Brush.SheetControl}" />
   </Style>
 
   <Style Selector="sc|StrataSettingGroup.mobile /template/ Border#PART_Card">
@@ -860,5 +1123,13 @@
   </Style>
   <Style Selector="Button.floating-action:pointerover /template/ Border#PART_Aurora">
     <Setter Property="Opacity" Value="0" />
+  </Style>
+
+  <!-- Segmented choices inside a glass popup share the popup's translucent selection tint. -->
+  <Style Selector="sc|StrataBottomSheet Button.theme-option">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.theme-option.selected">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowSelected}" />
   </Style>
 </Styles>

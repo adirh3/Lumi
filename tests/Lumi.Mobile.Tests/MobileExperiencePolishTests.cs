@@ -651,6 +651,189 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(shell.IsDrawerOverlay);
         }, new FocusEditorFactory());
 
+    [Fact]
+    public Task ChoiceSheetsShareSelectionIndicatorsAndPreserveTheNewChatDraft() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            shell.Chat.Reset(Guid.Empty, "New chat");
+            shell.Chat.ApplyCatalogs(new RemoteSettings
+            {
+                PreferredModel = "gpt-6.1-sol",
+                AvailableModels = ["gpt-6.1-sol", "gpt-6-sol"],
+                ModelContextWindowTiers =
+                [
+                    "gpt-6.1-sol=Default,Long context", "gpt-6-sol=Default,Long context"
+                ],
+                ModelDefaults =
+                [
+                    new() { Model = "gpt-6.1-sol", ContextWindowTier = "Default" },
+                    new() { Model = "gpt-6-sol", ContextWindowTier = "Default" }
+                ]
+            });
+            shell.Chat.PromptText = "Keep this unsent thought.";
+            shell.OpenProjectPickerCommand.Execute(null);
+            await Task.Delay(260);
+            Pump(window);
+            Assert.Contains("selected", Required<Button>(view, "AllProjectsButton").Classes);
+            var project = Required<ItemsControl>(view, "ProjectPickerList").GetVisualDescendants()
+                .OfType<Button>().Single(button => button.DataContext == shell.Projects[0]);
+            Tap(window, project);
+            Assert.Equal(shell.Projects[0].Id, shell.ActiveProjectId);
+            Assert.False(shell.IsProjectPickerOpen);
+
+            shell.Chat.OpenModelSheetCommand.Execute(null);
+            await Task.Delay(260);
+            Pump(window);
+            var modelSheet = Required<StrataBottomSheet>(view, "ModelSheet");
+            AssertSelection(modelSheet, "gpt-6.1-sol");
+            var model = modelSheet.GetVisualDescendants().OfType<Button>()
+                .Single(button => button.DataContext is PickerOption { Name: "gpt-6-sol" });
+            Tap(window, model);
+            Assert.Equal("gpt-6-sol", shell.Chat.Model);
+            Assert.False(shell.Chat.IsModelSheetOpen);
+
+            shell.Chat.OpenContextFromRunSettingsCommand.Execute(null);
+            await Task.Delay(260);
+            Pump(window);
+            var contextSheet = Required<StrataBottomSheet>(view, "ContextSheet");
+            AssertSelection(contextSheet, "Default");
+            var context = contextSheet.GetVisualDescendants().OfType<Button>()
+                .Single(button => button.DataContext is PickerOption { Name: "Long context" });
+            Tap(window, context);
+            Assert.Equal("Long context", shell.Chat.ContextWindowTier);
+            Assert.False(shell.Chat.IsContextSheetOpen);
+            Assert.Equal("Keep this unsent thought.", shell.Chat.PromptText);
+            Assert.Equal(Guid.Empty, shell.Chat.ChatId);
+            Assert.Equal(shell.Projects[0].Id, shell.ActiveProjectId);
+
+            static void AssertSelection(StrataBottomSheet sheet, string expected)
+            {
+                var rows = sheet.GetVisualDescendants().OfType<Button>()
+                    .Where(button => button.DataContext is PickerOption).ToArray();
+                Assert.All(rows, row => Assert.True(row.Bounds.Height >= 48));
+                var selected = Assert.Single(rows, row => row.Classes.Contains("selected"));
+                Assert.Equal(expected, Assert.IsType<PickerOption>(selected.DataContext).Name);
+                Assert.All(rows, row =>
+                {
+                    var check = row.GetVisualDescendants().OfType<PathIcon>()
+                        .Single(icon => icon.Classes.Contains("sheet-check"));
+                    Assert.Equal(ReferenceEquals(row, selected), check.IsEffectivelyVisible);
+                });
+            }
+        }, setup: shell =>
+            shell.Projects.Add(new ProjectPickViewModel { Id = Guid.NewGuid(), Name = "Lumi" }));
+
+    [Fact]
+    public Task ChatDetailsIsTitledByItsChatAndClosesFromItsHeader() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            var sheet = Required<StrataBottomSheet>(view, "RunSettingsSheet");
+            Assert.Equal("A long conversation title that deserves room to breathe", sheet.Title);
+            shell.Chat.Reset(Guid.NewGuid(), string.Join(' ', Enumerable.Repeat("A remarkably detailed conversation title", 4)));
+            shell.Chat.OpenRunSettingsSheetCommand.Execute(null);
+            await Task.Delay(260);
+            Pump(window);
+            var title = Required<TextBlock>(sheet, "PART_Title");
+            var close = Required<Button>(sheet, "PART_CloseButton");
+            Assert.True(title.TranslatePoint(new Point(title.Bounds.Width, 0), window)!.Value.X
+                        <= close.TranslatePoint(default, window)!.Value.X);
+            Assert.True(title.Bounds.Height <= 2 * title.LineHeight + 1, $"Title height {title.Bounds.Height}");
+            Assert.DoesNotContain(sheet.GetVisualDescendants().OfType<Button>(),
+                button => button.IsEffectivelyVisible && button.Content as string == "Done");
+            Tap(window, close);
+            Assert.False(shell.Chat.IsRunSettingsSheetOpen);
+            shell.Chat.Reset(Guid.Empty, "New chat");
+            Assert.Equal("New chat", sheet.Title);
+        });
+
+    [Fact]
+    public Task InteractiveChoicePickerUsesTheSameChromeAndFinishesItsExit() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            var root = Required<Panel>(view, "Root");
+            var form = new StrataInteractiveBlock
+            {
+                TouchMode = true, PickerHost = root,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Margin = new Thickness(20),
+                Definition = InteractiveDefinition.Parse("form",
+                    """{"id":"preview","title":"Preferences","fields":[{"id":"pace","label":"Response style","type":"select","value":"Balanced","help":"Choose your preferred style.","options":["Concise","Balanced","Detailed","Step-by-step","Technical","Conversational"]}]}""")
+            };
+            root.Children.Add(form);
+            PumpFrame(window);
+            Tap(window, Required<Button>(form, "Field_pace"));
+            await Task.Delay(260);
+            Pump(window);
+            var picker = root.Children.OfType<StrataBottomSheet>()
+                .Single(sheet => sheet.Name == "InteractionPicker");
+            var surface = Required<Border>(picker, "PART_Sheet");
+            Assert.Equal(new CornerRadius(28), surface.CornerRadius);
+            Assert.Equal("Choose your preferred style.", picker.Description);
+            Assert.True(Required<Button>(picker, "PART_CloseButton").Bounds.Width >= 48);
+            var frost = Required<StrataBackdropBlur>(picker, "PART_Backdrop");
+            Assert.True(frost.IsEffectivelyVisible);
+            Assert.Equal(24, frost.BlurRadius, precision: 1);
+            Assert.Equal(surface.Bounds, frost.Bounds);
+            Assert.True(shell.IsModalSheetPresented);
+            var options = picker.GetVisualDescendants().OfType<Button>()
+                .Where(button => button.Name?.StartsWith("PickerOption_", StringComparison.Ordinal) == true)
+                .ToArray();
+            Assert.All(options, option => Assert.True(option.Bounds.Height >= 48));
+            var current = Assert.Single(options, option => option.Classes.Contains("selected"));
+            Assert.Equal("Balanced", AutomationProperties.GetName(current));
+            Assert.True(current.GetVisualDescendants().OfType<PathIcon>()
+                .Single(icon => icon.Classes.Contains("sheet-check")).IsEffectivelyVisible);
+            Tap(window, options.Single(option => AutomationProperties.GetName(option) == "Concise"));
+            Assert.Equal("Concise", InteractiveState.Parse(form.StateJson!).Values["pace"]);
+            Assert.False(picker.IsOpen);
+            Assert.True(picker.IsPresented);
+            await Task.Delay(200);
+            Assert.DoesNotContain(picker, root.Children);
+            Assert.False(shell.IsModalSheetPresented);
+        });
+
+    [Theory]
+    [InlineData(320)]
+    [InlineData(412)]
+    public Task DatePickerHasReadableTouchRowsAndKeepsAllSevenColumnsReachable(double width) =>
+        RunUiAsync(width, async (shell, view, window) =>
+        {
+            var root = Required<Panel>(view, "Root");
+            var form = new StrataInteractiveBlock
+            {
+                TouchMode = true, PickerHost = root,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Margin = new Thickness(20),
+                Definition = InteractiveDefinition.Parse("form",
+                    """{"id":"trip","title":"Trip","fields":[{"id":"date","label":"Start date","type":"date","value":"2026-10-13"}]}""")
+            };
+            root.Children.Add(form);
+            PumpFrame(window);
+            Tap(window, Required<Button>(form, "Field_date"));
+            await Task.Delay(260);
+            PumpFrame(window);
+            var picker = root.Children.OfType<StrataBottomSheet>()
+                .Single(sheet => sheet.Name == "InteractionPicker");
+            var surface = Required<Border>(picker, "PART_Sheet");
+            var days = picker.GetVisualDescendants()
+                .OfType<Avalonia.Controls.Primitives.CalendarDayButton>().ToArray();
+            Assert.Equal(42, days.Length);
+            Assert.All(days, day =>
+            {
+                Assert.True(day.Bounds.Height >= 48);
+                Assert.True(day.Bounds.Width >= 40);
+                var left = day.TranslatePoint(default, surface)!.Value.X;
+                Assert.True(left >= 0 && left + day.Bounds.Width <= surface.Bounds.Width);
+            });
+            foreach (var name in new[] { "PART_PreviousButton", "PART_NextButton" })
+                Assert.True(Required<Button>(picker, name).Bounds.Width >= 48);
+            Tap(window, days.Single(day => (string?)day.Content == "14"));
+            Assert.Equal("2026-10-14", InteractiveState.Parse(form.StateJson!).Values["date"]);
+            await Task.Delay(200);
+            Assert.DoesNotContain(picker, root.Children);
+            Assert.False(shell.IsModalSheetPresented);
+        });
+
     [Theory]
     [InlineData(320)]
     [InlineData(1112)]
@@ -684,14 +867,29 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Assert.True(bounds.Right <= sheet.Bounds.Width - sheet.SheetMargin.Right + 0.1, sheet.Name);
                 Assert.True(bounds.Top >= sheet.SheetMargin.Top - 0.1, sheet.Name);
                 Assert.Equal(sheet.Bounds.Height - sheet.SheetMargin.Bottom, bounds.Bottom, precision: 1);
-                Assert.InRange(surface.Bounds.Width, 1, 640);
-                Assert.Equal(new CornerRadius(24), surface.CornerRadius);
-                Assert.Equal(default, surface.BorderThickness);
+                Assert.InRange(surface.Bounds.Width, 1, 560);
+                Assert.Equal(new CornerRadius(28), surface.CornerRadius);
+                Assert.Equal(new Thickness(1), surface.BorderThickness);
                 Assert.True(Required<Border>(sheet, "PART_Handle").Bounds.Height >= 48);
                 Assert.Equal(sheet.Bounds.Size, scrim.Bounds.Size);
+                var close = Required<Button>(sheet, "PART_CloseButton");
+                Assert.True(close.IsEffectivelyVisible);
+                Assert.True(close.Bounds.Width >= 48 && close.Bounds.Height >= 48);
+                Assert.Equal("Close", AutomationProperties.GetName(close));
+                // Glass belongs to the popup only: the frost matches the sheet, not the screen.
+                var backdrop = Required<StrataBackdropBlur>(sheet, "PART_Backdrop");
+                Assert.True(backdrop.IsEffectivelyVisible);
+                Assert.Equal(24, backdrop.BlurRadius, precision: 1);
+                Assert.Equal(surface.Bounds, backdrop.Bounds);
+                Assert.Equal(surface.CornerRadius, backdrop.CornerRadius);
+                Assert.Contains(Required<Border>(sheet, "PART_SheetMotion"), backdrop.GetVisualAncestors());
 
-                sheet.SetCurrentValue(StrataBottomSheet.IsOpenProperty, false);
+                Tap(window, close);
+                Assert.False(sheet.IsOpen);
+                Assert.True(sheet.IsPresented);
                 await Task.Delay(180);
+                Assert.False(sheet.IsPresented);
+                Assert.False(backdrop.IsEffectivelyVisible);
             }
 
             shell.Page = MobilePage.Chat;
@@ -2681,6 +2879,35 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.NotNull(NativeTextInputOverlay.GetVisiblePlacement(name, window));
         });
 
+    [Fact]
+    public Task AndroidBackStepsOutOfRenameAndDeleteBeforeClosingChatActions() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            shell.OpenChatActionsCommand.Execute(new ChatListItemViewModel(new RemoteChat
+            {
+                Id = shell.Chat.ChatId,
+                Title = "Designing a calmer mobile experience"
+            }));
+            await Task.Delay(260);
+            Pump(window);
+
+            Tap(window, Required<Button>(view, "SheetRenameButton"));
+            Pump(window);
+            Assert.True(Required<TextBox>(view, "RenameChatBox").IsFocused);
+            PressAndroidBack(window, shell);
+            Assert.True(shell.IsChatActionsOpen);
+            Assert.False(shell.IsRenamingChat);
+
+            Tap(window, Required<Button>(view, "SheetDeleteButton"));
+            Assert.True(shell.IsConfirmingChatDelete);
+            PressAndroidBack(window, shell);
+            Assert.True(shell.IsChatActionsOpen);
+            Assert.False(shell.IsConfirmingChatDelete);
+
+            PressAndroidBack(window, shell);
+            Assert.False(shell.IsChatActionsOpen);
+        });
+
     private static async Task PairAsync(MobileShellViewModel shell, FakeLumiDesktop desktop)
     {
         shell.Connect.ManualAddress = desktop.BaseUrl;
@@ -2761,10 +2988,22 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(center.Value));
         Assert.True(ReferenceEquals(hit, button) || hit.GetVisualAncestors().Contains(button),
             $"{button.Name ?? "Action"} at {center} is covered by {hit.GetType().Name} "
-            + $"{(hit as Control)?.Name}; button bounds: {button.Bounds}.");
+            + $"{(hit as Control)?.Name}; button bounds: {button.Bounds}; "
+            + $"hit ancestry: {string.Join(" > ", hit.GetVisualAncestors().OfType<Control>().Select(control => control.Name ?? control.GetType().Name))}.");
         window.MouseDown(center.Value, MouseButton.Left);
         window.MouseUp(center.Value, MouseButton.Left);
         Pump(window);
+    }
+
+    // Android delivers Back as Escape to the focused element and raises BackRequested only when nothing handled it.
+    private static void PressAndroidBack(Window window, MobileShellViewModel shell)
+    {
+        var target = window.FocusManager?.GetFocusedElement() as InputElement ?? window;
+        var args = new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape };
+        target.RaiseEvent(args);
+        if (!args.Handled && shell.CanGoBack)
+            shell.GoBackCommand.Execute(null);
+        PumpFrame(window);
     }
 
     private sealed class WidthMeasureProbe : Control

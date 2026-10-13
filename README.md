@@ -479,6 +479,30 @@ scrim is drawn, so idle screens spend no extra GPU time. A settled final answer 
 **Copy** (confirmed on the tap, before the clipboard write completes) and, on Android, **Share**
 through the system share sheet. Finished work collapses to a compact "Work" disclosure.
 
+Mobile popups are floating glass sheets. Only the popup is frosted: it blurs the content
+beneath its own surface and slides with it, while the page around it stays sharp behind a
+light dim. Headers are a title, an optional one-line explanation and a 48-DIP close button,
+so sheets carry no redundant Done buttons. Rows are calm and consistent: an optional leading
+icon, a trailing check for the current choice, a chevron with the current value for
+navigation, and red only for destructive actions; confirmations use pill buttons. Chat details
+is titled by its chat ("New chat" before the first message). Projects, models, chat
+preferences/actions, Library confirmations, job details, plans, sources, activity and
+interactive-answer pickers share this light/dark-aware design. Sheets retain their system-bar
+and keyboard insets, project choices stay in the navigation pane on hinged Fold layouts, and
+project lists remain virtualized. Date pickers use readable, rounded day cells with 48-DIP row
+height; their seven-column layout adapts to compact cover displays instead of clipping the
+last days.
+
+Preview every popup without pairing, network calls or real chat data:
+
+```powershell
+dotnet run --project src\Lumi.Mobile.Desktop\Lumi.Mobile.Desktop.csproj -- --popup-preview --device "Pixel 8 Pro"
+```
+
+This Debug-only simulator fixture always uses an isolated local profile. Its preview selector
+opens the existing production sheets and interactive form/date pickers; the device selector
+switches between phone, landscape, tablet and Fold layouts.
+
 ### Lumi tool availability
 
 Lumi preloads its own tool definitions for new, resumed, and helper sessions,

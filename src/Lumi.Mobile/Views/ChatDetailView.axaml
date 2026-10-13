@@ -200,6 +200,12 @@
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Padding" Value="10,7" />
     </Style>
+    <!-- Inside a glass popup, cards share its translucent fill instead of an opaque block. -->
+    <Style Selector="sc|StrataBottomSheet Border.activity-file">
+      <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="12,10" />
+    </Style>
 
     <Style Selector="Button.answer-action">
       <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
@@ -1038,29 +1044,60 @@
                           Title="Job details">
       <Border x:Name="JobWakeSideInset">
         <ScrollViewer Classes="mobile-scroll" MaxHeight="560" HorizontalScrollBarVisibility="Disabled">
-          <ContentControl Content="{Binding Chat.SelectedJobWake}" Margin="20,4,20,20">
+          <ContentControl Content="{Binding Chat.SelectedJobWake}" Margin="{DynamicResource Mobile.Sheet.ContentMargin}">
             <ContentControl.ContentTemplate>
               <DataTemplate x:DataType="vm:JobWakeItemViewModel">
-                <StackPanel Spacing="12">
-                  <TextBlock Text="{Binding Details.JobName}" FontWeight="SemiBold"
-                             FontSize="{DynamicResource Font.SizeTitle}" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding Summary}" Classes="supporting" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding Details.ExitCode, StringFormat='Exit code: {0}'}"
-                             IsVisible="{Binding HasExitCode}" Classes="muted" />
-                  <TextBlock Text="{Binding Details.StartedText, StringFormat='Started: {0}'}"
-                             IsVisible="{Binding HasStarted}" Classes="muted" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding Details.CompletedText, StringFormat='Completed: {0}'}"
-                             IsVisible="{Binding HasCompleted}" Classes="muted" TextWrapping="Wrap" />
-                  <TextBlock Text="Instructions" Classes="group-label" IsVisible="{Binding HasInstructions}" />
-                  <SelectableTextBlock Text="{Binding Details.Instructions}" IsVisible="{Binding HasInstructions}"
-                                       FontSize="{DynamicResource Font.SizeBody}" TextWrapping="Wrap"
-                                       behaviors:NativeTextSelection.IsEnabled="True"
-                                       behaviors:NativeTextSelection.Text="{Binding Details.Instructions}" />
-                  <TextBlock Text="Output" Classes="group-label" IsVisible="{Binding HasOutput}" />
-                  <SelectableTextBlock Text="{Binding Details.OutputText}" IsVisible="{Binding HasOutput}"
-                                       FontSize="{DynamicResource Font.SizeBody}" TextWrapping="Wrap"
-                                       behaviors:NativeTextSelection.IsEnabled="True"
-                                       behaviors:NativeTextSelection.Text="{Binding Details.OutputText}" />
+                <StackPanel Spacing="16">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{Binding Details.JobName}" FontWeight="SemiBold"
+                               FontSize="{DynamicResource Font.SizeSubtitle}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Summary}" Classes="sheet-body" />
+                  </StackPanel>
+                  <Border Classes="sheet-card">
+                    <Border.IsVisible>
+                      <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                        <Binding Path="HasStarted" />
+                        <Binding Path="HasCompleted" />
+                        <Binding Path="HasExitCode" />
+                      </MultiBinding>
+                    </Border.IsVisible>
+                    <StackPanel Spacing="10">
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" IsVisible="{Binding HasStarted}">
+                        <TextBlock Text="Started" Classes="sheet-body" />
+                        <TextBlock Grid.Column="1" Text="{Binding Details.StartedText}" FontSize="15"
+                                   TextAlignment="Right" TextWrapping="Wrap" />
+                      </Grid>
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" IsVisible="{Binding HasCompleted}">
+                        <TextBlock Text="Completed" Classes="sheet-body" />
+                        <TextBlock Grid.Column="1" Text="{Binding Details.CompletedText}" FontSize="15"
+                                   TextAlignment="Right" TextWrapping="Wrap" />
+                      </Grid>
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" IsVisible="{Binding HasExitCode}">
+                        <TextBlock Text="Exit code" Classes="sheet-body" />
+                        <TextBlock Grid.Column="1" Text="{Binding Details.ExitCode}" FontSize="15"
+                                   TextAlignment="Right" TextWrapping="Wrap" />
+                      </Grid>
+                    </StackPanel>
+                  </Border>
+                  <StackPanel Spacing="8" IsVisible="{Binding HasInstructions}">
+                    <TextBlock Text="Instructions" Classes="sheet-label" Margin="4,0" />
+                    <Border Classes="sheet-card">
+                      <SelectableTextBlock Text="{Binding Details.Instructions}"
+                                           FontSize="15" LineHeight="22" TextWrapping="Wrap"
+                                           behaviors:NativeTextSelection.IsEnabled="True"
+                                           behaviors:NativeTextSelection.Text="{Binding Details.Instructions}" />
+                    </Border>
+                  </StackPanel>
+                  <StackPanel Spacing="8" IsVisible="{Binding HasOutput}">
+                    <TextBlock Text="Output" Classes="sheet-label" Margin="4,0" />
+                    <Border Classes="sheet-card">
+                      <SelectableTextBlock Text="{Binding Details.OutputText}"
+                                           FontFamily="{DynamicResource Font.FamilyMono}"
+                                           FontSize="13" LineHeight="20" TextWrapping="Wrap"
+                                           behaviors:NativeTextSelection.IsEnabled="True"
+                                           behaviors:NativeTextSelection.Text="{Binding Details.OutputText}" />
+                    </Border>
+                  </StackPanel>
                 </StackPanel>
               </DataTemplate>
             </ContentControl.ContentTemplate>
@@ -1069,135 +1106,116 @@
       </Border>
     </sc:StrataBottomSheet>
 
+    <!-- The chat is the subject: its title heads the sheet and its project sits beneath it. -->
     <sc:StrataBottomSheet x:Name="RunSettingsSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsRunSettingsSheetOpen, Mode=TwoWay}"
-                          Title="Chat details">
+                          Title="{Binding ChatDetailsTitle}"
+                          Description="{Binding Chat.ProjectName}">
       <Border x:Name="RunSettingsSideInset">
         <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="0,0,0,12">
-        <StackPanel Margin="20,4,20,16" Spacing="6">
-          <TextBlock Text="{Binding HeaderTitle}" FontSize="{DynamicResource Font.SizeTitle}"
-                     FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
-                     TextTrimming="CharacterEllipsis" />
-          <TextBlock Text="{Binding Chat.ProjectName}" Classes="supporting"
-                     IsVisible="{Binding Chat.ProjectName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-        </StackPanel>
-
-        <Button x:Name="PlanButton" Classes="sheet-item"
-                IsVisible="{Binding Chat.HasPlan}"
-                Command="{Binding Chat.OpenPlanFromRunSettingsCommand}">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <PathIcon Width="20" Height="20" VerticalAlignment="Center"
-                      Data="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h7v2H7v-2z" />
-            <StackPanel Grid.Column="1" Spacing="2">
-              <TextBlock Text="Plan" FontWeight="SemiBold" />
-              <TextBlock Text="See the steps and progress" Classes="muted" />
-            </StackPanel>
-          </Grid>
-        </Button>
-        <Button x:Name="GitChangesButton" Classes="sheet-item"
-                IsVisible="{Binding Chat.HasChat}"
-                AutomationProperties.Name="Git changes"
-                Command="{Binding Chat.OpenGitChangesFromRunSettingsCommand}">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <PathIcon Width="20" Height="20" VerticalAlignment="Center"
-                      Data="M7 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm10 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM6 7v9a3 3 0 1 0 2 0v-2h4a6 6 0 0 0 6-6h-2a4 4 0 0 1-4 4H8V7H6zm1 11a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
-            <StackPanel Grid.Column="1" Spacing="2">
-              <TextBlock Text="Git changes" FontWeight="SemiBold" />
-              <TextBlock Text="Review workspace changes, read-only" Classes="muted" TextWrapping="Wrap" />
-            </StackPanel>
-          </Grid>
-        </Button>
-        <TextBlock Text="Preferences" Classes="group-label" Margin="20,16,20,4" />
-        <Button x:Name="RunSettingsModelButton" Classes="sheet-item"
-                Command="{Binding Chat.OpenModelFromRunSettingsCommand}">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <PathIcon Grid.Column="0" Width="20" Height="20"
-                      Data="M12 2 4 6v6c0 4.42 3.05 8.44 8 9.8 4.95-1.36 8-5.38 8-9.8V6l-8-4zm0 4.5 4 2v3.5c0 2.5-1.7 4.8-4 5.7-2.3-.9-4-3.2-4-5.7V8.5l4-2z" />
-            <StackPanel Grid.Column="1" Spacing="2">
-              <TextBlock Text="Model" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding Chat.ModelDisplayName}" Classes="muted" />
-            </StackPanel>
-          </Grid>
-        </Button>
-
-        <Button x:Name="RunSettingsEffortButton" Classes="sheet-item"
-                Command="{Binding Chat.OpenEffortFromRunSettingsCommand}"
-                IsEnabled="{Binding Chat.HasQualityLevels}">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <PathIcon Grid.Column="0" Width="20" Height="20"
-                      Data="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
-            <StackPanel Grid.Column="1" Spacing="2">
-              <TextBlock Text="Reasoning effort" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding Chat.EffortLabel}" Classes="muted" />
-            </StackPanel>
-          </Grid>
-        </Button>
-
-        <Button x:Name="RunSettingsContextButton" Classes="sheet-item"
-                Command="{Binding Chat.OpenContextFromRunSettingsCommand}"
-                IsEnabled="{Binding Chat.HasContextWindowTiers}">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <PathIcon Grid.Column="0" Width="20" Height="20"
-                      Data="M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v2H8V8zm0 4h8v2H8v-2z" />
-            <StackPanel Grid.Column="1" Spacing="2">
-              <TextBlock Text="Context window" FontWeight="SemiBold" />
-              <TextBlock Text="{Binding Chat.ContextWindowLabel}" Classes="muted" />
-            </StackPanel>
-          </Grid>
-        </Button>
-
-        <Border x:Name="ContextMeter" Classes="context-meter"
-                Classes.warn="{Binding Chat.IsContextWarn}"
-                Classes.critical="{Binding Chat.IsContextCritical}"
-                IsVisible="{Binding Chat.HasContextUsage}" Margin="20,12,20,4"
-                Padding="14" CornerRadius="14" HorizontalAlignment="Stretch">
-          <StackPanel Spacing="8">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <TextBlock Text="Context used" FontWeight="Medium" />
-              <TextBlock x:Name="ContextText" Grid.Column="1" Text="{Binding Chat.ContextUsageText}"
-                         FontWeight="SemiBold" />
+        <StackPanel Margin="0,0,0,8">
+          <Button x:Name="PlanButton" Classes="sheet-item"
+                  IsVisible="{Binding Chat.HasPlan}"
+                  Command="{Binding Chat.OpenPlanFromRunSettingsCommand}">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+              <PathIcon Classes="sheet-leading"
+                        Data="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7-.25a.75.75 0 1 1 0 1.5.75.75 0 0 1 0-1.5zM19 19H5V5h14v14zM7 15h7v2H7v-2zm0-4h10v2H7v-2zm0-4h10v2H7V7z" />
+              <TextBlock Grid.Column="1" Text="Plan" VerticalAlignment="Center" />
+              <PathIcon Grid.Column="2" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
             </Grid>
-            <ProgressBar Minimum="0" Maximum="100" Value="{Binding Chat.ContextPercent}" Height="4" />
-            <TextBlock Text="{Binding Chat.ContextDetailText}" Classes="muted" />
-          </StackPanel>
-        </Border>
-
-        <Border x:Name="RunSettingsWorkspace"
-                IsVisible="{Binding Chat.CanChooseWorktree}"
-                Margin="12,8,12,0"
-                Padding="16,14"
-                Background="{DynamicResource Brush.Surface1}"
-                BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                BorderThickness="1"
-                CornerRadius="16">
-          <StackPanel Spacing="12">
-            <StackPanel Spacing="3">
-              <TextBlock Text="Workspace" FontWeight="SemiBold" />
-              <TextBlock Text="Choose where the first coding turn runs."
-                         Classes="muted"
-                         TextWrapping="Wrap" />
-            </StackPanel>
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-              <Button x:Name="LocalWorkspaceButton"
-                      Grid.Column="0"
-                      Classes="theme-option"
-                      Classes.selected="{Binding Chat.IsLocalWorkspaceSelected}"
-                      Command="{Binding Chat.SelectLocalWorkspaceCommand}"
-                      Content="Local checkout" />
-              <Button x:Name="WorktreeWorkspaceButton"
-                      Grid.Column="1"
-                      Classes="theme-option"
-                      Classes.selected="{Binding Chat.UseWorktree}"
-                      Command="{Binding Chat.SelectNewWorktreeCommand}"
-                      Content="New worktree" />
+          </Button>
+          <Button x:Name="GitChangesButton" Classes="sheet-item"
+                  IsVisible="{Binding Chat.HasChat}"
+                  AutomationProperties.Name="Git changes"
+                  Command="{Binding Chat.OpenGitChangesFromRunSettingsCommand}">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+              <PathIcon Classes="sheet-leading"
+                        Data="M7 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm10 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM6 7v9a3 3 0 1 0 2 0v-2h4a6 6 0 0 0 6-6h-2a4 4 0 0 1-4 4H8V7H6zm1 11a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
+              <TextBlock Grid.Column="1" Text="Git changes" VerticalAlignment="Center" />
+              <PathIcon Grid.Column="2" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
             </Grid>
-          </StackPanel>
-        </Border>
-        <Button x:Name="ChatDetailsDoneButton" Classes="touch" Content="Done"
-                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                Margin="20,16,20,4" Command="{Binding Chat.ClosePickerSheetCommand}" />
+          </Button>
+
+          <TextBlock Text="Preferences" Classes="sheet-label" />
+          <Button x:Name="RunSettingsModelButton" Classes="sheet-item"
+                  Command="{Binding Chat.OpenModelFromRunSettingsCommand}">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+              <PathIcon Classes="sheet-leading"
+                        Data="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z" />
+              <TextBlock Grid.Column="1" Text="Model" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+              <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.ModelDisplayName}" />
+              <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
+            </Grid>
+          </Button>
+
+          <Button x:Name="RunSettingsEffortButton" Classes="sheet-item"
+                  Command="{Binding Chat.OpenEffortFromRunSettingsCommand}"
+                  IsEnabled="{Binding Chat.HasQualityLevels}">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+              <PathIcon Classes="sheet-leading"
+                        Data="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
+              <TextBlock Grid.Column="1" Text="Reasoning effort" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+              <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.EffortLabel}" />
+              <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
+            </Grid>
+          </Button>
+
+          <Button x:Name="RunSettingsContextButton" Classes="sheet-item"
+                  Command="{Binding Chat.OpenContextFromRunSettingsCommand}"
+                  IsEnabled="{Binding Chat.HasContextWindowTiers}">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+              <PathIcon Classes="sheet-leading"
+                        Data="M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v2H8V8zm0 4h8v2H8v-2z" />
+              <TextBlock Grid.Column="1" Text="Context window" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+              <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.ContextWindowLabel}" />
+              <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
+            </Grid>
+          </Button>
+
+          <Border x:Name="ContextMeter" Classes="context-meter"
+                  Classes.warn="{Binding Chat.IsContextWarn}"
+                  Classes.critical="{Binding Chat.IsContextCritical}"
+                  IsVisible="{Binding Chat.HasContextUsage}" Margin="16,12,16,0"
+                  Padding="16,14" CornerRadius="18" HorizontalAlignment="Stretch">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <TextBlock Text="Context used" FontWeight="Medium" />
+                <TextBlock x:Name="ContextText" Grid.Column="1" Text="{Binding Chat.ContextUsageText}"
+                           FontWeight="SemiBold" />
+              </Grid>
+              <ProgressBar Minimum="0" Maximum="100" Value="{Binding Chat.ContextPercent}" Height="4" />
+              <TextBlock Text="{Binding Chat.ContextDetailText}" Classes="muted" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border x:Name="RunSettingsWorkspace"
+                  Classes="sheet-card"
+                  IsVisible="{Binding Chat.CanChooseWorktree}"
+                  Margin="16,12,16,0">
+            <StackPanel Spacing="12">
+              <StackPanel Spacing="2">
+                <TextBlock Text="Workspace" FontWeight="SemiBold" />
+                <TextBlock Text="Choose where the first coding turn runs."
+                           Classes="muted"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                <Button x:Name="LocalWorkspaceButton"
+                        Grid.Column="0"
+                        Classes="theme-option"
+                        Classes.selected="{Binding Chat.IsLocalWorkspaceSelected}"
+                        Command="{Binding Chat.SelectLocalWorkspaceCommand}"
+                        Content="Local checkout" />
+                <Button x:Name="WorktreeWorkspaceButton"
+                        Grid.Column="1"
+                        Classes="theme-option"
+                        Classes.selected="{Binding Chat.UseWorktree}"
+                        Command="{Binding Chat.SelectNewWorktreeCommand}"
+                        Content="New worktree" />
+              </Grid>
+            </StackPanel>
+          </Border>
         </StackPanel>
         </ScrollViewer>
       </Border>
@@ -1208,13 +1226,14 @@
                           IsOpen="{Binding Chat.IsModelSheetOpen, Mode=TwoWay}"
                           Title="Model">
       <Border x:Name="ModelSheetSideInset">
-        <ScrollViewer Classes="mobile-scroll" MaxHeight="520" Padding="12,0,12,12">
-          <StackPanel Spacing="2">
+        <ScrollViewer Classes="mobile-scroll" MaxHeight="520" Padding="0,0,0,4"
+                      HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
             <ItemsControl x:Name="ModelSheetList" ItemsSource="{Binding Chat.ModelGroups}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:ModelProviderGroup">
-                  <StackPanel Spacing="4" Margin="0,0,0,12">
-                    <TextBlock Text="{Binding Label}" Classes="group-label" Margin="12,14,12,6" />
+                  <StackPanel>
+                    <TextBlock Text="{Binding Label}" Classes="sheet-label" />
                     <ItemsControl ItemsSource="{Binding Options}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:PickerOption">
@@ -1223,11 +1242,8 @@
                                   Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.PickModelCommand}"
                                   CommandParameter="{Binding Name}">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                              <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"
-                                         TextWrapping="Wrap" />
-                              <PathIcon Grid.Column="1" Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
-                                        VerticalAlignment="Center" IsVisible="{Binding IsSelected}"
-                                        Foreground="{DynamicResource Brush.AccentDefault}"
+                              <TextBlock Text="{Binding Label}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                              <PathIcon Grid.Column="1" Classes="sheet-check" IsVisible="{Binding IsSelected}"
                                         Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                             </Grid>
                           </Button>
@@ -1238,7 +1254,6 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-
           </StackPanel>
         </ScrollViewer>
       </Border>
@@ -1247,25 +1262,27 @@
     <sc:StrataBottomSheet x:Name="ContextSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsContextSheetOpen, Mode=TwoWay}"
-                          Title="Context window">
+                          Title="Context window"
+                          Description="How much of the conversation the model keeps in view.">
       <Border x:Name="ContextSheetSideInset">
-        <ItemsControl ItemsSource="{Binding Chat.ContextTierOptions}" Margin="12,0,12,12">
+        <ScrollViewer Classes="mobile-scroll" MaxHeight="440" HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding Chat.ContextTierOptions}" Margin="0,0,0,4">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:PickerOption">
-              <Button Classes="sheet-item"
+              <Button Classes="sheet-item context-option" Classes.selected="{Binding IsSelected}"
+                      AutomationProperties.Name="{Binding Label}"
                       Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.PickContextTierCommand}"
                       CommandParameter="{Binding Name}">
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center" />
-                  <PathIcon Grid.Column="1" Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
-                            VerticalAlignment="Center" IsVisible="{Binding IsSelected}"
-                            Foreground="{DynamicResource Brush.AccentDefault}"
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <TextBlock Text="{Binding Label}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                  <PathIcon Grid.Column="1" Classes="sheet-check" IsVisible="{Binding IsSelected}"
                             Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                 </Grid>
               </Button>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
+        </ScrollViewer>
       </Border>
     </sc:StrataBottomSheet>
 
@@ -1276,14 +1293,17 @@
     <sc:StrataBottomSheet x:Name="EffortSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsEffortSheetOpen, Mode=TwoWay}"
-                          Title="Reasoning effort">
+                          Title="Reasoning effort"
+                          Description="More effort gives more thorough answers, but takes longer.">
       <Border x:Name="EffortSheetSideInset">
-        <StackPanel Margin="24,4,24,28" Spacing="14">
+        <StackPanel Margin="{DynamicResource Mobile.Sheet.ContentMargin}" Spacing="4">
           <TextBlock Text="{Binding Chat.EffortLabel}"
                      FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold"
-                     HorizontalAlignment="Center" />
+                     HorizontalAlignment="Center" Margin="0,4,0,8" />
 
           <Slider x:Name="EffortSlider"
+                  MinHeight="{DynamicResource Touch.MinTarget}"
+                  AutomationProperties.Name="Reasoning effort"
                   Minimum="0"
                   Maximum="{Binding Chat.EffortMax}"
                   Value="{Binding Chat.EffortIndex, Mode=TwoWay}"
@@ -1292,15 +1312,12 @@
                   TickPlacement="Outside" />
 
           <!-- The ends of the scale, so the slider reads without having to drag it to find out. -->
-          <Grid ColumnDefinitions="*,*">
+          <Grid ColumnDefinitions="*,*" Margin="0,0,0,12">
             <TextBlock Grid.Column="0" Text="Faster" Classes="muted"
                        HorizontalAlignment="Left" />
             <TextBlock Grid.Column="1" Text="More thorough" Classes="muted"
                        HorizontalAlignment="Right" />
           </Grid>
-          <Button x:Name="EffortDoneButton" Classes="touch accent" Content="Done"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                  Command="{Binding Chat.ClosePickerSheetCommand}" />
         </StackPanel>
       </Border>
     </sc:StrataBottomSheet>
@@ -1311,7 +1328,7 @@
                           IsOpen="{Binding Chat.IsPlanOpen, Mode=TwoWay}"
                           Title="Plan">
       <ScrollViewer Classes="mobile-scroll" MaxHeight="440"
-                    Padding="20,0,20,0"
+                    Padding="24,0,24,0"
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Hidden">
         <!--
@@ -1321,7 +1338,7 @@
           model sheet keeps the scroll extent stable.
         -->
         <Border x:Name="PlanSheetSideInset" Padding="{Binding SafeAreaSides}">
-          <StackPanel Margin="0,0,0,16">
+          <StackPanel Margin="0,0,0,12">
             <sc:StrataMarkdown Markdown="{Binding Chat.PlanContent}" IsInline="True" />
           </StackPanel>
         </Border>
@@ -1339,48 +1356,36 @@
               <ScrollViewer Classes="mobile-scroll" MaxHeight="560"
                             HorizontalScrollBarVisibility="Disabled"
                             VerticalScrollBarVisibility="Hidden">
-                <StackPanel Margin="14,0,14,20" Spacing="10">
-                  <TextBlock Text="References used in this answer"
-                             FontSize="{DynamicResource Font.SizeSubtitle}"
-                             FontWeight="SemiBold" />
-                  <TextBlock Text="{Binding SourceCountText}"
-                             FontSize="{DynamicResource Font.SizeMeta}"
-                             Foreground="{DynamicResource Brush.TextTertiary}" />
-                  <ItemsControl ItemsSource="{Binding Sources}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="proto:RemoteSource">
-                        <Button Classes="sheet-item"
-                                Margin="0,2"
-                                HorizontalContentAlignment="Stretch"
-                                Click="OnSourceClick">
-                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel Grid.Column="0" Spacing="4">
-                              <TextBlock Text="{Binding Title}"
-                                         FontWeight="SemiBold"
-                                         TextWrapping="Wrap" />
-                              <TextBlock Text="{Binding Snippet}"
-                                         IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                         FontSize="{DynamicResource Font.SizeMeta}"
-                                         Foreground="{DynamicResource Brush.TextSecondary}"
-                                         TextWrapping="Wrap"
-                                         MaxLines="3" />
-                              <TextBlock Text="{Binding Url}"
-                                         IsVisible="{Binding Url, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                         FontSize="{DynamicResource Font.SizeCaption}"
-                                         Foreground="{DynamicResource Brush.TextTertiary}"
-                                         TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                            <PathIcon Grid.Column="1"
-                                      Width="18" Height="18"
-                                      VerticalAlignment="Center"
-                                      Foreground="{DynamicResource Brush.TextTertiary}"
-                                      Data="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h5V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5h-2v5H5V5z" />
-                          </Grid>
-                        </Button>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
+                <ItemsControl ItemsSource="{Binding Sources}" Margin="0,0,0,4">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="proto:RemoteSource">
+                      <Button Classes="sheet-item source-option" Padding="16,12"
+                              Click="OnSourceClick">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+                          <StackPanel Spacing="3">
+                            <TextBlock Text="{Binding Title}"
+                                       FontWeight="Medium"
+                                       TextWrapping="Wrap" MaxLines="2"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Snippet}"
+                                       IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       FontSize="{DynamicResource Font.SizeMeta}"
+                                       Foreground="{DynamicResource Brush.TextSecondary}"
+                                       TextWrapping="Wrap" MaxLines="2"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Url}"
+                                       IsVisible="{Binding Url, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       FontSize="{DynamicResource Font.SizeCaption}"
+                                       Foreground="{DynamicResource Brush.TextTertiary}"
+                                       TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                          <PathIcon Grid.Column="1" Classes="sheet-chevron" Width="16" Height="16"
+                                    Data="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h5V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5h-2v5H5V5z" />
+                        </Grid>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </ScrollViewer>
             </DataTemplate>
           </ContentControl.ContentTemplate>
@@ -1399,11 +1404,9 @@
               <ScrollViewer Classes="mobile-scroll" MaxHeight="560"
                             HorizontalScrollBarVisibility="Disabled"
                             VerticalScrollBarVisibility="Hidden">
-                <StackPanel Margin="16,0,16,22" Spacing="14">
+                <StackPanel Margin="{DynamicResource Mobile.Sheet.ContentMargin}" Spacing="16">
             <TextBlock Text="{Binding SummaryText}"
-                       FontSize="{DynamicResource Font.SizeSubtitle}"
-                       FontWeight="SemiBold"
-                       TextWrapping="Wrap" />
+                       Classes="sheet-body" />
 
             <ProgressBar IsIndeterminate="True"
                          Height="3"
@@ -1414,35 +1417,36 @@
                        Foreground="{DynamicResource Brush.DangerDefault}"
                        TextWrapping="Wrap" />
 
-            <StackPanel IsVisible="{Binding HasFileChanges}" Spacing="7">
-              <TextBlock Text="{Binding FileSummary}"
-                         FontWeight="SemiBold" />
+            <StackPanel IsVisible="{Binding HasFileChanges}" Spacing="8">
+              <TextBlock Text="{Binding FileSummary}" Classes="sheet-label" Margin="4,0" />
               <ItemsControl ItemsSource="{Binding FileChanges}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ActivityFileChangeViewModel">
                     <Border Classes="activity-file" Margin="0,2">
-                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9">
-                        <PathIcon Grid.Column="0" Width="17" Height="17"
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                        <PathIcon Grid.Column="0" Width="18" Height="18"
                                   VerticalAlignment="Center"
-                                  Foreground="{DynamicResource Brush.AccentDefault}"
+                                  Foreground="{DynamicResource Brush.TextSecondary}"
                                   Data="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 18H6V4h7v5h5v11z" />
                         <StackPanel Grid.Column="1" Spacing="1">
                           <TextBlock Text="{Binding FileName}"
-                                     FontWeight="SemiBold"
+                                     FontWeight="Medium"
                                      TextTrimming="CharacterEllipsis" />
                           <TextBlock Text="{Binding Path}"
                                      FontSize="{DynamicResource Font.SizeCaption}"
                                      Foreground="{DynamicResource Brush.TextTertiary}"
                                      TextTrimming="CharacterEllipsis" />
                         </StackPanel>
-                        <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center">
                           <TextBlock Text="{Binding Operation}"
                                      FontSize="{DynamicResource Font.SizeCaption}"
-                                     Foreground="{DynamicResource Brush.TextSecondary}" />
+                                     Foreground="{DynamicResource Brush.TextSecondary}"
+                                     HorizontalAlignment="Right" />
                           <TextBlock Text="{Binding StatsText}"
                                      IsVisible="{Binding HasStats}"
                                      FontSize="{DynamicResource Font.SizeCaption}"
-                                     Foreground="{DynamicResource Brush.SuccessDefault}" />
+                                     Foreground="{DynamicResource Brush.SuccessDefault}"
+                                     HorizontalAlignment="Right" />
                         </StackPanel>
                       </Grid>
                     </Border>
@@ -1455,9 +1459,9 @@
                           IsVisible="{Binding HasSections}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:ActivitySectionViewModel">
-                  <StackPanel Spacing="7" Margin="0,3,0,8">
-                    <Grid ColumnDefinitions="*,Auto">
-                      <TextBlock Grid.Column="0" Text="{Binding Label}" FontWeight="SemiBold" />
+                  <StackPanel Spacing="8" Margin="0,0,0,12">
+                    <Grid ColumnDefinitions="*,Auto" Margin="4,0">
+                      <TextBlock Grid.Column="0" Text="{Binding Label}" Classes="sheet-label" Margin="0" />
                       <TextBlock Grid.Column="1" Text="{Binding CountText}"
                                  FontSize="{DynamicResource Font.SizeCaption}"
                                  Foreground="{DynamicResource Brush.TextTertiary}" />
@@ -1467,7 +1471,7 @@
                         <DataTemplate x:DataType="vm:ActivityStepViewModel">
                           <Border Classes="activity-file" Margin="0,2">
                             <StackPanel Spacing="6">
-                              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                                 <TextBlock Grid.Column="0"
                                            Text="✓"
                                            IsVisible="{Binding IsSucceeded}"
@@ -1494,7 +1498,8 @@
                                            TextWrapping="Wrap" />
                                 <TextBlock Grid.Column="2" Text="{Binding DurationText}"
                                            FontSize="{DynamicResource Font.SizeCaption}"
-                                           Foreground="{DynamicResource Brush.TextTertiary}" />
+                                           Foreground="{DynamicResource Brush.TextTertiary}"
+                                           VerticalAlignment="Center" />
                               </Grid>
                               <StackPanel IsVisible="{Binding ShowTechnicalDetails}" Spacing="5">
                                 <TextBlock Text="{Binding Input}"
@@ -1519,8 +1524,7 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <Button Classes="subtle"
-                    HorizontalAlignment="Stretch"
+            <Button Classes="sheet-action"
                     IsVisible="{Binding CanShowTechnicalDetails}"
                     Command="{Binding ToggleTechnicalDetailsCommand}"
                     Content="{Binding TechnicalDetailsLabel}" />

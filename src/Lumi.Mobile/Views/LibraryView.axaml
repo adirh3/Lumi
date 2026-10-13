@@ -329,44 +329,48 @@
                           IsDismissable="{Binding !IsActionBusy}"
                           Title="{Binding ActionSheetTitle}">
       <Border x:Name="LibraryActionsSideInset">
-        <StackPanel Spacing="8">
+        <StackPanel Margin="0,0,0,4">
           <TextBlock x:Name="LibraryActionStatus" Text="{Binding StatusMessage}"
-                     Classes="muted" Foreground="{DynamicResource Brush.TextSecondary}"
-                     Margin="16,0" TextWrapping="Wrap"
+                     Classes="sheet-body" Margin="24,0,24,8"
                      IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <TextBlock Text="Working on your PC…" Classes="muted" Margin="16,0"
+          <TextBlock Text="Working on your PC…" Classes="sheet-body" Margin="24,0,24,8"
                      IsVisible="{Binding IsActionBusy}" />
           <StackPanel x:Name="LibraryActionOptions" IsVisible="{Binding !IsConfirmingDelete}"
                       IsEnabled="{Binding !IsActionBusy}">
             <Button x:Name="LibraryEditButton" Classes="sheet-item"
                     IsVisible="{Binding CanEditActionEntry}" Command="{Binding EditActionEntryCommand}">
-              <TextBlock Text="Edit" />
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                <PathIcon Classes="sheet-leading"
+                          Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM5.92 19H5v-.92l9.06-9.06.92.92L5.92 19zM20.71 5.63l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83a1 1 0 0 0 0-1.41z" />
+                <TextBlock Grid.Column="1" Text="Edit" VerticalAlignment="Center" />
+              </Grid>
             </Button>
             <Button x:Name="LibraryToggleButton" Classes="sheet-item"
                     IsVisible="{Binding CanToggleActionEntry}" Command="{Binding ToggleActionEntryCommand}">
-              <TextBlock Text="{Binding ToggleActionText}" TextWrapping="Wrap" />
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                <PathIcon Classes="sheet-leading"
+                          Data="M13 3h-2v10h2V3zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7a6.995 6.995 0 0 1-4.42-12.42L6.17 5.17A8.932 8.932 0 0 0 3 12a9 9 0 0 0 18 0c0-2.74-1.23-5.18-3.17-6.83z" />
+                <TextBlock Grid.Column="1" Text="{Binding ToggleActionText}" TextWrapping="Wrap" VerticalAlignment="Center" />
+              </Grid>
             </Button>
-            <Button x:Name="LibraryDeleteButton" Classes="sheet-item danger"
+            <Button x:Name="LibraryDeleteButton" Classes="sheet-item destructive"
                     IsVisible="{Binding CanDeleteActionEntry}" Command="{Binding DeleteActionEntryCommand}">
-              <TextBlock Text="Delete…" />
-            </Button>
-            <Button x:Name="LibraryActionsCancelButton" Classes="sheet-item"
-                    Command="{Binding CloseRowActionsCommand}">
-              <TextBlock Text="Done" />
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                <PathIcon Classes="sheet-leading"
+                          Data="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z" />
+                <TextBlock Grid.Column="1" Text="Delete…" VerticalAlignment="Center" />
+              </Grid>
             </Button>
           </StackPanel>
-          <StackPanel x:Name="LibraryDeleteConfirmation" Spacing="8"
+          <StackPanel x:Name="LibraryDeleteConfirmation" Spacing="18" Margin="16,0,16,8"
                       IsVisible="{Binding IsConfirmingDelete}" IsEnabled="{Binding !IsActionBusy}">
-            <TextBlock Text="{Binding DeleteConfirmationDescription}" Margin="16,0,16,8"
-                       TextWrapping="Wrap" />
-            <Button x:Name="LibraryKeepItemButton" Classes="sheet-item"
-                    Command="{Binding CancelDeleteConfirmationCommand}">
-              <TextBlock Text="Keep item" />
-            </Button>
-            <Button x:Name="LibraryConfirmDeleteButton" Classes="sheet-item danger"
-                    Command="{Binding ConfirmDeleteActionEntryCommand}">
-              <TextBlock Text="Delete from phone and PC" TextWrapping="Wrap" />
-            </Button>
+            <TextBlock Text="{Binding DeleteConfirmationDescription}" Classes="sheet-body" Margin="8,0" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+              <Button x:Name="LibraryKeepItemButton" Classes="sheet-action" Content="Cancel"
+                      Command="{Binding CancelDeleteConfirmationCommand}" />
+              <Button x:Name="LibraryConfirmDeleteButton" Grid.Column="1" Classes="sheet-action destructive"
+                      Content="Delete" Command="{Binding ConfirmDeleteActionEntryCommand}" />
+            </Grid>
           </StackPanel>
         </StackPanel>
       </Border>
@@ -374,19 +378,15 @@
 
     <sc:StrataBottomSheet x:Name="LibraryDiscardSheet" Grid.RowSpan="4" Classes="safe-area"
                           IsOpen="{Binding IsDiscardConfirmationOpen, Mode=TwoWay}"
-                          Title="Discard changes?">
+                          Title="Discard changes?"
+                          Description="{Binding DiscardDescription}">
       <Border>
-        <StackPanel Spacing="8">
-          <TextBlock Text="{Binding DiscardDescription}" TextWrapping="Wrap" Margin="16,0,16,8" />
-          <Button x:Name="LibraryKeepEditingButton" Classes="sheet-item"
-                  Command="{Binding KeepEditingCommand}">
-            <TextBlock Text="Keep editing" />
-          </Button>
-          <Button x:Name="LibraryDiscardChangesButton" Classes="sheet-item danger"
-                  IsEnabled="{Binding !IsSaving}" Command="{Binding DiscardChangesCommand}">
-            <TextBlock Text="Discard changes" />
-          </Button>
-        </StackPanel>
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="16,4,16,8">
+          <Button x:Name="LibraryKeepEditingButton" Classes="sheet-action" Content="Keep editing"
+                  Command="{Binding KeepEditingCommand}" />
+          <Button x:Name="LibraryDiscardChangesButton" Grid.Column="1" Classes="sheet-action destructive"
+                  Content="Discard" IsEnabled="{Binding !IsSaving}" Command="{Binding DiscardChangesCommand}" />
+        </Grid>
       </Border>
     </sc:StrataBottomSheet>
   </Grid>

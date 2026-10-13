@@ -24,13 +24,13 @@
     <LangVersion>preview</LangVersion>
     <RootNamespace>Lumi.Mobile.Android</RootNamespace>
     <AssemblyName>Lumi.Mobile.Android</AssemblyName>
-    <Version>1.1.61</Version>
+    <Version>1.1.63</Version>
     <ApplicationId>com.lumi.mobile</ApplicationId>
     <!-- Must increment for every build handed to a device: Android keys installs on versionCode, and
          a reinstall that keeps the same code gives no way to confirm which build is actually on the
          phone. -->
-    <ApplicationVersion>82</ApplicationVersion>
-    <ApplicationDisplayVersion>1.1.61</ApplicationDisplayVersion>
+    <ApplicationVersion>84</ApplicationVersion>
+    <ApplicationDisplayVersion>1.1.63</ApplicationDisplayVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <!-- Android's native streaming HTTP reads can block cancellation and prevent foreground reconnect. -->
     <UseNativeHttpHandler>false</UseNativeHttpHandler>

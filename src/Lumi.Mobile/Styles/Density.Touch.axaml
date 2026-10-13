@@ -119,6 +119,20 @@
   <x:Double x:Key="Glass.ControlBlurRadius">3</x:Double>
   <x:Double x:Key="Glass.ControlSaturation">1.8</x:Double>
 
+  <!-- Popups are glass: a strong frost beneath the sheet only, so its text never competes with
+       the conversation while the page around it stays sharp. -->
+  <x:Double x:Key="Glass.SheetBlurRadius">24</x:Double>
+  <x:Double x:Key="Glass.SheetSaturation">1.6</x:Double>
+  <x:Double x:Key="Mobile.Sheet.MaxWidth">560</x:Double>
+  <CornerRadius x:Key="Mobile.Sheet.CornerRadius">28</CornerRadius>
+  <x:Double x:Key="Mobile.Sheet.TitleSize">20</x:Double>
+  <Thickness x:Key="Mobile.Sheet.HeaderMargin">24,0,12,12</Thickness>
+  <x:Double x:Key="Mobile.Sheet.RowHeight">52</x:Double>
+  <Thickness x:Key="Mobile.Sheet.ItemMargin">8,1</Thickness>
+  <Thickness x:Key="Mobile.Sheet.ItemPadding">16,10</Thickness>
+  <Thickness x:Key="Mobile.Sheet.LabelMargin">24,16,24,6</Thickness>
+  <Thickness x:Key="Mobile.Sheet.ContentMargin">24,4,24,8</Thickness>
+
   <!-- The chat column is the full width of a phone; there is no room for a desktop reading column. -->
   <x:Double x:Key="Chat.ReadingColumnWidth">760</x:Double>
 
