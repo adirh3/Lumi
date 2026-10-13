@@ -48,8 +48,12 @@ button. The pin beside search shows only pinned models. One highlight follows bo
 the pointer and Up/Down, Enter chooses the highlighted model, Ctrl+P (⌘P on macOS)
 pins or unpins it, and Escape closes the picker. Reasoning effort and context
 window choices sit in a compact footer under the list; hover either for its name.
-The list only renders nearby rows and reuses unchanged contents on reopening, so
-large catalogs do not block the UI.
+The list only renders nearby rows and reuses unchanged contents on reopening.
+Its frosted backdrop samples the pixels beneath the picker rather than redrawing
+the whole window. In-window picker blur, selection behavior and the normal
+platform renderer (including native window backdrops) are retained. The entrance
+uses a short, subtle scale/fade rather than vertically stretching the whole menu;
+visible row templates are built once, and the host refresh runs after the click.
 
 The Debug UI responsiveness harness includes a **Model picker** category:
 `dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness --ui-perf-filter model-picker`.

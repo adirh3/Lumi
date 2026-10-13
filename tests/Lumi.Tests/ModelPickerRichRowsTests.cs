@@ -561,7 +561,7 @@ public sealed class StrataModelPickerRichItemTests
                 "CreateModelRow",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                 ?? throw new InvalidOperationException("CreateModelRow was not found.");
-            var row = (Control)(createRow.Invoke(picker, [option, option.Id, false])
+            var row = (Control)(createRow.Invoke(picker, [option, option.Id])
                 ?? throw new InvalidOperationException("CreateModelRow returned null."));
 
             var window = new Window { Width = 360, Height = 100, Content = row };

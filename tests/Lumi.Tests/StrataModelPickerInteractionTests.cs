@@ -28,6 +28,32 @@ namespace Lumi.Tests;
 public sealed class StrataModelPickerInteractionTests
 {
     [Fact]
+    public async Task PickerEntrance_UsesAShortNearFullSizeMotionWithoutChangingOtherPopups()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var picker = NewPicker();
+            var window = new Window { Width = 600, Height = 720, Content = picker };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                var popup = FindPart<Popup>(picker, "PART_ModelPickerPopup");
+                Assert.False(PopupAnimationHelper.GetEnableOpenAnimation(popup));
+                Assert.True(PopupAnimationHelper.GetEnableOverlayAnimation(popup));
+                Assert.Equal(TimeSpan.FromMilliseconds(120), PopupAnimationHelper.GetOpenAnimationDuration(popup));
+                Assert.Equal(TimeSpan.FromMilliseconds(220), PopupAnimationHelper.GetOpenAnimationDuration(new Popup()));
+                Assert.Equal(TimeSpan.FromMilliseconds(150), PopupAnimationHelper.CloseDuration);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ModernPicker_UsesOneSearchHeaderSingleLineRowsAndASettingsFooter()
     {
         await WithOpenPickerAsync(() => new StrataModelPicker
@@ -124,7 +150,7 @@ public sealed class StrataModelPickerInteractionTests
             Assert.Equal("Effort: Low", AutomationProperties.GetName(tracks[0]));
 
             var popup = FindPart<Popup>(picker, "PART_ModelPickerPopup");
-            Assert.Equal(TimeSpan.FromMilliseconds(180), PopupAnimationHelper.GetOpenAnimationDuration(popup));
+            Assert.Equal(TimeSpan.FromMilliseconds(120), PopupAnimationHelper.GetOpenAnimationDuration(popup));
             Assert.Equal(TimeSpan.FromMilliseconds(220), PopupAnimationHelper.GetOpenAnimationDuration(new Popup()));
             Assert.True(popup.IsUsingOverlayLayer);
 
@@ -220,10 +246,14 @@ public sealed class StrataModelPickerInteractionTests
             Assert.Empty(panel.GetVisualDescendants().OfType<ExperimentalAcrylicBorder>());
             Assert.Same(window, TopLevel.GetTopLevel(panel));
             var backdrop = FindPart<Border>(picker, "PART_ModelPickerBackdrop");
-            Assert.Equal(20, Assert.IsType<BlurEffect>(backdrop.Effect).Radius);
-            var brush = Assert.IsType<VisualBrush>(backdrop.Background);
-            Assert.Same(window.Content, brush.Visual);
-            Assert.DoesNotContain(backdrop, brush.Visual!.GetSelfAndVisualDescendants());
+            var frost = FindPart<StrataBackdropBlur>(picker, "PART_ModelPickerFrost");
+            Assert.Equal(20, frost.BlurRadius);
+            Assert.Equal(new CornerRadius(11), frost.CornerRadius);
+            Assert.False(frost.IsHitTestVisible);
+            Assert.Null(backdrop.Effect);
+            Assert.Null(backdrop.Background);
+            Assert.DoesNotContain(panel.GetSelfAndVisualDescendants().OfType<Border>(),
+                border => border.Background is VisualBrush);
             Assert.Null(panel.Effect);
             Assert.Null(search.Effect);
             Assert.True(FindPart<Border>(picker, "PART_ModelPickerTint").IsVisible);
@@ -334,20 +364,22 @@ public sealed class StrataModelPickerInteractionTests
     }
 
     [Fact]
-    public async Task ClosingPicker_ReleasesItsBackdropSource()
+    public async Task ClosingPicker_DetachesItsFrostWithoutRetainingAWindowBrush()
     {
         await WithOpenPickerAsync(NewPicker, async (picker, window) =>
         {
             var backdrop = FindPart<Border>(picker, "PART_ModelPickerBackdrop");
-            var brush = Assert.IsType<VisualBrush>(backdrop.Background);
+            var frost = FindPart<StrataBackdropBlur>(picker, "PART_ModelPickerFrost");
+            Assert.True(frost.IsAttachedToVisualTree());
+            Assert.Null(backdrop.Background);
             var detached = new TaskCompletionSource<bool>();
             backdrop.DetachedFromVisualTree += (_, _) => detached.TrySetResult(true);
             FindPart<Popup>(picker, "PART_ModelPickerPopup").IsOpen = false;
             await detached.Task.WaitAsync(TimeSpan.FromSeconds(2));
             await PumpAsync();
 
-            Assert.Null(brush.Visual);
             Assert.Null(backdrop.Background);
+            Assert.False(frost.IsAttachedToVisualTree());
             Assert.Equal("gpt-5.4", picker.SelectedModel);
         });
     }
@@ -395,7 +427,7 @@ public sealed class StrataModelPickerInteractionTests
     }
 
     [Fact]
-    public async Task Filtering_UpdatesTheBackdropCropWithoutCreatingANativePopup()
+    public async Task Filtering_ResizesTheFrostWithoutCreatingANativePopup()
     {
         await WithOpenPickerAsync(() => new StrataModelPicker
         {
@@ -404,14 +436,15 @@ public sealed class StrataModelPickerInteractionTests
         }, async (picker, window) =>
         {
             var backdrop = FindPart<Border>(picker, "PART_ModelPickerBackdrop");
-            var brush = Assert.IsType<VisualBrush>(backdrop.Background);
-            var initialRect = brush.SourceRect;
+            var frost = FindPart<StrataBackdropBlur>(picker, "PART_ModelPickerFrost");
+            var initialSize = frost.Bounds.Size;
             picker.SearchText = "lab 63";
             await PumpAsync();
             window.UpdateLayout();
             await PumpAsync();
-            Assert.Same(brush, backdrop.Background);
-            Assert.NotEqual(initialRect, brush.SourceRect);
+            Assert.Null(backdrop.Background);
+            Assert.NotEqual(initialSize, frost.Bounds.Size);
+            Assert.Equal(backdrop.Bounds.Size, frost.Bounds.Size);
             Assert.True(FindPart<Popup>(picker, "PART_ModelPickerPopup").IsUsingOverlayLayer);
             Assert.Equal(1, picker.FilteredModelCount);
 
@@ -577,6 +610,29 @@ public sealed class StrataModelPickerInteractionTests
 
             Assert.Equal("gpt-5.4", picker.SelectedModel);
             Assert.True(picker.ShowPinnedOnly);
+        });
+    }
+
+    [Fact]
+    public async Task Opening_BuildsNonRecyclingRowContentOnlyOncePerRealizedRow()
+    {
+        var created = 0;
+        await WithOpenPickerAsync(() => new StrataModelPicker
+        {
+            Models = Enumerable.Range(0, 64).Select(index => new ModelOption($"lab-model-{index:00}")).ToArray(),
+            SelectedModel = "lab-model-63",
+            SelectedModelTemplate = new FuncDataTemplate<string>((id, _) => new TextBlock { Text = id }),
+            ModelItemTemplate = new FuncDataTemplate<ModelOption>((option, _) =>
+            {
+                created++;
+                return new TextBlock { Text = option?.DisplayName };
+            }, supportsRecycling: false)
+        }, (picker, _) =>
+        {
+            var rows = ReadRows(picker);
+            Assert.InRange(rows.Length, 1, 24);
+            Assert.Equal(rows.Length, created);
+            return Task.CompletedTask;
         });
     }
 
