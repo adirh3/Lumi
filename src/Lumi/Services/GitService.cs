@@ -201,7 +201,9 @@ public static partial class GitService
     /// <summary>
     /// Fetches and safely synchronizes the detected default branch. A checked-out branch is updated
     /// only when its worktree is clean and a fast-forward is possible; an unmounted local branch is
-    /// moved only when it has no commits that would be discarded.
+    /// moved only when it has no commits that would be discarded. Checked-out submodules are
+    /// initialized recursively at the commits recorded by the branch, including on an otherwise
+    /// up-to-date checkout.
     /// </summary>
     public static async Task<GitBranchSyncResult> SyncDefaultBranchAsync(
         string dir,
@@ -229,7 +231,7 @@ public static partial class GitService
         var fetchRefSpec = $"+refs/heads/{branch}:{remoteRef}";
         var fetchResult = await RunGitAsync(
             gitRoot,
-            $"fetch --prune {QuoteGitArgument(remote)} {QuoteGitArgument(fetchRefSpec)}",
+            $"fetch --prune --no-recurse-submodules {QuoteGitArgument(remote)} {QuoteGitArgument(fetchRefSpec)}",
             WorktreeGitCommandTimeout,
             cancellationToken).ConfigureAwait(false);
         if (fetchResult is null)
@@ -264,63 +266,136 @@ public static partial class GitService
                 : new GitBranchSyncResult(true, branch, true, $"Created local branch \"{branch}\" from \"{remote}/{branch}\".");
         }
 
-        if (string.Equals(localCommit, remoteCommit, StringComparison.OrdinalIgnoreCase))
-            return new GitBranchSyncResult(true, branch, false, $"Branch \"{branch}\" is already up to date.");
-
-        var aheadBehind = await GetAheadBehindAsync(
-            gitRoot,
-            localRef,
-            remoteRef,
-            cancellationToken).ConfigureAwait(false);
-        if (aheadBehind is null)
-            return new GitBranchSyncResult(false, branch, false, $"Could not compare \"{branch}\" with \"{remote}/{branch}\".");
-
-        if (aheadBehind.Value.RemoteOnly == 0)
+        var shouldFastForward = !string.Equals(localCommit, remoteCommit, StringComparison.OrdinalIgnoreCase);
+        var successMessage = $"Branch \"{branch}\" is already up to date.";
+        if (shouldFastForward)
         {
-            return new GitBranchSyncResult(
-                true,
-                branch,
-                false,
-                $"Branch \"{branch}\" already contains the latest \"{remote}/{branch}\" commits.");
-        }
+            var aheadBehind = await GetAheadBehindAsync(
+                gitRoot,
+                localRef,
+                remoteRef,
+                cancellationToken).ConfigureAwait(false);
+            if (aheadBehind is null)
+                return new GitBranchSyncResult(false, branch, false, $"Could not compare \"{branch}\" with \"{remote}/{branch}\".");
 
-        if (aheadBehind.Value.LocalOnly > 0)
-        {
-            return new GitBranchSyncResult(
-                false,
-                branch,
-                false,
-                $"Branch \"{branch}\" has diverged from \"{remote}/{branch}\"; automatic sync was skipped.");
+            if (aheadBehind.Value.RemoteOnly == 0)
+            {
+                shouldFastForward = false;
+                successMessage = $"Branch \"{branch}\" already contains the latest \"{remote}/{branch}\" commits.";
+            }
+            else if (aheadBehind.Value.LocalOnly > 0)
+            {
+                return new GitBranchSyncResult(
+                    false,
+                    branch,
+                    false,
+                    $"Branch \"{branch}\" has diverged from \"{remote}/{branch}\"; automatic sync was skipped.");
+            }
         }
 
         var checkedOutWorktree = (await ListWorktreeInfoAsync(gitRoot, cancellationToken).ConfigureAwait(false))
             .FirstOrDefault(worktree => string.Equals(worktree.Branch, branch, StringComparison.Ordinal));
         if (checkedOutWorktree is not null)
         {
-            var status = await RunGitAsync(
+            if (!shouldFastForward && !File.Exists(Path.Combine(checkedOutWorktree.Path, ".gitmodules")))
+                return new GitBranchSyncResult(true, branch, false, successMessage);
+
+            // Allow stale checkouts, but reject staged gitlinks and file edits at every submodule level.
+            foreach (var statusCommand in new[]
+            {
+                "-c submodule.recurse=false status --porcelain -uall --ignore-submodules=all",
+                "diff --cached --name-only --ignore-submodules=none",
+                "submodule foreach --quiet --recursive \"git -c submodule.recurse=false status --porcelain -uall --ignore-submodules=all && git diff --cached --name-only --ignore-submodules=none\""
+            })
+            {
+                var status = await RunGitAsync(
+                    checkedOutWorktree.Path,
+                    statusCommand,
+                    WorktreeGitCommandTimeout,
+                    cancellationToken).ConfigureAwait(false);
+                if (status is null)
+                    return new GitBranchSyncResult(false, branch, false, $"Could not inspect the \"{branch}\" worktree.");
+                if (!string.IsNullOrWhiteSpace(status))
+                {
+                    return new GitBranchSyncResult(
+                        false,
+                        branch,
+                        false,
+                        $"Branch \"{branch}\" has uncommitted changes; automatic sync was skipped.");
+                }
+            }
+
+            // A stale checkout is safe to move, but commits outside the gitlink and known remote history are local work.
+            const string localCommitCheck =
+                "submodule foreach --quiet --recursive \""
+                + "if git cat-file -e $sha1^{commit} 2>/dev/null; then "
+                + "git rev-list --max-count=1 HEAD --not --remotes $sha1; "
+                + "else git rev-list --max-count=1 HEAD --not --remotes; fi\"";
+            var localSubmoduleCommits = await RunGitAsync(
                 checkedOutWorktree.Path,
-                "status --porcelain -uall",
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (status is null)
-                return new GitBranchSyncResult(false, branch, false, $"Could not inspect the \"{branch}\" worktree.");
-            if (!string.IsNullOrWhiteSpace(status))
+                localCommitCheck,
+                WorktreeGitCommandTimeout,
+                cancellationToken).ConfigureAwait(false);
+            if (localSubmoduleCommits is null)
+                return new GitBranchSyncResult(false, branch, false, $"Could not inspect local commits in the \"{branch}\" submodules.");
+            if (!string.IsNullOrWhiteSpace(localSubmoduleCommits))
             {
                 return new GitBranchSyncResult(
                     false,
                     branch,
                     false,
-                    $"Branch \"{branch}\" has uncommitted changes; automatic sync was skipped.");
+                    $"Branch \"{branch}\" has local submodule commits; automatic sync was skipped.");
             }
 
-            var mergeResult = await RunGitAsync(
+            if (shouldFastForward)
+            {
+                var mergeResult = await RunGitAsync(
+                    checkedOutWorktree.Path,
+                    $"-c submodule.recurse=false merge --ff-only {QuoteGitArgument(remoteRef)}",
+                    WorktreeGitCommandTimeout,
+                    cancellationToken).ConfigureAwait(false);
+                if (mergeResult is null)
+                    return new GitBranchSyncResult(false, branch, false, $"Could not fast-forward \"{branch}\" to \"{remote}/{branch}\".");
+
+                successMessage = $"Fast-forwarded \"{branch}\" to \"{remote}/{branch}\".";
+            }
+
+            var syncResult = await RunGitAsync(
                 checkedOutWorktree.Path,
-                $"merge --ff-only {QuoteGitArgument(remoteRef)}",
+                "submodule sync",
                 WorktreeGitCommandTimeout,
                 cancellationToken).ConfigureAwait(false);
-            return mergeResult is null
-                ? new GitBranchSyncResult(false, branch, false, $"Could not fast-forward \"{branch}\" to \"{remote}/{branch}\".")
-                : new GitBranchSyncResult(true, branch, true, $"Fast-forwarded \"{branch}\" to \"{remote}/{branch}\".");
+            if (syncResult is null)
+            {
+                return new GitBranchSyncResult(
+                    false,
+                    branch,
+                    shouldFastForward,
+                    $"Could not synchronize submodule URLs in the \"{branch}\" worktree.");
+            }
+
+            // Each parent must reach its recorded commit before its child URLs are synchronized.
+            var submoduleResult = await RunGitAsync(
+                checkedOutWorktree.Path,
+                "-c fetch.recurseSubmodules=false submodule update --init --checkout",
+                WorktreeGitCommandTimeout,
+                cancellationToken).ConfigureAwait(false);
+            if (submoduleResult is not null)
+            {
+                submoduleResult = await RunGitAsync(
+                    checkedOutWorktree.Path,
+                    "submodule foreach --quiet --recursive \"git submodule sync && git -c fetch.recurseSubmodules=false submodule update --init --checkout\"",
+                    WorktreeGitCommandTimeout,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return submoduleResult is null
+                ? new GitBranchSyncResult(false, branch, shouldFastForward, $"Could not update submodules in the \"{branch}\" worktree to their recorded commits.")
+                : new GitBranchSyncResult(true, branch, shouldFastForward, successMessage);
         }
+
+        if (!shouldFastForward)
+            return new GitBranchSyncResult(true, branch, false, successMessage);
 
         var updateResult = await RunGitAsync(
             gitRoot,

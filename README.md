@@ -14,7 +14,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
 - **Sharing** — Share reusable prompts, skills, Lumis and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
-- **Projects** — Organize chats with custom instructions that shape Lumi's behavior
+- **Projects** — Organize chats with custom instructions that shape Lumi's behavior. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
