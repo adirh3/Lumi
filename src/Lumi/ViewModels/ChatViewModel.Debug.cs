@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using GitHub.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 
@@ -322,8 +323,24 @@ public partial class ChatViewModel
     // tool group stays expanded, and the bottom line reads "Running in background · <elapsed>" instead
     // of a generic "Generating…" spinner. No real Copilot/shell is involved, so it is instant and
     // repeatable — perfect for inspecting the UX on demand. The state is driven live by a 1s timer.
+    //
+    // The session also runs a background agent (with its run in the transcript) and a client-owned task,
+    // so the Background activity list shows every kind of row with live progress: the command's newest
+    // output, the agent's latest step (its row opens the run on the Agents page) and the task's progress.
 
     private const string DebugBackgroundShellToolCallId = "debug-bgshell-root";
+    private const string DebugBackgroundShellTaskId = "debug-bgshell-task";
+    private const string DebugBackgroundAgentToolCallId = "debug-bgagent-root";
+    private const string DebugBackgroundAgentTaskId = "debug-bgagent-task";
+    private const string DebugBackgroundClientTaskId = "debug-bgclient-task";
+
+    private static readonly (string Tool, string ArgsJson)[] DebugBackgroundAgentSteps =
+    [
+        ("view", "{\"path\":\"src\\\\Lumi\\\\ViewModels\\\\ChatViewModel.SessionLifecycle.cs\"}"),
+        ("grep", "{\"pattern\":\"ReleaseSessionResources\",\"glob\":\"*.cs\"}"),
+        ("view", "{\"path\":\"src\\\\Lumi\\\\ViewModels\\\\ChatViewModel.ChatStateCleanup.cs\"}"),
+        ("powershell", "{\"command\":\"dotnet test tests\\\\Lumi.Tests --filter SessionCleanup\",\"description\":\"Run cleanup tests\"}"),
+    ];
 
     private DispatcherTimer? _debugBgShellTimer;
     private DateTime _debugBgShellStartUtc;
@@ -383,6 +400,21 @@ public partial class ChatViewModel
             ToolOutput = "Started background job (async). Process is running…",
         });
 
+        var fixtureStart = DateTimeOffset.UtcNow;
+        chat.Messages.Add(new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "task",
+            ToolStatus = "InProgress",
+            ToolCallId = DebugBackgroundAgentToolCallId,
+            ToolStartedAt = fixtureStart,
+            Content = "{\"description\":\"Review session cleanup paths\",\"agent_type\":\"code-review\","
+                + "\"agentName\":\"code-review\",\"agentDisplayName\":\"Code review agent\","
+                + "\"mode\":\"background\",\"model\":\"claude-sonnet-4.5\","
+                + "\"prompt\":\"Review how Lumi releases a chat's session resources. Report leaks or races.\"}",
+        });
+        chat.Messages.Add(DebugBackgroundAgentStep(0, fixtureStart));
+
         var runtime = GetOrCreateRuntimeState(chat.Id);
         MarkSessionBackgroundActive(runtime);
         MarkAssistantIdle(runtime);
@@ -422,6 +454,50 @@ public partial class ChatViewModel
         _transcriptBuilder.UpdateTerminalOutput(
             DebugBackgroundShellToolCallId, _debugBgShellOutput.ToString().TrimEnd(), true);
 
+        // What the session's Tasks API would report for this chat.
+        ApplyBackgroundActivitySnapshot(
+        [
+            new TaskInfoShell
+            {
+                Id = DebugBackgroundShellTaskId,
+                Description = "Wait 10 minutes without blocking the turn",
+                Command = "Start-Sleep -Seconds 600",
+                Status = GitHub.Copilot.Rpc.TaskStatus.Running,
+                ExecutionMode = TaskExecutionMode.Background,
+                AttachmentMode = TaskShellInfoAttachmentMode.Attached,
+                StartedAt = fixtureStart,
+            },
+            new TaskInfoAgent
+            {
+                Id = DebugBackgroundAgentTaskId,
+                AgentType = "code-review",
+                DisplayName = "Code review agent",
+                Description = "Review session cleanup paths",
+                Prompt = "Review how Lumi releases a chat's session resources.",
+                ToolCallId = DebugBackgroundAgentToolCallId,
+                Status = GitHub.Copilot.Rpc.TaskStatus.Running,
+                ExecutionMode = TaskExecutionMode.Background,
+                StartedAt = fixtureStart,
+            },
+            new TaskInfoClient
+            {
+                Id = DebugBackgroundClientTaskId,
+                ClientTaskId = DebugBackgroundClientTaskId,
+                DisplayName = "Index workspace files",
+                Description = "Building the search index for this project",
+                ActiveTimeMs = 0,
+                CanCancel = true,
+                ExecutionMode = new TaskClientExecutionMode("background"),
+                Owner = new TaskClientOwner(),
+                Sequence = 1,
+                StartedAt = fixtureStart,
+                UpdatedAt = fixtureStart,
+                Status = TaskClientStatus.Running,
+            },
+        ], fixtureStart);
+        ApplyDebugBackgroundProgress();
+        UpdateBackgroundStatusLine(chat.Id);
+
         _debugBgShellTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromSeconds(1),
@@ -430,6 +506,44 @@ public partial class ChatViewModel
         _debugBgShellTimer.Start();
 
         ScrollToEndRequested?.Invoke();
+    }
+
+    private static ChatMessage DebugBackgroundAgentStep(int step, DateTimeOffset startedAt)
+    {
+        var (tool, args) = DebugBackgroundAgentSteps[step % DebugBackgroundAgentSteps.Length];
+        return new ChatMessage
+        {
+            Role = "tool",
+            ToolName = tool,
+            ToolStatus = "Completed",
+            ToolCallId = $"debug-bgagent-step-{step}",
+            ParentToolCallId = DebugBackgroundAgentToolCallId,
+            ToolStartedAt = startedAt,
+            ToolDurationMs = 420,
+            Content = args,
+        };
+    }
+
+    /// <summary>
+    /// Feeds the command and task rows what the Tasks API's progress reads would return. The agent's
+    /// row is its run, which the steps added on each tick keep live.
+    /// </summary>
+    private void ApplyDebugBackgroundProgress()
+    {
+        FindSessionActivity(DebugBackgroundShellTaskId)?.ApplyProgress(
+            new TaskProgressShell { RecentOutput = _debugBgShellOutput.ToString() });
+
+        var percentage = Math.Min(100, 8 + _debugBgShellTick * 3);
+        FindSessionActivity(DebugBackgroundClientTaskId)?.ApplyProgress(new TaskProgressClient
+        {
+            LastMessage = $"Indexed {percentage * 12:N0} of 1,200 files",
+            Percentage = percentage,
+            Phase = "Indexing",
+            RecentActivity = [],
+            Sequence = _debugBgShellTick,
+            Status = TaskClientStatus.Running,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
     }
 
     private void DebugBackgroundShellTick()
@@ -453,6 +567,17 @@ public partial class ChatViewModel
             _transcriptBuilder.UpdateTerminalOutput(
                 _debugBgShellToolCallId, _debugBgShellOutput.ToString().TrimEnd(), true);
         }
+
+        // The agent takes a new step every few seconds, through the same live path as real events.
+        if (_debugBgShellTick % 4 == 0 && CurrentChat is { } chat)
+        {
+            var step = DebugBackgroundAgentStep(_debugBgShellTick / 4, DateTimeOffset.UtcNow);
+            chat.Messages.Add(step);
+            Messages.Add(new ChatMessageViewModel(step));
+        }
+
+        ApplyDebugBackgroundProgress();
+        UpdateBackgroundStatusLine(_debugBgShellChatId);
     }
 
     public void DebugStopBackgroundShellFixture()

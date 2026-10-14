@@ -3065,7 +3065,103 @@
                     <Setter Property="Padding" Value="14" />
                   </ControlTheme>
                 </Flyout.FlyoutPresenterTheme>
-                <StackPanel Name="BackgroundSessionStatus" Width="300" Spacing="12">
+                <StackPanel Name="BackgroundSessionStatus" Width="360" Spacing="10">
+                  <StackPanel.Styles>
+                    <!-- One task per row, in the Workspace agents index's row language: flat, hover-lit,
+                         and the whole row is the hit area. It opens an agent's run on the Agents page,
+                         or shows the newest output of a command or task. -->
+                    <Style Selector="Button.session-task">
+                      <Setter Property="Background" Value="Transparent" />
+                      <Setter Property="Padding" Value="8,8" />
+                      <Setter Property="MinHeight" Value="0" />
+                      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+                      <Setter Property="Cursor" Value="Hand" />
+                      <Setter Property="HorizontalAlignment" Value="Stretch" />
+                      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                      <Setter Property="Template">
+                        <ControlTemplate>
+                          <ContentPresenter Name="PART_ContentPresenter"
+                                            Background="{TemplateBinding Background}"
+                                            CornerRadius="{TemplateBinding CornerRadius}"
+                                            Padding="{TemplateBinding Padding}"
+                                            Content="{TemplateBinding Content}"
+                                            HorizontalContentAlignment="Stretch"
+                                            VerticalContentAlignment="Center">
+                            <ContentPresenter.Transitions>
+                              <Transitions>
+                                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
+                              </Transitions>
+                            </ContentPresenter.Transitions>
+                          </ContentPresenter>
+                        </ControlTemplate>
+                      </Setter>
+                    </Style>
+                    <Style Selector="Button.session-task:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+                    </Style>
+                    <Style Selector="Button.session-task:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+                    </Style>
+                    <Style Selector="Button.session-task:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+                      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+                    </Style>
+                    <!-- A task with nothing to open or show yet is just a readout, never greyed out:
+                         it is still running. -->
+                    <Style Selector="Button.session-task:disabled">
+                      <Setter Property="Cursor" Value="Arrow" />
+                      <Setter Property="Opacity" Value="1" />
+                    </Style>
+                    <Style Selector="Button.session-task:disabled /template/ ContentPresenter#PART_ContentPresenter">
+                      <Setter Property="Background" Value="Transparent" />
+                    </Style>
+
+                    <!-- Every listed task is running, so the pulsing dot and the clock say it all. -->
+                    <Style Selector="sc|StrataAgentRun.session-task:inprogress /template/ TextBlock#PART_StatusText">
+                      <Setter Property="IsVisible" Value="False" />
+                    </Style>
+                    <!-- A task wears its kind's colour; commands wear a terminal tile instead. -->
+                    <Style Selector="sc|StrataAgentRun.task" x:DataType="vm:SessionActivityItem">
+                      <Setter Property="AccentBrush" Value="{Binding AccentIndex, Converter={StaticResource ChartBrush}}" />
+                    </Style>
+                    <Style Selector="sc|StrataAgentRun.task.command">
+                      <Setter Property="AccentBrush" Value="#FF475569" />
+                    </Style>
+                    <!-- A command has no measurable progress, so it skips the agents' working rail. -->
+                    <Style Selector="sc|StrataAgentRun.task.command /template/ ProgressBar#PART_Progress">
+                      <Setter Property="IsVisible" Value="False" />
+                    </Style>
+
+                    <!-- The row's affordance stays quiet until hovered: › opens a run, ⌄ shows output. -->
+                    <Style Selector="PathIcon.session-task-affordance">
+                      <Setter Property="Width" Value="11" />
+                      <Setter Property="Height" Value="11" />
+                      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+                      <Setter Property="Opacity" Value="0.55" />
+                      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+                      <Setter Property="Transitions">
+                        <Transitions>
+                          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+                        </Transitions>
+                      </Setter>
+                    </Style>
+                    <Style Selector="Button.session-task:pointerover PathIcon.session-task-affordance">
+                      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+                      <Setter Property="Opacity" Value="1" />
+                    </Style>
+                    <Style Selector="PathIcon.session-task-affordance.expanded">
+                      <Setter Property="RenderTransform" Value="rotate(180deg)" />
+                    </Style>
+
+                    <!-- The newest output, terminal-style, under the row that owns it. -->
+                    <Style Selector="Border.session-task-output">
+                      <Setter Property="Margin" Value="46,0,8,6" />
+                      <Setter Property="Padding" Value="9,7" />
+                      <Setter Property="CornerRadius" Value="6" />
+                      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+                    </Style>
+                  </StackPanel.Styles>
+
                   <StackPanel Spacing="4">
                     <TextBlock Text="{loc:Str Chat_AssistantReady}"
                                FontSize="12.5" FontWeight="SemiBold"
@@ -3074,35 +3170,71 @@
                                FontSize="11" TextWrapping="Wrap"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
                   </StackPanel>
-                  <ScrollViewer MaxHeight="260"
+                  <ScrollViewer MaxHeight="380"
+                                Margin="-8,0"
                                 HorizontalScrollBarVisibility="Disabled"
                                 IsVisible="{Binding HasRunningSessionActivities}">
                     <ItemsControl Name="RunningSessionActivities"
                                   ItemsSource="{Binding RunningSessionActivities}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:SessionActivityItem">
-                          <Border Padding="0,8"
-                                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                                  BorderThickness="0,1,0,0">
-                            <StackPanel Spacing="4">
-                              <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock Text="{Binding Title}" FontSize="11.5"
-                                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                           Foreground="{DynamicResource Brush.TextPrimary}"
-                                           ToolTip.Tip="{Binding Title}" />
-                                <TextBlock Grid.Column="1" Text="{Binding Elapsed}"
-                                           Margin="12,0,0,0" FontSize="10.5"
-                                           Foreground="{DynamicResource Brush.TextSecondary}" />
-                              </Grid>
-                              <TextBlock Text="{Binding Kind}" FontSize="10"
-                                         Foreground="{DynamicResource Brush.TextTertiary}" />
-                              <TextBlock Text="{Binding Detail}" IsVisible="{Binding HasDetail}"
-                                         FontSize="10.5" MaxLines="2" TextWrapping="Wrap"
-                                         TextTrimming="CharacterEllipsis"
-                                         Foreground="{DynamicResource Brush.TextSecondary}"
-                                         ToolTip.Tip="{Binding Detail}" />
-                            </StackPanel>
-                          </Border>
+                          <StackPanel>
+                            <Button Classes="session-task"
+                                    Command="{Binding ActivateCommand}"
+                                    Content="{Binding Presented}"
+                                    AutomationProperties.Name="{Binding Title}">
+                              <Button.DataTemplates>
+                                <!-- An agent this chat launched is its live run, exactly as the
+                                     Workspace lists it; the row opens that run. -->
+                                <DataTemplate DataType="vm:SubagentToolCallItem">
+                                  <sc:StrataAgentRun Classes="list session-task"
+                                                     AgentName="{Binding DisplayName}"
+                                                     Title="{Binding Title}"
+                                                     Initial="{Binding Initial}"
+                                                     AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
+                                                     ModelName="{Binding ModelDisplayName}"
+                                                     Activity="{Binding LatestActivityText}"
+                                                     Status="{Binding Status}"
+                                                     StatusLabel="{Binding StatusText}"
+                                                     DurationMs="{Binding DurationMs}"
+                                                     RunningSince="{Binding StartedAt}"
+                                                     ProgressValue="{Binding ProgressValue}">
+                                    <sc:StrataAgentRun.HeaderAction>
+                                      <PathIcon Classes="session-task-affordance"
+                                                Data="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                                    </sc:StrataAgentRun.HeaderAction>
+                                  </sc:StrataAgentRun>
+                                </DataTemplate>
+
+                                <!-- Commands, client tasks and agents without a run in this chat. -->
+                                <DataTemplate DataType="vm:SessionActivityItem">
+                                  <sc:StrataAgentRun Classes="list session-task task"
+                                                     Classes.command="{Binding IsCommand}"
+                                                     AgentName="{Binding Owner}"
+                                                     Title="{Binding Title}"
+                                                     Initial="{Binding Initial}"
+                                                     ModelName="{Binding Detail}"
+                                                     Activity="{Binding Activity}"
+                                                     RunningSince="{Binding StartedAt}"
+                                                     ProgressValue="{Binding ProgressValue}">
+                                    <sc:StrataAgentRun.HeaderAction>
+                                      <PathIcon Classes="session-task-affordance"
+                                                Classes.expanded="{Binding IsExpanded}"
+                                                IsVisible="{Binding CanExpand}"
+                                                Data="M7 10l5 5 5-5z" />
+                                    </sc:StrataAgentRun.HeaderAction>
+                                  </sc:StrataAgentRun>
+                                </DataTemplate>
+                              </Button.DataTemplates>
+                            </Button>
+                            <Border Classes="session-task-output" IsVisible="{Binding IsExpanded}">
+                              <TextBlock Text="{Binding Output}"
+                                         FontFamily="Cascadia Code, Consolas, Menlo, monospace"
+                                         FontSize="10.5" LineHeight="15"
+                                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                         Foreground="{DynamicResource Brush.TextSecondary}" />
+                            </Border>
+                          </StackPanel>
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>

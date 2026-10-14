@@ -467,6 +467,17 @@ If the original session cannot be restored, Lumi reports the failure instead of
 silently creating a replacement. Sends from another chat or device are rejected
 with a clear paused-chat message until resumed.
 
+### Background work
+
+When Lumi finishes replying while commands, delegated agents or other tasks keep
+running, a **Background** chip appears above the composer beside the context chip.
+Open it to see each running task with a live clock and what it is doing right now:
+a command's newest output line, an agent's latest step, or a task's progress message.
+Click a command to show its newest output lines, or an agent to open its run on the
+Workspace's **Agents** page, the same view its row in the chat opens. The list updates
+in place while it is open, so an expanded command keeps streaming. **Stop session**
+cancels everything still running in that chat.
+
 ### Desktop motion
 
 The composer keeps its thin Stratum underline, drawing it from left to right on focus and

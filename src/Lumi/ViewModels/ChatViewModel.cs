@@ -892,9 +892,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ShowInfoStrip))]
     private bool _isSessionActive;
     [ObservableProperty] private string _backgroundActivityText = Loc.Get("Chat_BackgroundActivity");
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasRunningSessionActivities))]
-    private IReadOnlyList<SessionActivityItem> _runningSessionActivities = [];
+
+    /// <summary>Tasks still running in the session, patched in place so an open row keeps its state.</summary>
+    public ObservableCollection<SessionActivityItem> RunningSessionActivities { get; } = [];
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivityNotice))]
     private string? _backgroundActivityNotice = Loc.Get("Chat_BackgroundActivityLoading");

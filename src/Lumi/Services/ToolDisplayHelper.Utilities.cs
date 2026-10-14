@@ -414,7 +414,7 @@ public static partial class ToolDisplayHelper
         return result;
     }
 
-    private static string? NormalizeDisplayText(string? value)
+    internal static string? NormalizeDisplayText(string? value)
     {
         if (string.IsNullOrEmpty(value))
             return value;

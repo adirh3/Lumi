@@ -1190,6 +1190,12 @@ public class TranscriptBuilder
         subagent.TranscriptText = text;
     }
 
+    /// <summary>The run launched by <paramref name="toolCallId"/>, when it is in this transcript.</summary>
+    public SubagentToolCallItem? FindSubagentRun(string? toolCallId)
+        => !string.IsNullOrEmpty(toolCallId) && _subagentsByToolCallId.TryGetValue(toolCallId, out var run)
+            ? run
+            : null;
+
     /// <summary>Directly updates the reasoning text on a subagent card (called from live streaming flush).</summary>
     public void UpdateSubagentReasoningText(string toolCallId, string? text)
     {

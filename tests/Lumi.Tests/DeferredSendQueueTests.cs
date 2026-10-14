@@ -742,6 +742,30 @@ public sealed class DeferredSendQueueTests
         Assert.True(host.ViewModel.HasBackgroundActivityNotice);
     }
 
+    [Fact]
+    public async Task BackgroundActivityRefresh_ShowsWhatACommandIsDoingFromItsLiveOutput()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        rpc.RunningShells.Add("preview");
+        rpc.ShellOutputs["preview"] = "Building...\nNow listening on: http://localhost:5000\n";
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+
+        await host.ViewModel.RefreshBackgroundActivityAsync();
+
+        var item = Assert.Single(host.ViewModel.RunningSessionActivities);
+        Assert.Equal("Now listening on: http://localhost:5000", item.Activity);
+        Assert.Equal("Building...\nNow listening on: http://localhost:5000", item.Output);
+        Assert.True(item.CanExpand);
+
+        // A later read that reports nothing keeps the row's last known output.
+        rpc.ShellOutputs.Clear();
+        await host.ViewModel.RefreshBackgroundActivityAsync();
+        Assert.Same(item, Assert.Single(host.ViewModel.RunningSessionActivities));
+        Assert.Equal("Now listening on: http://localhost:5000", item.Activity);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -788,12 +812,12 @@ public sealed class DeferredSendQueueTests
         host.AttachSession(rpc);
         host.MarkTurnEndedWithBackgroundWorkPending();
         await host.ViewModel.RefreshBackgroundActivityAsync();
-        var items = host.ViewModel.RunningSessionActivities;
+        var item = Assert.Single(host.ViewModel.RunningSessionActivities);
 
         rpc.Disconnect();
         await host.ViewModel.RefreshBackgroundActivityAsync();
 
-        Assert.Same(items, host.ViewModel.RunningSessionActivities);
+        Assert.Same(item, Assert.Single(host.ViewModel.RunningSessionActivities));
         Assert.True(host.ViewModel.HasBackgroundActivityNotice);
         Assert.Equal(Lumi.Localization.Loc.Get("Chat_BackgroundActivityUnavailable"), host.ViewModel.BackgroundActivityNotice);
         Assert.True(host.ViewModel.IsSessionActive);
@@ -2643,6 +2667,18 @@ public sealed class DeferredSendQueueTests
             CancelledShells.Add(id);
             Operations.Add($"cancel:{id}");
             return new TasksCancelResult { Cancelled = true };
+        }
+
+        /// <summary>Newest output per running shell, as the Tasks API's progress read reports it.</summary>
+        public Dictionary<string, string> ShellOutputs { get; } = [];
+
+        [JsonRpcMethod("session.tasks.getProgress", UseSingleObjectParameterDeserialization = true)]
+        public object GetTaskProgress(Dictionary<string, object> request)
+        {
+            var id = Assert.IsType<string>(request["id"]);
+            return ShellOutputs.TryGetValue(id, out var output)
+                ? new { progress = new { type = "shell", recentOutput = output } }
+                : new { progress = (object?)null };
         }
 
         [JsonRpcMethod("session.send", UseSingleObjectParameterDeserialization = true)]

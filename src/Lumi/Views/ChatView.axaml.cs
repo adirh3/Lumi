@@ -346,6 +346,7 @@ public partial class ChatView : UserControl
             vm.FocusComposerAtEndRequested += FocusComposerAtEnd;
             vm.WorkspaceJumpToTurnRequested += OnWorkspaceJumpToTurnRequested;
             vm.ReplySourceJumpRequested += OnReplySourceJumpRequested;
+            vm.SubagentRunShowRequested += OnSubagentRunShowRequested;
             SubscribeToMountedTurns(vm.MountedTranscriptTurns);
             Dispatcher.UIThread.Post(EnsureTranscriptScrollViewer, DispatcherPriority.Loaded);
             QueueInitialTranscriptTailSyncIfNeeded(vm);
@@ -387,6 +388,9 @@ public partial class ChatView : UserControl
             await vm.RefreshBackgroundActivityAsync();
     }
 
+    /// <summary>An agent's run opening in the Workspace takes over from the transient activity list.</summary>
+    private void OnSubagentRunShowRequested() => _backgroundActivityButton?.Flyout?.Hide();
+
     private void UnsubscribeFromViewModel()
     {
         DeactivateLaunchpad();
@@ -403,6 +407,7 @@ public partial class ChatView : UserControl
         _subscribedVm.FocusComposerAtEndRequested -= FocusComposerAtEnd;
         _subscribedVm.WorkspaceJumpToTurnRequested -= OnWorkspaceJumpToTurnRequested;
         _subscribedVm.ReplySourceJumpRequested -= OnReplySourceJumpRequested;
+        _subscribedVm.SubagentRunShowRequested -= OnSubagentRunShowRequested;
         // Clear the realizing gate so a view detach mid-open can't leave the overlay stuck up on the VM:
         // a suspended OpenTranscriptAtLatestAsync won't reach its gate-clearing finally once _subscribedVm
         // is null / the sync version has been bumped below.
