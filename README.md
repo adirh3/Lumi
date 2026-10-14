@@ -1075,7 +1075,9 @@ Windows; the engines keep independent initialization, tab, and disposal code.
 The same browser tools provide navigation, safe element targeting, forms, JavaScript,
 uploads, tabs, and actual page screenshots on all three platforms.
 Windows also provides browser phase-timing diagnostics and JavaScript promise
-awaiting with a bounded timeout. Native browser tools keep synchronous JavaScript
+awaiting with a bounded timeout. Each Windows tab retains its own native window
+and rounded clipping region, including after resizing or moving its chat to another window.
+Native browser tools keep synchronous JavaScript
 and do not expose those Windows-only options.
 
 Coding Lumi includes all seven browser tools by default. Existing built-in Coding
