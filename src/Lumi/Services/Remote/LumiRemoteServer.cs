@@ -88,7 +88,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         long Revision,
         string RevisionEpoch,
         string WorkingDirectory,
-        IReadOnlySet<string> RunningBackgroundToolCallIds);
+        IReadOnlySet<string> RunningBackgroundToolCallIds,
+        string? TranscriptVersion = null,
+        bool IsUnchanged = false);
 
     private sealed record ActivityCapture(
         Chat Chat,
@@ -953,6 +955,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         var snapshot = await Dispatcher.UIThread.InvokeAsync(() =>
             RemoteProjector.BuildSnapshot(_dataStore, _main, _main.ChatVM.AvailableModels.ToList()));
+        RemoteContentVersions.ApplySectionVersions(
+            snapshot,
+            RemoteProtocol.SnapshotSections.ParseKnown(context.Request.QueryValue("known")));
         var json = JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot);
         if (Encoding.UTF8.GetByteCount(json) > RemoteProtocol.MaxSnapshotJsonBytes)
         {
@@ -1526,6 +1531,10 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             context.Request.QueryValue("limit"),
             beforeMessageIndex,
             compact);
+        var knownVersion = beforeMessageIndex is null
+                           && context.Request.QueryValue("known") is { Length: > 0 and <= RemoteProtocol.MaxTranscriptVersionLength } known
+            ? known
+            : null;
 
         // Capture mutable desktop state on the UI thread, then do the potentially large persisted
         // read and bounded projection away from it. A live/detached owner still wins so streaming and
@@ -1538,11 +1547,6 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
             var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
             var isActive = owner?.CurrentChat?.Id == chatId;
-            IReadOnlyList<ChatMessage>? loadedMessages = isActive
-                ? owner!.Messages.Select(message => CloneMessageForRemote(message.Message)).ToList()
-                : chat.Messages.Count > 0
-                    ? chat.Messages.Select(CloneMessageForRemote).ToList()
-                    : null;
             var settings = _dataStore.Data.Settings;
             var workingDirectory = ChatViewModel.ResolveEffectiveWorkingDirectory(
                 _dataStore,
@@ -1550,22 +1554,89 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 chat.WorktreePath);
             var runningBackgroundToolCallIds =
                 (owner ?? _main.ChatVM).GetRunningBackgroundShellIds(chatId);
+            var status = RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat);
+
+            // Only the latest window is versioned; history pages are immutable reads by cursor.
+            string? version = null;
+            if (beforeMessageIndex is null && _hub is { } hub)
+            {
+                version = RemoteContentVersions.ComputeTranscriptVersion(
+                    _instanceId,
+                    hub.GetChatVersion(chatId),
+                    chat,
+                    isActive
+                        ? owner!.Messages.Select(static message => message.Message)
+                        : chat.Messages.Count > 0 ? chat.Messages : null,
+                    compact,
+                    maxMessages,
+                    settings.ShowReasoning,
+                    settings.ShowToolCalls,
+                    workingDirectory,
+                    runningBackgroundToolCallIds,
+                    status);
+                if (string.Equals(version, knownVersion, StringComparison.Ordinal))
+                {
+                    // The phone already renders exactly this projection: skip the clone, the
+                    // projection and the body, and send only what moves independently.
+                    return new TranscriptCapture(
+                        new Chat { Id = chat.Id, Title = chat.Title },
+                        null,
+                        status,
+                        settings.ShowReasoning,
+                        settings.ShowToolCalls,
+                        _hub?.Revision ?? 0,
+                        _instanceId,
+                        workingDirectory,
+                        runningBackgroundToolCallIds,
+                        version,
+                        IsUnchanged: true);
+                }
+            }
+
+            IReadOnlyList<ChatMessage>? loadedMessages = isActive
+                ? owner!.Messages.Select(message => CloneMessageForRemote(message.Message)).ToList()
+                : chat.Messages.Count > 0
+                    ? chat.Messages.Select(CloneMessageForRemote).ToList()
+                    : null;
 
             return new TranscriptCapture(
                 new Chat { Id = chat.Id, Title = chat.Title },
                 loadedMessages,
-                RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat),
+                status,
                 settings.ShowReasoning,
                 settings.ShowToolCalls,
                 _hub?.Revision ?? 0,
                 _instanceId,
                 workingDirectory,
-                runningBackgroundToolCallIds);
+                runningBackgroundToolCallIds,
+                version);
         });
 
         if (capture is null)
         {
             await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (capture.IsUnchanged)
+        {
+            await context.WriteJsonAsync(
+                JsonSerializer.Serialize(
+                    new RemoteTranscript
+                    {
+                        ChatId = capture.Chat.Id,
+                        Title = RemoteProtocol.TruncateForMobile(
+                            capture.Chat.Title,
+                            RemoteProtocol.MobileTranscriptTitleLimit) ?? "",
+                        RevisionEpoch = capture.RevisionEpoch,
+                        Revision = capture.Revision,
+                        IsLatestWindow = true,
+                        IsUnchanged = true,
+                        TranscriptVersion = capture.TranscriptVersion,
+                        Status = capture.Status
+                    },
+                    RemoteJsonContext.Default.RemoteTranscript),
+                cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -1598,6 +1669,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             capture.WorkingDirectory,
             messages,
             capture.RunningBackgroundToolCallIds);
+        if (transcript.IsLatestWindow)
+            transcript.TranscriptVersion = capture.TranscriptVersion;
 
         await context.WriteJsonAsync(
             JsonSerializer.Serialize(transcript, RemoteJsonContext.Default.RemoteTranscript),
@@ -2116,6 +2189,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 _main,
                 _main.ChatVM.AvailableModels.ToList(),
                 includeChatList: true));
+        RemoteContentVersions.ApplySectionVersions(
+            snapshot,
+            RemoteProtocol.SnapshotSections.ParseKnown(context.Request.QueryValue("known")));
         var snapshotJson = JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot);
         if (Encoding.UTF8.GetByteCount(snapshotJson) > RemoteProtocol.MaxSnapshotJsonBytes)
         {
@@ -2209,6 +2285,15 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         }
         if (Guid.TryParse(request.QueryValue("chatId"), out var chatId))
             subscription.ChatId = chatId;
+        subscription.StreamIntervalMs = ParseBoundedInt(
+            request.QueryValue("streamMs"),
+            0,
+            0,
+            RemoteProtocol.MaxStreamIntervalMs);
+        subscription.CompactStatus =
+            bool.TryParse(request.QueryValue("compactStatus"), out var compactStatus) && compactStatus;
+        subscription.ChatRowPatches =
+            bool.TryParse(request.QueryValue("rowPatches"), out var rowPatches) && rowPatches;
         return subscription;
     }
 

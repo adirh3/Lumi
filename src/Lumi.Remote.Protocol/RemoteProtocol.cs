@@ -245,10 +245,89 @@ public static class RemoteProtocol
         public const string GitChangesV1 = "git-changes-v1";
         public const string InteractiveResponsesV1 = "interactive-responses-v1";
 
+        /// <summary>
+        /// A latest-window transcript request may carry the <see cref="RemoteTranscript.TranscriptVersion"/>
+        /// the phone already shows (<c>known=</c>). An identical projection is answered with
+        /// <see cref="RemoteTranscript.IsUnchanged"/> and the live status only.
+        /// </summary>
+        public const string ConditionalTranscriptV1 = "conditional-transcript-v1";
+
+        /// <summary>
+        /// A background subscription stays quiet, and switching it back to foreground makes the
+        /// desktop push a ping immediately, so a phone can keep its stream through a short app switch
+        /// and still prove the stream is alive when it returns.
+        /// </summary>
+        public const string ResumePingV1 = "resume-ping-v1";
+
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
-            [ScopedEventsV1, CompactTranscriptV1, FileSuggestionsV1, GitChangesV1, InteractiveResponsesV1];
+        [
+            ScopedEventsV1,
+            CompactTranscriptV1,
+            FileSuggestionsV1,
+            GitChangesV1,
+            InteractiveResponsesV1,
+            ConditionalTranscriptV1,
+            ResumePingV1
+        ];
     }
+
+    /// <summary>
+    /// Snapshot sections a client can already hold. A request names the versions it has
+    /// (<c>known=chats:v,library:v,settings:v</c>) and the desktop omits matching sections, listing
+    /// them in <see cref="RemoteSnapshot.UnchangedSections"/>.
+    /// </summary>
+    public static class SnapshotSections
+    {
+        public const string Chats = "chats";
+        public const string Library = "library";
+        public const string Settings = "settings";
+
+        /// <summary>Upper bound for a client-supplied <c>known=</c> query value.</summary>
+        public const int MaxKnownQueryLength = 256;
+
+        public static string FormatKnown(IReadOnlyDictionary<string, string> versions) =>
+            string.Join(',', versions
+                .Where(static pair => IsSection(pair.Key) && IsVersion(pair.Value))
+                .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+                .Select(static pair => $"{pair.Key}:{pair.Value}"));
+
+        public static Dictionary<string, string> ParseKnown(string? value)
+        {
+            var versions = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (string.IsNullOrWhiteSpace(value) || value.Length > MaxKnownQueryLength)
+                return versions;
+
+            foreach (var entry in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var separator = entry.IndexOf(':');
+                if (separator <= 0)
+                    continue;
+
+                var section = entry[..separator];
+                var version = entry[(separator + 1)..];
+                if (IsSection(section) && IsVersion(version))
+                    versions[section] = version;
+            }
+
+            return versions;
+        }
+
+        private static bool IsSection(string value) => value is Chats or Library or Settings;
+
+        private static bool IsVersion(string value) =>
+            value.Length is > 0 and <= 64 && value.All(static character => char.IsAsciiLetterOrDigit(character));
+    }
+
+    /// <summary>
+    /// Phone streaming cadence requested through <see cref="RemoteEventSubscription.StreamIntervalMs"/>.
+    /// Zero keeps the desktop's own cadence; the desktop clamps larger values.
+    /// </summary>
+    public const int MobileStreamIntervalMs = 150;
+    public const int MaxStreamIntervalMs = 1000;
+
+    /// <summary>Upper bound for a client-supplied transcript version token.</summary>
+    public const int MaxTranscriptVersionLength = 128;
 
     /// <summary>Largest upload the desktop will accept, so a phone cannot exhaust its disk.</summary>
     public const long MaxUploadBytes = 64L * 1024 * 1024;

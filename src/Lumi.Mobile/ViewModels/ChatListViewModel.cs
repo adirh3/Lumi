@@ -114,6 +114,12 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
     private readonly IRemoteChatPageSink? _pageSink;
     private readonly Dictionary<Guid, ChatListItemViewModel> _realizedChats = [];
+    // Pushes applied while a first-page read is in flight. The read was served earlier, so they
+    // are replayed over it; a pushed row is never resent until it changes again.
+    private readonly List<(long Sequence, RemoteChatPage Page)> _livePagesDuringReads = [];
+    private const int MaxLivePagesDuringReads = 64;
+    private long _liveSequence;
+    private int _firstPageReads;
     private List<RemoteChatGroup> _source = [];
     private CancellationTokenSource? _reloadCts = new();
     private long _reloadGeneration;
@@ -258,47 +264,169 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Applies desktop ordering immediately while retaining the older pages already loaded.
+    /// Applies a live push without reordering what the list shows, so rows never move under the
+    /// user's finger. See <see cref="MergeLive"/>.
     /// </summary>
     public void ApplyLive(RemoteChatPage page)
     {
+        lock (_livePagesDuringReads)
+        {
+            _liveSequence++;
+            if (_firstPageReads > 0)
+            {
+                if (_livePagesDuringReads.Count >= MaxLivePagesDuringReads)
+                    _livePagesDuringReads.RemoveAt(0);
+                _livePagesDuringReads.Add((_liveSequence, page));
+            }
+        }
+
+        MergeLive(page);
+    }
+
+    /// <summary>
+    /// Starts reading a first page over HTTP. Returns the push position the read must not undo,
+    /// for <see cref="EndFirstPageRead"/>.
+    /// </summary>
+    internal long BeginFirstPageRead()
+    {
+        lock (_livePagesDuringReads)
+        {
+            _firstPageReads++;
+            return _liveSequence;
+        }
+    }
+
+    /// <summary>
+    /// Ends a first-page read. When its page was applied, pushes that arrived after the read began
+    /// are applied again on top of it.
+    /// </summary>
+    internal void EndFirstPageRead(long startedAt, bool applied)
+    {
+        (long Sequence, RemoteChatPage Page)[] replay = [];
+        lock (_livePagesDuringReads)
+        {
+            if (applied && _liveSequence != startedAt)
+                replay = [.. _livePagesDuringReads.Where(entry => entry.Sequence > startedAt)];
+
+            if (--_firstPageReads <= 0)
+            {
+                _firstPageReads = 0;
+                _livePagesDuringReads.Clear();
+            }
+        }
+
+        if (replay.Length == 0)
+            return;
+
+        foreach (var (_, page) in replay)
+            MergeLive(page);
+    }
+
+    /// <summary>
+    /// Merges a pushed page into the loaded rows. Rows update where they are; a new chat appears at
+    /// the top of its group; a row moves only when its group changes (pinned or unpinned, or its
+    /// first activity of the day); deleted chats disappear. Running chats therefore stop trading
+    /// places at the top, and the desktop's recency order returns whenever the list is loaded again
+    /// (opening it, filtering, reconnecting). A filtered list or search result only updates the rows
+    /// it already shows, since the push is the unfiltered first page; when one of its chats leaves
+    /// it, the list is loaded again so its counts stay right.
+    /// </summary>
+    private void MergeLive(RemoteChatPage page)
+    {
         _pinnedGroupLabel = page.PinnedGroupLabel;
         _todayGroupLabel = page.TodayGroupLabel;
-        var removedIds = page.RemovedChatIds.ToHashSet();
-        var incomingIds = page.Groups.SelectMany(group => group.Chats).Select(chat => chat.Id).ToHashSet();
-        foreach (var group in _source)
-            group.Chats.RemoveAll(chat => removedIds.Contains(chat.Id) || incomingIds.Contains(chat.Id));
-        _source.RemoveAll(group => group.Chats.Count == 0);
+        var query = SearchText.Trim();
+        var filtered = query.Length > 0 || ProjectFilterId is not null;
+        var rowLeft = false;
 
+        if (page.RemovedChatIds.Count > 0)
+        {
+            var removedIds = page.RemovedChatIds.ToHashSet();
+            foreach (var group in _source)
+            {
+                if (group.Chats.RemoveAll(chat => removedIds.Contains(chat.Id)) > 0)
+                    rowLeft = true;
+            }
+        }
+
+        var groupOf = new Dictionary<Guid, RemoteChatGroup>();
+        foreach (var group in _source)
+        {
+            foreach (var chat in group.Chats)
+                groupOf[chat.Id] = group;
+        }
+
+        var arriving = new List<(string Label, RemoteChat Chat)>();
         foreach (var incomingGroup in page.Groups)
         {
-            var target = _source.FirstOrDefault(group =>
-                string.Equals(group.Label, incomingGroup.Label, StringComparison.Ordinal));
-            if (target is null)
+            foreach (var incoming in incomingGroup.Chats)
             {
-                target = new RemoteChatGroup { Label = incomingGroup.Label };
-                _source.Add(target);
+                var current = groupOf.GetValueOrDefault(incoming.Id);
+                var index = current?.Chats.FindIndex(chat => chat.Id == incoming.Id) ?? -1;
+                if (current is null || index < 0)
+                {
+                    if (!filtered)
+                        arriving.Add((incomingGroup.Label, incoming));
+                }
+                else if (!filtered && !string.Equals(current.Label, incomingGroup.Label, StringComparison.Ordinal))
+                {
+                    current.Chats.RemoveAt(index);
+                    groupOf.Remove(incoming.Id);
+                    arriving.Add((incomingGroup.Label, incoming));
+                }
+                else
+                {
+                    current.Chats[index] = incoming;
+                    if (filtered && !MatchesFilter(incoming, query))
+                        rowLeft = true;
+                }
             }
-            target.Chats.InsertRange(0, incomingGroup.Chats);
         }
 
-        _source = _source
-            .OrderByDescending(group => string.Equals(group.Label, _pinnedGroupLabel, StringComparison.Ordinal))
-            .ThenByDescending(group => group.Chats.Max(chat => chat.UpdatedAt))
-            .ToList();
-        foreach (var group in _source)
-            group.Chats = group.Chats.OrderByDescending(chat => chat.UpdatedAt).ToList();
-
-        _serverPaged = true;
-        _loadedChatCount = _source.Sum(group => group.Chats.Count);
-        _serverHasMore = page.HasMore && _loadedChatCount < page.TotalCount;
-        _visibleLimit = Math.Max(_visibleLimit, _loadedChatCount);
-        if (_totalChatCount != page.TotalCount)
+        // Inserted at the top in reverse, so they keep the desktop's newest-first order.
+        for (var i = arriving.Count - 1; i >= 0; i--)
         {
-            _totalChatCount = page.TotalCount;
-            OnPropertyChanged(nameof(TotalChats));
+            var (label, chat) = arriving[i];
+            GetOrAddGroup(label, chat).Chats.Insert(0, chat);
         }
+
+        _source.RemoveAll(group => group.Chats.Count == 0);
+        if (!filtered)
+        {
+            _serverPaged = true;
+            _loadedChatCount = _source.Sum(group => group.Chats.Count);
+            _serverHasMore = page.HasMore && _loadedChatCount < page.TotalCount;
+            _visibleLimit = Math.Max(_visibleLimit, _loadedChatCount);
+            if (_totalChatCount != page.TotalCount)
+            {
+                _totalChatCount = page.TotalCount;
+                OnPropertyChanged(nameof(TotalChats));
+            }
+        }
+
         Rebuild();
+        if (filtered && rowLeft)
+            QueueServerReload(debounce: false);
+    }
+
+    /// <summary>A group for an arriving row: Pinned leads, date groups follow newest first.</summary>
+    private RemoteChatGroup GetOrAddGroup(string label, RemoteChat chat)
+    {
+        if (_source.FirstOrDefault(group => string.Equals(group.Label, label, StringComparison.Ordinal))
+            is { } existing)
+        {
+            return existing;
+        }
+
+        var added = new RemoteChatGroup { Label = label };
+        var index = string.Equals(label, _pinnedGroupLabel, StringComparison.Ordinal)
+            ? 0
+            : _source.FindIndex(group =>
+                !string.Equals(group.Label, _pinnedGroupLabel, StringComparison.Ordinal)
+                && group.Chats.Count > 0
+                && group.Chats.Max(row => row.UpdatedAt) < chat.UpdatedAt);
+        _source.Insert(index < 0 ? _source.Count : index, added);
+        return added;
     }
 
     public void SetUnread(Guid chatId, bool hasUnreadMessages)
@@ -439,7 +567,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
             foreach (var chat in group.Chats)
             {
-                if (!Matches(chat))
+                if (!MatchesFilter(chat, query))
                     continue;
 
                 if (!_serverPaged)
@@ -517,22 +645,21 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(ShowEmptyState));
         OnPropertyChanged(nameof(ResultsLabel));
-        return;
+    }
 
-        bool Matches(RemoteChat chat)
+    private bool MatchesFilter(RemoteChat chat, string query)
+    {
+        // The project filter is a hard gate: a chat outside the active project is not in the
+        // list at all, however well it matches the search text.
+        if (ProjectFilterId is { } projectId && chat.ProjectId != projectId)
         {
-            // The project filter is a hard gate: a chat outside the active project is not in the
-            // list at all, however well it matches the search text.
-            if (ProjectFilterId is { } projectId && chat.ProjectId != projectId)
-            {
-                return false;
-            }
-
-            return query.Length == 0 ||
-                   chat.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                   (chat.Preview?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                   (chat.ProjectName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
+            return false;
         }
+
+        return query.Length == 0 ||
+               chat.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               (chat.Preview?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+               (chat.ProjectName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
     [RelayCommand]
@@ -620,6 +747,8 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         var cancellationToken = current.Token;
         IsRefreshing = true;
         LoadErrorText = null;
+        var readStartedAt = BeginFirstPageRead();
+        var applied = false;
 
         try
         {
@@ -640,6 +769,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
                 && page.ProjectId == ProjectFilterId)
             {
                 Apply(page);
+                applied = true;
             }
             else if (page is null && generation == Volatile.Read(ref _reloadGeneration)
                      && !cancellationToken.IsCancellationRequested)
@@ -652,6 +782,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            EndFirstPageRead(readStartedAt, applied);
             if (generation == Volatile.Read(ref _reloadGeneration))
                 IsRefreshing = false;
         }

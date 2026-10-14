@@ -688,11 +688,18 @@
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
             <sc:StrataPulse x:Name="ConnectionRetryPulse"
                             IsVisible="{Binding !IsGatewaySignInRequired}"
-                            IsLive="False" Width="10" Height="10" VerticalAlignment="Center" />
+                            IsLive="False" Width="10" Height="10"
+                            VerticalAlignment="Top" Margin="0,3,0,0" />
             <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
               <TextBlock Text="{Binding ConnectionBannerText}" TextWrapping="Wrap"
                          FontSize="{DynamicResource Font.SizeCaption}"
                          Foreground="{DynamicResource Brush.TextSecondary}" />
+              <Button x:Name="RetryConnectionButton"
+                      IsVisible="{Binding ShowRetryConnectionAction}"
+                      Content="Retry"
+                      Classes="accent touch"
+                      HorizontalAlignment="Left"
+                      Command="{Binding RetryConnectionCommand}" />
               <Button x:Name="GatewaySignInButton"
                       IsVisible="{Binding ShowGatewaySignInAction}"
                       Content="Sign in again"

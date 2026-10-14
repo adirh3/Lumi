@@ -219,6 +219,16 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     public override void Update(RemoteTranscriptItem item)
     {
         var sourceText = item.Text ?? "";
+        // A transcript captured before deltas this phone already applied must not shorten a
+        // still-streaming answer: what the phone shows is a strict extension of it.
+        if (IsStreaming
+            && item.IsStreaming
+            && SourceText.Length > sourceText.Length
+            && SourceText.StartsWith(sourceText, StringComparison.Ordinal))
+        {
+            sourceText = SourceText;
+        }
+
         var images = !item.IsStreaming && item.InlineImages is { Count: > 0 }
             ? item.InlineImages
             : null;
@@ -425,7 +435,17 @@ public sealed partial class ReasoningItemViewModel : TranscriptItemViewModel
 
     public override void Update(RemoteTranscriptItem item)
     {
-        Text = item.Text ?? "";
+        var text = item.Text ?? "";
+        // Same rule as answers: an older capture never shortens reasoning that is still streaming.
+        if (IsStreaming
+            && item.IsStreaming
+            && Text.Length > text.Length
+            && Text.StartsWith(text, StringComparison.Ordinal))
+        {
+            text = Text;
+        }
+
+        Text = text;
         Label = string.IsNullOrWhiteSpace(item.Label) ? "Thinking" : item.Label!;
         IsStreaming = item.IsStreaming;
     }

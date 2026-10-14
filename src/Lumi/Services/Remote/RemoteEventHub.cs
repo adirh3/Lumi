@@ -35,13 +35,21 @@ internal sealed class RemoteEventHub : IDisposable
 
     private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// Phones keep a background stream for at most a minute so a short app switch resumes without a
+    /// reconnect. Nothing is written to background streams, so one still open after this long was
+    /// abandoned (app killed or frozen, network gone) and would otherwise hold a connection slot.
+    /// </summary>
+    internal static readonly TimeSpan BackgroundStreamLimit = TimeSpan.FromMinutes(2);
+
     private readonly ConcurrentDictionary<Guid, RemoteEventClient> _clients = new();
     private readonly DataStore _dataStore;
     private readonly MainViewModel _main;
     private readonly Func<IReadOnlyList<string>> _modelsProvider;
     private readonly string? _revisionEpoch;
+    private readonly TimeProvider _time;
     private readonly DispatcherTimer _coalesceTimer;
-    private readonly Timer _keepAliveTimer;
+    private readonly ITimer _keepAliveTimer;
     private readonly Dictionary<ChatViewModel, SurfaceObserver> _surfaceObservers =
         new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<Guid> _statusDirtyChatIds = [];
@@ -49,11 +57,14 @@ internal sealed class RemoteEventHub : IDisposable
     private readonly HashSet<Guid> _deletedChatIds = [];
     private readonly HashSet<Guid> _chatStateDirtyIds = [];
     private readonly Dictionary<Guid, ChatRowState> _chatRowStates = [];
+    private readonly ConcurrentDictionary<Guid, long> _chatVersions = new();
 
     private bool _chatsDirty;
     private bool _libraryDirty;
     private bool _snapshotDirty;
     private string? _lastLibraryJson;
+    // Row hashes of the last whole first page sent to phones without row patches.
+    private IReadOnlyDictionary<Guid, ulong>? _lastFullPageRows;
     private long _revision;
     private bool _disposed;
 
@@ -61,27 +72,36 @@ internal sealed class RemoteEventHub : IDisposable
         DataStore dataStore,
         MainViewModel main,
         Func<IReadOnlyList<string>> modelsProvider,
-        string? revisionEpoch = null)
+        string? revisionEpoch = null,
+        TimeProvider? time = null)
     {
         _dataStore = dataStore;
         _main = main;
         _modelsProvider = modelsProvider;
         _revisionEpoch = revisionEpoch;
+        _time = time ?? TimeProvider.System;
 
         _coalesceTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = CoalesceInterval };
         _coalesceTimer.Tick += (_, _) => FlushPending();
 
-        _keepAliveTimer = new Timer(_ => Broadcast(
-                new RemoteEventFrame(RemoteProtocol.Events.Ping, "{}"),
-                RemoteProtocol.Events.Ping,
-                static client => client.IsForeground),
-            null, KeepAliveInterval, KeepAliveInterval);
+        _keepAliveTimer = _time.CreateTimer(
+            _ => SweepKeepAlive(),
+            null,
+            KeepAliveInterval,
+            KeepAliveInterval);
 
         Dispatcher.UIThread.Post(Attach);
     }
 
     /// <summary>Monotonic transcript revision so clients can drop stale renders.</summary>
     public long Revision => Interlocked.Read(ref _revision);
+
+    /// <summary>
+    /// Bumped whenever this chat's transcript projection may have changed (message add/remove/update,
+    /// rebuild or save). Together with a fingerprint of in-memory messages it versions transcripts.
+    /// </summary>
+    internal long GetChatVersion(Guid chatId) =>
+        _chatVersions.TryGetValue(chatId, out var version) ? version : 0;
 
     public int ClientCount => _clients.Count;
 
@@ -96,7 +116,8 @@ internal sealed class RemoteEventHub : IDisposable
         var client = new RemoteEventClient(
             stream,
             deviceId,
-            subscription ?? new RemoteEventSubscription());
+            subscription ?? new RemoteEventSubscription(),
+            _time);
         // Bootstrap is never coalesced with later partial catalog snapshots. The first frame defines
         // the client's complete cache and must be delivered exactly once.
         if (initialFrame is { } frame && !client.Enqueue(frame))
@@ -116,6 +137,24 @@ internal sealed class RemoteEventHub : IDisposable
         Dispatcher.UIThread.Post(ReconcileMessageObservers);
     }
 
+    /// <summary>
+    /// Pings foreground phones so a dead link is found by its failed write, and closes background
+    /// streams held past <see cref="BackgroundStreamLimit"/>, which are never written to.
+    /// </summary>
+    internal void SweepKeepAlive()
+    {
+        var ping = new RemoteEventFrame(RemoteProtocol.Events.Ping, "{}");
+        foreach (var client in _clients.Values)
+        {
+            if (client.IsForeground
+                    ? !client.Enqueue(ping, RemoteProtocol.Events.Ping)
+                    : client.IsAbandonedInBackground(BackgroundStreamLimit))
+            {
+                RemoveClient(client);
+            }
+        }
+    }
+
     public async Task UpdateSubscriptionAsync(
         string deviceId,
         RemoteEventSubscription subscription)
@@ -133,6 +172,20 @@ internal sealed class RemoteEventHub : IDisposable
         if (changes.Count == 0)
             return;
 
+        // A phone coming back to the foreground on its existing stream needs proof the stream is
+        // still alive; a ping is the cheapest frame that provides it.
+        foreach (var change in changes)
+        {
+            if (!change.Previous.IsForeground
+                && change.Current.IsForeground
+                && !change.Client.Enqueue(
+                    new RemoteEventFrame(RemoteProtocol.Events.Ping, "{}"),
+                    RemoteProtocol.Events.Ping))
+            {
+                RemoveClient(change.Client);
+            }
+        }
+
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (changes.Any(static change =>
@@ -142,7 +195,11 @@ internal sealed class RemoteEventHub : IDisposable
             }
 
             foreach (var change in changes)
+            {
+                if (!change.Previous.IsForeground && change.Current.IsForeground)
+                    CatchUpReturningClient(change.Client);
                 PrimeNewChatScope(change);
+            }
         });
     }
 
@@ -153,18 +210,121 @@ internal sealed class RemoteEventHub : IDisposable
         if (currentChatId is not { } chatId || currentChatId == previousChatId)
             return;
 
-        if (_dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == chatId) is { } chat)
+        if (_dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == chatId) is { } chat
+            && !change.Client.EnqueueStatus(BuildStatusFrames(chat, includeSlim: false)))
         {
-            var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
-            change.Client.Enqueue(
-                new RemoteEventFrame(
-                    RemoteProtocol.Events.ChatStatus,
-                    JsonSerializer.Serialize(
-                        RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat),
-                        RemoteJsonContext.Default.RemoteChatStatus)),
-                $"status:{chatId:N}");
+            RemoveClient(change.Client);
         }
     }
+
+    /// <summary>
+    /// Serializes one status for every phone. Compact-status phones that already hold the same plan
+    /// and composer catalogs receive the slim frame instead.
+    /// </summary>
+    private RemoteStatusFrames BuildStatusFrames(Chat chat, bool includeSlim)
+    {
+        var owner = RemoteProjector.ResolveChatOwner(_main, chat.Id);
+        var status = RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat);
+        var full = StatusFrameBytes(status);
+
+        var catalogs = new RemoteContentHash();
+        catalogs.Add(status.HasComposerCatalogs);
+        foreach (var chips in new[]
+                 {
+                     status.AvailableAgents, status.AvailableSkills,
+                     status.AvailableMcps, status.AvailableProjects
+                 })
+        {
+            catalogs.Add(chips.Count);
+            foreach (var chip in chips)
+            {
+                catalogs.Add(chip.Name);
+                catalogs.Add(chip.Glyph);
+                catalogs.Add(chip.Description);
+                catalogs.Add(chip.Value);
+            }
+        }
+
+        var plan = new RemoteContentHash();
+        plan.Add(status.PlanContent);
+
+        byte[]? slim = null;
+        if (includeSlim)
+        {
+            status.PlanContent = null;
+            status.IsPlanOmitted = true;
+            status.HasComposerCatalogs = false;
+            status.AvailableAgents = [];
+            status.AvailableSkills = [];
+            status.AvailableMcps = [];
+            status.AvailableProjects = [];
+            slim = StatusFrameBytes(status);
+        }
+
+        return new RemoteStatusFrames(
+            chat.Id,
+            full,
+            slim,
+            catalogs.Value,
+            plan.Value,
+            new ChatListActivity(
+                status.IsBusy || status.IsStreaming,
+                status.IsSessionActive || status.IsBusy || status.IsStreaming,
+                status.HasUnreadMessages));
+
+        static byte[] StatusFrameBytes(RemoteChatStatus value) =>
+            Encoding.UTF8.GetBytes(new RemoteEventFrame(
+                RemoteProtocol.Events.ChatStatus,
+                JsonSerializer.Serialize(value, RemoteJsonContext.Default.RemoteChatStatus)).ToWire());
+    }
+
+    /// <summary>
+    /// Hashes each first-page row together with its group, so a regrouped row counts as changed. A
+    /// running chat's activity time, preview and message count move at every agent step; they count
+    /// once the run ends, so a busy chat does not wake every phone that shows the chat list.
+    /// </summary>
+    internal static RemoteChatPageFrames BuildChatPageFrames(RemoteChatPage page, RemoteEventFrame fullFrame)
+    {
+        var rows = new Dictionary<Guid, ulong>();
+        foreach (var group in page.Groups)
+        {
+            foreach (var chat in group.Chats)
+            {
+                var hash = new RemoteContentHash();
+                hash.Add(group.Label);
+                hash.Add(JsonSerializer.SerializeToUtf8Bytes(
+                    chat.IsRunning ? WithoutStepActivity(chat) : chat,
+                    RemoteJsonContext.Default.RemoteChat));
+                rows[chat.Id] = hash.Value;
+            }
+        }
+
+        return new RemoteChatPageFrames(page, rows, Encoding.UTF8.GetBytes(fullFrame.ToWire()));
+    }
+
+    /// <summary>A running row without the fields every agent step moves. Copies every other field.</summary>
+    private static RemoteChat WithoutStepActivity(RemoteChat chat) => new()
+    {
+        Id = chat.Id,
+        Title = chat.Title,
+        ProjectId = chat.ProjectId,
+        ProjectName = chat.ProjectName,
+        AgentId = chat.AgentId,
+        AgentName = chat.AgentName,
+        AgentGlyph = chat.AgentGlyph,
+        IsPinned = chat.IsPinned,
+        IsRunning = chat.IsRunning,
+        IsSessionActive = chat.IsSessionActive,
+        HasUnreadMessages = chat.HasUnreadMessages,
+        LastModelUsed = chat.LastModelUsed
+    };
+
+    private static bool HaveSameRows(
+        IReadOnlyDictionary<Guid, ulong> rows,
+        IReadOnlyDictionary<Guid, ulong>? previous) =>
+        previous is not null
+        && rows.Count == previous.Count
+        && rows.All(row => previous.TryGetValue(row.Key, out var hash) && hash == row.Value);
 
     private static Guid? ObservedChatId(RemoteEventSubscription subscription) =>
         subscription.IsForeground ? subscription.ChatId : null;
@@ -314,10 +474,7 @@ internal sealed class RemoteEventHub : IDisposable
     private static void ObserveMessage(SurfaceObserver observer, ChatMessageViewModel message)
     {
         if (observer.Messages.Add(message))
-        {
             message.PropertyChanged += observer.MessagePropertyChanged;
-            observer.StreamedText.Remove(message.Message.Id);
-        }
     }
 
     private void SynchronizeObservedMessages(SurfaceObserver observer)
@@ -328,7 +485,6 @@ internal sealed class RemoteEventHub : IDisposable
             {
                 message.PropertyChanged -= observer.MessagePropertyChanged;
                 observer.Messages.Remove(message);
-                observer.StreamedText.Remove(message.Message.Id);
             }
             return;
         }
@@ -340,7 +496,6 @@ internal sealed class RemoteEventHub : IDisposable
         {
             message.PropertyChanged -= observer.MessagePropertyChanged;
             observer.Messages.Remove(message);
-            observer.StreamedText.Remove(message.Message.Id);
         }
 
         foreach (var message in activeMessages)
@@ -474,8 +629,10 @@ internal sealed class RemoteEventHub : IDisposable
         var chatId = observer.Surface.CurrentChat?.Id ?? observer.CurrentChatId;
         var hasChatSubscriber = chatId is { } observedChatId && HasChatSubscriber(observedChatId);
 
-        // Streaming assistant/reasoning text goes out on the hot path as a self-contained delta so
-        // the phone repaints without pulling the whole transcript on every token batch.
+        // Streaming assistant/reasoning text goes out on the hot path without pulling the whole
+        // transcript. Each phone keeps its own slot: the frame is built when that phone's writer
+        // reaches it, from the text the phone already received, so a backlog merges instead of
+        // dropping a chunk.
         if (e.PropertyName == nameof(ChatMessageViewModel.Content)
             && message.IsStreaming
             && hasChatSubscriber
@@ -492,29 +649,18 @@ internal sealed class RemoteEventHub : IDisposable
                                   : RemoteProtocol.MobileAssistantTextLimit)
                           ?? "";
             var messageId = message.Message.Id;
-            var offset = -1;
-            var chunk = bounded;
-            if (observer.StreamedText.TryGetValue(messageId, out var previous)
-                && bounded.AsSpan().StartsWith(previous.AsSpan(), StringComparison.Ordinal))
+            foreach (var client in _clients.Values)
             {
-                offset = previous.Length;
-                chunk = bounded[previous.Length..];
+                if (!client.WantsChat(streamingChatId)
+                    || (isReasoning && client.WantsCompactTranscript))
+                {
+                    continue;
+                }
+
+                if (!client.EnqueueStreamText(streamingChatId, messageId, bounded, isReasoning))
+                    RemoveClient(client);
             }
 
-            observer.StreamedText[messageId] = bounded;
-            if (chunk.Length == 0)
-                return;
-
-            BroadcastJson(RemoteProtocol.Events.StreamDelta, new RemoteStreamDelta
-            {
-                ChatId = streamingChatId,
-                ItemId = messageId.ToString("N"),
-                Offset = offset,
-                Text = chunk,
-                IsReasoning = isReasoning
-            }, RemoteJsonContext.Default.RemoteStreamDelta, $"stream:{streamingChatId:N}:{messageId:N}",
-                client => client.WantsChat(streamingChatId)
-                          && (!isReasoning || !client.WantsCompactTranscript));
             return;
         }
 
@@ -547,8 +693,20 @@ internal sealed class RemoteEventHub : IDisposable
         }
 
         _libraryDirty = true;
+        // A backgrounded phone's new-chat setups and pickers depend on the library too.
+        MarkCatalogsMissedInBackground();
         if (_clients.Values.Any(static client => client.WantsNewChatExperience))
             _snapshotDirty = true;
+    }
+
+    /// <summary>Phones backgrounded on a kept stream receive the catalogs when they return.</summary>
+    private void MarkCatalogsMissedInBackground()
+    {
+        foreach (var client in _clients.Values)
+        {
+            if (!client.IsForeground)
+                client.MarkCatalogsMissed();
+        }
     }
 
     private void OnChatContentChanged(Guid chatId)
@@ -611,7 +769,11 @@ internal sealed class RemoteEventHub : IDisposable
     private void MarkTranscriptDirty(Guid? chatId)
     {
         Interlocked.Increment(ref _revision);
-        if (chatId is { } id && HasChatSubscriber(id))
+        if (chatId is not { } id)
+            return;
+
+        _chatVersions.AddOrUpdate(id, 1, static (_, version) => version + 1);
+        if (HasChatSubscriber(id))
             _transcriptDirtyChatIds.Add(id);
     }
 
@@ -646,12 +808,42 @@ internal sealed class RemoteEventHub : IDisposable
                 foreach (var chat in _dataStore.Data.Chats)
                     _chatRowStates[chat.Id] = BuildChatRowState(chat);
                 page.RemovedChatIds = [.. _deletedChatIds];
-                BroadcastJson(
-                    RemoteProtocol.Events.Chats,
-                    page,
-                    RemoteJsonContext.Default.RemoteChatPage,
-                    RemoteProtocol.Events.Chats,
-                    static client => client.WantsChatList);
+                var pageJson = JsonSerializer.Serialize(page, RemoteJsonContext.Default.RemoteChatPage);
+                var fullFrame = new RemoteEventFrame(RemoteProtocol.Events.Chats, pageJson);
+                var rowFrames = BuildChatPageFrames(page, fullFrame);
+                // Older phones re-sort their whole list on every page, so a page whose rows only
+                // moved through agent steps is not sent to them at all.
+                var fullPageChanged = page.RemovedChatIds.Count > 0
+                                      || !HaveSameRows(rowFrames.RowHashes, _lastFullPageRows);
+                var sentFullPage = false;
+                foreach (var client in _clients.Values)
+                {
+                    if (!client.WantsChatList)
+                        continue;
+
+                    // Row-patch phones merge pushes, so they receive only rows that changed since
+                    // their own previous page; older phones receive the whole first page.
+                    bool queued;
+                    if (client.WantsChatRowPatches)
+                    {
+                        queued = client.EnqueueChatPage(rowFrames);
+                    }
+                    else if (fullPageChanged)
+                    {
+                        queued = client.Enqueue(fullFrame, RemoteProtocol.Events.Chats);
+                        sentFullPage = true;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    if (!queued)
+                        RemoveClient(client);
+                }
+
+                if (sentFullPage)
+                    _lastFullPageRows = rowFrames.RowHashes;
             }
             _deletedChatIds.Clear();
         }
@@ -659,18 +851,10 @@ internal sealed class RemoteEventHub : IDisposable
         if (_snapshotDirty)
         {
             _snapshotDirty = false;
-            BroadcastJson(
-                RemoteProtocol.Events.Snapshot,
-                RemoteProjector.BuildSnapshot(
-                    _dataStore,
-                    _main,
-                    _modelsProvider(),
-                    includeChatList: false,
-                    includeLibrary: false,
-                    isPartial: true),
-                RemoteJsonContext.Default.RemoteSnapshot,
-                RemoteProtocol.Events.Snapshot,
-                static client => client.IsForeground);
+            // Marked first: a phone that returns during this flush is either marked or included.
+            MarkCatalogsMissedInBackground();
+            if (_clients.Values.Any(static client => client.IsForeground))
+                Broadcast(CatalogFrame(), RemoteProtocol.Events.Snapshot, static client => client.IsForeground);
         }
 
         if (_statusDirtyChatIds.Count > 0 || _chatStateDirtyIds.Count > 0)
@@ -690,13 +874,21 @@ internal sealed class RemoteEventHub : IDisposable
                 if (chat is null)
                     continue;
 
-                var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
-                BroadcastJson(
-                    RemoteProtocol.Events.ChatStatus,
-                    RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat),
-                    RemoteJsonContext.Default.RemoteChatStatus,
-                    $"status:{chatId:N}",
-                    client => client.WantsChat(chatId) || (includeChatList && client.WantsChatList));
+                bool Wants(RemoteEventClient client) =>
+                    client.WantsChat(chatId) || (includeChatList && client.WantsChatList);
+                var frames = BuildStatusFrames(
+                    chat,
+                    includeSlim: _clients.Values.Any(client => client.WantsCompactStatus && Wants(client)));
+                foreach (var client in _clients.Values)
+                {
+                    // A phone that shows only the list hears about this chat when its row's running
+                    // or unread state changes; the running flag that flickers at every agent step does not.
+                    if (Wants(client)
+                        && !client.EnqueueStatus(frames, listOnly: !client.WantsChat(chatId)))
+                    {
+                        RemoveClient(client);
+                    }
+                }
             }
             _chatStateDirtyIds.Clear();
         }
@@ -749,16 +941,47 @@ internal sealed class RemoteEventHub : IDisposable
 
     private void BroadcastConnection()
     {
-        BroadcastJson(
-            RemoteProtocol.Events.Connection,
+        if (!_clients.IsEmpty)
+            Broadcast(ConnectionFrame(), RemoteProtocol.Events.Connection, static client => client.IsForeground);
+    }
+
+    private RemoteEventFrame ConnectionFrame() => new(
+        RemoteProtocol.Events.Connection,
+        JsonSerializer.Serialize(
             new RemoteConnectionStatus
             {
                 IsConnected = _main.IsConnected,
                 Status = _main.ConnectionStatus
             },
-            RemoteJsonContext.Default.RemoteConnectionStatus,
-            RemoteProtocol.Events.Connection,
-            static client => client.IsForeground);
+            RemoteJsonContext.Default.RemoteConnectionStatus));
+
+    /// <summary>The partial snapshot carrying model and composer catalogs and the new-chat setup.</summary>
+    private RemoteEventFrame CatalogFrame()
+    {
+        var catalogs = RemoteProjector.BuildSnapshot(
+            _dataStore,
+            _main,
+            _modelsProvider(),
+            includeChatList: false,
+            includeLibrary: false,
+            isPartial: true);
+        RemoteContentVersions.ApplySectionVersions(catalogs);
+        return new RemoteEventFrame(
+            RemoteProtocol.Events.Snapshot,
+            JsonSerializer.Serialize(catalogs, RemoteJsonContext.Default.RemoteSnapshot));
+    }
+
+    /// <summary>
+    /// A phone returning on its kept stream missed what is pushed to foreground phones only: the
+    /// desktop's connection state and, if they changed meanwhile, the catalogs.
+    /// </summary>
+    private void CatchUpReturningClient(RemoteEventClient client)
+    {
+        var queued = client.Enqueue(ConnectionFrame(), RemoteProtocol.Events.Connection)
+                     && (!client.TakeMissedCatalogs()
+                         || client.Enqueue(CatalogFrame(), RemoteProtocol.Events.Snapshot));
+        if (!queued)
+            RemoveClient(client);
     }
 
     private sealed class SurfaceObserver
@@ -781,7 +1004,6 @@ internal sealed class RemoteEventHub : IDisposable
         public Guid? CurrentChatId { get; set; }
         public HashSet<ChatMessageViewModel> Messages { get; } =
             new(ReferenceEqualityComparer.Instance);
-        public Dictionary<Guid, string> StreamedText { get; } = [];
         public PropertyChangedEventHandler PropertyChanged { get; }
         public NotifyCollectionChangedEventHandler MessagesChanged { get; }
         public NotifyCollectionChangedEventHandler ComposerChipsChanged { get; }
@@ -822,214 +1044,4 @@ internal sealed class RemoteEventHub : IDisposable
         RemoteEventClient Client,
         RemoteEventSubscription Previous,
         RemoteEventSubscription Current);
-}
-
-/// <summary>
-/// One connected SSE consumer. Frames are buffered in a bounded queue and drained by the client's
-/// own writer loop, so a phone on a bad link can never block the desktop UI thread.
-/// </summary>
-internal sealed class RemoteEventClient : IDisposable
-{
-    internal const int MaxQueuedFrames = 128;
-    internal const int MaxQueuedBytes = RemoteProtocol.MaxSseFrameBytes;
-    private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(30);
-
-    private readonly Stream _stream;
-    private readonly object _queueGate = new();
-    private readonly LinkedList<QueuedFrame> _queue = [];
-    private readonly Dictionary<string, LinkedListNode<QueuedFrame>> _coalesced = [];
-    private readonly SemaphoreSlim _signal = new(0);
-    private int _queuedBytes;
-    private RemoteEventSubscription _subscription;
-    private bool _overflowed;
-    private bool _disposed;
-
-    public RemoteEventClient(
-        Stream stream,
-        string deviceId,
-        RemoteEventSubscription? subscription = null)
-    {
-        _stream = stream;
-        DeviceId = deviceId;
-        _subscription = CopySubscription(subscription ?? new RemoteEventSubscription());
-    }
-
-    public Guid Id { get; } = Guid.NewGuid();
-    public string DeviceId { get; }
-    internal int QueuedBytes { get { lock (_queueGate) return _queuedBytes; } }
-    internal int QueuedFrames { get { lock (_queueGate) return _queue.Count; } }
-    internal bool IsForeground => Volatile.Read(ref _subscription).IsForeground;
-    internal bool WantsNewChatExperience
-    {
-        get
-        {
-            var subscription = Volatile.Read(ref _subscription);
-            return subscription.IsForeground && subscription.ChatId is null;
-        }
-    }
-    internal bool WantsChatList
-    {
-        get
-        {
-            var subscription = Volatile.Read(ref _subscription);
-            return subscription.IsForeground && subscription.IncludeChatList;
-        }
-    }
-    internal bool WantsLibrary
-    {
-        get
-        {
-            var subscription = Volatile.Read(ref _subscription);
-            return subscription.IsForeground && subscription.IncludeLibrary;
-        }
-    }
-    internal bool WantsCompactTranscript =>
-        Volatile.Read(ref _subscription).CompactTranscript;
-
-    internal bool WantsChat(Guid chatId)
-    {
-        var subscription = Volatile.Read(ref _subscription);
-        return subscription.IsForeground
-               && subscription.ChatId == chatId;
-    }
-
-    internal bool TryUpdateSubscription(
-        RemoteEventSubscription subscription,
-        out RemoteEventSubscription previous,
-        out RemoteEventSubscription current)
-    {
-        ArgumentNullException.ThrowIfNull(subscription);
-        while (true)
-        {
-            var observed = Volatile.Read(ref _subscription);
-            if (subscription.Generation < observed.Generation)
-            {
-                previous = CopySubscription(observed);
-                current = previous;
-                return false;
-            }
-
-            var replacement = CopySubscription(subscription);
-            if (ReferenceEquals(
-                    Interlocked.CompareExchange(ref _subscription, replacement, observed),
-                    observed))
-            {
-                previous = CopySubscription(observed);
-                current = CopySubscription(replacement);
-                return true;
-            }
-        }
-    }
-
-    internal RemoteEventSubscription SnapshotSubscription() =>
-        CopySubscription(Volatile.Read(ref _subscription));
-
-    public bool Enqueue(RemoteEventFrame frame, string? coalesceKey = null)
-    {
-        var bytes = Encoding.UTF8.GetBytes(frame.ToWire());
-        lock (_queueGate)
-        {
-            if (_disposed || _overflowed)
-                return false;
-
-            if (coalesceKey is not null && _coalesced.Remove(coalesceKey, out var existing))
-            {
-                _queue.Remove(existing);
-                _queuedBytes -= existing.Value.Bytes.Length;
-            }
-
-            if (bytes.Length > MaxQueuedBytes
-                || _queue.Count >= MaxQueuedFrames
-                || _queuedBytes + bytes.Length > MaxQueuedBytes)
-            {
-                _overflowed = true;
-                _queue.Clear();
-                _coalesced.Clear();
-                _queuedBytes = 0;
-                try { _signal.Release(); } catch (ObjectDisposedException) { }
-                return false;
-            }
-
-            var queued = new QueuedFrame(bytes, coalesceKey);
-            var node = _queue.AddLast(queued);
-            if (coalesceKey is not null)
-                _coalesced[coalesceKey] = node;
-            _queuedBytes += bytes.Length;
-        }
-
-        try { _signal.Release(); }
-        catch (ObjectDisposedException) { }
-        return true;
-    }
-
-    /// <summary>Writes frames until the client disconnects or the server shuts down.</summary>
-    public async Task RunAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested && !_disposed)
-            {
-                await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-                while (TryDequeue(out var bytes))
-                {
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    deadline.CancelAfter(WriteTimeout);
-                    await _stream.WriteAsync(bytes, deadline.Token).ConfigureAwait(false);
-                    await _stream.FlushAsync(deadline.Token).ConfigureAwait(false);
-                }
-            }
-        }
-        catch (Exception ex) when (ex is OperationCanceledException or System.IO.IOException
-                                       or System.Net.Sockets.SocketException or ObjectDisposedException)
-        {
-            // Phone went away, went to sleep, or the server is stopping.
-        }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-
-        lock (_queueGate)
-        {
-            _disposed = true;
-            _queue.Clear();
-            _coalesced.Clear();
-            _queuedBytes = 0;
-        }
-        try { _signal.Release(); } catch (ObjectDisposedException) { }
-        _signal.Dispose();
-    }
-
-    private bool TryDequeue(out byte[] bytes)
-    {
-        lock (_queueGate)
-        {
-            if (_queue.First is not { } node)
-            {
-                bytes = [];
-                return false;
-            }
-
-            _queue.RemoveFirst();
-            if (node.Value.CoalesceKey is { } key)
-                _coalesced.Remove(key);
-            _queuedBytes -= node.Value.Bytes.Length;
-            bytes = node.Value.Bytes;
-            return true;
-        }
-    }
-
-    private static RemoteEventSubscription CopySubscription(RemoteEventSubscription subscription) => new()
-    {
-        Generation = subscription.Generation,
-        ChatId = subscription.ChatId,
-        IncludeChatList = subscription.IncludeChatList,
-        IncludeLibrary = subscription.IncludeLibrary,
-        CompactTranscript = subscription.CompactTranscript,
-        IsForeground = subscription.IsForeground
-    };
-
-    private sealed record QueuedFrame(byte[] Bytes, string? CoalesceKey);
 }

@@ -456,6 +456,115 @@ public sealed class RemoteEndToEndTests
     }
 
     /// <summary>
+    /// The phone names the latest window it already shows; the real server answers an identical
+    /// projection with no body, and any change it can show — an in-memory edit no event announced,
+    /// a display setting — brings the whole window back. History pages are never conditional.
+    /// </summary>
+    [Fact]
+    public Task AnUnchangedTranscriptComesBackWithoutItsBody()
+    {
+        var chatId = Guid.NewGuid();
+        Chat? chat = null;
+        return RunAsync(
+            async rig =>
+            {
+                Assert.IsType<RemoteHello>(await rig.Client.HelloAsync(rig.BaseUrl, CancellationToken.None));
+                var pair = await rig.Client.PairAsync(rig.BaseUrl, rig.Server.BeginPairing(), CancellationToken.None);
+                Assert.True(pair.Ok, pair.Error);
+                Assert.True(rig.Client.SupportsConditionalTranscript);
+
+                var limit = RemoteProtocol.CompactTranscriptWindowVisibleItemLimit;
+                var full = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, knownVersion: null, CancellationToken.None));
+                Assert.False(full.IsUnchanged);
+                Assert.False(string.IsNullOrEmpty(full.TranscriptVersion));
+                Assert.Contains(full.Turns.SelectMany(turn => turn.Items), item => item.Text == "first answer");
+
+                var unchanged = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, full.TranscriptVersion, CancellationToken.None));
+                Assert.True(unchanged.IsUnchanged);
+                Assert.Equal(full.TranscriptVersion, unchanged.TranscriptVersion);
+                Assert.Empty(unchanged.Turns);
+                Assert.Equal(chatId, unchanged.Status?.ChatId);
+                Assert.Equal(1, rig.Client.Stats.Snapshot().TranscriptsUnchanged);
+
+                chat!.Messages.Add(new ChatMessage
+                {
+                    Id = Guid.NewGuid(),
+                    Role = "assistant",
+                    Content = "second answer",
+                    Timestamp = DateTime.UtcNow
+                });
+                var edited = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, full.TranscriptVersion, CancellationToken.None));
+                Assert.False(edited.IsUnchanged);
+                Assert.NotEqual(full.TranscriptVersion, edited.TranscriptVersion);
+                Assert.Contains(edited.Turns.SelectMany(turn => turn.Items), item => item.Text == "second answer");
+
+                rig.DataStore.Data.Settings.ShowToolCalls = !rig.DataStore.Data.Settings.ShowToolCalls;
+                var resettled = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, edited.TranscriptVersion, CancellationToken.None));
+                Assert.False(resettled.IsUnchanged);
+                Assert.NotEqual(edited.TranscriptVersion, resettled.TranscriptVersion);
+
+                var history = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, 1, limit, resettled.TranscriptVersion, CancellationToken.None));
+                Assert.False(history.IsUnchanged);
+                Assert.Null(history.TranscriptVersion);
+            },
+            data =>
+            {
+                chat = new Chat
+                {
+                    Id = chatId,
+                    Title = "Conditional",
+                    Messages =
+                    [
+                        new ChatMessage { Id = Guid.NewGuid(), Role = "user", Content = "question", Timestamp = DateTime.UtcNow },
+                        new ChatMessage { Id = Guid.NewGuid(), Role = "assistant", Content = "first answer", Timestamp = DateTime.UtcNow }
+                    ]
+                };
+                data.Chats.Add(chat);
+            });
+    }
+
+    /// <summary>
+    /// A phone that reopens names the snapshot sections it holds; the server sends only those that
+    /// changed. The chat page and library keep their versions while only a setting moves.
+    /// </summary>
+    [Fact]
+    public Task ASnapshotSendsOnlyTheSectionsThePhoneDoesNotHave() => RunAsync(async rig =>
+    {
+        Assert.IsType<RemoteHello>(await rig.Client.HelloAsync(rig.BaseUrl, CancellationToken.None));
+        var pair = await rig.Client.PairAsync(rig.BaseUrl, rig.Server.BeginPairing(), CancellationToken.None);
+        Assert.True(pair.Ok, pair.Error);
+
+        var first = Assert.IsType<RemoteSnapshot>(await rig.Client.GetSnapshotAsync(CancellationToken.None));
+        Assert.Null(first.UnchangedSections);
+        var known = new Dictionary<string, string>
+        {
+            [RemoteProtocol.SnapshotSections.Chats] = Assert.IsType<string>(first.ChatsVersion),
+            [RemoteProtocol.SnapshotSections.Library] = Assert.IsType<string>(first.LibraryVersion),
+            [RemoteProtocol.SnapshotSections.Settings] = Assert.IsType<string>(first.SettingsVersion)
+        };
+
+        var reopened = Assert.IsType<RemoteSnapshot>(await rig.Client.GetSnapshotAsync(known, CancellationToken.None));
+        Assert.Equal(
+            [RemoteProtocol.SnapshotSections.Chats, RemoteProtocol.SnapshotSections.Library, RemoteProtocol.SnapshotSections.Settings],
+            reopened.UnchangedSections);
+        Assert.Equal(first.ChatsVersion, reopened.ChatsVersion);
+        Assert.Equal("", reopened.Settings.UserName);
+
+        rig.DataStore.Data.Settings.UserName = "Adir Hudayfi";
+        var renamed = Assert.IsType<RemoteSnapshot>(await rig.Client.GetSnapshotAsync(known, CancellationToken.None));
+        Assert.Equal(
+            [RemoteProtocol.SnapshotSections.Chats, RemoteProtocol.SnapshotSections.Library],
+            renamed.UnchangedSections);
+        Assert.NotEqual(first.SettingsVersion, renamed.SettingsVersion);
+        Assert.Equal("Adir Hudayfi", renamed.Settings.UserName);
+    });
+
+    /// <summary>
     /// The whole composer-configuration surface, end to end. Before this existed the phone could
     /// only send text: it inherited whatever model, agent, project and skills the PC happened to be
     /// set to, with no way to see or change any of them. Each picker is exercised in one test

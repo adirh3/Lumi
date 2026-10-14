@@ -193,4 +193,15 @@ public sealed class RemoteSnapshot
     public RemoteChatPage Chats { get; set; } = new();
     public RemoteLibrary Library { get; set; } = new();
     public RemoteSettings Settings { get; set; } = new();
+
+    /// <summary>Content versions of <see cref="Chats"/>, <see cref="Library"/> and <see cref="Settings"/>.</summary>
+    public string? ChatsVersion { get; set; }
+    public string? LibraryVersion { get; set; }
+    public string? SettingsVersion { get; set; }
+
+    /// <summary>
+    /// Sections left out because the request named their current version
+    /// (<see cref="RemoteProtocol.SnapshotSections"/>). The phone keeps its cached copy of each.
+    /// </summary>
+    public List<string>? UnchangedSections { get; set; }
 }

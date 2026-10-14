@@ -523,6 +523,27 @@ This confirmation is read-only: it does not resend the message, and newer draft 
 are preserved. Android uses the managed HTTP transport so stopping a live connection
 does not leave foreground reconnection waiting on a native streaming read.
 
+To save battery, the phone keeps one quiet connection and only asks for what changed.
+A short app switch (file picker, share sheet, another app for under a minute) keeps
+the live stream instead of reconnecting; reopening later skips the handshake and the
+startup snapshot omits the chat list, library and settings the phone already holds.
+Reopening a chat whose transcript has not changed returns no transcript body. Sends
+and uploads finish even if the app is backgrounded mid-request. Answers stream to the
+phone at most every 150 ms, with each batch written in one network flush, and status
+and chat-list pushes leave out unchanged plans, pickers and rows. Streamed text is merged
+by position, so an answer never loses or repeats a chunk while a transcript is loading.
+Retries back off from 1 second to 1 minute and stop after 3 minutes without reaching the
+PC; a returning network or **Retry** reconnects at once. Older desktops keep the previous
+behavior. **Settings → Connection activity** shows the phone's request and stream counts.
+
+The phone's chat list does not reshuffle while it is on screen. Live updates change rows
+where they are (running, unread, title, preview); new chats appear at the top, pinning
+moves a chat, and the desktop's most-recent-first order returns when the list is opened
+again, filtered or reloaded after a reconnect. Like the desktop sidebar, a chat you send to
+moves up. A running chat no longer updates the list at every agent step: the phone hears
+when it starts and finishes, or when something its row shows changes, and filtered lists
+and search results update their rows instead of downloading the list again.
+
 The iPhone PWA fills the Home Screen app's full viewport; Safari tabs instead follow
 the dynamic browser toolbar height. Backgrounds run edge to edge, while controls
 respect the notch and home indicator, including after rotation and resume.

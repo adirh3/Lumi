@@ -107,6 +107,9 @@
                   <TextBlock Text="Refresh" Foreground="{Binding $parent[Button].Foreground}" />
                 </Button>
               </sc:StrataSetting>
+              <sc:StrataSetting x:Name="ConnectionActivitySetting" Header="Connection activity" Classes="mobile"
+                                IsVisible="{Binding ConnectionDiagnostics, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                Description="{Binding ConnectionDiagnostics}" />
               <sc:StrataSetting x:Name="ReloadWebAppSetting" Header="Browser sign-in" Classes="mobile stacked"
                                 IsVisible="{Binding CanReloadWebApp}"
                                 Description="Reload through your browser if sign-in has expired. Pairing is kept; unsent text is not.">

@@ -49,6 +49,12 @@ try {
     configureAppLifecycle(interop.SetApplicationActive);
     configureAppUpdates(interop.CanApplyAppUpdate, interop.SetAppUpdateState);
 
+    // Reconnect as soon as the network returns instead of waiting out a retry pause.
+    window.addEventListener('online', () => interop.SetNetworkAvailable(true));
+    window.addEventListener('offline', () => interop.SetNetworkAvailable(false));
+    if (!navigator.onLine)
+        interop.SetNetworkAvailable(false);
+
     configureViewportInsets(interop.SetViewportInsets);
 } catch (error) {
     showFatalError(error);

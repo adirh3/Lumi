@@ -9,6 +9,22 @@ using StrataTheme.Controls;
 
 namespace Lumi.Mobile.ViewModels;
 
+/// <summary>How one live streaming delta related to the transcript the phone shows.</summary>
+internal enum StreamDeltaOutcome
+{
+    /// <summary>The visible text grew.</summary>
+    Applied,
+
+    /// <summary>Another chat, or text the phone already shows.</summary>
+    Ignored,
+
+    /// <summary>The row is not in the transcript yet.</summary>
+    Missing,
+
+    /// <summary>The delta starts beyond, or disagrees with, the visible text.</summary>
+    Gap
+}
+
 /// <summary>
 /// The open chat: transcript, live status and composer state. All mutations funnel through
 /// <see cref="ApplyTranscript"/> / <see cref="ApplyDelta"/> so the server stays the source of truth
@@ -24,6 +40,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private string? _preferredModel;
     private long _revision = -1;
     private string? _revisionEpoch;
+    private string? _transcriptVersion;
     private long _hostGeneration;
     private long _blankSurfaceGeneration;
     private long? _blankSendInFlightGeneration;
@@ -1033,6 +1050,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(RunSettingsSummary));
         _revision = -1;
         _revisionEpoch = null;
+        _transcriptVersion = null;
     }
 
     partial void OnPromptTextChanged(string value)
@@ -1713,6 +1731,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsStreaming = false;
             IsUploading = false;
             _revision = -1;
+            _transcriptVersion = null;
             _pendingEchoBaselineRevision = null;
             _hasAuthoritativeTranscript = chatId == Guid.Empty;
             WindowStartMessageIndex = 0;
@@ -1808,6 +1827,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (incomingEpoch is not null)
             _revisionEpoch = incomingEpoch;
         _revision = transcript.Revision;
+        _transcriptVersion = transcript.IsLatestWindow ? transcript.TranscriptVersion : null;
         Title = transcript.Title;
         WindowStartMessageIndex = transcript.WindowStartMessageIndex;
         WindowEndMessageIndex = transcript.WindowEndMessageIndex;
@@ -2088,6 +2108,44 @@ public sealed partial class MobileChatViewModel : ObservableObject
             HasNewerActivity = true;
     }
 
+    /// <summary>The desktop's version of the latest window this phone shows, for conditional refreshes.</summary>
+    internal string? TranscriptVersion => IsLatestWindow ? _transcriptVersion : null;
+
+    /// <summary>The next refresh must read the whole window.</summary>
+    internal void ForgetTranscriptVersion() => _transcriptVersion = null;
+
+    /// <summary>
+    /// Applies a conditional refresh that confirmed the latest window is unchanged: the turns stay,
+    /// only the live status, title and revision move. Returns false when the confirmation no longer
+    /// describes what the phone shows, so the caller fetches the full window instead.
+    /// </summary>
+    internal bool ApplyUnchangedTranscript(RemoteTranscript transcript, long? statusVersionAtRequest)
+    {
+        if (transcript.ChatId != ChatId
+            || !transcript.IsUnchanged
+            || !IsLatestWindow
+            || _transcriptVersion is null
+            || !string.Equals(transcript.TranscriptVersion, _transcriptVersion, StringComparison.Ordinal)
+            || (!string.IsNullOrWhiteSpace(transcript.RevisionEpoch)
+                && !string.Equals(transcript.RevisionEpoch, _revisionEpoch, StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        if (transcript.Revision < _revision)
+            return true;
+
+        _revision = transcript.Revision;
+        if (!string.IsNullOrWhiteSpace(transcript.Title))
+            Title = transcript.Title;
+        HasNewerActivity = false;
+        TranscriptErrorText = null;
+        _hasAuthoritativeTranscript = true;
+        if (statusVersionAtRequest is null || statusVersionAtRequest == StatusVersion)
+            ApplyStatus(transcript.Status, trackVersion: false);
+        return true;
+    }
+
     public void InvalidateTranscriptAuthority()
     {
         if (ChatId == Guid.Empty)
@@ -2149,7 +2207,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         IsAwaitingInput = status.IsAwaitingInput;
         ContextCurrentTokens = status.ContextCurrentTokens;
         ContextTokenLimit = status.ContextTokenLimit;
-        PlanContent = status.PlanContent;
+        // A compact status frame leaves an unchanged plan out instead of repeating it.
+        if (!status.IsPlanOmitted)
+            PlanContent = status.PlanContent;
 
         _applyingServerState = true;
         try
@@ -2593,12 +2653,20 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>
     /// Applies hot streaming text without a transcript refetch. Returns false when the target row is
-    /// not present yet, which tells the caller to pull a fresh transcript instead.
+    /// not present yet or the text has a gap, which tells the caller to pull a fresh transcript.
     /// </summary>
-    public bool ApplyDelta(RemoteStreamDelta delta)
+    public bool ApplyDelta(RemoteStreamDelta delta) =>
+        ApplyStreamDelta(delta) is StreamDeltaOutcome.Applied or StreamDeltaOutcome.Ignored;
+
+    /// <summary>
+    /// Applies one streaming delta by position. Text the phone already shows is never shortened or
+    /// duplicated: a delta that overlaps the current text appends only its new tail, one that is
+    /// entirely covered is ignored, and a replacement that is a prefix of the current text is stale.
+    /// </summary>
+    internal StreamDeltaOutcome ApplyStreamDelta(RemoteStreamDelta delta)
     {
         if (delta.ChatId != ChatId)
-            return true;
+            return StreamDeltaOutcome.Ignored;
 
         foreach (var turn in Turns)
         {
@@ -2610,62 +2678,77 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 switch (item)
                 {
                     case AssistantItemViewModel assistant:
-                        if (!ApplyStreamChunk(
-                                assistant.SourceText,
-                                delta,
-                                RemoteProtocol.MobileAssistantTextLimit,
-                                out var assistantText))
-                        {
-                            return false;
-                        }
+                    {
+                        var outcome = MergeStreamChunk(
+                            assistant.SourceText,
+                            delta,
+                            RemoteProtocol.MobileAssistantTextLimit,
+                            out var assistantText);
+                        if (outcome != StreamDeltaOutcome.Applied)
+                            return outcome;
                         assistant.ApplyStreamText(assistantText);
                         turn.ResumeStreaming();
                         MarkVisibleResponseActivity();
-                        return true;
+                        return outcome;
+                    }
                     case ReasoningItemViewModel reasoning:
-                        if (!ApplyStreamChunk(
-                                reasoning.Text,
-                                delta,
-                                RemoteProtocol.MobileReasoningTextLimit,
-                                out var reasoningText))
-                        {
-                            return false;
-                        }
+                    {
+                        var outcome = MergeStreamChunk(
+                            reasoning.Text,
+                            delta,
+                            RemoteProtocol.MobileReasoningTextLimit,
+                            out var reasoningText);
+                        if (outcome != StreamDeltaOutcome.Applied)
+                            return outcome;
                         reasoning.Text = reasoningText;
                         reasoning.IsStreaming = true;
                         turn.ResumeStreaming();
                         MarkVisibleResponseActivity();
-                        return true;
+                        return outcome;
+                    }
                     default:
-                        return false;
+                        return StreamDeltaOutcome.Missing;
                 }
-
             }
         }
 
-        return false;
+        return StreamDeltaOutcome.Missing;
     }
 
-    private static bool ApplyStreamChunk(
+    internal static StreamDeltaOutcome MergeStreamChunk(
         string current,
         RemoteStreamDelta delta,
         int limit,
         out string text)
     {
-        if (delta.Offset == -1)
+        text = current;
+        if (delta.Offset < 0)
         {
-            text = RemoteProtocol.TruncateForMobile(delta.Text, limit) ?? "";
-            return true;
+            var replacement = RemoteProtocol.TruncateForMobile(delta.Text, limit) ?? "";
+            // A full-text frame that the phone already extends is older than what it shows.
+            if (current.StartsWith(replacement, StringComparison.Ordinal))
+                return StreamDeltaOutcome.Ignored;
+
+            text = replacement;
+            return StreamDeltaOutcome.Applied;
         }
 
-        if (delta.Offset != current.Length)
+        if (delta.Offset > current.Length)
+            return StreamDeltaOutcome.Gap;
+
+        var overlap = current.Length - delta.Offset;
+        if (overlap >= delta.Text.Length)
         {
-            text = current;
-            return false;
+            return current.AsSpan(delta.Offset, delta.Text.Length).SequenceEqual(delta.Text)
+                ? StreamDeltaOutcome.Ignored
+                : StreamDeltaOutcome.Gap;
         }
 
-        text = RemoteProtocol.TruncateForMobile(current + delta.Text, limit) ?? "";
-        return true;
+        if (!current.AsSpan(delta.Offset).SequenceEqual(delta.Text.AsSpan(0, overlap)))
+            return StreamDeltaOutcome.Gap;
+
+        text = RemoteProtocol.TruncateForMobile(current + delta.Text[overlap..], limit) ?? "";
+        return StreamDeltaOutcome.Applied;
     }
 
     /// <summary>

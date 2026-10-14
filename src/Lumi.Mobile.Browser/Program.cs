@@ -16,6 +16,7 @@ internal static class Program
         var host = new BrowserHostEnvironment(BrowserInterop.GetOrigin());
         var nativeTextInputOverlayPresenter = new BrowserNativeTextInputOverlayPresenter();
         MobilePlatformServices.HostEnvironment = host;
+        MobilePlatformServices.NetworkMonitor = BrowserInterop.NetworkMonitor;
         MobilePlatformServices.ProducedFileOpener = new BrowserProducedFileOpener();
         MobilePlatformServices.TextSelectionPresenter = new BrowserTextSelectionPresenter();
         MobilePlatformServices.TextInputOverlayPresenter = nativeTextInputOverlayPresenter;
