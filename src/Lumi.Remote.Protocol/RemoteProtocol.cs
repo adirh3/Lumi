@@ -57,8 +57,9 @@ public static class RemoteProtocol
 
     /// <summary>
     /// Detailed transcripts page by raw messages because every selected row can be rendered. Compact
-    /// transcripts page by projected visible items instead: hidden reasoning/tool messages collapse
-    /// to one activity card per turn and must not consume the phone's conversation-history allowance.
+    /// transcripts page by visible items instead: completed preambles and activity collapse to one
+    /// work disclosure and must not consume the phone's conversation-history allowance individually.
+    /// Retained work text still counts toward the source-text budget; live work stays chronological.
     /// Both modes keep raw-message cursor indexes so earlier pages remain gap- and overlap-free.
     /// </summary>
     public const int TranscriptWindowRawMessageLimit = 100;

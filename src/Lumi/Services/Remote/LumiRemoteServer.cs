@@ -1579,7 +1579,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             ? RemoteProjector.SelectCompactTranscriptWindow(
                 messages,
                 beforeMessageIndex,
-                maxMessages)
+                maxMessages,
+                latestStatus: capture.Status,
+                runningBackgroundToolCallIds: capture.RunningBackgroundToolCallIds)
             : RemoteProjector.SelectTranscriptWindow(
                 messages,
                 beforeMessageIndex,

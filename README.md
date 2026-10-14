@@ -531,6 +531,10 @@ crisp instead of being filtered into itself. At rest no
 scrim is drawn, so idle screens spend no extra GPU time. A settled final answer offers one-tap
 **Copy** (confirmed on the tap, before the clipboard write completes) and, on Android, **Share**
 through the system share sheet. Finished work collapses to a compact "Work" disclosure.
+Initial history counts that disclosure once, not every hidden preamble and activity step,
+so tool-heavy chats still open with several recent prompts and replies. Expanding Work keeps
+the original steps available; older history and retained source text remain bounded and paged.
+Large history pages shrink at whole-turn boundaries to stay within the response limit.
 
 Mobile popups are floating glass sheets. Only the popup is frosted: it blurs the content
 beneath its own surface and slides with it, while the page around it stays sharp behind a

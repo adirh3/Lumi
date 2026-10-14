@@ -1844,6 +1844,66 @@ public sealed class RemoteEndToEndTests
         data.Chats.Add(chat);
     });
 
+    [Theory]
+    [InlineData(20)]
+    [InlineData(200)]
+    public Task OpeningToolHeavyHistoryLoadsRecentRepliesBeforeRequestingEarlierActivity(int turnCount) =>
+        RunAsync(
+            async rig =>
+            {
+                await PairAsync(rig);
+                await WaitAsync(
+                    () => rig.Shell.ChatList.Groups.SelectMany(group => group.Chats)
+                        .Any(chat => chat.Title == "Work-heavy history"),
+                    "the work-heavy chat to arrive");
+                var item = rig.Shell.ChatList.Groups.SelectMany(group => group.Chats)
+                    .Single(chat => chat.Title == "Work-heavy history");
+                rig.Shell.ChatList.OpenChatCommand.Execute(item);
+                await WaitAsync(() => !rig.Shell.Chat.IsLoading && rig.Shell.Chat.Turns.Count == 16,
+                    "the recent conversation to load");
+
+                var chat = rig.Shell.Chat;
+                Assert.Equal($"Prompt {turnCount - 16}", Assert.IsType<UserTurnItemViewModel>(chat.Turns[0].DisplayItems[0]).Text);
+                Assert.Equal($"Answer {turnCount - 1}", Assert.IsType<AssistantItemViewModel>(chat.Turns[^1].DisplayItems[^1]).Text);
+                Assert.True(chat.HasEarlierMessages);
+                Assert.All(chat.Turns, turn => Assert.Equal(3, turn.DisplayItems.Count));
+                var latestStart = chat.WindowStartMessageIndex;
+
+                do
+                {
+                    var previousStart = chat.WindowStartMessageIndex;
+                    await rig.Shell.LoadEarlierActivityCommand.ExecuteAsync(null);
+                    await WaitAsync(() => !chat.IsLoading && !chat.IsLatestWindow, "earlier history to load");
+                    Assert.Equal(previousStart, chat.WindowEndMessageIndex);
+                    Assert.InRange(chat.WindowStartMessageIndex, 0, previousStart - 1);
+                    Assert.NotEmpty(chat.Turns);
+                    Assert.All(chat.Turns, turn => Assert.Equal(3, turn.DisplayItems.Count));
+                    Assert.Equal(
+                        rig.DataStore.Data.Chats[0].Messages[chat.WindowStartMessageIndex].Content,
+                        Assert.IsType<UserTurnItemViewModel>(chat.Turns[0].DisplayItems[0]).Text);
+                } while (chat.HasEarlierMessages);
+
+                Assert.Equal(0, chat.WindowStartMessageIndex);
+                Assert.False(chat.HasEarlierMessages);
+                Assert.True(chat.HasLaterMessages);
+
+                await rig.Shell.ReturnToLatestCommand.ExecuteAsync(null);
+                await WaitAsync(() => !chat.IsLoading && chat.Turns.Count == 16, "recent history to return");
+                Assert.Equal(latestStart, chat.WindowStartMessageIndex);
+                Assert.True(chat.IsLatestWindow);
+            },
+            seed: data =>
+            {
+                var chat = new Chat
+                {
+                    Title = "Work-heavy history",
+                    Messages = RemoteWorkTimelineTests.DenseHistory(turnCount),
+                    UpdatedAt = DateTimeOffset.Now
+                };
+                chat.MessageCount = chat.Messages.Count;
+                data.Chats.Add(chat);
+            });
+
     [Fact]
     public Task PhoneCanCreateRenamePinAndDeleteChats() => RunAsync(async rig =>
     {
