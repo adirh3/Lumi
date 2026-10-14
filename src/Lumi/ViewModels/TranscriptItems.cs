@@ -1501,7 +1501,7 @@ public partial class SourceItem : ObservableObject
         return url;
     }
 
-    private static string ComputeInitial(string domain, string title)
+    internal static string ComputeInitial(string domain, string title)
     {
         var basis = !string.IsNullOrWhiteSpace(domain) ? domain : title;
         foreach (var ch in basis)
@@ -1524,7 +1524,7 @@ public partial class SourceItem : ObservableObject
         Avalonia.Media.Color.FromRgb(0xFF, 0x8A, 0x5C),
     ];
 
-    private static Avalonia.Media.IBrush ComputeAccent(string key)
+    internal static Avalonia.Media.IBrush ComputeAccent(string key)
     {
         // FNV-1a over the domain → stable index (process-independent, unlike GetHashCode).
         uint hash = 2166136261;

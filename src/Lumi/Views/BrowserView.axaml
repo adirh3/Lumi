@@ -1,6 +1,200 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             xmlns:sa="using:StrataTheme.Animation"
              x:Class="Lumi.Views.BrowserView">
+
+  <UserControl.Resources>
+    <!-- A tab's click target: chromeless, because the tab itself (Border.browser-tab) draws the
+         surface so hovering its close button never drops the tab's highlight. -->
+    <ControlTheme x:Key="BrowserTabHitTheme" TargetType="Button">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="8,0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Cursor" Value="Hand" />
+      <!-- The page below is a native view that covers in-window popups, so tips open upward. -->
+      <Setter Property="ToolTip.Placement" Value="Top" />
+      <Setter Property="ToolTip.VerticalOffset" Value="-6" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel>
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Background="{TemplateBinding Background}"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Padding="{TemplateBinding Padding}"
+                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+            <Border Name="PART_FocusRing" Margin="1" CornerRadius="9"
+                    BorderThickness="{DynamicResource Stroke.FocusRing}" BorderBrush="Transparent"
+                    IsHitTestVisible="False" />
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+      <Style Selector="^:focus-visible /template/ Border#PART_FocusRing">
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGradient}" />
+      </Style>
+    </ControlTheme>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <!-- ── Tabs: calm until hovered; the open tab is the accent-tinted glass the nav bar uses
+         for the place you're on. ── -->
+    <Style Selector="Border.browser-tab">
+      <Setter Property="Height" Value="30" />
+      <Setter Property="MinWidth" Value="54" />
+      <Setter Property="MaxWidth" Value="200" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="BorderBrush" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.24" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.browser-tab:pointerover">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    </Style>
+    <Style Selector="Border.browser-tab.active">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
+    </Style>
+
+    <Style Selector="TextBlock.browser-tab-title">
+      <Setter Property="Margin" Value="7,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.browser-tab:pointerover TextBlock.browser-tab-title">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Border.browser-tab.active TextBlock.browser-tab-title">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- The site's mark: the same initial and colour its source chips use. -->
+    <Style Selector="Border.browser-tab-badge">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.browser-tab-badge > TextBlock">
+      <Setter Property="FontSize" Value="9.5" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="PathIcon.browser-tab-glyph">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Border.browser-tab.active PathIcon.browser-tab-glyph">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- Close shows on the open tab and on the tab under the pointer, so the strip stays quiet. -->
+    <Style Selector="Button.browser-tab-close">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0,0,5,0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.browser-tab:pointerover Button.browser-tab-close, Border.browser-tab.active Button.browser-tab-close, Border.browser-tab:focus-within Button.browser-tab-close">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+    <!-- Titles only give way to the close button where it shows, so narrow tabs keep their words. -->
+    <Style Selector="Border.browser-tab:pointerover Button.browser-tab-hit, Border.browser-tab.active Button.browser-tab-hit, Border.browser-tab:focus-within Button.browser-tab-hit">
+      <Setter Property="Padding" Value="8,0,28,0" />
+    </Style>
+    <!-- Too narrow for words: a tab is just its badge, and the open tab keeps its close button. -->
+    <Style Selector="Border.browser-tab.compact TextBlock.browser-tab-title">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Border.browser-tab.compact:not(.active) Button.browser-tab-hit">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.browser-tab.compact:not(.active) Button.browser-tab-close">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.browser-tab-close PathIcon">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Button.browser-tab-close:pointerover PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+
+    <!-- ── New tab, back and refresh: quiet icons that light up on hover. ── -->
+    <Style Selector="Button.browser-chrome-button">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="ToolTip.Placement" Value="Top" />
+      <Setter Property="ToolTip.VerticalOffset" Value="-6" />
+    </Style>
+    <Style Selector="Button.browser-chrome-button PathIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.28" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.browser-chrome-button:pointerover PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Border#UrlBar:not(.motion-disabled) Button#NewBrowserTab:pointerover PathIcon">
+      <Setter Property="RenderTransform" Value="rotate(90deg)" />
+    </Style>
+  </UserControl.Styles>
 
   <Panel x:Name="BrowserPanel">
     <!-- Loading overlay shown before WebView2 initializes -->
@@ -98,46 +292,59 @@
       </ScrollViewer>
     </Border>
 
-    <!-- URL bar overlay at the top (ZIndex above onboarding overlay) -->
+    <!-- Browser chrome (ZIndex above onboarding overlay): the tab strip, then back · refresh ·
+         location. It sits on the Workspace's own surface; the native page starts at its bottom edge. -->
     <Border x:Name="UrlBar" VerticalAlignment="Top"
-            Background="{DynamicResource Brush.SurfaceCard}"
-            Padding="12,6" Margin="0,0,0,0"
+            Background="Transparent"
+            Padding="10,6,10,6"
             BorderBrush="{DynamicResource Brush.BorderSubtle}"
             BorderThickness="0,0,0,1"
             ZIndex="20">
       <StackPanel Spacing="4">
-        <DockPanel>
-          <Button x:Name="NewBrowserTab" DockPanel.Dock="Right"
-                  Classes="subtle" Padding="8,2" MinHeight="28" MinWidth="28"
-                  ToolTip.Tip="New tab" Content="+" Click="OnNewTabClick" />
-          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+        <!-- Tabs share the row like a desktop browser's; past their minimum width the strip scrolls. -->
+        <Grid x:Name="TabStripRow" ColumnDefinitions="Auto,Auto,*" Height="30">
+          <ScrollViewer x:Name="BrowserTabsScroller"
+                        HorizontalScrollBarVisibility="Hidden"
+                        VerticalScrollBarVisibility="Disabled">
             <StackPanel x:Name="BrowserTabs" Orientation="Horizontal" Spacing="4" />
           </ScrollViewer>
-        </DockPanel>
-        <DockPanel>
-        <Button DockPanel.Dock="Left" Classes="subtle" Padding="4" MinHeight="0" MinWidth="0"
-                ToolTip.Tip="Back" x:Name="BackButton" Click="OnBackClick">
-          <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
-            <PathIcon.Data>
-              <StreamGeometry>M15 18l-6-6 6-6</StreamGeometry>
-            </PathIcon.Data>
-          </PathIcon>
-        </Button>
-        <Button DockPanel.Dock="Left" Classes="subtle" Padding="4" MinHeight="0" MinWidth="0"
-                ToolTip.Tip="Refresh" x:Name="RefreshButton" Click="OnRefreshClick" Margin="4,0,8,0">
-          <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
-            <PathIcon.Data>
-              <StreamGeometry>M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24L14 10h7V3l-3.35 3.35z</StreamGeometry>
-            </PathIcon.Data>
-          </PathIcon>
-        </Button>
-        <TextBlock x:Name="UrlText" VerticalAlignment="Center"
-                   FontSize="{DynamicResource Font.SizeCaption}"
-                   Foreground="{DynamicResource Brush.TextSecondary}"
-                   TextTrimming="CharacterEllipsis"
-                   Text="about:blank" />
-        </DockPanel>
-        <TextBlock x:Name="BrowserErrorText" IsVisible="False" TextWrapping="Wrap"
+          <Button x:Name="NewBrowserTab" Grid.Column="1"
+                  Classes="subtle browser-chrome-button" Margin="4,0,0,0"
+                  ToolTip.Tip="{loc:Str Browser_NewTab}"
+                  AutomationProperties.Name="{loc:Str Browser_NewTab}"
+                  Click="OnNewTabClick">
+            <PathIcon Data="{x:Static vm:WorkspaceIcons.Add}" />
+          </Button>
+        </Grid>
+
+        <Grid ColumnDefinitions="Auto,Auto,*" Height="28">
+          <Button x:Name="BackButton"
+                  Classes="subtle browser-chrome-button"
+                  ToolTip.Tip="{loc:Str Browser_Back}"
+                  AutomationProperties.Name="{loc:Str Browser_Back}"
+                  Click="OnBackClick">
+            <PathIcon Data="{x:Static vm:WorkspaceIcons.ChevronBack}" />
+          </Button>
+          <Button x:Name="RefreshButton" Grid.Column="1"
+                  Classes="subtle browser-chrome-button" Margin="2,0,0,0"
+                  ToolTip.Tip="{loc:Str Browser_Refresh}"
+                  AutomationProperties.Name="{loc:Str Browser_Refresh}"
+                  Click="OnRefreshClick">
+            <PathIcon Data="{x:Static vm:WorkspaceIcons.Refresh}" />
+          </Button>
+          <!-- Where the page is: the site in full colour, the rest of the address quieter. -->
+          <Grid Grid.Column="2" ColumnDefinitions="Auto,*" Margin="8,0,4,0" VerticalAlignment="Center">
+            <PathIcon x:Name="UrlIcon" Width="14" Height="14" VerticalAlignment="Center"
+                      Foreground="{DynamicResource Brush.TextTertiary}"
+                      Data="{x:Static vm:WorkspaceIcons.Browser}" />
+            <TextBlock x:Name="UrlText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                       ToolTip.Placement="Top" ToolTip.VerticalOffset="-6"><Run Foreground="{DynamicResource Brush.TextPrimary}" FontWeight="Medium" /><Run Text="about:blank" /></TextBlock>
+          </Grid>
+        </Grid>
+        <TextBlock x:Name="BrowserErrorText" IsVisible="False" TextWrapping="Wrap" Margin="4,0"
                    Classes="caption" Foreground="{DynamicResource Brush.TextSecondary}" />
       </StackPanel>
     </Border>
