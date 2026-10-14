@@ -163,9 +163,13 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     public ChatListViewModel(IRemoteCommandSink sink)
     {
         _pageSink = sink as IRemoteChatPageSink;
+        Rows = new ChatListRows(Groups);
     }
 
     public ObservableCollection<ChatGroupViewModel> Groups { get; } = [];
+
+    /// <summary><see cref="Groups"/> as one sequence of headers and rows, for a single virtualizing list.</summary>
+    public ChatListRows Rows { get; }
 
     public int TotalChats => _totalChatCount;
 

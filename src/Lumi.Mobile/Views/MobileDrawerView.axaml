@@ -105,55 +105,50 @@
                      HorizontalAlignment="Center" TextAlignment="Center" />
         </StackPanel>
 
-        <ItemsControl x:Name="DrawerChatGroups" ItemsSource="{Binding ChatList.Groups}">
-          <ItemsControl.ItemTemplate>
+        <!-- One virtualizing list of headers and rows, so row controls are recycled across date groups. -->
+        <ItemsControl x:Name="DrawerChatGroups" ItemsSource="{Binding ChatList.Rows}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.DataTemplates>
             <DataTemplate x:DataType="vm:ChatGroupViewModel">
-              <StackPanel>
-                <TextBlock Text="{Binding Label}" Classes="group-label drawer-group-label" />
-                <ItemsControl ItemsSource="{Binding Chats}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <VirtualizingStackPanel />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:ChatListItemViewModel">
-                      <Button Classes="drawer-chat drawer-conversation" Classes.selected="{Binding IsSelected}"
-                              Classes.unread="{Binding HasUnreadMessages}" Classes.running="{Binding IsRunning}"
-                              AutomationProperties.Name="{Binding AccessibilityName}"
-                              AutomationProperties.HelpText="Long press for chat actions"
-                              input:InputElement.IsHoldingEnabled="True"
-                              input:InputElement.IsHoldWithMouseEnabled="True"
-                              Holding="OnChatRowHolding"
-                              KeyDown="OnChatRowKeyDown"
-                              Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).ChatList.OpenChatCommand}"
-                              CommandParameter="{Binding}">
-                        <Grid ColumnDefinitions="Auto,*">
-                          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <Border Classes="chat-list-status" IsHitTestVisible="False"
-                                    sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
-                              <Border.IsVisible>
-                                <MultiBinding Converter="{x:Static BoolConverters.Or}">
-                                  <Binding Path="IsRunning" />
-                                  <Binding Path="HasUnreadMessages" />
-                                </MultiBinding>
-                              </Border.IsVisible>
-                            </Border>
-                            <PathIcon x:Name="BackgroundActivityIndicator" Classes="chat-list-background"
-                                      IsVisible="{Binding HasBackgroundActivity}"
-                                      ToolTip.Tip="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
-                                      AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
-                          </StackPanel>
-                          <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
-                                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        </Grid>
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
+              <TextBlock Text="{Binding Label}" Classes="group-label drawer-group-label" />
             </DataTemplate>
-          </ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ChatListItemViewModel">
+              <Button Classes="drawer-chat drawer-conversation" Classes.selected="{Binding IsSelected}"
+                      Classes.unread="{Binding HasUnreadMessages}" Classes.running="{Binding IsRunning}"
+                      AutomationProperties.Name="{Binding AccessibilityName}"
+                      AutomationProperties.HelpText="Long press for chat actions"
+                      input:InputElement.IsHoldingEnabled="True"
+                      input:InputElement.IsHoldWithMouseEnabled="True"
+                      Holding="OnChatRowHolding"
+                      KeyDown="OnChatRowKeyDown"
+                      Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).ChatList.OpenChatCommand}"
+                      CommandParameter="{Binding}">
+                <Grid ColumnDefinitions="Auto,*">
+                  <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Classes="chat-list-status" IsHitTestVisible="False"
+                            sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
+                      <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                          <Binding Path="IsRunning" />
+                          <Binding Path="HasUnreadMessages" />
+                        </MultiBinding>
+                      </Border.IsVisible>
+                    </Border>
+                    <PathIcon x:Name="BackgroundActivityIndicator" Classes="chat-list-background"
+                              IsVisible="{Binding HasBackgroundActivity}"
+                              ToolTip.Tip="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
+                              AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
+                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </Grid>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.DataTemplates>
         </ItemsControl>
 
         <Button x:Name="DrawerLoadMoreButton" Classes="drawer-row"

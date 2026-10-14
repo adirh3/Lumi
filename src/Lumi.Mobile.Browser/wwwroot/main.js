@@ -33,6 +33,9 @@ try {
     const { dotnet } = await import('./_framework/dotnet.js');
     const runtime = await dotnet
         .withDiagnosticTracing(false)
+        // A larger young generation collects ~3x less often while scrolling and switching chats;
+        // each collection is a main-thread pause that would otherwise drop frames.
+        .withEnvironmentVariable('MONO_GC_PARAMS', 'nursery-size=16m')
         .withApplicationArgumentsFromQuery()
         .create();
     const config = runtime.getConfig();

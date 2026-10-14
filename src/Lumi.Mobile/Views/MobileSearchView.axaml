@@ -109,51 +109,46 @@
                       HorizontalAlignment="Center" Margin="0,8,0,0" />
             </StackPanel>
 
-            <ItemsControl x:Name="SearchResults" ItemsSource="{Binding SearchChatList.Groups}">
-              <ItemsControl.ItemTemplate>
+            <!-- One virtualizing list of headers and rows, so row controls are recycled across groups. -->
+            <ItemsControl x:Name="SearchResults" ItemsSource="{Binding SearchChatList.Rows}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <VirtualizingStackPanel />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.DataTemplates>
                 <DataTemplate x:DataType="vm:ChatGroupViewModel">
-                  <StackPanel>
-                    <TextBlock Text="{Binding Label}" Classes="group-label" />
-                    <ItemsControl ItemsSource="{Binding Chats}">
-                      <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                          <VirtualizingStackPanel />
-                        </ItemsPanelTemplate>
-                      </ItemsControl.ItemsPanel>
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ChatListItemViewModel">
-                          <Button Classes="search-result" Classes.unread="{Binding HasUnreadMessages}"
-                                  Classes.running="{Binding IsRunning}"
-                                  AutomationProperties.Name="{Binding AccessibilityName}"
-                                  Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).SearchChatList.OpenChatCommand}"
-                                  CommandParameter="{Binding}">
-                            <Grid ColumnDefinitions="Auto,*">
-                              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Border Classes="chat-list-status" IsHitTestVisible="False"
-                                        sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
-                                  <Border.IsVisible>
-                                    <MultiBinding Converter="{x:Static BoolConverters.Or}">
-                                      <Binding Path="IsRunning" />
-                                      <Binding Path="HasUnreadMessages" />
-                                    </MultiBinding>
-                                  </Border.IsVisible>
-                                </Border>
-                                <PathIcon x:Name="BackgroundActivityIndicator" Classes="chat-list-background"
-                                          IsVisible="{Binding HasBackgroundActivity}"
-                                          ToolTip.Tip="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
-                                          AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
-                              </StackPanel>
-                              <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
-                                         FontSize="{DynamicResource Font.SizeBody}"
-                                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            </Grid>
-                          </Button>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </StackPanel>
+                  <TextBlock Text="{Binding Label}" Classes="group-label" />
                 </DataTemplate>
-              </ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ChatListItemViewModel">
+                  <Button Classes="search-result" Classes.unread="{Binding HasUnreadMessages}"
+                          Classes.running="{Binding IsRunning}"
+                          AutomationProperties.Name="{Binding AccessibilityName}"
+                          Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).SearchChatList.OpenChatCommand}"
+                          CommandParameter="{Binding}">
+                    <Grid ColumnDefinitions="Auto,*">
+                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Classes="chat-list-status" IsHitTestVisible="False"
+                                sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
+                          <Border.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                              <Binding Path="IsRunning" />
+                              <Binding Path="HasUnreadMessages" />
+                            </MultiBinding>
+                          </Border.IsVisible>
+                        </Border>
+                        <PathIcon x:Name="BackgroundActivityIndicator" Classes="chat-list-background"
+                                  IsVisible="{Binding HasBackgroundActivity}"
+                                  ToolTip.Tip="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
+                                  AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
+                                 FontSize="{DynamicResource Font.SizeBody}"
+                                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.DataTemplates>
             </ItemsControl>
 
             <Button x:Name="SearchLoadMoreButton" Classes="search-result"

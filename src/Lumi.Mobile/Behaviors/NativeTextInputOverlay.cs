@@ -18,7 +18,17 @@ public sealed class NativeTextInputOverlay
 {
     internal readonly record struct Placement(Rect Bounds, Rect ClipBounds);
 
+    private readonly record struct ShownState(
+        Rect Bounds,
+        Rect ClipBounds,
+        string Value,
+        NativeTextInputOverlayOptions Options);
+
     private static readonly ConditionalWeakTable<TextBox, Controller> Controllers = new();
+
+    // Sheets that are open or still animating closed. Occlusion is checked after every layout pass, so
+    // it consults this short list instead of walking the whole visual tree each time.
+    private static readonly List<WeakReference<StrataBottomSheet>> PresentedSheets = [];
 
     public static readonly AttachedProperty<bool> IsEnabledProperty =
         AvaloniaProperty.RegisterAttached<NativeTextInputOverlay, TextBox, bool>("IsEnabled");
@@ -35,6 +45,8 @@ public sealed class NativeTextInputOverlay
             else
                 Detach(textBox);
         });
+        StrataBottomSheet.IsOpenProperty.Changed.AddClassHandler<StrataBottomSheet>((sheet, _) => TrackSheet(sheet));
+        StrataBottomSheet.IsPresentedProperty.Changed.AddClassHandler<StrataBottomSheet>((sheet, _) => TrackSheet(sheet));
     }
 
     private NativeTextInputOverlay()
@@ -129,14 +141,42 @@ public sealed class NativeTextInputOverlay
         if (shell?.HasPageOverlay == true && ancestors.OfType<ChatDetailView>().Any())
             return true;
 
-        var presentedSheets = topLevel.GetVisualDescendants()
-            .OfType<StrataBottomSheet>()
-            .Where(sheet => (sheet.IsOpen || sheet.IsPresented) && sheet.IsEffectivelyVisible)
-            .ToArray();
-        if (presentedSheets.Length > 0)
-            return !presentedSheets.Any(sheet => ancestors.Any(ancestor => ReferenceEquals(ancestor, sheet)));
+        var anySheetPresented = false;
+        for (var i = PresentedSheets.Count - 1; i >= 0; i--)
+        {
+            if (!PresentedSheets[i].TryGetTarget(out var sheet) || !(sheet.IsOpen || sheet.IsPresented))
+            {
+                PresentedSheets.RemoveAt(i);
+                continue;
+            }
+
+            if (!sheet.IsEffectivelyVisible || !ReferenceEquals(TopLevel.GetTopLevel(sheet), topLevel))
+                continue;
+
+            // An input inside any presented sheet stays usable; everything else is behind its scrim.
+            if (Array.IndexOf(ancestors, sheet) >= 0)
+                return false;
+            anySheetPresented = true;
+        }
+
+        if (anySheetPresented)
+            return true;
 
         return shell is { IsDrawerOverlay: true } or { IsNavigationCoveringContent: true };
+    }
+
+    private static void TrackSheet(StrataBottomSheet sheet)
+    {
+        if (!(sheet.IsOpen || sheet.IsPresented))
+            return;
+
+        foreach (var tracked in PresentedSheets)
+        {
+            if (tracked.TryGetTarget(out var existing) && ReferenceEquals(existing, sheet))
+                return;
+        }
+
+        PresentedSheets.Add(new WeakReference<StrataBottomSheet>(sheet));
     }
 
     private static Rect? Intersect(Rect left, Rect right)
@@ -165,6 +205,8 @@ public sealed class NativeTextInputOverlay
         private readonly TextBox _textBox;
         private readonly List<ScrollViewer> _scrollViewers = [];
         private INativeTextInputOverlaySession? _session;
+        private ShownState? _shown;
+        private bool _hidden;
         private bool _isAttached;
         private bool _hasNativeFocus;
         private bool _isApplyingNativeText;
@@ -231,6 +273,8 @@ public sealed class NativeTextInputOverlay
                 return;
 
             _textBox.Classes.Set("native-input-overlay", true);
+            _shown = null;
+            _hidden = false;
             _session = presenter.Create(
                 OnNativeTextChanged,
                 OnNativeKeyPressed,
@@ -309,18 +353,18 @@ public sealed class NativeTextInputOverlay
                 || _textBox.Bounds.Width <= 0
                 || _textBox.Bounds.Height <= 0)
             {
-                _session.Hide();
+                HideSession();
                 return;
             }
 
             var placement = GetVisiblePlacement(_textBox, topLevel);
             if (placement is null)
             {
-                _session.Hide();
+                HideSession();
                 return;
             }
 
-            _session.Show(
+            var shown = new ShownState(
                 placement.Value.Bounds,
                 placement.Value.ClipBounds,
                 _textBox.Text ?? "",
@@ -344,6 +388,24 @@ public sealed class NativeTextInputOverlay
                     _textBox.TextAlignment.ToString().ToLowerInvariant(),
                     _textBox.FlowDirection == FlowDirection.RightToLeft ? "rtl" : "ltr",
                     _textBox.ActualThemeVariant == ThemeVariant.Dark));
+
+            // Every layout pass in the app lands here; an unchanged input needs no browser work.
+            if (_shown == shown)
+                return;
+
+            _shown = shown;
+            _hidden = false;
+            _session.Show(shown.Bounds, shown.ClipBounds, shown.Value, shown.Options);
+        }
+
+        private void HideSession()
+        {
+            if (_hidden)
+                return;
+
+            _hidden = true;
+            _shown = null;
+            _session?.Hide();
         }
 
         private void OnNativeTextChanged(string value, int caretIndex)
@@ -351,6 +413,9 @@ public sealed class NativeTextInputOverlay
             _isApplyingNativeText = true;
             try
             {
+                // The browser already shows this text; only a change it does not know about is sent back.
+                if (_shown is { } shown)
+                    _shown = shown with { Value = value };
                 if (!string.Equals(_textBox.Text, value, StringComparison.Ordinal))
                     _textBox.SetCurrentValue(TextBox.TextProperty, value);
                 _textBox.CaretIndex = Math.Clamp(caretIndex, 0, value.Length);

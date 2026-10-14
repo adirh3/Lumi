@@ -137,6 +137,10 @@ public sealed class MobileShellViewTests
         {
             public bool IsShown { get; private set; }
 
+            public int ShowCount { get; private set; }
+
+            public int HideCount { get; private set; }
+
             public bool FocusRequested { get; private set; }
 
             public int FocusRequestCount { get; private set; }
@@ -158,13 +162,18 @@ public sealed class MobileShellViewTests
                 NativeTextInputOverlayOptions options)
             {
                 IsShown = true;
+                ShowCount++;
                 Bounds = bounds;
                 ClipBounds = clipBounds;
                 Value = value;
                 Options = options;
             }
 
-            public void Hide() => IsShown = false;
+            public void Hide()
+            {
+                IsShown = false;
+                HideCount++;
+            }
 
             public void FocusAt(int caretIndex)
             {
@@ -681,6 +690,60 @@ public sealed class MobileShellViewTests
                         Assert.InRange(session.ClipBounds.Right, 0, window.ClientSize.Width);
                         Assert.InRange(session.ClipBounds.Bottom, 0, window.ClientSize.Height);
                     });
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.ResetTextInputOverlayPresenter(presenter);
+        }
+    }
+
+    [Fact]
+    public async Task BrowserTextInputOverlayOnlyCallsTheBrowserWhenTheInputChanges()
+    {
+        var presenter = new RecordingNativeTextInputOverlayPresenter();
+        MobilePlatformServices.TextInputOverlayPresenter = presenter;
+        try
+        {
+            await RunAsync(async (shell, window) =>
+            {
+                Pair(shell);
+                OpenChat(shell);
+                Layout(window, shell, 412, 892);
+                await Task.Delay(360);
+                Pump(window);
+
+                var composerBox = window.GetVisualDescendants()
+                    .OfType<TextBox>()
+                    .Single(textBox => textBox.Name == "PART_Input");
+                var composer = Assert.Single(
+                    presenter.Sessions,
+                    session => session.IsShown
+                               && session.Options.Placeholder == composerBox.PlaceholderText);
+                composer.FocusAt(0);
+                composer.SimulateText("Hello");
+                await Task.Delay(400);
+                Pump(window);
+
+                // Every layout pass in the app reaches the overlay; unchanged inputs must stay silent.
+                var shows = composer.ShowCount;
+                var hides = presenter.Sessions.Sum(session => session.HideCount);
+                for (var pass = 0; pass < 5; pass++)
+                    Pump(window);
+                Assert.Equal(shows, composer.ShowCount);
+                Assert.Equal(hides, presenter.Sessions.Sum(session => session.HideCount));
+
+                // Text typed in the browser is already displayed there.
+                composer.SimulateText("Hello there");
+                Pump(window);
+                Assert.Equal("Hello there", composerBox.Text);
+                Assert.Equal(shows, composer.ShowCount);
+
+                // A change made by Lumi still reaches the browser.
+                shell.Chat.PromptText = "Replaced by Lumi";
+                Pump(window);
+                Assert.True(composer.ShowCount > shows);
+                Assert.Equal("Replaced by Lumi", composer.Value);
             });
         }
         finally
