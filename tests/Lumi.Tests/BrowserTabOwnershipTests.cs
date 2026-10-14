@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.LogicalTree;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Views;
@@ -80,6 +81,7 @@ public sealed class BrowserTabOwnershipTests
         string? tabId = null;
         await session.Dispatch(async () =>
         {
+            Loc.Load("en");
             await using var browser = new BrowserService();
             tabId = browser.ActiveTabId;
             var store = new DataStore(new AppData());
