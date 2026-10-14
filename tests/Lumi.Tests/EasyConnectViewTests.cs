@@ -186,7 +186,10 @@ public sealed class EasyConnectViewTests
                 new ProviderConnectionService(http));
             var onboarding = new OnboardingView
             {
-                DataContext = new OnboardingViewModel(store, TestCopilot.Shared) { UserName = "Test", EasyConnect = vm }
+                DataContext = new OnboardingViewModel(store, TestCopilot.Shared)
+                {
+                    UserName = "Test", EasyConnect = vm, CurrentStep = (int)OnboardingStep.Connect
+                }
             };
             var window = new Window { Width = 700, Height = 900, Content = onboarding };
             window.Show();
@@ -336,53 +339,58 @@ public sealed class EasyConnectViewTests
     }
 
     [Fact]
-    public async Task OnboardingOffersGitHubFirstOnTheWelcomeStep()
+    public async Task OnboardingOffersGitHubFirstOnTheConnectStep()
     {
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(() =>
         {
+            Loc.Load("en");
             var store = new DataStore(new AppData());
             using var connect = new EasyConnectViewModel(store, TestCopilot.Shared, new FakeSecureKeyStore(), () => { });
             var login = new GitHubLoginViewModel(TestCopilot.Shared);
             connect.LoginVM = login;
-            var vm = new OnboardingViewModel(store, TestCopilot.Shared)
-            {
-                UserName = "Test", LoginVM = login, EasyConnect = connect
-            };
+            var vm = new OnboardingViewModel(store, TestCopilot.Shared) { LoginVM = login, EasyConnect = connect };
             var view = new OnboardingView { DataContext = vm };
-            var window = new Window { Width = 640, Height = 900, Content = view };
+            var window = new Window { Width = 900, Height = 900, Content = view };
             window.Show();
             try
             {
                 window.UpdateLayout();
-                Assert.Equal(0, vm.CurrentStep);
-                Assert.Equal(5, view.FindControl<StrataStepFlow>("StepFlow")!.StepCount);
+                Assert.Equal(OnboardingStep.Hello, vm.Step);
+                Assert.Equal(OnboardingViewModel.StepCount, view.FindControl<ItemsControl>("OnboardingProgress")!.ItemCount);
+                Assert.False(vm.ContinueCommand.CanExecute(null));
+
+                vm.UserName = "Test";
+                vm.ContinueCommand.Execute(null);
+                vm.ContinueCommand.Execute(null);
+                window.UpdateLayout();
+                Assert.Equal(OnboardingStep.Connect, vm.Step);
                 var accounts = view.GetVisualDescendants().OfType<EasyConnectView>().Single();
                 Assert.True(accounts.FindControl<Button>("GitHubSignInButton")!.IsEffectivelyVisible);
                 Assert.False(vm.CanLearn);
+                Assert.Equal(Loc.Onboarding_ConnectMissing, vm.ConnectStatus);
 
                 login.IsAuthenticated = true;
                 Assert.True(vm.CanLearn);
+                Assert.Equal(Loc.Onboarding_ConnectReady, vm.ConnectStatus);
                 login.IsAuthenticated = false;
 
-                vm.ContinueToLearnCommand.Execute(null);
-                window.UpdateLayout();
-                Assert.Equal(1, vm.CurrentStep);
-                vm.SkipLearningCommand.Execute(null);
-                window.UpdateLayout();
-                Assert.Equal(4, vm.CurrentStep);
-                Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(), control => control.Name == "ReadyTitleText");
+                // Connecting is never a dead end: onboarding goes on and says how to connect later.
+                Assert.True(vm.ContinueCommand.CanExecute(null));
+                vm.ContinueCommand.Execute(null);
+                Assert.Equal(OnboardingStep.Workspace, vm.Step);
             }
             finally { window.Close(); }
         }, CancellationToken.None);
     }
 
     [Fact]
-    public async Task OnboardingUpdatesLearningWhenExternalModelsBecomeAvailableOrDisabled()
+    public async Task OnboardingUpdatesConnectionWhenExternalModelsBecomeAvailableOrDisabled()
     {
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(() =>
         {
+            Loc.Load("en");
             var data = new AppData();
             data.Settings.ByokEndpoints.Add(new()
             {
@@ -393,31 +401,32 @@ public sealed class EasyConnectViewTests
             var store = new DataStore(data);
             using var connect = new EasyConnectViewModel(store, TestCopilot.Shared,
                 new FakeSecureKeyStore(), () => { });
-            var vm = new OnboardingViewModel(store, TestCopilot.Shared) { UserName = "Test", EasyConnect = connect };
+            var vm = new OnboardingViewModel(store, TestCopilot.Shared)
+            {
+                UserName = "Test", EasyConnect = connect, CurrentStep = (int)OnboardingStep.Connect
+            };
             var view = new OnboardingView { DataContext = vm };
-            var window = new Window { Width = 640, Height = 900, Content = view };
+            var window = new Window { Width = 900, Height = 900, Content = view };
             window.Show();
             try
             {
-                vm.ContinueToLearnCommand.Execute(null);
                 window.UpdateLayout();
-                var learn = Assert.Single(view.GetVisualDescendants().OfType<Button>(),
-                    button => ReferenceEquals(button.Command, vm.AcceptLearningCommand));
+                var status = view.FindControl<Border>("ConnectStatus")!;
                 Assert.False(vm.CanLearn);
-                Assert.False(learn.IsEnabled);
+                Assert.DoesNotContain("ready", status.Classes);
 
                 var model = new ByokModel { EndpointId = "local", ModelId = "local-model", DisplayName = "Local model" };
                 data.Settings.ByokModels.Add(model);
                 connect.Refresh();
                 window.UpdateLayout();
                 Assert.True(vm.CanLearn);
-                Assert.True(learn.IsEnabled);
+                Assert.Contains("ready", status.Classes);
 
                 model.IsEnabled = false;
                 connect.Refresh();
                 window.UpdateLayout();
                 Assert.False(vm.CanLearn);
-                Assert.False(learn.IsEnabled);
+                Assert.DoesNotContain("ready", status.Classes);
             }
             finally { window.Close(); }
         }, CancellationToken.None);

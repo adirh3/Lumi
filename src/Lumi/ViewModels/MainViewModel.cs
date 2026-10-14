@@ -77,9 +77,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _connectionStatus = Loc.Status_Disconnected;
     [ObservableProperty] private string _userName = "";
     [ObservableProperty] private bool _isOnboarded;
-    [ObservableProperty] private string _onboardingName = "";
-    [ObservableProperty] private int _onboardingSexIndex; // 0=Male, 1=Female, 2=Prefer not to say
-    [ObservableProperty] private int _onboardingLanguageIndex; // index into Loc.AvailableLanguages
     [ObservableProperty] private Guid? _selectedProjectFilter;
     [ObservableProperty] private bool _isSidebarCollapsed;
     [ObservableProperty] private bool _isAgentDebugMapDismissed;
@@ -406,7 +403,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ChatTagsViewModel ChatTagsVM { get; }
     public LibraryViewModel LibraryVM { get; }
     public SettingsViewModel SettingsVM { get; }
-    public OnboardingViewModel OnboardingVM { get; }
+
+    /// <summary>The welcome. Each replay from Settings swaps in a fresh one.</summary>
+    public OnboardingViewModel OnboardingVM
+    {
+        get => _onboardingVM;
+        private set => SetProperty(ref _onboardingVM, value);
+    }
+
+    private OnboardingViewModel _onboardingVM;
+
     public SearchOverlayViewModel SearchOverlayVM { get; }
     public GitHubLoginViewModel LoginVM { get; }
 
@@ -478,24 +484,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // Shared GitHub login ViewModel
         LoginVM = new GitHubLoginViewModel(copilotService);
 
-        // Onboarding ViewModel — available even if already onboarded (for --onboarding flag)
-        OnboardingVM = new OnboardingViewModel(dataStore, copilotService);
-        OnboardingVM.LoginVM = LoginVM;
-        OnboardingVM.OnboardingCompleted += () =>
-        {
-            UserName = OnboardingVM.UserName;
-            IsDarkTheme = OnboardingVM.IsDarkTheme;
-            IsOnboarded = true;
-
-            // Sync GitHub auth state if user signed in during onboarding
-            if (LoginVM.IsAuthenticated)
-                _ = SettingsVM?.RefreshAuthStatusAsync();
-
-            // Refresh memories in case learning created some
-            ChatVM?.RefreshComposerCatalogs();
-        };
-        OnboardingVM.ThemeChanged += isDark => IsDarkTheme = isDark;
-
         _chatVM = AcquireDraftChatSurface(SelectedProjectFilter);
         _chatVM.AddDisplayHost();
         if (backgroundJobService is null)
@@ -530,7 +518,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             async chatId => await OpenChatByIdAsync(chatId));
         SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService, updateService, _secureKeyStore);
         SettingsVM.LoginVM = LoginVM;
-        OnboardingVM.EasyConnect = SettingsVM.EasyConnect;
+        // Available even when already onboarded, for the --onboarding flag; someone who has been
+        // through it before can leave it early.
+        _onboardingVM = CreateOnboardingViewModel(isReplay: settings.IsOnboarded);
         SearchOverlayVM = new SearchOverlayViewModel(
             _globalSearchService,
             () => SelectedNavIndex);
@@ -617,6 +607,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         SettingsVM.AmbientPresenceChanged += ApplyAmbientPresenceSetting;
         SettingsVM.PresenceAnimationChanged += ApplyPresenceAnimationSetting;
+        SettingsVM.ReplayWelcomeRequested += ReplayWelcome;
         SettingsVM.SettingsChanged += () =>
         {
             RefreshChatList();
@@ -2569,39 +2560,98 @@ public partial class MainViewModel : ObservableObject, IDisposable
         LoadProjects();
     }
 
-    [RelayCommand]
-    private async Task CompleteOnboarding()
+    private OnboardingViewModel CreateOnboardingViewModel(bool isReplay)
     {
-        if (string.IsNullOrWhiteSpace(OnboardingName)) return;
-
-        var settings = _dataStore.Data.Settings;
-        settings.UserName = OnboardingName.Trim();
-        settings.UserSex = OnboardingSexIndex switch
+        var onboarding = new OnboardingViewModel(_dataStore, _copilotService)
         {
-            0 => "male",
-            1 => "female",
-            _ => null
+            IsReplay = isReplay,
+            LoginVM = LoginVM,
+            EasyConnect = SettingsVM.EasyConnect,
         };
+        onboarding.OnboardingCompleted += OnOnboardingCompleted;
+        onboarding.Dismissed += FinishOnboarding;
+        onboarding.ThemeChanged += OnOnboardingThemeChanged;
+        onboarding.LanguageChangeRequested += OnOnboardingLanguageChangeRequested;
+        return onboarding;
+    }
 
-        // Apply selected language
-        var selectedLang = "en";
-        if (OnboardingLanguageIndex >= 0 && OnboardingLanguageIndex < Loc.AvailableLanguages.Length)
-        {
-            selectedLang = Loc.AvailableLanguages[OnboardingLanguageIndex].Code;
-            settings.Language = selectedLang;
-        }
+    /// <summary>Opens the welcome again from the start. Whatever earlier runs set up stays.</summary>
+    public void ReplayWelcome()
+    {
+        if (!IsOnboarded)
+            return;
 
-        settings.IsOnboarded = true;
-        await _dataStore.SaveAsync();
+        var previous = OnboardingVM;
+        OnboardingVM = CreateOnboardingViewModel(isReplay: true);
+        previous.OnboardingCompleted -= OnOnboardingCompleted;
+        previous.Dismissed -= FinishOnboarding;
+        previous.ThemeChanged -= OnOnboardingThemeChanged;
+        previous.LanguageChangeRequested -= OnOnboardingLanguageChangeRequested;
+        previous.LoginVM = null;
+        previous.EasyConnect = null;
 
-        UserName = OnboardingName.Trim();
+        IsOnboarded = false;
+    }
+
+    // Through Settings, which applies it to the app, so its switch stays in step.
+    private void OnOnboardingThemeChanged(bool isDark) => SettingsVM.IsDarkTheme = isDark;
+
+    private void OnOnboardingCompleted(OnboardingCompletion completion)
+    {
+        var settings = _dataStore.Data.Settings;
+        UserName = OnboardingVM.UserName.Trim();
+        IsDarkTheme = OnboardingVM.IsDarkTheme;
+        SettingsVM.UserName = settings.UserName ?? "";
+        SettingsVM.UserSexIndex = settings.UserSex switch { "male" => 0, "female" => 1, _ => 2 };
+        FinishOnboarding();
+
+        if (!string.IsNullOrWhiteSpace(completion.StarterPrompt))
+            StartFirstChat(completion.StarterPrompt, completion.StarterProjectId);
+        else
+            SelectedNavIndex = 0; // "Start using Lumi" leads to the chats, also from a replay in Settings.
+    }
+
+    /// <summary>Back to the app, which picks up the projects, memories and accounts onboarding set up.</summary>
+    private void FinishOnboarding()
+    {
         IsOnboarded = true;
 
-        // If a non-default language was selected, restart so the UI loads in that language
-        if (selectedLang != "en")
+        // Sync GitHub auth state if user signed in during onboarding
+        if (LoginVM.IsAuthenticated)
+            _ = SettingsVM.RefreshAuthStatusAsync();
+
+        _chatSessionStore.ApplyToSurfaces(surface =>
         {
-            SettingsVM.RestartAppCommand.Execute(null);
-        }
+            surface.InvalidateProjectSession();
+            surface.RefreshCapabilities();
+        });
+        RefreshFeatureManagementUi();
+        ChatVM.RefreshComposerCatalogs();
+    }
+
+    /// <summary>
+    /// Sends the starter from a new chat (in the starter's project, when it has one). After a replay the
+    /// open chat may be a conversation, so the starter must never land in it.
+    /// </summary>
+    private void StartFirstChat(string prompt, Guid? projectId)
+    {
+        NewChat();
+        // With the new chat still empty, choosing the project only moves it there.
+        if (projectId is { } id && _dataStore.Data.Projects.Any(project => project.Id == id))
+            SelectedProjectFilter = id;
+        if (ChatVM.SelectSuggestionCommand.CanExecute(prompt))
+            ChatVM.SelectSuggestionCommand.Execute(prompt);
+    }
+
+    /// <summary>Lumi's UI language is fixed at startup, so a new choice is saved and Lumi restarts in it.</summary>
+    private void OnOnboardingLanguageChangeRequested(string language)
+    {
+        var settings = _dataStore.Data.Settings;
+        settings.Language = language;
+        if (!string.IsNullOrWhiteSpace(OnboardingVM.UserName))
+            settings.UserName = OnboardingVM.UserName.Trim();
+        _dataStore.Save();
+        SettingsVM.RestartAppCommand.Execute(null);
     }
 
     partial void OnSelectedProjectFilterChanged(Guid? value)

@@ -42,7 +42,7 @@ public sealed class MemoryAgentService
         "my name is", "call me", "go by ", "birthday", "born on", "live in", "lives in", "i'm from",
         "i am from", "location", "wife", "husband", "partner", "fiance", "fiancée", "engaged to",
         "mother", "father", "parent", "brother", "sister", "son", "daughter", "dog", "cat", "pet",
-        "works as", "work as", "works at", "work at", "job title",
+        "works as", "work as", "works at", "work at", "job title", "line of work",
         "senior engineer", "software engineer", "developer", "designer", "product manager",
         "my hobby", "hobby is", "interests", "outside-work interests", "enjoys ", "i enjoy", "goal is",
         "dream skill", "way to unwind", "unwinds", "work motivation", "wants lumi", "preferred lumi help",

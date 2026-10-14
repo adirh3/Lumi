@@ -32,7 +32,7 @@ public sealed class AnimationLifecycleRegressionTests
     private static readonly PulseExpectation[] ExpectedLumiPulses =
     [
         new("Views/DiscoverView.axaml", "StackPanel.dc-pulse", 0.45, 1, 0.9, "Alternate", "SineEaseInOut"),
-        new("Views/OnboardingView.axaml", "Border[IsVisible=True]", 0.4, 1, 0.8, "Alternate"),
+        new("Views/OnboardingView.axaml", "Border.ob-scan-dot[IsVisible=True]", 0.4, 1, 0.8, "Alternate"),
         new("Views/Controls/EasyConnectView.axaml", "Border.acct-pulse", 0.3, 1, 1.1, "Alternate", "SineEaseInOut"),
         new("Views/Controls/EasyConnectDialogView.axaml", "Border.ec-pulse", 0.3, 1, 0.9, "Alternate", "SineEaseInOut"),
         new("Views/ChatView.axaml", "Border.steer-pill.steering Ellipse.steer-dot", 1, 0.25, 1.1, Easing: "SineEaseInOut"),

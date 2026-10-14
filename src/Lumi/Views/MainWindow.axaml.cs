@@ -1244,6 +1244,7 @@ public partial class MainWindow : Window
         if (!isOnboarded && _onboardingHost is { Content: null })
             _onboardingHost.Content = new OnboardingView { Name = "OnboardingView" };
 
+        (_onboardingHost?.Content as OnboardingView)?.SetActive(!isOnboarded);
         if (_onboardingPanel is not null) _onboardingPanel.IsVisible = !isOnboarded;
         if (_mainPanel is not null) _mainPanel.IsVisible = true;
 

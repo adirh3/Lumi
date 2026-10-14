@@ -22,7 +22,7 @@ Lumi is a cross-platform Avalonia desktop app — a personal agentic assistant t
 
 ## User Flows
 
-- **Onboarding** — First launch asks the user's name, then greets them personally.
+- **Onboarding** — A six-step first run over Lumi's presence (`OnboardingViewModel`, `OnboardingView`): hello (name, pronouns; language and theme in the corner), what Lumi can do (each capability plays as a tiny transcript), the AI account, a consented look at the user's workspace that offers projects to set up (`WorkspaceDiscovery`: git repositories with worktrees folded in, VS Code-family recent folders, folders of recent documents; plus known apps, top sites and recent-file counts, each source opt-in), a short conversation whose answers become memories, and a ready screen with first tasks that open in the right project. One prefetched, tool-free background-model call (`OnboardingPersonalizer`) writes Lumi's first words, tailors the questions and suggests the first tasks; every piece has a deterministic fallback, so onboarding works without an AI. Settings → Profile → Welcome Tour replays it (`MainViewModel.ReplayWelcome` swaps in a fresh `OnboardingViewModel` with `IsReplay`): a replay keeps the language, can be closed at any step, and keeps whatever it already set up. `--onboarding` forces it in Debug, and `--test-onboarding-agent` runs discovery and personalization headlessly on this computer without saving anything.
 - **Chat** — Streaming chat with tool call visualization, reasoning display, typing indicators.
 - **Memories** — Important info is remembered across sessions via system prompt injection; users review and edit it in Settings → Memories.
 - **Skills** — Users create skills and reference them from any chat.

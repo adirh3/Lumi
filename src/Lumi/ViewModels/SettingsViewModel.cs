@@ -546,6 +546,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     /// <summary>Raised when the BYOK endpoint/model configuration changes. Consumers re-inject picker tokens and clear stale selections.</summary>
     public event Action? ByokConfigurationChanged;
 
+    /// <summary>Raised when the user asks to go through the welcome again; the shell opens it.</summary>
+    public event Action? ReplayWelcomeRequested;
+
+    [RelayCommand]
+    private void ReplayWelcome() => ReplayWelcomeRequested?.Invoke();
+
     public BrowserService BrowserService => _browserService;
 
     /// <summary>Global hotkey registration is Windows-only (Win32 RegisterHotKey), so the

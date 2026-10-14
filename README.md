@@ -25,12 +25,13 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
+- **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
 - **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
 ### AI accounts
 
-Open **Settings > AI & Models > AI accounts**, or use **Choose your AI** on the
-onboarding welcome step. **GitHub Copilot** is always listed first and remains
+Open **Settings > AI & Models > AI accounts**, or use **Choose the AI behind Lumi**
+during onboarding. **GitHub Copilot** is always listed first and remains
 Lumi's default when you are signed in. Other accounts are added alongside it:
 their models appear in every model menu, but they only become the default when you
 turn on **Use for new chats** or choose **Use as default**. Without a GitHub
@@ -137,8 +138,9 @@ subscription or revoke its key remotely. Existing chats remain available. If the
 disconnected account was the default, GitHub Copilot becomes the default again
 when you are signed in and Copilot requests are allowed. Otherwise Lumi uses a
 remaining enabled, unexpired external model, or leaves the default unset when no
-account is ready. Personalized onboarding is available only when an allowed
-GitHub account or a usable external model is connected.
+account is ready. Onboarding personalizes its conversation and first tasks only when
+an allowed GitHub account or a usable external model is connected; otherwise it uses
+its built-in questions and suggestions.
 
 Lumi never purchases credits or connects another paid provider automatically.
 Default fallbacks stay within accounts you have already connected. Provider-side
@@ -339,7 +341,7 @@ Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior
 | Chat titles | A new conversation starts, when automatic titles are enabled | Produces a short title from the first user message |
 | Follow-up suggestions | An eligible assistant reply completes | Proposes three concise next messages using the current exchange and frequently typed requests as low-priority context |
 | Automatic memories | A completed exchange contains potential lasting facts, when auto-save is enabled | Saves, updates, or removes personal facts and durable project conventions using restricted memory tools |
-| Onboarding discovery | The optional getting-to-know-you flow | Analyzes deterministic PC scans, investigates with restricted tools, asks questions, and records durable memories |
+| Onboarding personalization | The first-run getting-to-know-you step, prefetched once the user allows a look around (or skips it) | Turns a short local summary of projects, known apps, top sites and recent-file counts — never paths or document contents — into Lumi's first words, three tailored questions and three first tasks in one tool-free call; built-in fallbacks apply when it is unavailable |
 | Reusable prompt drafts | You choose Share prompt on a completed reply | Turns the bounded, redacted conversation snapshot into a portable task |
 | Coding helpers | The assistant invokes `code_review`, `generate_tests`, `explain_code`, or `analyze_project` | Performs the requested specialized analysis in an isolated, tool-free session |
 
