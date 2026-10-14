@@ -23,7 +23,6 @@ using Avalonia.Rendering.Composition.Animations;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using Lumi.Converters;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -3100,12 +3099,8 @@ public partial class MainWindow : Window
     {
         var pinMenu = menu.Items.OfType<MenuItem>()
             .FirstOrDefault(item => item.Name == "TogglePinChatMenuItem");
-        if (pinMenu is null) return;
-
-        pinMenu.Header = chat.IsPinned ? Loc.Menu_Unpin : Loc.Menu_Pin;
-        pinMenu.CommandParameter = chat;
-        if (pinMenu.Icon is PathIcon icon)
-            icon.Data = GetIconGeometry(chat.IsPinned ? "Icon.PinOff" : "Icon.Pin");
+        if (pinMenu is not null)
+            ChatMenuBuilder.UpdatePinItem(pinMenu, chat, GetIconGeometry);
     }
 
     private void TryPopulateChatTagSubmenu(ContextMenu menu, Chat chat)
@@ -3114,50 +3109,8 @@ public partial class MainWindow : Window
 
         var tagMenu = menu.Items.OfType<MenuItem>()
             .FirstOrDefault(item => item.Name == "ChatTagMenu" || (item.Header as string) == Loc.Menu_ChatTag);
-        if (tagMenu is null) return;
-
-        tagMenu.Items.Clear();
-        tagMenu.Items.Add(new MenuItem
-        {
-            Header = Loc.ChatTags_NoTag,
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = chat.TagId is null,
-            Command = vm.ChatTagsVM.AssignTagCommand,
-            CommandParameter = new ChatTagAssignment(chat, null)
-        });
-
-        var tags = vm.DataStore.Data.ChatTags
-            .OrderBy(tag => tag.Name, StringComparer.CurrentCultureIgnoreCase)
-            .ToArray();
-        if (tags.Length > 0)
-            tagMenu.Items.Add(new Separator());
-
-        foreach (var tag in tags)
-        {
-            tagMenu.Items.Add(new MenuItem
-            {
-                Header = tag.Name,
-                Icon = new Border
-                {
-                    Width = 10,
-                    Height = 10,
-                    CornerRadius = new CornerRadius(5),
-                    Background = ChatTagBrushConverter.CreateBrush(tag.Color)
-                },
-                ToggleType = MenuItemToggleType.CheckBox,
-                IsChecked = chat.TagId == tag.Id,
-                Command = vm.ChatTagsVM.AssignTagCommand,
-                CommandParameter = new ChatTagAssignment(chat, tag)
-            });
-        }
-
-        tagMenu.Items.Add(new Separator());
-        tagMenu.Items.Add(new MenuItem
-        {
-            Header = Loc.ChatTags_Manage,
-            Icon = CreateMenuGlyph("Icon.Gear"),
-            Command = vm.ChatTagsVM.OpenManagerCommand
-        });
+        if (tagMenu is not null)
+            ChatMenuBuilder.PopulateTagMenu(tagMenu, vm, chat, GetIconGeometry);
     }
 
     /// <summary>Finds the "Move to Project" submenu within a chat context menu and (re)builds its targets.</summary>
@@ -3167,67 +3120,8 @@ public partial class MainWindow : Window
 
         var moveMenu = menu.Items.OfType<MenuItem>()
             .FirstOrDefault(mi => mi.Name == "MoveToProjectMenu" || (mi.Header as string) == Loc.Menu_MoveToProject);
-        if (moveMenu is null) return;
-
-        PopulateMoveToProjectSubmenu(moveMenu, vm, chat);
-    }
-
-    /// <summary>Builds the "All projects" and per-project move targets for a chat, checking its current home.</summary>
-    private void PopulateMoveToProjectSubmenu(MenuItem moveMenu, MainViewModel vm, Chat chat)
-    {
-        moveMenu.Items.Clear();
-
-        var targets = ChatMoveTargetBuilder.Build(vm.Projects, chat, Loc.ProjectSwitcher_AllProjects);
-        var separatorAdded = false;
-
-        foreach (var target in targets)
-        {
-            // Divide the "All projects" pool from the concrete project list.
-            if (target.Kind == ChatMoveTargetKind.Project && !separatorAdded)
-            {
-                moveMenu.Items.Add(new Separator());
-                separatorAdded = true;
-            }
-
-            moveMenu.Items.Add(CreateMoveTargetMenuItem(target, vm, chat));
-        }
-    }
-
-    /// <summary>Materializes a single <see cref="ChatMoveTarget"/> into a menu item with the right glyph and action.</summary>
-    private MenuItem CreateMoveTargetMenuItem(ChatMoveTarget target, MainViewModel vm, Chat chat)
-    {
-        var item = new MenuItem { Header = target.Header };
-
-        // The chat's current home is shown as a disabled checkmark rather than an actionable move.
-        if (target.IsCurrent)
-        {
-            item.ToggleType = MenuItemToggleType.CheckBox;
-            item.IsChecked = true;
-            item.IsEnabled = false;
-            return item;
-        }
-
-        if (target.Kind == ChatMoveTargetKind.AllProjects)
-        {
-            item.Icon = CreateMenuGlyph("Icon.Browse");
-            item.Click += (_, _) => vm.RemoveChatFromProjectCommand.Execute(chat);
-            return item;
-        }
-
-        var project = vm.Projects.FirstOrDefault(p => p.Id == target.ProjectId);
-        if (project is not null)
-        {
-            item.Icon = CreateMenuGlyph("Icon.Folder");
-            item.Click += (_, _) => vm.AssignChatToProjectCommand.Execute(new object[] { chat, project });
-        }
-
-        return item;
-    }
-
-    private PathIcon? CreateMenuGlyph(string resourceKey)
-    {
-        var geometry = GetIconGeometry(resourceKey);
-        return geometry is null ? null : new PathIcon { Data = geometry, Width = 14, Height = 14 };
+        if (moveMenu is not null)
+            ChatMenuBuilder.PopulateMoveToProjectMenu(moveMenu, vm, chat, GetIconGeometry);
     }
 
     /// <summary>

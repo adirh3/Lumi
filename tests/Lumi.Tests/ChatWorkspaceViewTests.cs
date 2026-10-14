@@ -376,7 +376,7 @@ public sealed class ChatWorkspaceViewTests
         var chatViewXaml = File.ReadAllText(Path.Combine(root, "src", "Lumi", "Views", "ChatView.axaml"));
         Assert.Contains("StrataChatShell.flat-window /template/ Border#PART_Root", chatViewXaml);
         Assert.Contains("StrataChatShell.flat-window /template/ Border#PART_HeaderChrome", chatViewXaml);
-        // Agents live in the Workspace now: the header keeps one Workspace toggle that carries the live count.
+        // Agents live in the Workspace: the header's agents pill opens its Agents page, beside one Workspace toggle.
         Assert.DoesNotContain("SubagentToggleButton", chatViewXaml);
         Assert.Contains("x:Name=\"WorkspaceToggleButton\"", chatViewXaml);
         Assert.DoesNotContain("x:Name=\"BrowserIsland\"", chatWindowXaml);

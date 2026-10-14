@@ -582,6 +582,18 @@
   "Menu_MarkAsRead": "סמן כנקרא",
   "Menu_Delete": "מחיקה",
 
+  "ChatHeader_TitleMenu": "אפשרויות שיחה",
+  "ChatHeader_JumpToLive": "מעבר למה ש-Lumi עושה עכשיו",
+  "ChatHeader_AgentWorking": "סוכן אחד עובד",
+  "ChatHeader_AgentsWorking": "{0} סוכנים עובדים",
+  "ChatHeader_StartedToday": "התחיל היום ב-{0}",
+  "ChatHeader_StartedYesterday": "התחיל אתמול ב-{0}",
+  "ChatHeader_StartedOn": "התחיל ב-{0}",
+  "ChatHeader_OneMessage": "הודעה אחת",
+  "ChatHeader_Messages": "{0} הודעות",
+  "ChatHeader_OneFile": "קובץ אחד",
+  "ChatHeader_Files": "{0} קבצים",
+
   "Common_Save": "שמירה",
   "Common_Cancel": "ביטול",
   "Common_Rename": "שינוי שם",

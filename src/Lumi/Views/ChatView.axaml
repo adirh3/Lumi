@@ -8,6 +8,7 @@
              xmlns:conv="using:Lumi.Converters"
              xmlns:lc="using:Lumi.Views.Controls"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:st="using:StrataTheme"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.ChatView"
              x:DataType="vm:ChatViewModel"
@@ -27,6 +28,218 @@
     <!-- Launchpad glass: a lift of the island's own surface, translucent so Lumi's presence glows through -->
     <SolidColorBrush x:Key="Launchpad.CardFill" Color="{DynamicResource Color.Surface2}" Opacity="0.46" />
     <SolidColorBrush x:Key="Launchpad.CardFillHover" Color="{DynamicResource Color.Surface2}" Opacity="0.86" />
+
+    <!-- Floating header glass. Pills lift the overlay surface over their own frost; the edge veil
+         takes the island's colour so scrolled history fades out beneath the header. -->
+    <SolidColorBrush x:Key="ChatHeader.PillFill" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.66" />
+    <SolidColorBrush x:Key="ChatHeader.PillFillHover" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.88" />
+    <SolidColorBrush x:Key="ChatHeader.PillFillPressed" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.96" />
+    <SolidColorBrush x:Key="ChatHeader.PillBorder" Color="{DynamicResource Color.TextPrimary}" Opacity="0.10" />
+    <SolidColorBrush x:Key="ChatHeader.EdgeVeil" Color="{DynamicResource Color.Surface1}" Opacity="0.9" />
+    <SolidColorBrush x:Key="ChatHeader.MenuFill" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.8" />
+    <SolidColorBrush x:Key="ChatHeader.MenuDivider" Color="{DynamicResource Color.TextPrimary}" Opacity="0.08" />
+    <SolidColorBrush x:Key="ChatHeader.MenuChipFill" Color="{DynamicResource Color.TextPrimary}" Opacity="0.07" />
+    <SolidColorBrush x:Key="ChatHeader.MenuItemHover" Color="{DynamicResource Color.TextPrimary}" Opacity="0.07" />
+    <SolidColorBrush x:Key="ChatHeader.MenuItemPressed" Color="{DynamicResource Color.TextPrimary}" Opacity="0.11" />
+    <SolidColorBrush x:Key="ChatHeader.MenuDangerHover" Color="{DynamicResource Color.DangerDefault}" Opacity="0.12" />
+
+    <!-- The title menu: who the chat is and what it holds, above its actions, on the header's glass. -->
+    <ControlTheme x:Key="ChatTitleMenuPresenter" TargetType="MenuFlyoutPresenter"
+                  BasedOn="{StaticResource {x:Type MenuFlyoutPresenter}}">
+      <!-- Widths include the 16px shadow margin on each side: the card itself is 332–360 wide. -->
+      <Setter Property="MinWidth" Value="364" />
+      <Setter Property="MaxWidth" Value="392" />
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel Margin="16">
+            <sc:StrataBackdropBlur CornerRadius="{TemplateBinding CornerRadius}" BlurRadius="28" Saturation="1.5" />
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Padding="{TemplateBinding Padding}"
+                    BoxShadow="0 18 44 -10 #59000000, 0 6 16 0 #24000000, inset 0 1 0 0 #0FFFFFFF">
+              <DockPanel>
+                <StackPanel x:Name="ChatTitleMenuFacts" DockPanel.Dock="Top" x:DataType="vm:ChatViewModel"
+                            Margin="10,10,10,12">
+                  <StackPanel.Styles>
+                    <Style Selector="Border.title-menu-chip">
+                      <Setter Property="Height" Value="24" />
+                      <Setter Property="Padding" Value="7,0,9,0" />
+                      <Setter Property="CornerRadius" Value="12" />
+                      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+                    </Style>
+                    <Style Selector="Border.title-menu-chip TextBlock">
+                      <Setter Property="FontSize" Value="12" />
+                      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+                      <Setter Property="VerticalAlignment" Value="Center" />
+                      <Setter Property="MaxWidth" Value="220" />
+                      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                    </Style>
+                    <Style Selector="Border.title-menu-chip PathIcon">
+                      <Setter Property="Width" Value="12" />
+                      <Setter Property="Height" Value="12" />
+                      <Setter Property="VerticalAlignment" Value="Center" />
+                    </Style>
+                  </StackPanel.Styles>
+                  <TextBlock Text="{Binding CurrentChatTitle}" FontSize="14.5" FontWeight="SemiBold"
+                             Foreground="{DynamicResource Brush.TextPrimary}"
+                             TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                  <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,10,0,0">
+                    <Border Classes="title-menu-chip"
+                            IsVisible="{Binding ProjectBadgeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <!-- A chat with a project takes its mark's hue from the project. -->
+                        <PathIcon x:DataType="vm:ChatHeaderMark" DataContext="{Binding HeaderMark}"
+                                  Foreground="{Binding Foreground}" Data="{DynamicResource Icon.Folder}" />
+                        <TextBlock Text="{Binding ProjectBadgeText}" />
+                      </StackPanel>
+                    </Border>
+                    <Border Classes="title-menu-chip"
+                            IsVisible="{Binding AgentBadgeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding SelectedAgentGlyph}" FontSize="11" />
+                        <TextBlock Text="{Binding AgentBadgeText}" />
+                      </StackPanel>
+                    </Border>
+                    <Border Classes="title-menu-chip"
+                            IsVisible="{Binding HeaderModelText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Width="10" Height="10" Foreground="{DynamicResource Brush.AccentDefault}"
+                                  Data="M8,1 L10,6 L15,8 L10,10 L8,15 L6,10 L1,8 L6,6 Z" />
+                        <TextBlock Text="{Binding HeaderModelText}" />
+                      </StackPanel>
+                    </Border>
+                  </WrapPanel>
+                  <TextBlock Text="{Binding HeaderDetailsText}" Margin="0,9,0,0" FontSize="11.5"
+                             Foreground="{DynamicResource Brush.TextTertiary}" TextTrimming="CharacterEllipsis"
+                             IsVisible="{Binding HeaderDetailsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+                <Border DockPanel.Dock="Top" Height="1" Margin="0,0,0,6"
+                        Background="{StaticResource ChatHeader.MenuDivider}" />
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                              MaxHeight="420">
+                  <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+    <!-- Title menu rows: airy, with quiet icons, a check for the current choice and glass submenus. -->
+    <ControlTheme x:Key="ChatTitleMenuItem" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel>
+            <Border Name="PART_LayoutRoot"
+                    Background="{TemplateBinding Background}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Padding="{TemplateBinding Padding}"
+                    MinHeight="{TemplateBinding MinHeight}">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <ContentPresenter Name="PART_IconPresenter"
+                                  Content="{TemplateBinding Icon}"
+                                  Width="16"
+                                  Margin="0,0,12,0"
+                                  Foreground="{DynamicResource Brush.TextSecondary}"
+                                  HorizontalContentAlignment="Center"
+                                  VerticalContentAlignment="Center"
+                                  IsVisible="{TemplateBinding Icon, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <ContentPresenter Name="PART_HeaderPresenter"
+                                  Grid.Column="1"
+                                  Content="{TemplateBinding Header}"
+                                  ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                  VerticalAlignment="Center"
+                                  RecognizesAccessKey="True" />
+                <PathIcon Name="PART_Chevron"
+                          Grid.Column="2"
+                          Width="10"
+                          Height="10"
+                          Margin="12,0,0,0"
+                          IsVisible="False"
+                          Foreground="{DynamicResource Brush.TextTertiary}"
+                          Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+                <PathIcon Name="PART_Check"
+                          Grid.Column="2"
+                          Width="12"
+                          Height="12"
+                          Margin="12,0,0,0"
+                          IsVisible="False"
+                          Foreground="{DynamicResource Brush.AccentDefault}"
+                          Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </Grid>
+            </Border>
+
+            <!-- The popup already places its child's card, margin aside, at these offsets: just past
+                 the menu's edge, with the first row level with this one. -->
+            <Popup Name="PART_Popup"
+                   WindowManagerAddShadowHint="False"
+                   Placement="RightEdgeAlignedTop"
+                   HorizontalOffset="10"
+                   VerticalOffset="-7"
+                   IsLightDismissEnabled="False"
+                   IsOpen="{TemplateBinding IsSubMenuOpen, Mode=TwoWay}"
+                   st:PopupAnimationHelper.EnableOverlayAnimation="True">
+              <Panel Margin="16" MinWidth="200" MaxWidth="300">
+                <sc:StrataBackdropBlur CornerRadius="14" BlurRadius="28" Saturation="1.5" />
+                <Border Background="{StaticResource ChatHeader.MenuFill}"
+                        BorderBrush="{StaticResource ChatHeader.PillBorder}"
+                        BorderThickness="1"
+                        CornerRadius="14"
+                        Padding="6"
+                        BoxShadow="0 18 44 -10 #59000000, 0 6 16 0 #24000000, inset 0 1 0 0 #0FFFFFFF">
+                  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                MaxHeight="420">
+                    <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+                  </ScrollViewer>
+                </Border>
+              </Panel>
+            </Popup>
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+
+      <Style Selector="^:not(:empty) /template/ PathIcon#PART_Chevron">
+        <Setter Property="IsVisible" Value="True" />
+      </Style>
+      <Style Selector="^:checked /template/ PathIcon#PART_Check">
+        <Setter Property="IsVisible" Value="True" />
+      </Style>
+      <Style Selector="^:pointerover /template/ Border#PART_LayoutRoot">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
+      </Style>
+      <Style Selector="^:selected /template/ Border#PART_LayoutRoot">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
+      </Style>
+      <Style Selector="^:focus-visible /template/ Border#PART_LayoutRoot">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
+      </Style>
+      <Style Selector="^:pressed /template/ Border#PART_LayoutRoot">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemPressed}" />
+      </Style>
+      <Style Selector="^:disabled">
+        <Setter Property="Opacity" Value="0.5" />
+      </Style>
+      <Style Selector="^.danger">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+      </Style>
+      <Style Selector="^.danger /template/ ContentPresenter#PART_IconPresenter">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+      </Style>
+      <Style Selector="^.danger:pointerover /template/ Border#PART_LayoutRoot">
+        <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDangerHover}" />
+      </Style>
+    </ControlTheme>
 
     <!-- Shared chip for files Lumi produced/announced. Right-click exposes file actions
          (open, reveal in folder, copy the file, copy path/name). Used by both the user and
@@ -328,22 +541,306 @@
     </Style>
 
 
-    <!-- Header workspace toggle: accent while agents run (the live count rides beside the icon) -->
-    <Style Selector="Button#WorkspaceToggleButton.live PathIcon#WorkspaceToggleIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <!-- ── Floating glass header ──
+         The transcript runs under the header (ExtendsTranscriptBehindHeader). A frosted veil appears
+         only while history is behind it, and the controls are glass pills anchored to the island's
+         edges, so the header never reads as a bar of its own. -->
+    <!-- The shell's template sets these locally, so only a class-activated style can replace them. -->
+    <Style Selector="sc|StrataChatShell.glass-header /template/ Border#PART_HeaderChrome">
+      <Setter Property="ClipToBounds" Value="False" />
+      <Setter Property="CornerRadius" Value="0" />
     </Style>
-    <Style Selector="Border.agents-count">
-      <Setter Property="MinWidth" Value="15" />
-      <Setter Property="Height" Value="15" />
-      <Setter Property="Padding" Value="4,0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    <Style Selector="sc|StrataChatShell.glass-header /template/ Border#PART_HeaderContainer">
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <!-- The header owns the full width so its pills anchor to both edges; a content-sized presenter
+         would pull the right-hand pills in beside the title. -->
+    <Style Selector="sc|StrataChatShell.glass-header /template/ ContentPresenter#PART_HeaderPresenter">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="DockPanel.Dock" Value="Top" />
+    </Style>
+    <Style Selector="sc|StrataChatShell.glass-header:has-header /template/ Border#PART_HeaderSeparator">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <Style Selector="Panel#HeaderEdgeMaterial">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="sc|StrataChatShell:content-under-header Panel#HeaderEdgeMaterial">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- Glass pills: StrataGlassButton frosts what passes beneath each pill's tint. -->
+    <Style Selector="Button.header-pill">
+      <Setter Property="Height" Value="36" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="36" />
+      <Setter Property="Padding" Value="12,0" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="ClipToBounds" Value="False" />
       <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+    </Style>
+    <Style Selector="Button.header-pill /template/ Border#PART_Surface">
+      <Setter Property="ClipToBounds" Value="False" />
+      <Setter Property="BoxShadow" Value="0 6 18 -6 #33000000" />
+    </Style>
+    <!-- A pill only frosts while history passes beneath it; at rest there is nothing to blur. -->
+    <Style Selector="Button.header-pill /template/ sc|StrataBackdropBlur#PART_Backdrop">
+      <Setter Property="BlurRadius" Value="0" />
+      <Setter Property="Saturation" Value="1.3" />
+    </Style>
+    <Style Selector="sc|StrataChatShell:content-under-header Button.header-pill /template/ sc|StrataBackdropBlur#PART_Backdrop">
+      <Setter Property="BlurRadius" Value="14" />
+    </Style>
+    <Style Selector="sc|StrataBackdropBlur.header-pill-frost">
+      <Setter Property="BlurRadius" Value="0" />
+      <Setter Property="Saturation" Value="1.3" />
+    </Style>
+    <Style Selector="sc|StrataChatShell:content-under-header sc|StrataBackdropBlur.header-pill-frost">
+      <Setter Property="BlurRadius" Value="14" />
+    </Style>
+    <Style Selector="Button.header-pill:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillHover}" />
+      <Setter Property="BoxShadow" Value="0 8 22 -6 #40000000" />
+    </Style>
+    <Style Selector="Button.header-pill:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillPressed}" />
+      <Setter Property="BoxShadow" Value="0 3 10 -4 #2A000000" />
+    </Style>
+    <Style Selector="Button.header-pill:pointerover /template/ Border#PART_Aurora">
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="TextBlock.header-pill-text">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <!-- Title pill: the chat's mark, title and project. It opens the chat's menu. -->
+    <Style Selector="Button.header-pill#ChatTitleButton">
+      <Setter Property="Padding" Value="5,0,12,0" />
+      <Setter Property="MaxWidth" Value="640" />
+    </Style>
+    <Style Selector="Button.header-pill#ChatTitleButton.no-mark">
+      <Setter Property="Padding" Value="14,0,12,0" />
+    </Style>
+    <!-- The title takes the free row, and gives way only while the live pill needs room beside it. -->
+    <Style Selector="sc|StrataChatShell:scrolled-away Panel#ChatHeaderLayer.busy Button.header-pill#ChatTitleButton">
+      <Setter Property="MaxWidth" Value="380" />
+    </Style>
+    <Style Selector="sc|StrataChatShell:scrolled-away Panel#ChatHeaderLayer.busy.compact Button.header-pill#ChatTitleButton">
+      <Setter Property="MaxWidth" Value="200" />
+    </Style>
+    <Style Selector="Border.chat-mark">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="CornerRadius" Value="13" />
+    </Style>
+    <Style Selector="TextBlock.chat-mark-glyph">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.chat-mark-status">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="Margin" Value="0,0,-2,-2" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SurfaceOverlay}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
       <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.55" />
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
       <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="TextBlock.header-title-text">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <!-- Plain text beside the title rather than inline runs: runs create glyph runs even in the drawing-free
+         headless tests, and Avalonia's GlyphRun keeps the first renderer it sees for the whole test process. -->
+    <Style Selector="TextBlock.header-project-text">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="8,1,0,0" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="PathIcon.header-chevron">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Margin" Value="9,1,0,0" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <!-- Live pill: only while Lumi works and the live step is scrolled out of view. A click jumps back. -->
+    <Style Selector="Button.header-pill#HeaderLiveStatusButton">
+      <Setter Property="IsVisible" Value="False" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+      <Setter Property="Padding" Value="13,0,12,0" />
+    </Style>
+    <Style Selector="sc|StrataChatShell:scrolled-away Button#HeaderLiveStatusButton.busy">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Button#HeaderLiveStatusButton TextBlock.header-pill-text">
+      <Setter Property="MaxWidth" Value="360" />
+    </Style>
+    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderLiveStatusButton TextBlock.header-pill-text">
+      <Setter Property="MaxWidth" Value="250" />
+    </Style>
+    <Style Selector="Border.header-live-dot">
+      <Setter Property="Width" Value="7" />
+      <Setter Property="Height" Value="7" />
+      <Setter Property="CornerRadius" Value="3.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.35" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="PathIcon.header-live-arrow">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <!-- Agents pill: who is working right now. It opens their page in the Workspace. -->
+    <Style Selector="Button.header-pill#HeaderAgentsButton">
+      <Setter Property="Padding" Value="6,0,13,0" />
+    </Style>
+    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderAgentsButton">
+      <Setter Property="Padding" Value="6,0" />
+    </Style>
+    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderAgentsButton TextBlock.header-pill-text">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Border.header-agent-avatar">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SurfaceOverlay}" />
+    </Style>
+    <Style Selector="Border.header-agent-avatar > TextBlock">
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="FontSize" Value="9.5" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+
+    <!-- Tools pill: the chat's browser, desktop and Workspace toggles on one piece of glass. -->
+    <Style Selector="Border.header-tools">
+      <Setter Property="Height" Value="36" />
+      <Setter Property="Padding" Value="2,0" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="0 6 18 -6 #33000000" />
+    </Style>
+    <Style Selector="Button.header-tool">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.header-tool PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <!-- One tool lights at a time: the one whose page the Workspace shows. -->
+    <Style Selector="Button.header-tool.open">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Button.header-tool.open PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- Signs of life, as in the bar: hovering a tool moves its icon the way the thing moves. The globe
+         tips onto its axis and the screen rises on its stand, both overshooting slightly; the
+         Workspace's panels trade places, ending where they began. Off when animations are off. -->
+    <Style Selector="PathIcon.tool-globe">
+      <Setter Property="RenderTransform" Value="rotate(0deg) scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="PathIcon.tool-screen">
+      <Setter Property="RenderTransformOrigin" Value="50%,94%" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="PathIcon.tool-panels">
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.5" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-globe">
+      <Setter Property="RenderTransform" Value="rotate(-23.5deg) scale(1.1)" />
+    </Style>
+    <Style Selector="Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-screen">
+      <Setter Property="RenderTransform" Value="scale(1.14)" />
+    </Style>
+    <Style Selector="Border.header-tools:not(.motion-disabled) Button.header-tool:pointerover PathIcon.tool-panels">
+      <Setter Property="RenderTransform" Value="rotate(180deg)" />
+    </Style>
+
+    <!-- Working line: a sweep along the header's lower edge while Lumi works. -->
+    <Style Selector="Border#HeaderWorkingLine">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.35" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border#HeaderWorkingLine.active">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Border#HeaderWorkingLine.active Border#HeaderWorkingSweep">
+      <Setter Property="sa:LifecycleOffsetSweep.IsActive" Value="True" />
+      <Setter Property="sa:LifecycleOffsetSweep.Duration" Value="0:0:1.8" />
+    </Style>
+    <Style Selector="Border#HeaderWorkingLine.motion-disabled Border#HeaderWorkingSweep">
+      <Setter Property="IsVisible" Value="False" />
     </Style>
 
 
@@ -466,18 +963,6 @@
       <Setter Property="CornerRadius" Value="999" />
       <Setter Property="Padding" Value="8,4" />
       <Setter Property="Margin" Value="0,0,6,6" />
-    </Style>
-    <Style Selector="Button#BrowserToggleButton.open">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    </Style>
-    <Style Selector="Button#BrowserToggleButton.open PathIcon#BrowserToggleIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Button#WorkspaceToggleButton.open">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    </Style>
-    <Style Selector="Button#WorkspaceToggleButton.open PathIcon#WorkspaceToggleIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
     <!-- Token usage badge hover -->
@@ -1960,115 +2445,261 @@
     <!-- Active chat -->
     <Panel x:Name="ChatPanel" Classes.active="{Binding IsChatVisible}">
       <sc:StrataChatShell x:Name="ChatShell"
+                          Classes="glass-header"
                           IsOnline="False"
+                          ExtendsTranscriptBehindHeader="True"
                           IsStreaming="{Binding IsTranscriptStreaming}">
 
         <sc:StrataChatShell.Header>
-          <DockPanel Margin="2,1,2,1" LastChildFill="True">
-            <StackPanel DockPanel.Dock="Right"
-                        Orientation="Horizontal"
-                        Spacing="10"
-                        VerticalAlignment="Center"
-                        Margin="16,0,0,0">
-              <StackPanel Orientation="Horizontal"
-                          Spacing="8"
-                          VerticalAlignment="Center"
-                          IsVisible="{Binding HasHeaderSubtitle}">
-                <TextBlock IsVisible="{Binding HasProjectBadge}"
-                           Classes="caption"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           Text="{Binding ProjectBadgeText}"
-                           TextTrimming="CharacterEllipsis" />
-                <TextBlock IsVisible="{Binding HasHeaderSubtitleSeparator}"
-                           Classes="caption"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           Opacity="0.55"
-                           Text="•" />
-                <TextBlock IsVisible="{Binding HasAgentBadge}"
-                           Classes="caption"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           Text="{Binding AgentBadgeText}"
-                           TextTrimming="CharacterEllipsis" />
+          <!-- Floating glass header: pills anchored to the island's edges over a transcript that runs
+               underneath. The veil frosts only while history is behind it, and the working line sweeps
+               along the lower edge while Lumi works. -->
+          <Panel x:Name="ChatHeaderLayer" Classes.busy="{Binding IsBusy}">
+            <!-- Full frost down to the working line, then a fade, so history never reads crisply
+                 beneath the line or the pills. -->
+            <Panel x:Name="HeaderEdgeMaterial"
+                   VerticalAlignment="Top"
+                   Height="96"
+                   Margin="0,0,0,-40"
+                   IsHitTestVisible="False">
+              <sc:StrataBackdropBlur BlurRadius="12" Saturation="1.15" Fade="Bottom" FadeLength="40" />
+              <Border Background="{StaticResource ChatHeader.EdgeVeil}">
+                <Border.OpacityMask>
+                  <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0" Color="#FF000000" />
+                    <GradientStop Offset="0.5" Color="#E6000000" />
+                    <GradientStop Offset="0.62" Color="#B3000000" />
+                    <GradientStop Offset="1" Color="#00000000" />
+                  </LinearGradientBrush>
+                </Border.OpacityMask>
+              </Border>
+            </Panel>
+
+            <DockPanel x:Name="ChatHeaderBar" Height="36" Margin="12,10,12,10" LastChildFill="False">
+              <!-- Right: who is working, then the chat's tools. Docked first so they keep their room. -->
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                <Button x:Name="HeaderAgentsButton"
+                        Theme="{StaticResource StrataGlassButton}"
+                        Classes="header-pill"
+                        IsVisible="{Binding HasRunningSubagents}"
+                        Command="{Binding OpenWorkspaceAgentsCommand}"
+                        ToolTip.Tip="{loc:Str Workspace_OpenAgents}"
+                        ToolTip.Placement="Bottom"
+                        ToolTip.VerticalOffset="6"
+                        AutomationProperties.Name="{Binding HeaderAgentsText}">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ItemsControl ItemsSource="{Binding HeaderRunningAgents}" VerticalAlignment="Center">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="-7" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:SubagentToolCallItem">
+                          <Border Classes="header-agent-avatar"
+                                  Background="{Binding AccentIndex, Converter={StaticResource ChartBrush}}">
+                            <TextBlock Text="{Binding Initial}" />
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="header-pill-text" Text="{Binding HeaderAgentsText}" />
+                  </StackPanel>
+                </Button>
+
+                <Panel x:Name="HeaderToolsPill">
+                  <sc:StrataBackdropBlur Classes="header-pill-frost" CornerRadius="18" />
+                  <Border Classes="header-tools" Classes.motion-disabled="{Binding !AreAnimationsEnabled}">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Button x:Name="BrowserToggleButton"
+                              Classes="subtle header-tool"
+                              IsVisible="{Binding ShowBrowserToggle}"
+                              Classes.open="{Binding IsBrowserOpen}"
+                              Command="{Binding ToggleBrowserVisibilityCommand}"
+                              ToolTip.Tip="{loc:Str Browser_ShowBrowser}"
+                              ToolTip.Placement="Bottom"
+                              ToolTip.VerticalOffset="8"
+                              AutomationProperties.Name="{loc:Str Browser_ShowBrowser}">
+                        <PathIcon x:Name="BrowserToggleIcon"
+                                  Classes="tool-globe"
+                                  Width="15"
+                                  Height="15"
+                                  Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+                      </Button>
+
+                      <Button x:Name="DesktopPreviewButton"
+                              Classes="subtle header-tool"
+                              IsVisible="{Binding ShowDesktopToggle}"
+                              Classes.open="{Binding IsHeaderDesktopActive}"
+                              Command="{Binding RequestShowDesktopCommand}"
+                              ToolTip.Tip="{loc:Str Desktop_ShowDesktop}"
+                              ToolTip.Placement="Bottom"
+                              ToolTip.VerticalOffset="8"
+                              AutomationProperties.Name="{loc:Str Desktop_ShowDesktop}">
+                        <PathIcon Classes="tool-screen"
+                                  Width="15"
+                                  Height="15"
+                                  Data="{x:Static vm:WorkspaceIcons.Desktop}" />
+                      </Button>
+
+                      <!-- The Workspace: everything Lumi did in this chat. Running agents have their own pill. -->
+                      <Button x:Name="WorkspaceToggleButton"
+                              Classes="subtle header-tool"
+                              Classes.open="{Binding IsHeaderWorkspaceActive}"
+                              Command="{Binding ToggleWorkspacePanelCommand}"
+                              ToolTip.Tip="{Binding WorkspaceToggleToolTip}"
+                              ToolTip.Placement="Bottom"
+                              ToolTip.VerticalOffset="8"
+                              AutomationProperties.Name="{loc:Str Workspace_Title}">
+                        <PathIcon x:Name="WorkspaceToggleIcon"
+                                  Classes="tool-panels"
+                                  Width="17"
+                                  Height="17"
+                                  Data="{x:Static vm:WorkspaceIcons.Workspace}" />
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                </Panel>
               </StackPanel>
 
-              <Border IsVisible="{Binding ShowBrowserToggle}"
-                      Width="1"
-                      Height="16"
-                      Background="{DynamicResource Brush.BorderSubtle}" />
-
-              <Button x:Name="BrowserToggleButton"
-                      Classes="subtle"
-                      IsVisible="{Binding ShowBrowserToggle}"
-                      Classes.open="{Binding IsBrowserOpen}"
-                      Command="{Binding ToggleBrowserVisibilityCommand}"
-                      ToolTip.Tip="{loc:Str Browser_ShowBrowser}"
-                      Width="30"
-                      Height="30"
-                      Padding="0"
-                      CornerRadius="7">
-                <PathIcon x:Name="BrowserToggleIcon"
-                          Width="14"
-                          Height="14"
-                          Foreground="{DynamicResource Brush.TextSecondary}"
-                          Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+              <!-- Left: the chat itself. Its mark is the agent's glyph on the project's hue. -->
+              <Button x:Name="ChatTitleButton"
+                      DockPanel.Dock="Left"
+                      Theme="{StaticResource StrataGlassButton}"
+                      Classes="header-pill"
+                      Classes.no-mark="{Binding HeaderMark, Converter={x:Static ObjectConverters.IsNull}}"
+                      IsVisible="{Binding $parent[views:ChatView].ShowInternalTitle}"
+                      ToolTip.Tip="{loc:Str ChatHeader_TitleMenu}"
+                      ToolTip.Placement="Bottom"
+                      ToolTip.VerticalOffset="6"
+                      AutomationProperties.Name="{Binding CurrentChatTitle}"
+                      AutomationProperties.HelpText="{loc:Str ChatHeader_TitleMenu}">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                  <Panel Grid.Column="0"
+                         Width="26"
+                         Height="26"
+                         Margin="0,0,9,0"
+                         IsVisible="{Binding HeaderMark, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <Panel x:DataType="vm:ChatHeaderMark" DataContext="{Binding HeaderMark}">
+                      <Border Classes="chat-mark" Background="{Binding Background}" />
+                      <TextBlock Classes="chat-mark-glyph" Text="{Binding Glyph}" Foreground="{Binding Foreground}" />
+                    </Panel>
+                    <Border Classes="chat-mark-status" IsVisible="{Binding IsBusy}" />
+                  </Panel>
+                  <!-- The project takes only the room the title leaves, so it trims away first. -->
+                  <DockPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock x:Name="ChatTitleText"
+                               DockPanel.Dock="Left"
+                               Classes="header-title-text"
+                               Text="{Binding CurrentChatTitle}" />
+                    <TextBlock Classes="header-project-text"
+                               Text="{Binding ProjectBadgeText}"
+                               IsVisible="{Binding ProjectBadgeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  </DockPanel>
+                  <PathIcon Grid.Column="2"
+                            Classes="header-chevron"
+                            Data="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" />
+                </Grid>
+                <Button.Flyout>
+                  <MenuFlyout Placement="BottomEdgeAlignedLeft"
+                              HorizontalOffset="-16"
+                              VerticalOffset="-10"
+                              FlyoutPresenterTheme="{StaticResource ChatTitleMenuPresenter}"
+                              ItemContainerTheme="{StaticResource ChatTitleMenuItem}"
+                              Opening="OnChatTitleMenuOpening">
+                    <MenuItem x:Name="ChatTitleRenameItem" Header="{loc:Str Menu_Rename}">
+                      <MenuItem.Icon>
+                        <PathIcon Data="{DynamicResource Icon.Rename}" Width="15" Height="15" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem x:Name="ChatTitlePinItem" Header="{loc:Str Menu_Pin}">
+                      <MenuItem.Icon>
+                        <!-- Pin or unpin: the menu picks the glyph each time it opens. -->
+                        <PathIcon Width="15" Height="15" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem x:Name="ChatTitleDuplicateItem" Header="{loc:Str Menu_Fork}">
+                      <MenuItem.Icon>
+                        <PathIcon Data="{x:Static sc:StrataChatMessage.ForkIconGeometry}" Width="15" Height="15" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem x:Name="ChatTitleMoveItem" Header="{loc:Str Menu_MoveToProject}"
+                              ItemContainerTheme="{StaticResource ChatTitleMenuItem}">
+                      <MenuItem.Icon>
+                        <PathIcon Data="{DynamicResource Icon.Folder}" Width="15" Height="15" />
+                      </MenuItem.Icon>
+                      <MenuItem IsVisible="False" IsEnabled="False" />
+                    </MenuItem>
+                    <MenuItem x:Name="ChatTitleTagItem" Header="{loc:Str Menu_ChatTag}"
+                              ItemContainerTheme="{StaticResource ChatTitleMenuItem}">
+                      <MenuItem.Icon>
+                        <PathIcon Data="{DynamicResource Icon.Tag}" Width="15" Height="15" />
+                      </MenuItem.Icon>
+                      <MenuItem IsVisible="False" IsEnabled="False" />
+                    </MenuItem>
+                    <MenuItem x:Name="ChatTitleNewWindowItem" Header="{loc:Str Menu_OpenInNewWindow}">
+                      <MenuItem.Icon>
+                        <PathIcon Data="{DynamicResource Icon.Window}" Width="15" Height="15" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <Separator Margin="6" Background="{StaticResource ChatHeader.MenuDivider}" />
+                    <MenuItem x:Name="ChatTitleDeleteItem" Classes="danger" Header="{loc:Str Menu_Delete}">
+                      <MenuItem.Icon>
+                        <PathIcon Data="{DynamicResource Icon.Trash}" Width="15" Height="15" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                  </MenuFlyout>
+                </Button.Flyout>
               </Button>
 
-              <Button x:Name="DesktopPreviewButton"
-                      Classes="subtle"
-                      IsVisible="{Binding ShowDesktopToggle}"
-                      Command="{Binding RequestShowDesktopCommand}"
-                      ToolTip.Tip="{loc:Str Desktop_ShowDesktop}"
-                      AutomationProperties.Name="{loc:Str Desktop_ShowDesktop}"
-                      Width="30"
-                      Height="30"
-                      Padding="0"
-                      CornerRadius="7">
-                <PathIcon
-                          Width="14"
-                          Height="14"
-                          Foreground="{DynamicResource Brush.TextSecondary}"
-                          Data="{x:Static vm:WorkspaceIcons.Desktop}" />
-              </Button>
-
-              <!-- The Workspace: everything Lumi did in this chat. While agents run it carries their
-                   live count, so their progress stays one glance (and one click) away. -->
-              <Button x:Name="WorkspaceToggleButton"
-                      Classes="subtle"
-                      Classes.open="{Binding IsWorkspacePanelOpen}"
-                      Classes.live="{Binding HasRunningSubagents}"
-                      Command="{Binding ToggleWorkspacePanelCommand}"
-                      ToolTip.Tip="{Binding WorkspaceToggleToolTip}"
-                      AutomationProperties.Name="{loc:Str Workspace_Title}"
-                      Height="30"
-                      MinWidth="30"
-                      Padding="8,0"
-                      CornerRadius="7">
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <PathIcon x:Name="WorkspaceToggleIcon"
-                            Width="17"
-                            Height="17"
-                            Foreground="{DynamicResource Brush.TextSecondary}"
-                            Data="{x:Static vm:WorkspaceIcons.Workspace}" />
-                  <Border Classes="agents-count" IsVisible="{Binding HasRunningSubagents}">
-                    <TextBlock Text="{Binding RunningSubagentCount}"
-                               FontSize="9.5" FontWeight="Bold"
-                               Foreground="#FFFFFFFF"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                  </Border>
+              <!-- What Lumi is doing now, while the live step is scrolled out of view. -->
+              <Button x:Name="HeaderLiveStatusButton"
+                      DockPanel.Dock="Left"
+                      Theme="{StaticResource StrataGlassButton}"
+                      Classes="header-pill"
+                      Classes.busy="{Binding IsBusy}"
+                      Click="OnHeaderLiveStatusClick"
+                      ToolTip.Tip="{loc:Str ChatHeader_JumpToLive}"
+                      ToolTip.Placement="Bottom"
+                      ToolTip.VerticalOffset="6"
+                      AutomationProperties.Name="{Binding HeaderActivityText}"
+                      AutomationProperties.HelpText="{loc:Str ChatHeader_JumpToLive}">
+                <StackPanel Orientation="Horizontal" Spacing="9">
+                  <Border Classes="header-live-dot" />
+                  <TextBlock Classes="header-pill-text" Text="{Binding HeaderActivityText}" />
+                  <PathIcon Classes="header-live-arrow"
+                            Data="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z" />
                 </StackPanel>
               </Button>
-            </StackPanel>
+            </DockPanel>
 
-            <TextBlock Classes="subtitle"
-                       x:CompileBindings="False"
-                       FontSize="15.5"
-                       FontWeight="SemiBold"
-                       VerticalAlignment="Center"
-                       IsVisible="{Binding ShowInternalTitle, RelativeSource={RelativeSource AncestorType=views:ChatView}}"
-                       Text="{Binding CurrentChatTitle}"
-                       ToolTip.Tip="{Binding CurrentChatTitle}"
-                       TextTrimming="CharacterEllipsis" />
-          </DockPanel>
+            <Border x:Name="HeaderWorkingLine"
+                    Classes.active="{Binding IsBusy}"
+                    Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
+                    VerticalAlignment="Bottom"
+                    Height="2"
+                    IsHitTestVisible="False"
+                    ClipToBounds="True">
+              <Border.OpacityMask>
+                <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+                  <GradientStop Offset="0" Color="#00000000" />
+                  <GradientStop Offset="0.14" Color="#FF000000" />
+                  <GradientStop Offset="0.86" Color="#FF000000" />
+                  <GradientStop Offset="1" Color="#00000000" />
+                </LinearGradientBrush>
+              </Border.OpacityMask>
+              <Panel>
+                <Border Background="{DynamicResource Brush.StratumLine}" Opacity="0.35" />
+                <Border x:Name="HeaderWorkingSweep" Width="260" HorizontalAlignment="Left">
+                  <Border.Background>
+                    <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+                      <GradientStop Offset="0" Color="#00FFFFFF" />
+                      <GradientStop Offset="0.5" Color="{DynamicResource Color.AccentViolet}" />
+                      <GradientStop Offset="1" Color="#00FFFFFF" />
+                    </LinearGradientBrush>
+                  </Border.Background>
+                </Border>
+              </Panel>
+            </Border>
+          </Panel>
         </sc:StrataChatShell.Header>
 
 
@@ -2109,7 +2740,7 @@
       <Border x:Name="SearchBar"
               HorizontalAlignment="Right"
               VerticalAlignment="Top"
-              Margin="0,48,12,0"
+              Margin="0,54,12,0"
               ZIndex="10"
               Padding="6,3,3,3"
               CornerRadius="{DynamicResource Radius.Base}"
@@ -2152,7 +2783,7 @@
   <Border IsVisible="{Binding ShowTranscriptDiagnostics}"
       HorizontalAlignment="Right"
       VerticalAlignment="Top"
-      Margin="0,72,12,0"
+      Margin="0,96,12,0"
       MaxWidth="360"
       Padding="10,8"
       CornerRadius="12"

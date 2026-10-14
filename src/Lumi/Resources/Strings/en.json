@@ -582,6 +582,18 @@
   "Menu_MarkAsRead": "Mark as read",
   "Menu_Delete": "Delete",
 
+  "ChatHeader_TitleMenu": "Chat options",
+  "ChatHeader_JumpToLive": "Jump to what Lumi is doing now",
+  "ChatHeader_AgentWorking": "1 agent working",
+  "ChatHeader_AgentsWorking": "{0} agents working",
+  "ChatHeader_StartedToday": "Started today {0}",
+  "ChatHeader_StartedYesterday": "Started yesterday {0}",
+  "ChatHeader_StartedOn": "Started {0}",
+  "ChatHeader_OneMessage": "1 message",
+  "ChatHeader_Messages": "{0} messages",
+  "ChatHeader_OneFile": "1 file",
+  "ChatHeader_Files": "{0} files",
+
   "Common_Save": "Save",
   "Common_Cancel": "Cancel",
   "Common_Rename": "Rename",

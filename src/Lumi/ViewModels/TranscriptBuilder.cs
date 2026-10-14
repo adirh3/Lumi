@@ -299,6 +299,45 @@ public class TranscriptBuilder
         _processedMessageIds.Clear();
         _shownSkillNames.Clear();
         _shownLinkedChatKeys.Clear();
+        PublishLiveActivity();
+    }
+
+    /// <summary>
+    /// What the assistant is doing right now, for chrome that stays visible while the live step is
+    /// scrolled out of view: the running tool group's intent or first running step, else the typing
+    /// indicator's label. Null when nothing is live.
+    /// </summary>
+    public string? LiveActivityLabel { get; private set; }
+
+    /// <summary>Raised when <see cref="LiveActivityLabel"/> changes.</summary>
+    public event Action? LiveActivityChanged;
+
+    private void PublishLiveActivity()
+    {
+        var label = ResolveLiveActivityLabel();
+        if (string.Equals(label, LiveActivityLabel, StringComparison.Ordinal))
+            return;
+
+        LiveActivityLabel = label;
+        LiveActivityChanged?.Invoke();
+    }
+
+    private string? ResolveLiveActivityLabel()
+    {
+        if (_currentToolGroup is { IsActive: true } group)
+        {
+            // An intent ("Building the charts…") says more than the step that serves it.
+            if (_currentIntentText is null && group.ActivityPreview.Count > 0)
+            {
+                var step = group.ActivityPreview[0];
+                var detail = step.Detail?.Split('\n', 2)[0].Trim();
+                return string.IsNullOrEmpty(detail) ? step.Label : $"{step.Label} · {detail}";
+            }
+
+            return group.Label;
+        }
+
+        return _typingIndicator?.Label;
     }
 
     private static StrataAiToolCallStatus MapToolStatus(string? status)
@@ -1769,6 +1808,7 @@ public class TranscriptBuilder
         };
 
         AppendToCurrentTurn(_currentToolGroup, turnStableId ?? TurnStableIdFor(stableIdSeed ?? TranscriptIds.Create("tool-group")));
+        PublishLiveActivity();
     }
 
     public void CloseCurrentToolGroup()
@@ -1825,6 +1865,7 @@ public class TranscriptBuilder
         // Keep _toolParentById and _subagentsByToolCallId alive across tool groups
         // so late-arriving child tools can still be nested under their parent subagent.
         // These maps are only cleared in ResetState() at the start of Rebuild().
+        PublishLiveActivity();
     }
 
     public void CollapseCompletedBlocksInCurrentTurn()
@@ -1852,6 +1893,13 @@ public class TranscriptBuilder
     }
 
     private void UpdateToolGroupState(ToolGroupItem? group)
+    {
+        UpdateToolGroupStateCore(group);
+        if (group is not null && ReferenceEquals(group, _currentToolGroup))
+            PublishLiveActivity();
+    }
+
+    private void UpdateToolGroupStateCore(ToolGroupItem? group)
     {
         if (group is null)
             return;
@@ -2377,11 +2425,13 @@ public class TranscriptBuilder
             _typingTurn = new TranscriptTurn("turn:typing");
             _typingTurn.Items.Add(_typingIndicator);
             _liveTarget.Add(_typingTurn);
+            PublishLiveActivity();
             return;
         }
 
         _typingIndicator.Label = label ?? Loc.Status_Thinking;
         _typingIndicator.IsActive = true;
+        PublishLiveActivity();
         if (_typingTurn is not null)
         {
             var lastIndex = _liveTarget.Count - 1;
@@ -2400,12 +2450,16 @@ public class TranscriptBuilder
 
         _typingIndicator = null;
         _typingTurn = null;
+        PublishLiveActivity();
     }
 
     public void UpdateTypingIndicatorLabel(string? label)
     {
         if (_typingIndicator is not null && !string.IsNullOrEmpty(label))
+        {
             _typingIndicator.Label = label;
+            PublishLiveActivity();
+        }
     }
 
     public void UpdateTerminalOutput(string rootToolCallId, string output, bool replaceExistingOutput)

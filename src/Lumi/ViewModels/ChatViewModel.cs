@@ -1482,6 +1482,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ? ResolveWorkspaceFileChangedPath(chat, path)
                 : path,
             openReplySourceAction: RequestReplySourceJump);
+        _transcriptBuilder.LiveActivityChanged += OnTranscriptLiveActivityChanged;
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -1652,6 +1653,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         if (IsBusy && !IsPaused)
             _transcriptBuilder.UpdateTypingIndicatorLabel(value);
+        OnPropertyChanged(nameof(HeaderActivityText));
     }
 
     internal void RebuildTranscript()

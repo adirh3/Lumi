@@ -196,10 +196,6 @@ public partial class ChatViewModel
     public bool IsWelcomeVisible => CurrentChat is null;
     public bool IsChatVisible => CurrentChat is not null;
     public bool HasPendingAttachments => PendingAttachmentItems.Count > 0;
-    public bool HasProjectBadge => !string.IsNullOrWhiteSpace(ProjectBadgeText);
-    public bool HasAgentBadge => !string.IsNullOrWhiteSpace(AgentBadgeText);
-    public bool HasHeaderSubtitle => HasProjectBadge || HasAgentBadge;
-    public bool HasHeaderSubtitleSeparator => HasProjectBadge && HasAgentBadge;
     public bool ShowBrowserToggle => HasUsedBrowser;
 
     public event Action<Guid?>? ComposerProjectFilterRequested;
@@ -1232,20 +1228,6 @@ public partial class ChatViewModel
         NotifyWorkspaceVisibilityChanged();
     }
 
-    partial void OnProjectBadgeTextChanged(string? value)
-    {
-        OnPropertyChanged(nameof(HasProjectBadge));
-        OnPropertyChanged(nameof(HasHeaderSubtitle));
-        OnPropertyChanged(nameof(HasHeaderSubtitleSeparator));
-    }
-
-    partial void OnAgentBadgeTextChanged(string? value)
-    {
-        OnPropertyChanged(nameof(HasAgentBadge));
-        OnPropertyChanged(nameof(HasHeaderSubtitle));
-        OnPropertyChanged(nameof(HasHeaderSubtitleSeparator));
-    }
-
     partial void OnGitChangedFileCountChanged(int value)
     {
         OnPropertyChanged(nameof(HasGitChanges));
@@ -1380,6 +1362,7 @@ public partial class ChatViewModel
     {
         var projectName = GetCurrentProjectName();
         ProjectBadgeText = string.IsNullOrWhiteSpace(projectName) ? null : projectName;
+        RefreshHeaderMark();
     }
 
     private void RefreshAgentBadge()
@@ -1388,6 +1371,7 @@ public partial class ChatViewModel
             AgentBadgeText = SelectedSdkAgentName;
         else
             AgentBadgeText = ActiveAgent?.Name;
+        RefreshHeaderMark();
     }
 
     private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> values)

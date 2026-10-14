@@ -91,6 +91,9 @@ public partial class ChatView : UserControl
     private SelectableTextBlock? _highlightedStb;
     private System.Threading.CancellationTokenSource? _searchDebounce;
 
+    /// <summary>Space kept above and below a search hit brought into view.</summary>
+    private const double SearchHitContext = 40;
+
     // ── Reply jump state ──
     private SelectableTextBlock? _replyHighlightedTextBlock;
     private StrataChatMessage? _replyFlashMessage;
@@ -184,7 +187,8 @@ public partial class ChatView : UserControl
         if (target.TranslatePoint(default, _transcriptScrollViewer) is { } position)
         {
             _chatShell?.PreserveViewport();
-            _chatShell?.ScrollToVerticalOffset(Math.Max(0, _chatShell.VerticalOffset + position.Y - 48));
+            _chatShell?.ScrollToVerticalOffset(
+                Math.Max(0, _chatShell.VerticalOffset + position.Y - _chatShell.TopChromeInset - 48));
         }
         target.Focus();
     }
@@ -195,6 +199,7 @@ public partial class ChatView : UserControl
 
         _chatShell = this.FindControl<StrataChatShell>("ChatShell");
         ApplyShellChrome();
+        InitializeHeader();
         _composer = this.FindControl<StrataChatComposer>("Composer");
         _backgroundActivityButton = this.FindControl<Button>("BackgroundActivityButton");
         if (_backgroundActivityButton?.Flyout is { } activityFlyout)
@@ -1494,7 +1499,7 @@ public partial class ChatView : UserControl
         if (target is null || point is null)
             return;
 
-        var offset = Math.Max(0, _chatShell.VerticalOffset + point.Value.Y - 64);
+        var offset = Math.Max(0, _chatShell.VerticalOffset + point.Value.Y - _chatShell.TopChromeInset - 64);
         _chatShell.PreserveViewport();
         _chatShell.ScrollToVerticalOffset(offset);
     }
@@ -2558,7 +2563,9 @@ public partial class ChatView : UserControl
                     stb.SelectionStart = selStart;
                     stb.SelectionEnd = selEnd;
                     _highlightedStb = stb;
-                    stb.BringIntoView();
+                    // Room around the hit keeps it clear of the floating header's soft edge, with context.
+                    stb.BringIntoView(new Rect(0, -SearchHitContext, stb.Bounds.Width,
+                        stb.Bounds.Height + 2 * SearchHitContext));
                     return;
                 }
 
