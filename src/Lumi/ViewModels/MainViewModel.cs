@@ -771,6 +771,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ForkChatRequested += OnChatForkRequested;
         chatVm.SharePromptRequested += OnChatSharePromptRequested;
         chatVm.PromptImportRequested += OnChatPromptImportRequested;
+        chatVm.McpRepairRequested += StartMcpRepairChatAsync;
+        chatVm.ConnectorsPageRequested += ShowConnectorsPage;
     }
 
     private void DetachChatViewModel(ChatViewModel chatVm)
@@ -786,6 +788,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ForkChatRequested -= OnChatForkRequested;
         chatVm.SharePromptRequested -= OnChatSharePromptRequested;
         chatVm.PromptImportRequested -= OnChatPromptImportRequested;
+        chatVm.McpRepairRequested -= StartMcpRepairChatAsync;
+        chatVm.ConnectorsPageRequested -= ShowConnectorsPage;
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
@@ -801,6 +805,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Shows the Jobs page, where the user's automations live.</summary>
     public void ShowAutomations() => SelectedNavIndex = JobsNavIndex;
+
+    /// <summary>
+    /// From a chat's connector list: Discover's connectors, searching for what the user typed, or the
+    /// Connectors section of Customize.
+    /// </summary>
+    public void ShowConnectorsPage(ConnectorsPageRequest request)
+    {
+        if (!request.Discover)
+        {
+            SelectedNavIndex = 6;
+            return;
+        }
+
+        SelectedNavIndex = DiscoverNavIndex;
+        DiscoverVM.ShowServersCommand.Execute(null);
+        DiscoverVM.SearchQuery = request.Query ?? string.Empty;
+    }
 
     private void OnChatForkRequested(Chat chat, Guid throughMessageId)
         => _ = ForkChatAsync(chat, throughMessageId);
@@ -1090,6 +1111,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_ownsChatSessionStore)
             _chatSessionStore.Dispose();
         UnsubscribeChatRunningState();
+        foreach (var repairChat in _mcpRepairChats.Keys)
+            repairChat.PropertyChanged -= OnMcpRepairChatChanged;
+        _mcpRepairChats.Clear();
         if (_ownsChatSurfaceRegistry)
             _chatSurfaceRegistry.Dispose();
         ChatTagsVM.Dispose();
@@ -1460,6 +1484,64 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ChatVM.AddAttachment(path);
         SelectedNavIndex = 0;
         NoticeVM.HideOffer();
+    }
+
+    /// <summary>"Fix with Lumi" chats this window opened, with the chat and connector each one repairs.</summary>
+    private readonly Dictionary<Chat, (Guid? SourceChatId, string ConnectorName)> _mcpRepairChats = [];
+
+    /// <summary>
+    /// Opens a new chat that asks Lumi to fix a connector and sends the request, with the full report
+    /// attached. A repair of the same connector that is still running is opened instead of a second one.
+    /// </summary>
+    internal async Task StartMcpRepairChatAsync(McpRepairRequest request)
+    {
+        var running = _mcpRepairChats.FirstOrDefault(pair =>
+            pair.Key.IsRunning
+            && pair.Value.SourceChatId == request.SourceChatId
+            && string.Equals(pair.Value.ConnectorName, request.ConnectorName, StringComparison.OrdinalIgnoreCase)
+            && _dataStore.Data.Chats.Contains(pair.Key)).Key;
+        if (running is not null)
+        {
+            await LoadChatAndShowAsync(running);
+            return;
+        }
+
+        var chat = request.Chat;
+        var reportDirectory = Path.Combine(DataStore.AppDirectory, "diagnostics", chat.Id.ToString("N"));
+        Directory.CreateDirectory(reportDirectory);
+        var reportPath = Path.Combine(reportDirectory, request.ReportFileName);
+        await File.WriteAllTextAsync(reportPath, request.ReportContent);
+
+        _dataStore.Data.Chats.Add(chat);
+        _dataStore.MarkChatChanged(chat);
+        await _dataStore.SaveChatAsync(chat);
+        await _dataStore.SaveAsync();
+        RefreshChatList();
+        ProjectsVM.RefreshSelectedProjectChats();
+
+        if (!await LoadChatAndShowAsync(chat) || ChatVM.CurrentChat?.Id != chat.Id)
+            throw new InvalidOperationException(Loc.Connector_RepairStartFailed);
+
+        _mcpRepairChats[chat] = (request.SourceChatId, request.ConnectorName);
+        chat.PropertyChanged += OnMcpRepairChatChanged;
+
+        var repairSurface = ChatVM;
+        repairSurface.AddAttachment(reportPath);
+        repairSurface.SetComposerDraft(request.Message);
+        await repairSurface.SendMessageCommand.ExecuteAsync(null);
+    }
+
+    /// <summary>When a repair turn ends, the original chat reconnects the connector with its next message.</summary>
+    private void OnMcpRepairChatChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isDisposed
+            || e.PropertyName != nameof(Chat.IsRunning)
+            || sender is not Chat { IsRunning: false } chat
+            || !_mcpRepairChats.TryGetValue(chat, out var repair)
+            || repair.SourceChatId is not Guid sourceChatId)
+            return;
+
+        _chatSessionStore.ApplyToSurfaces(surface => surface.RetryMcpConnectorAfterRepair(sourceChatId, repair.ConnectorName));
     }
 
     private void OpenLumiPage(Guid agentId)

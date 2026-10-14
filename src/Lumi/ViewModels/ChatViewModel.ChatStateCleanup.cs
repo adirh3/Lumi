@@ -710,6 +710,8 @@ public partial class ChatViewModel
             _sessionSubs.Remove(chatId);
         }
         _activeMcpConfigs.TryRemove(chatId, out _);
+        _activeMcpDefinitions.TryRemove(chatId, out _);
+        _activeMcpTransports.TryRemove(chatId, out _);
         _activeMcpStatuses.TryRemove(chatId, out _);
         _activeMcpDisplayNames.TryRemove(chatId, out _);
         ForgetMcpOAuthState(chatId);

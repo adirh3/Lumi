@@ -41,9 +41,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         Timeout = TimeSpan.FromSeconds(5)
     };
-    private static readonly Regex SensitiveHttpDiagnosticPattern = new(
-        @"(?i)(authorization|token|api[_-]?key|secret|password)(\s*[=:]\s*)([^\s,;]+)",
-        RegexOptions.Compiled);
 
     private static readonly bool TranscriptDiagnosticsEnabled = Debugger.IsAttached
         || string.Equals(Environment.GetEnvironmentVariable("LUMI_TRANSCRIPT_DEBUG"), "1", StringComparison.Ordinal);
@@ -63,12 +60,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<(Guid ChatId, string EventType), long> _publishedTerminalChatEventTurns = [];
 
     /// <summary>
-    /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
-    /// an outcome (browser opened, or sign-in couldn't start). Repeated <c>NeedsAuth</c> status events
-    /// re-assert this instead of downgrading the chip back to the generic "signing you in" text.
+    /// The resolved OAuth issue per <c>sessionId|serverName</c> once a login attempt has produced an
+    /// outcome (browser opened, or sign-in couldn't start). Repeated <c>NeedsAuth</c> status events
+    /// re-assert this instead of downgrading the chip back to the generic "needs sign-in" reason.
     /// Guarded by <see cref="_mcpOAuthLoginLock"/>; cleared when the server connects.
     /// </summary>
-    private readonly Dictionary<string, string> _mcpOAuthResolvedMessages = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, McpConnectorIssue> _mcpOAuthResolvedMessages = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Configured MCP servers for the active session of each chat, captured so live
@@ -76,10 +73,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// server's transport apart (stdio servers never use OAuth).
     /// </summary>
     private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, McpServerConfig>> _activeMcpConfigs = new();
+    /// <summary>
+    /// The connector each runtime namespace was built from, captured with the session. A local connector
+    /// reaches the runtime as HTTP when Fast Connector Initialization proxies it, so its failures are
+    /// explained from this definition rather than from the transport.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, Lumi.Models.McpServer>> _activeMcpDefinitions = new();
     /// <summary>Latest runtime status reported for each MCP server in each chat.</summary>
     private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, McpServerStatus>> _activeMcpStatuses = new();
     /// <summary>Maps CAPI-safe runtime namespaces back to user-visible MCP server names.</summary>
     private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, string>> _activeMcpDisplayNames = new();
+    /// <summary>
+    /// How each connector Copilot loads itself connects (stdio, http or sse), captured with the session:
+    /// Lumi has neither a definition nor a config for those, so this is how their failures are explained.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, string>> _activeMcpTransports = new();
 
     /// <summary>
     /// How long the first prompt waits for remote MCP servers to connect. Without it the first turn is
@@ -304,7 +312,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     SetMcpChipError(
                         chatId,
                         serverName,
-                        $"Connector '{displayName}' did not finish connecting within {settleBudget.TotalSeconds:0} seconds. Its tools may appear after startup completes.");
+                        McpConnectorIssues.StillStarting(
+                            displayName,
+                            settleBudget,
+                            ResolveMcpConfig(chatId, serverName),
+                            ResolveMcpDefinition(chatId, serverName)));
                 }
             });
         }
@@ -346,9 +358,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
         observedStatuses[serverName] = status;
 
-        McpServerConfig? config = null;
-        if (_activeMcpConfigs.TryGetValue(chatId, out var configured))
-            configured.TryGetValue(serverName, out config);
+        McpServerConfig? config = ResolveMcpConfig(chatId, serverName);
+        var definition = ResolveMcpDefinition(chatId, serverName);
         var displayName = ResolveMcpDisplayName(chatId, serverName);
 
         if (status == McpServerStatus.Connected)
@@ -368,24 +379,24 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (status != McpServerStatus.NeedsAuth && status != McpServerStatus.Failed)
             return false;
 
-        var errorMessage = await BuildMcpStatusErrorMessageAsync(
-            displayName, status, error ?? "", config, ct).ConfigureAwait(false);
+        var issue = await DescribeMcpStatusAsync(
+            status, error ?? "", config, definition, ResolveMcpTransport(chatId, serverName), ct).ConfigureAwait(false);
 
         if (status == McpServerStatus.NeedsAuth)
         {
-            // Don't let a repeated NeedsAuth event downgrade a richer, already-resolved message
-            // (e.g. revert "Lumi opened your browser…" back to the generic "signing you in…").
+            // Don't let a repeated NeedsAuth event downgrade a richer, already-resolved issue
+            // (e.g. revert "finish signing in in your browser" back to the generic "needs sign-in").
             lock (_mcpOAuthLoginLock)
             {
                 if (_mcpOAuthResolvedMessages.TryGetValue(McpOAuthKey(session, serverName), out var resolved))
-                    errorMessage = resolved;
+                    issue = resolved;
             }
         }
 
-        Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, errorMessage));
+        Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, issue));
 
         if (status == McpServerStatus.NeedsAuth)
-            return await TryInitiateMcpOAuthLoginAsync(session, chatId, serverName, config, ct).ConfigureAwait(false);
+            return await TryInitiateMcpOAuthLoginAsync(session, chatId, serverName, config, issue, ct).ConfigureAwait(false);
 
         return false;
     }
@@ -406,6 +417,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Guid chatId,
         string serverName,
         McpServerConfig? config,
+        McpConnectorIssue pending,
         CancellationToken ct)
     {
         // stdio servers don't authenticate over OAuth; only remote (and unknown) servers can. Nothing
@@ -441,8 +453,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // An empty URL means a cached token is being reused; a later Connected event clears the chip.
             if (!string.IsNullOrWhiteSpace(authorizationUrl))
             {
-                var openedMessage = BuildMcpOAuthOpenedMessage(displayName);
-                ResolveMcpOAuthChip(chatId, serverName, key, openedMessage);
+                var opened = McpConnectorIssues.SignInOpened(pending, BuildMcpOAuthOpenedMessage(displayName));
+                ResolveMcpOAuthChip(chatId, serverName, key, opened);
                 return true;
             }
         }
@@ -462,10 +474,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Sign-in couldn't be started — e.g. the server's identity provider doesn't support
             // dynamic client registration. Report it honestly and keep the attempt recorded so we
             // don't hammer a failing endpoint on every status event; a later session retries cleanly.
-            var failedMessage = BuildMcpOAuthFailureMessage(
-                displayName,
-                DescribeMcpOAuthLoginFailure(ex));
-            ResolveMcpOAuthChip(chatId, serverName, key, failedMessage);
+            var failed = McpConnectorIssues.SignInFailed(
+                pending,
+                BuildMcpOAuthFailureMessage(displayName, DescribeMcpOAuthLoginFailure(ex)),
+                ex);
+            ResolveMcpOAuthChip(chatId, serverName, key, failed);
             return true;
         }
 
@@ -482,14 +495,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
            $"({failure}). Open it in Customize → Connectors to sign in.";
 
     /// <summary>
-    /// Records the final OAuth chip message for a session+server and shows it, so later repeated
-    /// <c>NeedsAuth</c> status events re-assert it rather than reverting to the generic pending text.
+    /// Records the final OAuth issue for a session+server and shows it, so later repeated
+    /// <c>NeedsAuth</c> status events re-assert it rather than reverting to the generic pending reason.
     /// </summary>
-    private void ResolveMcpOAuthChip(Guid chatId, string serverName, string key, string message)
+    private void ResolveMcpOAuthChip(Guid chatId, string serverName, string key, McpConnectorIssue issue)
     {
         lock (_mcpOAuthLoginLock)
-            _mcpOAuthResolvedMessages[key] = message;
-        Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, message));
+            _mcpOAuthResolvedMessages[key] = issue;
+        Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, issue));
     }
 
     private static string McpOAuthKey(CopilotSession session, string serverName)
@@ -532,113 +545,74 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return string.IsNullOrEmpty(message) ? ex.GetType().Name : message;
     }
 
-    /// <summary>Puts the named MCP composer chip into an error state (tooltip = <paramref name="errorMessage"/>).</summary>
-    private void SetMcpChipError(Guid chatId, string serverName, string errorMessage)
-    {
-        if (CurrentChat?.Id != chatId)
-            return;
-
-        var displayName = ResolveMcpDisplayName(chatId, serverName);
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
-            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
-        if (existingChip is null)
-            return;
-
-        ActiveMcpChips[ActiveMcpChips.IndexOf(existingChip)] = existingChip with { ErrorMessage = errorMessage };
-    }
-
-    /// <summary>Clears the error state from the named MCP composer chip, if present.</summary>
-    private void ClearMcpChipError(Guid chatId, string serverName)
-    {
-        if (CurrentChat?.Id != chatId)
-            return;
-
-        var displayName = ResolveMcpDisplayName(chatId, serverName);
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
-            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
-        if (existingChip is null || !existingChip.HasError)
-            return;
-
-        ActiveMcpChips[ActiveMcpChips.IndexOf(existingChip)] = existingChip with { ErrorMessage = null };
-    }
-
     private string ResolveMcpDisplayName(Guid chatId, string serverName)
         => _activeMcpDisplayNames.TryGetValue(chatId, out var displayNames)
            && displayNames.TryGetValue(serverName, out var displayName)
             ? displayName
             : serverName;
 
-    internal static async Task<string> BuildMcpStatusErrorMessageAsync(
-        string serverName,
+    private McpServerConfig? ResolveMcpConfig(Guid chatId, string serverName)
+        => _activeMcpConfigs.TryGetValue(chatId, out var configured)
+           && configured.TryGetValue(serverName, out var config)
+            ? config
+            : null;
+
+    private Lumi.Models.McpServer? ResolveMcpDefinition(Guid chatId, string serverName)
+        => _activeMcpDefinitions.TryGetValue(chatId, out var definitions)
+           && definitions.TryGetValue(serverName, out var definition)
+            ? definition
+            : null;
+
+    private string? ResolveMcpTransport(Guid chatId, string serverName)
+        => _activeMcpTransports.TryGetValue(chatId, out var transports)
+           && transports.TryGetValue(serverName, out var transport)
+            ? transport
+            : null;
+
+    /// <summary>
+    /// The connectors a session plan supplies, keyed by runtime namespace. Lumi's own connectors win over
+    /// discovered ones of the same name, exactly as they do when the plan is built.
+    /// </summary>
+    private Dictionary<string, Lumi.Models.McpServer> ResolveMcpDefinitions(McpSessionPlan plan, CapabilitySnapshot capabilities)
+    {
+        var definitions = new Dictionary<string, Lumi.Models.McpServer>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (displayName, runtimeKey) in plan.RuntimeKeysByName ?? new Dictionary<string, string>())
+        {
+            var definition = _dataStore.Data.McpServers.LastOrDefault(
+                                 server => server.IsEnabled && NameComparer.Equals(server.Name, displayName))
+                             ?? capabilities.FindMcpServer(displayName)?.McpDefinition;
+            if (definition is not null)
+                definitions[runtimeKey] = definition;
+        }
+
+        return definitions;
+    }
+
+    /// <summary>
+    /// Explains a connector's status in plain words, keeping the complete technical error as details.
+    /// A failing loopback HTTP connector is asked directly, which is often the only way to learn its status code.
+    /// </summary>
+    internal static async Task<McpConnectorIssue> DescribeMcpStatusAsync(
         McpServerStatus status,
         string rawError,
         McpServerConfig? config,
+        Lumi.Models.McpServer? definition,
+        string? transport,
         CancellationToken ct)
     {
-        if (status == McpServerStatus.NeedsAuth)
+        McpEndpointProbe? probe = null;
+        if (status != McpServerStatus.NeedsAuth
+            && config is McpHttpServerConfig remote
+            && McpConnectorIssues.IsRemote(config, definition) == true
+            && ShouldProbeHttpMcpEndpoint(remote.Url))
         {
-            return config is McpHttpServerConfig authRemote
-                ? $"Sign-in required for connector '{serverName}' at {SanitizeMcpDiagnosticUrl(authRemote.Url)}. Lumi is signing you in…"
-                : $"Sign-in required for connector '{serverName}'. If it supports OAuth, Lumi will sign you in and reconnect automatically.";
+            probe = await ProbeHttpMcpEndpointAsync(remote, ct).ConfigureAwait(false);
         }
 
-        if (config is McpHttpServerConfig remote)
-            return await BuildHttpMcpStatusErrorMessageAsync(serverName, rawError, remote, ct).ConfigureAwait(false);
-
-        if (config is McpStdioServerConfig local)
-            return BuildStdioMcpStatusErrorMessage(serverName, rawError, local);
-
-        return BuildGenericMcpStatusErrorMessage(rawError);
+        return McpConnectorIssues.Describe(status, rawError, config, definition, probe, transport);
     }
 
-    private static async Task<string> BuildHttpMcpStatusErrorMessageAsync(
-        string serverName,
-        string rawError,
-        McpHttpServerConfig remote,
-        CancellationToken ct)
-    {
-        if (ShouldProbeHttpMcpEndpoint(remote.Url))
-        {
-            var diagnostic = await ProbeHttpMcpEndpointAsync(remote, ct).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(diagnostic))
-                return $"Remote connector '{serverName}' failed. {diagnostic}";
-        }
-
-        var safeUrl = SanitizeMcpDiagnosticUrl(remote.Url);
-        return string.IsNullOrWhiteSpace(rawError)
-            ? $"Remote connector '{serverName}' failed to connect to {safeUrl}."
-            : $"Remote connector '{serverName}' failed for {safeUrl}: {rawError}";
-    }
-
-    private static string BuildStdioMcpStatusErrorMessage(
-        string serverName,
-        string rawError,
-        McpStdioServerConfig local)
-    {
-        if (rawError.Contains("system cannot find the file specified", StringComparison.OrdinalIgnoreCase)
-            || rawError.Contains("command not found", StringComparison.OrdinalIgnoreCase)
-            || rawError.Contains("ENOENT", StringComparison.OrdinalIgnoreCase))
-        {
-            var cwd = string.IsNullOrWhiteSpace(local.WorkingDirectory) ? Environment.CurrentDirectory : local.WorkingDirectory;
-            return $"Command not found for connector '{serverName}': '{local.Command}'. Working directory: '{cwd}'. Install '{local.Command}' or add it to the PATH used by Lumi.";
-        }
-
-        return BuildGenericMcpStatusErrorMessage(rawError);
-    }
-
-    private static string BuildGenericMcpStatusErrorMessage(string rawError)
-    {
-        return rawError switch
-        {
-            _ when rawError.Contains("Connection closed", StringComparison.OrdinalIgnoreCase)
-                => "Server process exited immediately. Verify the command is installed and runnable.",
-            _ when string.IsNullOrWhiteSpace(rawError)
-                => "Failed to connect to the connector.",
-            _ => rawError
-        };
-    }
-
-    private static async Task<string?> ProbeHttpMcpEndpointAsync(McpHttpServerConfig remote, CancellationToken ct)
+    private static async Task<McpEndpointProbe?> ProbeHttpMcpEndpointAsync(McpHttpServerConfig remote, CancellationToken ct)
     {
         if (!Uri.TryCreate(remote.Url, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
@@ -664,45 +638,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             using var response = await McpDiagnosticsHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             var body = await ReadHttpDiagnosticBodyAsync(response, ct).ConfigureAwait(false);
-            var status = $"{(int)response.StatusCode} {response.ReasonPhrase}".Trim();
-            var hint = response.StatusCode switch
-            {
-                HttpStatusCode.Unauthorized => " Authentication is required; configure headers/token for this connector.",
-                HttpStatusCode.Forbidden => " Authentication or permission is required for this connector.",
-                HttpStatusCode.NotFound => " Endpoint was not found; check the MCP URL and protocol for this connector.",
-                HttpStatusCode.MethodNotAllowed => " Endpoint rejected POST; check whether this connector uses a different MCP transport or URL.",
-                _ => ""
-            };
-            var summary = string.IsNullOrWhiteSpace(body) ? "" : $" Response: {body}";
-            return $"POST {SanitizeMcpDiagnosticUrl(remote.Url)} returned {status}.{hint}{summary}";
+            return new McpEndpointProbe(remote.Url, (int)response.StatusCode, response.ReasonPhrase, body, Failure: null);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested
             && ex is HttpRequestException or TaskCanceledException or IOException)
         {
-            return $"POST {SanitizeMcpDiagnosticUrl(remote.Url)} failed: {ex.Message}";
-        }
-    }
-
-    private static string SanitizeMcpDiagnosticUrl(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            return url;
-
-        try
-        {
-            var builder = new UriBuilder(uri)
-            {
-                UserName = "",
-                Password = "",
-                Query = "",
-                Fragment = ""
-            };
-
-            return builder.Uri.GetLeftPart(UriPartial.Path);
-        }
-        catch (UriFormatException)
-        {
-            return uri.GetLeftPart(UriPartial.Path);
+            return new McpEndpointProbe(remote.Url, StatusCode: null, ReasonPhrase: null, Body: null, Failure: ex.Message);
         }
     }
 
@@ -713,7 +654,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             && uri.IsLoopback;
     }
 
-    private static async Task<string> ReadHttpDiagnosticBodyAsync(HttpResponseMessage response, CancellationToken ct)
+    private static async Task<string?> ReadHttpDiagnosticBodyAsync(HttpResponseMessage response, CancellationToken ct)
     {
         try
         {
@@ -723,17 +664,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 && !mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
                 && !mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase))
             {
-                return "";
+                return null;
             }
 
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            body = body.Replace('\r', ' ').Replace('\n', ' ').Trim();
-            body = SensitiveHttpDiagnosticPattern.Replace(body, "$1$2[redacted]");
-            return body.Length <= 300 ? body : body[..300] + "...";
+            return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidOperationException)
         {
-            return "";
+            return null;
         }
     }
 
@@ -2234,9 +2172,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         using var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
         using var pendingMcpProxyPlan = TrackPendingMcpProxyPlan(chat.Id, mcpPlan);
         _sessionMcpPlans[chat.Id] = mcpPlan;
+        ResetMcpIssues(chat.Id);
+        var transports = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var server in capabilities.McpServers)
+        {
+            if (server.McpTransport is { Length: > 0 } transport)
+                transports.TryAdd(server.Name, transport);
+        }
+        _activeMcpTransports[chat.Id] = transports;
         if (mcpPlan.Servers.Count > 0)
         {
             _activeMcpConfigs[chat.Id] = mcpPlan.Servers;
+            _activeMcpDefinitions[chat.Id] = ResolveMcpDefinitions(mcpPlan, capabilities);
             _activeMcpStatuses[chat.Id] = new ConcurrentDictionary<string, McpServerStatus>(
                 StringComparer.OrdinalIgnoreCase);
             _activeMcpDisplayNames[chat.Id] = mcpPlan.RuntimeKeysByName?
@@ -2754,7 +2701,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     return;
 
                 ActiveMcpServerNames.Add(name);
-                ActiveMcpChips.Add(ToMcpChip(name, server));
+                ActiveMcpChips.Add(WithMcpIssue(ToMcpChip(name, server)));
             }
 
             if (chat.HasExplicitMcpServerSelection || chat.ActiveMcpServerNames.Count > 0)
@@ -3006,6 +2953,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat is null)
             return;
 
+        // The session is rebuilt with the new connector setup, so every connector is tried again.
+        MarkMcpIssuesRetrying(CurrentChat.Id);
         InvalidateSessionConfiguration();
         _pendingSkillInjections.Clear();
     }
@@ -4303,7 +4252,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             foreach (var name in serverNames.Where(static n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 ActiveMcpServerNames.Add(name);
-                ActiveMcpChips.Add(CreateMcpChip(name));
+                // The session still runs these connectors: a restored chip keeps what it last reported.
+                ActiveMcpChips.Add(WithMcpIssue(CreateMcpChip(name)));
             }
         }
         finally

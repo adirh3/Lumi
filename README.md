@@ -282,6 +282,47 @@ MCP sampling requests (a server asking to borrow the chat's model), which the C#
 answering at once lets servers such as Azure MCP fall back to explicit commands instead of waiting forever. In Debug builds run with `LUMI_APPDATA_DIR`, plugins install into
 that folder's `copilot-home` instead of `~/.copilot`, so testing never changes your real Copilot setup.
 
+### Connectors in a chat
+
+The composer's plug button shows how many connectors are on in the chat ("Off" when none are), and its
+tooltip says so in words. It opens the chat's connector list, in the window like the model picker:
+
+- **Search** filters by name, by what a connector is, and by where it comes from. When nothing matches,
+  **Search Discover** looks the same text up in Discover's connector registries.
+- Connectors are grouped like the Connectors page, **Yours** and **From plugins & Copilot**, and each says
+  in one line what it is: your description, "Runs on this computer", "Online service", "From the azure
+  plugin", "From this project". Commands and URLs stay on the connector's page.
+- A switch turns each connector on or off for this chat only; clicking anywhere on the row does the same.
+  The line above the list counts what is on and offers **Turn all on** / **Turn all off**.
+- Typing searches, `↑`/`↓` move through the list, `Enter` switches the highlighted connector and `Esc`
+  closes. Nothing is highlighted until you move or type, so a stray `Enter` changes nothing.
+- **Find more** opens Discover's connectors, and **Manage** opens Customize > Connectors. Without any
+  connectors the list invites you to find some, and while Lumi is still discovering them it says so.
+
+### When a connector can't start
+
+A connector that fails in a chat never interrupts the conversation. The composer's connector button gets
+a small amber dot, and its tooltip says how many connectors need attention. Opening the button's list puts
+those connectors first, each with a plain one-line reason ("Couldn't start: “npx” wasn't found on this
+computer.", "Couldn't connect: access was denied (401).") and two actions:
+
+- **Fix with Lumi** opens a new chat, in the same project and checkout, that asks Lumi to find the root
+  cause, fix it and check that the connector starts. The request stays short; the complete error and the
+  connector's settings travel as an attached report, with credentials removed and environment variables
+  and headers listed by name only. Connectors with a problem stay off in that chat so they can't hold it
+  up, and the chat you were in, its draft and its work are left alone. When the repair turn ends, the
+  original chat shows "Reconnects with your next message" and rebuilds its session on that message, which
+  picks up both setting changes and fixed files. A repair that is still running is reopened instead of
+  starting a second one.
+- **Details** reveals the full technical error, selectable and copyable.
+
+States that need nothing from you — signing in through the browser, still starting, about to reconnect —
+read as quiet status lines without the dot or the action. A connector's status lasts as long as the
+session that reported it, so unrelated changes never make a broken connector look healthy. When Lumi
+changes a connector's environment variables or headers with `manage_mcps`, an entry such as
+`KEY=[REDACTED]` keeps the saved value instead of overwriting it, and a placeholder inside an argument or
+address is refused rather than saved over the real value.
+
 ### Sharing prompts, skills, agents and MCP servers
 
 **Share** (editor header, or right-click an item) opens a card with a receipt of what leaves the

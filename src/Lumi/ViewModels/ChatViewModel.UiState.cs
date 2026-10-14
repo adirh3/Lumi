@@ -881,6 +881,8 @@ public partial class ChatViewModel
 
         ActiveSkillChips.CollectionChanged += OnActiveSkillChipsCollectionChanged;
         ActiveMcpChips.CollectionChanged += OnActiveMcpChipsCollectionChanged;
+        // With no connectors at all, the connector button invites the user to find some.
+        AvailableMcpChips.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ConnectorsButtonToolTip));
         PendingAttachmentItems.CollectionChanged += OnPendingAttachmentItemsCollectionChanged;
 
         RefreshComposerCatalogs();
@@ -908,8 +910,12 @@ public partial class ChatViewModel
         ReplaceCollection(AvailableAgentChips, BuildCapabilityChips(capabilities, CapabilityKind.Agent));
         ReplaceCollection(AvailableSkillChips, BuildCapabilityChips(capabilities, CapabilityKind.Skill));
 
-        var mcpChips = BuildCapabilityChips(capabilities, CapabilityKind.McpServer);
+        var mcpChips = capabilities
+            .UserInvocable(CapabilityKind.McpServer)
+            .Select(capability => ToMcpChip(capability))
+            .ToList();
         ReplaceCollection(AvailableMcpChips, mcpChips);
+        IsConnectorCatalogLoading = !capabilities.IsComplete;
 
         var discoveredMcpNames = capabilities
             .UserInvocable(CapabilityKind.McpServer)
@@ -1058,7 +1064,7 @@ public partial class ChatViewModel
                     continue;
 
                 if (capabilities.FindMcpServer(chip.Name) is { } resolved)
-                    ActiveMcpChips[i] = ToMcpChip(resolved);
+                    ActiveMcpChips[i] = WithMcpIssue(ToMcpChip(resolved));
             }
         }
         finally
@@ -1424,6 +1430,8 @@ public partial class ChatViewModel
 
     private void OnActiveMcpChipsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
     {
+        OnMcpIssuesChanged();
+
         if (IsLoadingChat || _suppressActiveMcpCollectionSync)
             return;
 
@@ -1439,6 +1447,8 @@ public partial class ChatViewModel
 
         if (args.Action == NotifyCollectionChangedAction.Remove && args.OldItems is not null)
         {
+            var removed = args.OldItems.OfType<StrataComposerChip>().Select(chip => chip.Name).ToList();
+            ForgetMcpIssues(removed);
             foreach (var item in args.OldItems)
             {
                 if (item is StrataComposerChip chip)
@@ -1456,6 +1466,7 @@ public partial class ChatViewModel
 
         if (args.Action == NotifyCollectionChangedAction.Reset)
         {
+            ForgetMcpIssues(null);
             foreach (var name in ActiveMcpServerNames.ToList())
                 _ = SetMcpEnabledOnSessionAsync(name, enabled: false);
 

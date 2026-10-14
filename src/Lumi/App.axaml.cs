@@ -14,6 +14,7 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
+using StrataTheme.Controls;
 
 namespace Lumi;
 
@@ -63,6 +64,7 @@ public partial class App : Application
 
             Loc.Load(dataStore.Data.Settings.Language);
             Styles.Add(CreateModelPickerTextStyle());
+            Styles.Add(CreateConnectorPickerTextStyle());
             RequestedThemeVariant = dataStore.Data.Settings.IsDarkTheme
                 ? ThemeVariant.Dark
                 : ThemeVariant.Light;
@@ -110,6 +112,31 @@ public partial class App : Application
             new Setter(StrataTheme.Controls.StrataModelPicker.PinnedLabelProperty, Loc.ModelPicker_Pinned),
             new Setter(StrataTheme.Controls.StrataModelPicker.ReasoningLabelProperty, Loc.ModelPicker_Reasoning),
             new Setter(StrataTheme.Controls.StrataModelPicker.ContextLabelProperty, Loc.ModelPicker_Context)
+        }
+    };
+
+    /// <summary>
+    /// Localized labels for the connector list in every chat composer, applied like the model picker's.
+    /// The list's name, tooltip and error labels come from the composer, which each chat view sets.
+    /// </summary>
+    internal static Style CreateConnectorPickerTextStyle() => new(selector => selector.OfType<StrataConnectorPicker>())
+    {
+        Setters =
+        {
+            new Setter(StrataConnectorPicker.SearchWatermarkProperty, Loc.Mcp_SearchPlaceholder),
+            new Setter(StrataConnectorPicker.AttentionLabelProperty, Loc.ConnectorPicker_NeedsAttention),
+            new Setter(StrataConnectorPicker.SummaryFormatProperty, Loc.ConnectorPicker_Summary),
+            new Setter(StrataConnectorPicker.TurnAllOnLabelProperty, Loc.ConnectorPicker_TurnAllOn),
+            new Setter(StrataConnectorPicker.TurnAllOffLabelProperty, Loc.ConnectorPicker_TurnAllOff),
+            new Setter(StrataConnectorPicker.OffLabelProperty, Loc.ConnectorPicker_Off),
+            new Setter(StrataConnectorPicker.BrowseLabelProperty, Loc.ConnectorPicker_FindMore),
+            new Setter(StrataConnectorPicker.ManageLabelProperty, Loc.ConnectorPicker_Manage),
+            new Setter(StrataConnectorPicker.NoResultsFormatProperty, Loc.ConnectorPicker_NoResults),
+            new Setter(StrataConnectorPicker.SearchBrowseFormatProperty, Loc.ConnectorPicker_SearchDiscover),
+            new Setter(StrataConnectorPicker.EmptyTitleProperty, Loc.ConnectorPicker_EmptyTitle),
+            new Setter(StrataConnectorPicker.EmptyTextProperty, Loc.ConnectorPicker_EmptyText),
+            new Setter(StrataConnectorPicker.EmptyActionLabelProperty, Loc.ConnectorPicker_EmptyAction),
+            new Setter(StrataConnectorPicker.LoadingTextProperty, Loc.ConnectorPicker_Loading),
         }
     };
 
@@ -902,12 +929,28 @@ public partial class App : Application
         void OnDetachedOpenChatRequested(Guid requestedChatId) => ShowMainWindow(requestedChatId);
         chatVm.OpenChatRequested += OnDetachedOpenChatRequested;
 
+        windowVm.McpRepairHandler = repair =>
+        {
+            ShowMainWindow();
+            return _mainWindow?.DataContext is MainViewModel main
+                ? main.StartMcpRepairChatAsync(repair)
+                : Task.FromException(new InvalidOperationException(Loc.Connector_RepairStartFailed));
+        };
+        chatVm.McpRepairRequested += windowVm.StartMcpRepairChatAsync;
+
         void OnDetachedOpenAutomationsRequested()
         {
             ShowMainWindow();
             (_mainWindow?.DataContext as MainViewModel)?.ShowAutomations();
         }
         chatVm.OpenAutomationsRequested += OnDetachedOpenAutomationsRequested;
+
+        void OnDetachedConnectorsPageRequested(ConnectorsPageRequest pageRequest)
+        {
+            ShowMainWindow();
+            (_mainWindow?.DataContext as MainViewModel)?.ShowConnectorsPage(pageRequest);
+        }
+        chatVm.ConnectorsPageRequested += OnDetachedConnectorsPageRequested;
 
         Guid? trackedChatId = initialChatId;
         ChatWindow? window = null;
@@ -955,7 +998,9 @@ public partial class App : Application
             chatVm.ChatTitleChanged -= OnDetachedChatTitleChanged;
             chatVm.DefaultModelSelectionChanged -= OnDetachedDefaultModelSelectionChanged;
             chatVm.OpenChatRequested -= OnDetachedOpenChatRequested;
+            chatVm.McpRepairRequested -= windowVm.StartMcpRepairChatAsync;
             chatVm.OpenAutomationsRequested -= OnDetachedOpenAutomationsRequested;
+            chatVm.ConnectorsPageRequested -= OnDetachedConnectorsPageRequested;
             windowVm.Dispose();
             request.ReleaseSurface();
         };

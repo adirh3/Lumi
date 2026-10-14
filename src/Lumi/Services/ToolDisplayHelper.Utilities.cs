@@ -442,7 +442,7 @@ public static partial class ToolDisplayHelper
             or '\u2066' or '\u2067' or '\u2068' or '\u2069');
     }
 
-    private static string? RedactCommonSecrets(string? value)
+    internal static string? RedactCommonSecrets(string? value)
     {
         if (string.IsNullOrEmpty(value))
             return value;

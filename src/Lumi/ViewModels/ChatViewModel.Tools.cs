@@ -1040,8 +1040,8 @@ public partial class ChatViewModel
                     [Description("Command for a local/stdIO MCP server.")] string? command = null,
                     [Description("Command arguments for a local MCP server.")] string[]? args = null,
                     [Description("URL for a remote MCP server.")] string? url = null,
-                    [Description("Environment variables for local MCP servers in KEY=VALUE format.")] string[]? envEntries = null,
-                    [Description("Headers for remote MCP servers in KEY=VALUE format.")] string[]? headerEntries = null,
+                    [Description("Environment variables for local MCP servers in KEY=VALUE format. An update replaces the whole list; KEY=[REDACTED] keeps that variable's saved value.")] string[]? envEntries = null,
+                    [Description("Headers for remote MCP servers in KEY=VALUE format. An update replaces the whole list; KEY=[REDACTED] keeps that header's saved value.")] string[]? headerEntries = null,
                     [Description("Tool names exposed by this MCP server. Pass an empty array to allow all tools.")] string[]? toolNames = null,
                     [Description("Optional timeout in milliseconds.")] int? timeout = null,
                     [Description("Set to true to clear a previously configured timeout during update.")] bool? clearTimeout = null,
@@ -1872,9 +1872,9 @@ public partial class ChatViewModel
             foreach (var name in activeNames)
             {
                 ActiveMcpServerNames.Add(name);
-                ActiveMcpChips.Add(availableChips.TryGetValue(name, out var chip)
+                ActiveMcpChips.Add(WithMcpIssue(availableChips.TryGetValue(name, out var chip)
                     ? chip
-                    : ToMcpChip(name, capabilities.FindMcpServer(name)));
+                    : ToMcpChip(name, capabilities.FindMcpServer(name))));
             }
         }
         finally
