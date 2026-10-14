@@ -371,6 +371,14 @@ public sealed class DiscoverServicesTests
 
 
             Body text.
+
+            ```json title="config"
+            { "servers": {} }
+            ```
+
+            ```mermaid
+            graph LR
+            ```
             """;
 
         var cleaned = DiscoverViewModel.CleanReadme(readme, int.MaxValue);
@@ -380,6 +388,9 @@ public sealed class DiscoverServicesTests
         Assert.DoesNotContain("hidden", cleaned);
         Assert.Contains("Hello", cleaned);
         Assert.DoesNotContain("\n\n\n", cleaned);
+        // Code stays in its blocks without a language to highlight; diagrams keep theirs.
+        Assert.Contains("```\n{ \"servers\": {} }\n```", cleaned);
+        Assert.Contains("```mermaid\ngraph LR\n```", cleaned);
         Assert.EndsWith("…", DiscoverViewModel.CleanReadme(new string('a', 50) + "\n\n" + new string('b', 50), 60));
     }
 

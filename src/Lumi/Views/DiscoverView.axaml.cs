@@ -6,6 +6,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Lumi.ViewModels;
 using Lumi.Views.Management;
+using StrataTheme.Animation;
 
 namespace Lumi.Views;
 
@@ -14,6 +15,9 @@ public partial class DiscoverView : UserControl
 {
     /// <summary>How close to the end of the gallery the next page of cards is shown, in pixels.</summary>
     private const double RevealDistance = 600;
+
+    private const double CardRise = 10;
+    private static readonly TimeSpan CardEntrance = TimeSpan.FromMilliseconds(280);
 
     private readonly ScrollViewer _galleryScroll;
     private DiscoverViewModel? _viewModel;
@@ -34,6 +38,8 @@ public partial class DiscoverView : UserControl
             if (e.OffsetDelta.Y != 0 || e.ViewportDelta.Y != 0)
                 RevealMoreIfNearEnd();
         };
+        foreach (var gallery in new[] { "DiscoverGrid", "DiscoverPluginPreview", "DiscoverServerPreview" })
+            this.FindControl<ItemsControl>(gallery)!.ContainerPrepared += OnCardPrepared;
         DataContextChanged += (_, _) =>
         {
             if (_viewModel is not null)
@@ -42,6 +48,13 @@ public partial class DiscoverView : UserControl
             if (_viewModel is not null)
                 _viewModel.Cards.CollectionChanged += OnCardsChanged;
         };
+    }
+
+    /// <summary>A card rises into place as it is added, so results and each new page stream in.</summary>
+    private void OnCardPrepared(object? sender, ContainerPreparedEventArgs e)
+    {
+        if (ManagementMotion.IsEnabledFor(this))
+            SlideFadeEntrance.PlayComposited(e.Container, CardRise, CardEntrance);
     }
 
     private void OnCardsChanged(object? sender, NotifyCollectionChangedEventArgs e)

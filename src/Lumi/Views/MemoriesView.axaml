@@ -3,6 +3,7 @@
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:mgmt="using:Lumi.Views.Management"
              x:Class="Lumi.Views.MemoriesView"
              x:DataType="vm:MemoriesViewModel"
              x:CompileBindings="True">
@@ -41,7 +42,8 @@
   <Panel>
 
     <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
-    <Panel x:Name="MemoriesOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}">
+    <Panel x:Name="MemoriesOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}"
+           mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="32,30,32,40" Spacing="22">
@@ -200,7 +202,8 @@
     </Panel>
 
     <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
-    <Panel x:Name="MemoryDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+    <Panel x:Name="MemoryDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding SelectedMemory}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>

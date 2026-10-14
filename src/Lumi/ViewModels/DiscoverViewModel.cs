@@ -39,6 +39,12 @@ public sealed partial class DiscoverViewModel : ObservableObject
     private const int RegistryPageSize = 40;
     private static readonly TimeSpan SearchDelay = TimeSpan.FromMilliseconds(350);
 
+    /// <summary>
+    /// How long typing pauses before the plugins are ranked again. Each ranking rebuilds the cards,
+    /// so steady typing should rank once rather than per key.
+    /// </summary>
+    private static readonly TimeSpan RankingDelay = TimeSpan.FromMilliseconds(250);
+
     /// <summary>Cards the grid adds per page as it scrolls: whole rows at two, three or four columns.</summary>
     private const int GridPageSize = 24;
 
@@ -57,6 +63,17 @@ public sealed partial class DiscoverViewModel : ObservableObject
 
     /// <summary>Installed plugins and added servers no loaded listing stands for, by card key.</summary>
     private readonly Dictionary<string, DiscoverCard> _unlistedCards = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The plugins in search order for a query, and the card list they were ranked from.</summary>
+    private (string Query, List<DiscoverCard> Cards, List<DiscoverCard> Ranked)? _pluginRanking;
+
+    /// <summary>The ranking running in the background, so a refresh does not start it again.</summary>
+    private (string Query, List<DiscoverCard> Cards)? _pendingRanking;
+    private CancellationTokenSource? _rankingCts;
+
+    /// <summary>What the last refresh listed, for the counts and "See all" links.</summary>
+    private List<DiscoverCard> _shownPlugins = [];
+    private List<DiscoverCard> _shownServers = [];
     private CancellationTokenSource? _serverSearchCts;
     private Task? _loading;
     private bool _pluginsNeedConnection;
@@ -173,10 +190,10 @@ public sealed partial class DiscoverViewModel : ObservableObject
     public bool ShowGridEmpty => IsGrid && _gridItems.Count == 0 && !IsGridLoading;
     public bool IsGridLoading => (IsPlugins && IsLoadingPlugins) || (IsServers && IsLoadingServers) || (IsInstalled && IsLoadingPlugins) || IsPreparingGrid;
 
-    public string PluginSeeAllText => string.Format(CultureInfo.CurrentCulture, Loc.Discover_SeeAll, FilteredPlugins().Count());
+    public string PluginSeeAllText => string.Format(CultureInfo.CurrentCulture, Loc.Discover_SeeAll, _shownPlugins.Count);
     public string ServerSeeAllText => Loc.Discover_SeeAllServers;
-    public bool HasMorePlugins => FilteredPlugins().Skip(PreviewCount).Any();
-    public bool HasMoreServers => ServerCardsInView().Skip(PreviewCount).Any() || _registryResults.Values.Any(static results => results.NextCursor is not null);
+    public bool HasMorePlugins => _shownPlugins.Count > PreviewCount;
+    public bool HasMoreServers => _shownServers.Count > PreviewCount || _registryResults.Values.Any(static results => results.NextCursor is not null);
 
     /// <summary>The header of the grid: what is listed and how many.</summary>
     public string GridTitle => Filter switch
@@ -326,7 +343,11 @@ public sealed partial class DiscoverViewModel : ObservableObject
         if (IsViewingDetail)
             CloseDetail();
 
+        // A ranking still running is for an earlier query. The new query's plugins come from the cache
+        // or a fresh background ranking, and until that lands the list keeps what it shows.
+        CancelRanking();
         RefreshView(resetGrid: true);
+
         _serverSearchCts?.Cancel();
         _serverSearchCts = new CancellationTokenSource();
         var token = _serverSearchCts.Token;
@@ -410,24 +431,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
             var installed = await installedTask;
 
             _marketplaces = marketplaces.ToList();
-            _installed = installed.ToList();
-            var existing = _pluginCards.ToDictionary(static card => card.Key, StringComparer.OrdinalIgnoreCase);
-            _pluginCards = browsed
-                .SelectMany(static listings => listings)
-                .GroupBy(static listing => DiscoverCard.PluginKey(listing.Name, listing.Marketplace), StringComparer.OrdinalIgnoreCase)
-                .Select(group =>
-                {
-                    var listing = group.First();
-                    if (existing.TryGetValue(group.Key, out var card))
-                    {
-                        card.ApplyListing(listing);
-                        return card;
-                    }
-
-                    return DiscoverCard.ForPlugin(listing, OpenCardFromGallery);
-                })
-                .ToList();
-            ApplyInstallState();
+            ApplyPlugins(browsed.SelectMany(static listings => listings), installed);
             RebuildSourceRows();
             if (IsSources)
                 RebuildMarketplaceRows();
@@ -532,8 +536,10 @@ public sealed partial class DiscoverViewModel : ObservableObject
     /// <param name="resetGrid">The filter, source or search changed: the grid starts again at its first page.</param>
     private void RefreshView(bool resetGrid = false)
     {
-        var plugins = FilteredPlugins().ToList();
+        var plugins = FilteredPlugins();
         var servers = ServerCardsInView().ToList();
+        _shownPlugins = plugins;
+        _shownServers = servers;
 
         Replace(PluginPreview, plugins.Take(PreviewCount));
         Replace(ServerPreview, servers.Take(PreviewCount));
@@ -677,33 +683,90 @@ public sealed partial class DiscoverViewModel : ObservableObject
         }
     }
 
-    private IEnumerable<DiscoverCard> FilteredPlugins()
+    private List<DiscoverCard> FilteredPlugins()
     {
-        var cards = SourceKey is { } key && key.StartsWith("mp:", StringComparison.Ordinal)
-            ? _pluginCards.Where(card => "mp:" + card.Listing?.Marketplace == key)
-            : _pluginCards;
-
-        if (IsSearching)
-        {
-            return SearchPipeline.Rank(
-                cards,
-                SearchQuery,
-                static card =>
-                [
-                    SearchField.Primary(card.Title, 3.2),
-                    SearchField.Primary(card.Listing?.Name ?? "", 2.6),
-                    new SearchField(card.Description, 1.6),
-                    new SearchField(string.Join(' ', card.Listing?.Keywords ?? []), 1.4),
-                    new SearchField(card.Publisher ?? "", 1.1),
-                ],
-                static card => new SearchSortMetadata(Text: card.Title));
-        }
-
         // No popularity data exists for plugins, so the front page favours well-described ones.
-        return cards
-            .OrderByDescending(static card => card.IsAdded)
-            .ThenByDescending(static card => Richness(card))
-            .ThenBy(static card => card.Title, StringComparer.CurrentCultureIgnoreCase);
+        IEnumerable<DiscoverCard> cards = IsSearching
+            ? SearchedPlugins()
+            : _pluginCards
+                .OrderByDescending(static card => card.IsAdded)
+                .ThenByDescending(static card => Richness(card))
+                .ThenBy(static card => card.Title, StringComparer.CurrentCultureIgnoreCase);
+
+        return SourceKey is { } key && key.StartsWith("mp:", StringComparison.Ordinal)
+            ? cards.Where(card => "mp:" + card.Listing?.Marketplace == key).ToList()
+            : cards.ToList();
+    }
+
+    /// <summary>
+    /// The plugins in the order the search ranks them. Ranking a few hundred plugins takes long
+    /// enough to stall the window, and installs, registry results and every keystroke refresh the
+    /// view, so the ranking is computed once per query in the background and reused. Until the
+    /// query's ranking lands, the view keeps what it already shows.
+    /// </summary>
+    private IReadOnlyList<DiscoverCard> SearchedPlugins()
+    {
+        var query = SearchQuery.Trim();
+        if (_pluginRanking is { } ranking && ranking.Query == query && ReferenceEquals(ranking.Cards, _pluginCards))
+            return ranking.Ranked;
+
+        RankPluginsInBackground(query);
+        return _shownPlugins;
+    }
+
+    private void RankPluginsInBackground(string query)
+    {
+        var cards = _pluginCards;
+        if (_pendingRanking is { } pending && pending.Query == query && ReferenceEquals(pending.Cards, cards))
+            return;
+
+        CancelRanking();
+        var cancellation = _rankingCts = new CancellationTokenSource();
+        _pendingRanking = (query, cards);
+
+        // Cards change only on the UI thread, so their text is read here and ranked elsewhere.
+        var documents = cards
+            .Select(static card => (Card: card, Fields: PluginSearchFields(card), card.Title))
+            .ToArray();
+        _ = RankAsync();
+
+        async Task RankAsync()
+        {
+            try
+            {
+                await Task.Delay(RankingDelay, cancellation.Token);
+                var ranked = await Task.Run(
+                    () => SearchPipeline.Rank(documents, query, static document => document.Fields, static document => new SearchSortMetadata(Text: document.Title))
+                        .Select(static document => document.Card)
+                        .ToList(),
+                    cancellation.Token);
+                if (cancellation.IsCancellationRequested)
+                    return;
+
+                _pendingRanking = null;
+                _pluginRanking = (query, cards, ranked);
+                RefreshView();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+    }
+
+    private static SearchField[] PluginSearchFields(DiscoverCard card) =>
+    [
+        SearchField.Primary(card.Title, 3.2),
+        SearchField.Primary(card.Listing?.Name ?? "", 2.6),
+        new SearchField(card.Description, 1.6),
+        new SearchField(string.Join(' ', card.Listing?.Keywords ?? []), 1.4),
+        new SearchField(card.Publisher ?? "", 1.1),
+    ];
+
+    private void CancelRanking()
+    {
+        _rankingCts?.Cancel();
+        _rankingCts = null;
+        _pendingRanking = null;
     }
 
     private static int Richness(DiscoverCard card)
@@ -793,6 +856,31 @@ public sealed partial class DiscoverViewModel : ObservableObject
             card.Installation = _installed.FirstOrDefault(installation =>
                 DiscoverCard.PluginKey(installation.Name, installation.Marketplace) == card.Key);
         }
+    }
+
+    /// <summary>
+    /// Turns the marketplaces' listings and the installed plugins into cards. Cards built before are
+    /// kept and updated, so their avatars and state survive a reload.
+    /// </summary>
+    internal void ApplyPlugins(IEnumerable<PluginListing> listings, IReadOnlyList<PluginInstallation> installed)
+    {
+        _installed = installed.ToList();
+        var existing = _pluginCards.ToDictionary(static card => card.Key, StringComparer.OrdinalIgnoreCase);
+        _pluginCards = listings
+            .GroupBy(static listing => DiscoverCard.PluginKey(listing.Name, listing.Marketplace), StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var listing = group.First();
+                if (existing.TryGetValue(group.Key, out var card))
+                {
+                    card.ApplyListing(listing);
+                    return card;
+                }
+
+                return DiscoverCard.ForPlugin(listing, OpenCardFromGallery);
+            })
+            .ToList();
+        ApplyInstallState();
     }
 
     /// <summary>

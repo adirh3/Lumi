@@ -46,7 +46,8 @@
   <Panel>
 
     <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
-    <Panel x:Name="McpOverview" Classes="mg-surface" IsVisible="{Binding ShowOverview}">
+    <Panel x:Name="McpOverview" Classes="mg-surface" IsVisible="{Binding ShowOverview}"
+           mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="32,30,32,40" Spacing="24">
@@ -240,12 +241,14 @@
     </Panel>
 
     <!-- ══════════════════════ READ-ONLY (plugins, Copilot) ══════════════════════ -->
-    <Panel x:Name="McpExternalDetail" IsVisible="{Binding External.IsViewing}">
+    <Panel x:Name="McpExternalDetail" IsVisible="{Binding External.IsViewing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding External.OpenItem}">
       <mgmt:ExternalCapabilityDetail DataContext="{Binding External}" />
     </Panel>
 
     <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
-    <Panel x:Name="McpDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+    <Panel x:Name="McpDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding SelectedServer}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>

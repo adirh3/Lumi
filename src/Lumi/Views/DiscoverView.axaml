@@ -5,6 +5,7 @@
              xmlns:sa="using:StrataTheme.Animation"
              xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:mgmt="using:Lumi.Views.Management"
              x:Class="Lumi.Views.DiscoverView"
              x:DataType="vm:DiscoverViewModel"
              x:CompileBindings="True">
@@ -189,7 +190,8 @@
   <Panel>
 
     <!-- ══════════════════════════ GALLERY ══════════════════════════ -->
-    <Panel x:Name="DiscoverGallery" Classes="mg-surface" IsVisible="{Binding ShowGallery}">
+    <Panel x:Name="DiscoverGallery" Classes="mg-surface" IsVisible="{Binding ShowGallery}"
+           mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer x:Name="DiscoverScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="32,30,32,56" Spacing="22">
@@ -365,7 +367,8 @@
     </Panel>
 
     <!-- ══════════════════════════ SOURCES ══════════════════════════ -->
-    <Panel x:Name="DiscoverSources" Classes="mg-surface" IsVisible="{Binding IsSources}">
+    <Panel x:Name="DiscoverSources" Classes="mg-surface" IsVisible="{Binding IsSources}"
+           mgmt:ManagementMotion.Entrance="True">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>
@@ -550,7 +553,8 @@
     </Panel>
 
     <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
-    <Panel x:Name="DiscoverDetail" Classes="mg-surface" IsVisible="{Binding IsViewingDetail}">
+    <Panel x:Name="DiscoverDetail" Classes="mg-surface" IsVisible="{Binding IsViewingDetail}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding OpenCard}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -13,6 +14,7 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
+using StrataTheme.Animation;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -338,6 +340,84 @@ public sealed class ManagementPagesUiTests
 
                         Assert.True(clipping.Count == 0, $"Page {nav}: cards are clipped by {string.Join(" > ", clipping)}");
                     }
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            try { Directory.Delete(skillsDirectory, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task OpeningAnItem_RaisesItsSectionsIntoPlace_UnlessAnimationsAreOff()
+    {
+        using var session = HeadlessTestSession.Start();
+        var skillsDirectory = Path.Combine(Path.GetTempPath(), $"lumi-management-ui-{Guid.NewGuid():N}");
+
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                Loc.Load("en");
+                var tone = new Skill { Name = "Tone", Content = "# Tone\nBe kind." };
+                var brief = new Skill { Name = "Brief", Content = "# Brief\nKeep it short." };
+                var data = new AppData
+                {
+                    Settings = new UserSettings { IsOnboarded = true, AutoSaveChats = false, EnableMemoryAutoSave = false },
+                    Skills = [tone, brief]
+                };
+                using var vm = new MainViewModel(
+                    new DataStore(data, skillsDirectory),
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    startBackgroundJobs: false,
+                    initializeCopilotOnStartup: false);
+                var window = new MainWindow { DataContext = vm, Width = 1280, Height = 860 };
+                window.Show();
+
+                try
+                {
+                    async Task Settle()
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                        window.UpdateLayout();
+                    }
+
+                    List<Control> DetailSections()
+                        => ((Panel)window.GetVisualDescendants().OfType<ScrollViewer>().Single(scroll => scroll.Name == "SkillDetailScroll").Content!)
+                            .Children.Where(static section => section.IsVisible).ToList();
+
+                    vm.SelectedNavIndex = 3;
+                    await Settle();
+
+                    // The page is built on first open, and its sections still rise in one after another.
+                    vm.SkillsVM.SelectedSkill = tone;
+                    await Settle();
+                    var sections = DetailSections();
+                    Assert.True(sections.Count > 1);
+                    Assert.All(sections, section => Assert.True(SlideFadeEntrance.IsCompositedRunning(section)));
+
+                    // Moving to another skill plays it again.
+                    sections.ForEach(SlideFadeEntrance.StopComposited);
+                    vm.SkillsVM.SelectedSkill = brief;
+                    await Settle();
+                    Assert.All(sections, section => Assert.True(SlideFadeEntrance.IsCompositedRunning(section)));
+
+                    // Leaving the page stops its motion.
+                    vm.SkillsVM.CloseDetailCommand.Execute(null);
+                    await Settle();
+                    Assert.All(sections, section => Assert.False(SlideFadeEntrance.IsCompositedRunning(section)));
+
+                    vm.SettingsVM.ShowAnimations = false;
+                    vm.SkillsVM.SelectedSkill = tone;
+                    await Settle();
+                    Assert.All(DetailSections(), section => Assert.False(SlideFadeEntrance.IsCompositedRunning(section)));
                 }
                 finally
                 {

@@ -131,13 +131,13 @@ public sealed partial class DiscoverViewModel
     public bool IsRemotePlan => RunsServer?.ServerType == "remote";
 
     /// <summary>The package runner the server needs is not installed.</summary>
-    public string? RuntimeWarning => Plan is { RuntimeCommand: { } command } && !CommandLocator.IsAvailable(command)
-        ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_RuntimeMissing, RuntimeName(command))
-        : null;
+    [ObservableProperty] private string? _runtimeWarning;
 
     public bool HasRuntimeWarning => RuntimeWarning is not null;
 
-    public string ReadmeMarkdown => OpenCard?.Server?.Readme is { Length: > 0 } readme ? CleanReadme(readme, IsReadmeExpanded ? int.MaxValue : ReadmePreviewLength) : "";
+    /// <summary>The README as the page shows it, cleaned when the item opens or expands rather than on every refresh.</summary>
+    [ObservableProperty] private string _readmeMarkdown = "";
+
     public bool HasReadme => ReadmeMarkdown.Length > 0;
     public bool IsReadmeLong => (OpenCard?.Server?.Readme?.Length ?? 0) > ReadmePreviewLength;
     public string ReadmeToggleText => IsReadmeExpanded ? Loc.Mg_ShowLess : Loc.Mg_ShowMore;
@@ -198,6 +198,7 @@ public sealed partial class DiscoverViewModel
                 _ = InspectAsync(card, version);
         }
 
+        UpdateReadme();
         NotifyDetail();
     }
 
@@ -210,6 +211,7 @@ public sealed partial class DiscoverViewModel
         Parts.Clear();
         NextSteps.Clear();
         RequiredInputs.Clear();
+        UpdateReadme();
         NotifyDetail();
     }
 
@@ -536,9 +538,16 @@ public sealed partial class DiscoverViewModel
 
     partial void OnIsReadmeExpandedChanged(bool value)
     {
-        OnPropertyChanged(nameof(ReadmeMarkdown));
+        UpdateReadme();
         OnPropertyChanged(nameof(ReadmeToggleText));
     }
+
+    private void UpdateReadme()
+        => ReadmeMarkdown = OpenCard?.Server?.Readme is { Length: > 0 } readme
+            ? CleanReadme(readme, IsReadmeExpanded ? int.MaxValue : ReadmePreviewLength)
+            : "";
+
+    partial void OnReadmeMarkdownChanged(string value) => OnPropertyChanged(nameof(HasReadme));
 
     partial void OnOpenCardChanged(DiscoverCard? value) => NotifyDetail();
     partial void OnIsConfirmingRemoveChanged(bool value) => OnPropertyChanged(nameof(RemoveConfirmText));
@@ -546,7 +555,16 @@ public sealed partial class DiscoverViewModel
     partial void OnPostInstallMessageChanged(string? value) => OnPropertyChanged(nameof(HasPostInstallMessage));
     partial void OnActionErrorChanged(string? value) => OnPropertyChanged(nameof(HasActionError));
     partial void OnDetailLogoChanged(Bitmap? value) => OnPropertyChanged(nameof(HasDetailLogo));
-    partial void OnPlanChanged(McpInstallPlan? value) => NotifyDetail();
+    partial void OnRuntimeWarningChanged(string? value) => OnPropertyChanged(nameof(HasRuntimeWarning));
+
+    partial void OnPlanChanged(McpInstallPlan? value)
+    {
+        // Looking for the runner searches PATH, so it is done once per plan rather than per refresh.
+        RuntimeWarning = value is { RuntimeCommand: { } command } && !CommandLocator.IsAvailable(command)
+            ? string.Format(CultureInfo.CurrentCulture, Loc.Discover_RuntimeMissing, RuntimeName(command))
+            : null;
+        NotifyDetail();
+    }
 
     private void NotifyDetail()
     {
@@ -577,10 +595,6 @@ public sealed partial class DiscoverViewModel
         OnPropertyChanged(nameof(RunsCommand));
         OnPropertyChanged(nameof(HasRunsCommand));
         OnPropertyChanged(nameof(IsRemotePlan));
-        OnPropertyChanged(nameof(RuntimeWarning));
-        OnPropertyChanged(nameof(HasRuntimeWarning));
-        OnPropertyChanged(nameof(ReadmeMarkdown));
-        OnPropertyChanged(nameof(HasReadme));
         OnPropertyChanged(nameof(IsReadmeLong));
         OnPropertyChanged(nameof(ReadmeToggleText));
     }
@@ -597,13 +611,16 @@ public sealed partial class DiscoverViewModel
 
     /// <summary>
     /// A README is written for GitHub's renderer: badges, inline HTML and images do not belong in a
-    /// preview, so they are dropped and the text is cut at a paragraph near the limit.
+    /// preview, so they are dropped and the text is cut at a paragraph near the limit. Code keeps
+    /// its blocks but loses its language, because highlighting a long README froze the window when
+    /// it opened; diagrams keep theirs, to draw as they do on GitHub.
     /// </summary>
     internal static string CleanReadme(string readme, int maxLength)
     {
         var text = Regex.Replace(readme, @"\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)", "");
         text = Regex.Replace(text, @"<!--.*?-->|<[^>]+>", "", RegexOptions.Singleline);
-        text = Regex.Replace(text.Replace("\r\n", "\n"), @"\n{3,}", "\n\n").Trim();
+        text = Regex.Replace(text.Replace("\r\n", "\n"), @"^([ \t]*`{3,})(?![ \t]*mermaid[ \t]*$)[^\n`]*$", "$1", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"\n{3,}", "\n\n").Trim();
         if (text.Length <= maxLength)
             return text;
 

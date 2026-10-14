@@ -1317,10 +1317,11 @@ public partial class MainWindow : Window
         if (DataContext is MainViewModel { SettingsVM.ShowAnimations: false })
             return;
 
+        // On the render thread: a page that takes a moment to build still rises in once it shows.
         if (page is not null)
-            SlideFadeEntrance.Play(page, 10, TimeSpan.FromMilliseconds(240));
+            SlideFadeEntrance.PlayComposited(page, 10, TimeSpan.FromMilliseconds(240));
         if (sidebar is not null)
-            SlideFadeEntrance.Play(sidebar, 6, TimeSpan.FromMilliseconds(190));
+            SlideFadeEntrance.PlayComposited(sidebar, 6, TimeSpan.FromMilliseconds(190));
     }
 
     private async void AnimateSidebarCollapse(bool collapse)

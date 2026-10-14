@@ -119,6 +119,52 @@ public sealed class DiscoverGridUiTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task Search_RanksPluginsInTheBackground_AndKeepsTheListUntilTheRankingLands()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            var vm = new DiscoverViewModel(
+                new DataStore(
+                    new AppData { Settings = new UserSettings { McpRegistryUrls = ["https://registry.test"] } },
+                    Path.Combine(Path.GetTempPath(), $"lumi-discover-grid-{Guid.NewGuid():N}")),
+                new PluginCatalogService(static () => null, static () => { }),
+                new McpRegistryClient(new HttpClient(new StubRegistry(_ => Page(0, 0, cursor: null)))),
+                static () => null);
+            await vm.EnsureLoadedAsync();
+            var listings = Enumerable.Range(0, 200)
+                .Select(i => Plugin($"helper-{i:000}", "Keeps things tidy"))
+                .Append(Plugin("weather-forecast", "Forecasts for any city"))
+                .ToList();
+            vm.ApplyPlugins(listings, []);
+            vm.ShowAllCommand.Execute(null);
+            var shown = vm.PluginPreview.ToList();
+            Assert.Equal(DiscoverViewModel.PreviewCount, shown.Count);
+
+            // Typing never ranks on the UI thread: the list keeps what it shows until the ranking lands.
+            vm.SearchQuery = "weather";
+            Assert.Equal(shown, vm.PluginPreview);
+            await WaitFor(() => vm.PluginPreview.Count == 1);
+            Assert.Equal("weather-forecast", vm.PluginPreview[0].Listing!.Name);
+
+            // Coming back to a query already ranked shows its plugins at once.
+            vm.SearchQuery = "weath";
+            vm.SearchQuery = "weather";
+            Assert.Equal("weather-forecast", Assert.Single(vm.PluginPreview).Listing!.Name);
+
+            // Plugins that load later are ranked for the query too.
+            vm.ApplyPlugins(listings.Append(Plugin("weather-radar", "Rain maps")), []);
+            vm.ShowAllCommand.Execute(null);
+            await WaitFor(() => vm.PluginPreview.Count == 2);
+
+            // Clearing the search shows everything again at once.
+            vm.SearchQuery = "";
+            Assert.Equal(shown, vm.PluginPreview);
+        }, CancellationToken.None);
+    }
+
     private static async Task WaitFor(Func<bool> condition)
     {
         var elapsed = Stopwatch.StartNew();
@@ -129,6 +175,9 @@ public sealed class DiscoverGridUiTests
             await Task.Delay(5);
         }
     }
+
+    private static PluginListing Plugin(string name, string description)
+        => new(name, "market", description, "1.0.0", null, null, null, null, null, [], null);
 
     private static string Page(int first, int count, string? cursor, string owner = "acme")
     {

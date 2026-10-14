@@ -5,6 +5,7 @@
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:mgmt="using:Lumi.Views.Management"
              x:Class="Lumi.Views.ProjectsView"
              x:DataType="vm:ProjectsViewModel"
              x:CompileBindings="True">
@@ -49,7 +50,8 @@
   <Panel>
 
     <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
-    <Panel x:Name="ProjectsOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}">
+    <Panel x:Name="ProjectsOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}"
+           mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="32,30,32,40" Spacing="24">
@@ -182,7 +184,8 @@
     </Panel>
 
     <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
-    <Panel x:Name="ProjectDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+    <Panel x:Name="ProjectDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding SelectedProject}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>
