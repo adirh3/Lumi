@@ -243,8 +243,9 @@ place is highlighted and named when the sidebar is wide enough; a narrower sideb
 and the collapsed sidebar shows the same places as a rail.
 
 - **Projects** keep related chats together. The project switcher at the top of the chat list narrows
-  the list to a project, shown by its initial in its own color, and while it shows every chat it says
-  how many projects you have. Opened, it grows over the chat list into a searchable list of projects.
+  the list to a project, shown by its initial in its own color; while it shows every chat it says how
+  many projects you have, and each chat names its project beside a folder in that color.
+  Opened, it grows over the chat list into a searchable list of projects.
   Projects are set up in **Customize → Projects**: in that list the project you're in keeps its gear in
   view and every other project shows one on hover, and its **New project** and **Manage projects** open
   the section too.

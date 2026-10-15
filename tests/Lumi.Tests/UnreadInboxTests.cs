@@ -300,6 +300,7 @@ public sealed class UnreadInboxTests
             var hidden = vm.UnreadChats.Single(entry => entry.Chat.Id == inHome.Id);
             Assert.True(hidden.IsOutsideActiveFilter);
             Assert.Equal("Home", hidden.ProjectName);
+            Assert.Equal(LaunchpadProjectBadge.HueFor(home.Id).ToString(), hidden.ProjectColor);
 
             var visible = vm.UnreadChats.Single(entry => entry.Chat.Id == inWork.Id);
             Assert.False(visible.IsOutsideActiveFilter);

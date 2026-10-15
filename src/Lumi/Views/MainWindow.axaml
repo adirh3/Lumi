@@ -179,6 +179,64 @@
       <Setter Property="Margin" Value="1,0" />
       <Setter Property="MinHeight" Value="0" />
     </Style>
+
+    <!-- ── Chat list ──
+         Calm rows on the sidebar glass: a neutral wash under the pointer, and the open chat lit with the
+         switcher's open-project tint plus the slim marker that slides between rows. The sidebar is thin
+         glass over whatever is behind Lumi (a white page turns it mid-grey), so what must stay readable
+         stands on a solid surface: the open chat (ChatList.SelectedFill, App.axaml) and the project and
+         tag chips, which share the switcher's control surface. Rows keep the switcher's edges, 14px in
+         from either side, with a hairline gap so neighbouring washes never merge. -->
+    <Style Selector="ListBox.chat-list ListBoxItem">
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="Margin" Value="0,1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="ListBox.chat-list ListBoxItem /template/ Border#LayoutRoot">
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="0.2,0 0,1" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="ListBox.chat-list ListBoxItem:pointerover /template/ Border#LayoutRoot">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    </Style>
+    <Style Selector="ListBox.chat-list ListBoxItem:pressed /template/ Border#LayoutRoot">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+    </Style>
+    <Style Selector="ListBox.chat-list ListBoxItem:selected /template/ Border#LayoutRoot, ListBox.chat-list ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
+      <Setter Property="Background" Value="{DynamicResource ChatList.SelectedFill}" />
+    </Style>
+    <Style Selector="ListBox.chat-list ListBoxItem /template/ Border#PART_SelectedPipe">
+      <Setter Property="Width" Value="3" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="CornerRadius" Value="1.5" />
+    </Style>
+    <Style Selector="ListBox.chat-list TextBlock.chat-row-title.unread">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="ListBox.chat-list Border.chat-row-chip">
+      <Setter Property="Background" Value="{DynamicResource Brush.ControlDefault}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Padding" Value="6,1,8,1" />
+    </Style>
+    <Style Selector="ListBox.chat-list Border.chat-row-chip TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="DockPanel.chat-row-meta.tagged > Border#ProjectBadge">
+      <Setter Property="MaxWidth" Value="150" />
+    </Style>
+    <!-- The "Pinned" heading already says why these rows lead, so their pin stays quiet. -->
+    <Style Selector="ListBox.chat-list PathIcon.chat-row-pin">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="ListBox.chat-list ListBoxItem:pointerover PathIcon.chat-row-pin, ListBox.chat-list ListBoxItem:selected PathIcon.chat-row-pin">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
     <!-- Nav pill — always visible, glass effect -->
     <Style Selector="Border.nav-pill">
       <Setter Property="CornerRadius" Value="20" />
@@ -630,8 +688,8 @@
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
     </Style>
     <!-- The faded scrollbar overlays the rows' edge instead of reserving a column, so the rows sit evenly
-         inside the switcher. -->
-    <Style Selector="ScrollViewer.project-switcher-scroll /template/ ScrollContentPresenter#PART_ContentPresenter">
+         inside the switcher, and the chat list keeps the switcher's edges whether or not it scrolls. -->
+    <Style Selector="ScrollViewer.project-switcher-scroll /template/ ScrollContentPresenter#PART_ContentPresenter, ScrollViewer.hover-scroll#ChatListScroller /template/ ScrollContentPresenter#PART_ContentPresenter">
       <Setter Property="Grid.ColumnSpan" Value="2" />
     </Style>
     <!-- Every project in the drawer can be set up from it. The open project keeps its gear in view;
@@ -1200,7 +1258,7 @@
           <Border DockPanel.Dock="Top" IsHitTestVisible="False" Height="38" />
 
           <!-- ── Search button (opens command palette). Left margin leaves room for the sidebar toggle. ── -->
-          <Border DockPanel.Dock="Top" Margin="54,4,16,4">
+          <Border DockPanel.Dock="Top" Margin="54,4,14,4">
             <Button Classes="subtle" HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Stretch"
                     CornerRadius="{DynamicResource Radius.Base}"
@@ -1396,7 +1454,7 @@
           <!-- ── 0: Chat sidebar ── -->
           <Panel x:Name="SidebarChat">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,10,16,0" LastChildFill="True">
+              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0" LastChildFill="True">
                 <Button DockPanel.Dock="Right"
                         x:Name="ChatActionsButton"
                         Classes="subtle"
@@ -1637,13 +1695,13 @@
                                                       Width="9" Height="9"
                                                       VerticalAlignment="Center"
                                                       IsVisible="{Binding HasProject}"
-                                                      Foreground="{DynamicResource Brush.AccentDefault}" />
+                                                      Foreground="{Binding ProjectColor, Converter={StaticResource ChatTagBrush}}" />
                                             <TextBlock Text="{Binding ProjectName}"
                                                        IsVisible="{Binding HasProject}"
                                                        FontSize="10"
                                                        MaxWidth="118"
                                                        VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource Brush.AccentDefault}"
+                                                       Foreground="{DynamicResource Brush.TextTertiary}"
                                                        TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{loc:Str Unread_NoProject}"
                                                        IsVisible="{Binding !HasProject}"
@@ -1684,14 +1742,14 @@
                   </Border>
 
                   <ScrollViewer x:Name="ChatListScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                                Classes="hover-scroll" Margin="0,8,0,0">
-                    <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
+                                Classes="hover-scroll" Margin="0,4,0,0">
+                    <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="14,0,14,8">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate>
                           <StackPanel x:DataType="vm:ChatGroup" Margin="0,0,0,2">
                             <TextBlock Text="{Binding Label}" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
                                        Foreground="{DynamicResource Brush.TextTertiary}"
-                                       Margin="10,10,0,4" />
+                                       Margin="10,12,10,4" />
                             <ListBox Classes="sidebar-list chat-list"
                                      ItemsSource="{Binding Chats}"
                                      SelectionMode="Single"
@@ -1796,56 +1854,49 @@
                                       </ContextMenu>
                                     </Panel.ContextMenu>
                                     <DockPanel>
-                                      <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*">
+                                      <!-- Where the chat lives, then how it is labelled, as quiet chips on the switcher's
+                                           solid control surface so they stay readable over whatever shows through the
+                                           sidebar. The folder wears the project's own hue, the one the project switcher,
+                                           the chat header and the launchpad give it. The project leads so its folder lines
+                                           up from row to row; with a tag beside it the name is capped
+                                           (chat-row-meta.tagged) and the tag trims into what is left. -->
+                                      <DockPanel DockPanel.Dock="Bottom"
+                                                 Classes="chat-row-meta"
+                                                 Classes.tagged="{Binding HasTag}">
+                                        <Border x:Name="ProjectBadge"
+                                                Classes="chat-row-chip"
+                                                DockPanel.Dock="Left"
+                                                IsVisible="{Binding ShowProjectBadge}"
+                                                ToolTip.Tip="{Binding ProjectBadgeText}"
+                                                Margin="0,4,6,0">
+                                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="5" VerticalAlignment="Center">
+                                            <PathIcon Grid.Column="0"
+                                                      Data="{StaticResource Icon.Folder}"
+                                                      Width="10" Height="10"
+                                                      VerticalAlignment="Center"
+                                                      Foreground="{Binding ProjectBadgeColor, Converter={StaticResource ChatTagBrush}}" />
+                                            <TextBlock x:Name="ProjectLabel"
+                                                       Grid.Column="1"
+                                                       Text="{Binding ProjectBadgeText}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                          </Grid>
+                                        </Border>
                                         <Border x:Name="ChatTagBadge"
-                                                Grid.Column="0"
+                                                Classes="chat-row-chip"
                                                 IsVisible="{Binding HasTag}"
                                                 ToolTip.Tip="{Binding TagName}"
                                                 HorizontalAlignment="Left"
-                                                MaxWidth="105"
-                                                Margin="0,5,5,1"
-                                                Padding="7,2,9,2"
-                                                CornerRadius="{DynamicResource Radius.Full}"
-                                                Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}, ConverterParameter=subtle}">
-                                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" VerticalAlignment="Center">
+                                                Margin="0,4,0,0">
+                                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="5" VerticalAlignment="Center">
                                             <Border Grid.Column="0" Width="6" Height="6" CornerRadius="3"
                                                     VerticalAlignment="Center"
                                                     Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}}" />
                                             <TextBlock Grid.Column="1"
                                                        Text="{Binding TagName}"
-                                                       FontSize="10.5"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource Brush.TextPrimary}"
                                                        TextTrimming="CharacterEllipsis" />
                                           </Grid>
                                         </Border>
-                                        <Border x:Name="ProjectBadge"
-                                                Grid.Column="1"
-                                                IsVisible="{Binding ShowProjectBadge}"
-                                                ToolTip.Tip="{Binding ProjectBadgeText}"
-                                                HorizontalAlignment="Left"
-                                                Margin="0,5,0,1"
-                                                Padding="7,2,9,2"
-                                                CornerRadius="{DynamicResource Radius.Full}"
-                                                Background="{DynamicResource Brush.AccentSubtle}">
-                                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" VerticalAlignment="Center">
-                                            <PathIcon Grid.Column="0"
-                                                      Data="{StaticResource Icon.Folder}"
-                                                      Width="10" Height="10"
-                                                      VerticalAlignment="Center"
-                                                      Foreground="{DynamicResource Brush.AccentDefault}" />
-                                            <TextBlock x:Name="ProjectLabel"
-                                                       Grid.Column="1"
-                                                       Text="{Binding ProjectBadgeText}"
-                                                       FontSize="10.5"
-                                                       FontWeight="Medium"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource Brush.AccentDefault}"
-                                                       TextTrimming="CharacterEllipsis" />
-                                          </Grid>
-                                        </Border>
-                                      </Grid>
+                                      </DockPanel>
                                       <Border x:Name="UnreadIndicator" DockPanel.Dock="Left"
                                               Width="6" Height="6" CornerRadius="3"
                                               Background="{DynamicResource Brush.AccentDefault}"
@@ -1878,12 +1929,11 @@
                                                 ToolTip.Tip="{loc:Str Chat_PausedIndicatorTooltip}" />
                                       <PathIcon x:Name="PinnedChatIndicator"
                                                 DockPanel.Dock="Right"
+                                                Classes="chat-row-pin"
                                                 Data="{StaticResource Icon.Pin}"
-                                                Width="12" Height="12"
+                                                Width="11" Height="11"
                                                 Margin="8,0,0,0"
                                                 VerticalAlignment="Center"
-                                                Foreground="{DynamicResource Brush.AccentDefault}"
-                                                Opacity="0.9"
                                                 IsVisible="{Binding IsPinned}"
                                                 ToolTip.Tip="{loc:Str Chat_PinnedTooltip}" />
                                       <Border x:Name="BackgroundChatIndicator" DockPanel.Dock="Right"
@@ -1893,7 +1943,10 @@
                                               VerticalAlignment="Center"
                                               IsVisible="{Binding HasBackgroundActivity}"
                                               ToolTip.Tip="{loc:Str Chat_BackgroundActivityTooltip}" />
-                                      <TextBlock Text="{Binding Title}"
+                                      <TextBlock x:Name="ChatTitleText"
+                                                 Classes="chat-row-title"
+                                                 Classes.unread="{Binding HasUnreadMessages}"
+                                                 Text="{Binding Title}"
                                                  ToolTip.Tip="{Binding Title}"
                                                  TextTrimming="CharacterEllipsis"
                                                  VerticalAlignment="Center" />

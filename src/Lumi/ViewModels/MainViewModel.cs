@@ -1709,6 +1709,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // "All projects" view (no active project filter). Setting these observable properties lets
         // the sidebar bind directly to each Chat, so the badge stays correct across virtualization,
         // container recycling, and group reshuffles (e.g. a chat bumped into "Today" on send).
+        // The folder wears the project's own hue, as the chat header and the launchpad do.
         var showBadges = !SelectedProjectFilter.HasValue;
         foreach (var chat in ordered)
         {
@@ -1716,6 +1717,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var name = showBadges ? GetProjectName(chat.ProjectId) : null;
             chat.ProjectBadgeText = name;
             chat.ShowProjectBadge = name is not null;
+            chat.ProjectBadgeColor = name is not null && chat.ProjectId is { } projectId
+                ? LaunchpadProjectBadge.HueFor(projectId).ToString()
+                : null;
         }
 
         // Group by time period

@@ -633,6 +633,7 @@ public class Chat : INotifyPropertyChanged
     private bool _isPinned;
     private bool _showProjectBadge;
     private string? _projectBadgeText;
+    private string? _projectBadgeColor;
     private List<string> _activeExternalSkillNames = [];
     private List<string> _followUpSuggestions = [];
 
@@ -903,6 +904,14 @@ public class Chat : INotifyPropertyChanged
     {
         get => _projectBadgeText;
         set { if (_projectBadgeText == value) return; _projectBadgeText = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProjectBadgeText))); }
+    }
+
+    /// <summary>Runtime-only: the project's identity hue (#AARRGGBB) that tints the sidebar folder badge.</summary>
+    [JsonIgnore]
+    public string? ProjectBadgeColor
+    {
+        get => _projectBadgeColor;
+        set { if (_projectBadgeColor == value) return; _projectBadgeColor = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProjectBadgeColor))); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

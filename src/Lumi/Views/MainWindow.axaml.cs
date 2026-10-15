@@ -2180,8 +2180,7 @@ public partial class MainWindow : Window
                 if (container.DataContext is Chat chat && chat.Id == chatId)
                 {
                     titleBlock = container.GetVisualDescendants().OfType<TextBlock>()
-                        .FirstOrDefault(tb => tb.Name != "ProjectLabel" &&
-                                             tb.GetValue(DockPanel.DockProperty) != Dock.Bottom);
+                        .FirstOrDefault(tb => tb.Name == "ChatTitleText");
                     break;
                 }
             }

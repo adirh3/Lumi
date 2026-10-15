@@ -26,6 +26,11 @@ public sealed class UnreadChatEntry
 
     public bool HasProject => ProjectName is not null;
 
+    /// <summary>The project's identity hue (#AARRGGBB) for the row's folder, as in the chat list.</summary>
+    public string? ProjectColor => HasProject && Chat.ProjectId is { } projectId
+        ? LaunchpadProjectBadge.HueFor(projectId).ToString()
+        : null;
+
     /// <summary>True when this chat is hidden by the sidebar's active project filter.</summary>
     public bool IsOutsideActiveFilter { get; init; }
 
