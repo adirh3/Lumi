@@ -1767,6 +1767,7 @@
                             ReplyLabel="{loc:Str Chat_Reply}"
                             ReplySelectionLabel="{loc:Str Chat_ReplyToSelection}"
                             IsReplySource="{Binding IsReplySource}"
+                            IsProgressUpdate="{Binding IsProgress}"
                             IsStreaming="{Binding IsStreaming}">
         <sc:StrataChatMessage.Content>
           <StackPanel Spacing="6">
@@ -2232,16 +2233,19 @@
     <DataTemplate DataType="vm:TurnSummaryItem">
       <sc:StrataTurnSummary Label="{Binding Label}"
                             IsExpanded="{Binding IsExpanded}"
-                            HasFailures="{Binding HasFailures}">
+                            HasFailures="{Binding HasFailures}"
+                            Classes.motion-disabled="{Binding !$parent[views:ChatView].((vm:ChatViewModel)DataContext).AreAnimationsEnabled}">
         <sc:StrataTurnSummary.Content>
+          <!-- Long work scrolls within a bounded area, so the row's header is never far away. The
+               steps appear from the top a few at a time, so opening hours of work stays instant. -->
           <ScrollViewer MaxHeight="{StaticResource Chat.ToolGroupContentMaxHeight}"
                         VerticalScrollBarVisibility="Auto"
                         HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding InnerItems}">
-              <ItemsControl.ItemsPanel>
+            <lc:ProgressiveItemsControl Source="{Binding InnerItems}">
+              <lc:ProgressiveItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-            </ItemsControl>
+              </lc:ProgressiveItemsControl.ItemsPanel>
+            </lc:ProgressiveItemsControl>
           </ScrollViewer>
         </sc:StrataTurnSummary.Content>
       </sc:StrataTurnSummary>

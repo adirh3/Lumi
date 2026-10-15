@@ -163,6 +163,13 @@ public partial class ChatViewModel
     internal static void FinalizeTerminalReasoningMessage(ChatMessage reasoningMessage)
         => reasoningMessage.IsStreaming = false;
 
+    /// <summary>Restyles the earlier pieces of a split reply once a later piece revealed them as progress.</summary>
+    private void RefreshDemotedAssistantPieces(Chat chat, List<ChatMessage> demoted)
+    {
+        if (demoted.Count > 0 && CurrentChat?.Id == chat.Id)
+            _transcriptBuilder.RefreshAssistantProgress(demoted);
+    }
+
     internal static string? NormalizeAssistantContent(string? content)
         => content?.Trim('\n', '\r');
 
@@ -1062,6 +1069,19 @@ public partial class ChatViewModel
                     if (!IsRootAgentEvent(msg))
                         break;
                     var capturedFinalContent = msg.Data.Content;
+                    var capturedPhase = msg.Data.Phase;
+                    var capturedRequestedTools = msg.Data.ToolRequests is { Length: > 0 };
+                    var capturedApiCallId = msg.Data.ApiCallId;
+                    var capturedIsProgress = AssistantProgress.IsProgress(capturedPhase, capturedRequestedTools);
+                    // A reply split around reasoning carries its tool requests on the last piece, which may
+                    // have no text of its own; the earlier pieces it continues were progress too.
+                    if (capturedRequestedTools)
+                    {
+                        Dispatcher.UIThread.Post(() => RefreshDemotedAssistantPieces(
+                            chat,
+                            AssistantProgress.DemoteEarlierPiecesOfCall(
+                                chat.Messages, capturedPhase, capturedRequestedTools, capturedApiCallId)));
+                    }
                     // Older CLI versions can emit an empty assistant envelope immediately before the
                     // substantive message for the same turn. Finalizing from buffered deltas here
                     // commits the stream once, then the following content event creates it again.
@@ -1095,6 +1115,8 @@ public partial class ChatViewModel
                                 Author = agentName,
                                 Content = finalContent,
                                 IsStreaming = false,
+                                IsProgress = capturedIsProgress,
+                                ApiCallId = capturedApiCallId,
                                 Model = turnModelId
                             };
                             if (pendingFetchedSkillRefs.Count > 0)
@@ -1114,6 +1136,8 @@ public partial class ChatViewModel
                         {
                             streamingMsg.Content = finalContent;
                             streamingMsg.IsStreaming = false;
+                            streamingMsg.IsProgress = capturedIsProgress;
+                            streamingMsg.ApiCallId = capturedApiCallId;
                             if (pendingFetchedSkillRefs.Count > 0)
                             {
                                 streamingMsg.ActiveSkills.AddRange(pendingFetchedSkillRefs);

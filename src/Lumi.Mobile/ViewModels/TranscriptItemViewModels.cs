@@ -951,7 +951,7 @@ public static class TranscriptItemFactory
 public sealed partial class WorkSummaryItemViewModel : TranscriptItemViewModel
 {
     private readonly Action _toggle;
-    [ObservableProperty] private string _label = "Work";
+    [ObservableProperty] private string _label = "Worked";
     [ObservableProperty] private bool _isExpanded;
 
     public ObservableCollection<TranscriptItemViewModel> Items { get; } = [];
@@ -966,7 +966,7 @@ public sealed partial class WorkSummaryItemViewModel : TranscriptItemViewModel
     public override void Update(RemoteTranscriptItem item)
     {
         var duration = ActivityStepViewModel.FormatDuration(item.DurationMs);
-        Label = duration.Length > 0 ? $"Work {duration}" : item.DurationMs is null ? "Work" : "Work 0s";
+        Label = duration.Length > 0 ? $"Worked for {duration}" : item.DurationMs is null ? "Worked" : "Worked for 0s";
     }
 
     partial void OnIsExpandedChanged(bool value) => OnPropertyChanged(nameof(DisclosurePath));

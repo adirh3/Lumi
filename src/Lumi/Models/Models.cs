@@ -80,6 +80,23 @@ public class ChatMessage
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public InteractionReceipt? InteractionReceipt { get; set; }
     public bool IsStreaming { get; set; }
+
+    /// <summary>
+    /// Whether this assistant message was a progress update written while working (true) or part of
+    /// the answer (false), decided from the SDK's evidence when the message arrived. Null when there was
+    /// no such evidence — history recorded before Lumi kept this, or a message cut off before it
+    /// finished — whose role is then inferred from what followed it.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsProgress { get; set; }
+
+    /// <summary>
+    /// Session-only id of the model call that produced this assistant message. A reply split around
+    /// reasoning arrives as several messages sharing it, which are classified together.
+    /// </summary>
+    [JsonIgnore]
+    internal string? ApiCallId { get; set; }
+
     public string? Model { get; set; }
     public string? ReasoningEffort { get; set; }
     public string? ContextWindowTier { get; set; }
@@ -179,6 +196,8 @@ public class ChatMessage
         InputCanceled = InputCanceled,
         InteractionReceipt = InteractionReceipt?.Clone(),
         IsStreaming = IsStreaming,
+        IsProgress = IsProgress,
+        ApiCallId = ApiCallId,
         Model = Model,
         ReasoningEffort = ReasoningEffort,
         ContextWindowTier = ContextWindowTier,

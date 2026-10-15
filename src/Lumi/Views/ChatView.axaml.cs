@@ -15,6 +15,7 @@ using Avalonia.Animation.Easings;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -28,6 +29,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views.Controls;
 using StrataTheme.Animation;
 using StrataTheme.Controls;
 
@@ -177,13 +179,22 @@ public partial class ChatView : UserControl
             _subscribedVm.StatusText = InteractiveLabels.ForLanguage(Loc.Culture.Name)["sourceUnavailable"];
             return;
         }
-        var sourceTurn = _subscribedVm.TranscriptTurns.FirstOrDefault(turn => turn.Items.Any(child =>
+        var sourceTurn = _subscribedVm.TranscriptTurns.FirstOrDefault(turn => turn.EnumerateItems().Any(child =>
             child is AssistantMessageItem assistant && assistant.MessageId == sourceId));
         if (sourceTurn is null) return;
+        var sourceItem = sourceTurn.EnumerateItems().First(child =>
+            child is AssistantMessageItem assistant && assistant.MessageId == sourceId);
+        var revealed = sourceTurn.RevealFoldedItem(sourceItem);
         var realized = await EnsureTurnRealizedAsync(sourceTurn);
+        if (revealed && realized is not null)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            await RealizeFoldedItemAsync(realized, sourceItem);
+        }
         var target = realized?.GetVisualDescendants().OfType<StrataInteractiveBlock>()
             .FirstOrDefault(control => control.Definition?.Id == item.Receipt.BlockId);
         if (target is null || _transcriptScrollViewer is null) return;
+        await RevealWithinFoldAsync(target);
         if (target.TranslatePoint(default, _transcriptScrollViewer) is { } position)
         {
             _chatShell?.PreserveViewport();
@@ -1986,7 +1997,7 @@ public partial class ChatView : UserControl
         AssistantMessageItem? sourceItem = null;
         foreach (var turn in _subscribedVm.TranscriptTurns)
         {
-            sourceItem = turn.Items
+            sourceItem = turn.EnumerateItems()
                 .OfType<AssistantMessageItem>()
                 .FirstOrDefault(item => item.MessageId == reply.MessageId);
             if (sourceItem is not null)
@@ -1999,20 +2010,27 @@ public partial class ChatView : UserControl
         if (sourceTurn is null || sourceItem is null)
             return;
 
+        // A reply to a progress update lands inside the folded work, so open it first.
+        var revealed = sourceTurn.RevealFoldedItem(sourceItem);
         var turnControl = await EnsureTurnRealizedAsync(sourceTurn);
-        var message = turnControl?
-            .GetVisualDescendants()
-            .OfType<Control>()
-            .FirstOrDefault(control => ReferenceEquals(TranscriptTurnControl.GetHostedItem(control), sourceItem))
-            is { } itemView
-                ? itemView as StrataChatMessage ?? itemView.GetVisualDescendants().OfType<StrataChatMessage>().FirstOrDefault()
-                : null;
+        if (revealed && turnControl is not null)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            await RealizeFoldedItemAsync(turnControl, sourceItem);
+        }
+        var message = turnControl is not null && FindTranscriptItemView(turnControl, sourceItem) is { } itemView
+            ? itemView as StrataChatMessage ?? itemView.GetVisualDescendants().OfType<StrataChatMessage>().FirstOrDefault()
+            : null;
         if (message is null || _transcriptScrollViewer is null)
             return;
 
         Control target = message;
         if (reply.IsSelection && SelectReplyQuote(message, reply.Quote) is { } quotedText)
             target = quotedText;
+
+        await RevealWithinFoldAsync(target);
+        if (_transcriptScrollViewer is null || _chatShell is null)
+            return;
 
         // Land the quote in the upper part of the viewport, like jumping to a search hit.
         if (target.TranslatePoint(default, _transcriptScrollViewer) is { } position)
@@ -2475,10 +2493,10 @@ public partial class ChatView : UserControl
             return;
         }
 
-        // Search ALL transcript turns (including unmounted/off-screen)
+        // Search ALL transcript turns (including unmounted/off-screen) and the work folded into them
         foreach (var turn in _subscribedVm.TranscriptTurns)
         {
-            foreach (var item in turn.Items)
+            foreach (var item in turn.EnumerateItems())
             {
                 var content = item switch
                 {
@@ -2524,27 +2542,35 @@ public partial class ChatView : UserControl
         var hit = _searchHits[_currentHitIndex];
         if (_subscribedVm is null) return;
 
-        if (await EnsureTurnRealizedAsync(hit.Turn) is null)
+        var revealed = hit.Turn.RevealFoldedItem(hit.Item);
+        if (await EnsureTurnRealizedAsync(hit.Turn) is not { } turnControl)
+            return;
+        if (revealed)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            await RealizeFoldedItemAsync(turnControl, hit.Item);
+        }
+
+        if (HighlightHit(hit) is not { } stb)
             return;
 
-        HighlightHit(hit);
+        // Room around the hit keeps it clear of the floating header's soft edge, with context.
+        var context = new Rect(0, -SearchHitContext, stb.Bounds.Width, stb.Bounds.Height + 2 * SearchHitContext);
+        await RevealWithinFoldAsync(stb, context);
+        if (ReferenceEquals(_highlightedStb, stb))
+            stb.BringIntoView(context);
     }
 
-    private void HighlightHit(SearchHit hit)
+    /// <summary>Selects the hit's text and returns the text block that shows it.</summary>
+    private SelectableTextBlock? HighlightHit(SearchHit hit)
     {
         var query = hit.Query;
-        if (string.IsNullOrEmpty(query) || _transcript is null) return;
+        if (string.IsNullOrEmpty(query) || _transcript is null) return null;
 
-        // Find the visual for this item. Host children are directly-built item views carrying the
-        // HostedItem attached property (no longer ContentPresenters whose Content is the item), so a
-        // retained switch-back reuses the same instances; match on HostedItem to locate the hit.
-        Control? itemVisual = null;
-        foreach (var d in _transcript.GetVisualDescendants())
-        {
-            if (d is Control c && ReferenceEquals(TranscriptTurnControl.GetHostedItem(c), hit.Item))
-            { itemVisual = c; break; }
-        }
-        if (itemVisual is null) return;
+        // Find the visual for this item: a directly-built host in its turn, or a view inside an
+        // opened history row.
+        var itemVisual = FindTranscriptItemView(_transcript, hit.Item);
+        if (itemVisual is null) return null;
 
         // Walk SelectableTextBlocks inside, find the Nth occurrence
         var occurrencesSeen = 0;
@@ -2568,16 +2594,67 @@ public partial class ChatView : UserControl
                     stb.SelectionStart = selStart;
                     stb.SelectionEnd = selEnd;
                     _highlightedStb = stb;
-                    // Room around the hit keeps it clear of the floating header's soft edge, with context.
-                    stb.BringIntoView(new Rect(0, -SearchHitContext, stb.Bounds.Width,
-                        stb.Bounds.Height + 2 * SearchHitContext));
-                    return;
+                    return stb;
                 }
 
                 occurrencesSeen++;
                 searchFrom = idx + query.Length;
             }
         }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The view of a transcript item. Turn items are directly-built hosts carrying the HostedItem
+    /// attached property; items inside an opened history row are presented by its item list.
+    /// </summary>
+    private static Control? FindTranscriptItemView(Visual root, TranscriptItem item)
+    {
+        foreach (var visual in root.GetVisualDescendants())
+        {
+            if (visual is Control control
+                && (ReferenceEquals(TranscriptTurnControl.GetHostedItem(control), item)
+                    || control is ContentPresenter { Content: var content } && ReferenceEquals(content, item)))
+            {
+                return control;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Opened work shows its steps from the top a few at a time, so a step further along may not be
+    /// built yet: the row is shown through it first, and its view exists afterwards.
+    /// </summary>
+    private static async Task RealizeFoldedItemAsync(Visual turnView, TranscriptItem item)
+    {
+        var steps = turnView.GetVisualDescendants().OfType<ProgressiveItemsControl>()
+            .FirstOrDefault(list => list.Source?.Contains(item) == true);
+        if (steps is null)
+            return;
+
+        await steps.ShowThroughAsync(item);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Folded work scrolls inside its own bounded area, and that area keeps a request to bring a target
+    /// into view whenever it has to scroll for it. So a target there is first scrolled into that area's
+    /// view; asking the transcript to show it afterwards, or measuring against the transcript, then
+    /// lands where the reader will see it.
+    /// </summary>
+    private static async Task RevealWithinFoldAsync(Control target, Rect? targetRect = null)
+    {
+        if (target.FindAncestorOfType<StrataTurnSummary>() is null)
+            return;
+
+        if (targetRect is { } rect)
+            target.BringIntoView(rect);
+        else
+            target.BringIntoView();
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
     }
 
     private static string? ExtractStbText(SelectableTextBlock stb, out List<int>? posMap)

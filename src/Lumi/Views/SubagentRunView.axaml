@@ -6,6 +6,7 @@
              xmlns:lc="using:Lumi.Views.Controls"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:views="using:Lumi.Views"
              x:Class="Lumi.Views.SubagentRunView"
              x:DataType="vm:ChatViewModel"
              x:CompileBindings="True">
@@ -344,7 +345,8 @@
     <DataTemplate DataType="vm:TurnSummaryItem">
       <sc:StrataTurnSummary Label="{Binding Label}"
                             IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
-                            HasFailures="{Binding HasFailures}">
+                            HasFailures="{Binding HasFailures}"
+                            Classes.motion-disabled="{Binding !$parent[views:SubagentRunView].((vm:ChatViewModel)DataContext).AreAnimationsEnabled}">
         <sc:StrataTurnSummary.Content>
           <ScrollViewer MaxHeight="{StaticResource Chat.ToolGroupContentMaxHeight}"
                         VerticalScrollBarVisibility="Auto"

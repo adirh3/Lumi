@@ -114,7 +114,7 @@ public partial class ChatViewModel
     {
         var sourceId = PendingReply?.MessageId;
         foreach (var assistant in TranscriptTurns
-                     .SelectMany(static turn => turn.Items)
+                     .SelectMany(static turn => turn.EnumerateItems())
                      .OfType<AssistantMessageItem>())
         {
             assistant.IsReplySource = sourceId == assistant.MessageId;

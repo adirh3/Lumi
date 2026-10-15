@@ -17,7 +17,7 @@ public sealed class WorkTimelineTests
         chat.ApplyTranscript(transcript);
         var turn = chat.Turns[0];
         var work = Assert.IsType<WorkSummaryItemViewModel>(turn.DisplayItems[1]);
-        Assert.Equal("Work 58s", work.Label);
+        Assert.Equal("Worked for 58s", work.Label);
         Assert.False(work.IsExpanded);
         Assert.Empty(work.Items);
         Assert.Equal(3, turn.DisplayItems.Count);
@@ -80,8 +80,8 @@ public sealed class WorkTimelineTests
     }
 
     [Theory]
-    [InlineData(3_200, "Work 3s")]
-    [InlineData(91_000, "Work 1m 31s")]
+    [InlineData(3_200, "Worked for 3s")]
+    [InlineData(91_000, "Worked for 1m 31s")]
     public async Task CompletionCollapsesPreamblesAndExpandReviewsOriginalChronologyWithoutFetchingHistory(
         double duration, string expectedLabel)
     {
@@ -256,7 +256,7 @@ public sealed class WorkTimelineTests
         chat.ApplyTranscript(restored);
         Assert.Same(work, turn.DisplayItems[1]);
         Assert.True(work.IsExpanded);
-        Assert.Equal("Work 1m 31s", work.Label);
+        Assert.Equal("Worked for 1m 31s", work.Label);
         Assert.Equal("answer", turn.DisplayItems[^1].Id);
         Assert.Equal("Final answer", Assert.IsType<AssistantItemViewModel>(turn.DisplayItems[^1]).Text);
     }

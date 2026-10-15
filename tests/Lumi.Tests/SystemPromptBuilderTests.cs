@@ -223,6 +223,8 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("## Writing Style", prompt);
         Assert.Contains("Write like a knowledgeable friend", prompt);
         Assert.Contains("Lead with the answer, not the preamble", prompt);
+        Assert.Contains("Lumi folds them away with your tool calls once your final reply arrives", prompt);
+        Assert.Contains("Make that final reply stand on its own", prompt);
         Assert.Contains("Emoji are welcome when they fit the moment naturally", prompt);
         Assert.Contains("respond as a person first", prompt);
         Assert.Contains("show genuine curiosity about what they built or achieved", prompt);

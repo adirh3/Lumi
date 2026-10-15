@@ -3,6 +3,7 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -12,6 +13,7 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
+using Lumi.Views.Controls;
 using StrataTheme.Controls;
 using Xunit;
 
@@ -676,6 +678,451 @@ public sealed class ChatViewReplyWiringTests
         }, CancellationToken.None);
 
         Assert.Equal("Why **small**?", copied);
+    }
+
+    [Fact]
+    public async Task SearchHit_DeepInFoldedWork_ScrollsTheFoldAndTheTranscriptToIt()
+    {
+        using var session = HeadlessTestSession.Start();
+        const string needle = "needle-in-the-fold";
+        var (chat, answer, _, data) = CreateLongWorkChat(steps: 30, needleStep: 30, needle, answerParagraphs: 50);
+
+        var foldedAway = false;
+        string? selected = null;
+        double inFold = double.NaN, foldHeight = double.NaN, inTranscript = double.NaN, transcriptHeight = double.NaN;
+
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (_, view, _) =>
+            {
+                var message = await WaitForAnswerAsync(view, answer.Id);
+                var transcript = message.GetVisualAncestors().OfType<ScrollViewer>().Last();
+                await WaitForScrollToSettleAsync(transcript);
+                foldedAway = !view.GetVisualDescendants().OfType<SelectableTextBlock>()
+                    .Any(block => (block.Inlines?.Text ?? block.Text)?.Contains(needle, StringComparison.Ordinal) == true);
+
+                var input = view.FindControl<TextBox>("SearchInput")!;
+                input.Text = needle;
+                await Task.Delay(350);
+                await PumpAsync();
+                input.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+
+                SelectableTextBlock? hit = null;
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); hit is null && waited.Elapsed < TimeSpan.FromSeconds(20);)
+                {
+                    await Task.Delay(10);
+                    await PumpAsync();
+                    hit = view.GetVisualDescendants().OfType<SelectableTextBlock>()
+                        .FirstOrDefault(block => string.Equals(block.SelectedText, needle, StringComparison.Ordinal));
+                }
+
+                await WaitForScrollToSettleAsync(transcript);
+                if (hit is null)
+                    return;
+
+                selected = hit.SelectedText;
+                var fold = hit.GetVisualAncestors().OfType<ScrollViewer>()
+                    .First(scroller => scroller.FindAncestorOfType<StrataTurnSummary>() is not null);
+                inFold = hit.TranslatePoint(default, fold)?.Y ?? double.NaN;
+                foldHeight = fold.Bounds.Height;
+                inTranscript = hit.TranslatePoint(default, transcript)?.Y ?? double.NaN;
+                transcriptHeight = transcript.Bounds.Height;
+            });
+        }, CancellationToken.None);
+
+        Assert.True(foldedAway, "The work should start folded away under its Worked row.");
+        Assert.Equal(needle, selected);
+        Assert.InRange(inFold, 0, foldHeight - 1);
+        Assert.InRange(inTranscript, 0, transcriptHeight - 1);
+    }
+
+    [Fact]
+    public async Task OpeningLongWork_BuildsAScreenAheadAndTheRestAsTheReaderScrolls()
+    {
+        using var session = HeadlessTestSession.Start();
+        var (chat, answer, _, data) = CreateLongWorkChat(steps: 150, needleStep: 0, needle: "", answerParagraphs: 1);
+        int folded = -1, shownWithTheOpen = -1, shownAfterTheOpen = -1, shownAfterScrolling = -1, shownWhenClosed = -1, shownWhenReopened = -1;
+
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (vm, view, window) =>
+            {
+                var message = await WaitForAnswerAsync(view, answer.Id);
+                var transcript = message.GetVisualAncestors().OfType<ScrollViewer>().Last();
+                await WaitForScrollToSettleAsync(transcript);
+
+                var summary = vm.TranscriptTurns.SelectMany(turn => turn.Items).OfType<TurnSummaryItem>().Single();
+                folded = summary.InnerItems.Count;
+                summary.IsExpanded = true;
+                window.UpdateLayout();
+                var steps = view.GetVisualDescendants().OfType<ProgressiveItemsControl>().Single();
+                shownWithTheOpen = steps.ShownCount;
+
+                // Nothing more is built once a screen of steps waits below the view.
+                await Task.Delay(ProgressiveItemsControl.FillDelay + TimeSpan.FromMilliseconds(200));
+                var deadline = System.Diagnostics.Stopwatch.StartNew();
+                for (var settled = 0; settled < 8 && deadline.Elapsed < TimeSpan.FromSeconds(30);
+                     settled = steps.ShownCount == shownAfterTheOpen ? settled + 1 : 0)
+                {
+                    shownAfterTheOpen = steps.ShownCount;
+                    await Task.Delay(50);
+                    await PumpAsync();
+                }
+
+                var area = steps.FindAncestorOfType<ScrollViewer>()!;
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); steps.ShownCount < folded && waited.Elapsed < TimeSpan.FromSeconds(60);)
+                {
+                    area.Offset = area.Offset.WithY(area.Extent.Height);
+                    await Task.Delay(20);
+                    await PumpAsync();
+                }
+
+                shownAfterScrolling = steps.ShownCount;
+                summary.IsExpanded = false;
+                await WaitForScrollToSettleAsync(transcript);
+                shownWhenClosed = steps.ShownCount;
+                summary.IsExpanded = true;
+                window.UpdateLayout();
+                shownWhenReopened = steps.ShownCount;
+            });
+        }, CancellationToken.None);
+
+        Assert.Equal(150, folded);
+        Assert.Equal(ProgressiveItemsControl.FirstPageSize, shownWithTheOpen);
+        Assert.InRange(shownAfterTheOpen, ProgressiveItemsControl.FirstPageSize, 60);
+        Assert.Equal(150, shownAfterScrolling);
+        Assert.Equal(0, shownWhenClosed);
+        Assert.Equal(ProgressiveItemsControl.FirstPageSize, shownWhenReopened);
+    }
+
+    [Fact]
+    public async Task OpeningLongWorkByHand_GlidesOpenOverItsFirstSteps()
+    {
+        using var session = HeadlessTestSession.Start();
+        var (chat, answer, _, data) = CreateLongWorkChat(steps: 150, needleStep: 0, needle: "", answerParagraphs: 1);
+        var reveals = new List<double>();
+        double settledReveal = double.NaN, settledHeight = double.NaN, areaHeight = double.NaN;
+
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (_, view, _) =>
+            {
+                var message = await WaitForAnswerAsync(view, answer.Id);
+                await WaitForScrollToSettleAsync(message.GetVisualAncestors().OfType<ScrollViewer>().Last());
+
+                // The reader's own toggle, raised directly: headless pointer input runs every pending job,
+                // so the whole opening would already be over when it returned.
+                var row = view.GetVisualDescendants().OfType<StrataTurnSummary>().Single();
+                row.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+
+                var reveal = row.GetVisualDescendants().OfType<TurnSummaryRevealHost>().Single();
+                reveals.Add(reveal.Reveal);
+                for (var frame = 0; frame < 60 && reveal.Reveal < 1; frame++)
+                {
+                    await Task.Delay(16);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+                    reveals.Add(reveal.Reveal);
+                }
+
+                await PumpAsync();
+                settledReveal = reveal.Reveal;
+                settledHeight = reveal.Bounds.Height;
+                areaHeight = row.GetVisualDescendants().OfType<ScrollViewer>().First().Bounds.Height;
+            });
+        }, CancellationToken.None);
+
+        Assert.True(reveals.Any(value => value is > 0.01 and < 0.99),
+            $"The row should glide open: {string.Join(", ", reveals.Select(value => value.ToString("0.00")))}");
+        Assert.Equal(1, settledReveal, 3);
+        Assert.True(settledHeight >= areaHeight, $"The opened row ({settledHeight}) should show its whole scroll area ({areaHeight}).");
+        Assert.Equal(420, areaHeight, 1);
+    }
+
+    [Fact]
+    public async Task ProgressUpdates_HaveNoFooter_AndReadQuietlyOnlyInsideTheFold()
+    {
+        using var session = HeadlessTestSession.Start();
+        var chat = new Chat { Title = "Quiet updates" };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Fix the script." });
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Author = "Lumi", IsProgress = true, Content = "My helper was named `Cat`, which collides with the `cat` alias. Renaming it:" });
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Author = "Lumi", IsProgress = true, Content = "That file is fully clear. Next, the view model:" });
+        var answer = new ChatMessage { Role = "assistant", Author = "Lumi", IsProgress = false, Content = "Fixed: the helper is now `Read-Text`." };
+        chat.Messages.Add(answer);
+        // A stopped turn keeps its last update in view, outside any fold.
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Now check the config." });
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Author = "Lumi", IsProgress = true, Content = "Reading `settings.json` first:" });
+        // History recorded before Lumi kept roles, cut off while the tools its last update requested ran.
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Then rebuild it." });
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Author = "Lumi", Content = "Rebuilding with the new `settings.json`:" });
+        chat.Messages.Add(new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "powershell",
+            ToolCallId = "tool-rebuild",
+            ToolStatus = "Completed",
+            Content = "{\"command\":\"dotnet build\"}",
+        });
+        var data = new AppData { Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false } };
+        data.Chats.Add(chat);
+
+        var folded = new List<(string Text, string Color)>();
+        var shown = new List<(string Text, string Color)>();
+        var updateFooters = new List<bool>();
+        string? quiet = null, answerColor = null;
+        var answerFooter = false;
+
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (vm, view, _) =>
+            {
+                var message = await WaitForAnswerAsync(view, answer.Id);
+                var transcript = message.GetVisualAncestors().OfType<ScrollViewer>().Last();
+                await WaitForScrollToSettleAsync(transcript);
+                foreach (var summary in vm.TranscriptTurns.SelectMany(turn => turn.Items).OfType<TurnSummaryItem>())
+                    summary.IsExpanded = true;
+                await WaitForScrollToSettleAsync(transcript);
+
+                quiet = message.TryFindResource("Brush.TextSecondary", message.ActualThemeVariant, out var brush) ? brush?.ToString() : null;
+                answerColor = TextColors(message).First().Color;
+                answerFooter = Footer(message).IsVisible;
+                foreach (var update in view.GetVisualDescendants().OfType<StrataChatMessage>().Where(candidate => candidate.IsProgressUpdate))
+                {
+                    var isFolded = update.GetVisualAncestors().OfType<StrataTurnSummary>().Any();
+                    (isFolded ? folded : shown).AddRange(TextColors(update));
+                    updateFooters.Add(Footer(update).IsVisible);
+                }
+            });
+        }, CancellationToken.None);
+
+        Assert.NotNull(quiet);
+        Assert.NotEqual(quiet, answerColor);
+        // Folded with the work it narrates, an update reads in the quieter voice, markdown included.
+        Assert.Equal(2, folded.Select(update => update.Text).Distinct().Count());
+        Assert.All(folded, update => Assert.True(update.Color == quiet, $"Folded \"{update.Text}\" is {update.Color}, not the quieter {quiet}."));
+        // Outside the fold, like a stopped turn's last word or older history cut off mid-work, it keeps the answer's voice.
+        Assert.Equal(2, shown.Select(update => update.Text).Distinct().Count());
+        Assert.Contains(shown, update => update.Text.StartsWith("Rebuilding", StringComparison.Ordinal));
+        Assert.All(shown, update => Assert.True(update.Color == answerColor, $"Unfolded \"{update.Text}\" is {update.Color}, not the answer's {answerColor}."));
+        Assert.True(answerFooter, "The answer keeps its actions, model and time.");
+        Assert.Equal(4, updateFooters.Count);
+        Assert.All(updateFooters, footer => Assert.False(footer, "An update must not carry the answer's actions, model and time."));
+
+        static IEnumerable<(string Text, string Color)> TextColors(StrataChatMessage message)
+            => message.GetVisualDescendants().OfType<SelectableTextBlock>()
+                .Where(block => block.IsEffectivelyVisible && !string.IsNullOrWhiteSpace(block.Inlines?.Text ?? block.Text))
+                .Select(block => ((block.Inlines?.Text ?? block.Text)!, block.Foreground?.ToString() ?? "null"));
+
+        static WrapPanel Footer(StrataChatMessage message)
+            => message.GetVisualDescendants().OfType<WrapPanel>().First(panel => panel.Name == "PART_HeaderRow");
+    }
+
+    [Fact]
+    public async Task SearchHit_InMixedWork_LandsAndTheAppKeepsResponding()
+    {
+        using var session = HeadlessTestSession.Start();
+        const string needle = "collides with PowerShell";
+        var (chat, answer, data) = CreateMixedWorkChat(
+            "R999 A78 Tpowershell R439 A171 Tpowershell Tpowershell R252 A124 Tpowershell R999 Tpowershell R738 Tpowershell Tview R999 A96 "
+            + "Tpowershell Tview Tview R171 A73 Tview Tpowershell Tview R999 A158 Tgrep Tgrep Tgrep Tpowershell R999 Tview Tpowershell R877 Tview "
+            + "Tgrep R999 Tpowershell Tgrep Tview R473 A167 Tpowershell R999 Tpowershell R999 A92 Tpowershell R999",
+            needleUpdate: 2,
+            "My helper function was named `Cat`, which collides with PowerShell's `cat` alias for Get-Content. Renaming it and rerunning:");
+        string? selected = null;
+        double inFold = double.NaN, foldHeight = double.NaN, inTranscript = double.NaN, transcriptHeight = double.NaN;
+
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (vm, view, _) =>
+            {
+                var message = await WaitForAnswerAsync(view, answer.Id);
+                var transcript = message.GetVisualAncestors().OfType<ScrollViewer>().Last();
+                await WaitForScrollToSettleAsync(transcript);
+                vm.TranscriptTurns.SelectMany(turn => turn.Items).OfType<TurnSummaryItem>().Single().IsExpanded = true;
+                await WaitForScrollToSettleAsync(transcript);
+
+                var input = view.FindControl<TextBox>("SearchInput")!;
+                input.Text = needle;
+                await Task.Delay(350);
+                await PumpAsync();
+                input.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+
+                SelectableTextBlock? hit = null;
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); hit is null && waited.Elapsed < TimeSpan.FromSeconds(20);)
+                {
+                    await Task.Delay(10);
+                    await PumpAsync();
+                    hit = view.GetVisualDescendants().OfType<SelectableTextBlock>()
+                        .FirstOrDefault(block => string.Equals(block.SelectedText, needle, StringComparison.Ordinal));
+                }
+
+                await WaitForScrollToSettleAsync(transcript);
+                if (hit is null)
+                    return;
+
+                selected = hit.SelectedText;
+                var fold = hit.GetVisualAncestors().OfType<ScrollViewer>()
+                    .First(scroller => scroller.FindAncestorOfType<StrataTurnSummary>() is not null);
+                inFold = hit.TranslatePoint(default, fold)?.Y ?? double.NaN;
+                foldHeight = fold.Bounds.Height;
+                inTranscript = hit.TranslatePoint(default, transcript)?.Y ?? double.NaN;
+                transcriptHeight = transcript.Bounds.Height;
+            });
+        }, CancellationToken.None);
+
+        Assert.Equal(needle, selected);
+        Assert.InRange(inFold, 0, foldHeight - 1);
+        Assert.InRange(inTranscript, 0, transcriptHeight - 1);
+    }
+
+    /// <summary>
+    /// A finished turn recorded before Lumi kept message roles, whose steps follow
+    /// <paramref name="steps"/>: R&lt;length&gt; reasoning, A&lt;length&gt; an update, T&lt;tool&gt; a tool call.
+    /// Update <paramref name="needleUpdate"/> (0-based) reads <paramref name="needleText"/>.
+    /// </summary>
+    private static (Chat Chat, ChatMessage Answer, AppData Data) CreateMixedWorkChat(string steps, int needleUpdate, string needleText)
+    {
+        var chat = new Chat { Title = "Mixed work" };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Tidy the helper scripts." });
+        var updates = 0;
+        var calls = 0;
+        foreach (var step in steps.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kind = step[0];
+            var rest = step[1..];
+            switch (kind)
+            {
+                case 'R':
+                    chat.Messages.Add(new ChatMessage { Role = "reasoning", Content = Filler("Weighing the next step. ", int.Parse(rest)) });
+                    break;
+                case 'A':
+                    chat.Messages.Add(new ChatMessage
+                    {
+                        Role = "assistant",
+                        Author = "Lumi",
+                        Content = updates == needleUpdate ? needleText : Filler($"Update {updates}: checking `file{updates}.cs` next. ", int.Parse(rest)),
+                    });
+                    updates++;
+                    break;
+                case 'T':
+                    calls++;
+                    chat.Messages.Add(new ChatMessage
+                    {
+                        Role = "tool",
+                        ToolCallId = $"call-{calls}",
+                        ToolName = rest,
+                        ToolStatus = "Completed",
+                        Content = rest == "powershell" ? "{\"command\":\"git status\"}" : "{\"path\":\"E:\\\\repo\\\\src\\\\File.cs\"}",
+                        ToolOutput = string.Join("\n", Enumerable.Range(1, 12).Select(line => $"output line {line}")),
+                    });
+                    break;
+            }
+        }
+
+        var answer = new ChatMessage
+        {
+            Role = "assistant",
+            Author = "Lumi",
+            Content = "## Summary\n\n" + string.Join("\n", Enumerable.Range(1, 40).Select(line => $"- Point {line} of the answer, with `code` and **bold** text.")),
+        };
+        chat.Messages.Add(answer);
+        var data = new AppData { Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false } };
+        data.Chats.Add(chat);
+        return (chat, answer, data);
+
+        static string Filler(string seed, int length)
+        {
+            var text = string.Concat(Enumerable.Repeat(seed, length / seed.Length + 1));
+            return text[..Math.Max(1, Math.Min(length, text.Length))].TrimEnd();
+        }
+    }
+
+    [Fact]
+    public async Task JumpToReplySource_DeepInFoldedWork_OpensTheRowAndShowsTheQuote()
+    {
+        using var session = HeadlessTestSession.Start();
+        const string needle = "needle-in-the-fold";
+        var (chat, _, steps, data) = CreateLongWorkChat(steps: 40, needleStep: 35, needle, answerParagraphs: 50);
+        string? selected = null;
+        double inFold = double.NaN, foldHeight = double.NaN, inTranscript = double.NaN, transcriptHeight = double.NaN;
+
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (vm, view, _) =>
+            {
+                var transcript = (await WaitForAnswerAsync(view, chat.Messages[^1].Id))
+                    .GetVisualAncestors().OfType<ScrollViewer>().Last();
+                await WaitForScrollToSettleAsync(transcript);
+
+                vm.BeginReply(steps[34].Id, needle, isSelection: true, author: "Lumi");
+                vm.JumpToPendingReplySourceCommand.Execute(null);
+
+                SelectableTextBlock? quote = null;
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); quote is null && waited.Elapsed < TimeSpan.FromSeconds(20);)
+                {
+                    await Task.Delay(10);
+                    await PumpAsync();
+                    quote = view.GetVisualDescendants().OfType<SelectableTextBlock>()
+                        .FirstOrDefault(block => string.Equals(block.SelectedText, needle, StringComparison.Ordinal));
+                }
+
+                await WaitForScrollToSettleAsync(transcript);
+                if (quote is null)
+                    return;
+
+                selected = quote.SelectedText;
+                var fold = quote.GetVisualAncestors().OfType<ScrollViewer>()
+                    .First(scroller => scroller.FindAncestorOfType<StrataTurnSummary>() is not null);
+                inFold = quote.TranslatePoint(default, fold)?.Y ?? double.NaN;
+                foldHeight = fold.Bounds.Height;
+                inTranscript = quote.TranslatePoint(default, transcript)?.Y ?? double.NaN;
+                transcriptHeight = transcript.Bounds.Height;
+            });
+        }, CancellationToken.None);
+
+        Assert.Equal(needle, selected);
+        Assert.InRange(inFold, 0, foldHeight - 1);
+        Assert.InRange(inTranscript, 0, transcriptHeight - 1);
+    }
+
+    /// <summary>
+    /// A finished turn whose progress updates fold under one Worked row above its answer. Step
+    /// <paramref name="needleStep"/> (1-based; 0 for none) mentions <paramref name="needle"/>.
+    /// </summary>
+    private static (Chat Chat, ChatMessage Answer, List<ChatMessage> Steps, AppData Data) CreateLongWorkChat(
+        int steps,
+        int needleStep,
+        string needle,
+        int answerParagraphs)
+    {
+        var chat = new Chat { Title = "Long work" };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Ship the release." });
+        var stepMessages = new List<ChatMessage>();
+        for (var step = 1; step <= steps; step++)
+        {
+            var message = new ChatMessage
+            {
+                Role = "assistant",
+                Author = "Lumi",
+                IsProgress = true,
+                Content = step == needleStep ? $"Step {step}: found the {needle} at last." : $"Step {step}: checking another part of the release."
+            };
+            stepMessages.Add(message);
+            chat.Messages.Add(message);
+        }
+
+        var answer = new ChatMessage
+        {
+            Role = "assistant",
+            Author = "Lumi",
+            IsProgress = false,
+            Content = string.Join("\n\n", Enumerable.Range(1, answerParagraphs)
+                .Select(paragraph => $"Paragraph {paragraph} of the answer."))
+        };
+        chat.Messages.Add(answer);
+        var data = new AppData { Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false } };
+        data.Chats.Add(chat);
+        return (chat, answer, stepMessages, data);
     }
 
     private static (Chat Chat, ChatMessage Answer, AppData Data) CreateMarkdownChat(int fillerTurns)

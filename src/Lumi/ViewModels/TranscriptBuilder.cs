@@ -30,6 +30,9 @@ public class TranscriptBuilder
     private readonly Action? _subagentRunsChanged;
     private readonly Func<string, string>? _resolveFilePath;
     private readonly Action<MessageReply>? _openReplySourceAction;
+    private readonly bool _foldProgressMessages;
+    // When the message that started the turn being built was sent: the start of its "Worked for" time.
+    private DateTimeOffset? _requestedAt;
     private static readonly StringComparer FilePathComparer = OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
@@ -134,7 +137,8 @@ public class TranscriptBuilder
         Action<SubagentToolCallItem>? openSubagentRunAction = null,
         Action? subagentRunsChanged = null,
         Func<string, string>? resolveFilePath = null,
-        Action<MessageReply>? openReplySourceAction = null)
+        Action<MessageReply>? openReplySourceAction = null,
+        bool foldProgressMessages = true)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -150,6 +154,7 @@ public class TranscriptBuilder
         _subagentRunsChanged = subagentRunsChanged;
         _resolveFilePath = resolveFilePath;
         _openReplySourceAction = openReplySourceAction;
+        _foldProgressMessages = foldProgressMessages;
     }
 
     /// <summary>
@@ -179,9 +184,11 @@ public class TranscriptBuilder
     /// Rebuilds the transcript, optionally leading with a "Forked from …" breadcrumb chip that
     /// opens the chat this one was branched from.
     /// </summary>
+    /// <param name="isWorking">Lumi is still working on the chat's latest turn.</param>
     public ObservableCollection<TranscriptTurn> Rebuild(
         IEnumerable<ChatMessageViewModel> messages,
-        ForkOrigin? forkOrigin)
+        ForkOrigin? forkOrigin,
+        bool isWorking = false)
     {
         IsRebuildingTranscript = true;
         var tempTurns = new List<TranscriptTurn>();
@@ -194,13 +201,23 @@ public class TranscriptBuilder
             ProcessMessageToTranscript(msg);
 
         CloseCurrentToolGroup();
-        FlushPendingFileEdits();
-        FlushPendingPlanCard();
-        FlushPendingModelLabel();
-        FlushPendingFileChips(_fileChipTurn);
-        _fileChipTurn.HasEnded = true;
-        CollapseAllCompletedTurns();
-        FinalizeCurrentTurn();
+        // A turn still in progress stays open, so live messages extend it and its updates stay in view until
+        // its answer or its end folds them. Its end-of-turn files, plan and model label wait for that end too.
+        var workingTurn = isWorking
+            && _currentTurn is { Items: [not (UserMessageItem or JobWakeItem or InteractionReceiptItem), ..] } last
+            ? last
+            : null;
+        if (workingTurn is null)
+        {
+            FlushPendingFileEdits();
+            FlushPendingPlanCard();
+            FlushPendingModelLabel();
+            FlushPendingFileChips(_fileChipTurn);
+            _fileChipTurn.HasEnded = true;
+        }
+        CollapseAllCompletedTurns(workingTurn);
+        if (workingTurn is null)
+            FinalizeCurrentTurn();
 
         _rebuildTarget = null;
         var result = new ObservableCollection<TranscriptTurn>(tempTurns.Where(static turn => turn.Items.Count > 0));
@@ -239,23 +256,38 @@ public class TranscriptBuilder
     /// </summary>
     public bool RefreshAssistantSources(ChatMessage targetMessage)
     {
-        if (_liveTarget is null)
+        if (FindLiveAssistant(targetMessage.Id) is not { } assistant)
             return false;
+
+        assistant.RefreshSources();
+        return true;
+    }
+
+    /// <summary>Restyles messages whose recorded role changed after they were shown.</summary>
+    public void RefreshAssistantProgress(IEnumerable<ChatMessage> messages)
+    {
+        if (!_foldProgressMessages)
+            return;
+
+        foreach (var message in messages)
+            FindLiveAssistant(message.Id)?.RefreshProgress();
+    }
+
+    private AssistantMessageItem? FindLiveAssistant(Guid messageId)
+    {
+        if (_liveTarget is null)
+            return null;
 
         for (var t = _liveTarget.Count - 1; t >= 0; t--)
         {
-            var items = _liveTarget[t].Items;
-            for (var i = items.Count - 1; i >= 0; i--)
+            foreach (var item in _liveTarget[t].EnumerateItems())
             {
-                if (items[i] is AssistantMessageItem assistant && assistant.MessageId == targetMessage.Id)
-                {
-                    assistant.RefreshSources();
-                    return true;
-                }
+                if (item is AssistantMessageItem assistant && assistant.MessageId == messageId)
+                    return assistant;
             }
         }
 
-        return false;
+        return null;
     }
 
     public void ResetState()
@@ -279,6 +311,7 @@ public class TranscriptBuilder
         _typingIndicator = null;
         _typingTurn = null;
         _currentTurn = null;
+        _requestedAt = null;
         _pendingPlanCard = null;
         _pendingModelName = null;
         _terminalPreviewsByToolCallId.Clear();
@@ -1474,6 +1507,7 @@ public class TranscriptBuilder
             FlushPendingPlanCard();
             FlushPendingModelLabel();
             FinalizeCurrentTurn();
+            _requestedAt = msgVm.Message.Timestamp;
 
             AppendToCurrentTurn(new JobWakeItem(msgVm, showTimestamps), TurnStableIdFor($"job-wake:{msgVm.Message.Id}"));
             BeginFileChipTurn(msgVm.Message.Id);
@@ -1487,6 +1521,7 @@ public class TranscriptBuilder
             FlushPendingPlanCard();
             FlushPendingModelLabel();
             FinalizeCurrentTurn();
+            _requestedAt = msgVm.Message.Timestamp;
 
             if (msgVm.Message.InteractionReceipt is not null)
             {
@@ -1533,10 +1568,13 @@ public class TranscriptBuilder
         var chipTurn = _fileChipTurn;
         chipTurn.LastAssistant = assistantItem;
         _pendingModelName = ChatViewModel.FormatModelDisplay(msgVm.Message.Model) ?? _pendingModelName;
+        // A progress update folds away with the work, so the files that work produced wait for the answer.
         if (!msgVm.IsStreaming && (PendingToolFileChips.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
         {
-            assistantItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null, _shownSkillNames);
-            PendingToolFileChips.Clear();
+            var takesFiles = !IsRecordedProgress(msgVm);
+            assistantItem.ApplyExtras(takesFiles && PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null, _shownSkillNames);
+            if (takesFiles)
+                PendingToolFileChips.Clear();
         }
 
         var turn = AppendAssistantMessageToCurrentTurn(assistantItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
@@ -1550,8 +1588,10 @@ public class TranscriptBuilder
             {
                 if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && !msgVm.IsStreaming)
                 {
-                    capturedItem.ApplyExtras(chipTurn.Pending.Count > 0 ? chipTurn.Pending.ToList() : null, _shownSkillNames);
-                    chipTurn.Pending.Clear();
+                    var takesFiles = !IsRecordedProgress(msgVm);
+                    capturedItem.ApplyExtras(takesFiles && chipTurn.Pending.Count > 0 ? chipTurn.Pending.ToList() : null, _shownSkillNames);
+                    if (takesFiles)
+                        chipTurn.Pending.Clear();
 
                     CollapseCompletedTurnBlocks(capturedTurn, capturedItem);
                     FlushPendingPlanCard();
@@ -1562,11 +1602,15 @@ public class TranscriptBuilder
             msgVm.PropertyChanged += handler;
             _pendingToolHandlers.Add((msgVm, handler));
         }
-        else
+        else if (!IsRebuildingTranscript)
         {
+            // A rebuild folds each turn once it is complete, when every message's role is known.
             CollapseCompletedTurnBlocks(turn, assistantItem);
         }
     }
+
+    private bool IsRecordedProgress(ChatMessageViewModel message)
+        => _foldProgressMessages && message.Message.IsProgress == true;
 
     public void FlushPendingFileEdits()
     {
@@ -1704,12 +1748,14 @@ public class TranscriptBuilder
         var hasModelCaption = false;
         if (_currentTurn is not null)
         {
+            ApplyAssistantRoles(_currentTurn);
             foreach (var assistant in _currentTurn.Items.OfType<AssistantMessageItem>())
             {
                 // The completed turn's actual model fills missing snippet metadata, never the current picker.
                 if (string.IsNullOrWhiteSpace(assistant.ModelName))
                     assistant.ModelName = displayName;
-                hasModelCaption |= assistant.IsItemVisible && assistant.ModelName == displayName;
+                // A progress update shows no caption, so only an answer can name the model for the turn.
+                hasModelCaption |= assistant.IsItemVisible && !IsFoldableProgress(assistant) && assistant.ModelName == displayName;
             }
         }
 
@@ -1875,20 +1921,55 @@ public class TranscriptBuilder
         PublishLiveActivity();
     }
 
+    /// <summary>
+    /// Folds the work of the run that just ended. A message sent while Lumi worked splits that work across
+    /// turns, so every turn since the last settled one is folded.
+    /// </summary>
     public void CollapseCompletedBlocksInCurrentTurn()
     {
-        if (IsRebuildingTranscript || _currentTurn is null)
+        if (IsRebuildingTranscript || _liveTarget is null)
             return;
 
-        var assistantItems = _currentTurn.Items.OfType<AssistantMessageItem>().ToList();
-        if (assistantItems.Count == 0)
+        for (var i = _liveTarget.Count - 1; i >= 0 && !_liveTarget[i].IsSettled; i--)
         {
-            CollapseActivityOnlyBlocks(_currentTurn);
+            if (!ReferenceEquals(_liveTarget[i], _typingTurn))
+                CollapseTurnBlocks(_liveTarget[i]);
+        }
+    }
+
+    /// <summary>
+    /// Folds a turn's finished work. The work before each answer becomes one history row; a turn
+    /// without an answer folds its activity around the latest update, which stays readable. Work kept
+    /// from any answer by something the reader may still use, such as a plan card, folds where it is.
+    /// </summary>
+    private void CollapseTurnBlocks(TranscriptTurn turn)
+    {
+        ApplyAssistantRoles(turn);
+        var answers = turn.Items.OfType<AssistantMessageItem>().Where(item => !IsFoldableProgress(item)).ToList();
+        for (var i = answers.Count - 1; i >= 0; i--)
+            CollapseCompletedTurnBlocks(turn, answers[i], turnFinished: true);
+
+        CollapseActivityOnlyBlocks(turn, settled: true);
+        turn.IsSettled = true;
+    }
+
+    /// <summary>
+    /// Folds a turn Lumi is still working on the way it folded while live: each update stays in view as a
+    /// boundary that its finished steps fold up to, and only an answer settles the work before it. A message
+    /// still streaming has no role yet, so the end of its stream folds around it, as it does live.
+    /// </summary>
+    private void CollapseWorkingTurnBlocks(TranscriptTurn turn)
+    {
+        ApplyAssistantRoles(turn);
+        var messages = turn.Items.OfType<AssistantMessageItem>().Where(static item => !item.IsStreaming).ToList();
+        if (messages.Count == 0)
+        {
+            CollapseActivityOnlyBlocks(turn);
             return;
         }
 
-        for (var i = assistantItems.Count - 1; i >= 0; i--)
-            CollapseCompletedTurnBlocks(_currentTurn, assistantItems[i]);
+        for (var i = messages.Count - 1; i >= 0; i--)
+            CollapseCompletedTurnBlocks(turn, messages[i]);
     }
 
     private void UpdateToolGroupLabel()
@@ -2117,20 +2198,26 @@ public class TranscriptBuilder
         }
     }
 
-    private void CollapseCompletedTurnBlocks(TranscriptTurn turn, AssistantMessageItem assistantItem)
+    /// <param name="turnFinished">The turn has ended, so the work after its answer is settled too.</param>
+    private void CollapseCompletedTurnBlocks(TranscriptTurn turn, AssistantMessageItem assistantItem, bool turnFinished = false)
     {
+        ApplyAssistantRoles(turn);
         var items = turn.Items;
+        var latest = FindLatestAssistant(items);
         var idx = items.IndexOf(assistantItem);
         if (idx < 0)
             return;
 
-        CollapseTranscriptBlocks(turn, CollectAdjacentSummaryBlocks(items, idx - 1, -1), assistantItem, "before");
+        // While Lumi works, every update stays in view as a boundary its finished steps fold up to. The answer
+        // settles the work before it, and the end of the turn all of it; only then do the updates fold too.
+        var settlesWorkBefore = !IsFoldableProgress(assistantItem);
+        CollapseTranscriptBlocks(turn, CollectAdjacentSummaryBlocks(items, idx - 1, -1, latest, settlesWorkBefore), assistantItem, "before");
 
         idx = items.IndexOf(assistantItem);
         if (idx < 0)
             return;
 
-        CollapseTranscriptBlocks(turn, CollectAdjacentSummaryBlocks(items, idx + 1, 1), assistantItem, "after");
+        CollapseTranscriptBlocks(turn, CollectAdjacentSummaryBlocks(items, idx + 1, 1, latest, turnFinished), assistantItem, "after");
     }
 
     private void CompactEarlierActivity()
@@ -2139,17 +2226,20 @@ public class TranscriptBuilder
             CollapseActivityOnlyBlocks(_currentTurn, keepLatest: true);
     }
 
-    private void CollapseActivityOnlyBlocks(TranscriptTurn turn, bool keepLatest = false)
+    /// <param name="settled">The work is settled, so what only narrated it folds with it.</param>
+    private void CollapseActivityOnlyBlocks(TranscriptTurn turn, bool keepLatest = false, bool settled = false)
     {
+        ApplyAssistantRoles(turn);
         var runs = new List<(int StartIndex, List<TranscriptItem> Blocks)>();
         var currentRun = new List<TranscriptItem>();
         var currentRunStart = -1;
         var items = turn.Items;
+        var latest = FindLatestAssistant(items);
 
         var limit = keepLatest ? items.Count - 1 : items.Count;
         for (var i = 0; i < limit; i++)
         {
-            if (IsActivityOnlySummaryEligibleBlock(items[i])
+            if (IsActivityOnlySummaryEligibleBlock(items[i], latest, settled)
                 && (!keepLatest || items[i] is TurnSummaryItem || !IsExpandedActivity(items[i])))
             {
                 if (currentRun.Count == 0)
@@ -2180,12 +2270,17 @@ public class TranscriptBuilder
         }
     }
 
-    private List<TranscriptItem> CollectAdjacentSummaryBlocks(IList<TranscriptItem> items, int startIndex, int step)
+    private List<TranscriptItem> CollectAdjacentSummaryBlocks(
+        IList<TranscriptItem> items,
+        int startIndex,
+        int step,
+        AssistantMessageItem? latestAssistant,
+        bool settled)
     {
         var blocks = new List<TranscriptItem>();
         for (var i = startIndex; i >= 0 && i < items.Count; i += step)
         {
-            if (!IsSummaryEligibleBlock(items[i]))
+            if (!IsSummaryEligibleBlock(items[i], latestAssistant, settled))
                 break;
 
             blocks.Add(items[i]);
@@ -2197,20 +2292,84 @@ public class TranscriptBuilder
         return blocks;
     }
 
-    private bool IsSummaryEligibleBlock(TranscriptItem item)
-        => item switch
+    private bool IsSummaryEligibleBlock(TranscriptItem item, AssistantMessageItem? latestAssistant, bool settled)
+    {
+        // Settled work also takes what only narrated it: its updates (except the latest one and one that
+        // delivered files), the skills it loaded, the questions it asked once answered, and its finished agent
+        // groups. What the reader may still use, such as a linked chat or a plan card, stays in view.
+        var foldsNarration = settled && _foldProgressMessages;
+        return item switch
         {
             ToolGroupItem group => !ReferenceEquals(group, _currentToolGroup)
                 && !group.IsActive && !ContainsRunningBackgroundShell(group),
             ReasoningItem reasoning => !reasoning.IsActive,
             SingleToolItem single => !single.IsActive && !ContainsRunningBackgroundShell(single),
             SubagentToolCallItem agent => agent.Status != StrataAiToolCallStatus.InProgress,
-            TurnSummaryItem summary => summary.InnerItems.All(IsSummaryEligibleBlock),
+            AssistantMessageItem assistant => foldsNarration
+                && assistant.IsProgress
+                && !assistant.IsStreaming
+                && !assistant.HasFileAttachments
+                && !ReferenceEquals(assistant, latestAssistant),
+            SkillLoadedItem => foldsNarration,
+            QuestionItem question => foldsNarration && (question.IsAnswered || question.IsExpired),
+            SubagentGroupItem agents => foldsNarration && !agents.IsActive,
+            TurnSummaryItem summary => summary.InnerItems.All(inner => IsSummaryEligibleBlock(inner, latestAssistant, settled)),
             _ => false,
         };
+    }
 
-    private bool IsActivityOnlySummaryEligibleBlock(TranscriptItem item)
-        => item is not SubagentToolCallItem && IsSummaryEligibleBlock(item);
+    private bool IsActivityOnlySummaryEligibleBlock(TranscriptItem item, AssistantMessageItem? latestAssistant, bool settled)
+        => item is not (SubagentToolCallItem or SubagentGroupItem) && IsSummaryEligibleBlock(item, latestAssistant, settled);
+
+    private bool IsFoldableProgress(AssistantMessageItem item) => _foldProgressMessages && item.IsProgress;
+
+    /// <summary>
+    /// Gives each assistant message its role in the turn. Recorded messages keep the SDK's verdict;
+    /// older history infers it from what followed: a message followed by a later one, or by tool calls
+    /// it requested, was progress. The latter is the last update of a turn that was stopped, steered
+    /// or cut off mid-work, which must not read as its answer.
+    /// </summary>
+    private void ApplyAssistantRoles(TranscriptTurn turn)
+    {
+        if (!_foldProgressMessages)
+            return;
+
+        var items = turn.EnumerateItems().ToList();
+        var hasLater = false;
+        var toolsFollow = false;
+        for (var i = items.Count - 1; i >= 0; i--)
+        {
+            switch (items[i])
+            {
+                case AssistantMessageItem assistant:
+                    assistant.IsProgress = assistant.RecordedProgress ?? (hasLater || toolsFollow);
+                    if (assistant.IsItemVisible)
+                    {
+                        hasLater = true;
+                        toolsFollow = false;
+                    }
+                    break;
+                case ToolGroupItem or SingleToolItem or SubagentToolCallItem or SubagentGroupItem or QuestionItem or InputRequestItem:
+                    toolsFollow = true;
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The turn's newest message stays readable: while Lumi works it is the latest update, and once
+    /// the work ends it is the answer, or the last word before Lumi stopped.
+    /// </summary>
+    private static AssistantMessageItem? FindLatestAssistant(IList<TranscriptItem> items)
+    {
+        for (var i = items.Count - 1; i >= 0; i--)
+        {
+            if (items[i] is AssistantMessageItem { IsItemVisible: true } assistant)
+                return assistant;
+        }
+
+        return null;
+    }
 
     private static bool IsExpandedActivity(TranscriptItem item)
         => item switch
@@ -2218,7 +2377,7 @@ public class TranscriptBuilder
             ToolGroupItem group => group.HasExpandedContent,
             ReasoningItem reasoning => reasoning.IsExpanded,
             SingleToolItem single => single.IsExpanded,
-            TurnSummaryItem summary => summary.IsExpanded,
+            TurnSummaryItem summary => summary.IsExpanded && !summary.IsAutoExpanded,
             _ => false,
         };
 
@@ -2267,21 +2426,35 @@ public class TranscriptBuilder
         List<TranscriptItem> blocksToMerge,
         AssistantMessageItem assistantItem,
         string position)
-        => CollapseTranscriptBlocks(turn, blocksToMerge, $"turn-summary:{assistantItem.StableId}:{position}");
+        => CollapseTranscriptBlocks(
+            turn,
+            blocksToMerge,
+            $"turn-summary:{assistantItem.StableId}:{position}",
+            // Only a written answer says how long Lumi worked; a bubble that just delivers files does not.
+            answer: _foldProgressMessages && position == "before" && !IsFoldableProgress(assistantItem)
+                && !string.IsNullOrWhiteSpace(assistantItem.Content) ? assistantItem : null);
 
+    /// <param name="answer">The answer this work led to; its history row says how long Lumi worked.</param>
     private void CollapseTranscriptBlocks(
         TranscriptTurn turn,
         List<TranscriptItem> blocksToMerge,
         string stableId,
-        bool earlierActivity = false)
+        bool earlierActivity = false,
+        AssistantMessageItem? answer = null)
     {
-        if (blocksToMerge.Count < 2)
+        // A finished answer folds even a lone update or history row before it, so it takes the
+        // "Worked for" row; other lone blocks already read as one line on their own.
+        if (blocksToMerge.Count < 2
+            && !(answer is not null && blocksToMerge is [TurnSummaryItem or AssistantMessageItem]))
+        {
             return;
+        }
 
         var items = turn.Items;
         var totalToolCalls = 0;
         var failedCount = 0;
         var hasReasoning = false;
+        var hasNarration = false;
         var hasTodoProgress = false;
         string? todoMeta = null;
         string? lastIntentLabel = null;
@@ -2341,6 +2514,10 @@ public class TranscriptBuilder
                 if (!string.IsNullOrWhiteSpace(subagentItem.Title))
                     lastIntentLabel = subagentItem.Title;
             }
+            else if (sourceBlock is AssistantMessageItem)
+            {
+                hasNarration = true;
+            }
             else
             {
                 hasReasoning = true;
@@ -2348,7 +2525,13 @@ public class TranscriptBuilder
         }
 
         string label;
-        if (hasTodoProgress)
+        if (answer is not null && GetWorkDuration(turn, answer, flattenedBlocks) is { } worked)
+        {
+            label = Loc.Get(
+                totalToolCalls > 0 || hasNarration ? "TurnSummary_WorkedFor" : "TurnSummary_ThoughtFor",
+                FormatWorkDuration(worked));
+        }
+        else if (hasTodoProgress)
             label = !string.IsNullOrWhiteSpace(todoMeta) ? $"{Loc.ToolTodo_Title} · {todoMeta}" : Loc.ToolTodo_Title;
         else if (lastIntentLabel is not null)
         {
@@ -2362,6 +2545,8 @@ public class TranscriptBuilder
             label = totalToolCalls == 1 ? Loc.ToolGroup_FinishedOne : string.Format(Loc.ToolGroup_FinishedCount, totalToolCalls);
         else if (hasReasoning)
             label = Loc.TurnSummary_Reasoned;
+        else if (hasNarration)
+            label = Loc.TurnSummary_Worked;
         else
             label = Loc.TurnSummary_ReasonedAndOneAction;
 
@@ -2375,11 +2560,17 @@ public class TranscriptBuilder
         // Keep the history row and its children mounted as more work arrives. Replacing it would
         // reset a user's expansion and the scroll position while they inspect earlier steps.
         var summary = blocksToMerge[0] as TurnSummaryItem;
+        // Lumi holds a row open to keep a live plan in view; the finished answer folds it again.
+        var isLiveWork = !IsRebuildingTranscript && answer is null;
         if (summary is not null)
         {
             summary.Label = label;
             summary.HasFailures = failedCount > 0;
+            if (answer is not null && summary.IsAutoExpanded)
+                summary.SetAutoExpanded(false);
             summary.IsExpanded |= blocksToMerge.Skip(1).Any(IsExpandedActivity);
+            if (!summary.IsExpanded && isLiveWork && blocksToMerge.Skip(1).Any(IsHeldOpen))
+                summary.SetAutoExpanded(true);
             foreach (var block in flattenedBlocks.Skip(summary.InnerItems.Count))
                 summary.InnerItems.Add(block);
             foreach (var block in blocksToMerge.Skip(1))
@@ -2389,19 +2580,68 @@ public class TranscriptBuilder
         {
             summary = new TurnSummaryItem(label, stableId)
             {
-                IsExpanded = !IsRebuildingTranscript
-                    && (hasTodoProgress || blocksToMerge.Any(IsExpandedActivity)),
+                IsExpanded = !IsRebuildingTranscript && blocksToMerge.Any(IsExpandedActivity),
                 HasFailures = failedCount > 0,
             };
+            if (!summary.IsExpanded && isLiveWork && (hasTodoProgress || blocksToMerge.Any(IsHeldOpen)))
+                summary.SetAutoExpanded(true);
             foreach (var block in flattenedBlocks)
                 summary.InnerItems.Add(block);
             foreach (var block in blocksToMerge)
                 items.Remove(block);
             items.Insert(firstIdx, summary);
         }
+
+        static bool IsHeldOpen(TranscriptItem block) => block is TurnSummaryItem { IsAutoExpanded: true };
     }
 
-    private void CollapseAllCompletedTurns()
+    /// <summary>
+    /// How long Lumi worked before <paramref name="answer"/>: from the request, or from the turn's
+    /// previous answer, until the answer began. Null when the history holds no usable times.
+    /// </summary>
+    private static TimeSpan? GetWorkDuration(
+        TranscriptTurn turn,
+        AssistantMessageItem answer,
+        IReadOnlyList<TranscriptItem> blocks)
+    {
+        var start = turn.RequestedAt;
+        for (var i = turn.Items.IndexOf(answer) - 1; i >= 0; i--)
+        {
+            if (turn.Items[i] is AssistantMessageItem { IsProgress: false, IsItemVisible: true } previous)
+            {
+                start = previous.Timestamp;
+                break;
+            }
+        }
+
+        start ??= blocks.OfType<AssistantMessageItem>()
+            .Select(static item => (DateTimeOffset?)item.Timestamp)
+            .Min();
+        if (start is not { } startedAt)
+            return null;
+
+        var duration = answer.Timestamp - startedAt;
+        return duration >= TimeSpan.Zero && duration < TimeSpan.FromDays(1) ? duration : null;
+    }
+
+    /// <summary>"8s", "1m 42s", "2m", "1h 5m".</summary>
+    internal static string FormatWorkDuration(TimeSpan duration)
+    {
+        var totalSeconds = Math.Max(1, (long)Math.Round(duration.TotalSeconds));
+        if (totalSeconds < 60)
+            return $"{totalSeconds}s";
+
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+        if (minutes < 60)
+            return seconds == 0 ? $"{minutes}m" : $"{minutes}m {seconds}s";
+
+        var hours = minutes / 60;
+        minutes %= 60;
+        return minutes == 0 ? $"{hours}h" : $"{hours}h {minutes}m";
+    }
+
+    private void CollapseAllCompletedTurns(TranscriptTurn? workingTurn)
     {
         var turns = GetTurnTarget();
         if (turns is null)
@@ -2409,15 +2649,10 @@ public class TranscriptBuilder
 
         foreach (var turn in turns)
         {
-            var assistantItems = turn.Items.OfType<AssistantMessageItem>().ToList();
-            if (assistantItems.Count == 0)
-            {
-                CollapseActivityOnlyBlocks(turn);
-                continue;
-            }
-
-            for (var i = assistantItems.Count - 1; i >= 0; i--)
-                CollapseCompletedTurnBlocks(turn, assistantItems[i]);
+            if (ReferenceEquals(turn, workingTurn))
+                CollapseWorkingTurnBlocks(turn);
+            else
+                CollapseTurnBlocks(turn);
         }
     }
 
@@ -2666,6 +2901,8 @@ public class TranscriptBuilder
         if (_currentTurn is not null)
         {
             _currentTurn.Items.Add(item);
+            // New work reopens a turn an earlier run settled, so the end of this run folds it again.
+            _currentTurn.IsSettled = false;
             if (item is not (UserMessageItem or JobWakeItem))
                 _fileChipTurn.TranscriptTurn = _currentTurn;
             CompactEarlierActivity();
@@ -2676,6 +2913,8 @@ public class TranscriptBuilder
         // never observes a transient empty turn and skips mounting it.
         var turn = new TranscriptTurn(turnStableId);
         turn.Items.Add(item);
+        if (item is not (UserMessageItem or JobWakeItem or InteractionReceiptItem))
+            turn.RequestedAt = _requestedAt;
         _currentTurn = turn;
         if (item is not (UserMessageItem or JobWakeItem))
             _fileChipTurn.TranscriptTurn = turn;

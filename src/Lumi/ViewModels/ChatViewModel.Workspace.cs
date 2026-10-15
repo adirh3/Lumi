@@ -476,7 +476,8 @@ public partial class ChatViewModel
     /// <summary>Skills attached to a message or loaded mid-turn, newest first, one row per skill.</summary>
     private List<SkillChipItem> CollectSkills()
         => LatestFirst(
-            TranscriptTurns.SelectMany(static turn => turn.Items).SelectMany(static item => item switch
+            // A skill loaded mid-turn folds away with the turn's work, so the work is searched too.
+            TranscriptTurns.SelectMany(static turn => turn.EnumerateItems()).SelectMany(static item => item switch
             {
                 UserMessageItem user => user.SkillChips,
                 SkillLoadedItem loaded => [loaded.Chip],

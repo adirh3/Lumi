@@ -79,7 +79,8 @@ public sealed class TranscriptBuilderToolGroupTests
             new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Known other model", Model = "gpt-5.5" }),
             new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Final answer", Model = "claude-sonnet-4.6" })
         ]);
-        var answers = turns.SelectMany(turn => turn.Items).OfType<AssistantMessageItem>().ToList();
+        // Earlier messages fold into the turn's work; their captions are still filled in.
+        var answers = turns.SelectMany(turn => turn.EnumerateItems()).OfType<AssistantMessageItem>().ToList();
 
         Assert.Equal(ChatViewModel.FormatModelDisplay("claude-sonnet-4.6"), answers[0].ModelName);
         Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), answers[1].ModelName);
@@ -111,7 +112,7 @@ public sealed class TranscriptBuilderToolGroupTests
             new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "First step", Model = "gpt-5.5" }),
             new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Final answer" })
         ]);
-        var answers = turns.SelectMany(turn => turn.Items).OfType<AssistantMessageItem>().ToList();
+        var answers = turns.SelectMany(turn => turn.EnumerateItems()).OfType<AssistantMessageItem>().ToList();
 
         Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), answers[0].ModelName);
         Assert.Equal(answers[0].ModelName, answers[1].ModelName);
@@ -1049,13 +1050,15 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
-    public void ProcessMessageToTranscript_StreamingAssistantEndKeepsPriorActivityBetweenAssistantMessages()
+    public void ProcessMessageToTranscript_StreamingAnswerEndFoldsEarlierUpdatesWithTheirWork()
     {
+        Lumi.Localization.Loc.Load("en");
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
         builder.SetLiveTarget(liveTurns);
 
-        builder.ProcessMessageToTranscript(CreateAssistantVm("I will inspect the file."));
+        var update = CreateAssistantVm("I will inspect the file.");
+        builder.ProcessMessageToTranscript(update);
         builder.ProcessMessageToTranscript(CreateToolVm("tool-1", "view", "Completed", "{\"path\":\"E:\\\\repo\\\\README.md\"}"));
         builder.ProcessMessageToTranscript(CreateReasoningVm("The first file is not enough context."));
         var streamingAssistant = CreateAssistantVm("I need to check one more thing.", isStreaming: true);
@@ -1065,18 +1068,19 @@ public sealed class TranscriptBuilderToolGroupTests
         streamingAssistant.NotifyStreamingEnded();
 
         var turn = Assert.Single(liveTurns);
-        Assert.Equal(3, turn.Items.Count);
-        Assert.IsType<AssistantMessageItem>(turn.Items[0]);
-
-        var summary = Assert.IsType<TurnSummaryItem>(turn.Items[1]);
-        Assert.Equal(2, summary.InnerItems.Count);
-        Assert.IsType<SingleToolItem>(summary.InnerItems[0]);
-        Assert.IsType<ReasoningItem>(summary.InnerItems[1]);
-        Assert.IsType<AssistantMessageItem>(turn.Items[2]);
+        Assert.Equal(2, turn.Items.Count);
+        var summary = Assert.IsType<TurnSummaryItem>(turn.Items[0]);
+        Assert.Collection(summary.InnerItems,
+            item => Assert.Equal(update.Message.Id, Assert.IsType<AssistantMessageItem>(item).MessageId),
+            item => Assert.IsType<SingleToolItem>(item),
+            item => Assert.IsType<ReasoningItem>(item));
+        Assert.StartsWith("Worked for", summary.Label);
+        Assert.True(Assert.IsType<AssistantMessageItem>(summary.InnerItems[0]).IsProgress);
+        Assert.False(Assert.IsType<AssistantMessageItem>(turn.Items[1]).IsProgress);
     }
 
     [Fact]
-    public void CollapseCompletedBlocksInCurrentTurn_MergesPriorTailSummaryWithLaterTools()
+    public void CollapseCompletedBlocksInCurrentTurn_MergesEarlierUpdatesAndLaterToolsIntoOneHistoryRow()
     {
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
@@ -1087,26 +1091,27 @@ public sealed class TranscriptBuilderToolGroupTests
         builder.ProcessMessageToTranscript(CreateReasoningVm("The first file is not enough context."));
         builder.ProcessMessageToTranscript(CreateAssistantVm("I need to check one more thing."));
         builder.CollapseCompletedBlocksInCurrentTurn();
+        var history = Assert.IsType<TurnSummaryItem>(Assert.Single(liveTurns).Items[0]);
 
         builder.ProcessMessageToTranscript(CreateToolVm("tool-2", "powershell", "Completed", "{\"command\":\"dotnet test\"}"));
         builder.ProcessMessageToTranscript(CreateAssistantVm("Now I have the final result."));
         builder.CollapseCompletedBlocksInCurrentTurn();
 
         var turn = Assert.Single(liveTurns);
-        Assert.Equal(5, turn.Items.Count);
-        Assert.IsType<AssistantMessageItem>(turn.Items[0]);
-
-        var summary = Assert.IsType<TurnSummaryItem>(turn.Items[1]);
-        Assert.Equal(2, summary.InnerItems.Count);
-        Assert.IsType<SingleToolItem>(summary.InnerItems[0]);
-        Assert.IsType<ReasoningItem>(summary.InnerItems[1]);
-        Assert.IsType<AssistantMessageItem>(turn.Items[2]);
-        Assert.IsType<SingleToolItem>(turn.Items[3]);
-        Assert.IsType<AssistantMessageItem>(turn.Items[4]);
+        Assert.Equal(2, turn.Items.Count);
+        // The same row grows as work arrives, so a reader's expansion survives.
+        Assert.Same(history, turn.Items[0]);
+        Assert.Collection(history.InnerItems,
+            item => Assert.Equal("I will inspect the file.", Assert.IsType<AssistantMessageItem>(item).Content),
+            item => Assert.IsType<SingleToolItem>(item),
+            item => Assert.IsType<ReasoningItem>(item),
+            item => Assert.Equal("I need to check one more thing.", Assert.IsType<AssistantMessageItem>(item).Content),
+            item => Assert.IsType<SingleToolItem>(item));
+        Assert.Equal("Now I have the final result.", Assert.IsType<AssistantMessageItem>(turn.Items[1]).Content);
     }
 
     [Fact]
-    public void CollapseCompletedBlocksInCurrentTurn_KeepsMultipleToolGroupsCompactBetweenAssistantMessages()
+    public void CollapseCompletedBlocksInCurrentTurn_FoldsEarlierUpdatesAndKeepsTrailingToolsCompact()
     {
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
@@ -1127,18 +1132,19 @@ public sealed class TranscriptBuilderToolGroupTests
         builder.CollapseCompletedBlocksInCurrentTurn();
 
         var turn = Assert.Single(liveTurns);
-        Assert.Equal(6, turn.Items.Count);
-        Assert.IsType<AssistantMessageItem>(turn.Items[0]);
-        AssertCompactFinishedToolGroup(turn.Items[1], expectedToolCalls: 2);
-        Assert.IsType<AssistantMessageItem>(turn.Items[2]);
-
-        var middleSummary = Assert.IsType<TurnSummaryItem>(turn.Items[3]);
-        Assert.False(middleSummary.IsExpanded);
-        Assert.Equal(2, middleSummary.InnerItems.Count);
-        Assert.IsType<ReasoningItem>(middleSummary.InnerItems[0]);
-        AssertCompactFinishedToolGroup(middleSummary.InnerItems[1], expectedToolCalls: 2);
-        Assert.IsType<AssistantMessageItem>(turn.Items[4]);
-        AssertCompactFinishedToolGroup(turn.Items[5], expectedToolCalls: 2);
+        Assert.Equal(3, turn.Items.Count);
+        var history = Assert.IsType<TurnSummaryItem>(turn.Items[0]);
+        Assert.False(history.IsExpanded);
+        Assert.Collection(history.InnerItems,
+            item => Assert.IsType<AssistantMessageItem>(item),
+            item => AssertCompactFinishedToolGroup(item, expectedToolCalls: 2),
+            item => Assert.IsType<AssistantMessageItem>(item),
+            item => Assert.IsType<ReasoningItem>(item),
+            item => AssertCompactFinishedToolGroup(item, expectedToolCalls: 2));
+        Assert.Equal(
+            "Second check is done; one final command remains.",
+            Assert.IsType<AssistantMessageItem>(turn.Items[1]).Content);
+        AssertCompactFinishedToolGroup(turn.Items[2], expectedToolCalls: 2);
     }
 
     [Fact]

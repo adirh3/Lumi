@@ -9,7 +9,7 @@ using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
-internal sealed record RecoveredAssistantMessage(string Content);
+internal sealed record RecoveredAssistantMessage(string Content, bool? IsProgress = null, string? ApiCallId = null);
 
 internal sealed record PendingTurnRecoveryLogSnapshot(
     PendingTurnRecoveryAnalysis Analysis,
@@ -107,7 +107,10 @@ internal static class PendingTurnRecoveryAnalyzer
 #pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required to detect sub-agent assistant messages.
                     state.RecordAssistantMessage(
                         assistantMessage.Data.ParentToolCallId,
-                        assistantMessage.Data.Content);
+                        assistantMessage.Data.Content,
+                        assistantMessage.Data.Phase,
+                        assistantMessage.Data.ToolRequests is { Length: > 0 },
+                        assistantMessage.Data.ApiCallId);
 #pragma warning restore CS0618
                     break;
 
@@ -583,7 +586,13 @@ internal static class PendingTurnRecoveryAnalyzer
                 case "assistant.message":
                     state.RecordAssistantMessage(
                         TryGetString(data, "parentToolCallId"),
-                        TryGetString(data, "content"));
+                        TryGetString(data, "content"),
+                        TryGetString(data, "phase"),
+                        data.ValueKind == JsonValueKind.Object
+                            && data.TryGetProperty("toolRequests", out var toolRequests)
+                            && toolRequests.ValueKind == JsonValueKind.Array
+                            && toolRequests.GetArrayLength() > 0,
+                        TryGetString(data, "apiCallId"));
                     break;
 
                 case "assistant.turn_end":
@@ -723,11 +732,35 @@ internal static class PendingTurnRecoveryAnalyzer
             _errorMessage = null;
         }
 
-        public void RecordAssistantMessage(string? parentToolCallId, string? content)
+        public void RecordAssistantMessage(
+            string? parentToolCallId,
+            string? content,
+            string? phase = null,
+            bool requestedTools = false,
+            string? apiCallId = null)
         {
             RecordContinuedActivity();
-            if (string.IsNullOrWhiteSpace(parentToolCallId) && !string.IsNullOrWhiteSpace(content))
-                _assistantMessages.Add(new RecoveredAssistantMessage(content));
+            if (!string.IsNullOrWhiteSpace(parentToolCallId))
+                return;
+
+            // The earlier pieces of a split reply share its model call; its tool requests made them progress.
+            if (requestedTools && string.IsNullOrEmpty(phase) && !string.IsNullOrEmpty(apiCallId))
+            {
+                for (var i = _assistantMessages.Count - 1;
+                     i >= 0 && string.Equals(_assistantMessages[i].ApiCallId, apiCallId, StringComparison.Ordinal);
+                     i--)
+                {
+                    _assistantMessages[i] = _assistantMessages[i] with { IsProgress = true };
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                _assistantMessages.Add(new RecoveredAssistantMessage(
+                    content,
+                    AssistantProgress.IsProgress(phase, requestedTools),
+                    apiCallId));
+            }
         }
 
         public void RecordAssistantTurnEnd()

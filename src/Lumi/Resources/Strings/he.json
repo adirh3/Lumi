@@ -1209,6 +1209,9 @@
   "TurnSummary_ReasonedAndActions": "חשב \u00b7 {0} פעולות",
   "TurnSummary_ReasonedAndOneAction": "חשב \u00b7 פעולה אחת",
   "TurnSummary_Reasoned": "חשב",
+  "TurnSummary_WorkedFor": "עבד במשך {0}",
+  "TurnSummary_ThoughtFor": "חשב במשך {0}",
+  "TurnSummary_Worked": "עבד",
 
   "SubagentGroup_Working": "{0} סוכנים פועלים\u2026",
   "SubagentGroup_Finished": "{0} סוכנים",

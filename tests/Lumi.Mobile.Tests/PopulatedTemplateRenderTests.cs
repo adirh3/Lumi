@@ -274,7 +274,7 @@ public sealed class PopulatedTemplateRenderTests
                     button => ReferenceEquals(button.DataContext, work));
                 Assert.Same(work.ToggleCommand, button.Command);
                 AssertChatCardSurface(button, "PART_Surface");
-                Assert.Equal("Work 58s", work.Label);
+                Assert.Equal("Worked for 58s", work.Label);
                 Assert.Equal(new[] { finalId }, VisibleAnswers());
 
                 button.Command!.Execute(null);

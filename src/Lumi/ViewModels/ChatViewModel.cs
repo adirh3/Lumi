@@ -1687,7 +1687,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
         }
 
-        TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin());
+        TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin(), isWorking: IsBusy);
         UpdateUserMessageEditState();
         UpdateReplySourceHighlight();
         _transcriptWindow.BindTranscript(TranscriptTurns, "rebuild");

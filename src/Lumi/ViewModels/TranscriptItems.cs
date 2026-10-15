@@ -349,6 +349,14 @@ public partial class AssistantMessageItem : TranscriptItem
     /// <summary>True while the composer holds a reply to this message.</summary>
     [ObservableProperty] private bool _isReplySource;
 
+    /// <summary>
+    /// True when this message is a progress update written while working rather than part of the
+    /// answer. It never carries the answer's actions. It stays in view while Lumi works, and folds into
+    /// the turn's work, where it reads quieter, once the answer arrives or the turn ends; the last word
+    /// of a turn that ends without an answer stays in view.
+    /// </summary>
+    [ObservableProperty] private bool _isProgress;
+
     /// <summary>Only an answer with text can be quoted; a bubble that just carries files cannot.</summary>
     public bool CanReply => !string.IsNullOrWhiteSpace(Content);
     public bool CanSharePrompt => !IsStreaming && !string.IsNullOrWhiteSpace(Content)
@@ -374,6 +382,9 @@ public partial class AssistantMessageItem : TranscriptItem
     public string HeaderLabel => string.IsNullOrWhiteSpace(ModelName) ? Loc.Chat_ModelNotRecorded : ModelName;
     public string? TimestampToolTip => string.IsNullOrEmpty(TimestampText) ? null : _source.TimestampToolTip;
     internal Guid MessageId => _source.Message.Id;
+    internal DateTimeOffset Timestamp => _source.Message.Timestamp;
+    /// <summary>The SDK's verdict on this message; null when it gave none (older history, or a message cut off mid-stream).</summary>
+    internal bool? RecordedProgress => _source.Message.IsProgress;
     public IReadOnlyDictionary<string, string>? InteractionStates => _source.Message.InteractionStates;
     internal void RefreshInteractionState() => OnPropertyChanged(nameof(InteractionStates));
     public ObservableCollection<SkillReference> Skills { get; } = [];
@@ -393,6 +404,7 @@ public partial class AssistantMessageItem : TranscriptItem
         _timestampText = showTimestamps ? source.TimestampText : "";
         _isStreaming = source.IsStreaming;
         _modelName = source.ModelName;
+        _isProgress = source.Message.IsProgress == true;
 
         // Hide the bubble when content is only whitespace (e.g. the SDK sends "\n\n"
         // before tool calls / reasoning). Shows automatically when real content arrives.
@@ -416,8 +428,16 @@ public partial class AssistantMessageItem : TranscriptItem
         {
             IsStreaming = false;
             ModelName = _source.ModelName ?? ModelName;
+            RefreshProgress();
             _source.PropertyChanged -= OnSourcePropertyChanged;
         }
+    }
+
+    /// <summary>Adopts the recorded role once the SDK has classified the finished message.</summary>
+    internal void RefreshProgress()
+    {
+        if (_source.Message.IsProgress is { } recorded)
+            IsProgress = recorded;
     }
 
     /// <summary>
@@ -1353,16 +1373,38 @@ public partial class TypingIndicatorItem : TranscriptItem
 
 public partial class TurnSummaryItem : TranscriptItem
 {
+    private bool _isSettingAutoExpanded;
+
     [ObservableProperty] private string _label;
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _hasFailures;
 
     public ObservableCollection<TranscriptItem> InnerItems { get; } = [];
 
+    /// <summary>
+    /// True while Lumi itself holds the row open, to keep a live plan in view as it works. The
+    /// reader's own toggle clears it, so their choice is never overridden.
+    /// </summary>
+    internal bool IsAutoExpanded { get; private set; }
+
     public TurnSummaryItem(string label, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("turn-summary"))
     {
         _label = label;
+    }
+
+    internal void SetAutoExpanded(bool expanded)
+    {
+        _isSettingAutoExpanded = true;
+        IsExpanded = expanded;
+        _isSettingAutoExpanded = false;
+        IsAutoExpanded = expanded;
+    }
+
+    partial void OnIsExpandedChanged(bool value)
+    {
+        if (!_isSettingAutoExpanded)
+            IsAutoExpanded = false;
     }
 }
 
