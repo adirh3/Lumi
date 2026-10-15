@@ -113,6 +113,7 @@ public partial class MainWindow : Window
     private Thumb? _sidebarResizeThumb;
     private Border? _navPill;
     private Border? _navPillHost;
+    private Panel? _sidebarNav;
     private TextBlock?[] _navLabels = [];
     private CancellationTokenSource? _sidebarAnimCts;
     private CancellationTokenSource? _navHoverIntentCts;
@@ -280,6 +281,7 @@ public partial class MainWindow : Window
         _sidebarResizeThumb = this.FindControl<Thumb>("SidebarResizeThumb");
         _navPill = this.FindControl<Border>("NavPill");
         _navPillHost = this.FindControl<Border>("NavPillHost");
+        _sidebarNav = this.FindControl<Panel>("SidebarNav");
 
         _pages =
         [
@@ -377,6 +379,8 @@ public partial class MainWindow : Window
         _chatListScroller = this.FindControl<ScrollViewer>("ChatListScroller");
         if (_chatListScroller is not null)
             _chatListScroller.ScrollChanged += OnChatListScrollChanged;
+        this.FindControl<ItemsControl>("ChatGroupsHost")?.AddHandler(
+            RequestBringIntoViewEvent, OnChatListBringIntoView);
 
         _chatWorkspace = this.FindControl<ChatWorkspaceView>("ChatContentGrid");
         _chatView = _chatWorkspace?.ChatView;
@@ -2343,6 +2347,17 @@ public partial class MainWindow : Window
         {
             // Silently ignore — user may not have access
         }
+    }
+
+    private void OnChatListBringIntoView(object? sender, RequestBringIntoViewEventArgs e)
+    {
+        var inset = _sidebarNav?.Bounds.Height ?? 0;
+        if (inset <= 0)
+            return;
+
+        // The viewport extends beneath the nav; bring rows clear of that covered edge.
+        var target = e.TargetRect;
+        e.TargetRect = new Rect(target.X, target.Y, target.Width, target.Height + inset);
     }
 
     private void OnChatListScrollChanged(object? sender, ScrollChangedEventArgs e)

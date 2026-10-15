@@ -164,6 +164,133 @@ public sealed class NavigationBarTests
     }
 
     [Fact]
+    public async Task Bar_FrostsChatsScrollingUnderneath_WhileTheLastChatStaysReachable()
+    {
+        using var session = HeadlessTestSession.Start();
+        var skillsDirectory = Path.Combine(Path.GetTempPath(), $"lumi-nav-glass-{Guid.NewGuid():N}");
+
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                var emptyProject = new Project { Name = "Empty project" };
+                using var vm = CreateMainViewModel(new AppData
+                {
+                    Projects = [emptyProject],
+                    Chats = Enumerable.Range(0, 30).Select(index => new Chat { Title = $"Chat {index:D2}" }).ToList()
+                }, skillsDirectory);
+                vm.SettingsVM.ShowAnimations = false;
+                var window = new MainWindow { DataContext = vm, Width = 1280, Height = 740 };
+                window.Show();
+
+                try
+                {
+                    async Task Settle()
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                        window.UpdateLayout();
+                    }
+
+                    T Named<T>(string name) where T : Control
+                        => window.GetVisualDescendants().OfType<T>().Single(control => control.Name == name);
+
+                    double Top(Control control) => control.TranslatePoint(default, window)!.Value.Y;
+                    double Bottom(Control control) => Top(control) + control.Bounds.Height;
+
+                    await Settle();
+                    var sidebar = Named<Border>("SidebarBorder");
+                    var nav = Named<Panel>("SidebarNav");
+                    var material = Named<Panel>("NavEdgeMaterial");
+                    var pill = Named<Border>("NavPill");
+                    var scroll = Named<ScrollViewer>("ChatListScroller");
+                    var spacer = Named<Border>("SidebarNavSpacer");
+                    var frost = Assert.Single(material.Children.OfType<StrataBackdropBlur>());
+
+                    Assert.Equal(sidebar.Bounds.Width, nav.Bounds.Width, 1);
+                    Assert.Equal(Bottom(sidebar), Bottom(nav), 1);
+                    Assert.Equal(Bottom(sidebar), Bottom(scroll), 1);
+                    Assert.True(Bottom(scroll) > Top(nav));
+                    Assert.False(spacer.IsVisible);
+                    Assert.Equal(new CornerRadius(20), pill.CornerRadius);
+                    Assert.Equal(new Thickness(1), pill.BorderThickness);
+                    Assert.NotEqual(default, pill.BoxShadow);
+                    var pillFill = Assert.IsAssignableFrom<ISolidColorBrush>(pill.Background);
+                    Assert.Equal(0.4, pillFill.Opacity);
+                    Assert.True(pillFill.Color.A > 0);
+                    Assert.False(material.IsHitTestVisible);
+                    Assert.True(Top(material) < Top(nav));
+                    Assert.Equal(StrataBackdropFade.Top, frost.Fade);
+                    Assert.Equal(64, frost.FadeLength);
+                    Assert.Equal(10, frost.BlurRadius);
+
+                    var lastChat = vm.ChatGroups.Last().Chats.Last();
+                    var chatList = Named<ItemsControl>("ChatGroupsHost")
+                        .GetVisualDescendants().OfType<ListBox>().Single(list => list.Items.Contains(lastChat));
+                    ListBoxItem LastRow() => chatList.GetVisualDescendants().OfType<ListBoxItem>()
+                        .Single(row => ReferenceEquals(row.DataContext, lastChat));
+
+                    scroll.ScrollToEnd();
+                    await Settle();
+                    Assert.True(scroll.Offset.Y > 0);
+                    Assert.True(Bottom(LastRow()) <= Top(nav), "The last chat scrolls fully clear of the navigation");
+
+                    scroll.Offset = new Vector(0, Math.Max(0, scroll.ScrollBarMaximum.Y - nav.Bounds.Height));
+                    await Settle();
+                    Assert.True(Bottom(LastRow()) > Top(nav), "Chats really occupy the space behind the navigation");
+
+                    var jobs = Named<Button>("NavJobs");
+                    var point = jobs.TranslatePoint(new Point(jobs.Bounds.Width / 2, jobs.Bounds.Height / 2), window)!.Value;
+                    window.MouseDown(point, MouseButton.Left);
+                    window.MouseUp(point, MouseButton.Left);
+                    await Settle();
+                    Assert.Equal(1, vm.SelectedNavIndex);
+                    Assert.True(spacer.IsVisible);
+                    Assert.Equal(nav.Bounds.Height, spacer.Bounds.Height, 1);
+
+                    new ButtonAutomationPeer(Named<Button>("NavSettings")).Invoke();
+                    await Settle();
+                    Assert.True(Bottom(Named<ListBox>("SettingsPagesList")) <= Top(nav) + 1,
+                        "Other sidebar pages keep their content above the navigation");
+
+                    new ButtonAutomationPeer(Named<Button>("NavChat")).Invoke();
+                    await Settle();
+                    scroll.Offset = default;
+                    await Settle();
+                    chatList.SelectedItem = lastChat;
+                    await Settle();
+                    await Settle();
+                    Assert.True(Bottom(LastRow()) <= Top(nav),
+                        "Selecting an offscreen chat brings its row above the floating navigation");
+
+                    window.Height = 560;
+                    sidebar.Width = 240;
+                    await Settle();
+                    scroll.ScrollToEnd();
+                    await Settle();
+                    Assert.Equal(sidebar.Bounds.Width, nav.Bounds.Width, 1);
+                    Assert.Equal(Bottom(sidebar), Bottom(scroll), 1);
+                    Assert.True(Bottom(LastRow()) <= Top(nav));
+
+                    vm.SelectProjectFilterCommand.Execute(emptyProject);
+                    await Settle();
+                    Assert.Empty(vm.ChatGroups);
+                    Assert.True(nav.IsEffectivelyVisible);
+                    Assert.Equal(Bottom(sidebar), Bottom(nav), 1);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (Directory.Exists(skillsDirectory))
+                Directory.Delete(skillsDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task BarTips_SitAboveTheBar_AndPauseAfterASwitchUntilThePointerMovesOn()
     {
         using var session = HeadlessTestSession.Start();

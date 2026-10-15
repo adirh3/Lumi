@@ -243,6 +243,9 @@ The bar at the bottom of the sidebar has five places: **Chats**, **Library**, **
 and **Settings** (`Ctrl+1`–`Ctrl+5`, `⌘1`–`⌘5` on macOS; `Ctrl+,` / `⌘,` also opens Settings). The open
 place is highlighted and named when the sidebar is wide enough; a narrower sidebar shows icons only,
 and the collapsed sidebar shows the same places as a rail.
+The translucent navigation pill floats over a softly fading backdrop blur, like the chat header and
+composer. Chats scroll underneath it, with enough space at the end to bring the last chat
+fully above the navigation.
 
 The chat sidebar uses grayscale text antialiasing to avoid dark or colored fringes over its transparent
 background. Chip and selection fills still provide contrast independently of text rendering.
