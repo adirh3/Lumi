@@ -14,11 +14,23 @@ namespace Lumi.Mobile.Views;
 /// Keeps a stable height for offscreen turns and defers their heavy content until it is near
 /// the viewport. Like desktop transcript turns, a revisited turn reuses its retained controls.
 /// </summary>
+/// <remarks>
+/// Turns about to be seen are built at once. Turns further out are prepared ahead of the viewport,
+/// one per layout pass and nearest first (see <see cref="ChatDetailView.RequestRealization"/>), so a
+/// fling meets built turns instead of building several in one frame. Content is only released well
+/// past the band it is built in, so scrolling back and forth does not rebuild the same turns.
+/// </remarks>
 internal sealed class TranscriptTurnView : Decorator
 {
+    // In viewport heights beyond each edge of the viewport.
+    private const double EntranceBand = 0.5;
+    private const double RealizeBand = 1;
+    private const double RetainBand = 1.5;
+
     private TranscriptTurnViewModel? _turn;
     private ItemsControl? _items;
     private ScrollViewer? _scroll;
+    private ChatDetailView? _chat;
     private Rect _viewport;
     private double _reservedHeight;
     private bool _attached;
@@ -30,9 +42,24 @@ internal sealed class TranscriptTurnView : Decorator
         !_updateQueued && (!IsNearViewport || _turn?.DisplayItems.Count == 0
             || (Child is not null && IsMeasureValid && IsArrangeValid));
 
-    private bool IsNearViewport =>
-        _viewport.Width > 0 && _viewport.Height > 0 && double.IsFinite(_viewport.Height)
-        && new Rect(Bounds.Size).Intersects(_viewport.Inflate(new Thickness(0, _viewport.Height * 0.5)));
+    private bool HasViewport =>
+        _viewport.Width > 0 && _viewport.Height > 0 && double.IsFinite(_viewport.Height);
+
+    private bool IsNearViewport => IsWithin(EntranceBand);
+
+    /// <summary>How far this turn is from the viewport, for building the nearest turns first.</summary>
+    internal double ViewportDistance
+    {
+        get
+        {
+            if (!HasViewport)
+                return double.MaxValue;
+            var bounds = new Rect(Bounds.Size);
+            return bounds.Bottom < _viewport.Top ? _viewport.Top - bounds.Bottom
+                : bounds.Top > _viewport.Bottom ? bounds.Top - _viewport.Bottom
+                : 0;
+        }
+    }
 
     public TranscriptTurnView()
     {
@@ -48,6 +75,7 @@ internal sealed class TranscriptTurnView : Decorator
     {
         _version++;
         _updateQueued = false;
+        _chat?.CancelRealization(this);
         if (_attached && _turn is not null)
             _turn.DisplayItems.CollectionChanged -= OnItemsChanged;
         Child = null;
@@ -66,6 +94,7 @@ internal sealed class TranscriptTurnView : Decorator
         base.OnAttachedToVisualTree(e);
         _attached = true;
         _scroll = this.FindAncestorOfType<ScrollViewer>();
+        _chat = this.FindAncestorOfType<ChatDetailView>();
         if (_turn is not null)
             _turn.DisplayItems.CollectionChanged += OnItemsChanged;
         QueueUpdate();
@@ -76,6 +105,8 @@ internal sealed class TranscriptTurnView : Decorator
         _attached = false;
         _version++;
         _updateQueued = false;
+        _chat?.CancelRealization(this);
+        _chat = null;
         if (_turn is not null)
             _turn.DisplayItems.CollectionChanged -= OnItemsChanged;
         SetAnchor(false);
@@ -112,35 +143,55 @@ internal sealed class TranscriptTurnView : Decorator
             if (!_attached || version != _version)
                 return;
             _updateQueued = false;
-            var bounds = new Rect(Bounds.Size);
-            var hasViewport = _viewport.Width > 0 && _viewport.Height > 0 &&
-                              double.IsFinite(_viewport.Height);
-            var visible = hasViewport && bounds.Intersects(_viewport);
-            SetAnchor(visible);
-            var nearby = hasViewport &&
-                         bounds.Intersects(_viewport.Inflate(new Thickness(0, _viewport.Height * 0.5)));
-            var chat = this.FindAncestorOfType<ChatDetailView>();
-            if (!nearby || _turn is null || chat?.ShouldDeferTranscriptRealization == true)
+            SetAnchor(IsWithin(0));
+            var chat = _chat;
+            if (_turn is null || chat?.ShouldDeferTranscriptRealization == true || !IsWithin(RetainBand))
             {
+                chat?.CancelRealization(this);
                 Child = null;
             }
-            else
+            else if (Child is not null)
             {
-                if (_items is null)
-                {
-                    _items = new ItemsControl
-                    {
-                        DataContext = _turn,
-                        ItemsSource = new ObservableCollection<TranscriptItemViewModel>()
-                    };
-                    _items.ContainerPrepared += OnContainerPrepared;
-                }
-                Child = _items;
                 RefreshItems();
+            }
+            else if (chat is null || IsWithin(EntranceBand))
+            {
+                // Content about to be seen appears at once, never one turn per frame.
+                Realize();
+            }
+            else if (IsWithin(RealizeBand))
+            {
+                chat.RequestRealization(this);
             }
             chat?.QueueChatEntrance();
         }, DispatcherPriority.Background);
     }
+
+    /// <summary>Builds or restores this turn's content; false when there was nothing to do.</summary>
+    internal bool Realize()
+    {
+        if (!_attached || _turn is null || Child is not null || !IsWithin(RealizeBand)
+            || _chat?.ShouldDeferTranscriptRealization == true)
+            return false;
+
+        if (_items is null)
+        {
+            _items = new ItemsControl
+            {
+                DataContext = _turn,
+                ItemsSource = new ObservableCollection<TranscriptItemViewModel>()
+            };
+            _items.ContainerPrepared += OnContainerPrepared;
+        }
+        Child = _items;
+        RefreshItems();
+        _chat?.QueueChatEntrance();
+        return true;
+    }
+
+    private bool IsWithin(double band) =>
+        HasViewport
+        && new Rect(Bounds.Size).Intersects(_viewport.Inflate(new Thickness(0, _viewport.Height * band)));
 
     private void RefreshItems()
     {

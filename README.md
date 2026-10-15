@@ -596,15 +596,19 @@ least 16 CSS pixels to avoid Safari's automatic focus zoom and horizontal pannin
 Browser chrome and startup backgrounds follow the selected Light, Dark, or System theme.
 Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript realizes
 only turns near the viewport while retaining the full loaded page and offscreen streaming
-updates, avoiding eager layout of every markdown answer when opening a conversation.
+updates, avoiding eager layout of every markdown answer when opening a conversation. Turns
+about to be seen are built at once; turns up to a viewport further out are prepared ahead of
+scrolling one per layout pass, and built turns are kept until they are a viewport and a half
+away, so a fling meets ready turns instead of building several in one frame.
 In the browser everything (layout, rendering and .NET) shares one thread, so per-frame work
 is kept small: native browser editors are only updated when their position, text or options
 actually change (open sheets are tracked rather than searched for after every layout pass),
 code blocks lay out highlighted code as one text with colour ranges instead of one element per
-token, and the drawer and search results are one virtualized list of headers and rows, so row
-controls are recycled across date groups. The PWA runtime uses a 16 MB young generation, so
-garbage collections interrupt scrolling and typing about a third as often. Glass surfaces reuse
-their Skia filter and paint objects from frame to frame.
+token (shaped once per content, with one run style per colour), and the drawer and search
+results are one virtualized list of headers and rows, so row controls are recycled across date
+groups. The PWA runtime uses a 16 MB young generation, so garbage collections interrupt
+scrolling and typing about a third as often. Glass surfaces reuse their Skia filter and paint
+objects from frame to frame.
 
 Mobile uses Strata's short, interruptible rise-and-fade motion for chat switches, new chats,
 page returns and Library categories; native forms and pairing steps fade without moving
