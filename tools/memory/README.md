@@ -19,6 +19,9 @@ The default suite covers:
 - Repeated new-chat draft surface replacement.
 - Heavy transcript rebuild replacement.
 - Detached chat window open/close lifetime.
+- Glass frost repaints on the debug transcript fixture, with Skia's GPU cache held over budget as in heavy
+  use (detects GPU textures orphaned when the compositor disposes a replaced frost; only private bytes show
+  this, the managed heap stays flat).
 
 Run one scenario while investigating:
 
@@ -27,8 +30,8 @@ Run one scenario while investigating:
 ```
 
 Available scenario IDs are `attachment-thumbnails`, `chat-surfaces`, `draft-surfaces`,
-`transcript-rebuild`, and `detached-chat-window`. Unknown or unavailable IDs fail the harness
-instead of silently running a partial filter.
+`transcript-rebuild`, `stable-transcript-scroll`, `detached-chat-window`, and `glass-frost`.
+Unknown or unavailable IDs fail the harness instead of silently running a partial filter.
 
 The process exits:
 
