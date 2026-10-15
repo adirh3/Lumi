@@ -21,6 +21,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
+- **Inline images** — Local and online images render directly in chat. Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages

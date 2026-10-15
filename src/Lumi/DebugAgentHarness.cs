@@ -343,6 +343,8 @@ public static class DebugAgentHarness
 
             ### Inline markdown images
 
+            Use an image's top-right expand button to view it full screen. Press Esc or the close button to return.
+
             Local file:
 
             ![Lumi icon loaded from a local file]({fixtureImagePath})
@@ -350,6 +352,8 @@ public static class DebugAgentHarness
             Online image:
 
             ![GitHub mark loaded over HTTPS](https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png)
+
+            In-text image: ![Inline Lumi icon]({fixtureImagePath}) with text on both sides.
             """;
         firstAssistant.Sources.Add(new SearchSource
         {
