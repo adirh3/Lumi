@@ -116,6 +116,20 @@ public sealed class MainWindowProjectBadgeTests
                         <= row.Bounds.Width - row.Padding.Right + 1,
                         "The tag must trim inside the row instead of running past it.");
                 }
+
+                var surface = row.GetVisualDescendants().OfType<Border>()
+                    .Single(border => border.Name == "LayoutRoot");
+                surface.Transitions = null;
+                row.IsSelected = true;
+                if (viewModel.OpenChatCommand.ExecutionTask is { } opening)
+                    await opening;
+                Assert.True(window.TryFindResource("Brush.SubtlePressed", window.ActualThemeVariant, out var selection));
+                Assert.Equal(Assert.IsAssignableFrom<ISolidColorBrush>(selection).Color,
+                    Assert.IsAssignableFrom<ISolidColorBrush>(surface.Background).Color);
+                var marker = row.GetVisualDescendants().OfType<Border>()
+                    .Single(border => border.Name == "PART_SelectedPipe");
+                Assert.True(marker.IsVisible);
+                Assert.Equal(1, marker.Opacity);
             }
             finally
             {

@@ -181,12 +181,10 @@
     </Style>
 
     <!-- ── Chat list ──
-         Calm rows on the sidebar glass: a neutral wash under the pointer, and the open chat lit with the
-         switcher's open-project tint plus the slim marker that slides between rows. The sidebar is thin
-         glass over whatever is behind Lumi (a white page turns it mid-grey), so what must stay readable
-         stands on a solid surface: the open chat (ChatList.SelectedFill, App.axaml) and the project and
-         tag chips, which share the switcher's control surface. Rows keep the switcher's edges, 14px in
-         from either side, with a hairline gap so neighbouring washes never merge. -->
+         A neutral hover wash and a firmer neutral selection leave the accent to the slim marker and
+         project colours. Project and tag chips keep their solid control surface for readability over
+         the sidebar glass. Rows keep the switcher's edges, 14px in from either side, with a hairline
+         gap so neighbouring washes never merge. -->
     <Style Selector="ListBox.chat-list ListBoxItem">
       <Setter Property="Padding" Value="10,7" />
       <Setter Property="Margin" Value="0,1" />
@@ -207,7 +205,7 @@
       <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
     </Style>
     <Style Selector="ListBox.chat-list ListBoxItem:selected /template/ Border#LayoutRoot, ListBox.chat-list ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
-      <Setter Property="Background" Value="{DynamicResource ChatList.SelectedFill}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
     </Style>
     <Style Selector="ListBox.chat-list ListBoxItem /template/ Border#PART_SelectedPipe">
       <Setter Property="Width" Value="3" />

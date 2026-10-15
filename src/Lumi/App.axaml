@@ -74,18 +74,13 @@
            is tuned for benign backdrops; over a bright/busy backdrop (white docs etc.) it lets too much
            through and text gets hard to read. We firm the islands up here (less transparency) — and the
            presence light is boosted in PresenceController to keep blooming through the thicker glass.
-           Dark is Lumi's default; HighContrast intentionally falls through to Strata's already-solid value.
-           The chat list's open chat sits straight on the sidebar's thin glass, so its fill is solid: the
-           switcher's open-project tint (AccentGlowSoft over its glass) baked onto the control surface, so
-           the row looks the same as that tint yet stays readable over a white window behind Lumi. -->
+           Dark is Lumi's default; HighContrast intentionally falls through to Strata's already-solid value. -->
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
           <SolidColorBrush x:Key="Brush.Surface1Glass" Color="{DynamicResource Color.Surface1}" Opacity="0.72" />
-          <SolidColorBrush x:Key="ChatList.SelectedFill" Color="#353748" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="Brush.Surface1Glass" Color="{DynamicResource Color.Surface1}" Opacity="0.78" />
-          <SolidColorBrush x:Key="ChatList.SelectedFill" Color="#E9E8FC" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
