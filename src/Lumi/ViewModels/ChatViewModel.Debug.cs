@@ -98,8 +98,8 @@ public partial class ChatViewModel
         RefreshComposerCatalogs();
 
         // Seed representative suggestion chips so the post-turn suggestion row is inspectable in the
-        // fixture. SuggestionA is intentionally long enough to truncate at the chip MaxWidth, which
-        // exercises the hover tooltip that reveals the full suggestion text.
+        // fixture. SuggestionA is intentionally too long for the row, which trims it to keep all three on
+        // one line and exercises the hover tooltip that reveals the full suggestion text.
         if (preparedFixture is null)
         {
             SuggestionA = "Walk me through exactly how the streaming token accumulator throttles UI updates during a very long assistant response";

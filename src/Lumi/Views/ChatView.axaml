@@ -43,6 +43,11 @@
     <SolidColorBrush x:Key="ChatHeader.MenuItemPressed" Color="{DynamicResource Color.TextPrimary}" Opacity="0.11" />
     <SolidColorBrush x:Key="ChatHeader.MenuDangerHover" Color="{DynamicResource Color.DangerDefault}" Opacity="0.12" />
 
+    <!-- Follow-up chips wear the header pills' glass; hovering tints the rim with the accent. The glyph
+         is a turn-down-right arrow on a 14px grid, stroked rather than filled. -->
+    <SolidColorBrush x:Key="FollowUp.RimHover" Color="{DynamicResource Color.AccentDefault}" Opacity="0.5" />
+    <StreamGeometry x:Key="FollowUp.Glyph">M3 1.5V5.5A3.5 3.5 0 0 0 6.5 9H12M9 6L12 9L9 12</StreamGeometry>
+
     <!-- The title menu: who the chat is and what it holds, above its actions, on the header's glass. -->
     <ControlTheme x:Key="ChatTitleMenuPresenter" TargetType="MenuFlyoutPresenter"
                   BasedOn="{StaticResource {x:Type MenuFlyoutPresenter}}">
@@ -1044,24 +1049,97 @@
       <Setter Property="Opacity" Value="1" />
     </Style>
 
-    <!-- ── Transcript suggestion chips ── -->
-    <Style Selector="WrapPanel#SuggestionChipsRow">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="RenderTransform" Value="translateY(8px)" />
-      <Setter Property="IsVisible" Value="False" />
+    <!-- ── Follow-up suggestions ──
+         One row of glass chips above the composer, of the composer's own material: the overlay surface at
+         two thirds with a hairline rim, an accent turn-arrow before the text. The row never wraps
+         (FitRowPanel): when the three don't fit, the longest trim and offer their full text in a tip.
+         Hovering brightens the glass, tints the rim with the accent and nudges the arrow forward. Each chip
+         rises in on the render thread (ChatView), which owns the button's own opacity, transform and
+         transitions, so the surface and its content carry the transitions here. -->
+    <Style Selector="Button.follow-up-chip">
+      <Setter Property="Height" Value="32" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="10,0,14,0" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="ToolTip.Placement" Value="Top" />
+      <Setter Property="ToolTip.VerticalOffset" Value="-6" />
+      <Setter Property="ToolTip.ShowDelay" Value="350" />
+    </Style>
+    <Style Selector="Button.follow-up-chip /template/ Border#PART_Surface">
+      <Setter Property="ClipToBounds" Value="False" />
+      <Setter Property="BoxShadow" Value="0 4 14 -6 #29000000" />
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.25" Easing="CubicEaseOut" />
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.3" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+          <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.2" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="WrapPanel#SuggestionChipsRow.visible">
-      <Setter Property="IsVisible" Value="True" />
+    <Style Selector="Button.follow-up-chip:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillHover}" />
+      <Setter Property="BorderBrush" Value="{StaticResource FollowUp.RimHover}" />
+      <Setter Property="BoxShadow" Value="0 6 18 -6 #3D000000" />
+    </Style>
+    <Style Selector="Button.follow-up-chip:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillPressed}" />
+      <Setter Property="BoxShadow" Value="0 2 8 -4 #29000000" />
+      <Setter Property="RenderTransform" Value="scale(0.97)" />
+    </Style>
+    <Style Selector="Button.follow-up-chip /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Path.follow-up-glyph">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Data" Value="{StaticResource FollowUp.Glyph}" />
+      <Setter Property="Stroke" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="StrokeThickness" Value="1.5" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+      <Setter Property="Opacity" Value="0.8" />
+      <Setter Property="RenderTransform" Value="translateX(0px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.follow-up-chip:pointerover Path.follow-up-glyph">
       <Setter Property="Opacity" Value="1" />
-      <Setter Property="RenderTransform" Value="translateY(0)" />
+      <Setter Property="RenderTransform" Value="translateX(2px)" />
+    </Style>
+    <Style Selector="TextBlock.follow-up-text">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.follow-up-chip:pointerover TextBlock.follow-up-text">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <!-- Only a trimmed chip offers its full text. A chip that fits has no tip at all rather than a
+         disabled one, so the tooltip service looks past it and closes a neighbour's tip. -->
+    <Style Selector="Button.follow-up-chip[(lc|FitRowPanel.IsShrunk)=True]">
+      <Setter Property="ToolTip.Tip" Value="{Binding $self.CommandParameter}" />
     </Style>
 
+    <!-- ── Launchpad starter pills ── -->
     <Style Selector="Button.transcript-suggestion">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
@@ -1094,19 +1172,13 @@
       <Setter Property="IsVisible" Value="False" />
     </Style>
 
-    <!-- ── In-chat suggestion chips (smaller than welcome) ── -->
-    <Style Selector="WrapPanel#SuggestionChipsRow Button.transcript-suggestion">
-      <Setter Property="Padding" Value="10,4" />
-      <Setter Property="FontSize" Value="10" />
-    </Style>
-
-    <!-- ── Suggestion loading pills (transcript) ── -->
+    <!-- ── Follow-up placeholders: the chips' glass and height, pulsing while the suggestions are written ── -->
     <Style Selector="Border.suggestion-pill">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="Height" Value="30" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Height" Value="32" />
     </Style>
     <Style Selector="Border.suggestion-pill.pill-a">
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
@@ -2852,46 +2924,54 @@
         </ItemsControl>
       </StackPanel>
 
-      <!-- Suggestion loading pills (shown while generating) -->
+      <!-- Follow-up placeholders, shown while a reply's suggestions are being written -->
       <StackPanel x:Name="SuggestionLoadingRow"
                   Orientation="Horizontal"
-                  Margin="4,0,4,4" Spacing="8"
+                  Margin="4,0,4,8" Spacing="8"
                   IsVisible="{Binding IsSuggestionsGenerating}"
                   IsHitTestVisible="False">
-        <Border Classes="suggestion-pill pill-a" Width="120" />
-        <Border Classes="suggestion-pill pill-b" Width="148" />
-        <Border Classes="suggestion-pill pill-c" Width="104" />
+        <Border Classes="suggestion-pill pill-a" Width="132" />
+        <Border Classes="suggestion-pill pill-b" Width="168" />
+        <Border Classes="suggestion-pill pill-c" Width="116" />
       </StackPanel>
 
-      <!-- Suggestion chips (shown after generation, above composer) -->
-      <WrapPanel x:Name="SuggestionChipsRow"
-                 Margin="4,0,4,4"
-                 Classes.visible="{Binding HasSuggestions}">
-        <Button Classes="transcript-suggestion" Margin="0,0,8,4"
+      <!-- Follow-up suggestions: one row that never wraps. When the three don't fit, the longest trim,
+           and only a trimmed chip offers its full text in a tip. -->
+      <lc:FitRowPanel x:Name="SuggestionChipsRow"
+                      Spacing="8"
+                      Margin="4,0,4,8"
+                      IsVisible="{Binding HasSuggestions}">
+        <Button Classes="follow-up-chip"
                 Command="{Binding SelectSuggestionCommand}"
                 CommandParameter="{Binding SuggestionA}"
-                ToolTip.Tip="{Binding SuggestionA}"
-                ToolTip.ShowDelay="350"
+                AutomationProperties.Name="{Binding SuggestionA}"
                 IsVisible="{Binding SuggestionA, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-          <TextBlock Text="{Binding SuggestionA}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="320" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+            <Path Classes="follow-up-glyph" />
+            <TextBlock Grid.Column="1" Classes="follow-up-text" Text="{Binding SuggestionA}" />
+          </Grid>
         </Button>
-        <Button Classes="transcript-suggestion" Margin="0,0,8,4"
+        <Button Classes="follow-up-chip"
                 Command="{Binding SelectSuggestionCommand}"
                 CommandParameter="{Binding SuggestionB}"
-                ToolTip.Tip="{Binding SuggestionB}"
-                ToolTip.ShowDelay="350"
+                AutomationProperties.Name="{Binding SuggestionB}"
                 IsVisible="{Binding SuggestionB, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-          <TextBlock Text="{Binding SuggestionB}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="320" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+            <Path Classes="follow-up-glyph" />
+            <TextBlock Grid.Column="1" Classes="follow-up-text" Text="{Binding SuggestionB}" />
+          </Grid>
         </Button>
-        <Button Classes="transcript-suggestion" Margin="0,0,8,4"
+        <Button Classes="follow-up-chip"
                 Command="{Binding SelectSuggestionCommand}"
                 CommandParameter="{Binding SuggestionC}"
-                ToolTip.Tip="{Binding SuggestionC}"
-                ToolTip.ShowDelay="350"
+                AutomationProperties.Name="{Binding SuggestionC}"
                 IsVisible="{Binding SuggestionC, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-          <TextBlock Text="{Binding SuggestionC}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="320" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+            <Path Classes="follow-up-glyph" />
+            <TextBlock Grid.Column="1" Classes="follow-up-text" Text="{Binding SuggestionC}" />
+          </Grid>
         </Button>
-      </WrapPanel>
+      </lc:FitRowPanel>
 
       <!-- Chat controls (coding project, background activity, and context) — above the composer -->
       <Border x:Name="CodingStrip" IsVisible="{Binding ShowInfoStrip}" Margin="4,0,4,4"

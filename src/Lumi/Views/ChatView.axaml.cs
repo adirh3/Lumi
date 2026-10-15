@@ -234,6 +234,26 @@ public partial class ChatView : UserControl
             };
         }
 
+        // Follow-up chips rise in one after another when a reply's suggestions arrive. The motion runs on
+        // the render thread, so it still plays while opening a chat keeps the UI thread busy. Suggestions
+        // are applied one at a time, so it starts once the set is complete, still before the next frame.
+        var suggestionRow = this.FindControl<Panel>("SuggestionChipsRow");
+        if (suggestionRow is not null)
+        {
+            suggestionRow.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == IsVisibleProperty && suggestionRow.IsVisible
+                    && _subscribedVm?.AreAnimationsEnabled != false)
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (suggestionRow.IsVisible)
+                            PlayFollowUpEntrance(suggestionRow);
+                    }, DispatcherPriority.Normal);
+                }
+            };
+        }
+
         // Keep the shell spacer height in sync with the real composer container
         var composerContainer = this.FindControl<StackPanel>("ComposerContainer");
         if (composerContainer is not null && _composerSpacer is not null)
@@ -307,6 +327,18 @@ public partial class ChatView : UserControl
     private void ApplyShellChrome()
     {
         _chatShell?.Classes.Set("flat-window", !UseShellChrome);
+    }
+
+    private static void PlayFollowUpEntrance(Panel row)
+    {
+        var delay = TimeSpan.Zero;
+        foreach (var chip in row.Children)
+        {
+            if (!chip.IsVisible)
+                continue;
+            SlideFadeEntrance.PlayComposited(chip, offsetY: 8, TimeSpan.FromMilliseconds(280), delay);
+            delay += TimeSpan.FromMilliseconds(60);
+        }
     }
 
     private void ApplyAgentAutomationLandmarks()
