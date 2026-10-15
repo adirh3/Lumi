@@ -122,6 +122,11 @@ public partial class UserMessageItem : TranscriptItem
     /// <summary>Scrolls to the replied-to message and highlights the quoted text.</summary>
     public IRelayCommand OpenReplySourceCommand { get; }
 
+    /// <summary>Other chats this message brought in. Each pill opens its chat.</summary>
+    public List<LinkedChatChipItem> ReferencedChats { get; }
+    public bool HasReferencedChats => ReferencedChats.Count > 0;
+    public List<LinkedChatChipItem>? DisplayReferencedChats => HasReferencedChats ? ReferencedChats : null;
+
     public UserMessageItem(
         ChatMessageViewModel source,
         bool showTimestamps,
@@ -130,7 +135,8 @@ public partial class UserMessageItem : TranscriptItem
         Action<ChatMessage, bool>? resendAction = null,
         Action<SkillReference>? openSkillAction = null,
         Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null,
-        Action<MessageReply>? openReplySourceAction = null)
+        Action<MessageReply>? openReplySourceAction = null,
+        Action<Guid>? openChatAction = null)
         : base($"message:user:{source.Message.Id}")
     {
         _source = source;
@@ -141,6 +147,12 @@ public partial class UserMessageItem : TranscriptItem
         Attachments = source.Message.Attachments.Select(fp => new FileAttachmentItem(fp)).ToList();
         Skills = filteredSkills ?? source.Message.ActiveSkills.ToList();
         SkillChips = Skills.Select(s => new SkillChipItem(s, () => openSkillAction?.Invoke(s))).ToList();
+        ReferencedChats = source.Message.ReferencedChats?
+            .Select(reference => new LinkedChatChipItem(
+                reference.ChatId,
+                reference.Title,
+                () => openChatAction?.Invoke(reference.ChatId)))
+            .ToList() ?? [];
 
         BeginEditCommand = new RelayCommand(
             () => _beginEditAction?.Invoke(_source.Message),

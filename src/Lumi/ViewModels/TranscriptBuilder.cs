@@ -1511,7 +1511,8 @@ public class TranscriptBuilder
                 (msg, edited) => _ = _resendFromMessageAction(msg, edited),
                 _openSkillAction,
                 _sendSteeredNowAsync,
-                _openReplySourceAction);
+                _openReplySourceAction,
+                _openChatAction);
             if (!IsRebuildingTranscript && _dataStore.Data.Settings.ShowAnimations)
                 userItem.RequestEntranceAnimation();
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));

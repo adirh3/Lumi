@@ -98,6 +98,12 @@ public class ChatMessage
     /// </summary>
     public MessageReply? ReplyTo { get; set; }
     /// <summary>
+    /// Other chats the user brought into this message, or null for none. Their transcripts are read
+    /// into the prompt when the message is sent (and on resend), so the model sees what they hold.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ChatReference>? ReferencedChats { get; set; }
+    /// <summary>
     /// Recovery decision captured from a structured session error. Persisted so reopening a chat
     /// does not have to infer behavior from localized display text.
     /// </summary>
@@ -186,6 +192,7 @@ public class ChatMessage
         FailureDisposition = FailureDisposition,
         IsPendingPausedSend = IsPendingPausedSend,
         ReplyTo = ReplyTo?.Clone(),
+        ReferencedChats = ReferencedChats?.Select(static reference => reference.Clone()).ToList(),
         ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
         {
             Name = s.Name,
@@ -244,6 +251,18 @@ public sealed class MessageReply
         IsSelection = IsSelection,
         Author = Author
     };
+}
+
+/// <summary>
+/// Another chat brought into a message as context. <see cref="Title"/> is the title when it was
+/// referenced, so the message still reads sensibly after the chat is renamed or deleted.
+/// </summary>
+public sealed class ChatReference
+{
+    public Guid ChatId { get; set; }
+    public string Title { get; set; } = "";
+
+    public ChatReference Clone() => new() { ChatId = ChatId, Title = Title };
 }
 
 /// <summary>The immutable selection submitted by a user action, with independent reply lifecycle state.</summary>

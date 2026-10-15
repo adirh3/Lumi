@@ -619,6 +619,13 @@ public sealed class ChatViewReplyWiringTests
                 await PumpAsync();
                 closedOnScroll = popup!.IsOpen == false;
 
+                // The pill fades out briefly once closed; nobody can select again before it is gone.
+                for (var i = 0; i < 50 && popup.Child!.IsAttachedToVisualTree(); i++)
+                {
+                    await Task.Delay(10);
+                    await PumpAsync();
+                }
+
                 SelectText(codeText, code);
                 await ReleaseAsync(window, codeText);
                 Press(Assert.IsType<Button>(popup.Child));

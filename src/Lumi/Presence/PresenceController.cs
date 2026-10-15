@@ -3,6 +3,9 @@ using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Models;
@@ -81,6 +84,14 @@ public sealed class PresenceController : IDisposable
     // focus/companion resync (at most one Background post in flight at a time).
     private bool _resyncQueued;
 
+    // The light already resting behind the composer brightens while the user writes there, with the
+    // composer's own focus motion. Only in an existing chat at rest; while Lumi works, or on the welcome
+    // screen, the field keeps its own levels.
+    internal const double RestingIntensity = 1.35;
+    internal const double WritingIntensity = 1.6;
+    private bool _composerFocused;
+    private bool _focusCheckQueued;
+
     public PresenceController(Grid host, bool isEnabled = true)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
@@ -95,7 +106,7 @@ public sealed class PresenceController : IDisposable
             // fine multiplier on top of it. The islands the field sits behind were firmed up (less
             // transparent — see App.axaml's Surface1Glass override) for readability over bright backdrops,
             // so we lift Intensity above neutral to keep the glow blooming clearly through the thicker glass.
-            Intensity = 1.35,
+            Intensity = RestingIntensity,
         };
 
         // One continuous field spanning every column: behind the chat island, the splitter and the
@@ -113,6 +124,10 @@ public sealed class PresenceController : IDisposable
         // the field's size changes so the glow re-centres for the new window size instead of clinging to
         // its old-proportion placement.
         _presence.SizeChanged += OnPresenceSizeChanged;
+
+        // Focus moves are routed through the host, which holds the composer.
+        _host.AddHandler(InputElement.GotFocusEvent, OnHostFocusChanged, RoutingStrategies.Bubble, handledEventsToo: true);
+        _host.AddHandler(InputElement.LostFocusEvent, OnHostFocusChanged, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     /// <summary>The glow visual the controller owns (exposed for diagnostics/automation only).</summary>
@@ -326,6 +341,8 @@ public sealed class PresenceController : IDisposable
     {
         Detach();
         _presence.SizeChanged -= OnPresenceSizeChanged;
+        _host.RemoveHandler(InputElement.GotFocusEvent, OnHostFocusChanged);
+        _host.RemoveHandler(InputElement.LostFocusEvent, OnHostFocusChanged);
         _focusTimer?.Stop();
         _focusTimer = null;
         _armTimer?.Stop();
@@ -615,6 +632,7 @@ public sealed class PresenceController : IDisposable
         // path the deferred arm itself takes once the load drains), so clear it and proceed.
         CancelDeferredArm();
         _presence.State = ResolvePresenceState(vm);
+        ApplyWritingGlow();
         // A soft luminance haloes the Lumi mark on the welcome screen ("new chat"); it clears the
         // instant a real canvas takes over.
         _presence.Halo = vm.CurrentChat is null;
@@ -630,6 +648,44 @@ public sealed class PresenceController : IDisposable
             _focusSettleUntil = DateTime.UtcNow + TimeSpan.FromMilliseconds(1600);
         if (!holdFocus)
             EnsureFocusFollow();
+    }
+
+    /// <summary>
+    /// Reads whether the user is writing in the composer once a focus move settles: a move between two
+    /// controls inside it is a LostFocus and a GotFocus, and must not flicker the light. The composer's own
+    /// lists (the + menu, its pickers) open in the overlay layer, outside its visual tree, so the focused
+    /// control is matched by logical ancestry rather than visual focus-within.
+    /// </summary>
+    private void OnHostFocusChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_focusCheckQueued)
+            return;
+
+        _focusCheckQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _focusCheckQueued = false;
+            var container = ResolveNamed("ComposerContainer");
+            var focusedElement = TopLevel.GetTopLevel(_host)?.FocusManager?.GetFocusedElement() as ILogical;
+            var focused = container is not null && focusedElement is not null
+                          && (ReferenceEquals(container, focusedElement) || container.IsLogicalAncestorOf(focusedElement));
+            if (focused == _composerFocused)
+                return;
+
+            _composerFocused = focused;
+            ApplyWritingGlow();
+        }, DispatcherPriority.Input);
+    }
+
+    /// <summary>Brightens the resting light while the user writes; StrataPresence fades the change.</summary>
+    private void ApplyWritingGlow()
+    {
+        var writing = _composerFocused
+                      && _vm?.CurrentChat is not null
+                      && _presence.State == PresenceState.Idle;
+        var intensity = writing ? WritingIntensity : RestingIntensity;
+        if (Math.Abs(_presence.Intensity - intensity) > 0.001)
+            _presence.Intensity = intensity;
     }
 
     private PresenceState ResolvePresenceState(ChatViewModel vm)

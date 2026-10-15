@@ -24,11 +24,15 @@ namespace Lumi.Services;
 /// The reply that goes with <see cref="ComposerPrefill"/> when the forked user message was a reply,
 /// pointing at the fork's copy of the quoted answer.
 /// </param>
+/// <param name="ComposerReferencedChats">
+/// The other chats the forked user message brought in, so the draft brings them in again.
+/// </param>
 public readonly record struct ForkPlan(
     Chat Chat,
     string? ComposerPrefill,
     int? SessionForkCutUserTurns,
-    MessageReply? ComposerReply = null);
+    MessageReply? ComposerReply = null,
+    IReadOnlyList<ChatReference>? ComposerReferencedChats = null);
 
 /// <summary>
 /// Builds a forked copy of a <see cref="Chat"/> — an independent chat that carries the source
@@ -130,7 +134,12 @@ public static class ChatForkFactory
         int? sessionForkCutUserTurns = throughMessageId is null
             ? null
             : fork.Messages.Count(static m => m.Role == "user");
-        return new ForkPlan(fork, draft?.Content, sessionForkCutUserTurns, RepointReply(draft?.ReplyTo, copiedIds));
+        return new ForkPlan(
+            fork,
+            draft?.Content,
+            sessionForkCutUserTurns,
+            RepointReply(draft?.ReplyTo, copiedIds),
+            draft?.ReferencedChats?.Select(static reference => reference.Clone()).ToList());
     }
 
     internal static void ReconcileTag(Chat fork, IReadOnlyList<ChatTag> currentTags)

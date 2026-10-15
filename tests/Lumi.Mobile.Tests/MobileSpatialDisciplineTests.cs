@@ -421,7 +421,8 @@ public sealed class MobileSpatialDisciplineTests
                     composer.GetVisualDescendants().OfType<Button>(),
                     button =>
                         button.Classes.Contains("chip-remove") &&
-                        button.DataContext is not PendingAttachment);
+                        button.GetVisualAncestors().OfType<Border>()
+                            .Any(border => border.Classes.Contains("composer-skill-chip")));
                 Assert.True(
                     skillRemoveButton.Bounds.Width is >= 48 and <= 52 &&
                     skillRemoveButton.Bounds.Height is >= 48 and <= 52,

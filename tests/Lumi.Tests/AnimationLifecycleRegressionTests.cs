@@ -366,6 +366,60 @@ public sealed class AnimationLifecycleRegressionTests
     }
 
     [Fact]
+    public async Task PresenceController_BrightensTheRestingLightWhileTheUserWrites()
+    {
+        var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                var chat = ExistingChat("Writing");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                using var surface = Surface(dataStore, chat);
+
+                var input = new TextBox();
+                var elsewhere = new Button { Content = "Elsewhere" };
+                var composer = new StackPanel { Name = "ComposerContainer", Children = { input } };
+                var host = new Grid { Children = { new StackPanel { Children = { elsewhere, composer } } } };
+                var window = new Window { Width = 900, Height = 700, Content = host };
+                using var controller = new PresenceController(host);
+                try
+                {
+                    controller.Attach(surface);
+                    window.Show();
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.Equal(PresenceState.Idle, controller.Visual.State);
+                    Assert.Equal(PresenceController.RestingIntensity, controller.Visual.Intensity);
+
+                    input.Focus();
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.Equal(PresenceController.WritingIntensity, controller.Visual.Intensity);
+
+                    // While Lumi works the field keeps its own levels, and the light returns after.
+                    surface.IsBusy = true;
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.Equal(PresenceController.RestingIntensity, controller.Visual.Intensity);
+                    surface.IsBusy = false;
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.Equal(PresenceController.WritingIntensity, controller.Visual.Intensity);
+
+                    elsewhere.Focus();
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.Equal(PresenceController.RestingIntensity, controller.Visual.Intensity);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            session.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task PresenceController_SameStateChatSwitchesUseFiniteCoalescedHandoff()
     {
         var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));

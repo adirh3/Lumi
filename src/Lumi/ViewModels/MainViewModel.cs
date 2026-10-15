@@ -777,6 +777,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.PromptImportRequested += OnChatPromptImportRequested;
         chatVm.McpRepairRequested += StartMcpRepairChatAsync;
         chatVm.ConnectorsPageRequested += ShowConnectorsPage;
+        chatVm.SkillsPageRequested += ShowSkillsPage;
     }
 
     private void DetachChatViewModel(ChatViewModel chatVm)
@@ -794,6 +795,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.PromptImportRequested -= OnChatPromptImportRequested;
         chatVm.McpRepairRequested -= StartMcpRepairChatAsync;
         chatVm.ConnectorsPageRequested -= ShowConnectorsPage;
+        chatVm.SkillsPageRequested -= ShowSkillsPage;
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
@@ -826,6 +828,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         DiscoverVM.ShowServersCommand.Execute(null);
         DiscoverVM.SearchQuery = request.Query ?? string.Empty;
     }
+
+    /// <summary>Opens the Skills section of Customize, from a chat's Skills picker.</summary>
+    public void ShowSkillsPage() => SelectedNavIndex = 3;
 
     private void OnChatForkRequested(Chat chat, Guid throughMessageId)
         => _ = ForkChatAsync(chat, throughMessageId);
@@ -2216,7 +2221,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // editable draft. Set after navigation, and only if the fork is what actually opened —
             // otherwise the draft would land in whichever chat is on screen.
             if (opened && plan.ComposerPrefill is { Length: > 0 } draft)
-                ChatVM.SetComposerDraft(draft, plan.ComposerReply);
+                ChatVM.SetComposerDraft(draft, plan.ComposerReply, plan.ComposerReferencedChats);
 
             return fork;
         }

@@ -11,6 +11,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
 - **Reply actions** — A compact footer below each answer groups its model name with copy, Share prompt, reply, and a more-actions menu for formatted copying and branching. The quiet actions stay discoverable without moving the answer; hovering over its timestamp shows the full date, time, and UTC offset. Missing snippet models use the recorded model for that turn; genuinely missing historical metadata is marked "Model not recorded" rather than guessed from the current model picker
 - **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
+- **Glass composer** — The composer is a floating glass card that frosts the conversation scrolling beneath it, and focusing it brings the whole composer forward and draws Lumi's Strata line under what you write. **+** holds everything a message can bring in: files and photos, your three most recent chats (or **All chats**), skills, agents, connectors and a project. **Skills** and **Connectors** stay one click away beside it. **+ → Agents** lists your agents; the one you choose answers and shows as a chip. The send button dictates while there is nothing to send and stops Lumi while it works. Chats you bring in are read when you send (their recent messages) and show as pills on your message that open the chat; type `#` for chats and files, `/` for skills or `@` for agents without leaving the keyboard
 - **Agents** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
 - **Customize & Discover** — One place to set up agents, skills, connectors (MCP servers) and projects, plus Discover: browse and install GitHub Copilot plugins from plugin marketplaces and add connectors from MCP registries
@@ -293,7 +294,7 @@ that folder's `copilot-home` instead of `~/.copilot`, so testing never changes y
 
 ### Connectors in a chat
 
-The composer's plug button shows how many connectors are on in the chat ("Off" when none are), and its
+The composer's **Connectors** button shows how many connectors are on in the chat ("Off" when none are), and its
 tooltip says so in words. It opens the chat's connector list, in the window like the model picker:
 
 - **Search** filters by name, by what a connector is, and by where it comes from. When nothing matches,
@@ -489,14 +490,19 @@ cancels everything still running in that chat.
 
 ### Desktop motion
 
-The composer keeps its thin Stratum underline, drawing it from left to right on focus and
-then showing a travelling highlight for two seconds before resting. Refocusing replays it.
-Newly sent messages and live assistant
+Focusing the glass composer brings it forward: the whole composer, glass, text and tools together, grows
+from just under full size to full size about its bottom edge, starting gently and landing softly, while its
+shadow deepens and its rim brightens. It moves on the render thread, so nothing is laid out again and
+nothing around it moves, and you always write at full size. The + menu and the composer's lists keep it
+forward. Lumi's Strata line draws under what you write at the same time, from left to right, then a
+travelling highlight crosses it for two seconds before it rests; refocusing replays it. It stays just as
+clear, with no ring, and, in a chat at rest, the presence light behind it brightens in one slow fade. Newly sent messages and live assistant
 replies rise into place once, without moving transcript layout or replaying on
 history rebuilds, paging, or chat switches. Section navigation and the coding strip use the
 same short, interruptible motion, and the welcome-to-chat handoff has no delayed fade.
-The existing **Show Animations** setting disables the new message/section entrances and
-composer focus motion; the static underline remains visible.
+The existing **Show Animations** setting disables the new message/section entrances and the composer
+focus motion (the composer then stays at full size and the line appears at once), and keeps the ring
+around the send button still while Lumi works.
 
 ### Mobile conversations
 

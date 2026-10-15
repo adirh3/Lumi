@@ -390,8 +390,9 @@ public partial class ChatViewModel
             IsPendingPausedSend = chat.IsPaused,
             CanSendNowWhenQueued = IsChatRuntimeActive(chatId) && !chat.IsPaused,
             // Composer sends carry no author override (remote and orchestrated ones always do), so
-            // only they take the composer's pending reply.
-            ReplyTo = authorOverride is null ? TakePendingReply(chatId) : null
+            // only they take the composer's pending reply and the chats it brings in.
+            ReplyTo = authorOverride is null ? TakePendingReply(chatId) : null,
+            ReferencedChats = authorOverride is null ? TakeReferencedChats(chatId) : null
         };
 
         if (explicitAttachmentPaths is null && CurrentChat?.Id == chatId)

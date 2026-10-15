@@ -1565,7 +1565,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, label.TextTrimming);
             Assert.True(remove.Bounds.Width >= 48 && remove.Bounds.Height >= 48);
             Assert.True(Required<Border>(composer, "PART_Root").BoxShadow.Count > 0);
-            Assert.NotNull(Required<PathIcon>(composer, "PART_ProjectIcon"));
+            Assert.NotNull(Required<StrataLineIcon>(composer, "PART_ProjectIcon"));
             return Task.CompletedTask;
         });
 

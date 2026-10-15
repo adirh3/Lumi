@@ -323,6 +323,13 @@ public sealed class AssistantMessageActionsTests
                 Assert.Contains(Loc.Chat_CopyTurn, labels);
                 Assert.Contains(Loc.Menu_ForkFromHere, labels);
                 menu.Close();
+                // The menu fades out briefly before it is gone.
+                for (var i = 0; i < 50 && message.Classes.Contains(":menu-open"); i++)
+                {
+                    await Task.Delay(10);
+                    await PumpAsync();
+                }
+
                 Assert.DoesNotContain(":menu-open", message.Classes);
                 Assert.Equal(PlacementMode.Pointer, menu.Placement);
 

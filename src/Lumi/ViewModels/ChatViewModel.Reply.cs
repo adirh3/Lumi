@@ -126,6 +126,9 @@ public partial class ChatViewModel
         if (oldValue?.Id == newValue?.Id)
             return;
 
+        // Chats brought into a draft stay with that draft, like its reply below.
+        SwapChatReferenceDrafts(oldValue, newValue);
+
         if (oldValue is not null)
         {
             if (PendingReply is { } leavingReply)

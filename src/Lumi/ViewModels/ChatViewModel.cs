@@ -825,7 +825,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? ChatLastContextWindowTierUsed,
         List<Guid> PendingSkillInjections,
         List<string> PendingExternalSkillInjections,
-        MessageReply? PendingReply);
+        MessageReply? PendingReply,
+        List<ChatReference>? ReferencedChats);
 
     private ComposerEditSnapshot? _preEditComposerSnapshot;
     private ChatMessage? _editingUserMessage;
@@ -3861,6 +3862,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PromptText = userMessage.Content;
         // A reply being edited shows its quote in the composer, where it can be kept or dismissed.
         PendingReply = userMessage.ReplyTo?.Clone();
+        // So do the chats it brought in.
+        ReplaceReferencedChats(userMessage.ReferencedChats);
         ReplacePendingAttachments(userMessage.Attachments);
         ReplaceActiveSkillsFromMessage(userMessage, syncToChat: false);
         ApplyMessageAgentSelection(userMessage, syncToChatAndSession: false);
@@ -3898,7 +3901,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             CurrentChat?.LastContextWindowTierUsed,
             _pendingSkillInjections.ToList(),
             _pendingExternalSkillInjections.ToList(),
-            PendingReply);
+            PendingReply,
+            PeekReferencedChats());
 
     /// <summary>
     /// True when the composer's CURRENT selection (agent, MCP servers, or active skills) differs from
@@ -3946,6 +3950,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         PromptText = snapshot.PromptText;
         PendingReply = snapshot.PendingReply;
+        ReplaceReferencedChats(snapshot.ReferencedChats);
         ReplacePendingAttachments(snapshot.PendingAttachments);
         ReplaceActiveSkills(snapshot.ActiveSkillIds, snapshot.ActiveExternalSkillNames, syncToChat: true);
         // Restore the visible/persisted selection without treating the draft agent as live routing.
@@ -4048,6 +4053,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             .ToList();
         // The composer's reply (kept, changed, or dismissed while editing) becomes the edited turn's reply.
         userMessage.ReplyTo = PendingReply;
+        // Likewise the chats it brings in.
+        userMessage.ReferencedChats = TakeReferencedChats();
         ApplyCurrentComposerSelectionsToMessage(userMessage, selectedReasoningEffort);
         ApplyCurrentComposerSelectionsToChat(CurrentChat, selectedReasoningEffort);
 
@@ -4515,6 +4522,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             CancelPendingQuestions(CurrentChat);
 
         var attachments = ResolveSendAttachments(queuedMessage);
+        var isSilentRetry = _silentRetryPrompt is not null && prompt == _silentRetryPrompt;
+        // Taken before a new chat is created: becoming that chat would otherwise stash them as the
+        // draft's. A queued message already carries its own, and a silent retry adds no message to carry them.
+        var referencedChats = consumeComposerPrompt && queuedMessage is null && !isSilentRetry
+            ? TakeReferencedChats()
+            : null;
         var createdChat = false;
 
         // Create chat if needed
@@ -4527,7 +4540,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     || _dataStore.IsWorktreeCleanupReserved(selectedWorktreePath)))
             {
                 if (consumeComposerPrompt)
+                {
                     PromptText = prompt;
+                    ReplaceReferencedChats(referencedChats);
+                }
                 StatusText = "That worktree is no longer available. Choose a workspace and try again.";
                 return;
             }
@@ -4552,7 +4568,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (!_dataStore.TrySetChatWorktreePath(chat, selectedWorktreePath))
             {
                 if (consumeComposerPrompt)
+                {
                     PromptText = prompt;
+                    ReplaceReferencedChats(referencedChats);
+                }
                 StatusText = "That worktree is being cleaned up. Choose a workspace and try again.";
                 return;
             }
@@ -4572,7 +4591,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ApplyResolvedModelSelectionToChat(targetChat, selectedReasoningEffort, selectedContextTier);
 
         // Add user message immediately so it appears before async worktree creation
-        var isSilentRetry = _silentRetryPrompt is not null && prompt == _silentRetryPrompt;
         _silentRetryPrompt = null;
 
         ChatMessage? userMsg = null;
@@ -4619,7 +4637,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 HasMcpSelection = true,
                 Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
                 ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
-                ReplyTo = consumeComposerPrompt ? TakePendingReply(targetChat.Id) : null
+                ReplyTo = consumeComposerPrompt ? TakePendingReply(targetChat.Id) : null,
+                ReferencedChats = referencedChats
             };
             targetChat.Messages.Add(userMsg);
             Messages.Add(new ChatMessageViewModel(userMsg));
@@ -4787,6 +4806,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 targetChat,
                 sessionLostSkillLoads,
                 cts.Token);
+            // The chats this message brings in travel with it, so a recovery replay keeps them too.
+            modelPrompt += await BuildReferencedChatsContextAsync(userMsg, cts.Token);
             var basePrompt = needsReplayPrompt
                 ? BuildSessionRecoveryReplayPrompt(retainedContext, modelPrompt)
                 : modelPrompt;
@@ -6737,7 +6758,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     Description = skill.Description
                 })
                 .ToList(),
-            ReplyTo = userMessage.ReplyTo?.Clone()
+            ReplyTo = userMessage.ReplyTo?.Clone(),
+            ReferencedChats = userMessage.ReferencedChats?.Select(static reference => reference.Clone()).ToList()
         };
         CurrentChat.Messages.Add(newUserMsg);
         BeginChatLifecycleTurn(CurrentChat);
@@ -6933,6 +6955,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     sessionLostHistory: false,
                     cts.Token);
 
+            // The resent turn reads the chats it brings in again, as they are now.
+            modelPrompt += await BuildReferencedChatsContextAsync(newUserMsg, cts.Token);
             var resendPrompt = BuildResendPrompt(
                 retainedContext,
                 modelPrompt,
@@ -7197,6 +7221,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 var replyMarker = msg.Role == "user"
                     ? MessageReplyFormatter.DescribeForTranscript(msg.ReplyTo)
+                        + ChatReferenceFormatter.DescribeForTranscript(msg.ReferencedChats)
                     : "";
                 lines.Add($"{role}: {replyMarker}{msg.Content.Trim()}");
             }

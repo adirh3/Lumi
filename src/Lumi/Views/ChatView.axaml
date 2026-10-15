@@ -542,7 +542,7 @@
 
 
     <!-- ── Floating glass header ──
-         The transcript runs under the header (ExtendsTranscriptBehindHeader). A frosted veil appears
+         The transcript runs under the header and the composer (ExtendsTranscriptBehindChrome). A frosted veil appears
          only while history is behind it, and the controls are glass pills anchored to the island's
          edges, so the header never reads as a bar of its own. -->
     <!-- The shell's template sets these locally, so only a class-activated style can replace them. -->
@@ -823,26 +823,6 @@
       <Setter Property="RenderTransform" Value="rotate(180deg)" />
     </Style>
 
-    <!-- Working line: a sweep along the header's lower edge while Lumi works. -->
-    <Style Selector="Border#HeaderWorkingLine">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.35" Easing="CubicEaseOut" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Border#HeaderWorkingLine.active">
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-    <Style Selector="Border#HeaderWorkingLine.active Border#HeaderWorkingSweep">
-      <Setter Property="sa:LifecycleOffsetSweep.IsActive" Value="True" />
-      <Setter Property="sa:LifecycleOffsetSweep.Duration" Value="0:0:1.8" />
-    </Style>
-    <Style Selector="Border#HeaderWorkingLine.motion-disabled Border#HeaderWorkingSweep">
-      <Setter Property="IsVisible" Value="False" />
-    </Style>
-
 
     <!-- Steering delivery status pill: shown under a user message that was steered into a
          running turn so it's clear when the message actually reaches the session. -->
@@ -1043,6 +1023,25 @@
     <Style Selector="StackPanel#ComposerContainer.welcome">
       <Setter Property="MaxWidth" Value="680" />
       <Setter Property="Margin" Value="24,0,24,20" />
+    </Style>
+
+    <!-- ── Glass composer ──
+         The transcript runs beneath the composer (ExtendsTranscriptBehindChrome). Like the header, it
+         frosts only while history is behind it; at rest its translucent card lets the presence glow
+         through without spending GPU on a blur of nothing. -->
+    <Style Selector="sc|StrataChatComposer.glass:not(.frosted) /template/ sc|StrataBackdropBlur#PART_Backdrop">
+      <Setter Property="BlurRadius" Value="0" />
+    </Style>
+    <Style Selector="Panel#ComposerEdgeMaterial">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="sc|StrataChatShell:content-under-composer Panel#ComposerEdgeMaterial">
+      <Setter Property="Opacity" Value="1" />
     </Style>
 
     <!-- ── Transcript suggestion chips ── -->
@@ -1674,6 +1673,14 @@
               <ItemsControl ItemsSource="{Binding DisplayAttachments}"
                             IsVisible="{Binding HasAttachments}"
                             ItemTemplate="{StaticResource SharedFileAttachmentTemplate}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+              </ItemsControl>
+              <!-- Other chats this message brought in; each opens its chat. -->
+              <ItemsControl ItemsSource="{Binding DisplayReferencedChats}"
+                            IsVisible="{Binding HasReferencedChats}"
+                            ItemTemplate="{StaticResource LinkedChatChipTemplate}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
@@ -2447,16 +2454,15 @@
       <sc:StrataChatShell x:Name="ChatShell"
                           Classes="glass-header"
                           IsOnline="False"
-                          ExtendsTranscriptBehindHeader="True"
+                          ExtendsTranscriptBehindChrome="True"
                           IsStreaming="{Binding IsTranscriptStreaming}">
 
         <sc:StrataChatShell.Header>
           <!-- Floating glass header: pills anchored to the island's edges over a transcript that runs
-               underneath. The veil frosts only while history is behind it, and the working line sweeps
-               along the lower edge while Lumi works. -->
+               underneath. The veil frosts only while history is behind it. That Lumi is working shows
+               in one place, the composer's send button, which also stops it. -->
           <Panel x:Name="ChatHeaderLayer" Classes.busy="{Binding IsBusy}">
-            <!-- Full frost down to the working line, then a fade, so history never reads crisply
-                 beneath the line or the pills. -->
+            <!-- Full frost behind the pills, then a fade, so history never reads crisply beneath them. -->
             <Panel x:Name="HeaderEdgeMaterial"
                    VerticalAlignment="Top"
                    Height="96"
@@ -2670,35 +2676,6 @@
                 </StackPanel>
               </Button>
             </DockPanel>
-
-            <Border x:Name="HeaderWorkingLine"
-                    Classes.active="{Binding IsBusy}"
-                    Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
-                    VerticalAlignment="Bottom"
-                    Height="2"
-                    IsHitTestVisible="False"
-                    ClipToBounds="True">
-              <Border.OpacityMask>
-                <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
-                  <GradientStop Offset="0" Color="#00000000" />
-                  <GradientStop Offset="0.14" Color="#FF000000" />
-                  <GradientStop Offset="0.86" Color="#FF000000" />
-                  <GradientStop Offset="1" Color="#00000000" />
-                </LinearGradientBrush>
-              </Border.OpacityMask>
-              <Panel>
-                <Border Background="{DynamicResource Brush.StratumLine}" Opacity="0.35" />
-                <Border x:Name="HeaderWorkingSweep" Width="260" HorizontalAlignment="Left">
-                  <Border.Background>
-                    <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
-                      <GradientStop Offset="0" Color="#00FFFFFF" />
-                      <GradientStop Offset="0.5" Color="{DynamicResource Color.AccentViolet}" />
-                      <GradientStop Offset="1" Color="#00FFFFFF" />
-                    </LinearGradientBrush>
-                  </Border.Background>
-                </Border>
-              </Panel>
-            </Border>
           </Panel>
         </sc:StrataChatShell.Header>
 
@@ -2730,8 +2707,25 @@
         </sc:StrataChatShell.Transcript>
 
         <sc:StrataChatShell.Composer>
-          <!-- Transparent spacer — reserves space so the transcript doesn't scroll behind the real composer -->
-          <Panel x:Name="ComposerSpacer" />
+          <!-- Transparent spacer the size of the floating composer: the transcript rests clear of it
+               and scrolls beneath it. While history is behind it, a frosted veil rises from the
+               island's edge so the rows above the composer and its rim stay calm. -->
+          <Panel x:Name="ComposerSpacer">
+            <Panel x:Name="ComposerEdgeMaterial"
+                   Margin="-12,-40,-12,-10"
+                   IsHitTestVisible="False">
+              <sc:StrataBackdropBlur BlurRadius="10" Saturation="1.15" Fade="Top" FadeLength="64" />
+              <Border Background="{StaticResource ChatHeader.EdgeVeil}">
+                <Border.OpacityMask>
+                  <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0" Color="#00000000" />
+                    <GradientStop Offset="0.3" Color="#80000000" />
+                    <GradientStop Offset="1" Color="#B3000000" />
+                  </LinearGradientBrush>
+                </Border.OpacityMask>
+              </Border>
+            </Panel>
+          </Panel>
         </sc:StrataChatShell.Composer>
 
       </sc:StrataChatShell>
@@ -3619,7 +3613,9 @@
       </Border>
 
       <sc:StrataChatComposer x:Name="Composer"
+                             Classes="glass"
                              Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
+                             Classes.frosted="{Binding #ChatShell.IsContentUnderComposer}"
                              Placeholder="{Binding ComposerPlaceholder}"
                              PromptText="{Binding PromptText, Mode=TwoWay}"
                              IsBusy="{Binding IsComposerBusy}"
@@ -3666,10 +3662,14 @@
                              ProjectValue="{Binding SelectedProjectValue, Mode=TwoWay}"
                              SkillItems="{Binding ActiveSkillChips}"
                              McpItems="{Binding ActiveMcpChips}"
+                             ChatItems="{Binding ReferencedChatChips}"
                              AvailableAgents="{Binding AvailableAgentChips}"
                              AvailableSkills="{Binding AvailableSkillChips}"
                              AvailableMcps="{Binding AvailableMcpChips}"
                              AvailableProjects="{Binding AvailableProjectChips}"
+                             AvailableChats="{Binding AvailableChatChips}"
+                             ChatsRequestedCommand="{Binding RefreshChatReferencesCommand}"
+                             SkillsManageCommand="{Binding ManageSkillsCommand}"
                              AvailableFiles="{Binding AvailableFileSuggestions}">
         <sc:StrataChatComposer.StatusContent>
           <Grid ColumnDefinitions="Auto,*"
