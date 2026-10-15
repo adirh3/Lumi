@@ -242,6 +242,9 @@ and **Settings** (`Ctrl+1`–`Ctrl+5`, `⌘1`–`⌘5` on macOS; `Ctrl+,` / `⌘
 place is highlighted and named when the sidebar is wide enough; a narrower sidebar shows icons only,
 and the collapsed sidebar shows the same places as a rail.
 
+The chat sidebar uses grayscale text antialiasing to avoid dark or colored fringes over its transparent
+background. Chip and selection fills still provide contrast independently of text rendering.
+
 - **Projects** keep related chats together. The project switcher at the top of the chat list narrows
   the list to a project, shown by its initial in its own color; while it shows every chat it says how
   many projects you have, and each chat names its project beside a folder in that color.

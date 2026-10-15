@@ -72,6 +72,12 @@ public sealed class MainWindowProjectBadgeTests
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
                 window.UpdateLayout();
 
+                Assert.Equal(TextRenderingMode.Antialias,
+                    TextOptions.GetTextRenderingMode(window.FindControl<Panel>("SidebarChat")!));
+                Assert.Equal(TextRenderingMode.Unspecified,
+                    TextOptions.GetTextRenderingMode(window.FindControl<Panel>("SidebarJobs")!));
+                Assert.Equal(TextRenderingMode.Unspecified, TextOptions.GetTextRenderingMode(window));
+
                 var row = window.GetVisualDescendants()
                     .OfType<ListBoxItem>()
                     .Single(item => ReferenceEquals(item.DataContext, chat));

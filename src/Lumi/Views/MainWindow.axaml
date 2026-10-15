@@ -1452,7 +1452,8 @@
           <Panel>
 
           <!-- ── 0: Chat sidebar ── -->
-          <Panel x:Name="SidebarChat">
+          <!-- Grayscale antialiasing keeps glyph edges alpha-correct over the transparent sidebar. -->
+          <Panel x:Name="SidebarChat" TextOptions.TextRenderingMode="Antialias">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0" LastChildFill="True">
                 <Button DockPanel.Dock="Right"
