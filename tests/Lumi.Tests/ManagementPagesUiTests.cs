@@ -131,9 +131,9 @@ public sealed class ManagementPagesUiTests
                     Assert.Equal(MainViewModel.MemoriesNavIndex, vm.SelectedNavIndex);
                     Assert.True(Named<Panel>("MemoriesOverview").IsVisible);
 
-                    // Lumis, skills and MCP servers are sections of Customize: one place in the bar stays
-                    // lit across them and the open section's row is selected.
-                    foreach (var (nav, tab) in new[] { (3, "CustomizeSkillsTab"), (4, "CustomizeLumisTab"), (6, "CustomizeMcpTab") })
+                    // Agents, skills, connectors and projects are sections of Customize: one place in the
+                    // bar stays lit across them and the open section's row is selected.
+                    foreach (var (nav, tab) in new[] { (2, "CustomizeProjectsTab"), (3, "CustomizeSkillsTab"), (4, "CustomizeLumisTab"), (6, "CustomizeMcpTab") })
                     {
                         vm.SelectedNavIndex = nav;
                         await Settle();
@@ -144,14 +144,9 @@ public sealed class ManagementPagesUiTests
                         Assert.Equal(nav, vm.LastCustomizeNavIndex);
                     }
 
-                    // Projects belong to the chat list, so Chats stays lit while they are managed.
-                    vm.SelectedNavIndex = 2;
-                    await Settle();
-                    Assert.False(Named<Border>("CustomizeSwitcher").IsVisible);
-                    Assert.DoesNotContain("active", Named<Button>("NavCustomize").Classes);
-                    Assert.Contains("active", Named<Button>("NavChat").Classes);
-
                     // The Customize button returns to the section used last, as it was left.
+                    vm.SelectedNavIndex = 0;
+                    await Settle();
                     vm.OpenCustomizeCommand.Execute(null);
                     await Settle();
                     Assert.Equal(6, vm.SelectedNavIndex);

@@ -125,8 +125,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public string AgentDebugMapText =>
         "Debug-only agent map\n" +
         "Nav: #NavChat=0, #NavLibrary=8, #NavJobs=1, #NavCustomize (last section), #NavSettings=7 (or Memories=5)\n" +
-        "Customize: #CustomizeDiscoverTab=9, #CustomizeLumisTab=4, #CustomizeSkillsTab=3, #CustomizeMcpTab=6\n" +
-        "Settings: #SettingsMemoriesItem=5 · Projects (2): #ProjectSwitchButton, #ProjectSwitcherManageButton, #ProjectEditButton\n" +
+        "Customize: #CustomizeDiscoverTab=9, #CustomizeLumisTab=4, #CustomizeSkillsTab=3, #CustomizeMcpTab=6, #CustomizeProjectsTab=2\n" +
+        "Settings: #SettingsMemoriesItem=5 · Chat list project switcher: #ProjectSwitchButton, #ProjectSwitcherManageButton, #ProjectEditButton\n" +
         "Chat controls: #PageChat, #ChatShell, #Transcript, #Composer, #SearchInput\n" +
         "CLI: --skip-onboarding --debug-agent-harness opens fixture, --test-chat-stress checks tools, --test-mcp-native checks SDK MCP";
 
@@ -183,11 +183,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public const int MemoriesNavIndex = 5;
 
     /// <summary>
-    /// Customize groups the pages that shape what Lumi can do: exactly what plugins bring, plus Discover.
-    /// Their indices predate the group, so global search, the debug bridge and saved shortcuts keep
-    /// addressing the same pages.
+    /// Customize groups the pages that set up how Lumi works: agents, skills, connectors and projects,
+    /// plus Discover. Projects are switched from the chat list and set up here, the way agents, skills
+    /// and connectors are picked in a chat and set up here. The indices predate the group, so global
+    /// search, the debug bridge and saved shortcuts keep addressing the same pages.
     /// </summary>
-    public static bool IsCustomizeIndex(int index) => index is 3 or 4 or 6 or DiscoverNavIndex;
+    public static bool IsCustomizeIndex(int index) => index is 2 or 3 or 4 or 6 or DiscoverNavIndex;
 
     /// <summary>The Customize section the nav button returns to.</summary>
     public int LastCustomizeNavIndex { get; set; } = 4;
@@ -197,6 +198,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public bool IsLumisSection => SelectedNavIndex == 4;
     public bool IsSkillsSection => SelectedNavIndex == 3;
     public bool IsMcpSection => SelectedNavIndex == 6;
+    public bool IsProjectsSection => SelectedNavIndex == 2;
 
     /// <summary>What the Customize area lists as available everywhere: the same scope as a chat with no project.</summary>
     private static readonly CapabilityQuery CustomizeCapabilityQuery =
@@ -229,6 +231,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         switch (index)
         {
+            case 2: ProjectsVM.CloseDetailCommand.Execute(null); break;
             case 3: SkillsVM.CloseDetailCommand.Execute(null); break;
             case 4: AgentsVM.CloseDetailCommand.Execute(null); break;
             case 6: McpServersVM.CloseDetailCommand.Execute(null); break;
@@ -266,6 +269,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsLumisSection));
         OnPropertyChanged(nameof(IsSkillsSection));
         OnPropertyChanged(nameof(IsMcpSection));
+        OnPropertyChanged(nameof(IsProjectsSection));
     }
 
     /// <summary>
@@ -2439,10 +2443,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ChatVM.ActiveProjectFilterId = project.Id;
     }
 
-    /// <summary>Whether the chat list is narrowed to a project, which the switcher can then edit.</summary>
-    public bool HasSelectedProjectFilter => SelectedProjectFilter.HasValue;
+    // The switcher only switches; its actions open Customize → Projects, where projects are set up.
 
-    /// <summary>The switcher's "New project": the Projects page opens straight into an empty editor.</summary>
+    /// <summary>The switcher's "New project": the Projects section opens straight into an empty editor.</summary>
     [RelayCommand]
     private void NewProjectFromSwitcher()
     {
@@ -2450,15 +2453,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProjectsVM.NewProjectCommand.Execute(null);
     }
 
-    /// <summary>The switcher's edit button: opens the project the chat list is narrowed to.</summary>
+    /// <summary>The gear on a project in the switcher's list: opens that project, wherever the list is narrowed.</summary>
     [RelayCommand]
-    private void EditSelectedProject()
+    private void EditProject(Project project)
     {
-        if (SelectedProjectFilter is not { } projectId)
-            return;
-
         SelectedNavIndex = 2;
-        ProjectsVM.OpenById(projectId);
+        ProjectsVM.OpenById(project.Id);
     }
 
     /// <summary>The switcher's "Manage projects": every project at a glance.</summary>
@@ -2738,7 +2738,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedProjectFilterChanged(Guid? value)
     {
-        OnPropertyChanged(nameof(HasSelectedProjectFilter));
         RefreshChatList();
         ChatVM.ActiveProjectFilterId = value;
 

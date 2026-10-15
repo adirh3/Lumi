@@ -192,13 +192,13 @@ internal sealed class UiResponsivenessHarness
 
     // ---- Action catalogs -------------------------------------------------
 
-    // Customize sections are reached through the one Customize button, which reopens the last
-    // section used, and Memories through the Settings gear, which reopens the Settings page last
-    // used; preparing that section or page first makes each click land on the page being measured.
-    // Projects are managed from the chat sidebar's project switcher, so its drawer opens first.
+    // Customize sections (Projects among them) are reached through the one Customize button, which
+    // reopens the last section used, and Memories through the Settings gear, which reopens the
+    // Settings page last used; preparing that section or page first makes each click land on the
+    // page being measured.
     private static readonly (int Index, string Name, string ControlName)[] NavPages =
     {
-        (2, "Projects", "ProjectSwitcherManageButton"),
+        (2, "Projects", "NavCustomize"),
         (3, "Skills", "NavCustomize"),
         (4, "Agents", "NavCustomize"),
         (MainViewModel.MemoriesNavIndex, "Memories", "NavSettings"),
@@ -236,7 +236,7 @@ internal sealed class UiResponsivenessHarness
             else if (index == 7 && _mainVm.SettingsVM.SelectedPageIndex == SettingsViewModel.MemoriesPageIndex)
                 _mainVm.SettingsVM.SelectedPageIndex = 0;
         });
-        await SetProjectSwitcherAsync(index == 2);
+        await SetProjectSwitcherAsync(false);
     }
 
     /// <summary>
@@ -265,7 +265,7 @@ internal sealed class UiResponsivenessHarness
             Prepare: () => PrepareNavigationAsync(7));
         yield return new UiAction(
             "nav-warm-projects", "Navigation", "Switch to Projects (warm)",
-            RunAsync: () => ClickNavigationAsync(2, "ProjectSwitcherManageButton"),
+            RunAsync: () => ClickNavigationAsync(2, "NavCustomize"),
             Prepare: () => PrepareNavigationAsync(2));
         yield return new UiAction(
             "nav-warm-chat", "Navigation", "Return to Chat page (warm)",
@@ -545,7 +545,7 @@ internal sealed class UiResponsivenessHarness
     private async Task SetProjectSwitcherAsync(bool open)
     {
         var isOpen = await OnUiAsync(() =>
-            GetWindow().FindControl<Button>("ProjectSwitchButton")!.Classes.Contains("open"));
+            GetWindow().FindControl<Panel>("ProjectSwitcherRoot")!.Classes.Contains("open"));
         if (isOpen != open)
             await ClickButtonAsync(window => window.FindControl<Button>("ProjectSwitchButton"));
         await WaitForUiAsync(() =>

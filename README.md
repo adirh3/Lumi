@@ -13,9 +13,9 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
 - **Agents** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
-- **Customize & Discover** — One place for agents, skills and connectors (MCP servers), plus Discover: browse and install GitHub Copilot plugins from plugin marketplaces and add connectors from MCP registries
+- **Customize & Discover** — One place to set up agents, skills, connectors (MCP servers) and projects, plus Discover: browse and install GitHub Copilot plugins from plugin marketplaces and add connectors from MCP registries
 - **Sharing** — Share reusable prompts, skills, agents and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
-- **Projects** — Organize chats with custom instructions that shape Lumi's behavior; create, edit and manage them from the project switcher at the top of the chat list. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
+- **Projects** — Organize chats with custom instructions that shape Lumi's behavior; switch between them from the project switcher at the top of the chat list and set them up in Customize → Projects. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions; review and edit them in Settings → Memories
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
@@ -241,19 +241,23 @@ and **Settings** (`Ctrl+1`–`Ctrl+5`, `⌘1`–`⌘5` on macOS; `Ctrl+,` / `⌘
 place is highlighted and named when the sidebar is wide enough; a narrower sidebar shows icons only,
 and the collapsed sidebar shows the same places as a rail.
 
-- **Projects** live with your chats. The project switcher at the top of the chat list narrows the list
-  to a project; the gear beside it edits that project, and its drawer has **New project** and
-  **Manage projects**. The chevron before "Projects" returns to your chats.
+- **Projects** keep related chats together. The project switcher at the top of the chat list narrows
+  the list to a project, shown by its initial in its own color, and while it shows every chat it says
+  how many projects you have. Opened, it grows over the chat list into a searchable list of projects.
+  Projects are set up in **Customize → Projects**: in that list the project you're in keeps its gear in
+  view and every other project shows one on hover, and its **New project** and **Manage projects** open
+  the section too.
 - **Memories** is a Settings page, listed under **Profile**. Settings reopens on the page used last,
   so it reopens Memories if that is where you left it.
 
 ### Customize and Discover
 
-**Customize** (the fourth place in the bar, `Ctrl+4`, `⌘4` on macOS) gathers everything that shapes what
-Lumi can do: **Discover**, **Agents**, **Skills** and **Connectors**, listed at the top of its sidebar
-with how many of each you have. It reopens on the section used last; choosing the open section again
-returns to its overview. Connectors are MCP (Model Context Protocol) servers: Lumi's UI names them by
-what they do, and keeps "MCP" for the protocol, config files and registries.
+**Customize** (the fourth place in the bar, `Ctrl+4`, `⌘4` on macOS) gathers everything that sets up how
+Lumi works: **Discover**, **Agents**, **Skills**, **Connectors** and **Projects**, listed at the top of its
+sidebar with how many of each you have. What you pick while chatting (an agent, skills, connectors) or
+switch to in the chat list (a project) is set up here. It reopens on the section used last; choosing the
+open section again returns to its overview. Connectors are MCP (Model Context Protocol) servers: Lumi's UI
+names them by what they do, and keeps "MCP" for the protocol, config files and registries.
 
 **Discover** finds things to add, from sources you control under **Sources**:
 

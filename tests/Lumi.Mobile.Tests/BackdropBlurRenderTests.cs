@@ -121,6 +121,19 @@ public sealed class BackdropBlurRenderTests
             Assert.True(bottomMax - bottomMin > 200, $"Faded edge range was {bottomMin}..{bottomMax}.");
         });
 
+    [Fact]
+    public Task FrostHidesTheContentBeneathOverATranslucentWindow() =>
+        // Over Mica or acrylic the window itself is translucent, and so is the frost of it: the sharp
+        // stripes beneath must not show through the glass.
+        RenderAsync(StrataBackdropFade.None, pixels =>
+        {
+            var (outsideMin, outsideMax) = Range(pixels, x: 150, y: 20, width: 40, height: 20);
+            Assert.True(outsideMin < 10 && outsideMax > 245, $"Outside range was {outsideMin}..{outsideMax}.");
+
+            var (insideMin, insideMax) = Range(pixels, x: 40, y: 40, width: 60, height: 20);
+            Assert.True(insideMax - insideMin < 12, $"Frosted range was {insideMin}..{insideMax}.");
+        }, translucentWindow: true);
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -494,16 +507,19 @@ public sealed class BackdropBlurRenderTests
         }
     }
 
-    private static async Task RenderAsync(StrataBackdropFade fade, Action<byte[,]> assert)
+    private static async Task RenderAsync(
+        StrataBackdropFade fade, Action<byte[,]> assert, bool translucentWindow = false)
     {
         using var session = HeadlessUnitTestSession.StartNew(
             typeof(MobileMotionRenderApp), AvaloniaTestIsolationLevel.PerTest);
         ExceptionDispatchInfo? failure = null;
         await session.Dispatch(() =>
         {
+            // Over a translucent window the stripes' gaps show nothing of the app.
+            var gap = translucentWindow ? null : Brushes.Black;
             var stripes = new StackPanel { Orientation = Orientation.Horizontal };
             for (var index = 0; index < 60; index++)
-                stripes.Children.Add(new Border { Width = 4, Background = index % 2 == 0 ? Brushes.White : Brushes.Black });
+                stripes.Children.Add(new Border { Width = 4, Background = index % 2 == 0 ? Brushes.White : gap });
 
             var frost = new StrataBackdropBlur
             {
@@ -518,13 +534,22 @@ public sealed class BackdropBlurRenderTests
             };
             var window = new Window
             {
-                Width = 240, Height = 140, Background = Brushes.Black,
+                Width = 240, Height = 140, Background = translucentWindow ? Brushes.Transparent : Brushes.Black,
                 Content = new Panel { Children = { stripes, frost } }
             };
             try
             {
                 window.Show();
                 Dispatcher.UIThread.RunJobs();
+                if (translucentWindow)
+                {
+                    // Like Mica: nothing opaque behind the content where headless has no real transparency.
+                    foreach (var fallback in window.GetVisualDescendants().OfType<Border>()
+                                 .Where(border => border.Name == "PART_TransparencyFallback"))
+                        fallback.IsVisible = false;
+                    Dispatcher.UIThread.RunJobs();
+                }
+
                 using var frame = window.CaptureRenderedFrame()!;
                 assert(Luma(frame));
             }

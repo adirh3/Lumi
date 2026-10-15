@@ -364,7 +364,7 @@ public sealed class CustomizeCapabilitiesTests
 
     [Theory]
     [InlineData(0, MainWindow.NavChatButton)]
-    [InlineData(2, MainWindow.NavChatButton)]                       // Projects open from the chat list's switcher
+    [InlineData(2, MainWindow.NavCustomizeButton)]                  // Projects are set up in Customize; the chat list only switches them
     [InlineData(MainViewModel.LibraryNavIndex, MainWindow.NavLibraryButton)]
     [InlineData(1, MainWindow.NavJobsButton)]
     [InlineData(3, MainWindow.NavCustomizeButton)]

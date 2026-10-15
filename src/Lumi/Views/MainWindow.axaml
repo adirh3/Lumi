@@ -22,6 +22,8 @@
 
   <Window.Resources>
     <Thickness x:Key="MainLayout.IslandOuterMargin">0,38,6,6</Thickness>
+    <!-- The open project switcher's glass: the overlay surface, translucent over its frost. -->
+    <SolidColorBrush x:Key="ProjectSwitcher.GlassFill" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.72" />
     <!-- A plugin's (or the Copilot folder's) parts fold under one row so a large plugin never buries
          the user's own items; rows open the read-only page. No tooltips: searches replace these rows,
          and Avalonia 12 crashes closing a tooltip whose control has left the tree. -->
@@ -94,6 +96,7 @@
     <StreamGeometry x:Key="Icon.ChevronLeft">M14.7 5.3a1 1 0 0 1 0 1.4L9.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4l-6-6a1 1 0 0 1 0-1.4l6-6a1 1 0 0 1 1.4 0z</StreamGeometry>
     <StreamGeometry x:Key="Icon.ChevronRight">M9.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l5.3-5.3-5.3-5.3a1 1 0 0 1 0-1.4z</StreamGeometry>
     <StreamGeometry x:Key="Icon.ChevronDown">M5.3 9.3a1 1 0 0 1 1.4 0l5.3 5.3 5.3-5.3a1 1 0 0 1 1.4 1.4l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.4z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.ChevronsUpDown">M12 4.2l5.6 5.6-1.4 1.4L12 7l-4.2 4.2-1.4-1.4z M12 19.8l-5.6-5.6 1.4-1.4L12 17l4.2-4.2 1.4 1.4z</StreamGeometry>
     <!-- Management pages -->
     <StreamGeometry x:Key="Icon.Eye">M12 5C6.5 5 2.7 9.1 1.5 12c1.2 2.9 5 7 10.5 7s9.3-4.1 10.5-7C21.3 9.1 17.5 5 12 5zm0 11.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-7a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Document">M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.8V9h5.2L13 3.8zM8 12.5h8v1.7H8v-1.7zm0 3.6h8v1.7H8v-1.7z</StreamGeometry>
@@ -318,55 +321,128 @@
       <Setter Property="Focusable" Value="False" />
     </Style>
 
-    <Style Selector="Button.project-switcher-toggle">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    <!-- ── Project switcher: one surface naming where the chat list is. Closed, it is only its header;
+         open, the same surface grows over the chat list into the list of places, so the list comes out
+         of the switcher instead of appearing under it. Open, it is glass, like the chat header's menus:
+         the chats beneath show through its tint, frosted. ── -->
+    <Style Selector="Border.project-switcher-surface">
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="1" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="Padding" Value="7,4" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ControlDefault}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000, 0 0 0 0 #00000000" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.2" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.2" />
+          <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.24" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Panel.project-switcher:pointerover:not(.open) Border.project-switcher-surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.ControlHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    </Style>
+    <!-- Open, it lifts off the chat list like a menu. The shadow stays tight enough that the sidebar's
+         edges never cut it. -->
+    <Style Selector="Panel.project-switcher.open Border.project-switcher-surface">
+      <Setter Property="Background" Value="{StaticResource ProjectSwitcher.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+      <Setter Property="BoxShadow" Value="0 10 24 -6 #38000000, 0 2 6 0 #1A000000" />
+    </Style>
+    <!-- At rest there is nothing beneath it to frost; the frost gathers as it opens. -->
+    <Style Selector="sc|StrataBackdropBlur.project-switcher-frost">
+      <Setter Property="BlurRadius" Value="0" />
+      <Setter Property="Saturation" Value="1.5" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="BlurRadius" Duration="0:0:0.2" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Panel.project-switcher.open sc|StrataBackdropBlur.project-switcher-frost">
+      <Setter Property="BlurRadius" Value="28" />
+    </Style>
+    <!-- The header is the switcher's face: its surface answers the pointer, so the button itself stays
+         flat. Its badge, title and chevron line up with the rows' badges, titles and trailing edge. -->
+    <Style Selector="Button.project-switcher-toggle">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="10,0,11,0" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="Height" Value="34" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
-      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.project-switcher-toggle:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.ControlHover}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
-      <Setter Property="BoxShadow" Value="0 4 14 0 #0F000000" />
+    <Style Selector="Button.project-switcher-toggle /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.project-switcher-toggle:pointerover /template/ Border#PART_Surface, Button.project-switcher-toggle:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
     </Style>
     <Style Selector="Button.project-switcher-toggle:pointerover /template/ Border#PART_Aurora">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="translateX(0)" />
     </Style>
-    <Style Selector="Button.project-switcher-toggle.open /template/ Border#PART_Surface">
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
-      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    <!-- Open, the header closes it, and a tip about opening it would only cover the list. -->
+    <Style Selector="Panel.project-switcher.open Button.project-switcher-toggle">
+      <Setter Property="ToolTip.ServiceEnabled" Value="False" />
     </Style>
-    <Style Selector="Button.project-switcher-toggle.open /template/ Border#PART_Aurora">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="RenderTransform" Value="translateX(0)" />
+    <!-- Every chat, or one project's initial on its own hue: the same identity the launchpad and the
+         chat header give it. -->
+    <Style Selector="Border.project-switcher-badge">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
     </Style>
-    <!-- The switcher is a dropdown, so it says so: the chevron turns over while the drawer is open. -->
+    <Style Selector="Border.project-switcher-badge PathIcon">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border.project-switcher-badge TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.project-switcher-title">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.project-switcher-meta">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- Up and down: it switches between places rather than dropping a menu, so it doesn't turn over. -->
     <Style Selector="PathIcon.project-switcher-chevron">
-      <Setter Property="Width" Value="10" />
-      <Setter Property="Height" Value="10" />
-      <Setter Property="Margin" Value="0,0,4,0" />
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="RenderTransform" Value="rotate(0deg)" />
       <Setter Property="Transitions">
         <Transitions>
           <BrushTransition Property="Foreground" Duration="0:0:0.15" />
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
     <Style Selector="Button.project-switcher-toggle:pointerover PathIcon.project-switcher-chevron">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.project-switcher-toggle.open PathIcon.project-switcher-chevron">
-      <Setter Property="RenderTransform" Value="rotate(180deg)" />
+    <Style Selector="Panel.project-switcher.open PathIcon.project-switcher-chevron">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
     <!-- ── Library sidebar facet rows ── -->
@@ -546,42 +622,56 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
 
-    <Style Selector="Border.project-switcher-panel">
-      <Setter Property="Padding" Value="0" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="BorderThickness" Value="1" />
+    <!-- Under the header: the find field, its icon centred on the rows' badges and its text on their
+         titles, then the places. -->
+    <Style Selector="Border.project-switcher-find">
+      <Setter Property="Padding" Value="15,9,11,9" />
+      <Setter Property="BorderThickness" Value="0,1" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="Background" Value="{DynamicResource Brush.Background}" />
-      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-
-    <!-- Project switcher: edit the narrowed-to project; create and manage projects from its drawer. -->
-    <Style Selector="Button.project-switcher-edit">
-      <Setter Property="Width" Value="34" />
-      <Setter Property="Height" Value="34" />
+    <!-- The faded scrollbar overlays the rows' edge instead of reserving a column, so the rows sit evenly
+         inside the switcher. -->
+    <Style Selector="ScrollViewer.project-switcher-scroll /template/ ScrollContentPresenter#PART_ContentPresenter">
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+    </Style>
+    <!-- Every project in the drawer can be set up from it. The open project keeps its gear in view;
+         the others show theirs while hovered, so the list stays calm. Until a row is first hovered its
+         gear is only an empty slot of the same size (see CreateProjectFilterRow). -->
+    <Style Selector=":is(Control).project-switcher-row-edit">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="Margin" Value="4,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.project-switcher-row-edit">
       <Setter Property="Padding" Value="0" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="CornerRadius" Value="6" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Button.project-switcher-edit PathIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Opacity" Value="0" />
       <Setter Property="Transitions">
         <Transitions>
-          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.project-switcher-edit:pointerover PathIcon">
+    <Style Selector="Button.project-switcher-row:pointerover Button.project-switcher-row-edit, Button.project-switcher-row.selected Button.project-switcher-row-edit">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.project-switcher-row-edit PathIcon">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Button.project-switcher-row-edit:pointerover PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <Style Selector="Border.project-switcher-footer">
       <Setter Property="BorderThickness" Value="0,1,0,0" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="Padding" Value="0,5,0,0" />
-      <Setter Property="Margin" Value="0,1,0,0" />
+      <Setter Property="Padding" Value="5,4,5,5" />
     </Style>
     <Style Selector="Button.project-switcher-action">
       <Setter Property="Padding" Value="8,6" />
@@ -712,21 +802,39 @@
       <Setter Property="Padding" Value="0" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
-      <Setter Property="CornerRadius" Value="9" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Background" Value="Transparent" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
     <Style Selector="Button.project-switcher-row:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
+    <Style Selector="Button.project-switcher-row:pointerover /template/ Border#PART_Aurora">
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+    <!-- The place the chat list shows: Lumi's accent tint, the same as the lit place in the bar. -->
     <Style Selector="Button.project-switcher-row.selected /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.ControlDefault}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.project-switcher-row TextBlock.project-switcher-row-title">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.project-switcher-row:pointerover TextBlock.project-switcher-row-title, Button.project-switcher-row.selected TextBlock.project-switcher-row-title">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.project-switcher-row TextBlock.project-switcher-row-count">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
     <Style Selector="Border#PillBusyDot">
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
@@ -739,8 +847,15 @@
     <!-- ── Unread inbox ──────────────────────────────────
          Chats stream in several projects at once, so a reply can land in a project the sidebar is
          filtered away from. This pill sits directly above the chat list as the one filter-independent
-         "you have new replies" surface, and opens into a drawer that jumps straight to any of them.
-         It borrows the project switcher's drawer skin so the two sidebar drawers read as one family. -->
+         "you have new replies" surface, and opens into a card that jumps straight to any of them. -->
+    <Style Selector="Border.unread-panel">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
     <Style Selector="Button.unread-toggle">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentSubtle}" />
@@ -1185,8 +1300,9 @@
               </StackPanel>
             </Border>
           </Border>
-          <!-- ── Customize: what Lumi can do, which is exactly what plugins bring (Lumis, skills, MCP
-               servers) plus Discover to find more. Its sections are rows, like every other list in the
+          <!-- ── Customize: where Lumi is set up. Agents, skills and connectors (exactly what plugins
+               bring) are picked in a chat and set up here; projects are switched in the chat list and
+               set up here; Discover finds more. Its sections are rows, like every other list in the
                sidebar; each keeps its own hue on the glyph and the selection uses Lumi's accent. The
                section's own list follows below the divider. ── -->
           <Border x:Name="CustomizeSwitcher" DockPanel.Dock="Top" Margin="10,4,10,0"
@@ -1253,6 +1369,22 @@
                   <PathIcon Grid.Column="0" Classes="section-icon" Data="{StaticResource Icon.Plug}" />
                   <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Customize_McpServers}" VerticalAlignment="Center" />
                   <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding McpServersVM.SectionCountText}" />
+                </Grid>
+              </Button>
+              <Button x:Name="CustomizeProjectsTab" Classes="library-facet customize-section" Classes.selected="{Binding IsProjectsSection}"
+                      Command="{Binding OpenCustomizeSectionCommand}" CommandParameter="2"
+                      AutomationProperties.Name="{loc:Str Customize_Projects}">
+                <Button.Resources>
+                  <ResourceDictionary>
+                    <ResourceDictionary.MergedDictionaries>
+                      <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Project.axaml" />
+                    </ResourceDictionary.MergedDictionaries>
+                  </ResourceDictionary>
+                </Button.Resources>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <PathIcon Grid.Column="0" Classes="section-icon" Data="{StaticResource Icon.Folder}" />
+                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Customize_Projects}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding ProjectsVM.TotalCountText}" />
                 </Grid>
               </Button>
               <Border Classes="customize-divider" />
@@ -1339,453 +1471,444 @@
                   </StackPanel>
                 </Button>
               </DockPanel>
-              <!-- ── Project lens: compact selector that scales to many projects. Projects live here
-                       rather than in the nav pill: they are where chats live, so they are created,
-                       edited and managed from the chat list (shown even before the first project). ── -->
-              <Border x:Name="ProjectSwitcherRoot"
-                      DockPanel.Dock="Top"
-                      Margin="14,6,14,0">
-                <StackPanel>
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
-                    <Button x:Name="ProjectSwitchButton"
-                            Classes="project-switcher-toggle"
-                            ToolTip.Tip="{loc:Str ProjectSwitcher_OpenTooltip}">
-                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                        <PathIcon Grid.Column="0"
-                                  Data="{StaticResource Icon.Folder}"
-                                  Width="13" Height="13"
-                                  Foreground="{DynamicResource Brush.AccentDefault}"
-                                  VerticalAlignment="Center" />
-                        <TextBlock x:Name="ProjectSwitchTitleText"
-                                   Grid.Column="1"
-                                   FontSize="12"
-                                   FontWeight="Medium"
-                                   Foreground="{DynamicResource Brush.TextSecondary}"
-                                   VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" />
-                        <PathIcon Grid.Column="2"
-                                  Classes="project-switcher-chevron"
-                                  Data="{StaticResource Icon.ChevronDown}" />
-                        <TextBlock x:Name="ProjectSwitchSubtitleText"
-                                   IsVisible="False" />
-                      </Grid>
-                    </Button>
-                    <Button Grid.Column="1"
-                            x:Name="ProjectEditButton"
-                            Classes="subtle project-switcher-edit"
-                            Command="{Binding EditSelectedProjectCommand}"
-                            IsVisible="{Binding HasSelectedProjectFilter}"
-                            ToolTip.Tip="{loc:Str ProjectSwitcher_EditTooltip}"
-                            AutomationProperties.Name="{loc:Str ProjectSwitcher_EditTooltip}">
-                      <PathIcon Data="{StaticResource Icon.Gear}" Width="13" Height="13" />
-                    </Button>
-                  </Grid>
+              <!-- ── Project lens: one full-width control naming where the chat list is (every chat, or one
+                       project on its own hue) that switches in a click and scales to many projects. Open, it
+                       grows out of itself over the chat list, which stays put, into a list that finds and
+                       switches projects; they are set up in Customize → Projects, which the list's gears and
+                       actions open. Shown even before the first project. ── -->
+              <Panel>
+                <Panel x:Name="ProjectSwitcherRoot"
+                       Classes="project-switcher"
+                       VerticalAlignment="Top"
+                       Margin="14,6,14,0"
+                       ZIndex="1">
+                  <sc:StrataBackdropBlur Classes="project-switcher-frost" CornerRadius="12" />
+                  <Border Classes="project-switcher-surface">
+                    <StackPanel>
+                      <Button x:Name="ProjectSwitchButton"
+                              Classes="project-switcher-toggle"
+                              ToolTip.Tip="{loc:Str ProjectSwitcher_OpenTooltip}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                          <Border x:Name="ProjectSwitchBadge" Classes="project-switcher-badge">
+                            <Panel>
+                              <PathIcon x:Name="ProjectSwitchAllIcon" Data="{StaticResource Icon.Chat}" />
+                              <TextBlock x:Name="ProjectSwitchInitial" IsVisible="False" />
+                            </Panel>
+                          </Border>
+                          <TextBlock x:Name="ProjectSwitchTitleText" Grid.Column="1" Classes="project-switcher-title" />
+                          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock x:Name="ProjectSwitchMetaText" Classes="project-switcher-meta" IsVisible="False" />
+                            <PathIcon Classes="project-switcher-chevron" Data="{StaticResource Icon.ChevronsUpDown}" />
+                          </StackPanel>
+                        </Grid>
+                      </Button>
 
-                  <Border x:Name="ProjectSwitchRevealHost"
-                          Height="0"
-                          Opacity="0"
-                          IsVisible="False"
-                          ClipToBounds="True"
-                          Margin="0,4,0,0">
-                    <Border x:Name="ProjectSwitchPanel"
-                            Classes="project-switcher-panel"
-                            ClipToBounds="True">
-                      <StackPanel Spacing="5" Margin="6">
-                        <Border Classes="project-switcher-search">
-                          <DockPanel>
-                            <PathIcon DockPanel.Dock="Left"
-                                      Data="{StaticResource Icon.Search}"
-                                      Width="12" Height="12"
-                                      Foreground="{DynamicResource Brush.TextTertiary}"
-                                      VerticalAlignment="Center"
-                                      Margin="0,0,7,0" />
-                            <TextBox x:Name="ProjectFilterSearchBox"
-                                     Classes="project-switcher-search-box"
-                                     PlaceholderText="{loc:Str ProjectSwitcher_SearchPlaceholder}" />
-                          </DockPanel>
-                        </Border>
+                      <Border x:Name="ProjectSwitchRevealHost"
+                              Height="0"
+                              Opacity="0"
+                              IsVisible="False"
+                              ClipToBounds="True">
+                        <StackPanel x:Name="ProjectSwitchPanel">
+                          <Border Classes="project-switcher-find">
+                            <DockPanel>
+                              <PathIcon DockPanel.Dock="Left"
+                                        Data="{StaticResource Icon.Search}"
+                                        Width="12" Height="12"
+                                        Foreground="{DynamicResource Brush.TextTertiary}"
+                                        VerticalAlignment="Center"
+                                        Margin="0,0,13,0" />
+                              <TextBox x:Name="ProjectFilterSearchBox"
+                                       Classes="project-switcher-search-box"
+                                       PlaceholderText="{loc:Str ProjectSwitcher_SearchPlaceholder}" />
+                            </DockPanel>
+                          </Border>
 
-                        <ScrollViewer MaxHeight="208"
-                                      VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      Classes="hover-scroll">
-                          <StackPanel x:Name="ProjectFilterResults" Spacing="2" />
-                        </ScrollViewer>
+                          <!-- Seven and a half 31px rows, so a longer list visibly continues below. -->
+                          <ScrollViewer MaxHeight="237"
+                                        VerticalScrollBarVisibility="Auto"
+                                        HorizontalScrollBarVisibility="Disabled"
+                                        Classes="hover-scroll project-switcher-scroll">
+                            <StackPanel x:Name="ProjectFilterResults" Spacing="1" Margin="5,5,5,4" />
+                          </ScrollViewer>
 
-                        <TextBlock x:Name="ProjectFilterMoreText"
-                                   FontSize="10.5"
-                                   Foreground="{DynamicResource Brush.TextTertiary}"
-                                   HorizontalAlignment="Center"
-                                   Margin="4,0,4,1"
-                                   IsVisible="False" />
+                          <TextBlock x:Name="ProjectFilterMoreText"
+                                     FontSize="10.5"
+                                     Foreground="{DynamicResource Brush.TextTertiary}"
+                                     HorizontalAlignment="Center"
+                                     Margin="6,0,6,6"
+                                     IsVisible="False" />
 
-                        <Border Classes="project-switcher-footer">
-                          <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
-                            <Button x:Name="ProjectSwitcherNewButton"
-                                    Classes="subtle project-switcher-action"
-                                    Command="{Binding NewProjectFromSwitcherCommand}"
-                                    Click="OnProjectSwitcherActionClick"
-                                    AutomationProperties.Name="{loc:Str Projects_New}">
-                              <StackPanel Orientation="Horizontal" Spacing="6">
-                                <PathIcon Data="{StaticResource Icon.Plus}" />
-                                <TextBlock Text="{loc:Str Projects_New}" />
-                              </StackPanel>
-                            </Button>
-                            <Button Grid.Column="1"
-                                    x:Name="ProjectSwitcherManageButton"
-                                    Classes="subtle project-switcher-action"
-                                    Command="{Binding ManageProjectsCommand}"
-                                    Click="OnProjectSwitcherActionClick"
-                                    AutomationProperties.Name="{loc:Str ProjectSwitcher_Manage}">
-                              <StackPanel Orientation="Horizontal" Spacing="6">
-                                <PathIcon Data="{StaticResource Icon.FolderOpen}" />
-                                <TextBlock Text="{loc:Str ProjectSwitcher_Manage}" />
-                              </StackPanel>
-                            </Button>
-                          </Grid>
-                        </Border>
-                      </StackPanel>
-                    </Border>
+                          <Border Classes="project-switcher-footer">
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
+                              <Button x:Name="ProjectSwitcherNewButton"
+                                      Classes="subtle project-switcher-action"
+                                      Command="{Binding NewProjectFromSwitcherCommand}"
+                                      Click="OnProjectSwitcherActionClick"
+                                      AutomationProperties.Name="{loc:Str Projects_New}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                  <PathIcon Data="{StaticResource Icon.Plus}" />
+                                  <TextBlock Text="{loc:Str Projects_New}" />
+                                </StackPanel>
+                              </Button>
+                              <Button Grid.Column="1"
+                                      x:Name="ProjectSwitcherManageButton"
+                                      Classes="subtle project-switcher-action"
+                                      Command="{Binding ManageProjectsCommand}"
+                                      Click="OnProjectSwitcherActionClick"
+                                      AutomationProperties.Name="{loc:Str ProjectSwitcher_Manage}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                  <PathIcon Data="{StaticResource Icon.FolderOpen}" />
+                                  <TextBlock Text="{loc:Str ProjectSwitcher_Manage}" />
+                                </StackPanel>
+                              </Button>
+                            </Grid>
+                          </Border>
+                        </StackPanel>
+                      </Border>
+                    </StackPanel>
                   </Border>
-                </StackPanel>
-              </Border>
+                </Panel>
 
-              <!-- ── Unread inbox: the one place unread replies stay visible regardless of the
-                       active project filter, and the fastest route back to them. ── -->
-              <Border x:Name="UnreadInboxRoot"
-                      DockPanel.Dock="Top"
-                      Margin="14,6,14,0"
-                      IsVisible="{Binding HasUnreadChats}">
-                <StackPanel>
-                  <Button x:Name="UnreadInboxToggle"
-                          Classes="unread-toggle"
-                          Command="{Binding ToggleUnreadPanelCommand}"
-                          ToolTip.Tip="{Binding UnreadTooltipText}"
-                          AutomationProperties.Name="{Binding UnreadSummaryText}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                      <Border Grid.Column="0" Classes="unread-dot" />
-                      <TextBlock Grid.Column="1"
-                                 x:Name="UnreadSummaryLabel"
-                                 Text="{Binding UnreadSummaryText}"
-                                 FontSize="11.5"
-                                 FontWeight="SemiBold"
-                                 Foreground="{DynamicResource Brush.AccentDefault}"
-                                 VerticalAlignment="Center"
-                                 TextTrimming="CharacterEllipsis" />
-                      <PathIcon Grid.Column="2"
-                                x:Name="UnreadChevron"
-                                Data="{StaticResource Icon.ChevronDown}"
-                                Width="11" Height="11"
-                                VerticalAlignment="Center"
-                                Foreground="{DynamicResource Brush.AccentDefault}" />
-                    </Grid>
-                  </Button>
+                <!-- Everything else starts under the closed switcher (6 above it, 36 tall), which opens over it. -->
+                <DockPanel Margin="0,42,0,0">
+                  <!-- ── Unread inbox: the one place unread replies stay visible regardless of the
+                           active project filter, and the fastest route back to them. ── -->
+                  <Border x:Name="UnreadInboxRoot"
+                          DockPanel.Dock="Top"
+                          Margin="14,6,14,0"
+                          IsVisible="{Binding HasUnreadChats}">
+                    <StackPanel>
+                      <Button x:Name="UnreadInboxToggle"
+                              Classes="unread-toggle"
+                              Command="{Binding ToggleUnreadPanelCommand}"
+                              ToolTip.Tip="{Binding UnreadTooltipText}"
+                              AutomationProperties.Name="{Binding UnreadSummaryText}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
+                          <Border Grid.Column="0" Classes="unread-dot" />
+                          <TextBlock Grid.Column="1"
+                                     x:Name="UnreadSummaryLabel"
+                                     Text="{Binding UnreadSummaryText}"
+                                     FontSize="11.5"
+                                     FontWeight="SemiBold"
+                                     Foreground="{DynamicResource Brush.AccentDefault}"
+                                     VerticalAlignment="Center"
+                                     TextTrimming="CharacterEllipsis" />
+                          <PathIcon Grid.Column="2"
+                                    x:Name="UnreadChevron"
+                                    Data="{StaticResource Icon.ChevronDown}"
+                                    Width="11" Height="11"
+                                    VerticalAlignment="Center"
+                                    Foreground="{DynamicResource Brush.AccentDefault}" />
+                        </Grid>
+                      </Button>
 
-                  <Border x:Name="UnreadRevealHost"
-                          Height="0"
-                          Opacity="0"
-                          IsVisible="False"
-                          ClipToBounds="True"
-                          Margin="0,4,0,0">
-                    <Border x:Name="UnreadPanel" Classes="project-switcher-panel" ClipToBounds="True">
-                      <StackPanel Spacing="3" Margin="6">
-                        <ScrollViewer MaxHeight="212"
-                                      VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      Classes="hover-scroll">
-                          <ItemsControl ItemsSource="{Binding UnreadChats}">
-                            <ItemsControl.ItemTemplate>
-                              <DataTemplate x:DataType="vm:UnreadChatEntry">
-                                <Button Classes="unread-row"
-                                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenUnreadChatCommand}"
-                                        CommandParameter="{Binding}"
-                                        ToolTip.Tip="{Binding TooltipText}">
-                                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
-                                    <Border Grid.Column="0"
-                                            Width="6" Height="6" CornerRadius="3"
-                                            VerticalAlignment="Center"
-                                            Background="{DynamicResource Brush.AccentDefault}" />
-                                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                      <TextBlock Text="{Binding Title}"
-                                                 FontSize="11.5"
-                                                 FontWeight="Medium"
-                                                 Foreground="{DynamicResource Brush.TextPrimary}"
-                                                 TextTrimming="CharacterEllipsis" />
-                                      <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <PathIcon Data="{StaticResource Icon.Folder}"
-                                                  Width="9" Height="9"
-                                                  VerticalAlignment="Center"
-                                                  IsVisible="{Binding HasProject}"
-                                                  Foreground="{DynamicResource Brush.AccentDefault}" />
-                                        <TextBlock Text="{Binding ProjectName}"
-                                                   IsVisible="{Binding HasProject}"
-                                                   FontSize="10"
-                                                   MaxWidth="118"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource Brush.AccentDefault}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{loc:Str Unread_NoProject}"
-                                                   IsVisible="{Binding !HasProject}"
-                                                   FontSize="10"
+                      <Border x:Name="UnreadRevealHost"
+                              Height="0"
+                              Opacity="0"
+                              IsVisible="False"
+                              ClipToBounds="True"
+                              Margin="0,4,0,0">
+                        <Border x:Name="UnreadPanel" Classes="unread-panel" ClipToBounds="True">
+                          <StackPanel Spacing="3" Margin="6">
+                            <ScrollViewer MaxHeight="212"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Classes="hover-scroll">
+                              <ItemsControl ItemsSource="{Binding UnreadChats}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:UnreadChatEntry">
+                                    <Button Classes="unread-row"
+                                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenUnreadChatCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="{Binding TooltipText}">
+                                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
+                                        <Border Grid.Column="0"
+                                                Width="6" Height="6" CornerRadius="3"
+                                                VerticalAlignment="Center"
+                                                Background="{DynamicResource Brush.AccentDefault}" />
+                                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                          <TextBlock Text="{Binding Title}"
+                                                     FontSize="11.5"
+                                                     FontWeight="Medium"
+                                                     Foreground="{DynamicResource Brush.TextPrimary}"
+                                                     TextTrimming="CharacterEllipsis" />
+                                          <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <PathIcon Data="{StaticResource Icon.Folder}"
+                                                      Width="9" Height="9"
+                                                      VerticalAlignment="Center"
+                                                      IsVisible="{Binding HasProject}"
+                                                      Foreground="{DynamicResource Brush.AccentDefault}" />
+                                            <TextBlock Text="{Binding ProjectName}"
+                                                       IsVisible="{Binding HasProject}"
+                                                       FontSize="10"
+                                                       MaxWidth="118"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Brush.AccentDefault}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{loc:Str Unread_NoProject}"
+                                                       IsVisible="{Binding !HasProject}"
+                                                       FontSize="10"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Brush.TextTertiary}" />
+                                          </StackPanel>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding TimeLabel}"
+                                                   FontSize="9.8"
                                                    VerticalAlignment="Center"
                                                    Foreground="{DynamicResource Brush.TextTertiary}" />
-                                      </StackPanel>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="2"
-                                               Text="{Binding TimeLabel}"
-                                               FontSize="9.8"
-                                               VerticalAlignment="Center"
-                                               Foreground="{DynamicResource Brush.TextTertiary}" />
-                                  </Grid>
-                                </Button>
-                              </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                          </ItemsControl>
-                        </ScrollViewer>
+                                      </Grid>
+                                    </Button>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
 
-                        <TextBlock Text="{Binding UnreadOverflowText}"
-                                   IsVisible="{Binding HasUnreadOverflow}"
-                                   FontSize="10.5"
-                                   HorizontalAlignment="Center"
-                                   Margin="0,1"
-                                   Foreground="{DynamicResource Brush.TextTertiary}" />
+                            <TextBlock Text="{Binding UnreadOverflowText}"
+                                       IsVisible="{Binding HasUnreadOverflow}"
+                                       FontSize="10.5"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,1"
+                                       Foreground="{DynamicResource Brush.TextTertiary}" />
 
-                        <Border Height="1" Margin="2,2"
-                                Background="{DynamicResource Brush.BorderSubtle}" />
+                            <Border Height="1" Margin="2,2"
+                                    Background="{DynamicResource Brush.BorderSubtle}" />
 
-                        <Button Classes="subtle unread-mark-all"
-                                Command="{Binding MarkAllChatsReadCommand}"
-                                Content="{loc:Str Unread_MarkAllRead}" />
-                      </StackPanel>
-                    </Border>
+                            <Button Classes="subtle unread-mark-all"
+                                    Command="{Binding MarkAllChatsReadCommand}"
+                                    Content="{loc:Str Unread_MarkAllRead}" />
+                          </StackPanel>
+                        </Border>
+                      </Border>
+                    </StackPanel>
                   </Border>
-                </StackPanel>
-              </Border>
 
-              <ScrollViewer x:Name="ChatListScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                            Classes="hover-scroll" Margin="0,8,0,0">
-                <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <StackPanel x:DataType="vm:ChatGroup" Margin="0,0,0,2">
-                        <TextBlock Text="{Binding Label}" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Brush.TextTertiary}"
-                                   Margin="10,10,0,4" />
-                        <ListBox Classes="sidebar-list chat-list"
-                                 ItemsSource="{Binding Chats}"
-                                 SelectionMode="Single"
-                                 SelectedItem="{x:Null}"
-                                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                          <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="models:Chat">
-                              <Panel Background="Transparent" DataContextChanged="OnChatRowDataContextChanged">
-                                 <Panel.ContextMenu>
-                                   <ContextMenu x:CompileBindings="False" Opening="OnChatContextMenuOpening">
-                                     <MenuItem x:Name="PauseChatMenuItem"
-                                               Header="{loc:Str Chat_PauseMenu}"
-                                               IsVisible="{Binding CanPause}"
-                                               Command="{Binding $parent[Window].DataContext.ToggleChatPauseCommand}"
-                                               CommandParameter="{Binding}"
-                                               AutomationProperties.Name="{loc:Str Chat_PauseMenu}"
-                                               ToolTip.Tip="{loc:Str Chat_PauseTooltip}">
-                                       <MenuItem.Icon>
-                                         <PathIcon Data="{StaticResource Icon.Pause}" Width="14" Height="14" />
-                                       </MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem x:Name="ResumeChatMenuItem"
-                                               Header="{loc:Str Chat_ResumeMenu}"
-                                               IsVisible="{Binding IsPaused}"
-                                               Command="{Binding $parent[Window].DataContext.ToggleChatPauseCommand}"
-                                               CommandParameter="{Binding}"
-                                               AutomationProperties.Name="{loc:Str Chat_ResumeMenu}"
-                                               ToolTip.Tip="{loc:Str Chat_ResumeTooltip}">
-                                       <MenuItem.Icon>
-                                         <PathIcon Data="{StaticResource Icon.Play}" Width="14" Height="14" />
-                                       </MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem x:Name="TogglePinChatMenuItem"
-                                               Header="{loc:Str Menu_Pin}"
-                                               Command="{Binding $parent[Window].DataContext.ToggleChatPinCommand}"
-                                               CommandParameter="{Binding}">
-                                       <MenuItem.Icon>
-                                         <PathIcon Data="{StaticResource Icon.Pin}" Width="14" Height="14" />
-                                       </MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem x:Name="MarkChatUnreadMenuItem"
-                                               Header="{loc:Str Menu_MarkAsUnread}"
-                                               IsVisible="{Binding !HasUnreadMessages}"
-                                               Command="{Binding $parent[Window].DataContext.MarkChatUnreadCommand}"
-                                               CommandParameter="{Binding}">
-                                       <MenuItem.Icon>
-                                         <PathIcon x:Name="MarkChatUnreadIcon" Data="{StaticResource Icon.MailClosed}" Width="14" Height="14" />
-                                       </MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem x:Name="MarkChatReadMenuItem"
-                                               Header="{loc:Str Menu_MarkAsRead}"
-                                               IsVisible="{Binding HasUnreadMessages}"
-                                               Command="{Binding $parent[Window].DataContext.MarkChatReadCommand}"
-                                               CommandParameter="{Binding}">
-                                       <MenuItem.Icon>
-                                         <PathIcon x:Name="MarkChatReadIcon" Data="{StaticResource Icon.MailOpen}" Width="14" Height="14" />
-                                       </MenuItem.Icon>
-                                     </MenuItem>
-                                     <MenuItem Header="{loc:Str Menu_Rename}"
-                                               Command="{Binding $parent[Window].DataContext.StartRenameChatCommand}"
-                                               CommandParameter="{Binding}">
-                                       <MenuItem.Icon>
-                                        <PathIcon Data="{StaticResource Icon.Rename}" Width="14" Height="14" />
-                                      </MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem Header="{loc:Str Menu_Fork}"
-                                              Command="{Binding $parent[Window].DataContext.DuplicateChatCommand}"
-                                              CommandParameter="{Binding}">
-                                      <MenuItem.Icon>
-                                        <PathIcon Data="{x:Static sc:StrataChatMessage.ForkIconGeometry}" Width="14" Height="14" />
-                                      </MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem x:Name="OpenChatInNewWindowMenuItem"
-                                              Header="{loc:Str Menu_OpenInNewWindow}"
-                                              Command="{Binding $parent[Window].DataContext.OpenChatInNewWindowCommand}"
-                                              CommandParameter="{Binding}">
-                                      <MenuItem.Icon>
-                                        <PathIcon Data="{StaticResource Icon.Window}" Width="14" Height="14" />
-                                      </MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem x:Name="ChatTagMenu" Header="{loc:Str Menu_ChatTag}">
-                                      <MenuItem.Icon>
-                                        <PathIcon Data="{StaticResource Icon.Tag}" Width="14" Height="14" />
-                                      </MenuItem.Icon>
-                                      <MenuItem IsVisible="False" IsEnabled="False" />
-                                    </MenuItem>
-                                    <MenuItem x:Name="MoveToProjectMenu" Header="{loc:Str Menu_MoveToProject}">
-                                       <MenuItem.Icon>
-                                         <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
-                                       </MenuItem.Icon>
-                                       <MenuItem IsVisible="False" IsEnabled="False" />
-                                     </MenuItem>
-                                    <Separator />
-                                    <MenuItem Header="{loc:Str Menu_Delete}"
-                                              Command="{Binding $parent[Window].DataContext.DeleteChatCommand}"
-                                              CommandParameter="{Binding}">
-                                      <MenuItem.Icon>
-                                        <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
-                                      </MenuItem.Icon>
-                                    </MenuItem>
-                                  </ContextMenu>
-                                </Panel.ContextMenu>
-                                <DockPanel>
-                                  <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*">
-                                    <Border x:Name="ChatTagBadge"
-                                            Grid.Column="0"
-                                            IsVisible="{Binding HasTag}"
-                                            ToolTip.Tip="{Binding TagName}"
-                                            HorizontalAlignment="Left"
-                                            MaxWidth="105"
-                                            Margin="0,5,5,1"
-                                            Padding="7,2,9,2"
-                                            CornerRadius="{DynamicResource Radius.Full}"
-                                            Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}, ConverterParameter=subtle}">
-                                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" VerticalAlignment="Center">
-                                        <Border Grid.Column="0" Width="6" Height="6" CornerRadius="3"
+                  <ScrollViewer x:Name="ChatListScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                Classes="hover-scroll" Margin="0,8,0,0">
+                    <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <StackPanel x:DataType="vm:ChatGroup" Margin="0,0,0,2">
+                            <TextBlock Text="{Binding Label}" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Brush.TextTertiary}"
+                                       Margin="10,10,0,4" />
+                            <ListBox Classes="sidebar-list chat-list"
+                                     ItemsSource="{Binding Chats}"
+                                     SelectionMode="Single"
+                                     SelectedItem="{x:Null}"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                              <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="models:Chat">
+                                  <Panel Background="Transparent" DataContextChanged="OnChatRowDataContextChanged">
+                                     <Panel.ContextMenu>
+                                       <ContextMenu x:CompileBindings="False" Opening="OnChatContextMenuOpening">
+                                         <MenuItem x:Name="PauseChatMenuItem"
+                                                   Header="{loc:Str Chat_PauseMenu}"
+                                                   IsVisible="{Binding CanPause}"
+                                                   Command="{Binding $parent[Window].DataContext.ToggleChatPauseCommand}"
+                                                   CommandParameter="{Binding}"
+                                                   AutomationProperties.Name="{loc:Str Chat_PauseMenu}"
+                                                   ToolTip.Tip="{loc:Str Chat_PauseTooltip}">
+                                           <MenuItem.Icon>
+                                             <PathIcon Data="{StaticResource Icon.Pause}" Width="14" Height="14" />
+                                           </MenuItem.Icon>
+                                         </MenuItem>
+                                         <MenuItem x:Name="ResumeChatMenuItem"
+                                                   Header="{loc:Str Chat_ResumeMenu}"
+                                                   IsVisible="{Binding IsPaused}"
+                                                   Command="{Binding $parent[Window].DataContext.ToggleChatPauseCommand}"
+                                                   CommandParameter="{Binding}"
+                                                   AutomationProperties.Name="{loc:Str Chat_ResumeMenu}"
+                                                   ToolTip.Tip="{loc:Str Chat_ResumeTooltip}">
+                                           <MenuItem.Icon>
+                                             <PathIcon Data="{StaticResource Icon.Play}" Width="14" Height="14" />
+                                           </MenuItem.Icon>
+                                         </MenuItem>
+                                         <MenuItem x:Name="TogglePinChatMenuItem"
+                                                   Header="{loc:Str Menu_Pin}"
+                                                   Command="{Binding $parent[Window].DataContext.ToggleChatPinCommand}"
+                                                   CommandParameter="{Binding}">
+                                           <MenuItem.Icon>
+                                             <PathIcon Data="{StaticResource Icon.Pin}" Width="14" Height="14" />
+                                           </MenuItem.Icon>
+                                         </MenuItem>
+                                         <MenuItem x:Name="MarkChatUnreadMenuItem"
+                                                   Header="{loc:Str Menu_MarkAsUnread}"
+                                                   IsVisible="{Binding !HasUnreadMessages}"
+                                                   Command="{Binding $parent[Window].DataContext.MarkChatUnreadCommand}"
+                                                   CommandParameter="{Binding}">
+                                           <MenuItem.Icon>
+                                             <PathIcon x:Name="MarkChatUnreadIcon" Data="{StaticResource Icon.MailClosed}" Width="14" Height="14" />
+                                           </MenuItem.Icon>
+                                         </MenuItem>
+                                         <MenuItem x:Name="MarkChatReadMenuItem"
+                                                   Header="{loc:Str Menu_MarkAsRead}"
+                                                   IsVisible="{Binding HasUnreadMessages}"
+                                                   Command="{Binding $parent[Window].DataContext.MarkChatReadCommand}"
+                                                   CommandParameter="{Binding}">
+                                           <MenuItem.Icon>
+                                             <PathIcon x:Name="MarkChatReadIcon" Data="{StaticResource Icon.MailOpen}" Width="14" Height="14" />
+                                           </MenuItem.Icon>
+                                         </MenuItem>
+                                         <MenuItem Header="{loc:Str Menu_Rename}"
+                                                   Command="{Binding $parent[Window].DataContext.StartRenameChatCommand}"
+                                                   CommandParameter="{Binding}">
+                                           <MenuItem.Icon>
+                                            <PathIcon Data="{StaticResource Icon.Rename}" Width="14" Height="14" />
+                                          </MenuItem.Icon>
+                                        </MenuItem>
+                                        <MenuItem Header="{loc:Str Menu_Fork}"
+                                                  Command="{Binding $parent[Window].DataContext.DuplicateChatCommand}"
+                                                  CommandParameter="{Binding}">
+                                          <MenuItem.Icon>
+                                            <PathIcon Data="{x:Static sc:StrataChatMessage.ForkIconGeometry}" Width="14" Height="14" />
+                                          </MenuItem.Icon>
+                                        </MenuItem>
+                                        <MenuItem x:Name="OpenChatInNewWindowMenuItem"
+                                                  Header="{loc:Str Menu_OpenInNewWindow}"
+                                                  Command="{Binding $parent[Window].DataContext.OpenChatInNewWindowCommand}"
+                                                  CommandParameter="{Binding}">
+                                          <MenuItem.Icon>
+                                            <PathIcon Data="{StaticResource Icon.Window}" Width="14" Height="14" />
+                                          </MenuItem.Icon>
+                                        </MenuItem>
+                                        <MenuItem x:Name="ChatTagMenu" Header="{loc:Str Menu_ChatTag}">
+                                          <MenuItem.Icon>
+                                            <PathIcon Data="{StaticResource Icon.Tag}" Width="14" Height="14" />
+                                          </MenuItem.Icon>
+                                          <MenuItem IsVisible="False" IsEnabled="False" />
+                                        </MenuItem>
+                                        <MenuItem x:Name="MoveToProjectMenu" Header="{loc:Str Menu_MoveToProject}">
+                                           <MenuItem.Icon>
+                                             <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
+                                           </MenuItem.Icon>
+                                           <MenuItem IsVisible="False" IsEnabled="False" />
+                                         </MenuItem>
+                                        <Separator />
+                                        <MenuItem Header="{loc:Str Menu_Delete}"
+                                                  Command="{Binding $parent[Window].DataContext.DeleteChatCommand}"
+                                                  CommandParameter="{Binding}">
+                                          <MenuItem.Icon>
+                                            <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                                          </MenuItem.Icon>
+                                        </MenuItem>
+                                      </ContextMenu>
+                                    </Panel.ContextMenu>
+                                    <DockPanel>
+                                      <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*">
+                                        <Border x:Name="ChatTagBadge"
+                                                Grid.Column="0"
+                                                IsVisible="{Binding HasTag}"
+                                                ToolTip.Tip="{Binding TagName}"
+                                                HorizontalAlignment="Left"
+                                                MaxWidth="105"
+                                                Margin="0,5,5,1"
+                                                Padding="7,2,9,2"
+                                                CornerRadius="{DynamicResource Radius.Full}"
+                                                Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}, ConverterParameter=subtle}">
+                                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" VerticalAlignment="Center">
+                                            <Border Grid.Column="0" Width="6" Height="6" CornerRadius="3"
+                                                    VerticalAlignment="Center"
+                                                    Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}}" />
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding TagName}"
+                                                       FontSize="10.5"
+                                                       FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Brush.TextPrimary}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                          </Grid>
+                                        </Border>
+                                        <Border x:Name="ProjectBadge"
+                                                Grid.Column="1"
+                                                IsVisible="{Binding ShowProjectBadge}"
+                                                ToolTip.Tip="{Binding ProjectBadgeText}"
+                                                HorizontalAlignment="Left"
+                                                Margin="0,5,0,1"
+                                                Padding="7,2,9,2"
+                                                CornerRadius="{DynamicResource Radius.Full}"
+                                                Background="{DynamicResource Brush.AccentSubtle}">
+                                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" VerticalAlignment="Center">
+                                            <PathIcon Grid.Column="0"
+                                                      Data="{StaticResource Icon.Folder}"
+                                                      Width="10" Height="10"
+                                                      VerticalAlignment="Center"
+                                                      Foreground="{DynamicResource Brush.AccentDefault}" />
+                                            <TextBlock x:Name="ProjectLabel"
+                                                       Grid.Column="1"
+                                                       Text="{Binding ProjectBadgeText}"
+                                                       FontSize="10.5"
+                                                       FontWeight="Medium"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource Brush.AccentDefault}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                          </Grid>
+                                        </Border>
+                                      </Grid>
+                                      <Border x:Name="UnreadIndicator" DockPanel.Dock="Left"
+                                              Width="6" Height="6" CornerRadius="3"
+                                              Background="{DynamicResource Brush.AccentDefault}"
+                                              VerticalAlignment="Center" Margin="0,0,7,0"
+                                              IsVisible="{Binding HasUnreadMessages}" />
+                                      <Border x:Name="BusyIndicator" DockPanel.Dock="Left"
+                                              Width="6" Height="6" CornerRadius="3"
+                                              Background="{DynamicResource Brush.AccentDefault}"
+                                              VerticalAlignment="Center" Margin="0,0,7,0"
+                                              IsVisible="{Binding ShowRunningIndicator}">
+                                        <Border.Styles>
+                                          <Style Selector="Border#BusyIndicator">
+                                            <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+                                            <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
+                                            <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+                                            <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+                                            <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+                                          </Style>
+                                        </Border.Styles>
+                                      </Border>
+                                      <PathIcon x:Name="PausedChatIndicator"
+                                                DockPanel.Dock="Left"
+                                                Data="{StaticResource Icon.Pause}"
+                                                Width="11" Height="11"
+                                                Margin="0,0,6,0"
                                                 VerticalAlignment="Center"
-                                                Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}}" />
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{Binding TagName}"
-                                                   FontSize="10.5"
-                                                   FontWeight="SemiBold"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource Brush.TextPrimary}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                      </Grid>
-                                    </Border>
-                                    <Border x:Name="ProjectBadge"
-                                            Grid.Column="1"
-                                            IsVisible="{Binding ShowProjectBadge}"
-                                            ToolTip.Tip="{Binding ProjectBadgeText}"
-                                            HorizontalAlignment="Left"
-                                            Margin="0,5,0,1"
-                                            Padding="7,2,9,2"
-                                            CornerRadius="{DynamicResource Radius.Full}"
-                                            Background="{DynamicResource Brush.AccentSubtle}">
-                                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" VerticalAlignment="Center">
-                                        <PathIcon Grid.Column="0"
-                                                  Data="{StaticResource Icon.Folder}"
-                                                  Width="10" Height="10"
-                                                  VerticalAlignment="Center"
-                                                  Foreground="{DynamicResource Brush.AccentDefault}" />
-                                        <TextBlock x:Name="ProjectLabel"
-                                                   Grid.Column="1"
-                                                   Text="{Binding ProjectBadgeText}"
-                                                   FontSize="10.5"
-                                                   FontWeight="Medium"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource Brush.AccentDefault}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                      </Grid>
-                                    </Border>
-                                  </Grid>
-                                  <Border x:Name="UnreadIndicator" DockPanel.Dock="Left"
-                                          Width="6" Height="6" CornerRadius="3"
-                                          Background="{DynamicResource Brush.AccentDefault}"
-                                          VerticalAlignment="Center" Margin="0,0,7,0"
-                                          IsVisible="{Binding HasUnreadMessages}" />
-                                  <Border x:Name="BusyIndicator" DockPanel.Dock="Left"
-                                          Width="6" Height="6" CornerRadius="3"
-                                          Background="{DynamicResource Brush.AccentDefault}"
-                                          VerticalAlignment="Center" Margin="0,0,7,0"
-                                          IsVisible="{Binding ShowRunningIndicator}">
-                                    <Border.Styles>
-                                      <Style Selector="Border#BusyIndicator">
-                                        <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
-                                        <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
-                                        <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
-                                        <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
-                                        <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
-                                      </Style>
-                                    </Border.Styles>
-                                  </Border>
-                                  <PathIcon x:Name="PausedChatIndicator"
-                                            DockPanel.Dock="Left"
-                                            Data="{StaticResource Icon.Pause}"
-                                            Width="11" Height="11"
-                                            Margin="0,0,6,0"
-                                            VerticalAlignment="Center"
-                                            Foreground="{DynamicResource Brush.TextSecondary}"
-                                            IsVisible="{Binding IsPaused}"
-                                            AutomationProperties.Name="{loc:Str Chat_Paused}"
-                                            ToolTip.Tip="{loc:Str Chat_PausedIndicatorTooltip}" />
-                                  <PathIcon x:Name="PinnedChatIndicator"
-                                            DockPanel.Dock="Right"
-                                            Data="{StaticResource Icon.Pin}"
-                                            Width="12" Height="12"
-                                            Margin="8,0,0,0"
-                                            VerticalAlignment="Center"
-                                            Foreground="{DynamicResource Brush.AccentDefault}"
-                                            Opacity="0.9"
-                                            IsVisible="{Binding IsPinned}"
-                                            ToolTip.Tip="{loc:Str Chat_PinnedTooltip}" />
-                                  <Border x:Name="BackgroundChatIndicator" DockPanel.Dock="Right"
-                                          Width="7" Height="7" CornerRadius="3.5"
-                                          Margin="7,0,0,0" BorderThickness="1.5"
-                                          BorderBrush="{DynamicResource Brush.TextTertiary}"
-                                          VerticalAlignment="Center"
-                                          IsVisible="{Binding HasBackgroundActivity}"
-                                          ToolTip.Tip="{loc:Str Chat_BackgroundActivityTooltip}" />
-                                  <TextBlock Text="{Binding Title}"
-                                             ToolTip.Tip="{Binding Title}"
-                                             TextTrimming="CharacterEllipsis"
-                                             VerticalAlignment="Center" />
-                                </DockPanel>
-                              </Panel>
-                            </DataTemplate>
-                          </ListBox.ItemTemplate>
-                        </ListBox>
-                      </StackPanel>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
+                                                Foreground="{DynamicResource Brush.TextSecondary}"
+                                                IsVisible="{Binding IsPaused}"
+                                                AutomationProperties.Name="{loc:Str Chat_Paused}"
+                                                ToolTip.Tip="{loc:Str Chat_PausedIndicatorTooltip}" />
+                                      <PathIcon x:Name="PinnedChatIndicator"
+                                                DockPanel.Dock="Right"
+                                                Data="{StaticResource Icon.Pin}"
+                                                Width="12" Height="12"
+                                                Margin="8,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Foreground="{DynamicResource Brush.AccentDefault}"
+                                                Opacity="0.9"
+                                                IsVisible="{Binding IsPinned}"
+                                                ToolTip.Tip="{loc:Str Chat_PinnedTooltip}" />
+                                      <Border x:Name="BackgroundChatIndicator" DockPanel.Dock="Right"
+                                              Width="7" Height="7" CornerRadius="3.5"
+                                              Margin="7,0,0,0" BorderThickness="1.5"
+                                              BorderBrush="{DynamicResource Brush.TextTertiary}"
+                                              VerticalAlignment="Center"
+                                              IsVisible="{Binding HasBackgroundActivity}"
+                                              ToolTip.Tip="{loc:Str Chat_BackgroundActivityTooltip}" />
+                                      <TextBlock Text="{Binding Title}"
+                                                 ToolTip.Tip="{Binding Title}"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" />
+                                    </DockPanel>
+                                  </Panel>
+                                </DataTemplate>
+                              </ListBox.ItemTemplate>
+                            </ListBox>
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </DockPanel>
+              </Panel>
             </DockPanel>
           </Panel>
 
@@ -2037,7 +2160,7 @@
             </DockPanel>
           </Panel>
 
-          <!-- ── 2: Projects sidebar ── -->
+          <!-- ── 2: Projects sidebar (Customize → Projects) ── -->
           <Panel x:Name="SidebarProjects" IsVisible="False" DataContext="{Binding ProjectsVM}" x:DataType="vm:ProjectsViewModel">
             <Panel.Resources>
               <ResourceDictionary>
@@ -2047,50 +2170,26 @@
               </ResourceDictionary>
             </Panel.Resources>
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
-                <Button DockPanel.Dock="Right" Classes="subtle mg-side-action"
+              <!-- Search and the section's action share one row; the Customize rows above already name the section. -->
+              <DockPanel DockPanel.Dock="Top" Margin="16,6,12,4">
+                <Button DockPanel.Dock="Right" Classes="subtle mg-side-action" Margin="4,0,0,0" VerticalAlignment="Center"
                         Command="{Binding NewProjectCommand}" ToolTip.Tip="{loc:Str Sidebar_NewProjectTooltip}">
                   <PathIcon Data="{StaticResource Icon.Plus}" />
                 </Button>
-                <Button DockPanel.Dock="Left" x:Name="ProjectsBackButton" Classes="subtle sidebar-back"
-                        Click="OnProjectsBackClick"
-                        ToolTip.Tip="{loc:Str Projects_BackToChats}"
-                        AutomationProperties.Name="{loc:Str Projects_BackToChats}">
-                  <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
-                </Button>
-                <TextBlock Text="{loc:Str Sidebar_Projects}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" Margin="4,0,0,0" />
+                <Border Classes="project-switcher-search">
+                  <DockPanel>
+                    <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                    <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
+                            IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+                      <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
+                    </Button>
+                    <TextBox x:Name="ProjectsSidebarSearchBox" Classes="project-switcher-search-box"
+                             Text="{Binding SearchQuery, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Projects_SearchPlaceholder}" />
+                  </DockPanel>
+                </Border>
               </DockPanel>
-              <Border DockPanel.Dock="Top"
-                      Classes="project-switcher-search"
-                      Margin="16,8,16,0">
-                <DockPanel>
-                  <PathIcon DockPanel.Dock="Left"
-                            Data="{StaticResource Icon.Search}"
-                            Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            VerticalAlignment="Center"
-                            Margin="0,0,7,0" />
-                  <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
-                          IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
-                    <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
-                  </Button>
-                  <TextBox x:Name="ProjectsSidebarSearchBox"
-                           Classes="project-switcher-search-box"
-                           Text="{Binding SearchQuery, Mode=TwoWay}"
-                           PlaceholderText="{loc:Str Projects_SearchPlaceholder}" />
-                </DockPanel>
-              </Border>
-              <Button DockPanel.Dock="Top" x:Name="ProjectsOverviewButton" Classes="library-facet mg-side-overview"
-                      Classes.selected="{Binding !IsEditing}" Command="{Binding CloseDetailCommand}">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                  <PathIcon Grid.Column="0" Classes="facet-icon" Data="{StaticResource Icon.Browse}" Width="13" Height="13"
-                            VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Projects_Overview}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding TotalCountText}" />
-                </Grid>
-              </Button>
               <ListBox x:Name="ProjectsListBox" Classes="sidebar-list mg-side-list" Margin="8,4,8,8"
                        ItemsSource="{Binding Projects}"
                        SelectedItem="{Binding SelectedProject, Mode=OneWay}"

@@ -75,14 +75,17 @@ public partial class MainWindow : Window
     private Button?[] _railNavButtons = [];
     private Panel? _renameOverlay;
     private TextBox? _renameTextBox;
-    private Border? _projectSwitcherRoot;
+    private Panel? _projectSwitcherRoot;
     private Button? _projectSwitchButton;
     private Border? _projectSwitchRevealHost;
-    private Border? _projectSwitchPanel;
+    private StackPanel? _projectSwitchPanel;
     private TextBox? _projectFilterSearchBox;
     private StackPanel? _projectFilterResults;
     private TextBlock? _projectSwitchTitleText;
-    private TextBlock? _projectSwitchSubtitleText;
+    private Border? _projectSwitchBadge;
+    private PathIcon? _projectSwitchAllIcon;
+    private TextBlock? _projectSwitchInitial;
+    private TextBlock? _projectSwitchMetaText;
     private TextBlock? _projectFilterMoreText;
     private Border? _unreadInboxRoot;
     private Button? _unreadInboxToggle;
@@ -307,7 +310,7 @@ public partial class MainWindow : Window
         ];
 
         // Indexed by position in the nav pill, which no longer matches page indices: the Customize
-        // sections share one button, Projects light Chats and Memories light Settings (see NavButtonForPage).
+        // sections (Projects among them) share one button and Memories lights Settings (see NavButtonForPage).
         _navButtons =
         [
             this.FindControl<Button>("NavChat"),
@@ -342,14 +345,17 @@ public partial class MainWindow : Window
 
         _renameOverlay = this.FindControl<Panel>("RenameOverlay");
         _renameTextBox = this.FindControl<TextBox>("RenameTextBox");
-        _projectSwitcherRoot = this.FindControl<Border>("ProjectSwitcherRoot");
+        _projectSwitcherRoot = this.FindControl<Panel>("ProjectSwitcherRoot");
         _projectSwitchButton = this.FindControl<Button>("ProjectSwitchButton");
         _projectSwitchRevealHost = this.FindControl<Border>("ProjectSwitchRevealHost");
-        _projectSwitchPanel = this.FindControl<Border>("ProjectSwitchPanel");
+        _projectSwitchPanel = this.FindControl<StackPanel>("ProjectSwitchPanel");
         _projectFilterSearchBox = this.FindControl<TextBox>("ProjectFilterSearchBox");
         _projectFilterResults = this.FindControl<StackPanel>("ProjectFilterResults");
         _projectSwitchTitleText = this.FindControl<TextBlock>("ProjectSwitchTitleText");
-        _projectSwitchSubtitleText = this.FindControl<TextBlock>("ProjectSwitchSubtitleText");
+        _projectSwitchBadge = this.FindControl<Border>("ProjectSwitchBadge");
+        _projectSwitchAllIcon = this.FindControl<PathIcon>("ProjectSwitchAllIcon");
+        _projectSwitchInitial = this.FindControl<TextBlock>("ProjectSwitchInitial");
+        _projectSwitchMetaText = this.FindControl<TextBlock>("ProjectSwitchMetaText");
         _projectFilterMoreText = this.FindControl<TextBlock>("ProjectFilterMoreText");
         _unreadInboxRoot = this.FindControl<Border>("UnreadInboxRoot");
         _unreadInboxToggle = this.FindControl<Button>("UnreadInboxToggle");
@@ -1430,12 +1436,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The pill position lit for a page. Projects belong to Chats (they are opened from the chat
-    /// sidebar's project switcher) and Memories to Settings (a Settings page).
+    /// The pill position lit for a page. Projects are a Customize section (the chat list's switcher
+    /// only switches between them) and Memories belongs to Settings (a Settings page).
     /// </summary>
     internal static int NavButtonForPage(int pageIndex) => pageIndex switch
     {
-        0 or 2 => NavChatButton,
+        0 => NavChatButton,
         MainViewModel.LibraryNavIndex => NavLibraryButton,
         1 => NavJobsButton,
         7 or MainViewModel.MemoriesNavIndex => NavSettingsButton,
@@ -2358,13 +2364,6 @@ public partial class MainWindow : Window
     private void OnProjectSwitcherActionClick(object? sender, RoutedEventArgs e)
         => SetProjectSwitcherOpen(false);
 
-    /// <summary>The chevron before "Projects": the page is opened from the chat list, so it returns there.</summary>
-    private void OnProjectsBackClick(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is MainViewModel vm)
-            vm.SelectedNavIndex = 0;
-    }
-
     private void SetProjectSwitcherOpen(bool isOpen)
     {
         if (_projectSwitchRevealHost is null || _projectSwitchPanel is null)
@@ -2390,13 +2389,9 @@ public partial class MainWindow : Window
         if (isOpen && DataContext is MainViewModel vm)
             RefreshProjectSwitcher(vm);
 
-        if (_projectSwitchButton is not null)
-        {
-            if (isOpen && !_projectSwitchButton.Classes.Contains("open"))
-                _projectSwitchButton.Classes.Add("open");
-            else if (!isOpen)
-                _projectSwitchButton.Classes.Remove("open");
-        }
+        // The surface changes with it, so it lifts off the chat list as it grows and settles back as it
+        // closes.
+        _projectSwitcherRoot?.Classes.Set("open", isOpen);
 
         var ct = ReplaceCancellationTokenSource(ref _projectSwitcherDrawerCts).Token;
         _ = AnimateProjectSwitcherDrawerAsync(isOpen, ct);
@@ -2420,6 +2415,8 @@ public partial class MainWindow : Window
             _projectSwitchRevealHost,
             isOpen,
             GetProjectSwitcherTargetHeight,
+            SwitcherMotion,
+            PlayProjectSwitcherCascade,
             ct);
 
         if (completed && !isOpen)
@@ -2427,20 +2424,93 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Height-and-fade reveal shared by the sidebar's drawers (project switcher, unread inbox) so
-    /// they open with one motion language. Returns false when a newer toggle superseded this run.
+    /// As the switcher grows, its parts flow out of its header: each slides down from it and fades in a
+    /// moment after the one above. On the render thread, so building the rows never holds it up.
+    /// </summary>
+    private void PlayProjectSwitcherCascade()
+    {
+        if (_projectSwitchPanel is null || DataContext is MainViewModel { SettingsVM.ShowAnimations: false })
+            return;
+
+        var index = 0;
+        foreach (var part in ProjectSwitcherParts(_projectSwitchPanel))
+        {
+            var delay = SwitcherCascadeStagger * Math.Min(index++, SwitcherCascadeSteps);
+            SlideFadeEntrance.PlayComposited(part, SwitcherCascadeOffset, SwitcherCascadeDuration, delay);
+        }
+    }
+
+    /// <summary>The switcher's visible parts, top to bottom, with its list row by row.</summary>
+    private static IEnumerable<Control> ProjectSwitcherParts(StackPanel panel)
+    {
+        foreach (var part in panel.Children)
+        {
+            if (!part.IsVisible)
+                continue;
+
+            if (part is ScrollViewer { Content: Panel list })
+            {
+                foreach (var row in list.Children)
+                {
+                    if (row.IsVisible)
+                        yield return row;
+                }
+            }
+            else
+            {
+                yield return part;
+            }
+        }
+    }
+
+    /// <summary>How a sidebar drawer opens and closes.</summary>
+    /// <param name="FadesIn">
+    /// Whether the drawer fades in as a whole. A drawer whose parts play their own entrance leaves that to them.
+    /// </param>
+    private sealed record DrawerMotion(
+        TimeSpan Open, TimeSpan Close, Easing OpenEasing, Easing CloseEasing, bool FadesIn);
+
+    // The unread inbox drops open under its pill.
+    private static readonly DrawerMotion InboxMotion = new(
+        TimeSpan.FromMilliseconds(210),
+        TimeSpan.FromMilliseconds(130),
+        new SplineEasing(0.22, 0.08, 0.18, 1.0),
+        new SplineEasing(0.22, 0.08, 0.18, 1.0),
+        FadesIn: true);
+
+    // The project switcher bursts out of its header and settles gently while its parts flow out after it,
+    // then folds back into the header faster than it opened.
+    private static readonly DrawerMotion SwitcherMotion = new(
+        TimeSpan.FromMilliseconds(300),
+        TimeSpan.FromMilliseconds(180),
+        new SplineEasing(0.05, 0.7, 0.1, 1.0),
+        new SplineEasing(0.3, 0.0, 0.8, 0.15),
+        FadesIn: false);
+
+    private const double SwitcherCascadeOffset = -8;
+    private const int SwitcherCascadeSteps = 9;
+    private static readonly TimeSpan SwitcherCascadeDuration = TimeSpan.FromMilliseconds(260);
+    private static readonly TimeSpan SwitcherCascadeStagger = TimeSpan.FromMilliseconds(15);
+
+    /// <summary>
+    /// Height-and-fade reveal of a sidebar drawer, moving as its <paramref name="motion"/> says. Opening,
+    /// it calls <paramref name="revealing"/> once the drawer is shown and measured, so parts with an
+    /// entrance of their own can start it. Returns false when a newer toggle superseded this run.
     /// </summary>
     private static async Task<bool> AnimateRevealDrawerAsync(
         Border host,
         bool isOpen,
         Func<double> measureTargetHeight,
+        DrawerMotion motion,
+        Action? revealing,
         CancellationToken ct)
     {
+        var openingOpacity = motion.FadesIn ? 0.0 : 1.0;
         if (isOpen)
         {
             host.IsVisible = true;
             host.Height = 0;
-            host.Opacity = 0;
+            host.Opacity = openingOpacity;
         }
 
         var startHeight = Math.Max(0, double.IsNaN(host.Height) ? host.Bounds.Height : host.Height);
@@ -2449,11 +2519,13 @@ public partial class MainWindow : Window
 
         var endHeight = isOpen ? measureTargetHeight() : 0;
         host.Height = startHeight;
+        if (isOpen)
+            revealing?.Invoke();
 
         var animation = new Animation
         {
-            Duration = isOpen ? TimeSpan.FromMilliseconds(210) : TimeSpan.FromMilliseconds(130),
-            Easing = new SplineEasing(0.22, 0.08, 0.18, 1.0),
+            Duration = isOpen ? motion.Open : motion.Close,
+            Easing = isOpen ? motion.OpenEasing : motion.CloseEasing,
             FillMode = FillMode.Forward,
             Children =
             {
@@ -2463,7 +2535,7 @@ public partial class MainWindow : Window
                     Setters =
                     {
                         new Setter(Layoutable.HeightProperty, startHeight),
-                        new Setter(OpacityProperty, isOpen ? 0.0 : 1.0),
+                        new Setter(OpacityProperty, isOpen ? openingOpacity : 1.0),
                     }
                 },
                 new KeyFrame
@@ -2514,12 +2586,10 @@ public partial class MainWindow : Window
         if (_projectSwitchPanel is null)
             return 0;
 
-        // The drawer spans the whole switcher row, which is wider than the toggle while the edit gear shows.
-        var width = _projectSwitcherRoot?.Bounds.Width
-            ?? _projectSwitchButton?.Bounds.Width
-            ?? 255;
+        // The list is as wide as the header it opens under.
+        var width = _projectSwitchButton?.Bounds.Width ?? 0;
         if (width <= 0 || double.IsNaN(width) || double.IsInfinity(width))
-            width = 255;
+            width = 250;
 
         _projectSwitchPanel.Measure(new Size(width, double.PositiveInfinity));
         var height = _projectSwitchPanel.DesiredSize.Height;
@@ -2535,7 +2605,6 @@ public partial class MainWindow : Window
 
     private void OnProjectSwitcherClosed()
     {
-        _projectSwitchButton?.Classes.Remove("open");
         Interlocked.Exchange(ref _projectSwitcherRefreshQueued, 0);
 
         foreach (var (project, handler) in _projectFilterHandlers)
@@ -2584,6 +2653,8 @@ public partial class MainWindow : Window
             _unreadRevealHost,
             isOpen,
             GetUnreadDrawerTargetHeight,
+            InboxMotion,
+            revealing: null,
             ct);
 
         if (completed && !isOpen)
@@ -2761,9 +2832,14 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Loaded);
     }
 
+    /// <summary>
+    /// The switcher names where the chat list is: every chat, with how many projects there are to
+    /// switch to ("All chats" alone never said there were any), or one project on its own hue.
+    /// </summary>
     private void UpdateProjectSwitcherSummary(MainViewModel vm)
     {
-        if (_projectSwitchTitleText is null || _projectSwitchSubtitleText is null)
+        if (_projectSwitchTitleText is null || _projectSwitchMetaText is null || _projectSwitchBadge is null
+            || _projectSwitchAllIcon is null || _projectSwitchInitial is null)
             return;
 
         var selectedProject = vm.SelectedProjectFilter.HasValue
@@ -2773,19 +2849,24 @@ public partial class MainWindow : Window
         if (selectedProject is null)
         {
             _projectSwitchTitleText.Text = Loc.ProjectSwitcher_AllChats;
-            _projectSwitchSubtitleText.Text = string.Format(
-                Loc.ProjectSwitcher_AllSubtitle,
-                vm.Projects.Count,
-                vm.DataStore.Data.Chats.Count);
+            _projectSwitchMetaText.Text = vm.Projects.Count > 0
+                ? ManagementText.Count(vm.Projects.Count, Loc.ProjectSwitcher_CountOne, Loc.ProjectSwitcher_CountMany)
+                : "";
+            _projectSwitchMetaText.IsVisible = vm.Projects.Count > 0;
+            _projectSwitchBadge.ClearValue(Border.BackgroundProperty);
+            _projectSwitchAllIcon.IsVisible = true;
+            _projectSwitchInitial.IsVisible = false;
             return;
         }
 
-        var chatCount = vm.GetProjectChatCount(selectedProject.Id);
+        var badge = LaunchpadProjectBadge.For(selectedProject);
         _projectSwitchTitleText.Text = selectedProject.Name;
-        _projectSwitchSubtitleText.Text = FormatProjectFilterSubtitle(
-            selectedProject,
-            chatCount,
-            vm.GetProjectLastActivity(selectedProject.Id));
+        _projectSwitchMetaText.IsVisible = false;
+        _projectSwitchBadge.Background = badge.Background;
+        _projectSwitchInitial.Text = badge.Initial;
+        _projectSwitchInitial.Foreground = badge.Foreground;
+        _projectSwitchAllIcon.IsVisible = false;
+        _projectSwitchInitial.IsVisible = true;
     }
 
     private IEnumerable<ProjectFilterCandidate> GetProjectFilterCandidates(
@@ -2830,11 +2911,18 @@ public partial class MainWindow : Window
         string countText,
         int unreadCount)
     {
+        // The open project's gear comes with its row. The others only show on hover, so each is built
+        // on its row's first hover, keeping the drawer quick to open; until then an empty slot of the
+        // same size holds its place, so nothing shifts when it appears.
+        Control? edit = project is null ? null
+            : isSelected ? CreateProjectEditButton(vm, project, isCurrent: true)
+            : new Border { Classes = { "project-switcher-row-edit" } };
+        var content = CreateProjectFilterRowContent(project, title, isRunning, countText, unreadCount, edit);
         var button = new Button
         {
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-            Content = CreateProjectFilterRowContent(project is null, title, subtitle, isSelected, isRunning, countText, unreadCount),
+            Content = content,
         };
         ToolTip.SetTip(button, unreadCount > 0
             ? $"{subtitle}\n{string.Format(Loc.Culture, Loc.Unread_ProjectTooltip, unreadCount)}"
@@ -2842,6 +2930,19 @@ public partial class MainWindow : Window
         button.Classes.Add("project-switcher-row");
         if (isSelected)
             button.Classes.Add("selected");
+
+        if (project is not null && edit is Border slot)
+        {
+            void BuildGear(object? sender, PointerEventArgs e)
+            {
+                button.PointerEntered -= BuildGear;
+                var gear = CreateProjectEditButton(vm, project, isCurrent: false);
+                DockPanel.SetDock(gear, Dock.Right);
+                content.Children[content.Children.IndexOf(slot)] = gear;
+            }
+
+            button.PointerEntered += BuildGear;
+        }
 
         button.Click += (_, _) =>
         {
@@ -2857,89 +2958,106 @@ public partial class MainWindow : Window
         return button;
     }
 
-    private Control CreateProjectFilterRowContent(
-        bool isAllProjects,
+    /// <summary>
+    /// A project row's gear: sets that project up in Customize → Projects instead of switching to it.
+    /// The open project's gear stays in view and is the <c>ProjectEditButton</c> landmark. It has no
+    /// tip of its own: the rows are rebuilt while open, and a tip on a rebuilt item can close after its
+    /// control has left the tree.
+    /// </summary>
+    private Button CreateProjectEditButton(MainViewModel vm, Project project, bool isCurrent)
+    {
+        var edit = new Button { Content = new PathIcon { Data = GetIconGeometry("Icon.Gear") } };
+        if (isCurrent)
+            edit.Name = "ProjectEditButton";
+        edit.Classes.Add("subtle");
+        edit.Classes.Add("project-switcher-row-edit");
+        AutomationProperties.SetName(edit, Loc.ProjectSwitcher_EditTooltip);
+        edit.Click += (_, e) =>
+        {
+            // Handled first, so the row it sits on does not also switch the chat list to the project.
+            e.Handled = true;
+            SetProjectSwitcherOpen(false);
+            vm.EditProjectCommand.Execute(project);
+        };
+        return edit;
+    }
+
+    private DockPanel CreateProjectFilterRowContent(
+        Project? project,
         string title,
-        string subtitle,
-        bool isSelected,
         bool isRunning,
         string countText,
-        int unreadCount)
+        int unreadCount,
+        Control? edit)
     {
         var dock = new DockPanel
         {
             LastChildFill = true,
-            Margin = new Thickness(7, 4),
+            Margin = new Thickness(6, 5),
         };
 
-        // An unread count replaces the neutral chat count: while a project has new replies, "where
-        // are they" matters more than "how big is this project".
-        if (unreadCount > 0)
+        if (edit is not null)
         {
-            var unreadPill = CreateProjectUnreadPill(unreadCount);
-            DockPanel.SetDock(unreadPill, Dock.Right);
-            dock.Children.Add(unreadPill);
-        }
-        else if (!string.IsNullOrWhiteSpace(countText))
-        {
-            var statePill = CreateProjectStatePill(countText);
-            DockPanel.SetDock(statePill, Dock.Right);
-            dock.Children.Add(statePill);
+            DockPanel.SetDock(edit, Dock.Right);
+            dock.Children.Add(edit);
         }
 
-        if (isSelected)
+        // An unread count replaces the chat count: while a project has new replies, "where are they"
+        // matters more than "how big is this project".
+        Control? trailing = unreadCount > 0
+            ? CreateProjectUnreadPill(unreadCount)
+            : string.IsNullOrWhiteSpace(countText)
+                ? null
+                : new TextBlock { Text = countText, Classes = { "project-switcher-row-count" } };
+        if (trailing is not null)
         {
-            var rail = CreateProjectSelectedRail();
-            DockPanel.SetDock(rail, Dock.Left);
-            dock.Children.Add(rail);
+            DockPanel.SetDock(trailing, Dock.Right);
+            dock.Children.Add(trailing);
         }
 
-        var glyph = CreateProjectGlyph(isAllProjects, isSelected, isRunning);
-        DockPanel.SetDock(glyph, Dock.Left);
-        dock.Children.Add(glyph);
+        var badge = CreateProjectBadge(project, isRunning);
+        DockPanel.SetDock(badge, Dock.Left);
+        dock.Children.Add(badge);
 
-        var titleBlock = new TextBlock
-        {
-            Text = title,
-            FontSize = 11.5,
-            FontWeight = FontWeight.SemiBold,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-        };
-        titleBlock.Foreground = GetThemeBrush(isSelected ? "Brush.TextPrimary" : "Brush.TextSecondary", Brushes.Gray);
-
-        dock.Children.Add(titleBlock);
-
+        dock.Children.Add(new TextBlock { Text = title, Classes = { "project-switcher-row-title" } });
         return dock;
     }
 
-    private Border CreateProjectSelectedRail()
+    /// <summary>
+    /// A row's identity, as on the switcher itself: every chat, or the project's initial on its own hue.
+    /// A dot marks a project whose chats are working.
+    /// </summary>
+    private Border CreateProjectBadge(Project? project, bool isRunning)
     {
-        return new Border
-        {
-            Width = 3,
-            Height = 16,
-            CornerRadius = new CornerRadius(2),
-            Margin = new Thickness(0, 0, 6, 0),
-            Background = GetThemeBrush("Brush.AccentDefault", Brushes.DodgerBlue),
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-        };
-    }
-
-    private Border CreateProjectGlyph(bool isAllProjects, bool isSelected, bool isRunning)
-    {
-        var icon = new PathIcon
-        {
-            Data = GetIconGeometry(isAllProjects ? "Icon.Browse" : "Icon.Folder"),
-            Width = 12,
-            Height = 12,
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            Foreground = GetThemeBrush(isSelected ? "Brush.AccentDefault" : "Brush.TextTertiary", Brushes.Gray),
-        };
-
         var grid = new Grid();
-        grid.Children.Add(icon);
+        IBrush background;
+        if (project is null)
+        {
+            grid.Children.Add(new PathIcon
+            {
+                Data = GetIconGeometry("Icon.Chat"),
+                Width = 10,
+                Height = 10,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Foreground = GetThemeBrush("Brush.AccentDefault", Brushes.DodgerBlue),
+            });
+            background = GetThemeBrush("Brush.AccentGlowSoft", Brushes.Transparent);
+        }
+        else
+        {
+            var identity = LaunchpadProjectBadge.For(project);
+            grid.Children.Add(new TextBlock
+            {
+                Text = identity.Initial,
+                FontSize = 10.5,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = identity.Foreground,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            });
+            background = identity.Background;
+        }
 
         if (isRunning)
         {
@@ -2949,54 +3067,23 @@ public partial class MainWindow : Window
                 Height = 7,
                 CornerRadius = new CornerRadius(4),
                 Background = GetThemeBrush("Brush.AccentDefault", Brushes.DodgerBlue),
-                BorderBrush = GetThemeBrush("Brush.Surface1", Brushes.Black),
+                BorderBrush = GetThemeBrush("Brush.Surface0", Brushes.Black),
                 BorderThickness = new Thickness(1),
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
-                Margin = new Thickness(0, -1, -1, 0),
+                Margin = new Thickness(0, -2, -2, 0),
             });
         }
 
         return new Border
         {
-            Width = 26,
-            Height = 22,
-            CornerRadius = new CornerRadius(8),
-            Margin = new Thickness(0, 0, 6, 0),
-            Background = GetThemeBrush(
-                isRunning ? "Brush.ControlDefault" : "Brush.Transparent",
-                Brushes.Transparent),
-            BorderBrush = GetThemeBrush(
-                isRunning ? "Brush.BorderSubtle" : "Brush.Transparent",
-                Brushes.Transparent),
-            BorderThickness = new Thickness(1),
+            Width = 20,
+            Height = 20,
+            CornerRadius = new CornerRadius(6),
+            Margin = new Thickness(0, 0, 9, 0),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Background = background,
             Child = grid,
-        };
-    }
-
-    private Border CreateProjectStatePill(string countText)
-    {
-        var label = new TextBlock
-        {
-            Text = countText,
-            FontSize = 9.8,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = GetThemeBrush("Brush.TextTertiary", Brushes.Gray),
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-        };
-
-        return new Border
-        {
-            MinWidth = 20,
-            Padding = new Thickness(5, 1),
-            CornerRadius = new CornerRadius(999),
-            Background = GetThemeBrush("Brush.ControlDefault", Brushes.Transparent),
-            BorderBrush = GetThemeBrush("Brush.BorderSubtle", Brushes.Transparent),
-            BorderThickness = new Thickness(1),
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            Margin = new Thickness(7, 0, 0, 0),
-            Child = label,
         };
     }
 

@@ -527,7 +527,7 @@ public class ChatReorderOnSendTests
                 Assert.Equal("Work", window.FindControl<TextBlock>("ProjectSwitchTitleText")!.Text);
                 Assert.Equal(0, changes);
                 Assert.Equal(rows, results.Children);
-                Assert.DoesNotContain("open", window.FindControl<Button>("ProjectSwitchButton")!.Classes);
+                Assert.DoesNotContain("open", window.FindControl<Panel>("ProjectSwitcherRoot")!.Classes);
             }
             finally
             {

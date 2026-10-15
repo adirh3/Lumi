@@ -10,6 +10,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Media.Transformation;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -19,14 +20,15 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
+using StrataTheme.Animation;
+using StrataTheme.Controls;
 using Xunit;
 
 namespace Lumi.Tests;
 
 /// <summary>
-/// The bar names five places: Chats, Library, Jobs, Customize and Settings. Projects are managed from
-/// the chat list's project switcher and Memories is a Settings page, so each lights the place it
-/// belongs to.
+/// The bar names five places: Chats, Library, Jobs, Customize and Settings. Projects are set up in
+/// Customize and Memories is a Settings page, so each lights the place it belongs to.
 /// </summary>
 [Collection("Headless UI")]
 public sealed class NavigationBarTests
@@ -109,20 +111,25 @@ public sealed class NavigationBarTests
     public void ProjectSwitcher_CreatesEditsAndManagesProjects()
     {
         var project = new Project { Name = "Lumi" };
-        using var vm = CreateMainViewModel(new AppData { Projects = [project] });
+        var other = new Project { Name = "Strata" };
+        using var vm = CreateMainViewModel(new AppData { Projects = [project, other] });
 
-        // Nothing to edit until the chat list is narrowed to a project.
-        Assert.False(vm.HasSelectedProjectFilter);
-        vm.EditSelectedProjectCommand.Execute(null);
-        Assert.Equal(0, vm.SelectedNavIndex);
-
+        // A project's gear in the switcher opens it in Customize → Projects, without switching the
+        // chat list to it.
         vm.SelectProjectFilterCommand.Execute(project);
-        Assert.True(vm.HasSelectedProjectFilter);
-        vm.EditSelectedProjectCommand.Execute(null);
+        vm.EditProjectCommand.Execute(other);
         Assert.Equal(2, vm.SelectedNavIndex);
-        Assert.Same(project, vm.ProjectsVM.SelectedProject);
-        Assert.Equal(MainWindow.NavChatButton, MainWindow.NavButtonForPage(vm.SelectedNavIndex));
+        Assert.Same(other, vm.ProjectsVM.SelectedProject);
+        Assert.Equal(project.Id, vm.SelectedProjectFilter);
+        Assert.Equal(MainWindow.NavCustomizeButton, MainWindow.NavButtonForPage(vm.SelectedNavIndex));
+        Assert.True(vm.IsProjectsSection);
 
+        // Choosing the open section's row again returns to every project.
+        vm.OpenCustomizeSectionCommand.Execute("2");
+        Assert.Null(vm.ProjectsVM.SelectedProject);
+        Assert.False(vm.ProjectsVM.IsEditing);
+
+        vm.SelectedNavIndex = 0;
         vm.ManageProjectsCommand.Execute(null);
         Assert.Equal(2, vm.SelectedNavIndex);
         Assert.Null(vm.ProjectsVM.SelectedProject);
@@ -135,7 +142,7 @@ public sealed class NavigationBarTests
         Assert.True(vm.ProjectsVM.IsEditing);
 
         vm.ClearProjectFilterCommand.Execute(null);
-        Assert.False(vm.HasSelectedProjectFilter);
+        Assert.Null(vm.SelectedProjectFilter);
     }
 
     [Fact]
@@ -198,7 +205,7 @@ public sealed class NavigationBarTests
                     }
 
                     // Labelled rows don't repeat their names in tips.
-                    foreach (var row in new[] { "CustomizeDiscoverTab", "CustomizeLumisTab", "CustomizeSkillsTab", "CustomizeMcpTab" })
+                    foreach (var row in new[] { "CustomizeDiscoverTab", "CustomizeLumisTab", "CustomizeSkillsTab", "CustomizeMcpTab", "CustomizeProjectsTab" })
                         Assert.Null(ToolTip.GetTip(window.FindControl<Button>(row)!));
 
                     // The selection ring's border is part of every place, so an unnamed place keeps the
@@ -466,27 +473,102 @@ public sealed class NavigationBarTests
                     Assert.True(Named<Panel>("MemoriesOverview").IsVisible);
                     await Click("NavChat");
 
-                    // The switcher is always in the chat list; its drawer manages projects and closes
-                    // behind the page it opens.
-                    Assert.False(Named<Button>("ProjectEditButton").IsVisible);
+                    // The switcher is always in the chat list. It only switches: its drawer's actions open
+                    // Customize → Projects, and the drawer closes behind the page it opens. At rest there
+                    // is nothing beneath it to frost.
+                    var switcher = Named<Panel>("ProjectSwitcherRoot");
+                    var surface = switcher.Children.OfType<Border>().Single();
+                    var frost = switcher.Children.OfType<StrataBackdropBlur>().Single();
+                    Assert.Equal(0, frost.BlurRadius);
+                    Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), button => button.Name == "ProjectEditButton");
                     await Click("ProjectSwitchButton");
-                    Assert.Contains("open", Named<Button>("ProjectSwitchButton").Classes);
+                    Assert.Contains("open", switcher.Classes);
                     new ButtonAutomationPeer(Named<Button>("ProjectSwitcherManageButton")).Invoke();
                     await Settle();
                     Assert.Equal(2, vm.SelectedNavIndex);
-                    Assert.DoesNotContain("open", Named<Button>("ProjectSwitchButton").Classes);
+                    Assert.DoesNotContain("open", switcher.Classes);
                     Assert.True(Named<Panel>("ProjectsOverview").IsVisible);
-                    AssertLit("NavChat");
+                    Assert.True(Named<Border>("CustomizeSwitcher").IsVisible);
+                    Assert.Contains("selected", Named<Button>("CustomizeProjectsTab").Classes);
+                    AssertLit("NavCustomize");
 
-                    // Narrowed to a project, the gear beside the switcher edits that project.
+                    // Narrowed to a project, the switcher still spans the list and shows the project's
+                    // initial; the open project's gear waits in the drawer instead of beside it.
                     await Click("NavChat");
                     vm.SelectProjectFilterCommand.Execute(project);
                     await Settle();
-                    await Click("ProjectEditButton");
+                    Assert.Equal(project.Name, Named<TextBlock>("ProjectSwitchTitleText").Text);
+                    Assert.True(Named<TextBlock>("ProjectSwitchInitial").IsVisible);
+                    Assert.Equal(LaunchpadProjectBadge.InitialOf(project.Name), Named<TextBlock>("ProjectSwitchInitial").Text);
+                    Assert.False(Named<TextBlock>("ProjectSwitchMetaText").IsVisible);
+                    Assert.Equal(surface.Bounds.Width - surface.BorderThickness.Left - surface.BorderThickness.Right,
+                        Named<Button>("ProjectSwitchButton").Bounds.Width, 1);
+                    await Click("ProjectSwitchButton");
+                    new ButtonAutomationPeer(Named<Button>("ProjectEditButton")).Invoke();
+                    await Settle();
                     Assert.Equal(2, vm.SelectedNavIndex);
                     Assert.Same(project, vm.ProjectsVM.SelectedProject);
                     Assert.True(Named<Panel>("ProjectDetail").IsVisible);
-                    AssertLit("NavChat");
+                    Assert.DoesNotContain("open", switcher.Classes);
+                    AssertLit("NavCustomize");
+
+                    // Showing every chat, the switcher says how many projects it holds.
+                    await Click("NavChat");
+                    vm.ClearProjectFilterCommand.Execute(null);
+                    await Settle();
+                    Assert.True(Named<PathIcon>("ProjectSwitchAllIcon").IsVisible);
+                    Assert.True(Named<TextBlock>("ProjectSwitchMetaText").IsVisible);
+                    Assert.Equal(Loc.ProjectSwitcher_CountOne, Named<TextBlock>("ProjectSwitchMetaText").Text);
+
+                    // Open, the switcher grows out of itself over the chat list, which stays where it was:
+                    // its parts flow out of the header one after another, and it turns to frosted glass.
+                    vm.ProjectsVM.CloseDetailCommand.Execute(null);
+                    var chatList = Named<ScrollViewer>("ChatListScroller");
+                    var chatListTop = chatList.TranslatePoint(default, window)!.Value.Y;
+                    await Click("ProjectSwitchButton");
+                    var parts = Named<StackPanel>("ProjectSwitchPanel").Children.OfType<Border>()
+                        .Concat(Named<StackPanel>("ProjectFilterResults").Children).ToList();
+                    Assert.All(parts, part => Assert.True(SlideFadeEntrance.IsCompositedRunning(part)));
+                    var revealHost = Named<Border>("ProjectSwitchRevealHost");
+                    for (var frame = 0; frame < 30 && !double.IsNaN(revealHost.Height); frame++)
+                    {
+                        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                        await Task.Delay(20);
+                        await Settle();
+                    }
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    Assert.True(double.IsNaN(revealHost.Height), "The drawer finishes opening");
+                    Assert.Equal(chatListTop, chatList.TranslatePoint(default, window)!.Value.Y, 1);
+                    Assert.True(switcher.TranslatePoint(new Point(0, switcher.Bounds.Height), window)!.Value.Y > chatListTop,
+                        "The open switcher lies over the chat list instead of pushing it down");
+                    Assert.True(frost.BlurRadius > 0, "Open, the switcher frosts the chats beneath it");
+                    Assert.InRange(Assert.IsAssignableFrom<ISolidColorBrush>(surface.Background).Opacity, 0.5, 0.9);
+
+                    // Every project in it has a gear that sets it up without switching to it. Like the
+                    // gear's appearance, it waits for the row's first hover.
+                    Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(),
+                        button => button.Classes.Contains("project-switcher-row-edit"));
+                    var row = window.GetVisualDescendants().OfType<Button>().Single(button =>
+                        button.Classes.Contains("project-switcher-row")
+                        && button.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == project.Name));
+                    window.MouseMove(row.TranslatePoint(new Point(row.Bounds.Width / 2, row.Bounds.Height / 2), window)!.Value);
+                    await Settle();
+                    var gear = row.GetVisualDescendants().OfType<Button>()
+                        .Single(button => button.Classes.Contains("project-switcher-row-edit"));
+                    new ButtonAutomationPeer(gear).Invoke();
+                    await Settle();
+                    Assert.Equal(2, vm.SelectedNavIndex);
+                    Assert.Same(project, vm.ProjectsVM.SelectedProject);
+                    Assert.Null(vm.SelectedProjectFilter);
+                    Assert.DoesNotContain("open", switcher.Classes);
+                    AssertLit("NavCustomize");
+
+                    // With animations off, the list simply opens.
+                    vm.SettingsVM.ShowAnimations = false;
+                    await Click("NavChat");
+                    await Click("ProjectSwitchButton");
+                    Assert.Contains("open", switcher.Classes);
+                    Assert.DoesNotContain(Named<StackPanel>("ProjectFilterResults").Children, SlideFadeEntrance.IsCompositedRunning);
                 }
                 finally
                 {
