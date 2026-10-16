@@ -547,6 +547,109 @@ public sealed class ChatViewReplyWiringTests
         + "2. Keep each method small and focused on one job.\n\n"
         + "```csharp\nvar total = items.Sum(item => item.Price);\n```";
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DismissingSelectionPill_KeepsItsPositionUntilTheExitFinishes(bool clearSelection)
+    {
+        using var session = HeadlessTestSession.Start();
+        var (chat, answer, data) = CreateMarkdownChat(fillerTurns: 0);
+
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (_, view, window) =>
+            {
+                var message = await WaitForAnswerAsync(view, answer.Id);
+                var text = message.GetVisualDescendants().OfType<SelectableTextBlock>()
+                    .First(block => (block.Inlines?.Text ?? block.Text)?
+                        .Contains("small and focused", StringComparison.Ordinal) == true);
+                var transcript = text.GetVisualAncestors().OfType<ScrollViewer>().Last();
+                await WaitForScrollToSettleAsync(transcript);
+                SelectText(text, "small and focused");
+                await ReleaseAsync(window, text);
+
+                var popup = Assert.IsType<Popup>(SelectionReplyPopup(message));
+                var pill = Assert.IsType<Button>(popup.Child);
+                for (var i = 0; i < 2; i++)
+                {
+                    using var frame = window.CaptureRenderedFrame();
+                    await PumpAsync();
+                }
+
+                Assert.True(popup.IsOpen);
+                var position = pill.PointToScreen(default);
+                var anchor = popup.PlacementRect;
+                if (clearSelection)
+                    text.SelectionEnd = text.SelectionStart;
+                else
+                    DragSelect(window, text, from: 0, to: 0);
+                await PumpAsync();
+                using (window.CaptureRenderedFrame())
+                    await PumpAsync();
+
+                Assert.False(popup.IsOpen);
+                Assert.True(pill.IsAttachedToVisualTree(), "The check must run while the pill is fading out.");
+                Assert.False(pill.IsHitTestVisible);
+                Assert.Equal(position, pill.PointToScreen(default));
+                Assert.Same(text, popup.PlacementTarget);
+                Assert.Equal(anchor, popup.PlacementRect);
+
+                for (var i = 0; i < 50 && pill.IsAttachedToVisualTree(); i++)
+                {
+                    await Task.Delay(10);
+                    using var frame = window.CaptureRenderedFrame();
+                    await PumpAsync();
+                }
+
+                Assert.False(pill.IsAttachedToVisualTree());
+                Assert.Null(popup.PlacementTarget);
+            });
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ReselectingAnotherBlock_DuringSelectionPillExit_UsesTheNewAnchorAndQuote()
+    {
+        using var session = HeadlessTestSession.Start();
+        var (chat, answer, data) = CreateMarkdownChat(fillerTurns: 0);
+
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (vm, view, window) =>
+            {
+                var message = await WaitForAnswerAsync(view, answer.Id);
+                var prose = message.GetVisualDescendants().OfType<SelectableTextBlock>()
+                    .First(block => (block.Inlines?.Text ?? block.Text)?
+                        .Contains("small and focused", StringComparison.Ordinal) == true);
+                var code = message.GetVisualDescendants().OfType<StrataCodeBlock>().Single()
+                    .GetVisualDescendants().OfType<SelectableTextBlock>().Single();
+                var transcript = prose.GetVisualAncestors().OfType<ScrollViewer>().Last();
+                await WaitForScrollToSettleAsync(transcript);
+                SelectText(prose, "small and focused");
+                await ReleaseAsync(window, prose);
+                var popup = Assert.IsType<Popup>(SelectionReplyPopup(message));
+                for (var i = 0; i < 2; i++)
+                {
+                    using var frame = window.CaptureRenderedFrame();
+                    await PumpAsync();
+                }
+
+                DragSelect(window, prose, from: 0, to: 0);
+                Assert.False(popup.IsOpen);
+                Assert.True(popup.Child!.IsAttachedToVisualTree());
+                SelectText(code, "items.Sum");
+                await ReleaseAsync(window, code);
+
+                Assert.True(popup.IsOpen);
+                Assert.Same(code, popup.PlacementTarget);
+                Press(Assert.IsType<Button>(popup.Child));
+                await PumpAsync();
+                Assert.Equal("items.Sum", vm.PendingReply?.Quote);
+                Assert.Equal(answer.Id, vm.PendingReply?.MessageId);
+            });
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task JumpToReplySource_ReselectsTheQuoteAcrossMarkdownLineBreaks()
     {
