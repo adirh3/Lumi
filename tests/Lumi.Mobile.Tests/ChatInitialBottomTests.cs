@@ -87,7 +87,7 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 var transcript = view.FindControl<ItemsControl>("Transcript")!;
                 Assert.Equal(48, model.Chat.Turns.Sum(turn => turn.Items.Count));
                 AssertOnlyNearbyTurnsRealized(shell, transcript);
-                Assert.NotNull(TurnView(transcript, 23).Child);
+                Assert.True(TurnView(transcript, 23).IsRealized);
                 Assert.Null(TurnView(transcript, 0).Child);
                 AssertAtBottom(shell, "virtualized initial landing");
                 Assert.InRange(initializedAnswers.Count, 1, 8);
@@ -97,7 +97,7 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 await PumpAsync();
                 var first = Assert.IsAssignableFrom<Control>(transcript.ContainerFromIndex(0));
                 var readerPosition = first.TranslatePoint(default, shell)!.Value.Y;
-                Assert.Null(TurnView(transcript, 23).Child);
+                Assert.False(TurnView(transcript, 23).IsRealized);
                 AssertOnlyNearbyTurnsRealized(shell, transcript);
                 Assert.False(shell.IsFollowingTail);
 
@@ -108,7 +108,7 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 }));
                 await PumpAsync();
                 Assert.False(shell.IsFollowingTail);
-                Assert.Null(TurnView(transcript, 23).Child);
+                Assert.False(TurnView(transcript, 23).IsRealized);
                 Assert.InRange(Math.Abs(first.TranslatePoint(default, shell)!.Value.Y - readerPosition), 0, 1);
 
                 shell.JumpToLatest();
@@ -150,14 +150,14 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
 
                 // Count turns built beyond the about-to-be-seen band in each layout pass.
                 var built = transcript.GetVisualDescendants().OfType<TranscriptTurnView>()
-                    .Where(turn => turn.Child is not null).ToHashSet();
+                    .Where(turn => turn.IsRealized).ToHashSet();
                 var mostPrefetchedInOnePass = 0;
                 void OnLayoutUpdated(object? sender, EventArgs e)
                 {
                     var prefetched = 0;
                     foreach (var turn in transcript.GetVisualDescendants().OfType<TranscriptTurnView>())
                     {
-                        if (turn.Child is null)
+                        if (!turn.IsRealized)
                             built.Remove(turn);
                         else if (built.Add(turn) && DistanceFromViewport(scroll, turn) > viewport * 0.5)
                             prefetched++;
@@ -173,16 +173,27 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 window.LayoutUpdated -= OnLayoutUpdated;
 
                 Assert.Equal(1, mostPrefetchedInOnePass);
-                Assert.All(TurnsWithin(scroll, transcript, 1), turn => Assert.NotNull(turn.Child));
+                Assert.All(TurnsWithin(scroll, transcript, 1), turn => Assert.True(turn.IsRealized));
                 // A turn that just left the viewport stays built for a quick return.
                 Assert.InRange(DistanceFromViewport(scroll, lastVisible), 1, viewport * 1.5);
-                Assert.NotNull(lastVisible.Child);
+                Assert.True(lastVisible.IsRealized);
+                var retained = Assert.IsType<ItemsControl>(lastVisible.Child);
+                var detachments = 0;
+                retained.DetachedFromLogicalTree += (_, _) => detachments++;
 
                 shell.ScrollToVerticalOffset(scroll.Offset.Y - 2 * viewport);
                 await PumpAsync();
                 Assert.True(DistanceFromViewport(scroll, lastVisible) > viewport * 1.5);
-                Assert.Null(lastVisible.Child);
+                Assert.False(lastVisible.IsRealized);
+                Assert.Same(retained, lastVisible.Child);
+                Assert.Equal(0, detachments);
                 AssertOnlyNearbyTurnsRealized(shell, transcript);
+
+                shell.JumpToLatest();
+                await PumpAsync();
+                Assert.True(lastVisible.IsRealized);
+                Assert.Same(retained, lastVisible.Child);
+                Assert.Equal(0, detachments);
             }
             finally
             {
@@ -215,13 +226,13 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 shell.ScrollToVerticalOffset(scroll.Offset.Y - scroll.Viewport.Height);
                 for (var i = 0; i < 2; i++)
                     await PumpAsync();
-                Assert.All(TurnsWithin(scroll, transcript, 0.5), turn => Assert.NotNull(turn.Child));
-                Assert.Contains(TurnsWithin(scroll, transcript, 1), turn => turn.Child is null);
+                Assert.All(TurnsWithin(scroll, transcript, 0.5), turn => Assert.True(turn.IsRealized));
+                Assert.Contains(TurnsWithin(scroll, transcript, 1), turn => !turn.IsRealized);
 
                 model.IsDrawerMoving = false;
                 for (var i = 0; i < 4; i++)
                     await PumpAsync();
-                Assert.All(TurnsWithin(scroll, transcript, 1), turn => Assert.NotNull(turn.Child));
+                Assert.All(TurnsWithin(scroll, transcript, 1), turn => Assert.True(turn.IsRealized));
             }
             finally
             {
@@ -597,15 +608,15 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
             .ToList();
 
     /// <summary>
-    /// Turns are built ahead of the viewport and released only past 1.5 viewports, so every built turn
-    /// lies within that band and distant turns keep just their reserved height.
+    /// Turns are built ahead of the viewport and hidden past 1.5 viewports. Hidden retained content
+    /// does not participate in layout; its host keeps the reserved height.
     /// </summary>
     private static void AssertOnlyNearbyTurnsRealized(StrataChatShell shell, ItemsControl transcript)
     {
         var scroll = shell.TranscriptScrollViewer!;
         var band = scroll.Viewport.Height * 1.5;
         var turns = transcript.GetVisualDescendants().OfType<TranscriptTurnView>().ToList();
-        var realized = turns.Where(turn => turn.Child is not null).ToList();
+        var realized = turns.Where(turn => turn.IsRealized).ToList();
         Assert.NotEmpty(realized);
         Assert.True(realized.Count < turns.Count, $"all {turns.Count} turns are built");
         foreach (var turn in realized)

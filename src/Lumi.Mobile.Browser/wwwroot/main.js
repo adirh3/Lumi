@@ -2,6 +2,7 @@ import {
     configureNativeTextInputs,
     configureViewportInsets
 } from './browserHost.js';
+
 let retryStartup = () => window.location.reload();
 document.getElementById('startup-retry').addEventListener('click', () => retryStartup());
 
@@ -10,10 +11,11 @@ const showFatalError = error => {
     const splash = document.querySelector('.lumi-splash');
     if (!splash || splash.classList.contains('splash-close'))
         return;
+    const message = String(error?.message || error);
     splash.querySelector('span').textContent =
-        navigator.onLine
-            ? `Lumi could not start: ${error?.message || error}`
-            : 'You are offline. Connect to the internet and try again.';
+        !navigator.onLine
+            ? 'You are offline. Connect to the internet and try again.'
+            : `Lumi could not start: ${message}`;
     document.getElementById('startup-retry').hidden = false;
 };
 
@@ -39,18 +41,33 @@ try {
         .withApplicationArgumentsFromQuery()
         .create();
     const config = runtime.getConfig();
+    const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
+    const interop = exports.Lumi.Mobile.Browser.BrowserInterop;
+    const workerFrameMode = new URLSearchParams(location.search).get('workerframes');
+    if (workerFrameMode === '1' || workerFrameMode !== '0' &&
+        /Android/.test(navigator.userAgent) && /Chrome\//.test(navigator.userAgent)) {
+        try {
+            const { installWorkerFrames } = await import('./workerFrames.js');
+            installWorkerFrames({
+                threaded: globalThis.getDotnetRuntime(0).runtimeBuildInfo.wasmEnableThreads,
+                showStatus: workerFrameMode === '1'
+            });
+        } catch (error) {
+            console.warn('[Lumi PWA] Worker renderer could not be loaded; using normal rendering.', error);
+        }
+    }
 
     await runtime.runMain(config.mainAssemblyName, [globalThis.location.href]);
 
-    const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
-    const interop = exports.Lumi.Mobile.Browser.BrowserInterop;
     configureNativeTextInputs(
         interop.SetNativeTextInputText,
         interop.HandleNativeTextInputKey,
         interop.SetNativeTextInputFocus);
 
     configureAppLifecycle(interop.SetApplicationActive);
-    configureAppUpdates(interop.CanApplyAppUpdate, interop.SetAppUpdateState);
+    configureAppUpdates(
+        interop.CanApplyAppUpdate,
+        interop.SetAppUpdateState);
 
     // Reconnect as soon as the network returns instead of waiting out a retry pause.
     window.addEventListener('online', () => interop.SetNetworkAvailable(true));

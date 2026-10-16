@@ -12,13 +12,13 @@ namespace Lumi.Mobile.Views;
 
 /// <summary>
 /// Keeps a stable height for offscreen turns and defers their heavy content until it is near
-/// the viewport. Like desktop transcript turns, a revisited turn reuses its retained controls.
+/// the viewport. Built turns stay attached but hidden so returning does not reapply their styles.
 /// </summary>
 /// <remarks>
 /// Turns about to be seen are built at once. Turns further out are prepared ahead of the viewport,
 /// one per layout pass and nearest first (see <see cref="ChatDetailView.RequestRealization"/>), so a
-/// fling meets built turns instead of building several in one frame. Content is only released well
-/// past the band it is built in, so scrolling back and forth does not rebuild the same turns.
+/// fling meets built turns instead of building several in one frame. Content is hidden well past
+/// the band it is built in, and released when its bounded transcript page leaves the tree.
 /// </remarks>
 internal sealed class TranscriptTurnView : Decorator
 {
@@ -38,9 +38,11 @@ internal sealed class TranscriptTurnView : Decorator
     private bool _registeredAnchor;
     private int _version;
 
+    internal bool IsRealized => _items?.IsVisible == true;
+
     internal bool IsReadyForEntrance =>
         !_updateQueued && (!IsNearViewport || _turn?.DisplayItems.Count == 0
-            || (Child is not null && IsMeasureValid && IsArrangeValid));
+            || (IsRealized && IsMeasureValid && IsArrangeValid));
 
     private bool HasViewport =>
         _viewport.Width > 0 && _viewport.Height > 0 && double.IsFinite(_viewport.Height);
@@ -118,7 +120,7 @@ internal sealed class TranscriptTurnView : Decorator
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        if (Child is null)
+        if (!IsRealized)
             return new Size(double.IsFinite(availableSize.Width) ? availableSize.Width : 0, _reservedHeight);
 
         var measured = base.MeasureOverride(availableSize);
@@ -128,7 +130,7 @@ internal sealed class TranscriptTurnView : Decorator
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (Child is not null)
+        if (IsRealized)
             QueueUpdate();
     }
 
@@ -148,9 +150,10 @@ internal sealed class TranscriptTurnView : Decorator
             if (_turn is null || chat?.ShouldDeferTranscriptRealization == true || !IsWithin(RetainBand))
             {
                 chat?.CancelRealization(this);
-                Child = null;
+                if (_items is not null)
+                    _items.IsVisible = false;
             }
-            else if (Child is not null)
+            else if (IsRealized)
             {
                 RefreshItems();
             }
@@ -170,7 +173,7 @@ internal sealed class TranscriptTurnView : Decorator
     /// <summary>Builds or restores this turn's content; false when there was nothing to do.</summary>
     internal bool Realize()
     {
-        if (!_attached || _turn is null || Child is not null || !IsWithin(RealizeBand)
+        if (!_attached || _turn is null || IsRealized || !IsWithin(RealizeBand)
             || _chat?.ShouldDeferTranscriptRealization == true)
             return false;
 
@@ -179,12 +182,15 @@ internal sealed class TranscriptTurnView : Decorator
             _items = new ItemsControl
             {
                 DataContext = _turn,
-                ItemsSource = new ObservableCollection<TranscriptItemViewModel>()
+                ItemsSource = new ObservableCollection<TranscriptItemViewModel>(_turn.DisplayItems),
+                IsVisible = false
             };
             _items.ContainerPrepared += OnContainerPrepared;
+            Child = _items;
         }
-        Child = _items;
-        RefreshItems();
+        else
+            RefreshItems();
+        _items.IsVisible = true;
         _chat?.QueueChatEntrance();
         return true;
     }
@@ -198,7 +204,7 @@ internal sealed class TranscriptTurnView : Decorator
         if (_items is null || _turn is null)
             return;
 
-        // A detached host keeps its last item snapshot; collection changes are applied on return.
+        // A hidden host keeps its last item snapshot; collection changes are applied on return.
         // Existing item properties remain live, while retained markdown defers offscreen rebuilding.
         if (_items.ItemsSource is ObservableCollection<TranscriptItemViewModel> snapshot)
             TranscriptTurnViewModel.SynchronizeDisplayItems(snapshot, _turn.DisplayItems);

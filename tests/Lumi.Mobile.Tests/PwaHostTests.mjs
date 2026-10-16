@@ -293,18 +293,37 @@ test('native editors prevent Safari focus zoom while preserving larger typograph
     assert.ok(!/user-scalable\s*=\s*no|maximum-scale\s*=\s*1/i.test(source('index.html')));
 });
 
-function startup(failedModule) {
+function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '' } = {}) {
     const retry = eventTarget({ hidden: true });
     const label = { textContent: 'Opening Lumi...' };
     const errors = [];
     const modules = [];
+    const warnings = [];
+    const installed = [];
     let reloads = 0;
     let recoveries = 0;
+    let started = false;
     const window = eventTarget({
-        location: { href: 'https://lumi.test/app/', reload: () => reloads++ }
+        location: { href: `https://lumi.test/app/${search}`, search, reload: () => reloads++ }
     });
+    const interop = {
+        SetNativeTextInputText() {}, HandleNativeTextInputKey() {}, SetNativeTextInputFocus() {},
+        SetApplicationActive() {}, CanApplyAppUpdate() {}, SetAppUpdateState() {}, SetNetworkAvailable() {}
+    };
+    const runtime = {
+        getConfig: () => ({ mainAssemblyName: 'Lumi.Mobile.Browser' }),
+        getAssemblyExports: async () => ({ Lumi: { Mobile: { Browser: { BrowserInterop: interop } } } }),
+        runMain: async () => { started = true; }
+    };
+    const dotnet = {
+        withDiagnosticTracing() { return this; },
+        withEnvironmentVariable() { return this; },
+        withApplicationArgumentsFromQuery() { return this; },
+        create: async () => runtime
+    };
     const context = vm.createContext({
-        window, location: window.location, navigator: { onLine: true },
+        window, location: window.location, URLSearchParams, navigator: { onLine: true, userAgent },
+        getDotnetRuntime: () => ({ runtimeBuildInfo: { wasmEnableThreads: false } }),
         document: {
             getElementById: () => retry,
             querySelector: () => ({
@@ -312,15 +331,22 @@ function startup(failedModule) {
                 querySelector: () => label
             })
         },
-        console: { error: error => errors.push(error) },
+        console: { error: error => errors.push(error), warn: (...args) => warnings.push(args) },
         async loadModule(name) {
             modules.push(name);
             if (name === failedModule)
                 throw new Error(`HTTP 503 loading ${name}`);
             if (name === './browserHost.js')
-                return {};
+                return { configureNativeTextInputs() {}, configureViewportInsets() {} };
             if (name === './pwaHost.js')
-                return { checkAppUpdate() {}, reloadWebApp: () => recoveries++ };
+                return {
+                    checkAppUpdate() {}, reloadWebApp: () => recoveries++,
+                    configureAppLifecycle() {}, configureAppUpdates() {}
+                };
+            if (name === './_framework/dotnet.js')
+                return { dotnet };
+            if (name === './workerFrames.js')
+                return { installWorkerFrames: options => installed.push(options) };
             throw new Error(`Unexpected fixture module ${name}`);
         }
     });
@@ -331,7 +357,8 @@ function startup(failedModule) {
     const ready = vm.runInContext(`(async () => { ${main} })()`, context)
         .catch(error => errors.push(error));
     return {
-        retry, label, errors, modules, ready,
+        retry, label, errors, modules, ready, installed, warnings,
+        get started() { return started; },
         get reloads() { return reloads; },
         get recoveries() { return recoveries; }
     };
@@ -356,6 +383,36 @@ test('a runtime import failure retains explicit PWA recovery once the host modul
     app.retry.dispatch('click');
     assert.equal(app.recoveries, 1);
     assert.equal(app.reloads, 0);
+});
+
+test('Android Chromium enables worker rendering without diagnostic UI; other browsers keep their renderer', async () => {
+    for (const [userAgent, search, expected] of [
+        ['Android 15 Chrome/143.0.0.0', '', true],
+        ['Android 15 SamsungBrowser/30 Chrome/143.0.0.0', '', true],
+        ['Android 15 Firefox/143.0', '', false],
+        ['Windows Chrome/143.0.0.0', '', false],
+        ['iPhone Safari/605.1', '', false],
+        ['Android 15 Chrome/143.0.0.0', '?workerframes=0', false],
+        ['Windows Chrome/143.0.0.0', '?workerframes=1', true]
+    ]) {
+        const app = startup(null, { userAgent, search });
+        await app.ready;
+        assert.equal(app.installed.length, expected ? 1 : 0, `${userAgent} ${search}`);
+        if (expected)
+            assert.equal(app.installed[0].showStatus, search === '?workerframes=1');
+        assert.equal(app.started, true);
+        assert.equal(app.errors.length, 0);
+        assert.ok(!app.modules.includes('./pwaDiagnostics.js'));
+    }
+});
+
+test('a worker module download failure still starts the normal app and reports the fallback', async () => {
+    const app = startup('./workerFrames.js', { userAgent: 'Android Chrome/143.0.0.0' });
+    await app.ready;
+    assert.equal(app.started, true);
+    assert.equal(app.warnings.length, 1);
+    assert.equal(app.errors.length, 0);
+    assert.equal(app.retry.hidden, true);
 });
 
 function waitingWorker() {
@@ -708,7 +765,9 @@ test('activation timeout or post failure is visible and does not reload an unact
     }
 });
 
-async function recovery({ scope = 'https://lumi.test/app/', failure, serviceWorker = true } = {}) {
+async function recovery({
+    scope = 'https://lumi.test/app/', failure, serviceWorker = true, query = '?lumi-refresh=1'
+} = {}) {
     const status = { textContent: '' };
     const retry = eventTarget({ hidden: true });
     const navigations = [];
@@ -727,7 +786,10 @@ async function recovery({ scope = 'https://lumi.test/app/', failure, serviceWork
     const context = {
         document: { getElementById: id => id === 'cache-recovery-status' ? status : retry },
         window: {
-            location: { origin: 'https://lumi.test', replace: url => navigations.push(url) },
+            location: {
+                origin: 'https://lumi.test', href: `https://lumi.test/app/${query}`,
+                replace: url => navigations.push(url)
+            },
             get localStorage() { throw new Error('Pairing storage must not be touched'); },
             get sessionStorage() { throw new Error('App session state must not be touched'); }
         },
@@ -778,6 +840,35 @@ test('fresh recovery exposes an unregister failure instead of looping or silentl
     assert.equal(app.errors.length, 1);
     assert.equal(app.retry.hidden, false);
     assert.match(app.status.textContent, /pairing is kept/);
+});
+
+test('fresh recovery drops profiling and unrelated query values without touching pairing', async () => {
+    const app = await recovery({ query: '?lumi-refresh=1&profile=1&token=private&returnTo=https://other.test/' });
+    assert.deepEqual(app.navigations, ['https://lumi.test/app/']);
+    const refresh = await recovery({ query: '?lumi-refresh=1&profile=refresh&token=SECRET' });
+    assert.deepEqual(refresh.navigations, ['https://lumi.test/app/']);
+    const normal = await recovery({ query: '?lumi-refresh=1&profile=0' });
+    assert.deepEqual(normal.navigations, ['https://lumi.test/app/']);
+});
+
+test('exact worker-renderer overrides survive cache recovery and app reload without retaining other queries', async () => {
+    const recovered = await recovery({
+        query: '?lumi-refresh=1&workerframes=1&token=SECRET&returnTo=https://other.test/'
+    });
+    assert.deepEqual(recovered.navigations, ['https://lumi.test/app/?workerframes=1']);
+    const combined = await recovery({ query: '?workerframes=1&profile=refresh' });
+    assert.deepEqual(combined.navigations, ['https://lumi.test/app/?workerframes=1']);
+    const disabled = await recovery({ query: '?workerframes=0' });
+    assert.deepEqual(disabled.navigations, ['https://lumi.test/app/?workerframes=0']);
+    const invalid = await recovery({ query: '?workerframes=true' });
+    assert.deepEqual(invalid.navigations, ['https://lumi.test/app/']);
+    const app = host();
+    app.window.location.href = 'https://lumi.test/app/?workerframes=1&secret=private';
+    app.context.reloadWebApp();
+    assert.deepEqual(app.navigations, ['https://lumi.test/app/?lumi-refresh=1&workerframes=1']);
+    app.window.location.href = 'https://lumi.test/app/?workerframes=0';
+    app.context.reloadWebApp();
+    assert.equal(app.navigations.at(-1), 'https://lumi.test/app/?lumi-refresh=1&workerframes=0');
 });
 
 function worker({
@@ -1033,7 +1124,8 @@ test('published inventory covers final app/WASM bytes with stable content hashes
     const assets = self.lumiAssets;
     assert.ok(assets.length > 5);
     for (const name of ['index.html', 'main.js', 'browserHost.js', 'pwaHost.js',
-        'manifest.webmanifest', 'service-worker.js', '_framework/dotnet.js']) {
+        'manifest.webmanifest', 'service-worker.js', '_framework/dotnet.js',
+        'workerFrames.js', 'workerFramePresenter.js']) {
         assert.ok(assets.some(asset => asset.url === name), `Missing ${name}`);
     }
     assert.ok(!assets.some(asset => asset.url.startsWith('cache-recovery.')));

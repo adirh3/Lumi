@@ -44,7 +44,11 @@ async function recoverCachedApp() {
             }
         }
         // Keep cookies, pairing and verified caches; only this page gets a fresh controller.
-        window.location.replace(app.href);
+        const destination = new URL(app.href);
+        const workerFrames = new URL(window.location.href).searchParams.get('workerframes');
+        if (workerFrames === '1' || workerFrames === '0')
+            destination.searchParams.set('workerframes', workerFrames);
+        window.location.replace(destination.href);
     } catch (error) {
         console.error('[Lumi PWA] Browser recovery failed.', error);
         document.getElementById('cache-recovery-status').textContent =

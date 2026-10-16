@@ -598,8 +598,11 @@ Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript 
 only turns near the viewport while retaining the full loaded page and offscreen streaming
 updates, avoiding eager layout of every markdown answer when opening a conversation. Turns
 about to be seen are built at once; turns up to a viewport further out are prepared ahead of
-scrolling one per layout pass, and built turns are kept until they are a viewport and a half
-away, so a fling meets ready turns instead of building several in one frame.
+scrolling one per layout pass, so a fling meets ready turns instead of building several in one
+frame. Past a viewport and a half, a prepared turn stays attached but hidden at its reserved
+height: returning reuses its styles and templates instead of attaching them again. Hidden
+markdown defers updates until it becomes visible, and leaving the bounded transcript page
+releases its turn controls.
 In the browser everything (layout, rendering and .NET) shares one thread, so per-frame work
 is kept small: native browser editors are only updated when their position, text or options
 actually change (open sheets are tracked rather than searched for after every layout pass),
@@ -609,6 +612,22 @@ results are one virtualized list of headers and rows, so row controls are recycl
 groups. The PWA runtime uses a 16 MB young generation, so garbage collections interrupt
 scrolling and typing about a third as often. Glass surfaces reuse their Skia filter and paint
 objects from frame to frame.
+
+Compatible Android Chromium browsers present completed WebGL frames through a worker-owned
+canvas. Its frame clock avoids Chromium's main-frame high-refresh throttle while rendering
+or touching, with touch moves resampled to that clock. The implementation adapts the
+MIT-licensed [flutter_shim](https://github.com/aumb/flutter_shim) approach to Avalonia's
+WebGL renderer without clearing Skia's drawing buffer. Native editors, mouse/pen input,
+and trusted down/up events keep their normal path. The clock returns to native scheduling
+after drawing stops. Unsupported browsers and worker failures use the original canvas.
+The runtime remains single-threaded .NET 10 AOT; no cross-origin isolation is required.
+
+`/app/?workerframes=1` shows the renderer status badge and enables the path for desktop
+Chromium testing. Its Hz value is the worker clock, **not displayed FPS**.
+`/app/?workerframes=0` explicitly selects the normal renderer. Both overrides survive
+cache recovery and app reload without clearing pairing. High-refresh scheduling depends
+on the browser and display; it adds snapshot cost and can increase battery use while
+animating. Normal launches show no diagnostic badge and do not record or upload profiling data.
 
 Mobile uses Strata's short, interruptible rise-and-fade motion for chat switches, new chats,
 page returns and Library categories; native forms and pairing steps fade without moving

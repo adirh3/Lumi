@@ -142,6 +142,9 @@ applyTheme();
 export function reloadWebApp() {
     const url = new URL('/app/', window.location.origin);
     url.searchParams.set('lumi-refresh', '1');
+    const workerFrames = new URL(window.location.href).searchParams.get('workerframes');
+    if (workerFrames === '1' || workerFrames === '0')
+        url.searchParams.set('workerframes', workerFrames);
     window.location.assign(url.href);
 }
 
