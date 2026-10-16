@@ -89,8 +89,8 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
     let nextId = -1, nativeFrame = null, worker, surface;
     let failed = false, workerReady = false, workerWanted = false;
     let lastTick = 0, lastFrameTime = -Infinity, lastDraw = -Infinity;
-    let period = 1000 / 60, skippedLast = false, dispatching = false;
-    let startupTimeout, clockTimeout, lastMessage = 0, lastBadge = 0;
+    let period = 1000 / 60, dispatching = false;
+    let startupTimeout, clockTimeout, lastMessage = 0, lastBadge = 0, lastBadgePresented = 0;
 
     const listen = (target, type, callback, options) => {
         target.addEventListener(type, callback, options);
@@ -134,6 +134,10 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
                 window.reportError(error);
             }
         }
+    };
+    const currentFrameTime = time => {
+        const behind = performance.now() - time;
+        return time + (behind > 1.5 * period ? Math.floor(behind / period) * period : 0);
     };
     const schedule = () => {
         status.clockActive = !failed && workerReady && !document.hidden &&
@@ -227,6 +231,16 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
         if (HTMLCanvasElement.prototype.getContext === getContext)
             HTMLCanvasElement.prototype.getContext = originalGetContext;
         schedule();
+    };
+
+    const acknowledgeTick = () => {
+        if (failed)
+            return;
+        try {
+            worker.postMessage({ type: 'tick-done' });
+        } catch (error) {
+            fallback(error);
+        }
     };
 
     const capture = () => {
@@ -403,22 +417,30 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
                 fallback(new Error(data.error));
                 return;
             }
+            if (!Number.isFinite(data.vsync))
+                return;
+            // This tick has left the event queue. Allow one successor while this frame renders,
+            // rather than making a slow frame wait another refresh before it can start again.
+            acknowledgeTick();
+            if (failed)
+                return;
             if (data.presented) {
                 status.presented = data.presented;
                 if (status.state !== 'active') {
                     surface.canvas.style.opacity = '0';
                     status.state = 'active';
-                    if (badge)
+                    if (badge) {
                         badge.textContent = 'Worker renderer';
+                        lastBadge = performance.now();
+                        lastBadgePresented = status.presented;
+                    }
                 }
             }
-            if (!Number.isFinite(data.vsync))
-                return;
             clearTimeout(startupTimeout);
             workerReady = true;
             lastMessage = performance.now();
             const time = data.vsync - performance.timeOrigin;
-            const interval = time - lastTick;
+            const interval = data.interval ?? time - lastTick;
             lastTick = time;
             if (interval > 3 && interval < 40) {
                 periods.push(interval);
@@ -428,29 +450,27 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
                 status.clockHz = Math.round(1000 / period);
             }
             if (badge && performance.now() - lastBadge > 1000 && status.state === 'active' && status.clockHz) {
-                const text = `Worker renderer (${status.clockHz} Hz clock)`;
+                const now = performance.now();
+                const frames = Math.round((status.presented - lastBadgePresented) * 1000 / (now - lastBadge));
+                const text = `Worker renderer (${status.clockHz} Hz clock, ${frames} new frames/s)`;
                 if (badge.textContent !== text)
                     badge.textContent = text;
-                lastBadge = performance.now();
+                lastBadge = now;
+                lastBadgePresented = status.presented;
             }
             schedule();
             if (!status.clockActive)
                 return;
-            if (!skippedLast && performance.now() - (data.sent - performance.timeOrigin) > 1.5 * period) {
-                skippedLast = true;
-                return;
-            }
-            skippedLast = false;
+            const frameTime = currentFrameTime(time);
             for (const touch of touches.values()) {
                 if (!touch.moved)
                     continue;
-                const sampleTime = time - 12;
+                const sampleTime = Math.max(frameTime - 12, touch.lastTime);
                 const point = samplePointerPosition(touch.samples, sampleTime);
                 if (Math.abs(point.x - touch.x) > 0.01 || Math.abs(point.y - touch.y) > 0.01)
                     dispatchMove(touch, point.x, point.y, sampleTime);
             }
-            const behind = performance.now() - time;
-            runCallbacks(time + (behind > 1.5 * period ? Math.floor(behind / period) * period : 0));
+            runCallbacks(currentFrameTime(time));
             schedule();
         };
         HTMLCanvasElement.prototype.getContext = getContext;

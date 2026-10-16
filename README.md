@@ -621,11 +621,16 @@ or touching, with touch moves resampled to that clock. The implementation adapts
 MIT-licensed [flutter_shim](https://github.com/aumb/flutter_shim) approach to Avalonia's
 WebGL renderer without clearing Skia's drawing buffer. Native editors, mouse/pen input,
 and trusted down/up events keep their normal path. The clock returns to native scheduling
-after drawing stops. Unsupported browsers and worker failures use the original canvas.
+after drawing stops. Clock messages are bounded to one queued tick, so a busy UI thread
+does not replay a backlog of old refreshes. Acknowledging a received tick lets the next
+refresh overlap rendering; input resampling and animation timestamps advance to the
+current refresh after a stall. Bitmap presentation remains independent of that handshake.
+Unsupported browsers and worker failures use the original canvas.
 The runtime remains single-threaded .NET 10 AOT; no cross-origin isolation is required.
 
 `/app/?workerframes=1` shows the renderer status badge and enables the path for desktop
-Chromium testing. Its Hz value is the worker clock, **not displayed FPS**.
+Chromium testing. It separates the worker's Hz clock from new frames transferred to its
+canvas each second; neither is a measurement of physical display presentation.
 `/app/?workerframes=0` explicitly selects the normal renderer. Both overrides survive
 cache recovery and app reload without clearing pairing. High-refresh scheduling depends
 on the browser and display; it adds snapshot cost and can increase battery use while

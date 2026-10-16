@@ -21,10 +21,13 @@
 // SOFTWARE.
 
 let canvas, context, pendingFrame, running = false, wanted = false, presented = 0;
+let tickPending = false, reportedPresented = 0, lastTick = 0;
 
 const tick = time => {
     running = false;
     try {
+        const interval = time - lastTick;
+        lastTick = time;
         if (pendingFrame) {
             const frame = pendingFrame;
             pendingFrame = null;
@@ -39,11 +42,17 @@ const tick = time => {
             }
             presented++;
         }
-        postMessage({
-            vsync: performance.timeOrigin + time,
-            sent: performance.timeOrigin + performance.now(),
-            presented
-        });
+        // Animation callbacks cannot catch up on old refreshes after the main thread stalls.
+        // Keep one tick queued; the canvas can still present the latest bitmap independently.
+        if (!tickPending) {
+            tickPending = true;
+            reportedPresented = presented;
+            postMessage({
+                vsync: performance.timeOrigin + time,
+                sent: performance.timeOrigin + performance.now(),
+                interval, presented
+            });
+        }
         if (wanted || pendingFrame)
             start();
     } catch (error) {
@@ -75,6 +84,11 @@ self.onmessage = ({ data }) => {
             case 'wanted':
                 wanted = data.value;
                 if (wanted)
+                    start();
+                break;
+            case 'tick-done':
+                tickPending = false;
+                if (wanted || pendingFrame || presented !== reportedPresented)
                     start();
                 break;
             case 'frame':

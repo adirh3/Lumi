@@ -245,6 +245,117 @@ test('a 120-Hz worker clock can drive continuously drawing callbacks without nat
     assert.equal(app.frames.size, 0);
 });
 
+test('the diagnostic badge distinguishes new presented frames from the worker clock', async () => {
+    const app = host();
+    const gl = app.canvas().getContext('webgl2');
+    gl.drawArrays();
+    await settle();
+    app.tick(10, 1);
+    for (let i = 1; i <= 240; i++) {
+        app.tick(10 + i * 1000 / 120, 1 + Math.floor(i / 2));
+        if (i % 2 === 0)
+            gl.drawArrays();
+        await settle();
+    }
+    assert.equal(app.status.clockHz, 120);
+    assert.match(app.children[0].textContent, /120 Hz clock, 60 new frames\/s/);
+});
+
+test('a delayed worker tick uses the current frame for input and does not discard the only wake-up', async () => {
+    const app = host();
+    const canvas = app.canvas();
+    canvas.getContext('webgl2').drawArrays();
+    await settle();
+    app.tick(10, 1);
+    app.pointer('pointerdown', canvas, { x: 10, time: 10 });
+    app.pointer('pointermove', canvas, { x: 30, time: 30 });
+    app.pointer('pointermove', canvas, { x: 90, time: 90 });
+    const ran = [];
+    app.window.requestAnimationFrame(time => ran.push(time));
+    app.time(100);
+    app.workers[0].onmessage({ data: {
+        vsync: 1000020, sent: 1000020, interval: 1000 / 120, presented: 1
+    } });
+    assert.equal(ran.length, 1);
+    assert.ok(ran[0] >= 90);
+    assert.equal(canvas.forwarded.length, 1);
+    assert.ok(canvas.forwarded[0].clientX >= 80);
+    await settle();
+    assert.equal(app.workers[0].messages.at(-1).type, 'tick-done');
+});
+
+test('slow input delivery does not leave animation callbacks using an old frame time', async () => {
+    const app = host();
+    const canvas = app.canvas();
+    canvas.getContext('webgl2').drawArrays();
+    await settle();
+    app.tick(10, 1);
+    app.pointer('pointerdown', canvas, { x: 10, time: 10 });
+    app.pointer('pointermove', canvas, { x: 30, time: 30 });
+    const dispatch = canvas.dispatchEvent;
+    canvas.dispatchEvent = function (event) {
+        dispatch.call(this, event);
+        app.time(130);
+    };
+    const ran = [];
+    app.window.requestAnimationFrame(time => ran.push(time));
+    app.tick(30, 1);
+    assert.equal(ran.length, 1);
+    assert.ok(ran[0] >= 120);
+});
+
+test('the clock slot is released before animation callbacks render the next frame', async () => {
+    const app = host();
+    app.canvas().getContext('webgl2').drawArrays();
+    await settle();
+    app.tick(10, 1);
+    let ran = false;
+    app.window.requestAnimationFrame(() => {
+        assert.equal(app.workers[0].messages.at(-1).type, 'tick-done');
+        ran = true;
+    });
+    app.tick(20, 1);
+    assert.equal(ran, true);
+});
+
+test('coalesced main-thread messages retain the worker refresh rate instead of reporting callback throughput', async () => {
+    const app = host();
+    const canvas = app.canvas();
+    const gl = canvas.getContext('webgl2');
+    for (let i = 1; i <= 30; i++) {
+        const time = i * 1000 / 60;
+        app.time(time);
+        gl.drawArrays();
+        await settle();
+        app.workers[0].onmessage({ data: {
+            vsync: 1000000 + time, sent: 1000000 + time,
+            interval: 1000 / 120, presented: i
+        } });
+    }
+    assert.equal(app.status.clockHz, 120);
+});
+
+test('a failed tick acknowledgement restores native rendering and reports the error', async () => {
+    const app = host();
+    const canvas = app.canvas();
+    canvas.getContext('webgl2').drawArrays();
+    await settle();
+    const worker = app.workers[0];
+    const postMessage = worker.postMessage;
+    worker.postMessage = function (message) {
+        if (message.type === 'tick-done')
+            throw new Error('The worker channel closed');
+        postMessage.call(this, message);
+    };
+    app.tick(10, 1);
+    await settle();
+    assert.equal(app.status.state, 'fallback');
+    assert.match(app.status.error, /worker channel closed/);
+    assert.equal(canvas.style.opacity, '');
+    assert.equal(worker.terminated, true);
+    assert.equal(app.warnings.length, 1);
+});
+
 test('callback errors are reported and frame times cannot go backwards across worker/fallback clocks', async () => {
     const app = host();
     app.canvas().getContext('webgl2').drawArrays();
@@ -495,6 +606,45 @@ test('worker presents real transferred frames, resizes, and bounds pending image
     assert.equal(app.messages.at(-1).vsync, 1008);
     app.send({ type: 'wanted', value: false });
     app.tick(16);
+    assert.equal(app.frames.length, 0);
+});
+
+test('a busy main thread cannot accumulate worker ticks, while bitmap presentation continues', () => {
+    const app = presenter();
+    app.send({ type: 'init', canvas: app.canvas });
+    app.send({ type: 'wanted', value: true });
+    app.tick(8);
+    for (const time of [16, 24, 32])
+        app.tick(time);
+    assert.equal(app.messages.length, 1);
+    const frame = bitmap();
+    app.send({ type: 'frame', frame });
+    app.tick(40);
+    assert.deepEqual(app.shown, [frame]);
+    assert.equal(frame.closed, 1);
+    assert.equal(app.messages.length, 1);
+    app.send({ type: 'tick-done' });
+    app.tick(48);
+    assert.equal(app.messages.length, 2);
+    assert.equal(app.messages.at(-1).vsync, 1048);
+    assert.equal(app.messages.at(-1).interval, 8);
+    assert.equal(app.messages.at(-1).presented, 1);
+});
+
+test('an idle worker reports a frame presented during a pending tick and then sleeps', () => {
+    const app = presenter();
+    app.send({ type: 'init', canvas: app.canvas });
+    app.tick(8);
+    app.send({ type: 'frame', frame: bitmap() });
+    app.tick(16);
+    assert.equal(app.messages.length, 1);
+    assert.equal(app.frames.length, 0);
+    app.send({ type: 'tick-done' });
+    assert.equal(app.frames.length, 1);
+    app.tick(24);
+    assert.equal(app.messages.length, 2);
+    assert.equal(app.messages.at(-1).presented, 1);
+    app.send({ type: 'tick-done' });
     assert.equal(app.frames.length, 0);
 });
 
