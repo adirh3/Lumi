@@ -41,6 +41,14 @@ public class DataStore
     public static string SearchContentIndexFile { get; } = Path.Combine(AppDir, "search-content-index.bin");
     internal static string AppDirectory => AppDir;
 
+    /// <summary>
+    /// True when <c>LUMI_APPDATA_DIR</c> gives this process its own profile (tests, isolated debug
+    /// runs). Such a run leaves alone what belongs to the installed Lumi outside its profile, such
+    /// as the launch-at-login registration.
+    /// </summary>
+    internal static bool UsesIsolatedProfile { get; } =
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR"));
+
     /// <summary>Raised when a chat's persisted content changes (saved or deleted) so search indexes can refresh.</summary>
     public event Action<Guid>? ChatContentChanged;
 
@@ -61,9 +69,10 @@ public class DataStore
     /// </summary>
     public event Action<object?>? ChatTagCatalogChanged;
 
-    /// <summary>Synchronizes the two ambient-presence preferences across every Settings window that
-    /// shares this store. Raised on the caller's thread; UI callers raise it on the UI thread.</summary>
-    public event Action<object?, bool, bool>? PresenceSettingsChanged;
+    /// <summary>Tells every Settings window that shares this store that a look setting every window
+    /// shares changed (the ambient presence, the accent colour or the window material), so each shows
+    /// what is saved. Raised on the caller's thread; UI callers raise it on the UI thread.</summary>
+    public event Action<object?>? AppearanceSettingsChanged;
 
     private AppData _data;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -153,11 +162,8 @@ public class DataStore
             return _worktreeCleanupReservations.Contains(normalized);
     }
 
-    public void NotifyPresenceSettingsChanged(object? source = null)
-        => PresenceSettingsChanged?.Invoke(
-            source,
-            Data.Settings.ShowAmbientPresence,
-            Data.Settings.AnimatePresenceWhileWorking);
+    public void NotifyAppearanceSettingsChanged(object? source = null)
+        => AppearanceSettingsChanged?.Invoke(source);
 
     internal bool TrySetChatWorktreePath(Chat chat, string? path)
     {
@@ -1126,13 +1132,14 @@ public class DataStore
         ChatContentChanged?.Invoke(chatId);
     }
 
-    /// <summary>Deletes all per-chat files.</summary>
+    /// <summary>Deletes all per-chat files. A store that only lives in memory owns no files, so it
+    /// leaves the saved profile's chats alone.</summary>
     public void DeleteAllChatFiles()
     {
         lock (_chatSearchCacheSync)
             _chatSearchCache.Clear();
 
-        if (Directory.Exists(ChatsDir))
+        if (_usesPersistentStorage && Directory.Exists(ChatsDir))
         {
             foreach (var file in Directory.GetFiles(ChatsDir, "*.json"))
                 File.Delete(file);

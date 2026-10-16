@@ -6210,7 +6210,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void QueueSuggestionGenerationForLatestAssistant(Chat chat)
     {
-        if (_suggestionGenerationInFlightChats.Contains(chat.Id))
+        if (!_dataStore.Data.Settings.SuggestFollowUps
+            || _suggestionGenerationInFlightChats.Contains(chat.Id))
             return;
 
         var lastAssistant = GetLatestSuggestionEligibleAssistantMessage(chat);
@@ -6429,14 +6430,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void TryApplyDisplayedSuggestions(Chat chat, IReadOnlyList<string> suggestions)
     {
-        if (CanUpdateDisplayedSuggestions(chat))
+        if (CanUpdateDisplayedSuggestions(chat) && _dataStore.Data.Settings.SuggestFollowUps)
             ApplyDisplayedSuggestions(suggestions);
+    }
+
+    /// <summary>Shows or hides follow-up suggestions after Settings → Chat → Suggest follow-ups changes.</summary>
+    internal void ApplySuggestFollowUpsSetting()
+    {
+        if (CurrentChat is { } chat)
+            RestoreSuggestionsForChat(chat);
+        else
+            ClearSuggestions();
     }
 
     private void RestoreSuggestionsForChat(Chat chat)
     {
         _suggestionDisplayChatId = chat.Id;
         ApplyDisplayedSuggestions([]);
+
+        if (!_dataStore.Data.Settings.SuggestFollowUps)
+        {
+            IsSuggestionsGenerating = false;
+            return;
+        }
 
         if (_suggestionGenerationInFlightChats.Contains(chat.Id))
         {

@@ -28,8 +28,8 @@
           <SolidColorBrush x:Key="Mg.SegmentTrack" Color="#0BFFFFFF" />
           <SolidColorBrush x:Key="Mg.TileBackground" Color="#0DFFFFFF" />
           <SolidColorBrush x:Key="Mg.TileBorder" Color="#14FFFFFF" />
-          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="#1C818CF8" />
-          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="#4D818CF8" />
+          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="{DynamicResource Color.AccentDefault}" Opacity="0.11" />
+          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="{DynamicResource Color.AccentDefault}" Opacity="0.3" />
           <SolidColorBrush x:Key="Mg.SuccessBackground" Color="#1F10B981" />
           <SolidColorBrush x:Key="Mg.WarningBackground" Color="#1FF59E0B" />
           <LinearGradientBrush x:Key="Mg.InsetFade" StartPoint="0%,0%" EndPoint="0%,100%">
@@ -51,8 +51,8 @@
           <SolidColorBrush x:Key="Mg.SegmentTrack" Color="#FFEEEEF2" />
           <SolidColorBrush x:Key="Mg.TileBackground" Color="#FFF4F4F7" />
           <SolidColorBrush x:Key="Mg.TileBorder" Color="#FFE8E8ED" />
-          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="#0F4F46E5" />
-          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="#474F46E5" />
+          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="{DynamicResource Color.AccentDefault}" Opacity="0.06" />
+          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="{DynamicResource Color.AccentDefault}" Opacity="0.28" />
           <SolidColorBrush x:Key="Mg.SuccessBackground" Color="#1A10B981" />
           <SolidColorBrush x:Key="Mg.WarningBackground" Color="#1CD97706" />
           <LinearGradientBrush x:Key="Mg.InsetFade" StartPoint="0%,0%" EndPoint="0%,100%">

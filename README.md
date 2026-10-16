@@ -27,6 +27,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
+- **Make it yours** — Settings → Appearance: a Light, Dark or System theme, eight accent palettes that recolor buttons, selection, your messages and Lumi's glow, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
 - **Desktop notifications** — Toast notifications when responses complete in the background
 - **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
 - **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
@@ -39,6 +40,12 @@ Lumi's default when you are signed in. Other accounts are added alongside it:
 their models appear in every model menu, but they only become the default when you
 turn on **Use for new chats** or choose **Use as default**. Without a GitHub
 sign-in, the first connected account becomes the default so Lumi can work.
+
+Every account you add is a bring-your-own-key (BYOK) endpoint with its models, so
+there is one place for them. **Endpoints & models**, at the bottom of the AI accounts
+card, edits those same accounts by hand for what the guided setup doesn't ask: a base
+URL, wire API, a key from an environment variable, or per-model limits. **Use only your
+own accounts**, beside it, keeps every chat off GitHub Copilot.
 
 Desktop model pickers group models under GitHub Copilot or the connected account
 name. Model names no longer repeat the account or append a BYOK suffix; model IDs
@@ -124,7 +131,7 @@ Foundry's model list does not report reasoning-effort levels. For recognized
 model IDs, Lumi uses Microsoft's documented model-specific levels; GPT-6 Luna
 with Responses offers Low, Medium, High, X-High and Max. Reported or explicitly
 configured effort lists take precedence. Arbitrary deployment aliases and unknown
-models need their capabilities configured in **Advanced endpoints & models**.
+models need their capabilities configured in **AI accounts → Endpoints & models**.
 For an older connection, **Refresh list** or save it again to add known reasoning
 metadata; this does not require a GitHub subscription.
 Entra sign-in, Azure resource browsing, Foundry Agent Service and legacy model
@@ -153,11 +160,11 @@ guarantee of paid entitlement or reliable tool use.
 The **Background model** setting controls helpers such as titles, suggestions and
 memory processing. An explicit choice takes precedence. **Auto** uses the cheapest
 usable Copilot model while GitHub is signed in, even if another account is the
-chat default. Without a GitHub sign-in, or with **Block internal Copilot requests**
+chat default. Without a GitHub sign-in, or with **Use only your own accounts**
 turned on, Auto uses the default external model. Stale or removed connections fail
 explicitly instead of sending context to GitHub; an explicit Copilot background
-choice is still blocked by BYOK Only. Existing Copilot and manual BYOK
-configurations remain supported under **Advanced endpoints & models**.
+choice is still blocked by **Use only your own accounts**. Existing Copilot and manual
+BYOK configurations remain editable under **AI accounts → Endpoints & models**.
 
 ### Interactive answers
 
@@ -259,6 +266,10 @@ background. Chip and selection fills still provide contrast independently of tex
   the section too.
 - **Memories** is a Settings page, listed under **Profile**. Settings reopens on the page used last,
   so it reopens Memories if that is where you left it.
+- **Settings** lists its pages under a search box and your profile card. Search finds a setting by its
+  name (forgiving a typo), the words of its description, or the choices it offers — `ocean` finds the
+  accent color, `compact` the density. Clearing chats or memories and resetting settings ask once more
+  in a bar at the bottom of the page; Esc cancels.
 
 ### Customize and Discover
 
@@ -421,7 +432,7 @@ the next helper request without interrupting current work or changing any chat's
 
 An explicit choice can be a Copilot model or a configured **BYOK** model. BYOK helpers use the
 same endpoint, credential store, capability overrides, and per-model rate limiter as chats.
-**BYOK Only** still blocks every non-BYOK inference request: choose a BYOK background model to
+**Use only your own accounts** (BYOK only) still blocks every non-BYOK inference request: choose a BYOK background model to
 run helpers in that mode. Auto does not guess private-provider prices or silently inherit the
 source chat's model, including for Share prompt.
 

@@ -441,6 +441,10 @@ public sealed class PresenceController : IDisposable
                 UpdatePresence();
                 break;
 
+            case nameof(ChatViewModel.PresenceBrightness):
+                ApplyWritingGlow();
+                break;
+
             case nameof(ChatViewModel.IsWorkspacePanelOpen):
             case nameof(ChatViewModel.WorkspacePage):
                 HandleSplitChanged(vm);
@@ -677,13 +681,16 @@ public sealed class PresenceController : IDisposable
         }, DispatcherPriority.Input);
     }
 
-    /// <summary>Brightens the resting light while the user writes; StrataPresence fades the change.</summary>
+    /// <summary>
+    /// Brightens the resting light while the user writes; StrataPresence fades the change. The user's
+    /// presence brightness (Settings → Appearance) scales both levels.
+    /// </summary>
     private void ApplyWritingGlow()
     {
         var writing = _composerFocused
                       && _vm?.CurrentChat is not null
                       && _presence.State == PresenceState.Idle;
-        var intensity = writing ? WritingIntensity : RestingIntensity;
+        var intensity = (writing ? WritingIntensity : RestingIntensity) * (_vm?.PresenceBrightness ?? 1.0);
         if (Math.Abs(_presence.Intensity - intensity) > 0.001)
             _presence.Intensity = intensity;
     }

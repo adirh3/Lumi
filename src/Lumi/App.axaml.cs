@@ -7,11 +7,13 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Appearance;
 using Lumi.ViewModels;
 using Lumi.Views;
 using StrataTheme.Controls;
@@ -66,9 +68,13 @@ public partial class App : Application
             Styles.Add(CreateModelPickerTextStyle());
             Styles.Add(CreateConnectorPickerTextStyle());
             Styles.Add(CreateComposerPickerTextStyles());
-            RequestedThemeVariant = dataStore.Data.Settings.IsDarkTheme
+            var settings = dataStore.Data.Settings;
+            if (settings.FollowSystemTheme && SystemTheme.PrefersDark(this) is { } systemPrefersDark)
+                settings.IsDarkTheme = systemPrefersDark;
+            RequestedThemeVariant = settings.IsDarkTheme
                 ? ThemeVariant.Dark
                 : ThemeVariant.Light;
+            AccentPalettes.Apply(Resources, settings.AccentColor);
 
             if (dataStore.Data.Settings.StartMinimized)
             {
@@ -380,6 +386,10 @@ public partial class App : Application
             MainWindow.ApplyDensityStatic(dataStore.Data.Settings.IsCompactDensity);
             UiScaleService.Apply(dataStore.Data.Settings.UiScalePercent);
 
+            // "Theme: System" follows the OS between light and dark while Lumi runs.
+            if (PlatformSettings is { } platformSettings)
+                platformSettings.ColorValuesChanged += OnPlatformColorValuesChanged;
+
             var window = CreateWindow(vm, isPrimary: true);
             SetMainWindow(window);
             Program.SingleInstance?.SetActivationHandler(HandleActivationRequest);
@@ -642,6 +652,34 @@ public partial class App : Application
             chatWindow.ApplyUiScaleToChrome(normalizedScalePercent);
     }
 
+    /// <summary>Shows the chosen window material on every open Lumi window.</summary>
+    internal void ApplyWindowMaterial(string? material)
+    {
+        foreach (var window in _windows)
+            WindowMaterials.Apply(window, material);
+        foreach (var chatWindow in _openChatWindows)
+            WindowMaterials.Apply(chatWindow, material);
+    }
+
+    private void OnPlatformColorValuesChanged(object? sender, PlatformColorValues values)
+    {
+        var prefersDark = values.ThemeVariant == PlatformThemeVariant.Dark;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isShuttingDown || _dataStore?.Data.Settings.FollowSystemTheme != true)
+                return;
+
+            var viewModels = _windows
+                .Select(static window => window.DataContext)
+                .OfType<MainViewModel>()
+                .Append(_mainViewModel)
+                .OfType<MainViewModel>()
+                .Distinct();
+            foreach (var viewModel in viewModels)
+                viewModel.SettingsVM.ApplySystemTheme(prefersDark);
+        });
+    }
+
     internal bool TryAdjustUiScale(int delta)
     {
         if (delta == 0 || _dataStore is null)
@@ -679,6 +717,7 @@ public partial class App : Application
             IsPrimaryWindow = isPrimary,
             SecondaryWindowCascadeIndex = isPrimary ? 0 : ++_secondaryWindowSequence
         };
+        WindowMaterials.Apply(window, _dataStore?.Data.Settings.WindowMaterial);
 
         if (Loc.IsRightToLeft)
             window.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
@@ -1057,6 +1096,7 @@ public partial class App : Application
         chatVm.PropertyChanged += OnDetachedCurrentChatChanged;
 
         window = new ChatWindow(_dataStore, windowVm);
+        WindowMaterials.Apply(window, _dataStore.Data.Settings.WindowMaterial);
         window.Closing += (_, _) => PrepareForWindowClosing(window);
         chatVm.AddDisplayHost();
         _openChatWindows.Add(window);

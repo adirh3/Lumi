@@ -42,6 +42,9 @@ public partial class ChatViewModel
     [ObservableProperty] private bool _sendWithEnter = true;
     [ObservableProperty] private bool _showAmbientPresence = true;
     [ObservableProperty] private bool _animatePresenceWhileWorking;
+
+    /// <summary>Multiplier on the presence glow's tuned brightness (Settings → Appearance).</summary>
+    [ObservableProperty] private double _presenceBrightness = 1.0;
     [ObservableProperty] private bool _isRecording;
     [ObservableProperty] private string? _selectedAgentName;
     [ObservableProperty] private string _selectedAgentGlyph = "◉";
@@ -874,6 +877,7 @@ public partial class ChatViewModel
         SendWithEnter = _dataStore.Data.Settings.SendWithEnter;
         ShowAmbientPresence = _dataStore.Data.Settings.ShowAmbientPresence;
         AnimatePresenceWhileWorking = _dataStore.Data.Settings.AnimatePresenceWhileWorking;
+        PresenceBrightness = SettingsViewModel.PresenceBrightnessMultiplier(_dataStore.Data.Settings.PresenceBrightness);
 
         ActiveSkillChips.CollectionChanged += OnActiveSkillChipsCollectionChanged;
         ActiveMcpChips.CollectionChanged += OnActiveMcpChipsCollectionChanged;

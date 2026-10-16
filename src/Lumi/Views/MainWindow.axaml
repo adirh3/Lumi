@@ -185,6 +185,92 @@
       <Setter Property="MinHeight" Value="0" />
     </Style>
 
+    <!-- ── Settings sidebar: facet rows like Customize's, each with its page's hue ── -->
+    <Style Selector="ListBox.settings-nav ListBoxItem">
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="Margin" Value="0,1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="ListBox.settings-nav ListBoxItem.group-start">
+      <Setter Property="Margin" Value="0,11,0,1" />
+    </Style>
+    <Style Selector="ListBox.settings-nav ListBoxItem /template/ Border#LayoutRoot">
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="ListBox.settings-nav ListBoxItem:pointerover /template/ Border#LayoutRoot">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
+    </Style>
+    <Style Selector="ListBox.settings-nav ListBoxItem:selected /template/ Border#LayoutRoot, ListBox.settings-nav ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="ListBox.settings-nav ListBoxItem /template/ Border#PART_SelectedPipe">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="ListBox.settings-nav PathIcon.settings-nav-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0.85" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="ListBox.settings-nav ListBoxItem:pointerover PathIcon.settings-nav-icon, ListBox.settings-nav ListBoxItem:selected PathIcon.settings-nav-icon">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="ListBox.settings-nav TextBlock.settings-nav-label">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="ListBox.settings-nav ListBoxItem:selected TextBlock.settings-nav-label">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- The profile row: who Lumi is talking to, wearing the accent. -->
+    <Style Selector="ListBox.settings-nav ListBoxItem.settings-profile">
+      <Setter Property="Padding" Value="8,7" />
+      <Setter Property="Margin" Value="0,0,0,2" />
+      <Setter Property="CornerRadius" Value="10" />
+    </Style>
+    <Style Selector="ListBox.settings-nav Border.settings-nav-avatar">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Margin" Value="0,0,10,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
+    </Style>
+    <Style Selector="ListBox.settings-nav Border.settings-nav-avatar TextBlock">
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="ListBox.settings-nav Border.settings-nav-avatar PathIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="ListBox.settings-nav TextBlock.settings-nav-name">
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="ListBox.settings-nav TextBlock.settings-nav-caption">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
     <!-- ── Chat list ──
          A neutral hover wash and a firmer neutral selection leave the accent to the slim marker and
          project colours. Project and tag chips keep their solid control surface for readability over
@@ -2685,101 +2771,103 @@
           </Panel>
 
           <!-- ── 6: Settings sidebar ── -->
+          <!-- Search first, then you (profile, memories), the app, intelligence and connections, and
+               data and Lumi itself, with a little air between the groups. Each row wears its page's
+               hue, as Customize's rows do; the selection uses Lumi's accent. -->
           <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}" x:DataType="vm:SettingsViewModel">
+            <Panel.Resources>
+              <ResourceDictionary>
+                <ResourceDictionary.MergedDictionaries>
+                  <ResourceInclude Source="avares://Lumi/Views/Settings/SettingsResources.axaml" />
+                </ResourceDictionary.MergedDictionaries>
+              </ResourceDictionary>
+            </Panel.Resources>
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
-                <TextBlock Text="{loc:Str Sidebar_Settings}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" Margin="6,0,0,0" />
-              </DockPanel>
-              <!-- Rows map to pages through SettingsSidebarPositionConverter: Memories sits under Profile
-                   but is shown by its own page (nav 5), which keeps this sidebar. -->
-              <ListBox x:Name="SettingsPagesList" Classes="sidebar-list" Margin="14,12,14,8"
-                       SelectedIndex="{Binding SelectedPageIndex, Mode=TwoWay, Converter={x:Static conv:SettingsSidebarPositionConverter.Instance}}"
-                       SelectionMode="Single">
-                <ListBoxItem>
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
-                      <PathIcon.Data>
-                        <StreamGeometry>M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z</StreamGeometry>
-                      </PathIcon.Data>
-                    </PathIcon>
-                    <TextBlock Text="{loc:Str Settings_Profile}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </ListBoxItem>
-                <ListBoxItem x:Name="SettingsMemoriesItem">
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <PathIcon Data="{StaticResource Icon.Memory}" Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBlock Text="{loc:Str Settings_Memories}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </ListBoxItem>
-                <ListBoxItem>
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
-                      <PathIcon.Data>
-                        <StreamGeometry>M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-1-8h2l.4 2.2a8 8 0 0 1 2.3 1.3l2.1-.8 1 1.7-1.7 1.4a8 8 0 0 1 0 2.4l1.7 1.4-1 1.7-2.1-.8a8 8 0 0 1-2.3 1.3L13 22h-2l-.4-2.2a8 8 0 0 1-2.3-1.3l-2.1.8-1-1.7 1.7-1.4a8 8 0 0 1 0-2.4L5.2 12.4l1-1.7 2.1.8a8 8 0 0 1 2.3-1.3L11 8z</StreamGeometry>
-                      </PathIcon.Data>
-                    </PathIcon>
-                    <TextBlock Text="{loc:Str Settings_General}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </ListBoxItem>
-                <ListBoxItem>
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
-                      <PathIcon.Data>
-                        <StreamGeometry>M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 3v14h10V5H7zm4 15h2v1h-2v-1z</StreamGeometry>
-                      </PathIcon.Data>
-                    </PathIcon>
-                    <TextBlock Text="{loc:Str Settings_Mobile}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </ListBoxItem>
-                <ListBoxItem>
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
-                      <PathIcon.Data>
-                        <StreamGeometry>M12 3a9 9 0 1 0 0 18c.7 0 1.4-.1 2-.2a1 1 0 0 0 .7-1.5 3 3 0 0 1 2.4-4.8H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3zM7.5 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm2-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm2 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z</StreamGeometry>
-                      </PathIcon.Data>
-                    </PathIcon>
-                    <TextBlock Text="{loc:Str Settings_Appearance}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </ListBoxItem>
-                <ListBoxItem>
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <PathIcon Data="{StaticResource Icon.Chat}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBlock Text="{loc:Str Settings_Chat}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </ListBoxItem>
-                <ListBoxItem>
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <PathIcon Data="{StaticResource Icon.Sparkle}" Width="14" Height="14"
-                              Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBlock Text="{loc:Str Settings_AIModels}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </ListBoxItem>
-                <ListBoxItem>
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
-                      <PathIcon.Data>
-                        <StreamGeometry>M12 1L3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm0 3.2L18 7v4c0 4.2-2.8 8-6 9.2C8.8 19 6 15.2 6 11V7l6-2.8z</StreamGeometry>
-                      </PathIcon.Data>
-                    </PathIcon>
-                    <TextBlock Text="{loc:Str Settings_PrivacyData}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </ListBoxItem>
-                 <ListBoxItem>
-                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                     <PathIcon Grid.Column="0" Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
-                       <PathIcon.Data>
-                         <StreamGeometry>M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm2 12h-4v-1h1v-5h-1v-1h3v6h1v1z</StreamGeometry>
-                       </PathIcon.Data>
-                     </PathIcon>
-                     <TextBlock Grid.Column="1" Text="{loc:Str Settings_About}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+              <Border DockPanel.Dock="Top" Classes="project-switcher-search" Margin="16,6,16,4">
+                <DockPanel>
+                  <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                            Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                  <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
+                          IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+                    <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
+                  </Button>
+                  <TextBox x:Name="SettingsSearchBox" Classes="project-switcher-search-box"
+                           Text="{Binding SearchQuery, Mode=TwoWay}"
+                           PlaceholderText="{loc:Str Sidebar_SearchSettings}" />
+                </DockPanel>
+              </Border>
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <!-- Rows map to pages through SettingsSidebarPositionConverter: Memories sits under Profile
+                     but is shown by its own page (nav 5), which keeps this sidebar. -->
+                <ListBox x:Name="SettingsPagesList" Classes="sidebar-list settings-nav" Margin="10,6,10,8"
+                         ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                         SelectedIndex="{Binding SelectedPageIndex, Mode=TwoWay, Converter={x:Static conv:SettingsSidebarPositionConverter.Instance}}"
+                         SelectionMode="Single">
+                  <ListBoxItem x:Name="SettingsProfileItem" Classes="settings-profile" AutomationProperties.Name="{loc:Str Settings_Profile}">
+                    <!-- The page's name comes first in the tree, so the row reads as "Profile"; it draws under the user's name. -->
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                      <TextBlock Grid.Row="1" Grid.Column="1" Classes="settings-nav-caption" Text="{loc:Str Settings_Profile}" />
+                      <TextBlock Grid.Row="0" Grid.Column="1" Classes="settings-nav-name" Text="{Binding ProfileDisplayName}" />
+                      <Border Grid.RowSpan="2" Classes="settings-nav-avatar">
+                        <Panel>
+                          <TextBlock Text="{Binding ProfileInitial}" IsVisible="{Binding HasProfileInitial}" />
+                          <PathIcon Data="{StaticResource St.Icon.Profile}" IsVisible="{Binding !HasProfileInitial}" />
+                        </Panel>
+                      </Border>
+                    </Grid>
+                  </ListBoxItem>
+                  <ListBoxItem x:Name="SettingsMemoriesItem">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.Memories}" Foreground="{DynamicResource St.Hue.Memories}" />
+                      <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_Memories}" />
+                    </StackPanel>
+                  </ListBoxItem>
+                  <ListBoxItem Classes="group-start">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.General}" Foreground="{DynamicResource St.Hue.General}" />
+                      <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_General}" />
+                    </StackPanel>
+                  </ListBoxItem>
+                  <ListBoxItem>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.Appearance}" Foreground="{DynamicResource St.Hue.Appearance}" />
+                      <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_Appearance}" />
+                    </StackPanel>
+                  </ListBoxItem>
+                  <ListBoxItem>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.Chat}" Foreground="{DynamicResource St.Hue.Chat}" />
+                      <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_Chat}" />
+                    </StackPanel>
+                  </ListBoxItem>
+                  <ListBoxItem Classes="group-start">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.AI}" Foreground="{DynamicResource St.Hue.AI}" />
+                      <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_AIModels}" />
+                    </StackPanel>
+                  </ListBoxItem>
+                  <ListBoxItem>
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.Mobile}" Foreground="{DynamicResource St.Hue.Mobile}" />
+                      <TextBlock Grid.Column="1" Classes="settings-nav-label" Text="{loc:Str Settings_Mobile}" />
+                      <Ellipse Grid.Column="2" Width="7" Height="7" VerticalAlignment="Center"
+                               Fill="{DynamicResource Brush.SuccessDefault}"
+                               IsVisible="{Binding RemoteAccessEnabled}" />
+                    </Grid>
+                  </ListBoxItem>
+                  <ListBoxItem Classes="group-start">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.Privacy}" Foreground="{DynamicResource St.Hue.Privacy}" />
+                      <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_PrivacyData}" />
+                    </StackPanel>
+                  </ListBoxItem>
+                  <ListBoxItem>
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.About}" Foreground="{DynamicResource St.Hue.About}" />
+                      <TextBlock Grid.Column="1" Classes="settings-nav-label" Text="{loc:Str Settings_About}" />
                       <Border Grid.Column="2"
                               IsVisible="{Binding ShouldShowUpdateBadge}"
                               Background="{DynamicResource Brush.AccentSubtle}"
-                              BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                              BorderThickness="1"
                               CornerRadius="999"
                               Padding="8,2"
                               VerticalAlignment="Center">
@@ -2788,11 +2876,12 @@
                                    FontWeight="SemiBold"
                                    Foreground="{DynamicResource Brush.AccentDefault}" />
                       </Border>
-                   </Grid>
-                 </ListBoxItem>
-               </ListBox>
-             </DockPanel>
-           </Panel>
+                    </Grid>
+                  </ListBoxItem>
+                </ListBox>
+              </ScrollViewer>
+            </DockPanel>
+          </Panel>
 
           <!-- ── 8: Library sidebar ── -->
           <Panel x:Name="SidebarLibrary" IsVisible="False" DataContext="{Binding LibraryVM}" x:DataType="vm:LibraryViewModel">

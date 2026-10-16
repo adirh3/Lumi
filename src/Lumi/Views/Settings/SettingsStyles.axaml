@@ -1,0 +1,649 @@
+<!--
+  Settings' design language: the management pages' (ManagementStyles.axaml) sections, insets and
+  setting rows, applied to Strata's StrataSettingGroup and StrataSetting so search, the "modified"
+  revert and highlight behaviour keep working. Scoped to the Settings page; Strata's own look stays
+  untouched elsewhere (Jobs, the phone app).
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sa="using:StrataTheme.Animation"
+        xmlns:sc="using:StrataTheme.Controls"
+        xmlns:st="using:Lumi.Views.Settings"
+        xmlns:loc="using:Lumi.Localization">
+
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Settings/SettingsResources.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <!-- ══════════════════════════ Page ══════════════════════════ -->
+  <Style Selector="StackPanel.st-page">
+    <Setter Property="Spacing" Value="20" />
+    <Setter Property="Margin" Value="32,30,32,16" />
+  </Style>
+  <Style Selector="StackPanel.st-page.searching">
+    <Setter Property="Margin" Value="32,6,32,10" />
+  </Style>
+  <Style Selector="Grid.st-header">
+    <Setter Property="Margin" Value="0,0,0,4" />
+  </Style>
+  <Style Selector="Border.st-header-tile">
+    <Setter Property="Width" Value="48" />
+    <Setter Property="Height" Value="48" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Margin" Value="0,0,16,0" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+  </Style>
+  <Style Selector="Border.st-header-tile PathIcon">
+    <Setter Property="Width" Value="21" />
+    <Setter Property="Height" Value="21" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- Search shows every page at once; its headers then read as dividers between results. -->
+  <Style Selector="StackPanel.st-page.searching Border.st-header-tile">
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Margin" Value="0,0,12,0" />
+  </Style>
+  <Style Selector="StackPanel.st-page.searching Border.st-header-tile PathIcon">
+    <Setter Property="Width" Value="15" />
+    <Setter Property="Height" Value="15" />
+  </Style>
+  <Style Selector="StackPanel.st-page.searching TextBlock.mg-page-title">
+    <Setter Property="FontSize" Value="17" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="StackPanel.st-page.searching Grid.st-header">
+    <Setter Property="Margin" Value="0,10,0,0" />
+  </Style>
+
+  <!-- The accent washes the top of every page, so a new accent shows at once. -->
+  <Style Selector="Border.st-wash">
+    <Setter Property="Height" Value="240" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="Opacity" Value="0.07" />
+    <Setter Property="OpacityMask">
+      <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+    </Setter>
+  </Style>
+
+  <!-- ══════════════════════════ Cards (StrataSettingGroup) ══════════════════════════ -->
+  <Style Selector="sc|StrataSettingGroup">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="PART_GroupCard" Classes="st-card">
+          <StackPanel Spacing="14">
+            <DockPanel Name="PART_HeaderSection"
+                       IsVisible="{TemplateBinding Header, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <Border DockPanel.Dock="Left" Classes="mg-section-icon"
+                      IsVisible="{TemplateBinding (st:SettingsChrome.Icon), Converter={x:Static ObjectConverters.IsNotNull}}">
+                <PathIcon Data="{TemplateBinding (st:SettingsChrome.Icon)}" />
+              </Border>
+              <StackPanel Spacing="1" VerticalAlignment="Center">
+                <TextBlock Classes="mg-section-title" Text="{TemplateBinding Header}" />
+                <TextBlock Classes="mg-section-caption" Text="{TemplateBinding Description}"
+                           IsVisible="{TemplateBinding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
+            </DockPanel>
+            <Border Name="PART_Rows" Classes="st-rows">
+              <ItemsPresenter />
+            </Border>
+          </StackPanel>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Border.st-card">
+    <Setter Property="Background" Value="{DynamicResource Mg.SectionBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="18,16,18,18" />
+  </Style>
+  <Style Selector="Border.st-rows">
+    <Setter Property="Background" Value="{DynamicResource Mg.CodeBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <!-- Cards whose content brings its own surfaces (AI accounts, BYOK) skip the inset. -->
+  <Style Selector="sc|StrataSettingGroup.plain /template/ Border#PART_Rows">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="ClipToBounds" Value="False" />
+  </Style>
+  <Style Selector="sc|StrataSettingGroup.danger /template/ Border#PART_GroupCard">
+    <Setter Property="BorderBrush" Value="{DynamicResource St.DangerBorder}" />
+  </Style>
+  <Style Selector="sc|StrataSettingGroup.danger /template/ Border.mg-section-icon">
+    <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+  </Style>
+  <Style Selector="sc|StrataSettingGroup.danger /template/ Border.mg-section-icon PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+  </Style>
+  <!-- Free text inside a card (notes under rows). -->
+  <Style Selector="TextBlock.st-note">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="LineHeight" Value="17" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="Margin" Value="16,2,16,14" />
+  </Style>
+
+  <!-- ══════════════════════════ Rows (StrataSetting) ══════════════════════════ -->
+  <!-- Part names match Strata's template, so its :modified and :highlighted styles apply. -->
+  <Style Selector="sc|StrataSetting">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <StackPanel>
+          <Border Name="PART_Separator" Classes="st-row-divider" IsVisible="{TemplateBinding ShowSeparator}" />
+          <Border Name="PART_RowBorder" Classes="st-row">
+            <Grid Name="PART_Row" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" MinHeight="34">
+              <Border Name="PART_HighlightBar" Classes="st-row-highlight" Grid.Column="0">
+                <Border.Transitions>
+                  <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.25" Easing="CubicEaseOut" />
+                  </Transitions>
+                </Border.Transitions>
+              </Border>
+              <StackPanel Name="PART_Labels" Grid.Column="1" Classes="st-row-labels">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Name="PART_HeaderText" Classes="st-row-title" Text="{TemplateBinding Header}">
+                    <TextBlock.Transitions>
+                      <Transitions>
+                        <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+                      </Transitions>
+                    </TextBlock.Transitions>
+                  </TextBlock>
+                  <Button Name="PART_RevertButton" Classes="subtle st-revert"
+                          IsVisible="False" Opacity="0" RenderTransformOrigin="0.5,0.5" RenderTransform="scale(0.85)"
+                          ToolTip.Tip="{loc:Str Settings_RevertToDefault}"
+                          AutomationProperties.Name="{loc:Str Settings_RevertToDefault}">
+                    <Button.Transitions>
+                      <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+                        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+                      </Transitions>
+                    </Button.Transitions>
+                    <PathIcon Data="{StaticResource St.Icon.Undo}" />
+                  </Button>
+                </StackPanel>
+                <TextBlock Name="PART_Description" Classes="st-row-caption"
+                           Text="{TemplateBinding Description}"
+                           IsVisible="{TemplateBinding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
+              <ContentPresenter Name="PART_Content" Grid.Column="2"
+                                Content="{TemplateBinding SettingContent}"
+                                VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+        </StackPanel>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Border.st-row">
+    <Setter Property="Padding" Value="16,12" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.st-row-divider">
+    <Setter Property="Height" Value="1" />
+    <Setter Property="Margin" Value="16,0" />
+    <Setter Property="Background" Value="{DynamicResource Mg.Divider}" />
+  </Style>
+  <!-- The search mark sits in the row's padding, so labels never move. -->
+  <Style Selector="Border.st-row-highlight">
+    <Setter Property="Width" Value="3" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Margin" Value="-10,2,7,2" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="StackPanel.st-row-labels">
+    <Setter Property="Spacing" Value="2" />
+    <Setter Property="Margin" Value="0,0,16,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.st-row-title">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- A changed setting, or a search match, names itself in the accent. -->
+  <Style Selector="sc|StrataSetting:modified /template/ TextBlock#PART_HeaderText, sc|StrataSetting:highlighted /template/ TextBlock#PART_HeaderText">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="TextBlock.st-row-caption">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="LineHeight" Value="17" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="Button.st-revert">
+    <Setter Property="Padding" Value="4" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.st-revert PathIcon">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <!-- A whole row lights on hover only when it is one decision; rows that hold a panel stay calm. -->
+  <Style Selector="sc|StrataSetting:pointerover /template/ Border#PART_RowBorder">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+  </Style>
+  <Style Selector="sc|StrataSetting.stacked-content:pointerover /template/ Border#PART_RowBorder">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+
+  <!-- Stacked: the control drops below the labels and takes the full width. -->
+  <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > Border#PART_HighlightBar">
+    <Setter Property="Grid.RowSpan" Value="2" />
+  </Style>
+  <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > StackPanel">
+    <Setter Property="Grid.ColumnSpan" Value="2" />
+    <Setter Property="Margin" Value="0" />
+  </Style>
+  <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > ContentPresenter">
+    <Setter Property="Grid.Row" Value="1" />
+    <Setter Property="Grid.Column" Value="1" />
+    <Setter Property="Grid.ColumnSpan" Value="2" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="Margin" Value="0,12,0,2" />
+  </Style>
+
+  <!-- ══════════════════════════ Choice controls ══════════════════════════ -->
+  <!-- A row that opens (the AI accounts' endpoints & models), drawn like the rows around it. -->
+  <Style Selector="Expander.st-disclosure">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+  <Style Selector="Expander.st-disclosure /template/ Border#RootBorder">
+    <Setter Property="BoxShadow" Value="0 0 0 0 Transparent" />
+  </Style>
+  <Style Selector="Expander.st-disclosure /template/ ToggleButton#PART_toggle > Grid">
+    <Setter Property="Margin" Value="16,12,16,12" />
+  </Style>
+  <Style Selector="Expander.st-disclosure /template/ ToggleButton#PART_toggle /template/ Border#HeaderSurface">
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+  <Style Selector="Expander.st-disclosure /template/ ToggleButton#PART_toggle, Expander.st-disclosure:expanded /template/ ToggleButton#PART_toggle">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Expander.st-disclosure:pointerover /template/ ToggleButton#PART_toggle">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+  </Style>
+  <Style Selector="Expander.st-disclosure /template/ Border#HeaderMarker">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="Expander.st-disclosure /template/ Border#ExpanderSeparator">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="Expander.st-disclosure /template/ Border#ExpanderContent">
+    <Setter Property="Padding" Value="16,4,16,16" />
+  </Style>
+  <Style Selector="Expander.st-disclosure StackPanel.st-row-labels">
+    <Setter Property="Margin" Value="0" />
+  </Style>
+  <!-- Theme tiles: a small picture of Lumi in each mode. -->
+  <!-- Choices lift and grow under the pointer, so their buttons must not clip what they hold. -->
+  <Style Selector="Button.st-theme, Button.st-swatch, Button.st-option">
+    <Setter Property="ClipToBounds" Value="False" />
+  </Style>
+  <Style Selector="Button.st-theme">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" />
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <!-- The frame clips the picture to its rounded corners; the outline is drawn over the picture, so
+       the picture's square corners never paint over it. -->
+  <Style Selector="Button.st-theme Border.st-theme-frame">
+    <Setter Property="Height" Value="84" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="2" />
+    <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="RenderTransform" Value="translateY(0)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.st-theme:pointerover Border.st-theme-frame">
+    <Setter Property="RenderTransform" Value="translateY(-2px)" />
+  </Style>
+  <Style Selector="Button.st-theme Border.st-theme-outline">
+    <Setter Property="Margin" Value="-2" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.st-theme:pointerover Border.st-theme-outline">
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+  </Style>
+  <Style Selector="Button.st-theme.selected Border.st-theme-outline, Button.st-theme.selected:pointerover Border.st-theme-outline">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="Button.st-theme:focus-visible Border.st-theme-outline">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentHover}" />
+  </Style>
+  <Style Selector="Button.st-theme TextBlock.st-choice-label">
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.st-theme.selected TextBlock.st-choice-label">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Border.st-check-badge">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="Margin" Value="0,6,6,0" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="RenderTransform" Value="scale(0.4)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.24" Easing="BackEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.st-check-badge PathIcon">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+  </Style>
+  <Style Selector="Button.selected Border.st-check-badge">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="RenderTransform" Value="scale(1)" />
+  </Style>
+
+  <!-- Accent swatches. -->
+  <Style Selector="Button.st-swatch">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Content="{TemplateBinding Content}" />
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Button.st-swatch Border.st-swatch-ring">
+    <Setter Property="Width" Value="38" />
+    <Setter Property="Height" Value="38" />
+    <Setter Property="CornerRadius" Value="19" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="RenderTransform" Value="scale(1)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="BackEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.st-swatch:pointerover Border.st-swatch-ring">
+    <Setter Property="RenderTransform" Value="scale(1.08)" />
+  </Style>
+  <Style Selector="Button.st-swatch.selected Border.st-swatch-ring">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Button.st-swatch:focus-visible Border.st-swatch-ring">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentHover}" />
+  </Style>
+  <Style Selector="Button.st-swatch Ellipse.st-swatch-dot">
+    <Setter Property="Width" Value="28" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.st-swatch PathIcon.st-swatch-check">
+    <Setter Property="Width" Value="12" />
+    <Setter Property="Height" Value="12" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="RenderTransform" Value="scale(0.4)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="BackEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.st-swatch.selected PathIcon.st-swatch-check">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="RenderTransform" Value="scale(1)" />
+  </Style>
+  <Style Selector="TextBlock.st-swatch-name">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.st-swatch.selected TextBlock.st-swatch-name">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+
+  <!-- Option cards: a choice with a line of explanation (window material). -->
+  <Style Selector="Button.st-option">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Content="{TemplateBinding Content}"
+                          HorizontalContentAlignment="Stretch"
+                          VerticalContentAlignment="Stretch" />
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Button.st-option Border.st-option-frame">
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="BorderThickness" Value="1.5" />
+    <Setter Property="Padding" Value="13,11" />
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.14" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.st-option:pointerover Border.st-option-frame">
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackgroundHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+  </Style>
+  <Style Selector="Button.st-option.selected Border.st-option-frame, Button.st-option.selected:pointerover Border.st-option-frame">
+    <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="Button.st-option:focus-visible Border.st-option-frame">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentHover}" />
+  </Style>
+  <Style Selector="Button.st-option TextBlock.st-option-title">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="Button.st-option TextBlock.st-option-text">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="LineHeight" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="Button.st-option Border.st-check-badge">
+    <Setter Property="Width" Value="16" />
+    <Setter Property="Height" Value="16" />
+    <Setter Property="CornerRadius" Value="8" />
+  </Style>
+
+  <!-- ══════════════════════════ Live preview ══════════════════════════ -->
+  <Style Selector="Border.st-preview">
+    <Setter Property="Height" Value="196" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.Background}" />
+    <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="BoxShadow" Value="0 10 30 -18 #66000000" />
+  </Style>
+  <Style Selector="Border.st-preview-line">
+    <Setter Property="Height" Value="7" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Background" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="Opacity" Value="0.1" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+  <Style Selector="TextBlock.st-preview-text">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="LineHeight" Value="17" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="Border.st-preview-label">
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+    <Setter Property="Padding" Value="8,2,9,3" />
+    <Setter Property="Background" Value="{DynamicResource Mg.FloatBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="VerticalAlignment" Value="Bottom" />
+    <Setter Property="Margin" Value="14,0,0,14" />
+  </Style>
+  <Style Selector="Border.st-preview-label TextBlock">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="0.4" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+
+  <!-- ══════════════════════════ Heroes (Profile, About) ══════════════════════════ -->
+  <Style Selector="Border.st-hero">
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="Background" Value="{DynamicResource Mg.SectionBackground}" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <Style Selector="Border.st-hero-glow">
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
+    <Setter Property="Opacity" Value="0.12" />
+    <Setter Property="OpacityMask">
+      <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,0%">
+        <GradientStop Offset="0" Color="#FF000000" />
+        <GradientStop Offset="0.7" Color="#00000000" />
+      </LinearGradientBrush>
+    </Setter>
+  </Style>
+  <Style Selector="Border.st-avatar">
+    <Setter Property="Width" Value="64" />
+    <Setter Property="Height" Value="64" />
+    <Setter Property="CornerRadius" Value="32" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
+    <Setter Property="BoxShadow" Value="0 8 22 -10 #80000000" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.st-avatar TextBlock">
+    <Setter Property="FontSize" Value="26" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.st-avatar PathIcon">
+    <Setter Property="Width" Value="26" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+  </Style>
+  <Style Selector="TextBlock.st-hero-title">
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.st-hero-text">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="LineHeight" Value="19" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <!-- ══════════════════════════ Keyboard shortcuts ══════════════════════════ -->
+  <Style Selector="Border.st-keycap">
+    <Setter Property="MinWidth" Value="24" />
+    <Setter Property="Padding" Value="7,2,7,3" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.TileBorder}" />
+    <Setter Property="BorderThickness" Value="1,1,1,2" />
+  </Style>
+  <Style Selector="Border.st-keycap TextBlock">
+    <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+
+  <!-- ══════════════════════════ Buttons ══════════════════════════ -->
+  <Style Selector="Button.st-danger-button TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+  </Style>
+  <Style Selector="Button.st-danger-button PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+  </Style>
+</Styles>

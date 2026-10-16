@@ -133,15 +133,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSelectedNavIndexChanged(int value)
     {
         // Settings reopens on the page used last; when that is Memories, its own page opens instead.
-        if (value == 7 && SettingsVM?.SelectedPageIndex == SettingsViewModel.MemoriesPageIndex)
+        if (value == 7 && SettingsVM is not null && SettingsTarget == MemoriesNavIndex)
         {
             SelectedNavIndex = MemoriesNavIndex;
             return;
         }
 
-        if (value == MemoriesNavIndex && SettingsVM is not null
-            && SettingsVM.SelectedPageIndex != SettingsViewModel.MemoriesPageIndex)
-            SettingsVM.SelectedPageIndex = SettingsViewModel.MemoriesPageIndex;
+        if (value == MemoriesNavIndex && SettingsVM is not null)
+        {
+            // Memories shows no Settings search results, so opening it ends the search.
+            if (SettingsVM.SelectedPageIndex != SettingsViewModel.MemoriesPageIndex)
+                SettingsVM.SelectedPageIndex = SettingsViewModel.MemoriesPageIndex;
+            SettingsVM.SearchQuery = "";
+        }
 
         OnPropertyChanged(nameof(IsGlobalUpdateBannerVisible));
         OnPropertyChanged(nameof(AgentDebugCurrentPage));
@@ -210,8 +214,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>The Customize section the Customize place opens: the one used last.</summary>
     internal int CustomizeTarget => IsCustomizeIndex(LastCustomizeNavIndex) ? LastCustomizeNavIndex : 4;
 
-    /// <summary>The page the Settings place opens: the Settings page used last, which may be Memories.</summary>
-    internal int SettingsTarget => SettingsVM.SelectedPageIndex == SettingsViewModel.MemoriesPageIndex ? MemoriesNavIndex : 7;
+    /// <summary>
+    /// The page the Settings place opens: the Settings page used last, which may be Memories. A search
+    /// typed in the Settings list shows its results on the Settings page, even from Memories.
+    /// </summary>
+    internal int SettingsTarget =>
+        SettingsVM.SelectedPageIndex == SettingsViewModel.MemoriesPageIndex && !SettingsVM.IsSearching
+            ? MemoriesNavIndex
+            : 7;
 
     /// <summary>
     /// A Customize section row. Clicking the section already open takes it back to its overview, the
@@ -251,15 +261,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Keeps the Settings list and the open page in step: picking Memories in the list opens its page,
-    /// and picking another Settings page while Memories is open returns to Settings.
+    /// picking another Settings page while Memories is open returns to Settings, and a search typed in
+    /// the list shows its results on the Settings page.
     /// </summary>
     private void SyncSettingsPageWithNav()
     {
-        var isMemories = SettingsVM.SelectedPageIndex == SettingsViewModel.MemoriesPageIndex;
-        if (isMemories && SelectedNavIndex == 7)
-            SelectedNavIndex = MemoriesNavIndex;
-        else if (!isMemories && SelectedNavIndex == MemoriesNavIndex)
-            SelectedNavIndex = 7;
+        if (SelectedNavIndex is 7 or MemoriesNavIndex)
+            SelectedNavIndex = SettingsTarget;
     }
 
     private void NotifyCustomizeState()
@@ -544,7 +552,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(IsGlobalUpdateBannerVisible));
             }
 
-            if (args.PropertyName == nameof(SettingsViewModel.SelectedPageIndex))
+            if (args.PropertyName is nameof(SettingsViewModel.SelectedPageIndex) or nameof(SettingsViewModel.IsSearching))
                 SyncSettingsPageWithNav();
 
             if (args.PropertyName == nameof(SettingsViewModel.IsDarkTheme))
@@ -565,6 +573,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                      or nameof(SettingsViewModel.ShowReasoning)
                      or nameof(SettingsViewModel.ExpandReasoningWhileStreaming))
                 _chatSessionStore.ApplyToSurfaces(surface => surface.RebuildTranscript());
+            else if (args.PropertyName == nameof(SettingsViewModel.SuggestFollowUps))
+                _chatSessionStore.ApplyToSurfaces(surface => surface.ApplySuggestFollowUpsSetting());
             else if (args.PropertyName == nameof(SettingsViewModel.IsAuthenticated))
             {
                 if (SettingsVM.IsAuthenticated)
@@ -611,6 +621,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         SettingsVM.AmbientPresenceChanged += ApplyAmbientPresenceSetting;
         SettingsVM.PresenceAnimationChanged += ApplyPresenceAnimationSetting;
+        SettingsVM.PresenceBrightnessChanged += ApplyPresenceBrightnessSetting;
         SettingsVM.ReplayWelcomeRequested += ReplayWelcome;
         SettingsVM.SettingsChanged += () =>
         {
@@ -758,6 +769,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     internal void ApplyPresenceAnimationSetting(bool enabled)
         => _chatSessionStore.ApplyToSurfaces(surface => surface.AnimatePresenceWhileWorking = enabled);
+
+    internal void ApplyPresenceBrightnessSetting(double brightness)
+        => _chatSessionStore.ApplyToSurfaces(surface => surface.PresenceBrightness = brightness);
 
     private Task<ChatViewModel> AcquireChatSurfaceAsync(Chat chat)
         => _chatSessionStore.AcquireChatAsync(chat, PrepareChatSurface);

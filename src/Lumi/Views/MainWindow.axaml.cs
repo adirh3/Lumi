@@ -2268,9 +2268,13 @@ public partial class MainWindow : Window
     internal void ApplyUiScaleToChrome(int scalePercent)
         => ExtendClientAreaTitleBarHeightHint = BaseTitleBarHeight * UiScaleService.GetScale(scalePercent);
 
-    /// <summary>Register/unregister the app for launch at login (cross-platform).</summary>
+    /// <summary>Register/unregister the app for launch at login (cross-platform). An isolated
+    /// profile never touches the registration, which belongs to the installed Lumi.</summary>
     public static void ApplyLaunchAtStartup(bool enable)
     {
+        if (DataStore.UsesIsolatedProfile)
+            return;
+
         try
         {
             var exePath = Environment.ProcessPath;

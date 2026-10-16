@@ -53,6 +53,45 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void AppearanceAndChatCustomization_SurvivesSnapshotAndJsonRoundTrip()
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                FollowSystemTheme = true,
+                AccentColor = "sunset",
+                WindowMaterial = UserSettings.WindowMaterialSolid,
+                PresenceBrightness = UserSettings.PresenceBrightnessVivid,
+                SuggestFollowUps = false,
+                ExpandReasoningWhileStreaming = false,
+            }
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!.Settings;
+
+        Assert.True(restored.FollowSystemTheme);
+        Assert.Equal("sunset", restored.AccentColor);
+        Assert.Equal(UserSettings.WindowMaterialSolid, restored.WindowMaterial);
+        Assert.Equal(UserSettings.PresenceBrightnessVivid, restored.PresenceBrightness);
+        Assert.False(restored.SuggestFollowUps);
+        Assert.False(restored.ExpandReasoningWhileStreaming);
+    }
+
+    [Fact]
+    public void AppearanceAndChatCustomization_DefaultsForExistingSettings()
+    {
+        var settings = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;
+
+        Assert.False(settings.FollowSystemTheme);
+        Assert.Equal(UserSettings.DefaultAccentColor, settings.AccentColor);
+        Assert.Equal(UserSettings.WindowMaterialAuto, settings.WindowMaterial);
+        Assert.Equal(UserSettings.PresenceBrightnessBalanced, settings.PresenceBrightness);
+        Assert.True(settings.SuggestFollowUps);
+    }
+
+    [Fact]
     public void DiscoverFields_SurviveSnapshotAndJsonRoundTrip()
     {
         var data = new AppData

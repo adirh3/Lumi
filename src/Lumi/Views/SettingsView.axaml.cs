@@ -4,16 +4,16 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-#if !WINDOWS
 using Avalonia.LogicalTree;
-#endif
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views.Settings;
 using StrataTheme.Controls;
 
 namespace Lumi.Views;
@@ -21,7 +21,6 @@ namespace Lumi.Views;
 public partial class SettingsView : UserControl
 {
     private Control?[] _pages = [];
-    private ComboBox? _settingsSexCombo;
     private Control? _searchResultsHeader;
     private TextBlock? _searchCountText;
     private TextBlock? _searchQueryText;
@@ -53,7 +52,14 @@ public partial class SettingsView : UserControl
     private Button? _cookieImportCancelButton;
     private BrowserCookieService.BrowserProfile? _selectedCookieProfile;
     private bool _isCookieImportInProgress;
-    private bool? _advancedExpandedBeforeSearch;
+
+    // Search opens what holds a match and remembers how each was, so clearing the search puts it back.
+    private readonly Dictionary<Expander, bool> _expandedBeforeSearch = new();
+    private bool _allPagesLaidOut;
+
+    // Search hides what doesn't match above any visibility a control has of its own (platform
+    // availability, phone setup progress), then lets go so those bindings rule again.
+    private readonly Dictionary<Control, IDisposable> _searchHidden = new();
 
     public bool IsRecordingHotkey => _isRecordingHotkey;
 
@@ -183,27 +189,18 @@ public partial class SettingsView : UserControl
         if (_cookieImportCancelButton is not null)
             _cookieImportCancelButton.Click += (_, _) => CloseCookieDialog();
 
-        _settingsSexCombo = this.FindControl<ComboBox>("SettingsSexCombo");
-        if (_settingsSexCombo is not null)
-        {
-            _settingsSexCombo.ItemsSource = new[]
-            {
-                Loc.Onboarding_SexMale,
-                Loc.Onboarding_SexFemale,
-                Loc.Onboarding_SexPreferNot,
-            };
-        }
-
-        // Extract page header elements (title + description TextBlocks)
+        // Each page opens with a header: its tile, then the title and lede.
         var headers = new List<(TextBlock, TextBlock)>();
         foreach (var page in _pages)
         {
-            if (page is StackPanel sp && sp.Children.Count > 0
-                && sp.Children[0] is StackPanel header && header.Children.Count >= 2
-                && header.Children[0] is TextBlock title
-                && header.Children[1] is TextBlock desc)
+            if (page is StackPanel { Children.Count: > 0 } sp
+                && sp.Children[0] is Grid header && header.Classes.Contains("st-header"))
             {
-                headers.Add((title, desc));
+                var texts = header.GetLogicalDescendants().OfType<TextBlock>().ToList();
+                var title = texts.FirstOrDefault(static text => text.Classes.Contains("mg-page-title"));
+                var lede = texts.FirstOrDefault(static text => text.Classes.Contains("mg-page-lede"));
+                if (title is not null && lede is not null)
+                    headers.Add((title, lede));
             }
         }
         _pageHeaders = headers.ToArray();
@@ -222,6 +219,16 @@ public partial class SettingsView : UserControl
             _topLevel.PropertyChanged += OnTopLevelPropertyChanged;
         UpdateDebugTransparencyInfo();
 #endif
+    }
+
+    protected override void OnLoaded(RoutedEventArgs e)
+    {
+        base.OnLoaded(e);
+
+        // Settings is built the first time it opens, which can be for a search typed on Memories. Its
+        // rows know their bound choices and visibility only once they are in the window.
+        if (DataContext is SettingsViewModel { IsSearching: true } vm)
+            ApplySearch(vm.SearchQuery);
     }
 
     protected override void OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
@@ -319,16 +326,21 @@ public partial class SettingsView : UserControl
         [Loc.Setting_GlobalHotkey] = vm => vm.RevertGlobalHotkeyCommand.Execute(null),
         [Loc.Setting_EnableNotifications] = vm => vm.RevertNotificationsEnabledCommand.Execute(null),
         [Loc.Setting_OfferCopiedCapabilities] = vm => vm.RevertOfferCopiedCapabilitiesCommand.Execute(null),
-        [Loc.Setting_DarkMode] = vm => vm.RevertIsDarkThemeCommand.Execute(null),
-        [Loc.Setting_CompactDensity] = vm => vm.RevertIsCompactDensityCommand.Execute(null),
+        [Loc.Setting_Theme] = vm => vm.RevertThemeCommand.Execute(null),
+        [Loc.Setting_AccentColor] = vm => vm.RevertAccentColorCommand.Execute(null),
+        [Loc.Setting_WindowMaterial] = vm => vm.RevertWindowMaterialCommand.Execute(null),
+        [Loc.Setting_Density] = vm => vm.RevertIsCompactDensityCommand.Execute(null),
         [Loc.Setting_FontSize] = vm => vm.RevertUiScaleCommand.Execute(null),
         [Loc.Setting_AmbientPresence] = vm => vm.RevertShowAmbientPresenceCommand.Execute(null),
+        [Loc.Setting_PresenceBrightness] = vm => vm.RevertPresenceBrightnessCommand.Execute(null),
         [Loc.Setting_AnimatePresenceWhileWorking] = vm => vm.RevertAnimatePresenceWhileWorkingCommand.Execute(null),
         [Loc.Setting_ShowAnimations] = vm => vm.RevertShowAnimationsCommand.Execute(null),
-        [Loc.Setting_SendWithEnter] = vm => vm.RevertSendWithEnterCommand.Execute(null),
+        [Loc.Setting_SendKey] = vm => vm.RevertSendWithEnterCommand.Execute(null),
         [Loc.Setting_ShowTimestamps] = vm => vm.RevertShowTimestampsCommand.Execute(null),
         [Loc.Setting_ShowToolCalls] = vm => vm.RevertShowToolCallsCommand.Execute(null),
         [Loc.Setting_ShowReasoning] = vm => vm.RevertShowReasoningCommand.Execute(null),
+        [Loc.Setting_ExpandReasoningWhileStreaming] = vm => vm.RevertExpandReasoningWhileStreamingCommand.Execute(null),
+        [Loc.Setting_SuggestFollowUps] = vm => vm.RevertSuggestFollowUpsCommand.Execute(null),
         [Loc.Setting_AutoGenerateTitles] = vm => vm.RevertAutoGenerateTitlesCommand.Execute(null),
         [Loc.Setting_GlobalCustomInstructions] = vm => vm.RevertGlobalCustomInstructionsCommand.Execute(null),
         [Loc.Setting_PreferredModel] = vm => vm.RevertDefaultModelSelectionCommand.Execute(null),
@@ -443,48 +455,85 @@ public partial class SettingsView : UserControl
 
         var terms = query!.Trim();
         int matchCount = 0;
-        var advanced = this.FindControl<Expander>("AdvancedByokSettings");
-        if (advanced is not null)
-            _advancedExpandedBeforeSearch ??= advanced.IsExpanded;
+        var openedBySearch = new HashSet<Expander>();
+
+        // Start from each control's own visibility, so a query that narrows doesn't remember the last one.
+        ReleaseSearchVisibility();
+        LayOutAllPagesOnce();
 
         for (int i = 0; i < _pages.Length; i++)
         {
             if (_pages[i] is not StackPanel pageStack) continue;
 
+            pageStack.Classes.Set("searching", true);
             bool pageHasResults = false;
 
             foreach (var child in pageStack.Children)
             {
-                var group = child as StrataSettingGroup ?? (child as Expander)?.Content as StrataSettingGroup;
-                if (group is not null)
+                if (child is Grid header && header.Classes.Contains("st-header"))
+                    continue;
+
+                if (child is not StrataSettingGroup group)
                 {
-                    // If the group header itself matches, show all its settings
-                    bool groupHeaderMatches = FuzzySearch.IsMatch(terms, group.Header, group.Description,
-                            (child as Expander)?.Header as string)
-                        || group.Items.OfType<Controls.EasyConnectView>().Any() && MatchesAiAccount(terms);
-                    bool groupHasResults = false;
-                    if (groupHeaderMatches && !group.Items.OfType<StrataSetting>().Any())
+                    // Previews, heroes and stats belong to browsing a page; the few that answer a search say so.
+                    if (child.IsVisible && SettingsSearch.Matches(terms, SettingsChrome.GetSearchText(child)))
                     {
-                        groupHasResults = true;
                         matchCount++;
+                        pageHasResults = true;
                     }
-
-                    foreach (var item in group.Items.OfType<StrataSetting>())
+                    else
                     {
-                        bool matches = groupHeaderMatches || MatchesSetting(item, terms);
-                        item.IsHighlighted = matches;
-                        item.IsVisible = matches;
-                        if (matches) { groupHasResults = true; matchCount++; }
+                        HideForSearch(child);
                     }
-
-                    group.IsVisible = groupHasResults;
-                    if (child is Expander expander)
-                    {
-                        expander.IsVisible = groupHasResults;
-                        expander.IsExpanded = groupHasResults;
-                    }
-                    if (groupHasResults) pageHasResults = true;
+                    continue;
                 }
+
+                // Cards this computer can't use stay out of results.
+                if (!group.IsVisible)
+                    continue;
+
+                // If the card itself matches, show all its settings
+                bool groupHeaderMatches = SettingsSearch.Matches(terms, group.Header, group.Description);
+                bool groupHasResults = false;
+                var settings = SettingsIn(group).ToList();
+                // A card without rows of its own, or the AI accounts' providers, is one result; a provider
+                // match doesn't make the card's rows matches.
+                if ((groupHeaderMatches && settings.Count == 0)
+                    || (group.Items.OfType<Controls.EasyConnectView>().Any() && MatchesAiAccount(terms)))
+                {
+                    groupHasResults = true;
+                    matchCount++;
+                }
+
+                foreach (var item in settings)
+                {
+                    item.IsHighlighted = false;
+                    if (!item.IsVisible)
+                        continue;
+
+                    bool matches = groupHeaderMatches || MatchesSetting(item, terms);
+                    item.IsHighlighted = matches;
+                    if (matches) { groupHasResults = true; matchCount++; }
+                    else HideForSearch(item);
+                }
+
+                foreach (var disclosure in DisclosuresIn(group))
+                {
+                    if (!disclosure.IsVisible || !MatchesDisclosure(disclosure, terms))
+                        continue;
+
+                    OpenForSearch(disclosure, openedBySearch);
+                    groupHasResults = true;
+                    matchCount++;
+                }
+
+                if (!groupHasResults)
+                {
+                    HideForSearch(child);
+                    continue;
+                }
+
+                pageHasResults = true;
             }
 
             pageStack.IsVisible = pageHasResults;
@@ -494,12 +543,15 @@ public partial class SettingsView : UserControl
                 _pageHeaders[i].Description.IsVisible = false;
         }
 
+        // What a narrower query no longer needs open closes again.
+        CloseOpenedBySearch(openedBySearch);
+
         var resultWord = matchCount == 1 ? Loc.Search_Result : Loc.Search_Results;
 
         if (matchCount > 0)
         {
             _searchResultsHeader!.IsVisible = true;
-            _searchCountText!.Text = matchCount.ToString();
+            _searchCountText!.Text = matchCount.ToString(Loc.Culture);
             _searchQueryText!.Text = string.Format(Loc.Search_ResultsFor, resultWord, terms);
             _noResultsPanel!.IsVisible = false;
             _mainScrollViewer!.IsVisible = true;
@@ -521,35 +573,135 @@ public partial class SettingsView : UserControl
 
     private void RestoreAllVisibility()
     {
+        ReleaseSearchVisibility();
+
         for (int i = 0; i < _pages.Length; i++)
         {
             if (_pages[i] is not StackPanel pageStack) continue;
 
-            foreach (var child in pageStack.Children)
+            pageStack.Classes.Set("searching", false);
+            foreach (var group in pageStack.Children.OfType<StrataSettingGroup>())
             {
-                if (child is Expander expander)
-                {
-                    expander.IsVisible = true;
-                    if (_advancedExpandedBeforeSearch is { } wasExpanded)
-                        expander.IsExpanded = wasExpanded;
-                }
-                var group = child as StrataSettingGroup ?? (child as Expander)?.Content as StrataSettingGroup;
-                if (group is not null)
-                {
-                    group.IsVisible = true;
-                    foreach (var item in group.Items.OfType<StrataSetting>())
-                    {
-                        item.IsHighlighted = false;
-                        item.IsVisible = true;
-                    }
-                }
+                foreach (var item in SettingsIn(group))
+                    item.IsHighlighted = false;
             }
 
             // Restore page header descriptions
             if (i < _pageHeaders.Length)
                 _pageHeaders[i].Description.IsVisible = true;
         }
-        _advancedExpandedBeforeSearch = null;
+        CloseOpenedBySearch();
+    }
+
+    private void OpenForSearch(Expander expander, HashSet<Expander> opened)
+    {
+        _expandedBeforeSearch.TryAdd(expander, expander.IsExpanded);
+        expander.IsExpanded = true;
+        opened.Add(expander);
+    }
+
+    private void CloseOpenedBySearch(HashSet<Expander>? keepOpen = null)
+    {
+        foreach (var (expander, wasExpanded) in _expandedBeforeSearch.ToList())
+        {
+            if (keepOpen?.Contains(expander) == true)
+                continue;
+
+            expander.IsExpanded = wasExpanded;
+            _expandedBeforeSearch.Remove(expander);
+        }
+    }
+
+    // A card's rows can sit inside a panel of its own (the AI accounts' privacy row), not only directly in it.
+    private static IEnumerable<StrataSetting> SettingsIn(StrataSettingGroup group)
+    {
+        foreach (var item in group.Items.OfType<Control>())
+        {
+            if (item is StrataSetting setting)
+            {
+                yield return setting;
+                continue;
+            }
+
+            foreach (var nested in item.GetLogicalDescendants().OfType<StrataSetting>())
+                yield return nested;
+        }
+    }
+
+    // The parts of a card that open to show a match: expanders outside its rows that say what finds them.
+    private static IEnumerable<Expander> DisclosuresIn(StrataSettingGroup group)
+        => group.Items.OfType<Control>()
+            .Where(static item => item is not StrataSetting)
+            .SelectMany(static item => item.GetSelfAndLogicalDescendants().OfType<Expander>())
+            .Where(static expander => SettingsChrome.GetSearchText(expander) is not null
+                                      && expander.FindLogicalAncestorOfType<StrataSetting>() is null);
+
+    private static bool MatchesDisclosure(Expander disclosure, string query)
+    {
+        var names = new List<string?> { SettingsChrome.GetSearchText(disclosure) };
+        var descriptions = new List<string?>();
+        CollectOptionText(disclosure.Header, names, descriptions);
+        return SettingsSearch.Matches(query, names, descriptions);
+    }
+
+    private void HideForSearch(Control control)
+    {
+        if (!_searchHidden.ContainsKey(control))
+            _searchHidden[control] = control.Bind(Visual.IsVisibleProperty, new ConstantObservable<bool>(false), BindingPriority.Animation);
+    }
+
+    // A page that hasn't been shown isn't laid out, so its rows aren't in the window and their bindings
+    // (text, choices, visibility) haven't run. The first search lays every page out once.
+    private void LayOutAllPagesOnce()
+    {
+        if (_allPagesLaidOut || !IsEffectivelyVisible)
+            return;
+
+        foreach (var page in _pages)
+        {
+            if (page is not null)
+                page.IsVisible = true;
+        }
+        UpdateLayout();
+        _allPagesLaidOut = true;
+    }
+
+    private void ReleaseSearchVisibility()
+    {
+        foreach (var binding in _searchHidden.Values)
+            binding.Dispose();
+        _searchHidden.Clear();
+    }
+
+    private sealed class ConstantObservable<T>(T value) : IObservable<T>
+    {
+        public IDisposable Subscribe(IObserver<T> observer)
+        {
+            observer.OnNext(value);
+            return NoopDisposable.Instance;
+        }
+    }
+
+    private sealed class NoopDisposable : IDisposable
+    {
+        public static readonly NoopDisposable Instance = new();
+
+        public void Dispose()
+        {
+        }
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None
+            && DataContext is SettingsViewModel { IsConfirmingDanger: true } vm)
+        {
+            vm.CancelDangerActionCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        base.OnKeyDown(e);
     }
 
     private void ClearSearch()
@@ -560,14 +712,53 @@ public partial class SettingsView : UserControl
 
     private static bool MatchesSetting(StrataSetting setting, string query)
     {
-        var header = setting.Header ?? "";
-        var desc = setting.Description ?? "";
-        return FuzzySearch.IsMatch(query, header, desc);
+        var names = new List<string?> { setting.Header, SettingsChrome.GetSearchText(setting) };
+        var descriptions = new List<string?> { setting.Description };
+        CollectOptionText(setting.SettingContent, names, descriptions);
+        return SettingsSearch.Matches(query, names, descriptions);
+    }
+
+    // A row is also found by what it offers: "ocean" finds the accent colour, "compact" the density.
+    private static void CollectOptionText(object? content, List<string?> names, List<string?> descriptions)
+    {
+        switch (content)
+        {
+            case string text:
+                names.Add(text);
+                break;
+            case TextBlock block:
+                names.Add(block.Text);
+                break;
+            case SettingsChoice choice:
+                names.Add(choice.Label);
+                descriptions.Add(choice.Description);
+                break;
+            case AccentOption accent:
+                names.Add(accent.Name);
+                break;
+            case KeyboardShortcutItem shortcut:
+                descriptions.Add(shortcut.Description);
+                break;
+            case ItemsControl items:
+                foreach (var item in items.Items)
+                    CollectOptionText(item, names, descriptions);
+                break;
+            case ContentControl control:
+                CollectOptionText(control.Content, names, descriptions);
+                break;
+            case Decorator decorator:
+                CollectOptionText(decorator.Child, names, descriptions);
+                break;
+            case Panel panel:
+                foreach (var child in panel.Children)
+                    CollectOptionText(child, names, descriptions);
+                break;
+        }
     }
 
     private static bool MatchesAiAccount(string query)
         => Lumi.Services.Byok.ProviderCatalog.All.Any(profile =>
-            FuzzySearch.IsMatch(query, profile.Name, profile.Description, profile.Billing));
+            SettingsSearch.Matches(query, [profile.Name], [profile.Description, profile.Billing]));
 
     private void OnHotkeyRecorderButtonClick(object? sender, RoutedEventArgs e)
     {

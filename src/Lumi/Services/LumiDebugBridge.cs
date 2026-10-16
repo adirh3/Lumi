@@ -1142,7 +1142,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             else
             {
                 _mainViewModel.ApplyAmbientPresenceSetting(value);
-                _dataStore.NotifyPresenceSettingsChanged();
+                _dataStore.NotifyAppearanceSettingsChanged();
             }
         });
         SetBool("animatePresenceWhileWorking", value =>
@@ -1153,7 +1153,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             else
             {
                 _mainViewModel.ApplyPresenceAnimationSetting(value);
-                _dataStore.NotifyPresenceSettingsChanged();
+                _dataStore.NotifyAppearanceSettingsChanged();
             }
         });
         SetBool("sendWithEnter", value =>

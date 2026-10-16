@@ -1424,6 +1424,29 @@ public class UserSettings
 
     // ── Appearance ──
     public bool IsDarkTheme { get; set; } = true;
+
+    /// <summary>Follow the operating system's light or dark mode; <see cref="IsDarkTheme"/> then mirrors it.</summary>
+    public bool FollowSystemTheme { get; set; }
+
+    public const string DefaultAccentColor = "lumi";
+
+    /// <summary>Accent palette id (see <c>AccentPalettes</c>); "lumi" keeps Strata's own indigo.</summary>
+    public string AccentColor { get; set; } = DefaultAccentColor;
+
+    public const string WindowMaterialAuto = "auto";
+    public const string WindowMaterialMica = "mica";
+    public const string WindowMaterialSolid = "solid";
+
+    /// <summary>Window backdrop: "auto" (acrylic, or the platform's blur), "mica" (Windows 11) or "solid".</summary>
+    public string WindowMaterial { get; set; } = WindowMaterialAuto;
+
+    public const string PresenceBrightnessSubtle = "subtle";
+    public const string PresenceBrightnessBalanced = "balanced";
+    public const string PresenceBrightnessVivid = "vivid";
+
+    /// <summary>How bright the ambient presence glows: "subtle", "balanced" or "vivid".</summary>
+    public string PresenceBrightness { get; set; } = PresenceBrightnessBalanced;
+
     public bool IsCompactDensity { get; set; }
     public int UiScalePercent { get; set; } = 100;
     [JsonPropertyName("fontSize")]
@@ -1440,6 +1463,9 @@ public class UserSettings
     public bool ShowReasoning { get; set; } = true;
     public bool ExpandReasoningWhileStreaming { get; set; } = true;
     public bool AutoGenerateTitles { get; set; } = true;
+
+    /// <summary>Suggest follow-up prompts after Lumi replies. Each suggestion uses the background model.</summary>
+    public bool SuggestFollowUps { get; set; } = true;
 
     /// <summary>
     /// User preference for the companion Workspace panel. null = automatic (shows only on wide
