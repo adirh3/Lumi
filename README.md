@@ -591,8 +591,10 @@ respect the notch and home indicator, including after rotation and resume.
 The browser's measured safe areas remain authoritative instead of being overwritten
 by native resize notifications. Keyboard overlap is measured against the actual
 canvas only while an editable field is focused, so browser resizing, zoom, or a
-dismissed keyboard does not add a second bottom gap. Native browser editors use at
-least 16 CSS pixels to avoid Safari's automatic focus zoom and horizontal panning.
+dismissed keyboard does not add a second bottom gap. Android browsers resize the app above
+the keyboard, as Android apps do, instead of panning the whole page up to the editor.
+Native browser editors use at least 16 CSS pixels to avoid Safari's automatic focus zoom
+and horizontal panning.
 Browser chrome and startup backgrounds follow the selected Light, Dark, or System theme.
 Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript realizes
 only turns near the viewport while retaining the full loaded page and offscreen streaming

@@ -273,6 +273,15 @@ test('viewport updates coalesce after layout and cover focus, rotation, host res
     assert.equal(app.insets.at(-1)[4], 0);
 });
 
+test('Android browsers resize the app above the keyboard instead of panning it', () => {
+    const viewport = source('index.html').match(/<meta name="viewport" content="([^"]+)"/)[1];
+    assert.match(viewport, /interactive-widget=resizes-content/);
+
+    const app = viewportHost({ height: 544, active: { tagName: 'TEXTAREA' } });
+    app.publish();
+    assert.deepEqual(app.insets[0], [59, 0, 34, 0, 0, 544]);
+});
+
 test('browsers without visualViewport keep only their safe area', () => {
     const app = viewportHost({ active: { tagName: 'TEXTAREA' } });
     app.window.visualViewport = undefined;
