@@ -4,7 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -14,6 +16,7 @@ using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
 using StrataTheme.Animation;
+using StrataTheme.Controls;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -107,9 +110,10 @@ public sealed class SearchOverlayLayoutTests
 
         bool auroraVisible = true;
         bool pointerOver = false;
-        Color hoverColor = Colors.Transparent;
-        double hoverOpacity = -1;
-        double selectedOpacity = -1;
+        object? hoverBrush = null;
+        object? expectedHover = null;
+        object? selectedBrush = null;
+        object? expectedSelected = null;
         int surfaceShadowCount = -1;
 
         await session.Dispatch(async () =>
@@ -144,14 +148,10 @@ public sealed class SearchOverlayLayoutTests
 
             var surface = FindTemplateBorder(row, "PART_Surface")!;
             surfaceShadowCount = surface.BoxShadow.Count;
-            if (surface.Background is ISolidColorBrush brush)
-            {
-                hoverColor = brush.Color;
-                hoverOpacity = brush.Opacity;
-            }
-
-            if (FindTemplateBorder(rows[0], "PART_Surface")!.Background is ISolidColorBrush selectedBrush)
-                selectedOpacity = selectedBrush.Opacity;
+            hoverBrush = surface.Background;
+            selectedBrush = FindTemplateBorder(rows[0], "PART_Surface")!.Background;
+            overlay.TryFindResource("Search.RowHover", overlay.ActualThemeVariant, out expectedHover);
+            overlay.TryFindResource("Search.RowSelected", overlay.ActualThemeVariant, out expectedSelected);
 
             window.Close();
         }, CancellationToken.None);
@@ -159,9 +159,201 @@ public sealed class SearchOverlayLayoutTests
         Assert.True(pointerOver, "The pointer should hover the second result row.");
         Assert.False(auroraVisible, "Palette rows must not show the shared button accent line.");
         Assert.Equal(0, surfaceShadowCount);
-        Assert.Equal(Colors.White, hoverColor);
-        Assert.Equal(0.045, hoverOpacity, 3);
-        Assert.Equal(0.10, selectedOpacity, 3);
+        // Hover is a neutral wash and the keyboard selection the Strata wash, so the two never read alike.
+        Assert.IsAssignableFrom<ISolidColorBrush>(expectedHover);
+        Assert.Same(expectedHover, hoverBrush);
+        Assert.IsAssignableFrom<IGradientBrush>(expectedSelected);
+        Assert.Same(expectedSelected, selectedBrush);
+    }
+
+    // Only the palette is glass: it frosts what lies beneath it and lets that show through its translucent
+    // fill, while the rest of Lumi stays exactly as it is (and a click there still closes the palette). The
+    // Strata line under the field stays quiet while it is empty and comes up once there is a query.
+    [Fact]
+    public async Task Palette_FrostsOnlyItsOwnGlass_AndBrightensTheStrataLineWhileTyping()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        int frostCount = -1;
+        bool frostBacksTheCard = false;
+        double cardFrost = -1;
+        double fillOpacity = -1;
+        bool windowUntinted = false;
+        bool lineActiveWhenEmpty = true;
+        bool lineActiveWithQuery = false;
+        bool closedByOutsideClick = false;
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+
+            var vm = CreateViewModel(CreateAppData());
+            var overlay = new SearchOverlay { DataContext = vm };
+            var window = new Window { Width = 1200, Height = 800, Content = overlay };
+            window.Show();
+
+            vm.IsOpen = true;
+            await PumpAsync();
+
+            var frosts = overlay.GetVisualDescendants().OfType<StrataBackdropBlur>().ToList();
+            frostCount = frosts.Count;
+            if (frosts.Count == 1)
+            {
+                frostBacksTheCard = frosts[0].GetVisualParent() is Panel { Name: "CardHost" };
+                cardFrost = frosts[0].BlurRadius;
+            }
+
+            if (FindCard(overlay).Background is ISolidColorBrush fill)
+                fillOpacity = fill.Opacity * fill.Color.A / 255d;
+
+            windowUntinted = overlay.GetVisualDescendants()
+                .OfType<Border>()
+                .Single(border => border.Name == "Scrim")
+                .Background is ISolidColorBrush { Color.A: 0 };
+
+            var line = overlay.GetVisualDescendants()
+                .OfType<Border>()
+                .Single(border => border.Name == "StratumLine");
+            lineActiveWhenEmpty = line.Classes.Contains("active");
+
+            vm.SearchQuery = "docker";
+            await PumpAsync();
+            lineActiveWithQuery = line.Classes.Contains("active");
+
+            // Below the palette, where only the untinted window shows.
+            window.MouseDown(new Point(600, 760), MouseButton.Left);
+            window.MouseUp(new Point(600, 760), MouseButton.Left);
+            await PumpAsync();
+            closedByOutsideClick = !vm.IsOpen;
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.Equal(1, frostCount);
+        Assert.True(frostBacksTheCard, "The only frost should sit behind the palette's glass, not over the window.");
+        Assert.True(cardFrost > 0, "The palette's glass should frost what lies beneath it.");
+        Assert.InRange(fillOpacity, 0.01, 0.75);
+        Assert.True(windowUntinted, "Lumi should stay as it is behind the palette.");
+        Assert.True(closedByOutsideClick, "Clicking outside the palette should still close it.");
+        Assert.False(lineActiveWhenEmpty, "The Strata line should stay quiet while the field is empty.");
+        Assert.True(lineActiveWithQuery, "The Strata line should come up once there is a query.");
+    }
+
+    // Results and filter chips wear their category's hue, so a project reads as a project at a glance.
+    [Fact]
+    public async Task ResultTilesAndFilterChips_WearTheirCategoryHue()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        object? chatTileHue = null;
+        object? projectTileHue = null;
+        object? projectChipHue = null;
+        object? expectedChatHue = null;
+        object? expectedProjectHue = null;
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+
+            var vm = CreateViewModel(CreateMixedAppData());
+            var overlay = new SearchOverlay { DataContext = vm };
+            var window = new Window { Width = 1200, Height = 800, Content = overlay };
+            window.Show();
+
+            vm.IsOpen = true;
+            await PumpAsync();
+
+            vm.SearchQuery = "atlas";
+            await WaitForCategoriesAsync(vm, GlobalSearchCategory.Chats, GlobalSearchCategory.Projects);
+            await PumpAsync();
+
+            var tiles = overlay.GetVisualDescendants()
+                .OfType<Panel>()
+                .Where(panel => panel.Classes.Contains("result-tile"))
+                .ToList();
+            chatTileHue = tiles
+                .First(tile => SearchHue.GetCategory(tile) == GlobalSearchCategory.Chats)
+                .GetValue(TextElement.ForegroundProperty);
+            projectTileHue = tiles
+                .First(tile => SearchHue.GetCategory(tile) == GlobalSearchCategory.Projects)
+                .GetValue(TextElement.ForegroundProperty);
+            projectChipHue = overlay.GetVisualDescendants()
+                .OfType<StrataLineIcon>()
+                .First(icon => icon.Classes.Contains("chip-icon")
+                               && SearchHue.GetCategory(icon) == GlobalSearchCategory.Projects)
+                .Foreground;
+
+            overlay.TryFindResource("Search.Hue.Chats", overlay.ActualThemeVariant, out expectedChatHue);
+            overlay.TryFindResource("Search.Hue.Projects", overlay.ActualThemeVariant, out expectedProjectHue);
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.NotNull(expectedChatHue);
+        Assert.NotNull(expectedProjectHue);
+        Assert.NotSame(expectedChatHue, expectedProjectHue);
+        Assert.Same(expectedChatHue, chatTileHue);
+        Assert.Same(expectedProjectHue, projectTileHue);
+        Assert.Same(expectedProjectHue, projectChipHue);
+    }
+
+    [Fact]
+    public async Task ClickingAFilterChip_NarrowsResultsToItsCategory()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        GlobalSearchCategory? selectedCategory = null;
+        bool onlyProjects = false;
+        string? selectedChip = null;
+        bool inputKeptFocus = false;
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+
+            var vm = CreateViewModel(CreateMixedAppData());
+            var overlay = new SearchOverlay { DataContext = vm };
+            var window = new Window { Width = 1200, Height = 800, Content = overlay };
+            window.Show();
+
+            vm.IsOpen = true;
+            await PumpAsync();
+
+            var input = overlay.GetVisualDescendants()
+                .OfType<TextBox>()
+                .Single(control => control.Name == "SearchOverlayInput");
+            input.Focus();
+
+            vm.SearchQuery = "atlas";
+            await WaitForCategoriesAsync(vm, GlobalSearchCategory.Chats, GlobalSearchCategory.Projects);
+            await PumpAsync();
+
+            var chip = overlay.GetVisualDescendants()
+                .OfType<Button>()
+                .First(button => button.Classes.Contains("search-chip")
+                                 && button.Tag is SearchCategoryFilterItem { CategoryKey: GlobalSearchCategory.Projects });
+            var center = chip.TranslatePoint(new Point(chip.Bounds.Width / 2, chip.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseUp(center, MouseButton.Left);
+            await PumpAsync();
+
+            selectedCategory = vm.SelectedCategory;
+            onlyProjects = vm.FlatResults.Count > 0
+                           && vm.FlatResults.All(result => result.CategoryKey == GlobalSearchCategory.Projects);
+            selectedChip = overlay.GetVisualDescendants()
+                .OfType<Button>()
+                .Where(button => button.Classes.Contains("search-chip") && button.Classes.Contains("selected"))
+                .Select(button => (button.Tag as SearchCategoryFilterItem)?.Label)
+                .SingleOrDefault();
+            inputKeptFocus = input.IsFocused;
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.Equal(GlobalSearchCategory.Projects, selectedCategory);
+        Assert.True(onlyProjects, "Only projects should remain once the Projects chip is chosen.");
+        Assert.Equal("Projects", selectedChip);
+        Assert.True(inputKeptFocus, "Choosing a chip should leave the caret in the search field.");
     }
 
     // The indeterminate progress line used to collapse to a ~12px stub parked at the left edge, because the
@@ -255,6 +447,18 @@ public sealed class SearchOverlayLayoutTests
     private static Border? FindTemplateBorder(Button row, string name)
         => row.GetVisualDescendants().OfType<Border>().FirstOrDefault(border => border.Name == name);
 
+    private static async Task WaitForCategoriesAsync(SearchOverlayViewModel vm, params GlobalSearchCategory[] categories)
+    {
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            await PumpAsync();
+            if (categories.All(category => vm.FlatResults.Any(result => result.CategoryKey == category)))
+                return;
+
+            await Task.Delay(25);
+        }
+    }
+
     private static async Task<int> WaitForResultsAsync(SearchOverlayViewModel vm)
     {
         for (var attempt = 0; attempt < 60; attempt++)
@@ -291,6 +495,23 @@ public sealed class SearchOverlayLayoutTests
             [
                 new Chat { Title = "Docker", UpdatedAt = now },
                 new Chat { Title = LongTitle, UpdatedAt = now.AddMinutes(-1) }
+            ]
+        };
+    }
+
+    private static AppData CreateMixedAppData()
+    {
+        var now = DateTimeOffset.Now;
+        return new AppData
+        {
+            Chats =
+            [
+                new Chat { Title = "Atlas launch notes", UpdatedAt = now },
+                new Chat { Title = "Atlas retro", UpdatedAt = now.AddMinutes(-3) }
+            ],
+            Projects =
+            [
+                new Project { Name = "Atlas" }
             ]
         };
     }

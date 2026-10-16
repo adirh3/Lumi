@@ -74,6 +74,8 @@
     <StreamGeometry x:Key="Icon.Gear">M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915z M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Compose">M15.2 3.8a2.4 2.4 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4L9 20l-5 1 1-5L15.2 3.8z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Search">M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
+    <!-- The search palette's glyph, drawn as a Strata line icon. -->
+    <StreamGeometry x:Key="Icon.SearchLine">M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z M15.5 15.5 20 20</StreamGeometry>
     <StreamGeometry x:Key="Icon.Plus">M12 4a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5a1 1 0 0 1 1-1z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Close">M5.3 5.3a1 1 0 0 1 1.4 0L12 10.6l5.3-5.3a1 1 0 1 1 1.4 1.4L13.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4L12 13.4l-5.3 5.3a1 1 0 0 1-1.4-1.4L10.6 12 5.3 6.7a1 1 0 0 1 0-1.4z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Window">M9 3.5h7.5a2 2 0 0 1 2 2V11a2 2 0 0 1-2 2H15v-1.6h1.5a.4.4 0 0 0 .4-.4V5.5a.4.4 0 0 0-.4-.4H9a.4.4 0 0 0-.4.4V7H7V5.5a2 2 0 0 1 2-2zM5.5 7h8a2 2 0 0 1 2 2v4.5a2 2 0 0 1-2 2h-2.1l-2.78 2.08c-.43.32-1.04.01-1.04-.52V15.5H5.5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM5.5 8.6a.4.4 0 0 0-.4.4v4.5c0 .22.18.4.4.4h2.88c.44 0 .8.36.8.8v.82l1.38-1.04c.28-.21.62-.32.97-.32h1.97c.22 0 .4-.18.4-.4V9a.4.4 0 0 0-.4-.4h-8z</StreamGeometry>
@@ -255,6 +257,85 @@
     </Style>
     <Style Selector="Border.nav-pill:pointerover">
       <Setter Property="BoxShadow" Value="0 4 16 0 #28000000" />
+    </Style>
+
+    <!-- ── Search: the sidebar's field for the palette, a quiet row like New Chat below it: no fill or border
+         until hovered. Hovering washes it and tips the glass, unless animations are off. ── -->
+    <Style Selector="Button.sidebar-search">
+      <Setter Property="Height" Value="32" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="10,0,5,0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleDefault}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="FontWeight" Value="Normal" />
+    </Style>
+    <Style Selector="Button.sidebar-search /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.18" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.sidebar-search /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.sidebar-search:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.sidebar-search:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+      <Setter Property="RenderTransform" Value="scale(0.98)" />
+    </Style>
+    <Style Selector="Button.sidebar-search sc|StrataLineIcon.sidebar-search-glyph">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.18" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.28" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.sidebar-search:pointerover sc|StrataLineIcon.sidebar-search-glyph">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.sidebar-search:not(.motion-disabled):pointerover sc|StrataLineIcon.sidebar-search-glyph">
+      <Setter Property="RenderTransform" Value="rotate(-14deg)" />
+    </Style>
+    <Style Selector="Button.sidebar-search TextBlock.sidebar-search-label">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Button.sidebar-search:pointerover TextBlock.sidebar-search-label">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border.sidebar-search-key">
+      <Setter Property="Height" Value="20" />
+      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{StaticResource Navigation.PillBorder}" />
+    </Style>
+    <Style Selector="Border.sidebar-search-key > TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
     <!-- Places in the pill. Only the place you're on shows its name (see UpdateNavLabels); the label
@@ -1260,31 +1341,19 @@
           <!-- ── Top: Title bar inset (respects window chrome) ── -->
           <Border DockPanel.Dock="Top" IsHitTestVisible="False" Height="38" />
 
-          <!-- ── Search button (opens command palette). Left margin leaves room for the sidebar toggle. ── -->
-          <Border DockPanel.Dock="Top" Margin="54,4,14,4">
-            <Button Classes="subtle" HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Stretch"
-                    CornerRadius="{DynamicResource Radius.Base}"
-                    Padding="8,5" MinHeight="0"
-                    ToolTip.Tip="{loc:Str Sidebar_Search}"
+          <!-- ── Search: a glass field that opens the palette (Ctrl+K). Left margin leaves room for the sidebar toggle. ── -->
+          <Border DockPanel.Dock="Top" Margin="54,3,14,5">
+            <Button x:Name="SidebarSearchButton"
+                    Classes="sidebar-search"
+                    Classes.motion-disabled="{Binding !SettingsVM.ShowAnimations}"
+                    AutomationProperties.Name="{loc:Str Sidebar_Search}"
                     Click="SearchButton_Click">
               <DockPanel>
-                <Border DockPanel.Dock="Right"
-                        Background="{DynamicResource Brush.ControlDefault}"
-                        CornerRadius="3" Padding="4,1"
-                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                        BorderThickness="1" VerticalAlignment="Center">
-                  <TextBlock x:Name="SearchButtonShortcut" Text="Ctrl+K" FontSize="10" FontFamily="{DynamicResource Font.FamilyMono}"
-                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                <Border DockPanel.Dock="Right" Classes="sidebar-search-key">
+                  <TextBlock x:Name="SearchButtonShortcut" Text="Ctrl+K" />
                 </Border>
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <PathIcon Data="{StaticResource Icon.Search}" Width="11" Height="11"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            VerticalAlignment="Center" />
-                  <TextBlock Text="{loc:Str Sidebar_Search_Short}" FontSize="12"
-                             Foreground="{DynamicResource Brush.TextTertiary}"
-                             VerticalAlignment="Center" />
-                </StackPanel>
+                <sc:StrataLineIcon Classes="sidebar-search-glyph" Data="{StaticResource Icon.SearchLine}" />
+                <TextBlock Classes="sidebar-search-label" Text="{loc:Str Sidebar_Search_Short}" />
               </DockPanel>
             </Button>
           </Border>
