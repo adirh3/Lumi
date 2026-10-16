@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 
 const source = name => readFileSync(
     new URL(`../../src/Lumi.Mobile.Browser/wwwroot/${name}`, import.meta.url), 'utf8');
@@ -1146,6 +1147,13 @@ test('published inventory covers final app/WASM bytes with stable content hashes
         assert.notEqual(asset.url, 'service-worker-assets.js');
         const bytes = readFileSync(path.join(publishRoot, ...asset.url.split('/')));
         assert.equal(asset.hash, 'sha256-' + createHash('sha256').update(bytes).digest('base64'), asset.url);
+    }
+    for (const name of [...assets.map(asset => asset.url), 'service-worker-assets.js']) {
+        const file = path.join(publishRoot, ...name.split('/'));
+        for (const [extension, decompress] of [['.br', brotliDecompressSync], ['.gz', gunzipSync]]) {
+            if (existsSync(file + extension))
+                assert.deepEqual(decompress(readFileSync(file + extension)), readFileSync(file), name + extension);
+        }
     }
     const inventoryBytes = content.slice(0, content.indexOf('self.lumiAssetVersion'));
     assert.equal(self.lumiAssetVersion, createHash('sha256').update(inventoryBytes).digest('hex').toUpperCase());
