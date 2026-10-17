@@ -723,7 +723,8 @@
   "ConnectorCaption_Copilot": "From GitHub Copilot",
   "Connector_Issue_NeedsSignIn": "Needs you to sign in.",
   "Connector_Issue_SignInOpened": "Finish signing in in your browser.",
-  "Connector_Issue_SignInFailed": "Couldn't start sign-in automatically.",
+  "Connector_Issue_SignInWindowOpened": "Finish signing in in the Microsoft window.",
+  "Connector_Issue_SignInFailed": "Couldn't sign in automatically.",
   "Connector_Issue_CommandNotFound": "Couldn't start: “{0}” wasn't found on this computer.",
   "Connector_Issue_CommandMissing": "Couldn't start: its command wasn't found on this computer.",
   "Connector_Issue_ClosedOnStart": "Couldn't start: it closed right after launching.",
@@ -1115,6 +1116,8 @@
   "Status_Reconnecting": "Reconnecting\u2026",
   "Status_CopilotStoppedResponding": "GitHub Copilot stopped responding. Lumi couldn't recover this turn automatically.",
   "Status_ConnectingMcp": "Starting connectors…",
+  "Status_WaitingForConnectorSignIn": "Waiting for you to sign in to {0}…",
+  "Chat_SendWithoutSignIn": "Send without signing in",
   "Status_CreatingWorktree": "Creating worktree\u2026",
 
   "Author_Lumi": "Lumi",

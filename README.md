@@ -1060,7 +1060,7 @@ git submodule update --init --recursive
 ### Build & Run
 
 The Copilot SDK is an official NuGet dependency: `GitHub.Copilot.SDK`
-`1.0.17-preview.7`, restored from NuGet.org. This is a prerelease; its native
+`1.0.23-preview.5`, restored from NuGet.org. This is a prerelease; its native
 skill-provider API is experimental. Avalonia is also restored from NuGet.org;
 no vendored package feed is needed. No SDK submodule, source build, patch step,
 feed credentials, or Node.js installation

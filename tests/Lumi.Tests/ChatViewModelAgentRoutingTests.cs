@@ -1321,7 +1321,8 @@ public sealed class ChatViewModelAgentRoutingTests
             "EnsureSessionAsync",
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
-        var result = method!.Invoke(viewModel, [chat, ct, allowCreateFallback]);
+        // Reflection does not apply optional defaults, so pass holdForConnectorSignIn explicitly.
+        var result = method!.Invoke(viewModel, [chat, ct, allowCreateFallback, false]);
         // Not IsType: .NET 11 may hand back a runtime-async task subtype rather than a plain
         // Task<bool>, and which one appears depends on JIT tiering — an implementation detail.
         return await Assert.IsAssignableFrom<Task<bool>>(result);

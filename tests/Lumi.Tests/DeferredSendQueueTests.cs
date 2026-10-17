@@ -2824,9 +2824,12 @@ public sealed class DeferredSendQueueTests
                 .GetValue(Session)!;
             foreach (var subscription in subscriptions)
             {
-                var handler = (Action<SessionEvent>)subscription.GetType()
-                    .GetProperty("Handler")!.GetValue(subscription)!;
-                handler(evt);
+                // Each subscription's own Invoke applies the SDK's event-type and root-agent filtering.
+                var invoke = (Action<SessionEvent>)Delegate.CreateDelegate(
+                    typeof(Action<SessionEvent>),
+                    subscription,
+                    subscription.GetType().GetMethod("Invoke", BindingFlags.Instance | BindingFlags.Public)!);
+                invoke(evt);
             }
         }
 

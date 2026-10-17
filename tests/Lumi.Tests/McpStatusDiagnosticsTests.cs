@@ -101,14 +101,29 @@ public sealed class McpStatusDiagnosticsTests
     public void McpOAuthMessagesUseOriginalDisplayName()
     {
         var opened = ChatViewModel.BuildMcpOAuthOpenedMessage("Azure ARM MCP");
+        var windowOpened = ChatViewModel.BuildMcpOAuthWindowOpenedMessage("Azure ARM MCP");
         var failed = ChatViewModel.BuildMcpOAuthFailureMessage(
             "Azure ARM MCP",
             "dynamic registration unavailable");
 
         Assert.Contains("'Azure ARM MCP'", opened, StringComparison.Ordinal);
+        Assert.Contains("'Azure ARM MCP'", windowOpened, StringComparison.Ordinal);
         Assert.Contains("'Azure ARM MCP'", failed, StringComparison.Ordinal);
         Assert.DoesNotContain("Azure_ARM_MCP", opened, StringComparison.Ordinal);
         Assert.DoesNotContain("Azure_ARM_MCP", failed, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Microsoft.AAD.BrokerPlugin_cw5n1h2txyewy!App", true)]
+    [InlineData("microsoft.aad.brokerplugin_cw5n1h2txyewy!app", true)]
+    [InlineData("windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel", false)]
+    [InlineData(null, false)]
+    public void OnlyTheAccountBrokersWindowCountsAsTheSignInPrompt(string? appUserModelId, bool expected)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        Assert.Equal(expected, AccountBrokerPrompt.IsBrokerApp(appUserModelId));
     }
 
     private static int GetFreeLoopbackPort()

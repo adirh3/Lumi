@@ -56,6 +56,8 @@ public class TranscriptBuilder
     private string? _currentIntentText;
     private TypingIndicatorItem? _typingIndicator;
     private TranscriptTurn? _typingTurn;
+    private string? _typingActionLabel;
+    private System.Windows.Input.ICommand? _typingActionCommand;
     private TranscriptTurn? _currentTurn;
     private readonly Dictionary<string, TerminalPreviewItem> _terminalPreviewsByToolCallId = new(StringComparer.Ordinal);
     /// <summary>Running tool rows by tool call id, so their progress messages reach the row and its card.</summary>
@@ -2743,7 +2745,11 @@ public class TranscriptBuilder
 
         if (_typingIndicator is null)
         {
-            _typingIndicator = new TypingIndicatorItem(label ?? Loc.Status_Thinking);
+            _typingIndicator = new TypingIndicatorItem(label ?? Loc.Status_Thinking)
+            {
+                ActionLabel = _typingActionLabel,
+                ActionCommand = _typingActionCommand,
+            };
             _typingTurn = new TranscriptTurn("turn:typing");
             _typingTurn.Items.Add(_typingIndicator);
             _liveTarget.Add(_typingTurn);
@@ -2782,6 +2788,21 @@ public class TranscriptBuilder
             _typingIndicator.Label = label;
             PublishLiveActivity();
         }
+    }
+
+    /// <summary>
+    /// Offers an action beside the typing indicator, or removes it when <paramref name="command"/> is null.
+    /// It is kept for an indicator shown later, so it survives the indicator being recreated.
+    /// </summary>
+    public void SetTypingIndicatorAction(string? label, System.Windows.Input.ICommand? command)
+    {
+        _typingActionLabel = command is null ? null : label;
+        _typingActionCommand = command;
+        if (_typingIndicator is null)
+            return;
+
+        _typingIndicator.ActionLabel = _typingActionLabel;
+        _typingIndicator.ActionCommand = _typingActionCommand;
     }
 
     public void UpdateTerminalOutput(string rootToolCallId, string output, bool replaceExistingOutput)

@@ -87,6 +87,36 @@ public sealed class ChatHeaderTests
     }
 
     [Fact]
+    public void TypingIndicatorAction_StaysOnTheIndicatorUntilCleared()
+    {
+        var turns = new ObservableCollection<TranscriptTurn>();
+        var builder = new TranscriptBuilder(
+            CreateDataStore(), _ => { }, (_, _) => { }, _ => { }, (_, _) => Task.CompletedTask, () => null);
+        builder.SetLiveTarget(turns);
+        var command = new CommunityToolkit.Mvvm.Input.RelayCommand(() => { });
+
+        builder.ShowTypingIndicator("Waiting for you to sign in to workiq…");
+        builder.SetTypingIndicatorAction("Send without signing in", command);
+        var indicator = Assert.IsType<TypingIndicatorItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.Equal("Send without signing in", indicator.ActionLabel);
+        Assert.Same(command, indicator.ActionCommand);
+
+        // Switching chats or rebuilding the transcript shows a new indicator, which keeps the action.
+        builder.HideTypingIndicator();
+        builder.ShowTypingIndicator("Waiting for you to sign in to workiq…");
+        var recreated = Assert.IsType<TypingIndicatorItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.Same(command, recreated.ActionCommand);
+
+        builder.SetTypingIndicatorAction("Send without signing in", null);
+        Assert.Null(recreated.ActionLabel);
+        Assert.Null(recreated.ActionCommand);
+
+        builder.HideTypingIndicator();
+        builder.ShowTypingIndicator("Thinking…");
+        Assert.Null(Assert.IsType<TypingIndicatorItem>(Assert.Single(Assert.Single(turns).Items)).ActionCommand);
+    }
+
+    [Fact]
     public void LiveActivity_NamesTheRunningStepUntilItFinishes()
     {
         Loc.Load("en");

@@ -120,7 +120,11 @@ internal static partial class McpConnectorIssues
     public static McpConnectorIssue SignInOpened(McpConnectorIssue pending, string message)
         => new(McpConnectorIssueKind.SignInOpened, Loc.Connector_Issue_SignInOpened, JoinSections(message, pending.Details));
 
-    /// <summary>Lumi could not start the connector's sign-in.</summary>
+    /// <summary>The Microsoft sign-in window opened for the connector's sign-in.</summary>
+    public static McpConnectorIssue SignInWindowOpened(McpConnectorIssue pending, string message)
+        => new(McpConnectorIssueKind.SignInOpened, Loc.Connector_Issue_SignInWindowOpened, JoinSections(message, pending.Details));
+
+    /// <summary>Lumi couldn't sign in to the connector: sign-in couldn't start, or wasn't finished.</summary>
     public static McpConnectorIssue SignInFailed(McpConnectorIssue pending, string message, Exception error)
         => new(
             McpConnectorIssueKind.SignInFailed,

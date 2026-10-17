@@ -1601,6 +1601,10 @@ public partial class TypingIndicatorItem : TranscriptItem
     [ObservableProperty] private string _label;
     [ObservableProperty] private bool _isActive;
 
+    /// <summary>An optional action offered beside the indicator, such as sending without a connector sign-in.</summary>
+    [ObservableProperty] private string? _actionLabel;
+    [ObservableProperty] private ICommand? _actionCommand;
+
     public TypingIndicatorItem(string label)
         : base("typing-indicator")
     {

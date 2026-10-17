@@ -2662,8 +2662,21 @@
 
     <!-- ── Typing indicator ─────────────────────────── -->
     <DataTemplate DataType="vm:TypingIndicatorItem">
-      <sc:StrataTypingIndicator Label="{Binding Label}"
-                                IsActive="{Binding IsActive}" />
+      <!-- The indicator gets only the width the action leaves, so a long label still trims. -->
+      <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Left">
+        <sc:StrataTypingIndicator Label="{Binding Label}"
+                                  IsActive="{Binding IsActive}"
+                                  VerticalAlignment="Top" />
+        <!-- An action offered while Lumi waits, such as sending without a connector sign-in.
+             A compact Strata button shaped and offset like the indicator pill, so the row keeps its height. -->
+        <Button x:Name="TypingIndicatorAction"
+                Grid.Column="1"
+                Content="{Binding ActionLabel}"
+                Command="{Binding ActionCommand}"
+                IsVisible="{Binding ActionCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
+                Margin="8,4,0,0" Padding="10,4" MinHeight="0" CornerRadius="999"
+                FontSize="12" VerticalAlignment="Top" />
+      </Grid>
     </DataTemplate>
 
     <!-- ── Turn summary ─────────────────────────────── -->

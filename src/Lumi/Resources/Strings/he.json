@@ -724,7 +724,8 @@
   "ConnectorCaption_Copilot": "מ-GitHub Copilot",
   "Connector_Issue_NeedsSignIn": "נדרשת התחברות.",
   "Connector_Issue_SignInOpened": "השלם את ההתחברות בדפדפן.",
-  "Connector_Issue_SignInFailed": "לא ניתן היה להתחיל את ההתחברות אוטומטית.",
+  "Connector_Issue_SignInWindowOpened": "השלם את ההתחברות בחלון של Microsoft.",
+  "Connector_Issue_SignInFailed": "לא ניתן היה להתחבר אוטומטית.",
   "Connector_Issue_CommandNotFound": "ההפעלה נכשלה: „{0}” לא נמצא במחשב הזה.",
   "Connector_Issue_CommandMissing": "ההפעלה נכשלה: הפקודה שלו לא נמצאה במחשב הזה.",
   "Connector_Issue_ClosedOnStart": "ההפעלה נכשלה: הוא נסגר מיד אחרי שהופעל.",
@@ -1105,6 +1106,8 @@
   "Status_Reconnecting": "מתחבר מחדש\u2026",
   "Status_CopilotStoppedResponding": "GitHub Copilot הפסיק להגיב ו-Lumi לא הצליח לשחזר את התור הזה אוטומטית.",
   "Status_ConnectingMcp": "מפעיל מחברים…",
+  "Status_WaitingForConnectorSignIn": "ממתין שתתחבר אל {0}…",
+  "Chat_SendWithoutSignIn": "שלח בלי להתחבר",
   "Status_CreatingWorktree": "יוצר worktree\u2026",
 
   "Author_Lumi": "לומי",

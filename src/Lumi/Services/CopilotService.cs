@@ -1152,30 +1152,49 @@ public class CopilotService : IAsyncDisposable
     /// when non-empty, the runtime starts the loopback callback listener before returning and finishes
     /// the flow in the background, signalling completion via the session's
     /// <c>mcp_server_status_changed</c> event.
+    /// <para>
+    /// Microsoft Entra connectors such as Work IQ sign in through the Windows account broker instead of a
+    /// browser: no URL is returned, and the call ends once the broker's own sign-in window is done. That
+    /// window opens without an owner, so the one opening for this login is brought to the front and
+    /// reported through <paramref name="signInWindowShown"/>. The call takes no cancellation token on
+    /// purpose: cancelling it makes the runtime discard a sign-in the user may still be finishing.
+    /// </para>
     /// </remarks>
     /// <returns>The authorization URL that was opened, or an empty string when no browser step was required.</returns>
     public async Task<string> StartMcpOAuthLoginAsync(
         CopilotSession session,
         string serverName,
         bool forceReauth = false,
-        CancellationToken ct = default)
+        Action? signInWindowShown = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         if (string.IsNullOrWhiteSpace(serverName))
             return string.Empty;
 
-        var result = await session.Rpc.Mcp.Oauth.LoginAsync(
-            serverName,
-            forceReauth,
-            clientName: "Lumi",
-            callbackSuccessMessage: $"Signed in to \"{serverName}\". You can return to Lumi — the connector will reconnect automatically.",
-            cancellationToken: ct).ConfigureAwait(false);
+        using var promptWatch = new CancellationTokenSource();
+        var prompt = OperatingSystem.IsWindows()
+            ? AccountBrokerPrompt.BringToFrontAsync(signInWindowShown, promptWatch.Token)
+            : Task.CompletedTask;
+        try
+        {
+            var result = await session.Rpc.Mcp.Oauth.LoginAsync(
+                serverName,
+                forceReauth,
+                clientName: "Lumi",
+                callbackSuccessMessage: $"Signed in to \"{serverName}\". You can return to Lumi — the connector will reconnect automatically.")
+                .ConfigureAwait(false);
 
-        var url = result?.AuthorizationUrl;
-        if (!string.IsNullOrWhiteSpace(url))
-            OpenBrowser(url);
+            var url = result?.AuthorizationUrl;
+            if (!string.IsNullOrWhiteSpace(url))
+                OpenBrowser(url);
 
-        return url ?? string.Empty;
+            return url ?? string.Empty;
+        }
+        finally
+        {
+            promptWatch.Cancel();
+            await prompt.ConfigureAwait(false);
+        }
     }
 
     /// <summary>Lists all known sessions, optionally filtered.</summary>

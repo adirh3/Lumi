@@ -71,6 +71,7 @@ public sealed class McpConnectorIssuesTests
         var remoteSignIn = McpConnectorIssues.Describe(McpServerStatus.NeedsAuth, "", Remote);
         var localSignIn = McpConnectorIssues.Describe(McpServerStatus.NeedsAuth, "", Local);
         var opened = McpConnectorIssues.SignInOpened(remoteSignIn, "Lumi opened your browser.");
+        var windowOpened = McpConnectorIssues.SignInWindowOpened(remoteSignIn, "A Microsoft sign-in window opened.");
         var failed = McpConnectorIssues.SignInFailed(remoteSignIn, "Couldn't start sign-in.", new InvalidOperationException("no registration"));
         var starting = McpConnectorIssues.StillStarting("Tools", TimeSpan.FromSeconds(10), Local, null);
         var retrying = McpConnectorIssues.Retrying(McpConnectorIssues.Describe(McpServerStatus.Failed, "spawn npx ENOENT", Local));
@@ -78,6 +79,9 @@ public sealed class McpConnectorIssuesTests
         Assert.False(remoteSignIn.IsProblem);
         Assert.True(localSignIn.IsProblem);
         Assert.False(opened.IsProblem);
+        Assert.False(windowOpened.IsProblem);
+        Assert.Equal(Loc.Connector_Issue_SignInWindowOpened, windowOpened.Summary);
+        Assert.Contains("A Microsoft sign-in window opened.", windowOpened.Details, StringComparison.Ordinal);
         Assert.True(failed.IsProblem);
         Assert.Contains("no registration", failed.Details, StringComparison.Ordinal);
         Assert.False(starting.IsProblem);
