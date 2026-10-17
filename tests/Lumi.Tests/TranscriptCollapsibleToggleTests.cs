@@ -73,8 +73,8 @@ public sealed class TranscriptCollapsibleToggleTests
                 Assert.Null(card.HeaderExtra);
                 Assert.Null(card.DisplayedContent);
                 Assert.Same(card.PreviewContent, card.DisplayedPreviewContent);
-                var rows = view.GetVisualDescendants().OfType<Grid>()
-                    .Where(grid => grid.Classes.Contains("activity-preview-row")).ToArray();
+                var rows = view.GetVisualDescendants().OfType<Control>()
+                    .Where(row => row.Classes.Contains("activity-preview-row")).ToArray();
                 Assert.Equal(3, rows.Length);
                 for (var index = 0; index < rows.Length; index++)
                 {
@@ -102,13 +102,16 @@ public sealed class TranscriptCollapsibleToggleTests
                 var details = view.GetVisualDescendants()
                     .Where(control => control is StrataAiToolCall or StrataTerminalPreview).ToArray();
                 Assert.Equal(4, details.Length);
+                // Stacking is measured inside the list, beneath the card's reveal and press transforms.
+                var list = view.GetVisualDescendants().OfType<ItemsControl>().Single(control => control.Name == "ToolGroupDetails");
                 for (var index = 1; index < details.Length; index++)
                 {
-                    var previous = details[index - 1].TranslatePoint(default, window)!.Value;
-                    var position = details[index].TranslatePoint(default, window)!.Value;
+                    var previous = details[index - 1].TranslatePoint(default, list)!.Value;
+                    var position = details[index].TranslatePoint(default, list)!.Value;
                     var farEdge = details[index].TranslatePoint(new Point(details[index].Bounds.Width, 0), window)!.Value;
-                    Assert.True(position.Y >= previous.Y + details[index - 1].Bounds.Height);
-                    Assert.InRange(position.X, 0, width + 1);
+                    Assert.True(position.Y >= previous.Y + details[index - 1].Bounds.Height,
+                        $"Row {index} at {position.Y} overlaps row {index - 1} at {previous.Y} (height {details[index - 1].Bounds.Height}).");
+                    Assert.InRange(details[index].TranslatePoint(default, window)!.Value.X, 0, width + 1);
                     Assert.InRange(farEdge.X, 0, width + 1);
                 }
 
@@ -141,8 +144,8 @@ public sealed class TranscriptCollapsibleToggleTests
                 Assert.Null(card.DisplayedPreviewContent);
                 Assert.Null(card.DisplayedContent);
                 Assert.DoesNotContain(":activity", card.Classes);
-                Assert.DoesNotContain(view.GetVisualDescendants().OfType<Grid>(),
-                    grid => grid.Classes.Contains("activity-preview-row"));
+                Assert.DoesNotContain(view.GetVisualDescendants().OfType<Control>(),
+                    row => row.Classes.Contains("activity-preview-row"));
             }
             finally
             {

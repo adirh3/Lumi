@@ -3,6 +3,7 @@
              xmlns:chrome="using:Avalonia.Controls.Chrome"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:conv="using:Lumi.Converters"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.App"
              Name="Lumi"
@@ -24,40 +25,44 @@
                                 IsExpanded="{Binding IsExpanded}" />
     </DataTemplate>
 
+    <!-- A plan lists its steps: done, being worked on, failed, or still to come. -->
     <DataTemplate DataType="vm:TodoProgressItem">
-      <sc:StrataAiToolCall ToolName="{Binding ToolName}"
-                           Status="{Binding Status}"
-                           IsExpanded="{Binding IsExpanded}"
-                           InputParameters="{Binding InputParameters}"
-                           MoreInfo="{Binding MoreInfo}" />
+      <ItemsControl ItemsSource="{Binding Steps}" Margin="0,0,0,2" />
+    </DataTemplate>
+
+    <!-- One step of a plan, in its card and in the live card at a glance. -->
+    <DataTemplate DataType="vm:PlanStepItem">
+      <DockPanel Classes="plan-step"
+                 Classes.done="{Binding IsDone}"
+                 Classes.current="{Binding IsCurrent}"
+                 Classes.failed="{Binding IsFailed}">
+        <Panel DockPanel.Dock="Left" Width="14" Height="14" Margin="0,0,8,0" VerticalAlignment="Center">
+          <Border Classes="plan-ring" />
+          <sc:StrataLineIcon Classes="plan-done" Data="{x:Static sc:StrataIcons.Check}" />
+          <sc:StrataLineIcon Classes="plan-failed" Data="{x:Static sc:StrataIcons.Cross}" />
+        </Panel>
+        <TextBlock Classes="plan-title" Text="{Binding Title}" />
+      </DockPanel>
     </DataTemplate>
 
     <DataTemplate DataType="vm:ToolCallItem">
       <sc:StrataAiToolCall ToolName="{Binding ToolName}"
+                           Icon="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                           Detail="{Binding LiveDetail}"
                            Classes.compact="{Binding IsCompact}"
                            Status="{Binding Status}"
                            IsExpanded="{Binding IsExpanded}"
                            InputParameters="{Binding InputParameters}"
-                           MoreInfo="{Binding MoreInfo}"
+                           MoreInfo="{Binding ResultText}"
                            DurationMs="{Binding DurationMs}"
                            RunningSince="{Binding RunningSince}">
         <sc:StrataAiToolCall.HeaderAction>
-          <Button Classes="subtle" Command="{Binding ShowDiffCommand}"
-                  IsVisible="{Binding HasDiff}"
-                  Padding="5,0" MinHeight="0" Height="18"
-                  Cursor="Hand">
-            <StackPanel Orientation="Horizontal" Spacing="3">
-              <OnPlatform>
-                <On Options="macOS, Linux">
-                  <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
-                            VerticalAlignment="Center" />
-                </On>
-                <On Options="Default">
-                  <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                             FontSize="9" VerticalAlignment="Center" />
-                </On>
-              </OnPlatform>
-              <TextBlock Text="{loc:Str ShowDiff}" FontSize="9" VerticalAlignment="Center" />
+          <Button Classes="transcript-diff" Command="{Binding ShowDiffCommand}"
+                  IsVisible="{Binding HasDiff}">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <sc:StrataLineIcon Width="12" Height="12" VerticalAlignment="Center"
+                                 Data="{x:Static sc:StrataIcons.Diff}" />
+              <TextBlock Text="{loc:Str ShowDiff}" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
         </sc:StrataAiToolCall.HeaderAction>
@@ -112,6 +117,95 @@
     </Style>
     <Style Selector="WindowDrawnDecorations /template/ Panel#PART_UnderlayWrapper">
       <Setter Property="IsVisible" Value="False" />
+    </Style>
+
+    <!-- ── Transcript work, shared by the chat and the read-only agent run ── -->
+    <!-- Reads and searches sit a little tighter, so a long run of them stays compact. -->
+    <Style Selector="sc|StrataAiToolCall.compact /template/ Border#PART_Header">
+      <Setter Property="Padding" Value="7,4,8,4" />
+    </Style>
+
+    <!-- "Show diff": an accent action beside the step, tinted on hover. Its negative vertical margin
+         keeps a row with the action as tall as one without. -->
+    <Style Selector="Button.transcript-diff">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="7,0" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Margin" Value="0,-3" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.transcript-diff /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.transcript-diff:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassAccentTint}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.transcript-diff:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentHover}" />
+    </Style>
+    <!-- Strata styles every TextBlock as body text, so the label takes the action's size and colour here. -->
+    <Style Selector="Button.transcript-diff TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.transcript-diff:pointerover TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentHover}" />
+    </Style>
+
+    <!-- A plan's steps: a check when done, a ring while open (the accent on the current one). They
+         share a tool row's height and text column, so a plan reads as part of the card's list. -->
+    <Style Selector="DockPanel.plan-step">
+      <Setter Property="Height" Value="31" />
+      <Setter Property="Margin" Value="8,0" />
+    </Style>
+    <Style Selector="DockPanel.plan-step Border.plan-ring">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextDisabled}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="DockPanel.plan-step sc|StrataLineIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="DockPanel.plan-step TextBlock.plan-title">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="DockPanel.plan-step.done Border.plan-ring, DockPanel.plan-step.failed Border.plan-ring">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="DockPanel.plan-step.done sc|StrataLineIcon.plan-done">
+      <Setter Property="IsVisible" Value="True" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="DockPanel.plan-step.done TextBlock.plan-title">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="DockPanel.plan-step.current Border.plan-ring">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="DockPanel.plan-step.current TextBlock.plan-title">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="DockPanel.plan-step.failed sc|StrataLineIcon.plan-failed">
+      <Setter Property="IsVisible" Value="True" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
   </Application.Styles>
 

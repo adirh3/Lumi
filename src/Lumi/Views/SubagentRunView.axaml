@@ -28,6 +28,15 @@
       <Setter Property="MaxContentHeight" Value="Infinity" />
     </Style>
 
+    <!-- A lone step's opened details, recessed like the chat's (the chat's styles are not in scope here). -->
+    <Style Selector="Border.run-well">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,10,12,11" />
+    </Style>
+
     <!-- The run transcript is read-only: no copy/edit/retry affordances on any bubble. -->
     <Style Selector="sc|StrataChatMessage /template/ Border#PART_ActionLayer">
       <Setter Property="IsVisible" Value="False" />
@@ -298,12 +307,15 @@
 
     <DataTemplate DataType="vm:ReasoningItem">
       <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
+                      Icon="{x:Static sc:StrataIcons.Lightbulb}"
+                      Meta="{Binding Summary}"
                       MaxContentHeight="240"
                       IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
                       IsActive="{Binding IsActive}"
                       HorizontalAlignment="Left">
         <sc:StrataThink.Content>
-          <lc:TranscriptTextContent Text="{Binding Content}"
+          <lc:TranscriptTextContent Margin="7,0,7,4"
+                                    Text="{Binding Content}"
                                     PreferPlainText="{Binding IsActive}"
                                     RenderMarkdownWhileStreaming="True" />
         </sc:StrataThink.Content>
@@ -313,29 +325,49 @@
     <!-- Consecutive steps collapse into one group, exactly like a tool group in the chat. -->
     <DataTemplate DataType="vm:ToolGroupItem">
       <sc:StrataThink Label="{Binding Label}"
+                      Icon="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                      HasError="{Binding HasFailures}"
                       Meta="{Binding Meta}"
                       IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
                       IsActive="{Binding IsActive}"
                       HorizontalAlignment="Left"
                       ProgressValue="{Binding ProgressValue}">
         <sc:StrataThink.Content>
-          <ItemsControl ItemsSource="{Binding ToolCalls}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-          </ItemsControl>
+          <ItemsControl ItemsSource="{Binding ToolCalls}" />
         </sc:StrataThink.Content>
       </sc:StrataThink>
     </DataTemplate>
 
     <DataTemplate DataType="vm:SingleToolItem">
       <sc:StrataThink Label="{Binding Label}"
+                      Icon="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                      HasError="{Binding HasError}"
                       Meta="{Binding Meta}"
                       IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
                       IsActive="{Binding IsActive}"
                       HorizontalAlignment="Left">
+        <sc:StrataThink.HeaderExtra>
+          <Button Classes="transcript-diff" Command="{Binding ShowDiffCommand}"
+                  IsVisible="{Binding HasDiff}" Margin="4,-3,0,-3">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <sc:StrataLineIcon Width="12" Height="12" VerticalAlignment="Center"
+                                 Data="{x:Static sc:StrataIcons.Diff}" />
+              <TextBlock Text="{loc:Str ShowDiff}" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+        </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
-          <ContentControl Content="{Binding Inner}" HorizontalAlignment="Stretch" />
+          <StackPanel Spacing="8" Margin="7,0,7,4">
+            <!-- What the step was given, as fields, and what it reported -->
+            <Border Classes="run-well" IsVisible="{Binding HasDetails}">
+              <sc:StrataToolDetails Parameters="{Binding InputParameters}"
+                                    Result="{Binding ResultText}"
+                                    IsFailed="{Binding HasError}" />
+            </Border>
+            <!-- A command keeps its console; a plan lists its steps -->
+            <ContentControl Content="{Binding Inner}" IsVisible="{Binding IsTerminal}" HorizontalAlignment="Stretch" />
+            <ContentControl Content="{Binding Plan}" IsVisible="{Binding IsPlan}" />
+          </StackPanel>
         </sc:StrataThink.Content>
       </sc:StrataThink>
     </DataTemplate>
@@ -353,7 +385,7 @@
                         HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding InnerItems}">
               <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
             </ItemsControl>
           </ScrollViewer>
@@ -380,13 +412,15 @@
 
     <DataTemplate DataType="vm:SubagentGroupItem">
       <sc:StrataThink Label="{Binding HeaderLabel}"
+                      Icon="{x:Static sc:StrataIcons.People}"
+                      HasError="{Binding HasFailed}"
                       Meta="{Binding Meta}"
                       IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
                       IsActive="{Binding IsActive}"
                       HorizontalAlignment="Left"
                       ProgressValue="{Binding ProgressValue}">
         <sc:StrataThink.Content>
-          <ItemsControl ItemsSource="{Binding Subagents}">
+          <ItemsControl ItemsSource="{Binding Subagents}" Margin="7,0,7,4">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>

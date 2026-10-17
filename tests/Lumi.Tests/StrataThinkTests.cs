@@ -348,6 +348,47 @@ public sealed class StrataThinkTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task FailedWork_TurnsItsIconTheDangerColourOnlyOnceItHasSettled()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var think = new StrataThink
+            {
+                Label = "Task plan",
+                Icon = StrataIcons.Checklist,
+                HasError = true,
+                IsActive = true,
+            };
+            var window = new Window { Width = 640, Height = 300, Content = think };
+            window.Show();
+            await PumpAsync();
+
+            var icon = think.GetVisualDescendants().OfType<StrataLineIcon>().Single(candidate => candidate.Name == "PART_Icon");
+            var working = icon.Foreground;
+            think.HasError = false;
+            await PumpAsync();
+
+            // A step that failed inside work still under way does not paint the working card red.
+            Assert.Same(working, icon.Foreground);
+
+            think.IsActive = false;
+            await PumpAsync();
+            var settled = icon.Foreground;
+            think.HasError = true;
+            await PumpAsync();
+
+            Assert.True(icon.TryFindResource("Brush.DangerDefault", icon.ActualThemeVariant, out var danger),
+                $"Brush.DangerDefault should resolve for theme {icon.ActualThemeVariant}.");
+            Assert.Same(danger, icon.Foreground);
+            Assert.NotSame(settled, icon.Foreground);
+
+            window.Close();
+        }, CancellationToken.None);
+    }
+
     private static async Task PumpAsync()
     {
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);

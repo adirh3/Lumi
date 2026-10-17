@@ -250,7 +250,8 @@
          (open, reveal in folder, copy the file, copy path/name). Used by both the user and
          assistant attachment lists so the context menu stays consistent across the transcript. -->
     <DataTemplate x:Key="SharedFileAttachmentTemplate" DataType="vm:FileAttachmentItem">
-      <sc:StrataFileAttachment FileName="{Binding FileName}"
+      <sc:StrataFileAttachment Classes="transcript-file"
+                               FileName="{Binding FileName}"
                                FileSize="{Binding FileSize}"
                                IconImage="{Binding IconImage}"
                                Status="Completed"
@@ -293,92 +294,30 @@
       </sc:StrataFileAttachment>
     </DataTemplate>
 
-    <!-- ── Loaded-skill chip (Strata-style, clickable → opens the skill markdown in the Workspace) ── -->
-    <ControlTheme x:Key="SkillChipButton" TargetType="Button">
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Focusable" Value="True" />
-      <Setter Property="HorizontalAlignment" Value="Left" />
-      <Setter Property="Template">
-        <ControlTemplate>
-          <Border Name="PART_Root"
-                  Background="{DynamicResource Brush.SurfaceCard}"
-                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                  BorderThickness="1"
-                  CornerRadius="999"
-                  Padding="4,3,10,3"
-                  RenderTransformOrigin="0.5,0.5"
-                  RenderTransform="scale(1)">
-            <Border.Transitions>
-              <Transitions>
-                <BrushTransition Property="Background" Duration="0:0:0.14" />
-                <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
-                <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" />
-                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut" />
-              </Transitions>
-            </Border.Transitions>
-            <ContentPresenter Content="{TemplateBinding Content}"
-                              VerticalAlignment="Center"
-                              HorizontalAlignment="Center" />
-          </Border>
-        </ControlTemplate>
-      </Setter>
-
-      <Style Selector="^:pointerover /template/ Border#PART_Root">
-        <Setter Property="Background" Value="{DynamicResource Brush.SurfaceCardHover}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
-        <Setter Property="BoxShadow" Value="0 2 6 0 #0D000000" />
-      </Style>
-      <Style Selector="^:pressed /template/ Border#PART_Root">
-        <Setter Property="RenderTransform" Value="scale(0.97)" />
-        <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
-      </Style>
-    </ControlTheme>
-
+    <!-- ── Skill and chat chips: a skill used or a chat linked, opened from the transcript ── -->
     <DataTemplate x:Key="SkillChipTemplate" x:DataType="vm:SkillChipItem">
-      <Button Theme="{StaticResource SkillChipButton}"
+      <Button Classes="transcript-chip"
               Name="SkillChip"
               Command="{Binding OpenCommand}"
-              Margin="0,0,6,6"
               ToolTip.Tip="{Binding Description}">
-        <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-          <Border Width="20" Height="20" CornerRadius="6"
-                  Background="{DynamicResource Brush.AccentSubtle}"
-                  VerticalAlignment="Center">
-            <PathIcon Width="11" Height="11"
-                      Foreground="{DynamicResource Brush.AccentDefault}"
-                      Data="M7 2v11h3v9l7-12h-4l4-8z" />
-          </Border>
-          <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
-                     Foreground="{DynamicResource Brush.TextPrimary}"
-                     VerticalAlignment="Center" />
-          <PathIcon Width="9" Height="9" VerticalAlignment="Center"
-                    Foreground="{DynamicResource Brush.TextTertiary}"
-                    Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <sc:StrataLineIcon Classes="chip-icon" Data="{x:Static sc:StrataIcons.Wand}" />
+          <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+          <sc:StrataLineIcon Classes="chip-chevron" Data="{x:Static sc:StrataIcons.ChevronRight}" />
         </StackPanel>
       </Button>
     </DataTemplate>
 
     <DataTemplate x:Key="LinkedChatChipTemplate" x:DataType="vm:LinkedChatChipItem">
-      <Button Theme="{StaticResource SkillChipButton}"
+      <Button Classes="transcript-chip"
               Name="LinkedChatChip"
               Command="{Binding OpenCommand}"
-              Margin="0,0,6,6"
               ToolTip.Tip="{loc:Str OpenChat}">
-        <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-          <Border Width="20" Height="20" CornerRadius="6"
-                  Background="{DynamicResource Brush.AccentSubtle}"
-                  VerticalAlignment="Center">
-            <PathIcon Width="11" Height="11"
-                      Foreground="{DynamicResource Brush.AccentDefault}"
-                      Data="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7l-4 3V6a2 2 0 0 1 2-2z" />
-          </Border>
-          <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
-                     Foreground="{DynamicResource Brush.TextPrimary}"
-                     VerticalAlignment="Center"
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <sc:StrataLineIcon Classes="chip-icon" Data="{x:Static sc:StrataIcons.Chat}" />
+          <TextBlock Text="{Binding Title}" VerticalAlignment="Center"
                      TextTrimming="CharacterEllipsis" MaxWidth="220" />
-          <PathIcon Width="9" Height="9" VerticalAlignment="Center"
-                    Foreground="{DynamicResource Brush.TextTertiary}"
-                    Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+          <sc:StrataLineIcon Classes="chip-chevron" Data="{x:Static sc:StrataIcons.ChevronRight}" />
         </StackPanel>
       </Button>
     </DataTemplate>
@@ -459,13 +398,6 @@
     <Style Selector="sc|StrataChatMessage:user /template/ Button#PART_RegenerateButton">
       <Setter Property="IsVisible" Value="True" />
     </Style>
-    <!-- Compact tool calls: hide the status pill and reduce padding -->
-    <Style Selector="sc|StrataAiToolCall.compact /template/ Border#PART_StatusPill">
-      <Setter Property="IsVisible" Value="False" />
-    </Style>
-    <Style Selector="sc|StrataAiToolCall.compact /template/ Border#PART_Header">
-      <Setter Property="Padding" Value="8,3" />
-    </Style>
     <Style Selector="sc|StrataThink">
       <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="MaxWidth" Value="760" />
@@ -475,67 +407,375 @@
       <Setter Property="MaxWidth" Value="560" />
     </Style>
 
+    <!-- ── Transcript work on glass ──
+         Everything Lumi did sits on the header pills' glass (Strata's Brush.Glass* tokens): steps and
+         groups are chips that open into cards, their rows tint on hover, and details sit in a recessed
+         well. Line icons say what each step is; only live work takes the accent, and failures the
+         danger colour. -->
+    <!-- The steps at work in a live card: icon, what it is doing, and on what. -->
+    <Style Selector="DockPanel.activity-preview-row">
+      <Setter Property="Margin" Value="7,0" />
+      <Setter Property="MinHeight" Value="30" />
+    </Style>
+    <Style Selector="DockPanel.activity-preview-row > sc|StrataLineIcon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="TextBlock.activity-preview-label">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="TextBlock.activity-preview-detail">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Margin" Value="0,1,0,0" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="TextBlock.activity-preview-detail.command">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+      <Setter Property="FontSize" Value="11.5" />
+    </Style>
+    <!-- How long each step has been running, in the accent, right-aligned like a row's time. -->
+    <Style Selector="TextBlock.activity-preview-elapsed">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Margin" Value="12,0,2,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <!-- A plan at work lists its steps in the card, on the rows' icon column. -->
+    <Style Selector="ItemsControl.plan-glance">
+      <Setter Property="Margin" Value="0,2,0,3" />
+    </Style>
+    <Style Selector="ItemsControl.plan-glance DockPanel.plan-step">
+      <Setter Property="Margin" Value="7,0" />
+    </Style>
+
+    <!-- A lone step outside a card wears the chip's glass instead of a row's. -->
+    <Style Selector="Panel.single-step">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+    <Style Selector="Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Root, Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+    </Style>
+    <Style Selector="Panel.single-step sc|StrataAiToolCall:pointerover /template/ Border#PART_Root, Panel.single-step sc|StrataTerminalPreview:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
+    </Style>
+    <Style Selector="Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Header:pointerover, Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Header:pointerover">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Header, Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Header">
+      <Setter Property="Padding" Value="10,6,12,6" />
+    </Style>
+    <Style Selector="Border.single-step-line">
+      <Setter Property="Height" Value="1.5" />
+      <Setter Property="Margin" Value="12,0" />
+      <Setter Property="CornerRadius" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Background" Value="{DynamicResource Brush.StratumLine}" />
+      <Setter Property="OpacityMask">
+        <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+          <GradientStop Offset="0" Color="#00000000" />
+          <GradientStop Offset="0.15" Color="#FF000000" />
+          <GradientStop Offset="0.85" Color="#FF000000" />
+          <GradientStop Offset="1" Color="#00000000" />
+        </LinearGradientBrush>
+      </Setter>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.35" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+
+    <!-- Details and console output, recessed into the card. -->
+    <Style Selector="Border.transcript-well">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,10,12,11" />
+    </Style>
+    <Style Selector="Border.transcript-well sc|StrataMarkdown">
+      <Setter Property="FontSize" Value="12.5" />
+    </Style>
+    <!-- An open question gets room for its options; once answered it folds to one line. -->
+    <Style Selector="sc|StrataQuestionCard:not(:answered)">
+      <Setter Property="MinWidth" Value="420" />
+    </Style>
+    <Style Selector="TextBlock.console-text">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="LineHeight" Value="18" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- Rows inside a card: a source, a changed file. Flat until hovered. -->
+    <Style Selector="Button.transcript-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.transcript-row /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.transcript-row:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.transcript-row TextBlock.row-title">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="Button.transcript-row:pointerover TextBlock.row-title">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.transcript-row TextBlock.row-detail">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="Button.transcript-row sc|StrataLineIcon.row-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Margin" Value="0,0,9,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <!-- A source's site initial, like a favicon. -->
+    <Style Selector="Border.source-initial">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="Margin" Value="0,0,9,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.source-initial > TextBlock">
+      <Setter Property="FontSize" Value="9" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="#FFFFFFFF" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.diff-added">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.diff-removed">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- A chip that opens something elsewhere (a plan, a skill, a chat): the step's glass, with a chevron. -->
+    <Style Selector="Button.transcript-chip">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Height" Value="31" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="10,0,11,0" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.transcript-chip /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+    </Style>
+    <Style Selector="Button.transcript-chip /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.transcript-chip:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+    </Style>
+    <Style Selector="Button.transcript-chip:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <!-- Strata styles every TextBlock as body text, so a chip's label takes its size and colour here. -->
+    <Style Selector="Button.transcript-chip TextBlock">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.transcript-chip:pointerover TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.transcript-chip:pressed">
+      <Setter Property="RenderTransform" Value="scale(0.98)" />
+    </Style>
+    <Style Selector="Button.transcript-chip sc|StrataLineIcon.chip-icon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Margin" Value="0,0,7,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Button.transcript-chip sc|StrataLineIcon.chip-chevron">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="Margin" Value="6,0,0,0" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Opacity" Value="0.6" />
+    </Style>
+    <Style Selector="Button.transcript-chip:pointerover sc|StrataLineIcon.chip-chevron">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- An error: the step's glass, the danger colour only on its icon, and a way to try again. -->
+    <Style Selector="Border.transcript-error">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+      <Setter Property="Padding" Value="12,6,12,6" />
+      <Setter Property="MinHeight" Value="31" />
+      <Setter Property="Margin" Value="0,4" />
+    </Style>
+
+    <!-- Files Lumi made or used: the same glass, without the status stripe. -->
+    <Style Selector="sc|StrataFileAttachment.transcript-file /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+    </Style>
+    <Style Selector="sc|StrataFileAttachment.transcript-file:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
+    </Style>
+    <Style Selector="sc|StrataFileAttachment.transcript-file /template/ Border#PART_Stratum">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="sc|StrataFileAttachment.transcript-file /template/ Border#PART_IconBox">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
+      <Setter Property="CornerRadius" Value="7" />
+    </Style>
+    <Style Selector="sc|StrataFileAttachment.transcript-file /template/ Border#PART_FocusRing">
+      <Setter Property="CornerRadius" Value="14" />
+    </Style>
+    <!-- Attachments and chips sit in a wrap with even gaps, never touching. -->
+    <Style Selector="WrapPanel.transcript-files">
+      <Setter Property="ItemSpacing" Value="8" />
+      <Setter Property="LineSpacing" Value="8" />
+    </Style>
+    <Style Selector="WrapPanel.transcript-chips">
+      <Setter Property="ItemSpacing" Value="6" />
+      <Setter Property="LineSpacing" Value="6" />
+    </Style>
+
     <!-- ── Sub-agent runs ──────────────────────────────────────────────
-         Chat-side density: one collapsed row per agent. The row is a pure hit target — the Strata
-         agent-run card inside owns all chrome, state and motion. -->
-    <!-- No MaxWidth: the row fills the reading column so its left edge lines up with the message
-         text above it. Avalonia arranges a Stretch element that is capped below the available width
-         as if it were Centered, so a MaxWidth here would inset the row from both gutters. -->
+         Chat-side density: one glass chip per agent. The row is a pure hit target — the Strata
+         agent-run chip inside owns all chrome, state and hover — so its template draws nothing but
+         keyboard focus, as an accent rim over the chip's own. (Strata's button would add its own
+         hover surface, shadow and aurora line behind the chip, and clip the chip's shadow.)
+         Nothing here moves or draws outside the chip: a turn clips to its bounds, and the row is
+         often the first thing in its turn. -->
     <Style Selector="Button.agent-row">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="0" />
       <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="16" />
       <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    </Style>
-    <Style Selector="Button.agent-row /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="Transparent" />
-    </Style>
-    <Style Selector="Button.agent-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="Transparent" />
-    </Style>
-    <!-- The row is the affordance for opening the run, so it lifts very slightly on hover. Kept
-         subtle: a fan-out stacks several of these and anything stronger reads as noise. -->
-    <Style Selector="Button.agent-row">
-      <Setter Property="RenderTransform" Value="translateY(0px)" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.16" Easing="CubicEaseOut" />
-        </Transitions>
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <!-- As wide as a live work card at most: a long task trims rather than stretching the chip. -->
+      <Setter Property="MaxWidth" Value="560" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel>
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalContentAlignment="Center" />
+            <Border Name="PART_FocusRing"
+                    BorderThickness="1"
+                    BorderBrush="Transparent"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    IsHitTestVisible="False" />
+          </Panel>
+        </ControlTemplate>
       </Setter>
     </Style>
-    <Style Selector="Button.agent-row:pointerover">
-      <Setter Property="RenderTransform" Value="translateY(-1px)" />
+    <Style Selector="Button.agent-row:focus-visible /template/ Border#PART_FocusRing">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <!-- The affordance is quiet until the row is hovered, so a finished run reads as history. -->
-    <Style Selector="PathIcon.agent-row-open">
+    <Style Selector="sc|StrataLineIcon.agent-row-open">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="Opacity" Value="0.45" />
+      <Setter Property="Opacity" Value="0.6" />
       <Setter Property="Transitions">
         <Transitions>
           <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.agent-row:pointerover PathIcon.agent-row-open">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <Style Selector="Button.agent-row:pointerover sc|StrataLineIcon.agent-row-open">
       <Setter Property="Opacity" Value="1" />
     </Style>
 
-    <!-- Fan-out group: same collapsible language as a tool group, so it stays a content-sized pill
-         anchored to the left gutter rather than a full-bleed bar. -->
+    <!-- Fan-out group: same collapsible language as a tool group. Opened, its agents are rows of
+         the card rather than chips on chips. -->
     <Style Selector="sc|StrataThink.agent-group">
       <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="MaxWidth" Value="760" />
+    </Style>
+    <Style Selector="sc|StrataThink.agent-group Button.agent-row">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="MaxWidth" Value="Infinity" />
+      <Setter Property="CornerRadius" Value="9" />
+    </Style>
+    <!-- Rows of a card tint on hover rather than wearing glass of their own. -->
+    <Style Selector="sc|StrataThink.agent-group sc|StrataAgentRun.inline /template/ Border#PART_Root">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+      <Setter Property="CornerRadius" Value="9" />
+    </Style>
+    <Style Selector="sc|StrataThink.agent-group sc|StrataAgentRun.inline:pointerover /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
     <Style Selector="Border.agent-cluster-avatar">
       <Setter Property="Width" Value="17" />
       <Setter Property="Height" Value="17" />
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="BorderThickness" Value="1.5" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SurfaceCard}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Surface1}" />
     </Style>
     <Style Selector="Border.agent-cluster-avatar > TextBlock">
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -919,35 +1159,18 @@
       <Setter Property="IsVisible" Value="False" />
     </Style>
     <Style Selector="Border.job-wake-card">
-      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceRaised}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="16" />
-      <Setter Property="ClipToBounds" Value="True" />
-    </Style>
-    <Style Selector="Border.job-wake-accent">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Border.job-wake-icon">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="CornerRadius" Value="13" />
-      <Setter Property="Width" Value="26" />
-      <Setter Property="Height" Value="26" />
-    </Style>
-    <Style Selector="Border.job-wake-signal">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="12" />
-      <Setter Property="Padding" Value="10,8" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
     <Style Selector="Border.job-wake-pill">
-      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="999" />
       <Setter Property="Padding" Value="8,4" />
-      <Setter Property="Margin" Value="0,0,6,6" />
     </Style>
 
     <!-- Token usage badge hover -->
@@ -1603,74 +1826,70 @@
               HorizontalAlignment="Left"
               MaxWidth="700"
               AutomationProperties.Name="JobWakeCard">
-        <Grid ColumnDefinitions="3,*">
-          <Border Classes="job-wake-accent" />
-          <StackPanel Grid.Column="1" Spacing="8" Margin="12,10,12,10">
-            <DockPanel>
-              <Border DockPanel.Dock="Left" Classes="job-wake-icon" Margin="0,0,10,0">
-                <PathIcon Data="{StaticResource Icon.Clock}"
-                          Width="13"
-                          Height="13"
-                          HorizontalAlignment="Center"
-                          VerticalAlignment="Center"
-                          Foreground="{DynamicResource Brush.AccentDefault}" />
-              </Border>
-              <TextBlock DockPanel.Dock="Right"
-                         Text="{Binding TimestampText}"
-                         Classes="caption tertiary"
-                         VerticalAlignment="Center" />
-              <StackPanel Spacing="0">
-                <TextBlock Text="{loc:Str Jobs_ChatWakeEyebrow}"
-                           Classes="caption"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.AccentDefault}" />
-                <TextBlock Text="{Binding JobName}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           FontWeight="SemiBold"
-                           TextTrimming="CharacterEllipsis" />
-              </StackPanel>
-            </DockPanel>
-
-            <TextBlock Text="{Binding WakeSignal}"
+        <StackPanel Spacing="8" Margin="13,11,13,11">
+          <DockPanel>
+            <sc:StrataLineIcon DockPanel.Dock="Left"
+                               Width="15" Height="15"
+                               Margin="0,0,10,0"
+                               VerticalAlignment="Center"
+                               Data="{x:Static sc:StrataIcons.Clock}"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+            <TextBlock DockPanel.Dock="Right"
+                       Text="{Binding TimestampText}"
                        Classes="caption tertiary"
-                       TextWrapping="Wrap"
-                       MaxLines="2" />
+                       VerticalAlignment="Center" />
+            <StackPanel Spacing="1">
+              <TextBlock Text="{loc:Str Jobs_ChatWakeEyebrow}"
+                         FontSize="12"
+                         Foreground="{DynamicResource Brush.TextTertiary}" />
+              <TextBlock Text="{Binding JobName}"
+                         FontSize="13"
+                         Foreground="{DynamicResource Brush.TextPrimary}"
+                         TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+          </DockPanel>
 
-            <Expander Header="{loc:Str Jobs_Details}">
-              <StackPanel Spacing="10" Margin="0,4,0,0">
-                <WrapPanel>
-                  <Border Classes="job-wake-pill" IsVisible="{Binding HasExitCode}">
-                    <StackPanel Orientation="Horizontal" Spacing="5">
-                      <TextBlock Text="{loc:Str Jobs_ResultExitCode}" Classes="caption tertiary" />
-                      <TextBlock Text="{Binding ExitCode}" Classes="caption" FontWeight="SemiBold" />
-                    </StackPanel>
-                  </Border>
-                  <Border Classes="job-wake-pill" IsVisible="{Binding HasStarted}">
-                    <StackPanel Orientation="Horizontal" Spacing="5">
-                      <TextBlock Text="{loc:Str Jobs_ResultStarted}" Classes="caption tertiary" />
-                      <TextBlock Text="{Binding StartedText}" Classes="caption" />
-                    </StackPanel>
-                  </Border>
-                  <Border Classes="job-wake-pill" IsVisible="{Binding HasCompleted}">
-                    <StackPanel Orientation="Horizontal" Spacing="5">
-                      <TextBlock Text="{loc:Str Jobs_ResultCompleted}" Classes="caption tertiary" />
-                      <TextBlock Text="{Binding CompletedText}" Classes="caption" />
-                    </StackPanel>
-                  </Border>
-                </WrapPanel>
-                <TextBlock Text="{Binding OutputText}"
-                           Classes="caption tertiary"
-                           FontFamily="Consolas, Cascadia Code, Menlo, monospace"
-                           TextWrapping="Wrap"
-                           IsVisible="{Binding HasOutput}" />
-                <TextBlock Text="{Binding Instructions}"
-                           Classes="caption tertiary"
-                           TextWrapping="Wrap"
-                           IsVisible="{Binding HasInstructions}" />
-              </StackPanel>
-            </Expander>
-          </StackPanel>
-        </Grid>
+          <TextBlock Text="{Binding WakeSignal}"
+                     Margin="25,0,0,0"
+                     FontSize="12.5"
+                     Foreground="{DynamicResource Brush.TextSecondary}"
+                     TextWrapping="Wrap"
+                     MaxLines="2" />
+
+          <Expander Header="{loc:Str Jobs_Details}" Margin="25,0,0,0">
+            <StackPanel Spacing="10" Margin="0,4,0,0">
+              <WrapPanel Classes="transcript-chips">
+                <Border Classes="job-wake-pill" IsVisible="{Binding HasExitCode}">
+                  <StackPanel Orientation="Horizontal" Spacing="5">
+                    <TextBlock Text="{loc:Str Jobs_ResultExitCode}" Classes="caption tertiary" />
+                    <TextBlock Text="{Binding ExitCode}" Classes="caption" FontWeight="SemiBold" />
+                  </StackPanel>
+                </Border>
+                <Border Classes="job-wake-pill" IsVisible="{Binding HasStarted}">
+                  <StackPanel Orientation="Horizontal" Spacing="5">
+                    <TextBlock Text="{loc:Str Jobs_ResultStarted}" Classes="caption tertiary" />
+                    <TextBlock Text="{Binding StartedText}" Classes="caption" />
+                  </StackPanel>
+                </Border>
+                <Border Classes="job-wake-pill" IsVisible="{Binding HasCompleted}">
+                  <StackPanel Orientation="Horizontal" Spacing="5">
+                    <TextBlock Text="{loc:Str Jobs_ResultCompleted}" Classes="caption tertiary" />
+                    <TextBlock Text="{Binding CompletedText}" Classes="caption" />
+                  </StackPanel>
+                </Border>
+              </WrapPanel>
+              <Border Classes="transcript-well" IsVisible="{Binding HasOutput}">
+                <TextBlock Classes="console-text"
+                           Text="{Binding OutputText}"
+                           Foreground="{DynamicResource Brush.TerminalPreviewOutput}" />
+              </Border>
+              <TextBlock Text="{Binding Instructions}"
+                         Classes="caption tertiary"
+                         TextWrapping="Wrap"
+                         IsVisible="{Binding HasInstructions}" />
+            </StackPanel>
+          </Expander>
+        </StackPanel>
       </Border>
     </DataTemplate>
 
@@ -1746,7 +1965,7 @@
                             IsVisible="{Binding HasAttachments}"
                             ItemTemplate="{StaticResource SharedFileAttachmentTemplate}">
                 <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                  <ItemsPanelTemplate><WrapPanel Classes="transcript-files" /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
               </ItemsControl>
               <!-- Other chats this message brought in; each opens its chat. -->
@@ -1754,14 +1973,14 @@
                             IsVisible="{Binding HasReferencedChats}"
                             ItemTemplate="{StaticResource LinkedChatChipTemplate}">
                 <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                  <ItemsPanelTemplate><WrapPanel Classes="transcript-chips" /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
               </ItemsControl>
               <ItemsControl ItemsSource="{Binding DisplaySkills}"
                             IsVisible="{Binding HasSkills}"
                             ItemTemplate="{StaticResource SkillChipTemplate}">
                 <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                  <ItemsPanelTemplate><WrapPanel Classes="transcript-chips" /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
               </ItemsControl>
             </StackPanel>
@@ -1854,7 +2073,7 @@
                           IsVisible="{Binding HasSkills}"
                           ItemTemplate="{StaticResource SkillChipTemplate}">
               <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                <ItemsPanelTemplate><WrapPanel Classes="transcript-chips" /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
             </ItemsControl>
 
@@ -1863,7 +2082,7 @@
                           IsVisible="{Binding HasFileAttachments}"
                           ItemTemplate="{StaticResource SharedFileAttachmentTemplate}">
               <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                <ItemsPanelTemplate><WrapPanel Classes="transcript-files" /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
             </ItemsControl>
 
@@ -1872,24 +2091,25 @@
                             IsVisible="{Binding HasSources}">
               <ContentControl.DataTemplates>
                 <DataTemplate DataType="vm:AssistantMessageItem">
-                  <sc:StrataThink Label="{Binding SourcesLabel}">
+                  <sc:StrataThink Label="{Binding SourcesLabel}"
+                                  Icon="{x:Static sc:StrataIcons.Globe}"
+                                  Meta="{Binding SourcesDomains}">
                     <sc:StrataThink.Content>
                       <ItemsControl ItemsSource="{Binding Sources}">
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate DataType="vm:SourceItem">
-                            <Button Classes="subtle" HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Left"
+                            <Button Classes="transcript-row"
                                     Command="{Binding OpenCommand}"
-                                    Padding="6,4" Cursor="Hand">
-                              <StackPanel>
-                                <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"
-                                           Classes="caption" FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding Domain}" Classes="caption"
-                                           Foreground="{DynamicResource Brush.TextTertiary}" />
-                              </StackPanel>
+                                    ToolTip.Tip="{Binding Url}">
+                              <DockPanel>
+                                <Border DockPanel.Dock="Left" Classes="source-initial"
+                                        Background="{Binding AccentBrush}">
+                                  <TextBlock Text="{Binding InitialLetter}" />
+                                </Border>
+                                <TextBlock DockPanel.Dock="Right" Classes="row-detail"
+                                           Margin="12,0,0,0" Text="{Binding Domain}" />
+                                <TextBlock Classes="row-title" Text="{Binding Title}" />
+                              </DockPanel>
                             </Button>
                           </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -1916,49 +2136,31 @@
 
     <!-- ── File changes summary (separate item at end of turn) ── -->
     <DataTemplate DataType="vm:FileChangesSummaryItem">
-      <sc:StrataThink Label="{Binding Label}">
+      <sc:StrataThink Label="{Binding Label}" Icon="{x:Static sc:StrataIcons.Diff}">
         <sc:StrataThink.HeaderExtra>
           <StackPanel Orientation="Horizontal" Spacing="4">
-            <TextBlock Text="{Binding TotalStatsAdded}"
-                       FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
-                       Foreground="{DynamicResource Brush.SuccessDefault}" />
-            <TextBlock Text="{Binding TotalStatsRemoved}"
-                       FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
-                       Foreground="{DynamicResource Brush.DangerDefault}"
+            <TextBlock Classes="diff-added" Text="{Binding TotalStatsAdded}" />
+            <TextBlock Classes="diff-removed" Text="{Binding TotalStatsRemoved}"
                        IsVisible="{Binding HasTotalRemovals}" />
           </StackPanel>
         </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
           <ItemsControl ItemsSource="{Binding FileChanges}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:FileChangeItem">
-                <Button Classes="subtle" HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Left"
-                        Command="{Binding ShowDiffCommand}"
-                        Padding="6,4" Cursor="Hand">
+                <Button Classes="transcript-row" Command="{Binding ShowDiffCommand}"
+                        ToolTip.Tip="{Binding FilePath}">
                   <DockPanel>
-                    <TextBlock DockPanel.Dock="Left" Text="{Binding ActionIcon}" Margin="0,0,6,0"
-                               FontSize="13" VerticalAlignment="Center" />
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4"
-                                VerticalAlignment="Center" Margin="8,0,0,0">
-                      <TextBlock Text="{Binding StatsAdded}"
-                                 FontSize="{DynamicResource Font.SizeCaption}" FontWeight="Medium"
-                                 Foreground="{DynamicResource Brush.SuccessDefault}" />
-                      <TextBlock Text="{Binding StatsRemoved}"
-                                 FontSize="{DynamicResource Font.SizeCaption}" FontWeight="Medium"
-                                 Foreground="{DynamicResource Brush.DangerDefault}"
+                    <sc:StrataLineIcon DockPanel.Dock="Left" Classes="row-icon"
+                                       Data="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}" />
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="12,0,0,0">
+                      <TextBlock Classes="diff-added" Text="{Binding StatsAdded}" />
+                      <TextBlock Classes="diff-removed" Text="{Binding StatsRemoved}"
                                  IsVisible="{Binding HasRemovals}" />
                     </StackPanel>
-                    <StackPanel>
-                      <TextBlock Text="{Binding FileName}" Classes="caption" FontWeight="SemiBold" />
-                      <TextBlock Text="{Binding Directory}" Classes="caption"
-                                 Foreground="{DynamicResource Brush.TextTertiary}"
-                                 TextTrimming="CharacterEllipsis"
-                                 IsVisible="{Binding Directory, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Left" Classes="row-title" Margin="0,0,8,0"
+                               Text="{Binding FileName}" />
+                    <TextBlock Classes="row-detail" Text="{Binding DirectoryHint}" />
                   </DockPanel>
                 </Button>
               </DataTemplate>
@@ -1970,20 +2172,11 @@
 
     <!-- ── Plan card (inline in transcript when agent creates/updates a plan) ── -->
     <DataTemplate DataType="vm:PlanCardItem">
-      <Button Classes="subtle" HorizontalAlignment="Left"
-              HorizontalContentAlignment="Left"
-              Command="{Binding OpenCommand}"
-              Padding="8,6" Margin="0,4" Cursor="Hand">
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.AccentDefault}"
-                    VerticalAlignment="Center">
-            <PathIcon.Data>
-              <StreamGeometry>M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM17.99 9l-1.41-1.42-6.59 6.59-2.58-2.57-1.42 1.41 4 3.99z</StreamGeometry>
-            </PathIcon.Data>
-          </PathIcon>
-          <TextBlock Text="{Binding StatusText}" Classes="caption" FontWeight="SemiBold"
-                     Foreground="{DynamicResource Brush.AccentDefault}"
-                     VerticalAlignment="Center" />
+      <Button Classes="transcript-chip" Command="{Binding OpenCommand}" Margin="0,2">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <sc:StrataLineIcon Classes="chip-icon" Data="{x:Static sc:StrataIcons.Checklist}" />
+          <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
+          <sc:StrataLineIcon Classes="chip-chevron" Data="{x:Static sc:StrataIcons.ChevronRight}" />
         </StackPanel>
       </Button>
     </DataTemplate>
@@ -2008,37 +2201,44 @@
 
     <!-- ── Error message ─────────────────────────────── -->
     <DataTemplate DataType="vm:ErrorMessageItem">
-      <Border Background="{DynamicResource Brush.DangerSubtle}"
-              CornerRadius="12" Padding="14,12" Margin="0,4">
-        <StackPanel Spacing="6">
-          <!-- Grid (not a horizontal StackPanel) so the text column is width-constrained
-               and TextWrapping actually wraps instead of overflowing/clipping. -->
-          <Grid ColumnDefinitions="Auto,*">
-            <TextBlock Grid.Column="0" Text="⚠" FontSize="14"
-                       VerticalAlignment="Top" Margin="0,1,6,0"
-                       Foreground="{DynamicResource Brush.DangerDefault}" />
-            <TextBlock Grid.Column="1" Text="{Binding Content}" TextWrapping="Wrap"
-                       Foreground="{DynamicResource Brush.DangerDefault}"
-                       FontWeight="SemiBold" FontSize="13" />
-          </Grid>
-          <Button Content="{loc:Str Common_TryAgain}" Command="{Binding RetryCommand}"
-                  IsVisible="{Binding ShowRetryButton}"
-                  HorizontalAlignment="Left"
-                  Padding="12,6" FontSize="12" FontWeight="SemiBold"
-                  Background="{DynamicResource Brush.DangerDefault}"
-                  Foreground="White" CornerRadius="8" Cursor="Hand" />
-        </StackPanel>
+      <Border Classes="transcript-error" HorizontalAlignment="Left" MaxWidth="700">
+        <!-- Grid (not a horizontal StackPanel) so the text column is width-constrained
+             and TextWrapping actually wraps instead of overflowing/clipping. The icon sits on the
+             first line's centre (a 17px line, as in the chips), so it stays with the text however
+             long it wraps. -->
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <sc:StrataLineIcon Width="15" Height="15" Margin="0,1,9,0" VerticalAlignment="Top"
+                             Data="{x:Static sc:StrataIcons.Alert}"
+                             Foreground="{DynamicResource Brush.DangerDefault}" />
+          <TextBlock Grid.Column="1" Text="{Binding Content}" TextWrapping="Wrap"
+                     VerticalAlignment="Center" LineHeight="17"
+                     FontSize="12.5" Foreground="{DynamicResource Brush.TextSecondary}" />
+          <!-- A quiet accent action, like "Show diff": the card stays a single 31px line. -->
+          <Button Grid.Column="2" Classes="transcript-diff" Margin="10,-3,-5,-3"
+                  VerticalAlignment="Center"
+                  Command="{Binding RetryCommand}"
+                  IsVisible="{Binding ShowRetryButton}">
+            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+              <sc:StrataLineIcon Width="12" Height="12" VerticalAlignment="Center"
+                                 Data="{x:Static sc:StrataIcons.Retry}" />
+              <TextBlock Text="{loc:Str Common_TryAgain}" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+        </Grid>
       </Border>
     </DataTemplate>
 
     <!-- ── Reasoning block ──────────────────────────── -->
     <DataTemplate DataType="vm:ReasoningItem">
       <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
+                      Icon="{x:Static sc:StrataIcons.Lightbulb}"
+                      Meta="{Binding Summary}"
                       MaxContentHeight="240"
                       IsExpanded="{Binding IsExpanded}"
                       IsActive="{Binding IsActive}">
         <sc:StrataThink.Content>
-          <lc:TranscriptTextContent Text="{Binding Content}"
+          <lc:TranscriptTextContent Margin="7,0,7,4"
+                                    Text="{Binding Content}"
                                     PreferPlainText="{Binding IsActive}"
                                     RenderMarkdownWhileStreaming="True" />
         </sc:StrataThink.Content>
@@ -2048,11 +2248,16 @@
     <!-- ── Tool group (collapsible) ─────────────────── -->
     <DataTemplate DataType="vm:ToolGroupItem">
       <Panel>
-        <ContentControl Content="{Binding SingleTool}"
-                        IsVisible="{Binding IsSingleTool}" />
+        <!-- A lone step stands on its own as a chip, with the Strata line under it while it works. -->
+        <Panel Classes="single-step" IsVisible="{Binding IsSingleTool}">
+          <ContentControl Content="{Binding SingleTool}" />
+          <Border Classes="single-step-line" IsVisible="{Binding IsActive}" />
+        </Panel>
         <sc:StrataThink x:Name="ToolGroupCard"
                         Classes="activity-group"
                         Label="{Binding Label}"
+                        Icon="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                        HasError="{Binding HasFailures}"
                         AutomationProperties.Name="{Binding Label}"
                         IsVisible="{Binding !IsSingleTool}"
                         Meta="{Binding Meta}"
@@ -2061,39 +2266,38 @@
                         ProgressValue="{Binding ProgressValue}">
           <sc:StrataThink.PreviewContent>
             <StackPanel x:Name="ToolGroupActivityPreview"
-                        Spacing="{DynamicResource Space.S}"
                         IsVisible="{Binding HasActivityPreview}">
               <ItemsControl ItemsSource="{Binding ActivityPreview}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><StackPanel Spacing="{DynamicResource Space.M}" /></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate DataType="vm:ToolActivityPreviewItem">
-                    <Grid Classes="activity-preview-row" ColumnDefinitions="14,8,*">
-                      <PathIcon Width="12" Height="12" Margin="0,2,0,0"
-                                VerticalAlignment="Top"
-                                Foreground="{DynamicResource Brush.AccentDefault}"
-                                Data="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2zm-1 5v6l5 3 1-1.7-4-2.3V7h-2z" />
-                      <StackPanel Grid.Column="2" Spacing="2">
-                        <TextBlock Text="{Binding Label}"
-                                   FontSize="{DynamicResource Font.SizeCaption}"
-                                   Foreground="{DynamicResource Brush.TextPrimary}"
-                                   TextTrimming="CharacterEllipsis" MaxLines="1"
-                                   ToolTip.Tip="{Binding Label}" />
-                        <TextBlock Text="{Binding Detail}"
-                                   FontSize="11"
-                                   Foreground="{DynamicResource Brush.TextSecondary}"
-                                   TextTrimming="CharacterEllipsis" MaxLines="1"
-                                   ToolTip.Tip="{Binding Detail}"
-                                   IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                      </StackPanel>
-                    </Grid>
+                    <Panel>
+                      <DockPanel Classes="activity-preview-row" IsVisible="{Binding !HasSteps}">
+                        <sc:StrataLineIcon DockPanel.Dock="Left"
+                                           Data="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}" />
+                        <sc:StrataElapsedText DockPanel.Dock="Right"
+                                              Classes="activity-preview-elapsed"
+                                              Since="{Binding RunningSince}" />
+                        <StackPanel VerticalAlignment="Center" Margin="0,5">
+                          <TextBlock Classes="activity-preview-label"
+                                     Text="{Binding Label}"
+                                     ToolTip.Tip="{Binding Label}" />
+                          <TextBlock Classes="activity-preview-detail"
+                                     Classes.command="{Binding IsCommand}"
+                                     Text="{Binding Detail}"
+                                     ToolTip.Tip="{Binding Detail}"
+                                     IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                      </DockPanel>
+                      <ItemsControl Classes="plan-glance"
+                                    ItemsSource="{Binding Steps}"
+                                    IsVisible="{Binding HasSteps}" />
+                    </Panel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
               <TextBlock Text="{Binding AdditionalActivityLabel}"
-                         Margin="22,0,0,0" FontSize="11"
-                         Foreground="{DynamicResource Brush.TextSecondary}"
+                         Margin="29,2,0,2" FontSize="12"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
                          TextTrimming="CharacterEllipsis" MaxLines="1"
                          IsVisible="{Binding AdditionalActivityLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
@@ -2113,9 +2317,6 @@
                     <Setter Property="MaxWidth" Value="Infinity" />
                   </Style>
                 </ItemsControl.Styles>
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
               </ItemsControl>
             </ScrollViewer>
           </sc:StrataThink.Content>
@@ -2123,58 +2324,47 @@
       </Panel>
     </DataTemplate>
 
-    <!-- ── Single tool (flattened — StrataThink pill) ── -->
+    <!-- ── Single tool (flattened — a chip of its own) ── -->
     <DataTemplate DataType="vm:SingleToolItem">
       <sc:StrataThink Label="{Binding Label}"
+                      Icon="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                      HasError="{Binding HasError}"
                       Meta="{Binding Meta}"
                       IsExpanded="{Binding IsExpanded}"
                       IsActive="{Binding IsActive}">
         <sc:StrataThink.HeaderExtra>
-          <Button Classes="subtle" Command="{Binding ShowDiffCommand}"
-                  IsVisible="{Binding HasDiff}"
-                  Padding="5,0" MinHeight="0" Height="18"
-                  Cursor="Hand">
-            <StackPanel Orientation="Horizontal" Spacing="3">
-              <OnPlatform>
-                <On Options="macOS, Linux">
-                  <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
-                            VerticalAlignment="Center" />
-                </On>
-                <On Options="Default">
-                  <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                             FontSize="9" VerticalAlignment="Center" />
-                </On>
-              </OnPlatform>
-              <TextBlock Text="{loc:Str ShowDiff}" FontSize="9" VerticalAlignment="Center" />
+          <Button Classes="transcript-diff" Command="{Binding ShowDiffCommand}"
+                  IsVisible="{Binding HasDiff}" Margin="4,-3,0,-3">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <sc:StrataLineIcon Width="12" Height="12" VerticalAlignment="Center"
+                                 Data="{x:Static sc:StrataIcons.Diff}" />
+              <TextBlock Text="{loc:Str ShowDiff}" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
         </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
-          <StackPanel Spacing="6" MaxWidth="760">
-            <!-- Regular tool details -->
-            <sc:StrataMarkdown Markdown="{Binding InputParameters}" IsInline="True"
-                               IsVisible="{Binding InputParameters, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-            <TextBlock Text="{Binding MoreInfo}" TextWrapping="Wrap"
-                       Classes="caption" Foreground="{DynamicResource Brush.TextSecondary}"
-                       IsVisible="{Binding MoreInfo, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-            <!-- Terminal: command + scrollable output -->
-            <Border IsVisible="{Binding IsTerminal}"
-                    Background="{DynamicResource Brush.Surface1}"
-                    CornerRadius="6" Padding="10,8">
+          <StackPanel Spacing="8" MaxWidth="760" Margin="7,0,7,4">
+            <!-- What the step was given, as fields, and what it reported -->
+            <Border Classes="transcript-well" IsVisible="{Binding HasDetails}">
+              <sc:StrataToolDetails Parameters="{Binding InputParameters}"
+                                    Result="{Binding ResultText}"
+                                    IsFailed="{Binding HasError}" />
+            </Border>
+            <!-- A lone plan lists its steps -->
+            <ContentControl Content="{Binding Plan}" IsVisible="{Binding IsPlan}" />
+            <!-- Terminal: the command, then its output -->
+            <Border Classes="transcript-well" IsVisible="{Binding IsTerminal}">
               <StackPanel Spacing="6">
                 <Grid ColumnDefinitions="Auto,6,*">
-                  <TextBlock Text="$" FontFamily="Cascadia Code, Consolas, monospace"
-                             FontSize="12" FontWeight="Bold"
-                             Foreground="{DynamicResource Brush.TerminalPreviewPrompt}"
-                             VerticalAlignment="Top" />
-                  <TextBlock Grid.Column="2" Text="{Binding TerminalCommand}" FontFamily="Cascadia Code, Consolas, monospace"
-                             FontSize="12" TextWrapping="Wrap"
+                  <TextBlock Classes="console-text" Text="$" FontSize="12"
+                             Foreground="{DynamicResource Brush.TerminalPreviewPrompt}" />
+                  <TextBlock Grid.Column="2" Classes="console-text" FontSize="12"
+                             Text="{Binding TerminalCommand}"
                              Foreground="{DynamicResource Brush.TerminalPreviewCommand}" />
                 </Grid>
                 <ScrollViewer MaxHeight="260" HorizontalScrollBarVisibility="Disabled"
                               IsVisible="{Binding TerminalOutput, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                  <TextBlock Text="{Binding TerminalOutput}" FontFamily="Cascadia Code, Consolas, monospace"
-                             FontSize="11" TextWrapping="Wrap"
+                  <TextBlock Classes="console-text" Text="{Binding TerminalOutput}"
                              Foreground="{DynamicResource Brush.TerminalPreviewOutput}" />
                 </ScrollViewer>
               </StackPanel>
@@ -2188,7 +2378,8 @@
          In the chat a delegated agent is one collapsed line: who ran, what it was asked to do, and
          how it ended. Everything else — its reasoning, messages and tool calls — lives on the
          Workspace's read-only Agents page, which the row opens. Keeping this to a single row means
-         a fan-out of six agents costs six lines instead of six cards. -->
+         a fan-out of six agents costs six lines instead of six cards. The model is on the run page,
+         so the line keeps to the task and the agent. -->
     <DataTemplate DataType="vm:SubagentToolCallItem">
       <Button Classes="agent-row" Command="{Binding OpenRunCommand}"
               ToolTip.Tip="{loc:Str Subagent_OpenTranscriptTip}">
@@ -2197,14 +2388,12 @@
                            Title="{Binding Title}"
                            Initial="{Binding Initial}"
                            AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
-                           ModelName="{Binding ModelDisplayName}"
                            Status="{Binding Status}"
                            StatusLabel="{Binding StatusText}"
                            DurationMs="{Binding DurationMs}"
                            RunningSince="{Binding StartedAt}">
           <sc:StrataAgentRun.HeaderAction>
-            <PathIcon Classes="agent-row-open" Width="11" Height="11"
-                      Data="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+            <sc:StrataLineIcon Classes="agent-row-open" Data="{x:Static sc:StrataIcons.ChevronRight}" />
           </sc:StrataAgentRun.HeaderAction>
         </sc:StrataAgentRun>
       </Button>
@@ -2216,6 +2405,8 @@
     <DataTemplate DataType="vm:SubagentGroupItem">
       <sc:StrataThink Classes="agent-group"
                       Label="{Binding HeaderLabel}"
+                      Icon="{x:Static sc:StrataIcons.People}"
+                      HasError="{Binding HasFailed}"
                       Meta="{Binding Meta}"
                       IsExpanded="{Binding IsExpanded}"
                       IsActive="{Binding IsActive}"
@@ -2239,9 +2430,6 @@
         </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
           <ItemsControl ItemsSource="{Binding Subagents}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:SubagentToolCallItem">
                 <Button Classes="agent-row" Command="{Binding OpenRunCommand}"
@@ -2251,14 +2439,12 @@
                                      Title="{Binding Title}"
                                      Initial="{Binding Initial}"
                                      AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
-                                     ModelName="{Binding ModelDisplayName}"
                                      Status="{Binding Status}"
                                      StatusLabel="{Binding StatusText}"
                                      DurationMs="{Binding DurationMs}"
                                      RunningSince="{Binding StartedAt}">
                     <sc:StrataAgentRun.HeaderAction>
-                      <PathIcon Classes="agent-row-open" Width="11" Height="11"
-                                Data="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                      <sc:StrataLineIcon Classes="agent-row-open" Data="{x:Static sc:StrataIcons.ChevronRight}" />
                     </sc:StrataAgentRun.HeaderAction>
                   </sc:StrataAgentRun>
                 </Button>
@@ -2315,7 +2501,7 @@
                         HorizontalScrollBarVisibility="Disabled">
             <lc:ProgressiveItemsControl Source="{Binding InnerItems}">
               <lc:ProgressiveItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
               </lc:ProgressiveItemsControl.ItemsPanel>
             </lc:ProgressiveItemsControl>
           </ScrollViewer>

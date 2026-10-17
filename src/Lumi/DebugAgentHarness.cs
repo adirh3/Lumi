@@ -772,6 +772,9 @@ public static class DebugAgentHarness
             msg.ToolCallId = toolCallId ?? $"debug-{name}-{Guid.NewGuid():N}";
             msg.ParentToolCallId = parentToolCallId;
             msg.ToolOutput = output;
+            // Running steps carry their start, as live ones do, so their cards count up.
+            if (status == "InProgress")
+                msg.ToolStartedAt = DateTimeOffset.Now;
             return msg;
         }
 

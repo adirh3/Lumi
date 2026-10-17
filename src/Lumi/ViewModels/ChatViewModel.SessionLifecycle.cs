@@ -1271,7 +1271,8 @@ public partial class ChatViewModel
                             ? FindSkillReferenceByName(runtimeSkillName, capabilities)?.Name
                             : null;
                     var displayName = ToolDisplayHelper.FormatToolStatusName(
-                        toolStart.Data.ToolName, toolArguments, displaySkillName);
+                        toolStart.Data.ToolName, toolArguments, displaySkillName,
+                        ToolDisplayHelper.GetToolTitle(toolStart.Data.ToolTitle, toolStart.Data.McpToolName));
                     if (IsRootAgentEvent(toolStart))
                         MarkRuntimeActive(runtime, ToolDisplayHelper.FormatProgressLabel(displayName), isStreaming: runtime.IsStreaming);
                     else
@@ -1376,7 +1377,11 @@ public partial class ChatViewModel
                     var progressToolName = chat.Messages.LastOrDefault(m => m.ToolCallId == progressToolCallId)?.ToolName;
                     if (!ToolDisplayHelper.IsTerminalStreamingTool(progressToolName)
                         && !terminalRootByToolCallId.ContainsKey(progressToolCallId))
+                    {
+                        // Any other tool's progress (an MCP server's status, say) is its row's live detail.
+                        _transcriptBuilder.UpdateToolProgress(progressToolCallId, progress.Data.ProgressMessage);
                         return;
+                    }
 
                     var rootToolCallId = ToolDisplayHelper.ResolveRootTerminalToolCallId(progressToolCallId, toolParentById, terminalRootByToolCallId);
                     var output = ToolDisplayHelper.CleanTerminalOutput(progress.Data.ProgressMessage);

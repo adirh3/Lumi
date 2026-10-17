@@ -596,7 +596,7 @@
   "Common_Cancel": "ביטול",
   "Common_Rename": "שינוי שם",
   "Common_Clear": "ניקוי",
-  "Common_TryAgain": "↻ נסה שוב",
+  "Common_TryAgain": "נסה שוב",
 
   "Dialog_RenameChat": "שינוי שם צ׳אט",
   "Dialog_ChatTitle": "כותרת צ׳אט",
@@ -1208,6 +1208,7 @@
   "TurnSummary_ReasonedAndActions": "חשב \u00b7 {0} פעולות",
   "TurnSummary_ReasonedAndOneAction": "חשב \u00b7 פעולה אחת",
   "TurnSummary_Reasoned": "חשב",
+  "TurnSummary_Actions": "{0} פעולות",
   "TurnSummary_WorkedFor": "עבד במשך {0}",
   "TurnSummary_ThoughtFor": "חשב במשך {0}",
   "TurnSummary_Worked": "עבד",

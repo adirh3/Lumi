@@ -58,6 +58,8 @@ public class TranscriptBuilder
     private TranscriptTurn? _typingTurn;
     private TranscriptTurn? _currentTurn;
     private readonly Dictionary<string, TerminalPreviewItem> _terminalPreviewsByToolCallId = new(StringComparer.Ordinal);
+    /// <summary>Running tool rows by tool call id, so their progress messages reach the row and its card.</summary>
+    private readonly Dictionary<string, (ToolCallItem Item, ToolGroupItem? Group)> _runningToolCallsByToolCallId = new(StringComparer.Ordinal);
     // Async shells still running in the background (root tool-call id → authoritative start time),
     // supplied by the ChatViewModel before each Rebuild so a rebuilt terminal card is recreated
     // already in its running state (visible, expanded, correct elapsed clock) instead of flashing
@@ -315,6 +317,7 @@ public class TranscriptBuilder
         _pendingPlanCard = null;
         _pendingModelName = null;
         _terminalPreviewsByToolCallId.Clear();
+        _runningToolCallsByToolCallId.Clear();
         _toolParentById.Clear();
         _subagentsByToolCallId.Clear();
         SubagentRuns.Clear();
@@ -658,7 +661,7 @@ public class TranscriptBuilder
             displaySkillName = ResolveFetchedSkill(runtimeSkillName)?.Name;
         var (friendlyName, friendlyInfo) = ToolDisplayHelper.GetFriendlyToolDisplay(
             toolName, msgVm.Author, msgVm.Content, displaySkillName);
-        friendlyName = $"{ToolDisplayHelper.GetToolGlyph(toolName)} {friendlyName}";
+        var iconKey = ToolDisplayHelper.GetToolIconKey(toolName);
 
         var toolCallId = msgVm.Message.ToolCallId;
 
@@ -666,7 +669,8 @@ public class TranscriptBuilder
         {
             var termParentSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
             var command = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "command") ?? "";
-            var termPreview = new TerminalPreviewItem(friendlyName, command, initialStatus, $"terminal:{toolStableIdSeed}")
+            var termPreview = new TerminalPreviewItem(friendlyName, command, initialStatus, $"terminal:{toolStableIdSeed}",
+                ToolDisplayHelper.GetCommandTitle(msgVm.Content))
             {
                 Output = msgVm.Message.ToolOutput ?? string.Empty,
                 DurationMs = msgVm.Message.ToolDurationMs ?? 0,
@@ -738,6 +742,8 @@ public class TranscriptBuilder
 
         var toolCall = new ToolCallItem(friendlyName, initialStatus, $"tool:{toolStableIdSeed}")
         {
+            IconKey = iconKey,
+            Detail = friendlyInfo,
             InputParameters = ToolDisplayHelper.FormatToolArgsFriendly(toolName, msgVm.Content, displaySkillName),
             MoreInfo = BuildToolCallMoreInfo(friendlyInfo, msgVm, initialStatus),
             DurationMs = msgVm.Message.ToolDurationMs ?? 0,
@@ -806,11 +812,16 @@ public class TranscriptBuilder
                 {
                     msgVm.PropertyChanged -= handler;
                     RemovePendingHandler(msgVm, handler);
+                    if (toolCallId is not null)
+                        _runningToolCallsByToolCallId.Remove(toolCallId);
                 }
             };
             msgVm.PropertyChanged += handler;
             _pendingToolHandlers.Add((msgVm, handler));
         }
+
+        if (toolCallId is not null && initialStatus == StrataAiToolCallStatus.InProgress)
+            _runningToolCallsByToolCallId[toolCallId] = (toolCall, capturedToolGroup);
 
         AddToolItemToCurrentContext(toolCall, toolParentSubagent);
         UpdateToolGroupLabel();
@@ -2100,11 +2111,13 @@ public class TranscriptBuilder
                 var activity = item switch
                 {
                     ToolCallItem { Status: StrataAiToolCallStatus.InProgress } tool
-                        => new ToolActivityPreviewItem(tool.ToolName, tool.MoreInfo),
+                        => new ToolActivityPreviewItem(tool.ToolName, tool.LiveDetail ?? tool.MoreInfo, tool.IconKey,
+                            RunningSince: tool.RunningSince),
                     TerminalPreviewItem terminal when terminal.Status == StrataAiToolCallStatus.InProgress || terminal.IsRunningInBackground
-                        => new ToolActivityPreviewItem(terminal.ToolName, terminal.Command),
+                        => new ToolActivityPreviewItem(terminal.ToolName, terminal.Command, terminal.IconKey,
+                            RunningSince: terminal.RunningSince),
                     TodoProgressItem { Status: StrataAiToolCallStatus.InProgress } todo
-                        => new ToolActivityPreviewItem(todo.ToolName, todo.MoreInfo),
+                        => new ToolActivityPreviewItem(todo.CurrentStepTitle ?? todo.ToolName, null, todo.IconKey, todo.GlanceSteps),
                     _ => null
                 };
                 if (activity is null)
@@ -2119,6 +2132,32 @@ public class TranscriptBuilder
         if (!group.ActivityPreview.SequenceEqual(preview))
             group.ActivityPreview = preview;
         group.AdditionalActivityCount = runningCount - preview.Count;
+        group.IconKey = ResolveToolGroupIconKey(group, preview);
+        group.HasFailures = group.ToolCalls.Any(static call => GetStatus(call) == StrataAiToolCallStatus.Failed);
+    }
+
+    /// <summary>
+    /// The group's glyph says what it is doing: the step running now, a plan, the one kind of work all its
+    /// steps share, or mixed work.
+    /// </summary>
+    private static string ResolveToolGroupIconKey(ToolGroupItem group, IReadOnlyList<ToolActivityPreviewItem> running)
+    {
+        if (running.Count > 0)
+            return running[0].IconKey;
+
+        string? shared = null;
+        foreach (var call in group.ToolCalls)
+        {
+            if (call is TodoProgressItem)
+                return TranscriptIcons.Plan;
+
+            if (shared is null)
+                shared = call.IconKey;
+            else if (!string.Equals(shared, call.IconKey, StringComparison.Ordinal))
+                return TranscriptIcons.Mixed;
+        }
+
+        return shared ?? TranscriptIcons.Mixed;
     }
 
     private void UpsertTodoProgressToolCall(List<ToolDisplayHelper.TodoStepSnapshot> steps, string toolStatus)
@@ -2126,7 +2165,6 @@ public class TranscriptBuilder
         var total = steps.Count;
         var completed = steps.Count(step => string.Equals(step.Status, "completed", StringComparison.OrdinalIgnoreCase));
         var failed = steps.Count(step => string.Equals(step.Status, "failed", StringComparison.OrdinalIgnoreCase));
-        var detailsMarkdown = ToolDisplayHelper.BuildTodoDetailsMarkdown(steps);
 
         if (_currentTodoProgress is null)
         {
@@ -2149,19 +2187,44 @@ public class TranscriptBuilder
         if (_currentTodoToolCall is null)
         {
             _currentTodoToolCall = new TodoProgressItem(
-                $"✅ {Loc.ToolTodo_Title}",
+                Loc.ToolTodo_Title,
                 StrataAiToolCallStatus.InProgress,
                 $"todo:{_currentToolGroup?.StableId}")
             {
-                InputParameters = detailsMarkdown,
+                Steps = BuildPlanSteps(steps),
             };
             _currentToolGroup?.ToolCalls.Add(_currentTodoToolCall);
         }
         else
         {
-            _currentTodoToolCall.InputParameters = detailsMarkdown;
+            _currentTodoToolCall.Steps = BuildPlanSteps(steps);
         }
     }
+
+    /// <summary>
+    /// A plan's steps as its card lists them: done, being worked on, failed, or still to come. Only the
+    /// first step in progress is the one at work: a checklist marks every unfinished line in progress.
+    /// </summary>
+    internal static IReadOnlyList<PlanStepItem> BuildPlanSteps(IEnumerable<ToolDisplayHelper.TodoStepSnapshot> steps)
+    {
+        var result = new List<PlanStepItem>();
+        var hasCurrent = false;
+        foreach (var step in steps)
+        {
+            var isCurrent = !hasCurrent && IsPlanStatus(step.Status, "in-progress", "in_progress", "running", "active");
+            hasCurrent |= isCurrent;
+            result.Add(new PlanStepItem(
+                step.Title,
+                IsDone: IsPlanStatus(step.Status, "completed", "done"),
+                IsCurrent: isCurrent,
+                IsFailed: IsPlanStatus(step.Status, "failed")));
+        }
+
+        return result;
+    }
+
+    private static bool IsPlanStatus(string status, params string[] names)
+        => names.Any(name => string.Equals(status, name, StringComparison.OrdinalIgnoreCase));
 
     private void UpsertSubagentTodoProgressToolCall(
         SubagentToolCallItem subagent,
@@ -2175,15 +2238,14 @@ public class TranscriptBuilder
         subagent.TodoToolStatus = toolStatus;
         subagent.TodoUpdateCount++;
 
-        var detailsMarkdown = ToolDisplayHelper.BuildTodoDetailsMarkdown(steps);
         if (subagent.TodoItem is null)
         {
             subagent.TodoItem = new TodoProgressItem(
-                $"✅ {Loc.ToolTodo_Title}",
+                Loc.ToolTodo_Title,
                 MapToolStatus(toolStatus),
                 $"todo:{subagent.StableId}")
             {
-                InputParameters = detailsMarkdown,
+                Steps = BuildPlanSteps(steps),
                 // The message's own instant, like every other tool item — using "now" would sort a
                 // rebuilt plan card after the agent's final answer instead of where it happened.
                 Timestamp = message.ToolStartedAt ?? message.Timestamp,
@@ -2194,7 +2256,7 @@ public class TranscriptBuilder
         else
         {
             subagent.TodoItem.Status = MapToolStatus(toolStatus);
-            subagent.TodoItem.InputParameters = detailsMarkdown;
+            subagent.TodoItem.Steps = BuildPlanSteps(steps);
         }
     }
 
@@ -2537,7 +2599,7 @@ public class TranscriptBuilder
         {
             label = hasReasoning ? $"{lastIntentLabel} · {Loc.TurnSummary_Reasoned.ToLowerInvariant()}" : lastIntentLabel;
             if (totalToolCalls > 1)
-                label += $" · {string.Format(Loc.ToolGroup_FinishedCount, totalToolCalls)}";
+                label += $" · {Loc.Get("TurnSummary_Actions", totalToolCalls)}";
         }
         else if (hasReasoning && totalToolCalls > 0)
             label = totalToolCalls == 1 ? Loc.TurnSummary_ReasonedAndOneAction : string.Format(Loc.TurnSummary_ReasonedAndActions, totalToolCalls);
@@ -2554,7 +2616,7 @@ public class TranscriptBuilder
             label += " · " + Loc.Get("TurnSummary_Failed", failedCount);
 
         if (earlierActivity)
-            label = Loc.Get("TurnSummary_EarlierWork", label);
+            label = Loc.Get("TurnSummary_EarlierWork", LowercaseFirst(label));
 
         var firstIdx = items.IndexOf(blocksToMerge[0]);
         // Keep the history row and its children mounted as more work arrives. Replacing it would
@@ -2641,6 +2703,24 @@ public class TranscriptBuilder
         return minutes == 0 ? $"{hours}h" : $"{hours}h {minutes}m";
     }
 
+    /// <summary>
+    /// Lowercases the first letter, for a label that continues another ("Earlier work · reasoned"), unless
+    /// its first word is an acronym or a name with capitals inside it ("PR review", "GitHub triage").
+    /// </summary>
+    internal static string LowercaseFirst(string text)
+    {
+        if (text.Length == 0 || !char.IsUpper(text[0]))
+            return text;
+
+        for (var index = 1; index < text.Length && !char.IsWhiteSpace(text[index]); index++)
+        {
+            if (char.IsUpper(text[index]))
+                return text;
+        }
+
+        return char.ToLower(text[0], System.Globalization.CultureInfo.CurrentCulture) + text[1..];
+    }
+
     private void CollapseAllCompletedTurns(TranscriptTurn? workingTurn)
     {
         var turns = GetTurnTarget();
@@ -2724,6 +2804,29 @@ public class TranscriptBuilder
 
         if (!string.Equals(previousOutput, target.Output, StringComparison.Ordinal))
             FindOwningSubagent(rootToolCallId)?.NotifyRunContentChanged();
+    }
+
+    /// <summary>
+    /// Shows a running tool's latest progress message (the SDK's <c>tool.execution_progress</c>, e.g. an
+    /// MCP server's status) as its glance detail, in its row and in the live card. Only the first line is
+    /// kept; the row returns to its usual detail when the step ends.
+    /// </summary>
+    public void UpdateToolProgress(string toolCallId, string? message)
+    {
+        if (!_runningToolCallsByToolCallId.TryGetValue(toolCallId, out var running)
+            || running.Item.Status != StrataAiToolCallStatus.InProgress)
+            return;
+
+        var text = message?.Trim().Split('\n', 2)[0].Trim();
+        if (string.IsNullOrEmpty(text) || string.Equals(text, running.Item.ProgressText, StringComparison.Ordinal))
+            return;
+
+        running.Item.ProgressText = text;
+        if (running.Group is { } group)
+        {
+            UpdateToolGroupActivityPreview(group);
+            PublishLiveActivity();
+        }
     }
 
     /// <summary>

@@ -596,7 +596,7 @@
   "Common_Cancel": "Cancel",
   "Common_Rename": "Rename",
   "Common_Clear": "Clear",
-  "Common_TryAgain": "↻ Try again",
+  "Common_TryAgain": "Try again",
 
   "Dialog_RenameChat": "Rename Chat",
   "Dialog_ChatTitle": "Chat title",
@@ -1217,6 +1217,7 @@
   "TurnSummary_ReasonedAndActions": "Reasoned \u00b7 {0} actions",
   "TurnSummary_ReasonedAndOneAction": "Reasoned \u00b7 1 action",
   "TurnSummary_Reasoned": "Reasoned",
+  "TurnSummary_Actions": "{0} actions",
   "TurnSummary_EarlierWork": "Earlier work \u00b7 {0}",
   "TurnSummary_Failed": "{0} failed",
   "TurnSummary_WorkedFor": "Worked for {0}",

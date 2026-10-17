@@ -534,10 +534,13 @@
       </Button>
     </DataTemplate>
 
-    <!-- Reasoning -->
+    <!-- Reasoning: the card leaves the inset to its content, as on the desktop. -->
     <DataTemplate DataType="vm:ReasoningItemViewModel">
-      <sc:StrataThink Classes="mobile-activity" Margin="0,4" Label="{Binding Label}" IsActive="{Binding IsStreaming}"
-                      Content="{Binding Text}" />
+      <sc:StrataThink Classes="mobile-activity" Margin="0,4" Label="{Binding Label}" IsActive="{Binding IsStreaming}">
+        <sc:StrataThink.Content>
+          <ContentControl Margin="7,0,7,4" Content="{Binding Text}" />
+        </sc:StrataThink.Content>
+      </sc:StrataThink>
     </DataTemplate>
 
     <!-- Tool group -->
