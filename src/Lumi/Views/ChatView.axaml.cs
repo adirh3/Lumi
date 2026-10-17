@@ -302,6 +302,19 @@ public partial class ChatView : UserControl
             };
         }
 
+        // So does the paused bar, when a chat pauses or a paused chat opens. It moves on the render thread,
+        // as opening a chat keeps the UI thread busy.
+        var pauseBar = this.FindControl<Border>("ChatPauseStatusPanel");
+        if (pauseBar is not null)
+        {
+            pauseBar.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == IsVisibleProperty && pauseBar.IsVisible
+                    && _subscribedVm?.AreAnimationsEnabled != false)
+                    SlideFadeEntrance.PlayComposited(pauseBar, offsetY: 6);
+            };
+        }
+
         // ── Search bar controls ──
         _searchBar = this.FindControl<Border>("SearchBar");
         _searchInput = this.FindControl<TextBox>("SearchInput");

@@ -22,8 +22,9 @@
          instead of clinging to the edges. On narrow windows it grows to full width. -->
     <x:Double x:Key="Chat.ReadingColumnWidth">900</x:Double>
     <x:Double x:Key="Chat.ToolGroupContentMaxHeight">420</x:Double>
-    <StreamGeometry x:Key="Chat.Icon.Pause">M7 5h4v14H7V5zm6 0h4v14h-4V5z</StreamGeometry>
-    <StreamGeometry x:Key="Chat.Icon.Play">M8 5v14l11-7L8 5z</StreamGeometry>
+    <!-- Pause and play, filled and rounded like the composer's stop mark: two capsules, a soft triangle. -->
+    <StreamGeometry x:Key="Chat.Icon.Pause">M6.75 7.25a1.75 1.75 0 0 1 3.5 0v9.5a1.75 1.75 0 0 1-3.5 0zM13.75 7.25a1.75 1.75 0 0 1 3.5 0v9.5a1.75 1.75 0 0 1-3.5 0z</StreamGeometry>
+    <StreamGeometry x:Key="Chat.Icon.Play">M8 6.6v10.8a1.2 1.2 0 0 0 1.82 1.03l8.9-5.4a1.2 1.2 0 0 0 0-2.06l-8.9-5.4A1.2 1.2 0 0 0 8 6.6z</StreamGeometry>
 
     <!-- Launchpad glass: a lift of the island's own surface, translucent so Lumi's presence glows through -->
     <SolidColorBrush x:Key="Launchpad.CardFill" Color="{DynamicResource Color.Surface2}" Opacity="0.46" />
@@ -1425,6 +1426,184 @@
       <Setter Property="sa:LifecycleOpacityPulse.HoldUntil" Value="0.36" />
       <Setter Property="sa:LifecycleOpacityPulse.PeakAt" Value="0.74" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+
+    <!-- ── Pause ──
+         Pause holds a run where it stands and keeps everything it has done. The Pause pill sits with the
+         chat's other controls above the composer, in their material, and lights with the accent on hover.
+         The paused bar is a piece of the composer's glass: a disc whose rim breathes slowly, like a standby
+         light, while the chat holds; what happened; and the way on, with Resume the one accent. While the
+         chat is still pausing, the Strata line runs along its foot instead, as under any work in progress.
+         Every label sets its own size and colour: Strata's base TextBlock style would otherwise give it
+         body text. -->
+    <Style Selector="Button.pause-pill">
+      <Setter Property="Height" Value="22" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="7,0,9,0" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="ToolTip.Placement" Value="Top" />
+      <Setter Property="ToolTip.VerticalOffset" Value="-6" />
+    </Style>
+    <Style Selector="PathIcon.pause-glyph">
+      <Setter Property="Width" Value="8" />
+      <Setter Property="Height" Value="9" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.3" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.pause-pill:pointerover PathIcon.pause-glyph">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.pause-pill:not(.motion-disabled):pointerover PathIcon.pause-glyph">
+      <Setter Property="RenderTransform" Value="scale(1.18)" />
+    </Style>
+    <Style Selector="TextBlock.pause-pill-text">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.pause-pill:pointerover TextBlock.pause-pill-text">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+
+    <Style Selector="Border.pause-bar">
+      <Setter Property="Margin" Value="0,0,0,8" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BoxShadow" Value="0 10 26 -12 #4D000000, 0 2 6 -2 #1A000000" />
+    </Style>
+    <Style Selector="Border.pause-badge-disc">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Border.pause-badge-rim">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Opacity" Value="0.4" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.12" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.7" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:3.2" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border.pause-bar.motion-disabled Border.pause-badge-rim">
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
+    </Style>
+    <Style Selector="Border.pause-bar.pending Border.pause-badge-rim">
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="PathIcon.pause-badge-glyph">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="TextBlock.pause-bar-title">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.pause-bar-description">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="LineHeight" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Button.pause-bar-action">
+      <Setter Property="Height" Value="30" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="13,0" />
+      <Setter Property="CornerRadius" Value="15" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.pause-bar-action TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.pause-bar-cancel TextBlock">
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.pause-bar-cancel:pointerover TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.pause-bar-resume">
+      <Setter Property="Padding" Value="12,0,15,0" />
+    </Style>
+    <Style Selector="Button.pause-bar-resume TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- The play mark leans forward on hover, the way Resume moves the chat on. -->
+    <Style Selector="PathIcon.resume-glyph">
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="RenderTransform" Value="translateX(0px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.pause-bar:not(.motion-disabled) Button.pause-bar-resume:pointerover PathIcon.resume-glyph">
+      <Setter Property="RenderTransform" Value="translateX(2px)" />
+    </Style>
+    <Style Selector="Border.pause-bar-line">
+      <Setter Property="IsVisible" Value="False" />
+      <Setter Property="Height" Value="1.5" />
+      <Setter Property="Margin" Value="22,0" />
+      <Setter Property="CornerRadius" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Background" Value="{DynamicResource Brush.StratumLine}" />
+      <Setter Property="OpacityMask">
+        <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+          <GradientStop Offset="0" Color="#00000000" />
+          <GradientStop Offset="0.15" Color="#FF000000" />
+          <GradientStop Offset="0.85" Color="#FF000000" />
+          <GradientStop Offset="1" Color="#00000000" />
+        </LinearGradientBrush>
+      </Setter>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.35" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border.pause-bar.pending Border.pause-bar-line">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Border.pause-bar.motion-disabled Border.pause-bar-line">
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
     </Style>
 
     <!-- ── Ctrl+F search bar ── -->
@@ -3792,94 +3971,72 @@
             </StackPanel>
           </Button>
           <Button x:Name="PauseChatButton"
-                  Classes="subtle"
+                  Classes="subtle pause-pill"
+                  Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
                   IsVisible="{Binding CanPauseChat}"
                   Command="{Binding TogglePauseCommand}"
                   ToolTip.Tip="{loc:Str Chat_PauseTooltip}"
                   AutomationProperties.Name="{loc:Str Chat_Pause}"
                   AutomationProperties.HelpText="{loc:Str Chat_PauseTooltip}"
-                  Focusable="True"
-                  Padding="8,2"
-                  MinHeight="0"
-                  MinWidth="0"
-                  Height="24"
-                  CornerRadius="{DynamicResource Radius.Interactive}"
-                  VerticalAlignment="Center">
+                  Focusable="True">
             <StackPanel Orientation="Horizontal" Spacing="5">
-              <PathIcon Width="11" Height="11" Data="{StaticResource Chat.Icon.Pause}" />
-              <TextBlock Text="{loc:Str Chat_Pause}" FontSize="11.5" FontWeight="Medium" />
+              <PathIcon Classes="pause-glyph" Data="{StaticResource Chat.Icon.Pause}" />
+              <TextBlock Classes="pause-pill-text" Text="{loc:Str Chat_Pause}" />
             </StackPanel>
           </Button>
           </StackPanel>
         </Grid>
       </Border>
 
+      <!-- Paused: the chat holds where it stopped, its draft kept in the composer below. -->
       <Border x:Name="ChatPauseStatusPanel"
+              Classes="pause-bar"
+              Classes.pending="{Binding IsPausePending}"
+              Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
               IsVisible="{Binding IsPaused}"
               AutomationProperties.Name="{Binding PauseStatusTitle}"
-              AutomationProperties.HelpText="{Binding PauseStatusDescription}"
-              Background="{DynamicResource Brush.SurfaceCard}"
-              BorderBrush="{DynamicResource Brush.BorderSubtle}"
-              BorderThickness="1"
-              CornerRadius="{DynamicResource Radius.Interactive}"
-              Padding="12,9"
-              Margin="0,2,0,4">
-        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto"
-              ColumnSpacing="9" RowSpacing="4">
-          <Border Grid.Column="0" Grid.RowSpan="2"
-                  Width="28" Height="28" CornerRadius="8"
-                  VerticalAlignment="Top"
-                  Background="{DynamicResource Brush.AccentSubtle}">
-            <PathIcon Width="13" Height="13"
-                      Foreground="{DynamicResource Brush.AccentDefault}"
-                      Data="{StaticResource Chat.Icon.Pause}" />
-          </Border>
-          <TextBlock x:Name="ChatPauseStatusTitle"
-                     Grid.Column="1"
-                     Text="{Binding PauseStatusTitle}"
-                     FontSize="12"
-                     FontWeight="SemiBold"
-                     Foreground="{DynamicResource Brush.TextPrimary}"
-                     VerticalAlignment="Center"
-                     TextTrimming="CharacterEllipsis"
-                     ToolTip.Tip="{Binding PauseStatusTitle}" />
-          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5">
-            <Button x:Name="StopPausedChatButton"
-                    Classes="subtle"
-                    Command="{Binding StopGenerationCommand}"
-                    Content="{loc:Str Chat_CancelPausedRun}"
-                    AutomationProperties.Name="{loc:Str Chat_CancelPausedRun}"
-                    Focusable="True"
-                    MinHeight="0"
-                    MinWidth="0"
-                    Padding="8,4"
-                    CornerRadius="7"
-                    FontSize="10.5" />
-            <Button x:Name="ResumeChatButton"
-                    Classes="accent"
-                    Command="{Binding ResumeChatCommand}"
-                    ToolTip.Tip="{loc:Str Chat_ResumeTooltip}"
-                    AutomationProperties.Name="{loc:Str Chat_Resume}"
-                    AutomationProperties.HelpText="{loc:Str Chat_ResumeTooltip}"
-                    Focusable="True"
-                    MinHeight="0"
-                    MinWidth="0"
-                    Padding="9,4"
-                    CornerRadius="7">
-              <StackPanel Orientation="Horizontal" Spacing="5">
-                <PathIcon Width="11" Height="11" Data="{StaticResource Chat.Icon.Play}" />
-                <TextBlock Text="{loc:Str Chat_Resume}" FontSize="11" FontWeight="SemiBold" />
-              </StackPanel>
-            </Button>
-          </StackPanel>
-          <TextBlock x:Name="ChatPauseStatusDescription"
-                     Grid.Column="1" Grid.Row="1" Grid.ColumnSpan="2"
-                     Text="{Binding PauseStatusDescription}"
-                     FontSize="11"
-                     LineHeight="15"
-                     Foreground="{DynamicResource Brush.TextSecondary}"
-                     TextWrapping="Wrap" />
-        </Grid>
+              AutomationProperties.HelpText="{Binding PauseStatusDescription}">
+        <Panel>
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="11" Margin="10,9,9,9">
+            <Panel VerticalAlignment="Center">
+              <Border Classes="pause-badge-disc">
+                <PathIcon Classes="pause-badge-glyph" Data="{StaticResource Chat.Icon.Pause}" />
+              </Border>
+              <Border Classes="pause-badge-rim" />
+            </Panel>
+            <StackPanel Grid.Column="1" Spacing="2" MinWidth="0" VerticalAlignment="Center">
+              <TextBlock x:Name="ChatPauseStatusTitle"
+                         Classes="pause-bar-title"
+                         Text="{Binding PauseStatusTitle}" />
+              <TextBlock x:Name="ChatPauseStatusDescription"
+                         Classes="pause-bar-description"
+                         Text="{Binding PauseStatusDescription}" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+              <Button x:Name="StopPausedChatButton"
+                      Classes="subtle pause-bar-action pause-bar-cancel"
+                      Command="{Binding StopGenerationCommand}"
+                      Content="{loc:Str Chat_CancelPausedRun}"
+                      AutomationProperties.Name="{loc:Str Chat_CancelPausedRun}"
+                      Focusable="True" />
+              <Button x:Name="ResumeChatButton"
+                      Classes="accent pause-bar-action pause-bar-resume"
+                      Command="{Binding ResumeChatCommand}"
+                      ToolTip.Tip="{loc:Str Chat_ResumeTooltip}"
+                      ToolTip.Placement="Top"
+                      ToolTip.VerticalOffset="-6"
+                      AutomationProperties.Name="{loc:Str Chat_Resume}"
+                      AutomationProperties.HelpText="{loc:Str Chat_ResumeTooltip}"
+                      Focusable="True">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Classes="resume-glyph" Data="{StaticResource Chat.Icon.Play}" />
+                  <TextBlock Text="{loc:Str Chat_Resume}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+          </Grid>
+          <Border x:Name="ChatPauseProgressLine" Classes="pause-bar-line" />
+        </Panel>
       </Border>
 
       <sc:StrataChatComposer x:Name="Composer"

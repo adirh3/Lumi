@@ -244,6 +244,54 @@ public sealed class ChatPauseTests
     }
 
     [Fact]
+    public async Task PausedBar_CarriesTheStrataLineOnlyWhilePausing_AndKeepsItsOwnType()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var chat = new Chat();
+            using var vm = new ChatViewModel(new DataStore(CreateData(chat)), TestCopilot.Shared)
+            {
+                CurrentChat = chat
+            };
+            var view = new ChatView { DataContext = vm };
+            var window = new Window { Width = 900, Height = 700, Content = view };
+            window.Show();
+            try
+            {
+                chat.IsPaused = true;
+                chat.IsPausePending = true;
+                Dispatcher.UIThread.RunJobs();
+
+                var bar = view.FindControl<Border>("ChatPauseStatusPanel")!;
+                var title = view.FindControl<TextBlock>("ChatPauseStatusTitle")!;
+                var line = view.FindControl<Border>("ChatPauseProgressLine")!;
+                Assert.True(bar.IsVisible);
+                Assert.Equal(Loc.Get("Chat_Pausing"), title.Text);
+                Assert.True(line.IsEffectivelyVisible);
+
+                chat.IsPausePending = false;
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(Loc.Get("Chat_Paused"), title.Text);
+                Assert.False(line.IsEffectivelyVisible);
+
+                // Strata's base TextBlock style gives unsized text body size; the bar's labels keep their own.
+                var cancelText = view.FindControl<Button>("StopPausedChatButton")!
+                    .GetVisualDescendants().OfType<TextBlock>().Single();
+                var resumeText = view.FindControl<Button>("ResumeChatButton")!
+                    .GetVisualDescendants().OfType<TextBlock>().Single();
+                Assert.Equal(12, cancelText.FontSize);
+                Assert.Equal(12, resumeText.FontSize);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task SidebarContextMenu_PausesAndResumesItsChatWithoutSwitchingTheCurrentChat()
     {
         using var ui = HeadlessTestSession.Start();
