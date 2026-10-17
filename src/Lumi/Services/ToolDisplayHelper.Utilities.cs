@@ -100,15 +100,15 @@ public static partial class ToolDisplayHelper
             "ui_click" => Loc.Tool_ClickingControl,
             "ui_type" => Loc.Tool_TypingInControl,
             "ui_read" => Loc.Tool_ReadingControl,
-            "sql" => Loc.Tool_RunningQuery,
+            "sql" => GetCommandTitle(argsJson) ?? Loc.Tool_RunningQuery,
             "task" => string.Format(Loc.Tool_RunningAgent, ExtractJsonField(argsJson, "agent_type") ?? "agent"),
             _ => !string.IsNullOrWhiteSpace(toolTitle) ? toolTitle.Trim() : FormatSnakeCaseToTitle(toolName)
         };
     }
 
     /// <summary>
-    /// The purpose the agent gave a shell command (its <c>description</c> argument, e.g. "Run the focused
-    /// tests"), so the command reads as what it is for rather than as "Running command". Null without one.
+    /// The purpose the agent gave a shell command or a query (its <c>description</c> argument, e.g. "Run
+    /// the focused tests"), so it reads as what it is for rather than as "Running command". Null without one.
     /// </summary>
     public static string? GetCommandTitle(string? argsJson)
     {

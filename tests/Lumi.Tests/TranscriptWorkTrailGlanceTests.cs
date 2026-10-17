@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Runtime.Serialization;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Lumi.Converters;
@@ -349,9 +351,258 @@ public sealed class TranscriptWorkTrailGlanceTests
     private static string PlanJson(params (string Title, string Status)[] steps)
         => "{\"todoList\":[" + string.Join(",", steps.Select(step => $"{{\"title\":\"{step.Title}\",\"status\":\"{step.Status}\"}}")) + "]}";
 
-    private static (TranscriptBuilder Builder, ObservableCollection<TranscriptTurn> Turns) CreateLiveBuilder()
+    [Fact]
+    public void Query_ReadsAsThePurposeTheAgentGaveIt()
     {
-        var builder = new TranscriptBuilder(CreateDataStore(), _ => { }, (_, _) => { }, _ => { },
+        Lumi.Localization.Loc.Load("en");
+        const string args = "{\"description\":\"inspect existing todos\",\"query\":\"-- plan\\nSELECT id,   status\\n  FROM todos\"}";
+
+        Assert.Equal("Inspect existing todos", ToolDisplayHelper.FormatToolStatusName("sql", args));
+        Assert.Equal(("Inspect existing todos", "SELECT id, status"), ToolDisplayHelper.GetFriendlyToolDisplay("sql", null, args));
+        Assert.Equal("Running query", ToolDisplayHelper.GetFriendlyToolDisplay("sql", null, "{\"query\":\"select 1\"}").Name);
+    }
+
+    [Fact]
+    public void SqlPlan_AQueryThatChangedTheTodosShowsThePlan_OthersStayQueries()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var (builder, turns) = CreateLiveBuilder();
+        var write = CreateToolVm("sql-1", "sql", "Completed", "{\"description\":\"Track todos\",\"query\":\"INSERT INTO todos (id) VALUES ('a')\"}");
+        write.Message.PlanSnapshot = PlanJson(("Read the builder", "completed"), ("Run the tests", "in-progress"), ("Wait for review", "blocked"));
+        builder.ProcessMessageToTranscript(write);
+        builder.ProcessMessageToTranscript(CreateToolVm("sql-2", "sql", "Completed", "{\"description\":\"Read ready todos\",\"query\":\"SELECT id FROM todos\"}"));
+
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items));
+        var plan = Assert.Single(group.ToolCalls.OfType<TodoProgressItem>());
+        Assert.Equal(new[] { "Read the builder", "Run the tests", "Wait for review" }, plan.Steps.Select(step => step.Title));
+        Assert.Equal(StrataAiToolCallStatus.Completed, plan.Status);
+        Assert.True(plan.Steps[1].IsCurrent);
+        Assert.True(plan.Steps[2].IsBlocked);
+        Assert.Equal("Read ready todos", Assert.Single(group.ToolCalls.OfType<ToolCallItem>()).ToolName);
+    }
+
+    [Fact]
+    public void SqlPlan_ReadBackLive_ReplacesTheQueryAndStaysInTheCardWhileWorkRuns()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var (builder, turns) = CreateLiveBuilder();
+        var reading = CreateToolVm("view-1", "view", "InProgress", "{\"path\":\"a.txt\"}");
+        builder.ProcessMessageToTranscript(reading);
+        var write = CreateToolVm("sql-1", "sql", "InProgress", "{\"description\":\"Update todo progress\",\"query\":\"UPDATE todos SET status = 'done'\"}");
+        builder.ProcessMessageToTranscript(write);
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.Contains(group.ToolCalls, call => call is ToolCallItem { ToolName: "Update todo progress" });
+
+        // The plan is read back after the query has ended.
+        write.Message.ToolStatus = "Completed";
+        write.NotifyToolStatusChanged();
+        write.Message.PlanSnapshot = PlanJson(("Read the file", "completed"), ("Fix the bug", "in-progress"));
+        builder.ApplyPlanSnapshot(write);
+
+        Assert.DoesNotContain(group.ToolCalls, call => call is ToolCallItem { ToolName: "Update todo progress" });
+        Assert.Equal(StrataAiToolCallStatus.Completed, Assert.Single(group.ToolCalls.OfType<TodoProgressItem>()).Status);
+        // The read is still at work, so the card is too: the plan leads, above the step running now, which
+        // the chat header keeps naming.
+        Assert.True(group.IsActive);
+        Assert.Equal("1/2 completed", group.Meta);
+        Assert.Equal("Fix the bug", group.ActivityPreview[0].Label);
+        Assert.True(group.ActivityPreview[0].HasSteps);
+        Assert.Equal(TranscriptIcons.Plan, group.IconKey);
+        Assert.False(group.ActivityPreview[^1].HasSteps);
+        Assert.Equal(0, group.AdditionalActivityCount);
+        Assert.Contains("a.txt", builder.LiveActivityLabel, StringComparison.Ordinal);
+
+        // A later read of the same change refreshes the plan; a finished plan leaves the card.
+        write.Message.PlanSnapshot = PlanJson(("Read the file", "completed"), ("Fix the bug", "completed"));
+        builder.ApplyPlanSnapshot(write);
+        Assert.All(Assert.Single(group.ToolCalls.OfType<TodoProgressItem>()).Steps, step => Assert.True(step.IsDone));
+        Assert.DoesNotContain(group.ActivityPreview, preview => preview.HasSteps);
+
+        reading.Message.ToolStatus = "Completed";
+        reading.NotifyToolStatusChanged();
+        Assert.False(group.IsActive);
+    }
+
+    [Fact]
+    public void LonePlan_StaysInHistoryAsAPlanChip()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var (builder, turns) = CreateLiveBuilder();
+        var write = CreateToolVm("sql-1", "sql", "Completed", "{\"description\":\"Finish todos\",\"query\":\"UPDATE todos SET status = 'done'\"}");
+        write.Message.PlanSnapshot = PlanJson(("Read", "completed"), ("Fix", "completed"), ("Ship", "failed"));
+        builder.ProcessMessageToTranscript(write);
+        builder.CloseCurrentToolGroup();
+
+        var chip = Assert.IsType<SingleToolItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.True(chip.IsPlan);
+        Assert.Equal("2/3 completed \u00b7 1 failed", chip.Meta);
+    }
+
+    [Fact]
+    public void PlanCard_NamedByItsIntent_TrailsOffOnlyWhileItWorks()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(CreateToolVm("intent-1", "report_intent", "Completed", "{\"intent\":\"Fixing the bug\"}"));
+        var reading = CreateToolVm("view-1", "view", "InProgress", "{\"path\":\"a.txt\"}");
+        builder.ProcessMessageToTranscript(reading);
+        var write = CreateToolVm("sql-1", "sql", "Completed", "{\"description\":\"Track todos\",\"query\":\"INSERT INTO todos (id) VALUES ('fix')\"}");
+        write.Message.PlanSnapshot = PlanJson(("Read the file", "completed"), ("Fix the bug", "in-progress"));
+        builder.ProcessMessageToTranscript(write);
+
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.Equal("Fixing the bug…", group.Label);
+
+        reading.Message.ToolStatus = "Completed";
+        reading.NotifyToolStatusChanged();
+        Assert.False(group.IsActive);
+        Assert.Equal("Fixing the bug", group.Label);
+    }
+
+    [Fact]
+    public void PlanSnapshot_IsSavedWithItsMessage_AndLeftOutWhenAbsent()
+    {
+        var message = new ChatMessage { Role = "tool", ToolName = "sql", PlanSnapshot = PlanJson(("Fix the bug", "in-progress")) };
+
+        // A chat is saved from clones of its messages.
+        var json = JsonSerializer.Serialize(new List<ChatMessage> { message.Clone() }, AppDataJsonContext.Default.ListChatMessage);
+        var restored = Assert.Single(JsonSerializer.Deserialize(json, AppDataJsonContext.Default.ListChatMessage)!);
+        var plainJson = JsonSerializer.Serialize(new List<ChatMessage> { new() { Role = "tool" } }, AppDataJsonContext.Default.ListChatMessage);
+
+        Assert.Equal(message.PlanSnapshot, restored.PlanSnapshot);
+        Assert.DoesNotContain("planSnapshot", plainJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SqlPlan_ShowsTheTurnsWork_NotEarlierFinishedWork()
+    {
+        var turnStart = new DateTimeOffset(2026, 10, 17, 13, 30, 0, TimeSpan.FromHours(3));
+        var shown = new HashSet<string>();
+        SqlTodoRow[] rows =
+        [
+            new("old-done", "Old finished work", "done", "2026-10-17 09:00:00"),
+            new("old-open", "Old open work", "pending", "2026-10-17 09:00:00"),
+            new("new", "New work", "in_progress", "2026-10-17 10:30:00"),
+            new("quick", "Created and finished this turn", "done", "2026-10-17 10:31:00"),
+            new("waiting", null, "blocked", "2026-10-17 10:31:00"),
+        ];
+
+        var steps = ToolDisplayHelper.ParseTodoSteps(ToolDisplayHelper.BuildSqlPlanSnapshot(rows, turnStart, shown));
+        Assert.Equal(new[] { "Old open work", "New work", "Created and finished this turn", "waiting" }, steps.Select(step => step.Title));
+        Assert.Equal(new[] { "not-started", "in-progress", "completed", "blocked" }, steps.Select(step => step.Status));
+
+        // A step the turn has shown stays in view once it is done, though an earlier turn created it.
+        SqlTodoRow[] later = [new("old-open", "Old open work", "done", "2026-10-17 09:00:00"), rows[0]];
+        Assert.Equal(new[] { "Old open work" },
+            ToolDisplayHelper.ParseTodoSteps(ToolDisplayHelper.BuildSqlPlanSnapshot(later, turnStart, shown)).Select(step => step.Title));
+        Assert.Null(ToolDisplayHelper.BuildSqlPlanSnapshot([rows[0]], turnStart, new HashSet<string>()));
+    }
+
+    [Theory]
+    [InlineData("{\"path\":\"C:\\\\src\\\\a.cs\",\"file_text\":\"x", @"C:\src\a.cs")]
+    [InlineData("{\"path\":\"C:\\\\src\\\\a.c", null)]
+    [InlineData("{\"filePath\":\"/home/adir/notes.md\"", "/home/adir/notes.md")]
+    [InlineData("*** Begin Patch\n*** Update File: src/a.cs\n@@", "src/a.cs")]
+    [InlineData("*** Begin Patch\r\n*** Update File: E:\\src\\notes.md\r\n@@", @"E:\src\notes.md")]
+    [InlineData("{\"input\":\"*** Begin Patch\\n*** Add File: C:\\\\src\\\\notes.md\\n+x", @"C:\src\notes.md")]
+    [InlineData("*** Begin Patch\n*** Update File: src/a.c", null)]
+    public void StreamingWrite_FindsItsFileOnceThePathHasArrived(string input, string? expected)
+        => Assert.Equal(expected, ToolDisplayHelper.ExtractStreamingFilePath(input));
+
+    [Fact]
+    public void StreamingWrite_AsksToShowOnceLongThenPerKilobyteOrWhenItsPathArrives()
+    {
+        var call = new StreamingToolCall("create", DateTimeOffset.UtcNow);
+
+        Assert.False(call.Append("{\"path\":\"C:\\\\work\\\\numbers.txt\",\"file_text\":\""));
+        Assert.Equal(@"C:\work\numbers.txt", call.FilePath);
+        Assert.False(call.Append(new string('1', 900)));
+        Assert.True(call.Append(new string('2', 200)));
+        Assert.False(call.Append("3"));
+        Assert.True(call.Append(new string('4', 1024)));
+
+        // A path written after the row appeared names it at once, within the same kilobyte.
+        var late = new StreamingToolCall("create", DateTimeOffset.UtcNow);
+        Assert.True(late.Append("{\"file_text\":\"" + new string('x', 1100)));
+        Assert.Null(late.FilePath);
+        Assert.True(late.Append("\",\"path\":\"a.txt\""));
+        Assert.Equal("a.txt", late.FilePath);
+        Assert.False(late.Append("}"));
+    }
+
+    [Fact]
+    public void FileBeingWritten_ShowsAsARunningStepUntilItsCallStarts()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ShowToolDraft("create-1", "create", @"C:\work\numbers.txt", 2048, DateTimeOffset.UtcNow);
+
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.True(group.IsActive);
+        var draft = Assert.Single(group.ActivityPreview);
+        Assert.Equal("Writing numbers.txt", draft.Label);
+        Assert.Equal("2.0 KB", draft.Detail);
+        Assert.Equal(TranscriptIcons.Create, draft.IconKey);
+
+        builder.EndToolDraft("create-1");
+        builder.ProcessMessageToTranscript(CreateToolVm("create-1", "create", "InProgress", "{\"path\":\"C:\\\\work\\\\numbers.txt\"}"));
+        Assert.Same(group, Assert.Single(Assert.Single(turns).Items));
+        Assert.DoesNotContain(group.ToolCalls, call => call.StableId == "draft:create-1");
+        Assert.Single(group.ToolCalls);
+    }
+
+    [Fact]
+    public void FileBeingWritten_LeavesNothingBehindWhenItsCallNeverStarts()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ShowToolDraft("create-1", "create", null, 1024, DateTimeOffset.UtcNow);
+        Assert.Equal("Writing a file", Assert.Single(Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items)).ActivityPreview).Label);
+
+        builder.CloseCurrentToolGroup();
+
+        Assert.Empty(turns.SelectMany(turn => turn.Items));
+    }
+
+    [Fact]
+    public void FileBeingWritten_StaysHiddenWhileToolCallsAre()
+    {
+        var (builder, turns) = CreateLiveBuilder(showToolCalls: false);
+
+        builder.ShowToolDraft("create-1", "create", @"C:\work\numbers.txt", 2048, DateTimeOffset.UtcNow);
+        builder.EndToolDraft("create-1");
+
+        Assert.Empty(turns);
+    }
+
+    [Fact]
+    public void ShellOutput_KeepsTheLatestPartOfALongOutput_FromTheStartOfALine()
+    {
+        var output = new LiveShellOutput();
+        var written = new System.Text.StringBuilder();
+        string snapshot = "";
+        for (var line = 0; written.Length <= LiveShellOutput.MaxLength; line++)
+        {
+            var chunk = $"progress line {line}\n";
+            written.Append(chunk);
+            snapshot = output.Append(chunk);
+            // A short output is all of it, so it extends what the row shows.
+            if (written.Length <= LiveShellOutput.MaxLength)
+            {
+                Assert.False(output.IsTail);
+                Assert.Equal(written.ToString(), snapshot);
+            }
+        }
+
+        Assert.True(output.IsTail);
+        Assert.True(snapshot.Length <= LiveShellOutput.MaxLength);
+        Assert.StartsWith("progress line ", snapshot, StringComparison.Ordinal);
+        Assert.EndsWith("\n" + snapshot, written.ToString(), StringComparison.Ordinal);
+    }
+
+    private static (TranscriptBuilder Builder, ObservableCollection<TranscriptTurn> Turns) CreateLiveBuilder(bool showToolCalls = true)
+    {
+        var builder = new TranscriptBuilder(CreateDataStore(showToolCalls), _ => { }, (_, _) => { }, _ => { },
             (_, _) => Task.CompletedTask, () => null);
         var turns = new ObservableCollection<TranscriptTurn>();
         builder.SetLiveTarget(turns);
@@ -369,13 +620,13 @@ public sealed class TranscriptWorkTrailGlanceTests
             Timestamp = DateTimeOffset.Now,
         });
 
-    private static DataStore CreateDataStore()
+    private static DataStore CreateDataStore(bool showToolCalls = true)
     {
 #pragma warning disable SYSLIB0050
         var store = (DataStore)FormatterServices.GetUninitializedObject(typeof(DataStore));
 #pragma warning restore SYSLIB0050
         var data = new AppData();
-        data.Settings.ShowToolCalls = true;
+        data.Settings.ShowToolCalls = showToolCalls;
         typeof(DataStore).GetField("_data", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .SetValue(store, data);
         return store;

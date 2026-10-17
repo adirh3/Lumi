@@ -685,8 +685,9 @@ public partial class ToolGroupItem : TranscriptItem
     [ObservableProperty] private IReadOnlyList<ToolActivityPreviewItem> _activityPreview = [];
     [ObservableProperty] private int _additionalActivityCount;
 
-    /// <summary>What the group is doing: the running step's kind while it works, then the kind its steps
-    /// share, or mixed work. Drawn as the group's line icon.</summary>
+    /// <summary>What the group is doing: its plan while the plan has steps to go, the running step's kind
+    /// while it works, then its plan or the kind its steps share, or mixed work. Drawn as the group's line
+    /// icon.</summary>
     [ObservableProperty] private string _iconKey = TranscriptIcons.Mixed;
 
     /// <summary>True when a step in the group failed: its icon turns the danger colour.</summary>
@@ -822,6 +823,16 @@ public partial class SingleToolItem : TranscriptItem
     {
         get
         {
+            // A lone plan says how far it got, as its card does.
+            if (Inner is TodoProgressItem { Steps.Count: > 0 } plan)
+            {
+                var done = plan.Steps.Count(static step => step.IsDone);
+                var failed = plan.Steps.Count(static step => step.IsFailed);
+                return failed > 0
+                    ? string.Format(Loc.ToolTodo_MetaWithFailed, done, plan.Steps.Count, failed)
+                    : string.Format(Loc.ToolTodo_Meta, done, plan.Steps.Count);
+            }
+
             var detail = Inner switch
             {
                 ToolCallItem tc => tc.Detail,
@@ -1541,8 +1552,8 @@ public partial class TodoProgressItem : ToolCallItemBase
     }
 }
 
-/// <summary>One step of a plan: done, being worked on, failed, or still to come.</summary>
-public sealed record PlanStepItem(string Title, bool IsDone, bool IsCurrent, bool IsFailed);
+/// <summary>One step of a plan: done, being worked on, failed, blocked, or still to come.</summary>
+public sealed record PlanStepItem(string Title, bool IsDone, bool IsCurrent, bool IsFailed, bool IsBlocked = false);
 
 // ── Question card ────────────────────────────────────
 

@@ -688,6 +688,14 @@ public static class DebugAgentHarness
         chat.Messages.Add(activityUser);
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString("README.md"))), "Completed"));
+        // The agent tracks its plan in its SQL todos; the query that changed them shows the plan.
+        var planUpdate = Tool("sql", JsonObject(
+            JsonProperty("description", JsonString("Update todo progress")),
+            JsonProperty("query", JsonString("UPDATE todos SET status = 'done' WHERE id = 'read-builder';"))), "Completed");
+        planUpdate.PlanSnapshot = """
+            {"todoList":[{"title":"Read the transcript builder","status":"completed"},{"title":"Check the transcript tests","status":"in-progress"},{"title":"Wait for the design review","status":"blocked"},{"title":"Polish the activity card","status":"not-started"}]}
+            """;
+        chat.Messages.Add(planUpdate);
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString("src\\Lumi\\ViewModels\\TranscriptBuilder.cs"))), "InProgress"));
         chat.Messages.Add(Tool("powershell", JsonObject(

@@ -380,6 +380,121 @@ public partial class ChatViewModel
         var subagentReasoningStreams = new Dictionary<string, StreamingTextAccumulator>(StringComparer.Ordinal);
         var pendingFetchedSources = new List<SearchSource>();
         var pendingFetchedSkillRefs = new List<SkillReference>();
+        // The agent's SQL plan (session.todos_changed): the root query whose call changed the todos, the
+        // latest read of them, and the steps this turn has shown (ToolDisplayHelper.BuildSqlPlanSnapshot).
+        string? runningRootSqlToolCallId = null;
+        string? lastRootSqlToolCallId = null;
+        var sqlPlanReadSequence = 0;
+        var sqlPlanShownIds = new HashSet<string>(StringComparer.Ordinal);
+        var sqlPlanShownTurnSequence = sessionTurnSequence - 1;
+        // File tool calls whose arguments are still streaming in (assistant.tool_call_delta).
+        var streamingToolCalls = new Dictionary<string, StreamingToolCall>(StringComparer.Ordinal);
+        // Live shell output so far, by tool call (tool.shell_output arrives in chunks).
+        var shellOutputByToolCallId = new Dictionary<string, LiveShellOutput>(StringComparer.Ordinal);
+
+        async Task ReadSqlPlanAsync(string toolCallId, int readSequence)
+        {
+            IReadOnlyList<SqlTodoRow> rows;
+            try
+            {
+                var todos = await session.Rpc.Plan.ReadSqlTodosWithDependenciesAsync(CancellationToken.None).ConfigureAwait(false);
+                rows = todos.Rows.Select(static row => new SqlTodoRow(row.Id, row.Title, row.Status, row.CreatedAt)).ToList();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceWarning("[Chat] Could not read the agent's plan: {0}", ex.Message);
+                return;
+            }
+
+            // Reads can finish out of order; only the latest is the plan as it stands.
+            if (readSequence == Volatile.Read(ref sqlPlanReadSequence))
+                Dispatcher.UIThread.Post(() => ApplySqlPlan(toolCallId, rows));
+        }
+
+        void ApplySqlPlan(string toolCallId, IReadOnlyList<SqlTodoRow> rows)
+        {
+            var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == toolCallId);
+            if (toolMsg is null)
+                return;
+
+            // Each turn shows its own plan: steps it has shown stay in view, earlier finished work does not.
+            if (sqlPlanShownTurnSequence != sessionTurnSequence)
+            {
+                sqlPlanShownIds.Clear();
+                sqlPlanShownTurnSequence = sessionTurnSequence;
+            }
+
+            var turnStartedAt = chat.Messages.LastOrDefault(m => m.Role == "user")?.Timestamp;
+            var snapshot = ToolDisplayHelper.BuildSqlPlanSnapshot(rows, turnStartedAt, sqlPlanShownIds);
+            if (snapshot is null || snapshot == toolMsg.PlanSnapshot)
+                return;
+
+            toolMsg.PlanSnapshot = snapshot;
+            QueueSaveChat(chat, saveIndex: false);
+            if (IsDisplayedSession() && Messages.LastOrDefault(m => m.Message.ToolCallId == toolCallId) is { } toolVm)
+                _transcriptBuilder.ApplyPlanSnapshot(toolVm);
+        }
+
+        void TrackStreamingToolCall(AssistantToolCallDeltaData delta)
+        {
+            if (!streamingToolCalls.TryGetValue(delta.ToolCallId, out var call))
+            {
+                // Only a file tool takes long enough to write to be worth showing before it starts.
+                if (delta.ToolName is not { } name || !ToolDisplayHelper.IsFileEditTool(name))
+                    return;
+
+                call = new StreamingToolCall(name, DateTimeOffset.UtcNow);
+                streamingToolCalls[delta.ToolCallId] = call;
+            }
+
+            if (!call.Append(delta.InputDelta))
+                return;
+
+            var toolCallId = delta.ToolCallId;
+            var toolName = call.ToolName;
+            var filePath = call.FilePath;
+            var length = call.Length;
+            var startedAt = call.StartedAt;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (IsDisplayedSession())
+                    _transcriptBuilder.ShowToolDraft(toolCallId, toolName, filePath, length, startedAt);
+            });
+        }
+
+        void ClearStreamingToolCalls()
+        {
+            if (streamingToolCalls.Count == 0)
+                return;
+
+            streamingToolCalls.Clear();
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (IsDisplayedSession())
+                    _transcriptBuilder.ClearToolDrafts();
+            });
+        }
+
+        // Live output of a running command (or the read of one), shown on its terminal row. Output that no
+        // longer starts where the command's did (the latest part of a long one) replaces what the row shows.
+        void ApplyLiveTerminalOutput(string toolCallId, string? text, bool replaceExistingOutput = false)
+        {
+            if (!IsDisplayedSession())
+                return;
+
+            var toolName = chat.Messages.LastOrDefault(m => m.ToolCallId == toolCallId)?.ToolName;
+            if (!ToolDisplayHelper.IsTerminalStreamingTool(toolName)
+                && !terminalRootByToolCallId.ContainsKey(toolCallId))
+                return;
+
+            var rootToolCallId = ToolDisplayHelper.ResolveRootTerminalToolCallId(toolCallId, toolParentById, terminalRootByToolCallId);
+            var output = ToolDisplayHelper.CleanTerminalOutput(text);
+            if (string.IsNullOrWhiteSpace(output))
+                return;
+
+            ApplyTerminalOutputAndNotify(chat, rootToolCallId, output, replaceExistingOutput);
+            _transcriptBuilder.UpdateTerminalOutput(rootToolCallId, output, replaceExistingOutput);
+        }
 
         static void AddPendingSource(List<SearchSource> sources, SearchSource source)
         {
@@ -1245,6 +1360,9 @@ public partial class ChatViewModel
                         nativeMcpServersByToolCallId[toolStart.Data.ToolCallId] = nativeMcpServerName;
                     if (IsRootAgentEvent(toolStart))
                         AdjustPendingToolCount(chat.Id, 1);
+                    if (IsRootAgentEvent(toolStart) && toolStart.Data.ToolName == "sql")
+                        runningRootSqlToolCallId = lastRootSqlToolCallId = toolStart.Data.ToolCallId;
+                    var endsStreamingToolCall = streamingToolCalls.Remove(toolStart.Data.ToolCallId);
                     // Stamp the start on the event thread, before the UI dispatch: queuing latency
                     // (which can be large while the UI thread is busy rendering a stream) must not
                     // be counted as command time.
@@ -1252,6 +1370,8 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     var startToolCallId = toolStart.Data.ToolCallId;
+                    if (endsStreamingToolCall && IsDisplayedSession())
+                        _transcriptBuilder.EndToolDraft(startToolCallId);
 #pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent tool grouping.
                     toolParentById[startToolCallId] = toolStart.Data.ParentToolCallId;
                     if (ToolDisplayHelper.IsShellCommandTool(toolStart.Data.ToolName))
@@ -1341,30 +1461,34 @@ public partial class ChatViewModel
                     });
                     break;
 
+                case ToolShellOutputEvent shellOutput:
+                    // Live output arrives in chunks; the row shows it as it grows, or its latest part once long.
+                    var shellToolCallId = shellOutput.Data.ToolCallId;
+                    if (!shellOutputByToolCallId.TryGetValue(shellToolCallId, out var shellText))
+                        shellOutputByToolCallId[shellToolCallId] = shellText = new LiveShellOutput();
+                    var shellSnapshot = shellText.Append(shellOutput.Data.Text);
+                    var shellSnapshotIsTail = shellText.IsTail;
+                    Dispatcher.UIThread.Post(() => ApplyLiveTerminalOutput(shellToolCallId, shellSnapshot, shellSnapshotIsTail));
+                    break;
+
                 case ToolExecutionPartialResultEvent partial:
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                    if (!IsDisplayedSession())
-                        return;
+                    // The deprecated merged form of the same output, for a CLI that does not send it in chunks.
+                    if (shellOutputByToolCallId.ContainsKey(partial.Data.ToolCallId))
+                        break;
 
                     var partialToolCallId = partial.Data.ToolCallId;
-                    var partialToolName = chat.Messages.LastOrDefault(m => m.ToolCallId == partialToolCallId)?.ToolName;
-                    if (!ToolDisplayHelper.IsTerminalStreamingTool(partialToolName)
-                        && !terminalRootByToolCallId.ContainsKey(partialToolCallId))
-                        return;
+                    var partialOutput = partial.Data.PartialOutput;
+                    Dispatcher.UIThread.Post(() => ApplyLiveTerminalOutput(partialToolCallId, partialOutput));
+                    break;
 
-                    var rootToolCallId = ToolDisplayHelper.ResolveRootTerminalToolCallId(partialToolCallId, toolParentById, terminalRootByToolCallId);
-                    var output = ToolDisplayHelper.CleanTerminalOutput(partial.Data.PartialOutput);
-                    if (!string.IsNullOrWhiteSpace(output))
-                    {
-                        ApplyTerminalOutputAndNotify(
-                            chat,
-                            rootToolCallId,
-                            output,
-                            replaceExistingOutput: false);
-                        _transcriptBuilder.UpdateTerminalOutput(rootToolCallId, output, false);
-                    }
-                    });
+                case SessionTodosChangedEvent when IsRootAgentEvent(evt):
+                    // The agent's plan changed: read it back and show it on the query that changed it.
+                    if ((runningRootSqlToolCallId ?? lastRootSqlToolCallId) is { } planToolCallId)
+                        _ = ReadSqlPlanAsync(planToolCallId, Interlocked.Increment(ref sqlPlanReadSequence));
+                    break;
+
+                case AssistantToolCallDeltaEvent toolCallDelta when IsRootAgentEvent(evt):
+                    TrackStreamingToolCall(toolCallDelta.Data);
                     break;
 
                 case ToolExecutionProgressEvent progress:
@@ -1398,6 +1522,9 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionCompleteEvent toolEnd:
+                    if (toolEnd.Data.ToolCallId == runningRootSqlToolCallId)
+                        runningRootSqlToolCallId = null;
+                    shellOutputByToolCallId.Remove(toolEnd.Data.ToolCallId);
                     _ = RestartNativeMcpServerAfterSessionLossAsync(
                         toolEnd.Data,
                         nativeMcpServersByToolCallId,
@@ -1656,6 +1783,8 @@ public partial class ChatViewModel
                     break;
 
                 case AssistantTurnEndEvent turnEnd when IsRootAgentEvent(evt):
+                    // A step that ends without starting a call it was writing will not start it.
+                    ClearStreamingToolCalls();
                     // The stop intent is NOT cleared here. An aborted turn still ends, and clearing it
                     // at turn end made the AbortEvent handler below classify the user's own stop as a
                     // broken session. PreparePendingTurnTracking resets it when the next turn starts.
@@ -1715,6 +1844,7 @@ public partial class ChatViewModel
                     break;
 
                 case AssistantIdleEvent assistantIdle when IsRootAgentEvent(evt):
+                    ClearStreamingToolCalls();
                     var assistantIdleTurnSequence = sessionTurnSequence;
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -1816,6 +1946,7 @@ public partial class ChatViewModel
                     break;
 
                 case SessionErrorEvent err when IsRootAgentEvent(evt):
+                    ClearStreamingToolCalls();
                     ClearManualStopRequested(chat.Id);
                     ClearPendingTurnTracking(chat.Id);
                     assistantStream.CancelPending();
@@ -1991,6 +2122,7 @@ public partial class ChatViewModel
                     break;
 
                 case AbortEvent abort when IsRootAgentEvent(evt):
+                    ClearStreamingToolCalls();
                     var wasUserStopRequested = WasManualStopRequested(chat.Id);
                     var abortedTurnSequence = sessionTurnSequence;
                     Dispatcher.UIThread.Post(() =>

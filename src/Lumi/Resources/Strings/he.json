@@ -1123,6 +1123,8 @@
   "Tool_EditingFile": "עריכת קובץ",
   "Tool_EditingNamed": "עריכת {0}",
   "Tool_EditingFiles": "עריכת קבצים",
+  "Tool_WritingFile": "כתיבת קובץ",
+  "Tool_WritingNamed": "כתיבת {0}",
   "Tool_ListingDirectory": "סריקת תיקייה",
   "Tool_RunningCommand": "הרצת פקודה",
   "Tool_ReadingTerminal": "קריאת פלט טרמינל",

@@ -25,7 +25,7 @@
                                 IsExpanded="{Binding IsExpanded}" />
     </DataTemplate>
 
-    <!-- A plan lists its steps: done, being worked on, failed, or still to come. -->
+    <!-- A plan lists its steps: done, being worked on, failed, blocked, or still to come. -->
     <DataTemplate DataType="vm:TodoProgressItem">
       <ItemsControl ItemsSource="{Binding Steps}" Margin="0,0,0,2" />
     </DataTemplate>
@@ -35,11 +35,13 @@
       <DockPanel Classes="plan-step"
                  Classes.done="{Binding IsDone}"
                  Classes.current="{Binding IsCurrent}"
-                 Classes.failed="{Binding IsFailed}">
+                 Classes.failed="{Binding IsFailed}"
+                 Classes.blocked="{Binding IsBlocked}">
         <Panel DockPanel.Dock="Left" Width="14" Height="14" Margin="0,0,8,0" VerticalAlignment="Center">
           <Border Classes="plan-ring" />
           <sc:StrataLineIcon Classes="plan-done" Data="{x:Static sc:StrataIcons.Check}" />
           <sc:StrataLineIcon Classes="plan-failed" Data="{x:Static sc:StrataIcons.Cross}" />
+          <sc:StrataLineIcon Classes="plan-blocked" Data="{x:Static sc:StrataIcons.Clock}" />
         </Panel>
         <TextBlock Classes="plan-title" Text="{Binding Title}" />
       </DockPanel>
@@ -159,8 +161,9 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentHover}" />
     </Style>
 
-    <!-- A plan's steps: a check when done, a ring while open (the accent on the current one). They
-         share a tool row's height and text column, so a plan reads as part of the card's list. -->
+    <!-- A plan's steps: a check when done, a ring while open (the accent on the current one), a clock
+         while blocked. They share a tool row's height and text column, so a plan reads as part of the
+         card's list. -->
     <Style Selector="DockPanel.plan-step">
       <Setter Property="Height" Value="31" />
       <Setter Property="Margin" Value="8,0" />
@@ -187,7 +190,7 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="DockPanel.plan-step.done Border.plan-ring, DockPanel.plan-step.failed Border.plan-ring">
+    <Style Selector="DockPanel.plan-step.done Border.plan-ring, DockPanel.plan-step.failed Border.plan-ring, DockPanel.plan-step.blocked Border.plan-ring">
       <Setter Property="IsVisible" Value="False" />
     </Style>
     <Style Selector="DockPanel.plan-step.done sc|StrataLineIcon.plan-done">
@@ -206,6 +209,10 @@
     <Style Selector="DockPanel.plan-step.failed sc|StrataLineIcon.plan-failed">
       <Setter Property="IsVisible" Value="True" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="DockPanel.plan-step.blocked sc|StrataLineIcon.plan-blocked">
+      <Setter Property="IsVisible" Value="True" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
   </Application.Styles>
 

@@ -1133,6 +1133,8 @@
   "Tool_EditingFile": "Editing file",
   "Tool_EditingNamed": "Editing {0}",
   "Tool_EditingFiles": "Editing files",
+  "Tool_WritingFile": "Writing a file",
+  "Tool_WritingNamed": "Writing {0}",
   "Tool_ListingDirectory": "Listing directory",
   "Tool_RunningCommand": "Running command",
   "Tool_ReadingTerminal": "Reading terminal output",

@@ -52,7 +52,6 @@ public class TranscriptBuilder
     private int _currentToolGroupCount;
     private TodoProgressItem? _currentTodoToolCall;
     private TodoProgressState? _currentTodoProgress;
-    private int _todoUpdateCount;
     private string? _currentIntentText;
     private TypingIndicatorItem? _typingIndicator;
     private TranscriptTurn? _typingTurn;
@@ -62,6 +61,10 @@ public class TranscriptBuilder
     private readonly Dictionary<string, TerminalPreviewItem> _terminalPreviewsByToolCallId = new(StringComparer.Ordinal);
     /// <summary>Running tool rows by tool call id, so their progress messages reach the row and its card.</summary>
     private readonly Dictionary<string, (ToolCallItem Item, ToolGroupItem? Group)> _runningToolCallsByToolCallId = new(StringComparer.Ordinal);
+    /// <summary>Rows for file tools whose arguments the model is still writing, by tool call id (see <see cref="ShowToolDraft"/>).</summary>
+    private readonly Dictionary<string, ToolCallItem> _toolDraftsByToolCallId = new(StringComparer.Ordinal);
+    /// <summary><c>sql</c> calls that became plan updates in the live tool group (see <see cref="ApplyPlanSnapshot"/>).</summary>
+    private readonly HashSet<string> _livePlanToolCallIds = new(StringComparer.Ordinal);
     // Async shells still running in the background (root tool-call id → authoritative start time),
     // supplied by the ChatViewModel before each Rebuild so a rebuilt terminal card is recreated
     // already in its running state (visible, expanded, correct elapsed clock) instead of flashing
@@ -109,7 +112,6 @@ public class TranscriptBuilder
 
     private sealed class TodoProgressState
     {
-        public string ToolStatus { get; set; } = "InProgress";
         public int Total { get; set; }
         public int Completed { get; set; }
         public int Failed { get; set; }
@@ -310,7 +312,6 @@ public class TranscriptBuilder
         _currentToolGroupCount = 0;
         _currentTodoToolCall = null;
         _currentTodoProgress = null;
-        _todoUpdateCount = 0;
         _currentIntentText = null;
         _typingIndicator = null;
         _typingTurn = null;
@@ -320,6 +321,8 @@ public class TranscriptBuilder
         _pendingModelName = null;
         _terminalPreviewsByToolCallId.Clear();
         _runningToolCallsByToolCallId.Clear();
+        _toolDraftsByToolCallId.Clear();
+        _livePlanToolCallIds.Clear();
         _toolParentById.Clear();
         _subagentsByToolCallId.Clear();
         SubagentRuns.Clear();
@@ -364,10 +367,11 @@ public class TranscriptBuilder
     {
         if (_currentToolGroup is { IsActive: true } group)
         {
-            // An intent ("Building the charts…") says more than the step that serves it.
+            // An intent ("Building the charts…") says more than the step that serves it, and the step at work
+            // says more than the plan it serves.
             if (_currentIntentText is null && group.ActivityPreview.Count > 0)
             {
-                var step = group.ActivityPreview[0];
+                var step = group.ActivityPreview.FirstOrDefault(static item => !item.HasSteps) ?? group.ActivityPreview[0];
                 var detail = step.Detail?.Split('\n', 2)[0].Trim();
                 return string.IsNullOrEmpty(detail) ? step.Label : $"{step.Label} · {detail}";
             }
@@ -557,67 +561,23 @@ public class TranscriptBuilder
             return;
         }
 
-        if (toolName is "update_todo" or "manage_todo_list")
+        // A plan update: update_todo's own checklist, or a query whose call changed the agent's todos
+        // (the plan read back afterwards). A query whose plan could not be read stays a query.
+        if (toolName is "update_todo" or "manage_todo_list"
+            || (toolName == "sql" && msgVm.Message.PlanSnapshot is not null))
         {
             if (!showToolCalls)
                 return;
 
-            var steps = ToolDisplayHelper.ParseTodoSteps(msgVm.Content);
-            if (steps.Count == 0)
+            var steps = ToolDisplayHelper.ParseTodoSteps(toolName == "sql" ? msgVm.Message.PlanSnapshot : msgVm.Content);
+            if (steps.Count > 0)
+            {
+                ProcessPlanUpdate(msgVm, steps, initialStatus, toolStableIdSeed, turnStableId);
                 return;
-
-            var todoSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
-            if (todoSubagent is not null)
-            {
-                UpsertSubagentTodoProgressToolCall(todoSubagent, msgVm.Message, steps, msgVm.ToolStatus ?? "InProgress");
-                UpdateSubagentState(todoSubagent);
-            }
-            else
-            {
-                EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
-                _todoUpdateCount++;
-                UpsertTodoProgressToolCall(steps, msgVm.ToolStatus ?? "InProgress");
-                UpdateToolGroupLabel();
             }
 
-            if (!IsRebuildingTranscript)
-            {
-                var capturedGroup = todoSubagent is null ? _currentToolGroup : null;
-                var capturedSubagent = todoSubagent;
-                var capturedTodoProgress = todoSubagent is null ? _currentTodoProgress : null;
-                var capturedTodoToolCall = todoSubagent is null ? _currentTodoToolCall : null;
-                PropertyChangedEventHandler? handler = null;
-                handler = (_, args) =>
-                {
-                    if (args.PropertyName == nameof(ChatMessageViewModel.ToolStatus))
-                    {
-                        if (capturedSubagent is not null && capturedSubagent.TodoItem is not null)
-                        {
-                            capturedSubagent.TodoToolStatus = msgVm.ToolStatus ?? "InProgress";
-                            capturedSubagent.TodoItem.Status = MapToolStatus(msgVm.ToolStatus);
-                            UpdateSubagentState(capturedSubagent);
-                        }
-                        else if (capturedTodoProgress is not null)
-                        {
-                            capturedTodoProgress.ToolStatus = msgVm.ToolStatus ?? "InProgress";
-                            if (capturedTodoToolCall is not null)
-                                capturedTodoToolCall.Status = MapToolStatus(msgVm.ToolStatus);
-
-                            UpdateToolGroupState(capturedGroup);
-                        }
-
-                        if (IsTerminalToolStatus(msgVm.ToolStatus))
-                        {
-                            msgVm.PropertyChanged -= handler;
-                            RemovePendingHandler(msgVm, handler);
-                        }
-                    }
-                };
-                msgVm.PropertyChanged += handler;
-                _pendingToolHandlers.Add((msgVm, handler));
-            }
-
-            return;
+            if (toolName != "sql")
+                return;
         }
 
         var shouldFlushLateFileEdit = IsCurrentTurnAlreadyEnded();
@@ -1882,6 +1842,8 @@ public class TranscriptBuilder
         if (_currentToolGroup is null)
             return;
 
+        // A call still being written belongs to the next group, where it will run, not to history.
+        ClearToolDrafts();
         var turn = FindTurnContaining(_currentToolGroup) ?? _currentTurn;
         var target = turn?.Items;
 
@@ -1921,7 +1883,6 @@ public class TranscriptBuilder
         _currentToolGroupCount = 0;
         _currentTodoToolCall = null;
         _currentTodoProgress = null;
-        _todoUpdateCount = 0;
         _currentIntentText = null;
         // Deliberately DO NOT clear _terminalPreviewsByToolCallId here: an async shell can outlive its
         // tool call (and its group can flatten to a pill or be rebuilt), yet the background-shell monitor
@@ -2010,18 +1971,18 @@ public class TranscriptBuilder
         if (isCurrent && _currentTodoProgress is not null && _currentTodoProgress.Total > 0)
         {
             var todoDone = _currentTodoProgress.Completed + _currentTodoProgress.Failed;
-            var running = Math.Max(0, _currentTodoProgress.Total - todoDone);
 
-            group.Label = Loc.ToolTodo_Title;
+            // The plan says how far the work has come; the group is at work while any of its steps runs, and
+            // only then does its intent trail off.
+            group.IsActive = group.ToolCalls.Any(static call => GetStatus(call) == StrataAiToolCallStatus.InProgress
+                || call is TerminalPreviewItem { IsRunningInBackground: true });
+            group.Label = _currentIntentText is null ? Loc.ToolTodo_Title
+                : group.IsActive ? _currentIntentText + "…" : _currentIntentText;
             group.Meta = _currentTodoProgress.Failed > 0
                 ? string.Format(Loc.ToolTodo_MetaWithFailed, _currentTodoProgress.Completed, _currentTodoProgress.Total, _currentTodoProgress.Failed)
                 : string.Format(Loc.ToolTodo_Meta, _currentTodoProgress.Completed, _currentTodoProgress.Total);
 
-            if (_todoUpdateCount > 1)
-                group.Meta += " · " + string.Format(Loc.ToolTodo_Updates, _todoUpdateCount);
-
             var progress = Math.Clamp((todoDone * 100d) / _currentTodoProgress.Total, 0d, 100d);
-            group.IsActive = running > 0 && !IsTerminalToolStatus(_currentTodoProgress.ToolStatus);
             group.ProgressValue = IsRebuildingTranscript && !group.IsActive ? -1 : progress;
             UpdateToolGroupActivityPreview(group);
             if (!group.IsActive || IsRebuildingTranscript)
@@ -2104,12 +2065,19 @@ public class TranscriptBuilder
 
     private static void UpdateToolGroupActivityPreview(ToolGroupItem group)
     {
-        var preview = new List<ToolActivityPreviewItem>(3);
+        var preview = new List<ToolActivityPreviewItem>(4);
         var runningCount = 0;
+        TodoProgressItem? plan = null;
         if (group.IsActive)
         {
             foreach (var item in group.ToolCalls)
             {
+                if (item is TodoProgressItem todo)
+                {
+                    plan = todo;
+                    continue;
+                }
+
                 var activity = item switch
                 {
                     ToolCallItem { Status: StrataAiToolCallStatus.InProgress } tool
@@ -2118,8 +2086,6 @@ public class TranscriptBuilder
                     TerminalPreviewItem terminal when terminal.Status == StrataAiToolCallStatus.InProgress || terminal.IsRunningInBackground
                         => new ToolActivityPreviewItem(terminal.ToolName, terminal.Command, terminal.IconKey,
                             RunningSince: terminal.RunningSince),
-                    TodoProgressItem { Status: StrataAiToolCallStatus.InProgress } todo
-                        => new ToolActivityPreviewItem(todo.CurrentStepTitle ?? todo.ToolName, null, todo.IconKey, todo.GlanceSteps),
                     _ => null
                 };
                 if (activity is null)
@@ -2131,21 +2097,27 @@ public class TranscriptBuilder
             }
         }
 
+        var runningShown = preview.Count;
+        // A plan leads its card, under the header that counts its steps, for as long as the work it lays out
+        // goes on.
+        if (plan is not null && plan.Steps.Any(static step => !step.IsDone))
+            preview.Insert(0, new ToolActivityPreviewItem(plan.CurrentStepTitle ?? plan.ToolName, null, plan.IconKey, plan.GlanceSteps));
+
         if (!group.ActivityPreview.SequenceEqual(preview))
             group.ActivityPreview = preview;
-        group.AdditionalActivityCount = runningCount - preview.Count;
+        group.AdditionalActivityCount = runningCount - runningShown;
         group.IconKey = ResolveToolGroupIconKey(group, preview);
         group.HasFailures = group.ToolCalls.Any(static call => GetStatus(call) == StrataAiToolCallStatus.Failed);
     }
 
     /// <summary>
-    /// The group's glyph says what it is doing: the step running now, a plan, the one kind of work all its
-    /// steps share, or mixed work.
+    /// The group's glyph says what it is doing: the plan it is following, the step running now, the one kind
+    /// of work all its steps share, or mixed work.
     /// </summary>
-    private static string ResolveToolGroupIconKey(ToolGroupItem group, IReadOnlyList<ToolActivityPreviewItem> running)
+    private static string ResolveToolGroupIconKey(ToolGroupItem group, IReadOnlyList<ToolActivityPreviewItem> preview)
     {
-        if (running.Count > 0)
-            return running[0].IconKey;
+        if (preview.Count > 0)
+            return preview[0].IconKey;
 
         string? shared = null;
         foreach (var call in group.ToolCalls)
@@ -2162,17 +2134,76 @@ public class TranscriptBuilder
         return shared ?? TranscriptIcons.Mixed;
     }
 
+    /// <summary>
+    /// Files a plan update (an <c>update_todo</c> call, or a <c>sql</c> call that changed the agent's
+    /// todos) as the plan card of its tool group, or of the sub-agent run that made it, and keeps the card
+    /// in step with the call's status.
+    /// </summary>
+    private void ProcessPlanUpdate(
+        ChatMessageViewModel msgVm,
+        List<ToolDisplayHelper.TodoStepSnapshot> steps,
+        StrataAiToolCallStatus initialStatus,
+        string toolStableIdSeed,
+        string turnStableId)
+    {
+        var todoSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
+        if (todoSubagent is not null)
+        {
+            UpsertSubagentTodoProgressToolCall(todoSubagent, msgVm.Message, steps, msgVm.ToolStatus ?? "InProgress");
+            UpdateSubagentState(todoSubagent);
+        }
+        else
+        {
+            EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
+            UpsertTodoProgressToolCall(steps, msgVm.ToolStatus ?? "InProgress");
+            UpdateToolGroupLabel();
+        }
+
+        // A finished call (a rebuild, or a plan read back after its query ended) has nothing more to report.
+        if (IsRebuildingTranscript || IsTerminalToolStatus(msgVm.ToolStatus))
+            return;
+
+        var capturedGroup = todoSubagent is null ? _currentToolGroup : null;
+        var capturedSubagent = todoSubagent;
+        var capturedTodoToolCall = todoSubagent is null ? _currentTodoToolCall : null;
+        PropertyChangedEventHandler? handler = null;
+        handler = (_, args) =>
+        {
+            if (args.PropertyName != nameof(ChatMessageViewModel.ToolStatus))
+                return;
+
+            if (capturedSubagent is not null && capturedSubagent.TodoItem is not null)
+            {
+                capturedSubagent.TodoToolStatus = msgVm.ToolStatus ?? "InProgress";
+                capturedSubagent.TodoItem.Status = MapToolStatus(msgVm.ToolStatus);
+                UpdateSubagentState(capturedSubagent);
+            }
+            else if (capturedTodoToolCall is not null)
+            {
+                capturedTodoToolCall.Status = MapToolStatus(msgVm.ToolStatus);
+                UpdateToolGroupState(capturedGroup);
+            }
+
+            if (IsTerminalToolStatus(msgVm.ToolStatus))
+            {
+                msgVm.PropertyChanged -= handler;
+                RemovePendingHandler(msgVm, handler);
+            }
+        };
+        msgVm.PropertyChanged += handler;
+        _pendingToolHandlers.Add((msgVm, handler));
+    }
+
     private void UpsertTodoProgressToolCall(List<ToolDisplayHelper.TodoStepSnapshot> steps, string toolStatus)
     {
         var total = steps.Count;
-        var completed = steps.Count(step => string.Equals(step.Status, "completed", StringComparison.OrdinalIgnoreCase));
-        var failed = steps.Count(step => string.Equals(step.Status, "failed", StringComparison.OrdinalIgnoreCase));
+        var completed = steps.Count(static step => IsPlanStatus(step.Status, "completed", "done"));
+        var failed = steps.Count(static step => IsPlanStatus(step.Status, "failed"));
 
         if (_currentTodoProgress is null)
         {
             _currentTodoProgress = new TodoProgressState
             {
-                ToolStatus = toolStatus,
                 Total = total,
                 Completed = completed,
                 Failed = failed,
@@ -2180,7 +2211,6 @@ public class TranscriptBuilder
         }
         else
         {
-            _currentTodoProgress.ToolStatus = toolStatus;
             _currentTodoProgress.Total = total;
             _currentTodoProgress.Completed = completed;
             _currentTodoProgress.Failed = failed;
@@ -2190,22 +2220,30 @@ public class TranscriptBuilder
         {
             _currentTodoToolCall = new TodoProgressItem(
                 Loc.ToolTodo_Title,
-                StrataAiToolCallStatus.InProgress,
+                MapToolStatus(toolStatus),
                 $"todo:{_currentToolGroup?.StableId}")
             {
                 Steps = BuildPlanSteps(steps),
             };
-            _currentToolGroup?.ToolCalls.Add(_currentTodoToolCall);
+            if (_currentToolGroup is not null)
+            {
+                // The plan is a step of its group, so a group holding only the plan keeps it when it closes.
+                _currentToolGroup.ToolCalls.Add(_currentTodoToolCall);
+                _currentToolGroupCount++;
+            }
         }
         else
         {
+            // Each update is a call of its own; the latest one is the plan's state.
+            _currentTodoToolCall.Status = MapToolStatus(toolStatus);
             _currentTodoToolCall.Steps = BuildPlanSteps(steps);
         }
     }
 
     /// <summary>
-    /// A plan's steps as its card lists them: done, being worked on, failed, or still to come. Only the
-    /// first step in progress is the one at work: a checklist marks every unfinished line in progress.
+    /// A plan's steps as its card lists them: done, being worked on, failed, blocked, or still to come.
+    /// Only the first step in progress is the one at work: a checklist marks every unfinished line in
+    /// progress.
     /// </summary>
     internal static IReadOnlyList<PlanStepItem> BuildPlanSteps(IEnumerable<ToolDisplayHelper.TodoStepSnapshot> steps)
     {
@@ -2219,7 +2257,8 @@ public class TranscriptBuilder
                 step.Title,
                 IsDone: IsPlanStatus(step.Status, "completed", "done"),
                 IsCurrent: isCurrent,
-                IsFailed: IsPlanStatus(step.Status, "failed")));
+                IsFailed: IsPlanStatus(step.Status, "failed"),
+                IsBlocked: IsPlanStatus(step.Status, "blocked")));
         }
 
         return result;
@@ -2848,6 +2887,94 @@ public class TranscriptBuilder
             UpdateToolGroupActivityPreview(group);
             PublishLiveActivity();
         }
+    }
+
+    /// <summary>
+    /// Shows a <c>sql</c> call that changed the agent's todos as the plan update it is, once the plan has
+    /// been read back into <see cref="ChatMessage.PlanSnapshot"/>: the query's row leaves the live tool
+    /// group and the group's plan card takes the new steps. A call outside the live group keeps its
+    /// snapshot for the next rebuild.
+    /// </summary>
+    public void ApplyPlanSnapshot(ChatMessageViewModel msgVm)
+    {
+        var toolCallId = msgVm.Message.ToolCallId;
+        var steps = ToolDisplayHelper.ParseTodoSteps(msgVm.Message.PlanSnapshot);
+        if (toolCallId is null || steps.Count == 0 || _currentToolGroup is null)
+            return;
+
+        // A call's plan can be read back more than once; after the first time it only refreshes the card.
+        if (_livePlanToolCallIds.Contains(toolCallId))
+        {
+            UpsertTodoProgressToolCall(steps, msgVm.ToolStatus ?? "InProgress");
+            UpdateToolGroupLabel();
+            return;
+        }
+
+        var row = _currentToolGroup.ToolCalls.FirstOrDefault(item => item.StableId == $"tool:{toolCallId}");
+        if (row is null)
+            return;
+
+        _currentToolGroup.ToolCalls.Remove(row);
+        _currentToolGroupCount--;
+        _runningToolCallsByToolCallId.Remove(toolCallId);
+        _livePlanToolCallIds.Add(toolCallId);
+        ProcessPlanUpdate(msgVm, steps, MapToolStatus(msgVm.ToolStatus), toolCallId, TurnStableIdFor($"tool:{toolCallId}"));
+    }
+
+    /// <summary>
+    /// Shows a file tool whose arguments the model is still writing ("Writing notes.md", with how much it
+    /// has written and for how long) as a running step of the live tool group, until the call itself
+    /// starts (<see cref="EndToolDraft"/>). Nothing of it is kept.
+    /// </summary>
+    public void ShowToolDraft(string toolCallId, string toolName, string? filePath, long writtenLength, DateTimeOffset startedAt)
+    {
+        // Like the call it stands for, a draft shows only while tool calls are shown.
+        if (!_dataStore.Data.Settings.ShowToolCalls)
+            return;
+
+        if (!_toolDraftsByToolCallId.TryGetValue(toolCallId, out var draft))
+        {
+            EnsureCurrentToolGroup(StrataAiToolCallStatus.InProgress, toolCallId, TurnStableIdFor($"tool:{toolCallId}"));
+            draft = new ToolCallItem(ToolDisplayHelper.FormatStreamingToolName(filePath), StrataAiToolCallStatus.InProgress, $"draft:{toolCallId}")
+            {
+                IconKey = ToolDisplayHelper.GetToolIconKey(toolName),
+                RunningSince = startedAt,
+            };
+            _currentToolGroup!.ToolCalls.Add(draft);
+            _currentToolGroupCount++;
+            _toolDraftsByToolCallId[toolCallId] = draft;
+        }
+
+        draft.ToolName = ToolDisplayHelper.FormatStreamingToolName(filePath);
+        draft.Detail = ToolDisplayHelper.FormatFileSize(writtenLength);
+        UpdateToolGroupLabel();
+    }
+
+    /// <summary>Removes a call's draft row (<see cref="ShowToolDraft"/>) once the call starts.</summary>
+    public void EndToolDraft(string toolCallId)
+    {
+        if (!_toolDraftsByToolCallId.Remove(toolCallId, out var draft) || _currentToolGroup is null)
+            return;
+
+        if (_currentToolGroup.ToolCalls.Remove(draft))
+            _currentToolGroupCount--;
+        UpdateToolGroupLabel();
+    }
+
+    /// <summary>Removes every draft row, as when the group closes or the turn ends without the calls starting.</summary>
+    public void ClearToolDrafts()
+    {
+        if (_toolDraftsByToolCallId.Count == 0)
+            return;
+
+        foreach (var draft in _toolDraftsByToolCallId.Values)
+        {
+            if (_currentToolGroup?.ToolCalls.Remove(draft) == true)
+                _currentToolGroupCount--;
+        }
+
+        _toolDraftsByToolCallId.Clear();
+        UpdateToolGroupLabel();
     }
 
     /// <summary>

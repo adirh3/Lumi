@@ -56,7 +56,7 @@ App.axaml.cs
 - **Models** (`src/Lumi/Models/Models.cs`): All domain entities in one file — `Chat`, `ChatMessage`, `Project`, `Skill`, `LumiAgent`, `Memory`, `UserSettings`, `AppData`
 - **Services** (`src/Lumi/Services/`): `CopilotService` (SDK wrapper with streaming events), `DataStore` (JSON persistence to `%AppData%/Lumi/data.json`), `SystemPromptBuilder` (composite system prompt)
 - **ViewModels** (`src/Lumi/ViewModels/`): `MainViewModel` (root), `ChatViewModel` (streaming chat), `AgentsViewModel`, `ProjectsViewModel`, `SkillsViewModel`, `SettingsViewModel` — all CRUD follows same pattern
-- **Views** (`src/Lumi/Views/`): Avalonia XAML + code-behind. `ChatView.axaml.cs` is the heaviest — builds transcript programmatically using Strata controls
+- **Views** (`src/Lumi/Views/`): Avalonia XAML + code-behind. `ChatView.axaml` holds the transcript's item templates and styles (tool rows shared with the sub-agent run page live in `App.axaml`); `ChatView.axaml.cs` handles scrolling, layout and interaction
 - **External dependency**: StrataTheme UI library referenced as a git submodule at `Strata/` — provides `StrataChatShell`, `StrataChatMessage`, `StrataMarkdown`, `StrataThink`, `StrataAiToolCall`, etc. If a build fails because Strata files are missing, run `git submodule update --init --recursive Strata` from the repo root and retry.
 
 ### Key Patterns
@@ -66,7 +66,7 @@ App.axaml.cs
 - **Assistant versus session activity** — `ChatViewModel.IsBusy` / `Chat.IsRunning` describe only the main assistant. Root `assistant.idle` makes it ready even when attached processes or background agents remain active. `IsSessionActive` tracks that independent session lifetime; `HasBackgroundActivity` presents the ready-with-background state. A cached but idle session is not active work.
 - **Ownership is not presentation** — session cleanup, eviction, configuration changes and explicit session Stop use runtime ownership (`HasActiveWork`, `OwnsLiveChat`, pending operations), never the assistant spinner. New messages to a ready assistant reuse its session without aborting background work. Child events update their own activity, not the main assistant's busy state.
 - **Completion boundaries** — `assistant.turn_end` is a per-step boundary, not readiness. `assistant.idle` settles the main reply; `session.idle` settles all attached work. Keep the existing chat-event `idle` automation contract tied to session completion.
-- **Programmatic UI construction** — `ChatView.axaml.cs` builds the chat transcript dynamically using Strata controls (not data templates)
+- **Transcript view models** — `TranscriptBuilder` turns `ChatMessageViewModel`s into `TranscriptItem` view models (`TranscriptItems.cs`) grouped into `TranscriptTurn`s; each `TranscriptTurnControl` builds its item views from DataTemplates (`ChatView.axaml`, and `App.axaml` for tool rows the sub-agent run page shares)
 - **JSON file persistence** — single `data.json` file via `DataStore`, no database
 - **System prompt composition** — `SystemPromptBuilder` assembles context from user name, time of day, agent, project, skills, and memories
 
@@ -96,7 +96,7 @@ src/Lumi/
   │   └── SettingsViewModel.cs — User settings
   └── Views/                   — Avalonia XAML views + code-behind
       ├── MainWindow.axaml(.cs) — App shell, sidebar, navigation
-      ├── ChatView.axaml(.cs)   — Chat transcript (heavy code-behind)
+      ├── ChatView.axaml(.cs)   — Chat transcript (item templates and styles; scrolling in code-behind)
       ├── AgentsView.axaml(.cs) — Agent management
       ├── ProjectsView.axaml(.cs) — Project management
       ├── SkillsView.axaml(.cs)  — Skill management
@@ -273,9 +273,10 @@ Keep the debug window open only until the user has confirmed the work is done. O
 ## Key Conventions
 
 - **Single JSON file persistence** — no database. New data collections go in `AppData` class in `Models.cs`
-- **Chat transcript is built in code-behind** (`ChatView.axaml.cs`), not with data templates. New message types need a case in `AddMessageControl()`
+- **Transcript items** — a new kind of transcript item needs a `TranscriptItem` view model, a case in `TranscriptBuilder`, and a DataTemplate in `ChatView.axaml` (or `App.axaml` when the sub-agent run page shows it too)
 - **System prompt assembly** — new context sources should extend `SystemPromptBuilder.Build()`
-- **Tool display names and icons** — add friendly mappings in `ToolDisplayHelper.GetFriendlyToolDisplay()`, the live status wording in `ToolDisplayHelper.FormatToolStatusName()`, and the tool's line icon in `ToolDisplayHelper.GetToolIconKey()` (keys live in `TranscriptIcons`; `TranscriptIconConverter` maps them to `StrataIcons`). A shell command is named by the purpose the agent gave it (its `description`, `ToolDisplayHelper.GetCommandTitle`), a tool Lumi has no wording for by the SDK's tool title or MCP tool name (`GetToolTitle`), and a running tool's `tool.execution_progress` message replaces its glance detail while it runs (`TranscriptBuilder.UpdateToolProgress`)
+- **Tool display names and icons** — add friendly mappings in `ToolDisplayHelper.GetFriendlyToolDisplay()`, the live status wording in `ToolDisplayHelper.FormatToolStatusName()`, and the tool's line icon in `ToolDisplayHelper.GetToolIconKey()` (keys live in `TranscriptIcons`; `TranscriptIconConverter` maps them to `StrataIcons`). A shell command or query is named by the purpose the agent gave it (its `description`, `ToolDisplayHelper.GetCommandTitle`), a tool Lumi has no wording for by the SDK's tool title or MCP tool name (`GetToolTitle`), and a running tool's `tool.execution_progress` message replaces its glance detail while it runs (`TranscriptBuilder.UpdateToolProgress`)
+- **Live progress from the SDK** — the agent's plan in its SQL todos is read back on every root `session.todos_changed` (`session.Rpc.Plan.ReadSqlTodosWithDependenciesAsync`) and kept on the `sql` call that changed it (`ChatMessage.PlanSnapshot`, scoped to the turn by `ToolDisplayHelper.BuildSqlPlanSnapshot`), so that call shows as a plan update like `update_todo`. A file tool whose arguments are still streaming (`assistant.tool_call_delta`) shows as a temporary "Writing notes.md" row (`StreamingToolCall`, `TranscriptBuilder.ShowToolDraft`) until it starts. Live shell output comes from `tool.shell_output` chunks (`LiveShellOutput` keeps the latest 16 KB of a long one); the deprecated `tool.execution_partial_result` is only a fallback
 - **Connectors naming** — user-facing text calls MCP servers **connectors** ("Connectors" in Customize, Discover, Settings, chips and the phone app). Keep "MCP" for the protocol, `mcpServers` config files, MCP registries and LLM-facing tool descriptions; code, `Mcp*` types, page index 6 and automation IDs such as `#CustomizeMcpTab` keep their names.
 - **Agents naming** — user-facing text calls custom personas **agents** ("Agents" in Customize, search, Discover and the phone app); built-in agents keep their names ("Coding Lumi"), and "Lumi" still names the app, Lumi packs, Lumi codes and Lumi tools. LLM-facing text (`manage_lumis`), code (`LumiAgent`, `Lumis_*` keys, `LibrarySection.Lumis`), page index 4 and automation IDs such as `#CustomizeLumisTab` keep their names.
 - **Tooltips** — Strata's `ToolTip` theme is click-through, so a tip can never swallow a click. Lumi's overlay tips default to pointer placement (+20px, and near a window edge they flip or slide onto the cursor); give controls at an edge, in rows or in moving layouts a control-relative `ToolTip.Placement` with an offset that clears them, and don't repeat a visible label in a tip.

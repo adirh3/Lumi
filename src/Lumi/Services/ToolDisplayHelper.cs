@@ -305,7 +305,8 @@ public static partial class ToolDisplayHelper
             case "analyze_project":
                 return (Loc.Tool_AnalyzingProject, null);
             case "sql":
-                return (Loc.Tool_RunningQuery, ExtractJsonField(argsJson, "description"));
+                return (GetCommandTitle(argsJson) ?? Loc.Tool_RunningQuery,
+                    SummarizeQuery(ExtractJsonField(argsJson, "query")));
             case "task":
             {
                 var agentType = FormatAgentName(ExtractJsonField(argsJson, "agent_type")) ?? "Agent";

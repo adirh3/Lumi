@@ -59,6 +59,14 @@ public class ChatMessage
     /// status. Null while it is still running, or when its start was never observed.
     /// </summary>
     public double? ToolDurationMs { get; set; }
+
+    /// <summary>
+    /// The agent's plan right after this <c>sql</c> call changed it, read back from the session's todos
+    /// table (<c>session.todos_changed</c>), as a <c>todoList</c> JSON array of titles and statuses. Null
+    /// for every other message; a call that carries it shows as a plan update instead of a query.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PlanSnapshot { get; set; }
     public Guid? LinkedChatId { get; set; }
     public string? LinkedChatTitle { get; set; }
     public string? QuestionId { get; set; }
@@ -182,6 +190,7 @@ public class ChatMessage
         ToolOutput = ToolOutput,
         ToolStartedAt = ToolStartedAt,
         ToolDurationMs = ToolDurationMs,
+        PlanSnapshot = PlanSnapshot,
         LinkedChatId = LinkedChatId,
         LinkedChatTitle = LinkedChatTitle,
         QuestionId = QuestionId,
