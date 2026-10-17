@@ -377,6 +377,23 @@ public enum ByokApiKeyMode
 }
 
 /// <summary>
+/// The account an OAuth-connected endpoint signed in with. Identifies the account and the client
+/// it authorized; never holds a token (those stay in the OS credential store).
+/// </summary>
+public sealed class ByokAccount
+{
+    /// <summary>The OAuth client issued to Lumi for this account, reused when signing in again.</summary>
+    public string ClientId { get; set; } = "";
+
+    /// <summary>The account's stable identifier from its validated ID token.</summary>
+    public string Subject { get; set; } = "";
+
+    public string? Email { get; set; }
+
+    public ByokAccount Clone() => new() { ClientId = ClientId, Subject = Subject, Email = Email };
+}
+
+/// <summary>
 /// BYOK endpoint: a reusable connection configuration (URL, provider type, auth) shared by one
 /// or more <see cref="ByokModel"/> entries. The <see cref="Id"/> is the stable identity that
 /// persists across renames — do not regenerate it on edit. Implements
@@ -405,6 +422,9 @@ public sealed class ByokEndpoint : INotifyPropertyChanged
 
     public string? ConnectionProviderId { get; set; }
     public DateTimeOffset? CredentialExpiresAt { get; set; }
+
+    /// <summary>The account an OAuth sign-in connected (ChatGPT). Null for key-based endpoints.</summary>
+    public ByokAccount? Account { get; set; }
 
     public string Name
     {
@@ -1504,6 +1524,12 @@ public class UserSettings
     // ── BYOK (Bring Your Own Key) ──
     public List<ByokEndpoint> ByokEndpoints { get; set; } = [];
     public List<ByokModel> ByokModels { get; set; } = [];
+
+    /// <summary>
+    /// This computer's stable, opaque identifier for ChatGPT sign-in (<c>ext_agent_host_id</c>),
+    /// created before the first sign-in and reused for every later one. Not a credential.
+    /// </summary>
+    public string? ChatGptHostId { get; set; }
 
     /// <summary>
     /// When true, Lumi routes all conversation/inference traffic to configured BYOK providers

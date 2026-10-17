@@ -15,6 +15,7 @@ public partial class ProviderTile : UserControl
     private readonly Border _outline;
     private readonly TextBlock _monogram;
     private readonly PathIcon _gitHub;
+    private readonly PathIcon _chatGpt;
     private readonly PathIcon _custom;
 
     public ProviderTile()
@@ -24,6 +25,7 @@ public partial class ProviderTile : UserControl
         _outline = this.FindControl<Border>("TileOutline")!;
         _monogram = this.FindControl<TextBlock>("TileMonogram")!;
         _gitHub = this.FindControl<PathIcon>("TileGitHub")!;
+        _chatGpt = this.FindControl<PathIcon>("TileChatGpt")!;
         _custom = this.FindControl<PathIcon>("TileCustom")!;
         ApplySize();
     }
@@ -58,6 +60,7 @@ public partial class ProviderTile : UserControl
         var letters = (DataContext as ProviderBadge)?.Monogram.Length ?? 1;
         _monogram.FontSize = Math.Round(size * (letters > 1 ? 0.35 : 0.42));
         _gitHub.Width = _gitHub.Height = Math.Round(size * 0.52);
+        _chatGpt.Width = _chatGpt.Height = Math.Round(size * 0.54);
         _custom.Width = _custom.Height = Math.Round(size * 0.44);
     }
 }

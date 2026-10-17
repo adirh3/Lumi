@@ -33,13 +33,16 @@ public sealed class ProviderBadge
 
     public static ProviderBadge GitHub { get; } = new("", Gradient(GitHubTop, GitHubBottom), isGitHub: true, isCustom: false);
     public static ProviderBadge Custom { get; } = new("", null, isGitHub: false, isCustom: true);
+    public static ProviderBadge ChatGpt { get; } = new("", Gradient(Color.Parse("#2F2F2F"), Color.Parse("#0D0D0D")),
+        isGitHub: false, isCustom: false, isChatGpt: true);
 
-    private ProviderBadge(string monogram, IBrush? fill, bool isGitHub, bool isCustom)
+    private ProviderBadge(string monogram, IBrush? fill, bool isGitHub, bool isCustom, bool isChatGpt = false)
     {
         Monogram = monogram;
         Fill = fill;
         IsGitHub = isGitHub;
         IsCustom = isCustom;
+        IsChatGpt = isChatGpt;
     }
 
     public string Monogram { get; }
@@ -48,7 +51,8 @@ public sealed class ProviderBadge
     public bool IsFilled => Fill is not null;
     public bool IsGitHub { get; }
     public bool IsCustom { get; }
-    public bool ShowMonogram => !IsGitHub && !IsCustom;
+    public bool IsChatGpt { get; }
+    public bool ShowMonogram => !IsGitHub && !IsCustom && !IsChatGpt;
 
     public static ProviderBadge For(ProviderProfile? profile)
     {
@@ -56,6 +60,8 @@ public sealed class ProviderBadge
             return Custom;
         if (profile.IsCopilot)
             return GitHub;
+        if (profile.IsChatGpt)
+            return ChatGpt;
         lock (Cache)
         {
             if (Cache.TryGetValue(profile.Id, out var cached))
@@ -149,10 +155,12 @@ public partial class ConnectedProviderCard : ObservableObject
     public bool HasUsageLink => Profile?.UsageUrl is not null;
     public string Billing => Profile?.Billing ?? Loc.Get("EasyConnect_custom_Billing");
     public string Detail => IsExpired
-        ? Loc.Get("EasyConnect_ConnectionExpired")
-        : (ModelCount == 1 ? Loc.Get("EasyConnect_ConnectedModel")
+        ? Loc.Get(Profile?.IsChatGpt == true ? "ChatGpt_ConnectionExpired" : "EasyConnect_ConnectionExpired")
+        : (Endpoint.Account?.Email is { Length: > 0 } email ? email + " · " : "")
+          + (ModelCount == 1 ? Loc.Get("EasyConnect_ConnectedModel")
               : string.Format(Loc.Get("EasyConnect_ConnectedModels"), ModelCount)) + " · " + Billing;
-    public string DisconnectPrompt => string.Format(Loc.Get("EasyConnect_DisconnectPrompt"), Name);
+    public string DisconnectPrompt => Profile?.IsChatGpt == true ? Loc.Get("ChatGpt_DisconnectPrompt")
+        : string.Format(Loc.Get("EasyConnect_DisconnectPrompt"), Name);
     [ObservableProperty] private bool _isConfirmingDisconnect;
     public IRelayCommand ManageCommand { get; }
     public IAsyncRelayCommand MakeDefaultCommand { get; }
@@ -201,12 +209,16 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     private readonly ISecureKeyStore _keys;
     private readonly ProviderConnectionService _connections;
     private readonly ProviderOAuthService _oauth;
+    private readonly ChatGptAuthService _chatGpt;
+    private readonly bool _ownsChatGpt;
+    private readonly ChatGptPlanBridge _bridge;
     private readonly Action<Uri> _openUrl;
     private readonly Action _saved;
     private CancellationTokenSource? _operation;
     private ByokEndpoint? _reconnecting;
     private string? _pendingKey;
     private DateTimeOffset? _expiresAt;
+    private ChatGptSignIn? _chatGptSignIn;
     private bool _disposed;
     private bool _isCommitting;
     private bool _isCurrentDefaultEndpoint;
@@ -264,6 +276,11 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private string? _gitHubUsage;
 
+    // ── ChatGPT ──
+    public ProviderBadge ChatGptBadge => ProviderBadge.ChatGpt;
+    /// <summary>Offers ChatGPT right under GitHub Copilot until an account is connected.</summary>
+    public bool ShowChatGptOffer => !_store.Data.Settings.ByokEndpoints.Any(ByokConfigHelper.IsChatGptEndpoint);
+
     // ── Dialog and gallery ──
     public ObservableCollection<ProviderCard> Providers { get; } = [];
     public ObservableCollection<ProviderGroup> ProviderGroups { get; } = [];
@@ -297,6 +314,14 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     [ObservableProperty] private ProviderProfile? _selectedProvider;
     public ProviderBadge SelectedBadge => ProviderBadge.For(SelectedProvider);
     public bool IsCopilot => SelectedProvider?.IsCopilot == true;
+    public bool IsChatGpt => SelectedProvider?.IsChatGpt == true;
+    /// <summary>ChatGPT is sign-in only: its plan has no API key to enter instead.</summary>
+    public bool ShowKeyAlternative => !IsChatGpt;
+    public bool ShowGenericSignIn => ShowSignInChoice && !IsChatGpt;
+    public bool ShowChatGptSignIn => ShowSignInChoice && IsChatGpt;
+    public bool ShowReplaceKey => HasKey && !IsChatGpt;
+    /// <summary>The "You're using your ChatGPT plan" confirmation OpenAI asks for after a first sign-in.</summary>
+    public bool ShowPlanConfirmation => IsComplete && IsChatGpt && !IsManaging;
     public bool IsCustom => SelectedProvider?.IsCustom == true;
     public bool IsLocal => SelectedProvider?.IsLocal == true;
     public bool IsFoundry => SelectedProvider?.IsFoundry == true;
@@ -307,6 +332,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public string SelectedBilling => SelectedProvider?.Billing ?? "";
     public string SelectedNotice => SelectedProvider?.Notice ?? "";
     public bool HasUsageLink => IsManaging && SelectedProvider?.UsageUrl is not null;
+    public string UsageLinkText => Loc.Get(IsChatGpt ? "ChatGpt_ManageUsage" : "EasyConnect_Usage");
 
     // ── Account step ──
     [ObservableProperty] private string _apiKey = "";
@@ -336,7 +362,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public string KeyPlaceholder => HasExistingKey
         ? Loc.Get("EasyConnect_KeepKeyPlaceholder") : Loc.Get("EasyConnect_KeyPlaceholder");
     public string ContinueWithText => string.Format(Loc.Get("EasyConnect_ContinueWith"), SelectedName);
-    public string SignInHint => string.Format(Loc.Get("EasyConnect_SignInHint"), SelectedName);
+    public string SignInHint => IsChatGpt ? Loc.Get("ChatGpt_SignInHint")
+        : string.Format(Loc.Get("EasyConnect_SignInHint"), SelectedName);
     public string WaitingHint => string.Format(Loc.Get("EasyConnect_WaitingHint"), SelectedName);
     public string GetKeyText => string.Format(Loc.Get("EasyConnect_GetKeyAt"), SelectedName);
     public string LocalInstallText => string.Format(Loc.Get("EasyConnect_LocalStep1"), SelectedName);
@@ -348,8 +375,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public string EmptyModelsHint => Loc.Get(IsFoundry ? "EasyConnect_FoundryEmptyModels" : "EasyConnect_EmptyModels");
     public string StorageHint => _keys.IsSupported ? Loc.Get("EasyConnect_SecureStorage") : Loc.Get("EasyConnect_StorageUnavailable");
     public bool HasSecureStorage => _keys.IsSupported;
-    public bool CanSaveCredential => _keys.IsSupported || AllowPlaintextStorage;
-    public bool ShowPlaintextConsent => HasKey && !HasSecureStorage && !KeepsSavedKey;
+    public bool CanSaveCredential => _keys.IsSupported || (AllowPlaintextStorage && !IsChatGpt);
+    public bool ShowPlaintextConsent => HasKey && !HasSecureStorage && !KeepsSavedKey && !IsChatGpt;
     private bool KeepsSavedKey => HasKey && _reconnecting is { ApiKeyMode: not ByokApiKeyMode.None }
         && string.IsNullOrWhiteSpace(ApiKey) && _pendingKey is null;
     public bool IsOpenAiType => ProviderType == "openai";
@@ -361,7 +388,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public bool CanDiscover => SelectedProvider is not null && !IsCopilot && !IsWorking
         && (!IsFoundry || !string.IsNullOrWhiteSpace(BaseUrl))
         && (!HasKey || !string.IsNullOrWhiteSpace(ApiKey) || !string.IsNullOrEmpty(_pendingKey)
-            || _reconnecting is not null);
+            || _chatGptSignIn is not null || _reconnecting is not null);
 
     // ── Model step ──
     [ObservableProperty] private string _modelSearch = "";
@@ -388,7 +415,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     }
     public string ModelCaption => IsFoundry ? Loc.Get("EasyConnect_FoundryModelsCaption") : IsManaging
         ? string.Format(Loc.Get("EasyConnect_ManageModelsCaption"), SelectedName)
-        : Loc.Get("EasyConnect_ModelSelectionHint");
+        : Loc.Get(IsChatGpt ? "ChatGpt_ModelsCaption" : "EasyConnect_ModelSelectionHint");
     public bool ShowDefaultChoice => !_isCurrentDefaultEndpoint;
     public bool IsCurrentDefault => _isCurrentDefaultEndpoint;
     public bool CanToggleDefault => HasUsableDefault(_reconnecting?.Id);
@@ -401,7 +428,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public string BackText => Loc.Get(IsManaging && Stage == ConnectStage.Models ? "EasyConnect_Cancel" : "EasyConnect_Back");
     public bool ShowModelFooter => Stage == ConnectStage.Models && !IsConfirmingRemove;
     public bool ShowRemoveConfirm => Stage == ConnectStage.Models && IsConfirmingRemove;
-    public string RemovePrompt => string.Format(Loc.Get("EasyConnect_DisconnectPrompt"), SelectedName);
+    public string RemovePrompt => IsChatGpt ? Loc.Get("ChatGpt_DisconnectPrompt")
+        : string.Format(Loc.Get("EasyConnect_DisconnectPrompt"), SelectedName);
 
     // ── Connecting and done ──
     [ObservableProperty] private bool _isSavingStage;
@@ -411,7 +439,9 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public string ConnectingNote => Loc.Get(SkipModelCheck ? "EasyConnect_SkipModelCheckHint" : "EasyConnect_ConnectingNote");
     public string StarterName => Models.FirstOrDefault(model => model.IsSelected)?.Name ?? "";
     public bool IsTestingStage => !IsSavingStage;
-    public string DoneTitle => string.Format(Loc.Get(IsManaging ? "EasyConnect_SavedTitle" : "EasyConnect_DoneTitle"), SelectedName);
+    public string DoneTitle => ShowPlanConfirmation ? Loc.Get("ChatGpt_DoneTitle")
+        : string.Format(Loc.Get(IsManaging ? "EasyConnect_SavedTitle" : "EasyConnect_DoneTitle"), SelectedName);
+    public string DoneActionText => Loc.Get(ShowPlanConfirmation ? "ChatGpt_GotIt" : "EasyConnect_Done");
 
     // ── Shared status ──
     [ObservableProperty] private bool _isWorking;
@@ -425,7 +455,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     public EasyConnectViewModel(
         DataStore store, CopilotService copilot, ISecureKeyStore keys, Action saved,
         ProviderConnectionService? connections = null, ProviderOAuthService? oauth = null,
-        Action<Uri>? openUrl = null)
+        Action<Uri>? openUrl = null, ChatGptAuthService? chatGpt = null, ChatGptPlanBridge? bridge = null)
     {
         _store = store;
         _copilot = copilot;
@@ -433,10 +463,26 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         _saved = saved;
         _connections = connections ?? new ProviderConnectionService();
         _oauth = oauth ?? new ProviderOAuthService();
+        _ownsChatGpt = chatGpt is null;
+        _chatGpt = chatGpt ?? new ChatGptAuthService();
+        _bridge = bridge ?? ChatGptPlanBridge.Shared;
         _openUrl = openUrl ?? (uri => Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }));
         _store.IndexSaved += OnIndexSaved;
+        _bridge.SignInRequired += OnChatGptSignInRequired;
         Refresh();
     }
+
+    /// <summary>Marks a ChatGPT connection whose sign-in can no longer be renewed, so it asks to sign in again.</summary>
+    private void OnChatGptSignInRequired(string endpointId) => Dispatcher.UIThread.Post(async () =>
+    {
+        if (_disposed || _store.Data.Settings.ByokEndpoints.FirstOrDefault(endpoint => endpoint.Id == endpointId)
+                is not { } endpoint || IsExpired(endpoint))
+            return;
+        endpoint.CredentialExpiresAt = DateTimeOffset.UtcNow;
+        await _store.SaveAsync();
+        _saved();
+        RefreshOverview(force: true);
+    });
 
     private void OnIndexSaved()
     {
@@ -547,7 +593,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         foreach (var name in new[] { nameof(ShowStepper), nameof(DialogTitle), nameof(ModelCaption),
                      nameof(PrimaryActionText), nameof(HasUsageLink), nameof(DoneTitle), nameof(BackText),
-                     nameof(VerifyCostText) })
+                     nameof(VerifyCostText), nameof(ShowPlanConfirmation), nameof(DoneActionText) })
             OnPropertyChanged(name);
     }
     partial void OnStageChanged(ConnectStage value)
@@ -557,7 +603,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                      nameof(IsAccountStepActive), nameof(IsAccountStepDone), nameof(IsModelStepActive),
                      nameof(IsModelStepDone), nameof(IsReadyStepActive), nameof(IsReadyStepDone), nameof(DialogTitle),
                      nameof(ShowNoModels), nameof(ShowContinue), nameof(IsFindingModels), nameof(CanGoBack),
-                     nameof(BackText), nameof(ShowModelFooter), nameof(ShowRemoveConfirm) })
+                     nameof(BackText), nameof(ShowModelFooter), nameof(ShowRemoveConfirm),
+                     nameof(ShowPlanConfirmation), nameof(DoneTitle), nameof(DoneActionText) })
             OnPropertyChanged(name);
     }
     partial void OnIsDialogOpenChanged(bool value)
@@ -578,12 +625,14 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         foreach (var name in new[] { nameof(SelectedBadge), nameof(IsCopilot), nameof(IsCustom), nameof(IsLocal), nameof(IsFoundry),
                      nameof(CanEditEndpoint), nameof(SelectedName), nameof(SelectedDescription), nameof(SelectedBilling),
-                     nameof(SelectedNotice), nameof(HasUsageLink), nameof(KeyLabel), nameof(ContinueWithText),
+                     nameof(SelectedNotice), nameof(HasUsageLink), nameof(UsageLinkText), nameof(KeyLabel), nameof(ContinueWithText),
                      nameof(SignInHint), nameof(WaitingHint), nameof(GetKeyText), nameof(LocalInstallText),
                      nameof(LocalDownloadText), nameof(HasKeyLink), nameof(CanSignIn), nameof(DialogTitle),
                      nameof(ModelCaption), nameof(ConnectingTitle), nameof(DoneTitle), nameof(ShowWireChoice),
                      nameof(RemovePrompt), nameof(ServerAddressLabel), nameof(ServerAddressPlaceholder),
-                     nameof(ManualModelLabel), nameof(ManualModelPlaceholder), nameof(EmptyModelsHint) })
+                     nameof(ManualModelLabel), nameof(ManualModelPlaceholder), nameof(EmptyModelsHint),
+                     nameof(IsChatGpt), nameof(ShowKeyAlternative), nameof(ShowPlanConfirmation), nameof(DoneActionText),
+                     nameof(CanSaveCredential) })
             OnPropertyChanged(name);
         UpdateAccountState();
     }
@@ -592,7 +641,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         foreach (var name in new[] { nameof(HasKey), nameof(ShowSignInChoice), nameof(ShowKeyEntry), nameof(ShowKeyGuide),
                      nameof(ShowSignInInstead), nameof(IsWaitingForBrowser), nameof(IsFindingModels), nameof(ShowContinue),
-                     nameof(HasExistingKey), nameof(KeyPlaceholder), nameof(CanGoBack), nameof(HasAuthorizationUrl) })
+                     nameof(HasExistingKey), nameof(KeyPlaceholder), nameof(CanGoBack), nameof(HasAuthorizationUrl),
+                     nameof(ShowGenericSignIn), nameof(ShowChatGptSignIn), nameof(ShowReplaceKey) })
             OnPropertyChanged(name);
         UpdateActions();
     }
@@ -645,6 +695,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                 Manage, MakeConnectionDefaultAsync, card => DisconnectAsync(card.Endpoint), OpenUrl));
         }
         OnPropertyChanged(nameof(HasUsableConnections));
+        OnPropertyChanged(nameof(ShowChatGptOffer));
         RefreshGitHub();
         RefreshProviders();
     }
@@ -701,10 +752,26 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void UseCustomProvider() => Select(ProviderCatalog.Find("custom")!);
 
+    /// <summary>One click from the accounts list: opens ChatGPT's sign-in and follows it in the dialog.</summary>
+    [RelayCommand]
+    private async Task ConnectChatGptAsync()
+    {
+        if (IsWorking)
+        {
+            IsDialogOpen = true;
+            return;
+        }
+        Select(ProviderCatalog.Find(ProviderCatalog.ChatGptId)!);
+        if (Stage == ConnectStage.Account && !IsManaging)
+            await SignInAsync();
+    }
+
     private void ResetWizard()
     {
         _operation?.Cancel();
+        AbandonChatGptSignIn(removeFromBridge: true);
         _reconnecting = null;
+        _chatGptSignIn = null;
         _isCurrentDefaultEndpoint = false;
         _pendingKey = null;
         _expiresAt = null;
@@ -790,7 +857,7 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         var expired = IsExpired(endpoint);
         Stage = expired ? ConnectStage.Account : ConnectStage.Models;
         if (expired)
-            Status = Loc.Get("EasyConnect_ExpiredHint");
+            Status = Loc.Get(IsChatGpt ? "ChatGpt_ExpiredHint" : "EasyConnect_ExpiredHint");
         NotifyModels();
         RefreshDefaultChoice();
         UpdateAccountState();
@@ -1010,6 +1077,11 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         await RunAsync(async ct =>
         {
             Status = "";
+            if (kind == ProviderOAuthKind.ChatGpt)
+            {
+                await SignInChatGptAsync(ct);
+                return;
+            }
             SetAuthorizing(true);
             var credential = await _oauth.AuthenticateAsync(
                 new(kind, kind == ProviderOAuthKind.Poe ? ProviderCatalog.PoeClientId : null),
@@ -1037,6 +1109,65 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         UpdateAccountState();
     }
 
+    private string DraftEndpointId => _reconnecting?.Id ?? _draftEndpointId;
+
+    private async Task SignInChatGptAsync(CancellationToken ct)
+    {
+        // The rotating refresh token lives only in the OS credential store.
+        if (!_keys.IsSupported)
+            throw new ProviderConnectionException(Loc.Get("ChatGpt_StorageRequired"));
+        var settings = _store.Data.Settings;
+        if (string.IsNullOrWhiteSpace(settings.ChatGptHostId))
+        {
+            // OpenAI asks for this computer's identifier to be chosen and saved before the first sign-in.
+            settings.ChatGptHostId = "urn:uuid:" + Guid.NewGuid().ToString("D");
+            await _store.SaveAsync();
+        }
+        var existing = _reconnecting?.Account is { ClientId.Length: > 0 } saved
+            ? new ChatGptAccount(saved.ClientId, saved.Subject, saved.Email) : null;
+        AbandonChatGptSignIn(removeFromBridge: false);
+        SetAuthorizing(true);
+        var signIn = await _chatGpt.SignInAsync(settings.ChatGptHostId, existing,
+            async uri => await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AuthorizationUrl = uri.AbsoluteUri;
+                _openUrl(uri);
+            }), ct);
+        ct.ThrowIfCancellationRequested();
+        _chatGptSignIn = signIn;
+        _bridge.Seed(DraftEndpointId, signIn.Account, signIn.Tokens);
+        _expiresAt = null;
+        SetAuthorizing(false);
+        AuthorizationUrl = "";
+        await DiscoverCoreAsync(ct);
+    }
+
+    /// <summary>
+    /// Ends the renewable session of a sign-in that was never saved, so it doesn't linger in the
+    /// user's ChatGPT account. Runs in the background; failure only leaves an unused session.
+    /// </summary>
+    private void AbandonChatGptSignIn(bool removeFromBridge)
+    {
+        if (_chatGptSignIn is not { } abandoned)
+            return;
+        _chatGptSignIn = null;
+        var endpointId = DraftEndpointId;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var refreshToken = (removeFromBridge ? await _bridge.RemoveAsync(endpointId, CancellationToken.None) : null)
+                    ?? abandoned.Tokens.RefreshToken;
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                await _chatGpt.RevokeAsync(abandoned.Account.ClientId, refreshToken, timeout.Token);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[EasyConnect] ChatGPT sign-in cleanup failed ({ex.GetType().Name}).");
+            }
+        });
+    }
+
     private ByokEndpoint DraftEndpoint()
     {
         var headers = _reconnecting?.Headers is { } savedHeaders
@@ -1045,9 +1176,12 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             headers.TryAdd("api-key", ByokConfigHelper.ApiKeyHeaderToken);
         return new()
         {
-            Id = _reconnecting?.Id ?? _draftEndpointId,
+            Id = DraftEndpointId,
             Name = _reconnecting?.Name ?? SelectedProvider?.Name ?? "",
             ConnectionProviderId = SelectedProvider?.Id,
+            Account = _chatGptSignIn is { Account: var account }
+                ? new ByokAccount { ClientId = account.ClientId, Subject = account.Subject, Email = account.Email }
+                : _reconnecting?.Account?.Clone(),
             BaseUrl = IsFoundry ? ProviderConnectionService.NormalizeFoundryBaseUrl(BaseUrl.Trim()) : BaseUrl.Trim(),
             ProviderType = ProviderType,
             WireApi = WireApi,
@@ -1095,20 +1229,25 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     private async Task DiscoverCoreAsync(CancellationToken ct)
     {
         Status = Loc.Get("EasyConnect_FindingModels");
-        var key = HasKey ? await CurrentKeyAsync() : null;
-        if (HasKey && string.IsNullOrEmpty(key))
-            throw new ProviderConnectionException(Loc.Get("EasyConnect_KeyRequired"));
         IReadOnlyList<ProviderModel> models;
         string discoveryNotice = "";
-        try
+        if (IsChatGpt)
+            models = await DiscoverChatGptModelsAsync(ct);
+        else
         {
-            models = await _connections.DiscoverAsync(DraftEndpoint(), key, ct);
-        }
-        catch (ProviderConnectionException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
-        {
-            models = [];
-            discoveryNotice = IsFoundry ? Loc.Get("EasyConnect_FoundryNoModelDiscovery") : ex.Message;
-            IsAddingManualModel = true;
+            var key = HasKey ? await CurrentKeyAsync() : null;
+            if (HasKey && string.IsNullOrEmpty(key))
+                throw new ProviderConnectionException(Loc.Get("EasyConnect_KeyRequired"));
+            try
+            {
+                models = await _connections.DiscoverAsync(DraftEndpoint(), key, ct);
+            }
+            catch (ProviderConnectionException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+            {
+                models = [];
+                discoveryNotice = IsFoundry ? Loc.Get("EasyConnect_FoundryNoModelDiscovery") : ex.Message;
+                IsAddingManualModel = true;
+            }
         }
         ct.ThrowIfCancellationRequested();
         if (IsFoundry && _reconnecting is { } foundry)
@@ -1140,15 +1279,38 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         }
         var previous = Models.Where(model => model.IsSelected).Select(model => model.SourceModel).ToList();
         var selectedIds = previous.Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
+        // Every model a ChatGPT plan lists is included in it, so a new connection starts with all of them.
+        var selectAll = IsChatGpt && !IsManaging && previous.Count == 0;
         Models.Clear();
         foreach (var model in models)
-            AddChoice(model, selectedIds.Contains(model.Id));
+            AddChoice(model, selectAll || selectedIds.Contains(model.Id));
         // Keep chosen models a provider no longer lists (e.g. ones added by ID).
         foreach (var model in previous.Where(model => Models.All(choice => choice.Id != model.Id)))
             AddChoice(model, true);
         Status = discoveryNotice;
         Stage = ConnectStage.Models;
         NotifyModels();
+    }
+
+    private async Task<IReadOnlyList<ProviderModel>> DiscoverChatGptModelsAsync(CancellationToken ct)
+    {
+        if (_chatGptSignIn is null)
+        {
+            if (_reconnecting is not { Account: not null } saved || IsExpired(saved))
+                throw new ProviderConnectionException(Loc.Get("ChatGpt_SignInRequired"));
+            _bridge.Register(saved, _keys);
+        }
+        try
+        {
+            var token = await _bridge.GetAccessTokenAsync(DraftEndpointId, null, ct);
+            var catalog = await _chatGpt.GetCatalogAsync(token, ct);
+            _bridge.UseCatalog(DraftEndpointId, catalog);
+            return catalog.Models;
+        }
+        catch (ChatGptRefreshException ex)
+        {
+            throw new ProviderConnectionException(ex.Message);
+        }
     }
 
     [RelayCommand]
@@ -1229,16 +1391,31 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         {
             var endpoint = DraftEndpoint();
             ProviderConnectionService.BuildModelsUri(endpoint);
-            var key = HasKey ? await CurrentKeyAsync() : null;
-            if (HasKey && string.IsNullOrEmpty(key))
+            var isChatGpt = IsChatGpt;
+            var key = HasKey && !isChatGpt ? await CurrentKeyAsync() : null;
+            if (HasKey && !isChatGpt && string.IsNullOrEmpty(key))
                 throw new ProviderConnectionException(Loc.Get("EasyConnect_KeyRequired"));
             var selected = Models.Where(model => model.IsSelected).ToArray();
             var starter = selected[0];
             Stage = ConnectStage.Connecting;
             IsSavingStage = false;
-            endpoint.ApiKeyMode = HasKey ? ByokApiKeyMode.Stored : ByokApiKeyMode.None;
-            endpoint.ApiKey = key;
-            var provider = ByokConfigHelper.BuildProviderConfig(endpoint);
+            ProviderConfig provider;
+            if (isChatGpt)
+            {
+                if (endpoint.Account is null)
+                    throw new ProviderConnectionException(Loc.Get("ChatGpt_SignInRequired"));
+                // A fresh sign-in is served from memory until it is saved; a saved one reads its stored token.
+                endpoint.ApiKeyMode = _chatGptSignIn is null ? ByokApiKeyMode.CredentialStore : ByokApiKeyMode.None;
+                endpoint.ApiKey = null;
+                endpoint.CredentialExpiresAt = null;
+                provider = _bridge.CreateProviderConfig(endpoint, _keys);
+            }
+            else
+            {
+                endpoint.ApiKeyMode = HasKey ? ByokApiKeyMode.Stored : ByokApiKeyMode.None;
+                endpoint.ApiKey = key;
+                provider = ByokConfigHelper.BuildProviderConfig(endpoint);
+            }
             if (!skipModelCheck)
             {
                 var called = false;
@@ -1247,33 +1424,56 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
                     called = true;
                     return "LUMI_CONNECTION_OK";
                 }, "lumi_connection_check", "Read-only connection check. Returns the verification word.");
-                await _copilot.UseLightweightSessionAsync(
-                    new LightweightSessionOptions
-                    {
-                        Model = starter.Id,
-                        Provider = provider,
-                        Streaming = true,
-                        SystemPrompt = "Call lumi_connection_check once, then respond with its exact returned word. No other action.",
-                        Tools = [tool],
-                        ModelCapabilities = starter.Model.ContextTokens is { } tokens
-                            ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverride
-                            { Limits = new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideLimits { MaxContextWindowTokens = tokens } } : null
-                    },
-                    async (session, innerCt) =>
-                    {
-                        var result = await session.SendAndWaitAsync(
-                            new MessageOptions { Prompt = "Verify the connection by calling lumi_connection_check." },
-                            TimeSpan.FromSeconds(90), innerCt);
-                        if (!called || result?.Data.Content?.Contains("LUMI_CONNECTION_OK", StringComparison.Ordinal) != true)
-                            throw new ProviderConnectionException(Loc.Get("EasyConnect_ToolCheckFailed"));
-                    }, ct);
+                if (isChatGpt)
+                    _bridge.TakeFailure(endpoint.Id);
+                try
+                {
+                    await _copilot.UseLightweightSessionAsync(
+                        new LightweightSessionOptions
+                        {
+                            Model = starter.Id,
+                            Provider = provider,
+                            Streaming = true,
+                            SystemPrompt = "Call lumi_connection_check once, then respond with its exact returned word. No other action.",
+                            Tools = [tool],
+                            ModelCapabilities = starter.Model.ContextTokens is { } tokens
+                                ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverride
+                                { Limits = new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideLimits { MaxContextWindowTokens = tokens } } : null
+                        },
+                        async (session, innerCt) =>
+                        {
+                            var result = await session.SendAndWaitAsync(
+                                new MessageOptions { Prompt = "Verify the connection by calling lumi_connection_check." },
+                                TimeSpan.FromSeconds(90), innerCt);
+                            if (!called || result?.Data.Content?.Contains("LUMI_CONNECTION_OK", StringComparison.Ordinal) != true)
+                                throw new ProviderConnectionException(Loc.Get("EasyConnect_ToolCheckFailed"));
+                        }, ct);
+                }
+                // The bridge words ChatGPT's own refusals, so the user learns why instead of a generic failure.
+                catch (Exception ex) when (isChatGpt && ex is not OperationCanceledException
+                                           && _bridge.TakeFailure(endpoint.Id) is { } refusal)
+                {
+                    throw new ProviderConnectionException(refusal);
+                }
             }
             ct.ThrowIfCancellationRequested();
             _isCommitting = true;
             OnPropertyChanged(nameof(CanCancel));
             IsSavingStage = true;
 
-            if (keepsSavedKey && _reconnecting is { } original)
+            if (isChatGpt)
+            {
+                if (_chatGptSignIn is not null)
+                {
+                    try { await _bridge.PersistAsync(endpoint.Id, _keys, ct); }
+                    catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or IOException or TimeoutException)
+                    {
+                        throw new ProviderConnectionException(Loc.Get("EasyConnect_StorageFailed"));
+                    }
+                }
+                endpoint.ApiKeyMode = ByokApiKeyMode.CredentialStore;
+            }
+            else if (keepsSavedKey && _reconnecting is { } original)
                 PreserveSavedKey(endpoint, original);
             else if (_keys.IsSupported && (HasKey || _reconnecting is { ApiKeyMode: ByokApiKeyMode.CredentialStore }))
             {
@@ -1331,6 +1531,9 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             DoneText = defaultChoice is not null
                 ? string.Format(Loc.Get(skipModelCheck ? "EasyConnect_DoneUnverifiedDefault" : "EasyConnect_DoneDefault"), defaultChoice.Name)
                 : string.Format(Loc.Get(skipModelCheck ? "EasyConnect_DoneUnverifiedAvailable" : "EasyConnect_DoneAvailable"), starter.Name);
+            if (isChatGpt && !IsManaging)
+                DoneText += " " + Loc.Get("ChatGpt_DoneUsage");
+            _chatGptSignIn = null;
             Stage = ConnectStage.Done;
             RefreshOverview(force: true);
         });
@@ -1364,8 +1567,13 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
         if (_reconnecting is not { } endpoint)
             return;
         await DisconnectAsync(endpoint);
-        if (!HasError)
+        // A disconnected account closes its dialog; any note about it stays visible in the list.
+        if (!HasError || !_store.Data.Settings.ByokEndpoints.Contains(endpoint))
+        {
+            var note = Error;
             IsDialogOpen = false;
+            Error = note;
+        }
     }
 
     private async Task DisconnectAsync(ByokEndpoint target)
@@ -1374,6 +1582,8 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             return;
         await RunAsync(async ct =>
         {
+            var revocationUnconfirmed = ByokConfigHelper.IsChatGptEndpoint(target)
+                && !await EndChatGptSessionAsync(target, ct);
             if (target.ApiKeyMode == ByokApiKeyMode.CredentialStore)
                 await _keys.DeleteAsync(SecureKeyStoreFactory.EndpointKey(target.Id));
             var settings = _store.Data.Settings;
@@ -1390,7 +1600,32 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
             await _store.SaveAsync();
             _saved();
             RefreshOverview(force: true);
+            if (revocationUnconfirmed)
+                Error = Loc.Get("ChatGpt_RevokeUnconfirmed");
         });
+    }
+
+    /// <summary>
+    /// Stops serving a ChatGPT account and revokes its renewable session. Returns false when ChatGPT
+    /// could not confirm it; the user can still remove Lumi in ChatGPT's settings.
+    /// </summary>
+    private async Task<bool> EndChatGptSessionAsync(ByokEndpoint target, CancellationToken ct)
+    {
+        var refreshToken = await _bridge.RemoveAsync(target.Id, ct);
+        if (refreshToken is null && target.ApiKeyMode == ByokApiKeyMode.CredentialStore)
+            refreshToken = await _keys.GetAsync(SecureKeyStoreFactory.EndpointKey(target.Id));
+        if (refreshToken is null || target.Account is not { ClientId.Length: > 0 } account)
+            return true;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            return await _chatGpt.RevokeAsync(account.ClientId, refreshToken, timeout.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return false;
+        }
     }
 
     private async Task RunAsync(Func<CancellationToken, Task> action)
@@ -1432,10 +1667,13 @@ public partial class EasyConnectViewModel : ObservableObject, IDisposable
     {
         _disposed = true;
         _store.IndexSaved -= OnIndexSaved;
+        _bridge.SignInRequired -= OnChatGptSignInRequired;
         if (_loginVM is not null)
             _loginVM.PropertyChanged -= OnLoginPropertyChanged;
         _operation?.Cancel();
         _connections.Dispose();
         _oauth.Dispose();
+        if (_ownsChatGpt)
+            _chatGpt.Dispose();
     }
 }

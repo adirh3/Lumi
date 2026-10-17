@@ -28,6 +28,8 @@ public sealed record ProviderProfile(
     public bool IsCopilot => Kind == ProviderConnectionKind.Copilot;
     public bool IsCustom => Id == "custom";
     public bool IsFoundry => Id == "foundry";
+    /// <summary>Signs in with a ChatGPT account and uses its plan; there is no API key alternative.</summary>
+    public bool IsChatGpt => Id == ProviderCatalog.ChatGptId;
     public bool HasBrowserSignIn => OAuth is not null;
 }
 
@@ -35,11 +37,15 @@ public static class ProviderCatalog
 {
     // Public OAuth registration, not a credential. Users authorize their own Poe accounts.
     public const string PoeClientId = "client_86f69a1d29984ed4881f8b30fb243dfb";
+    public const string ChatGptId = "chatgpt";
 
     public static IReadOnlyList<ProviderProfile> All { get; } =
     [
         new("copilot", "GitHub Copilot", "", Kind: ProviderConnectionKind.Copilot,
             Category: ProviderCategory.Recommended),
+        new(ChatGptId, "ChatGPT", ChatGptAuthService.ApiBaseUrl, WireApi: "responses", Kind: ProviderConnectionKind.Browser,
+            UsageUrl: ChatGptAuthService.UsageUrl, OAuth: ProviderOAuthKind.ChatGpt,
+            Category: ProviderCategory.Recommended, Hue: "#0D0D0D"),
         new("openrouter", "OpenRouter", "https://openrouter.ai/api/v1",
             Kind: ProviderConnectionKind.Browser, KeyUrl: "https://openrouter.ai/settings/keys",
             UsageUrl: "https://openrouter.ai/settings/credits", OAuth: ProviderOAuthKind.OpenRouter,
@@ -140,7 +146,8 @@ public static class ProviderCatalog
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
             return null;
-        return All.FirstOrDefault(profile =>
+        // ChatGPT shares the OpenAI API address; only a saved ConnectionProviderId identifies it.
+        return All.FirstOrDefault(profile => !profile.IsChatGpt &&
             Uri.TryCreate(profile.BaseUrl, UriKind.Absolute, out var candidate)
             && uri.Scheme == candidate.Scheme
             && uri.Authority.Equals(candidate.Authority, StringComparison.OrdinalIgnoreCase)

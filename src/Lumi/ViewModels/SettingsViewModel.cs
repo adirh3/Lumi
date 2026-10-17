@@ -1474,6 +1474,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             Id = Guid.NewGuid().ToString("N"),
             ConnectionProviderId = source.ConnectionProviderId,
             CredentialExpiresAt = source.CredentialExpiresAt,
+            Account = source.Account?.Clone(),
             Name = source.Name + " (copy)",
             ProviderType = source.ProviderType,
             BaseUrl = source.BaseUrl,

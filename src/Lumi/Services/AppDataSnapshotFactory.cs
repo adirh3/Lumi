@@ -56,12 +56,14 @@ internal static class AppDataSnapshotFactory
                 McpToolTimeoutSeconds = settings.McpToolTimeoutSeconds,
                 McpRegistryUrls = settings.McpRegistryUrls is null ? [] : [.. settings.McpRegistryUrls],
                 ContextWindowTier = settings.ContextWindowTier,
+                ChatGptHostId = settings.ChatGptHostId,
                 ByokEndpoints = settings.ByokEndpoints
                     .Select(e => new ByokEndpoint
                     {
                         Id = e.Id,
                         ConnectionProviderId = e.ConnectionProviderId,
                         CredentialExpiresAt = e.CredentialExpiresAt,
+                        Account = e.Account?.Clone(),
                         Name = e.Name,
                         ProviderType = e.ProviderType,
                         BaseUrl = e.BaseUrl,

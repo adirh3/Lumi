@@ -23,6 +23,8 @@
                HorizontalAlignment="Center" VerticalAlignment="Center" />
     <PathIcon x:Name="TileGitHub" Data="{StaticResource Ec.GitHub}" IsVisible="{Binding IsGitHub}"
               Foreground="#FFFFFFFF" Width="20" Height="20" />
+    <PathIcon x:Name="TileChatGpt" Data="{StaticResource Ec.ChatGpt}" IsVisible="{Binding IsChatGpt}"
+              Foreground="#FFFFFFFF" Width="21" Height="21" />
     <PathIcon x:Name="TileCustom" Data="{StaticResource Ec.Plug}" IsVisible="{Binding IsCustom}"
               Foreground="{DynamicResource Brush.TextSecondary}" Width="17" Height="17" />
   </Panel>

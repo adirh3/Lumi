@@ -6,7 +6,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 
 ## Features
 
-- **AI accounts** — GitHub Copilot is the default. Add OpenRouter, Poe, other supported plans, API credits, or local models in a few clicks; the Copilot agent runtime stays the same.
+- **AI accounts** — GitHub Copilot is the default. Sign in with your ChatGPT Plus or Pro plan, or add OpenRouter, Poe, other supported plans, API credits, or local models in a few clicks; the Copilot agent runtime stays the same.
 
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
 - **Result-first replies** — While Lumi works, its progress updates stay in view, without the answer's actions, model and time, and only finished tool steps compact between them. Once the answer arrives, the updates fold with the rest of the work (tool calls, loaded skills, answered questions, finished agents) into one "Worked for 1m 42s" row above it, where they read in a quieter gray, while a linked chat or a plan card stays in view; a turn that ends without an answer folds its work the same way but keeps its last update in view. Open the row to see every step in order: it glides open (unless animations are off), and long work scrolls inside a bounded area that builds its steps a screen ahead as you scroll, so even hours of work open at once; in-chat search and reply jumps open it for you. Lumi tells updates from answers using the model's own labels (GPT) or the tool calls a message started (other models), and older chats read the same evidence from their history: a message followed by tool calls or by a later message was an update, so a turn stopped mid-work never shows its last update as the answer
@@ -79,7 +79,7 @@ computer, or a custom compatible endpoint. Each connection follows the same thre
 steps:
 
 1. **Account** — continue in the provider's official browser sign-in where
-   available (OpenRouter, Poe, NanoGPT), or open the provider's key page and paste
+   available (ChatGPT, OpenRouter, Poe, NanoGPT), or open the provider's key page and paste
    a key. Local apps only need their server address.
 2. **Model** — Lumi discovers models, prioritizes tool-capable and listed-free
    options, and carries the provider's context-window metadata. New lists start
@@ -109,12 +109,30 @@ capabilities are retained.
 The `none` effort is not offered because the runtime omits that request
 field rather than forwarding an explicit off setting to the provider.
 
-Connections include OpenRouter, Poe, NanoGPT, MiniMax M Plan, Mistral, Ollama
+Connections include ChatGPT, OpenRouter, Poe, NanoGPT, MiniMax M Plan, Mistral, Ollama
 Cloud, Microsoft Foundry, standard model APIs, and local Ollama/LM Studio. The provider cards explain
 the billing source and restrictions: **Claude API** does not reuse Claude Pro/Max,
-**OpenAI API** does not reuse ChatGPT, and **Gemini API** does not reuse Google AI
+**OpenAI API** bills API credits (use **ChatGPT** for a ChatGPT plan), and **Gemini API** does not reuse Google AI
 Pro/Ultra. Poe uses eligible Poe subscription/add-on points. Restricted consumer
 OAuth tokens and unsupported coding-plan keys are not imported.
+
+**ChatGPT** is listed right under GitHub Copilot, in the gallery and as
+**Continue with ChatGPT** in AI accounts. It uses OpenAI's
+[Sign in with ChatGPT for open-source apps](https://developers.openai.com/siwc/token-sharing-open-source):
+approve Lumi on OpenAI's page and eligible usage counts toward your ChatGPT plan
+instead of API credits, with your plan's limits; manage it at
+[chatgpt.com/settings/usage](https://chatgpt.com/settings/usage), also linked from
+the model picker ("Using ChatGPT plan · Manage usage"). Lumi registers itself with
+your account, signs in with PKCE on a loopback address, validates OpenAI's ID token
+and lists the models your plan offers. Only the rotating refresh token is saved,
+in the OS credential store (required for ChatGPT). Chats reach ChatGPT through a
+local bridge that adds a fresh access token, so tokens never reach the Copilot
+runtime or its session files. The bridge keeps requests within the plan route's
+contract (stateless and streamed, without unsupported parameters or hosted tools,
+and with tools in the "responses lite" form the newest models take), completes the
+final response from the streamed items, and explains plan errors such as a reached
+usage limit. An expired sign-in asks you to continue with ChatGPT again; **Disconnect**
+also revokes the sign-in at OpenAI.
 
 **Microsoft Foundry** has its own API-key option in both onboarding and Settings.
 Paste the Foundry/Azure OpenAI resource endpoint and resource API key. Resource
@@ -144,7 +162,7 @@ users can give that consent on the model step without copying a key manually.
 API keys, authorization codes, and tokens are not shown in connection errors. Disconnect
 removes the local connection and stored key; removing authentication from a
 connection also removes its saved OS key. Disconnect does not cancel the provider's
-subscription or revoke its key remotely. Existing chats remain available. If the
+subscription or revoke its key remotely (a ChatGPT sign-in is the exception: it is revoked). Existing chats remain available. If the
 disconnected account was the default, GitHub Copilot becomes the default again
 when you are signed in and Copilot requests are allowed. Otherwise Lumi uses a
 remaining enabled, unexpired external model, or leaves the default unset when no

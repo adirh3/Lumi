@@ -246,12 +246,39 @@ public partial class ChatViewModel
     public string ModelUnpinToolTip => Loc.ModelPicker_Unpin;
 
     /// <summary>
+    /// "Using ChatGPT plan" while the selected model runs on a ChatGPT connection — OpenAI asks plan
+    /// usage to be visible beside the model selector, with a way to manage it. Null hides the note.
+    /// </summary>
+    public string? ModelPlanNote => UsesChatGptPlan(SelectedModel) ? Loc.Get("ChatGpt_UsingPlan") : null;
+
+    public string ModelPlanAction => Loc.Get("ChatGpt_ManageUsage");
+
+    private bool UsesChatGptPlan(string? model)
+    {
+        if (!ByokConfigHelper.TryParseModelToken(model, out var id))
+            return false;
+        var settings = _dataStore.Data.Settings;
+        return settings.ByokModels.FirstOrDefault(byok => byok.Id == id) is { } byokModel
+            && ByokConfigHelper.IsChatGptEndpoint(settings.ByokEndpoints.FirstOrDefault(endpoint => endpoint.Id == byokModel.EndpointId));
+    }
+
+    [RelayCommand]
+    private void OpenModelPlanUsage()
+    {
+        try { Process.Start(new ProcessStartInfo(Services.Byok.ChatGptAuthService.UsageUrl) { UseShellExecute = true }); }
+        catch (Exception ex) { Debug.WriteLine($"[Chat] Opening ChatGPT usage failed ({ex.GetType().Name})."); }
+    }
+
+    /// <summary>
     /// Rebuilds <see cref="ModelOptions"/> from the current model list, catalog metadata and saved
     /// favorites. Existing option instances are reused so a rebuild refreshes badges in place instead
     /// of re-creating rows the user may be pointing at.
     /// </summary>
     private void RebuildModelOptions()
-        => ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
+    {
+        ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
+        OnPropertyChanged(nameof(ModelPlanNote));
+    }
 
     /// <summary>
     /// Pins or unpins a model in the picker. Favorites are an app-wide preference, so this writes

@@ -469,6 +469,7 @@ public partial class ChatViewModel
     partial void OnSelectedModelChanged(string? value)
     {
         OnPropertyChanged(nameof(HeaderModelText));
+        OnPropertyChanged(nameof(ModelPlanNote));
         if (!_suppressModelSelectionSideEffects && !IsEditingMessage
             && !string.IsNullOrWhiteSpace(value)
             && CurrentChat is { Messages.Count: 0 } emptyChat
