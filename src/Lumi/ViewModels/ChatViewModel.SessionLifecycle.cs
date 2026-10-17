@@ -1955,6 +1955,16 @@ public partial class ChatViewModel
                     break;
 
                 case SessionWarningEvent warn:
+                    if (warn.Data.WarningType == "image_limit"
+                        && warn.Data.Remediation is null
+                        && string.IsNullOrWhiteSpace(warn.Data.Url))
+                    {
+                        System.Diagnostics.Trace.TraceInformation(
+                            "[Chat] Automatic image pruning (not shown): {0}",
+                            warn.Data.Message);
+                        break;
+                    }
+
                     Dispatcher.UIThread.Post(() =>
                     {
                     runtime.StatusText = string.Format(Loc.Status_Warning, warn.Data.WarningType);

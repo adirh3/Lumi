@@ -461,6 +461,14 @@ works for background and remote sends without first opening the chat. Unrelated
 errors retain their existing retry behavior; authentication and quota failures
 still require their normal resolution.
 
+### Copilot housekeeping notices
+
+Automatic image-pruning notices (`image_limit`) stay out of the chat transcript
+and activity status when Copilot supplies no remediation action or link. They
+remain available in diagnostics. Image-limit warnings with an action or link,
+all other warning categories, and actual image-processing errors keep their
+existing visible handling.
+
 ### Pause and resume chats
 
 While a chat is working, **Pause** appears above the composer beside its activity

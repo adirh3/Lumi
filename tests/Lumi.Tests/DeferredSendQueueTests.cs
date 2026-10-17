@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using GitHub.Copilot;
 using GitHub.Copilot.Rpc;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
@@ -1511,6 +1512,90 @@ public sealed class DeferredSendQueueTests
             Assert.True(host.IsChatRuntimeActive());
             Assert.Equal(1, host.Runtime.ActiveSubagentExecutionDepth);
             Assert.Equal("InProgress", host.Chat.Messages.Single(message => message.ToolCallId == "child-tool").ToolStatus);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("Removed 1 image from the model request to stay within the 50-image request limit. User-provided images were prioritized over tool-generated images, with newer messages kept first.", null)]
+    [InlineData("Removed 12 images from the model request to stay within the 100-image request limit.", "")]
+    [InlineData("Image context was automatically adjusted.", "   ")]
+    public async Task SessionWarning_AutomaticImageLimit_DoesNotChangeTranscriptOrActivity(string message, string? url)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.MarkRuntimeBusy();
+            host.Runtime.IsStreaming = true;
+            host.Runtime.StatusText = "Generating reply";
+            host.ViewModel.IsBusy = true;
+            host.ViewModel.IsStreaming = true;
+            host.ViewModel.StatusText = host.Runtime.StatusText;
+            var scrollRequests = 0;
+            host.ViewModel.ScrollToEndRequested += () => scrollRequests++;
+
+            rpc.Emit(new SessionWarningEvent
+            {
+                Data = new SessionWarningData
+                {
+                    WarningType = "image_limit",
+                    Message = message,
+                    Url = url
+                }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Empty(host.Chat.Messages);
+            Assert.Empty(host.ViewModel.Messages);
+            Assert.Equal("Generating reply", host.Runtime.StatusText);
+            Assert.Equal("Generating reply", host.ViewModel.StatusText);
+            Assert.True(host.Runtime.IsBusy);
+            Assert.True(host.Runtime.IsStreaming);
+            Assert.True(host.ViewModel.IsBusy);
+            Assert.True(host.ViewModel.IsStreaming);
+            Assert.Equal(0, scrollRequests);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("image_limit", "sign_in", null)]
+    [InlineData("image_limit", "future_remediation", null)]
+    [InlineData("image_limit", null, "https://github.com/settings/copilot")]
+    [InlineData("subscription", null, null)]
+    [InlineData("policy", null, null)]
+    [InlineData("mcp", null, null)]
+    [InlineData("future_warning", null, null)]
+    public async Task SessionWarning_ActionableImageLimitAndOtherCategories_RemainVisible(
+        string warningType, string? remediation, string? url)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            const string message = "Removed 1 image from the model request to stay within the 50-image request limit.";
+
+            rpc.Emit(new SessionWarningEvent
+            {
+                Data = new SessionWarningData
+                {
+                    WarningType = warningType,
+                    Message = message,
+                    Remediation = remediation is null ? null : new RemediationAction(remediation),
+                    Url = url
+                }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            var warning = Assert.Single(host.Chat.Messages);
+            Assert.Equal("system", warning.Role);
+            Assert.Equal(message, warning.Content);
+            Assert.Same(warning, Assert.Single(host.ViewModel.Messages).Message);
+            Assert.Equal(string.Format(Loc.Status_Warning, warningType), host.Runtime.StatusText);
+            Assert.Equal(host.Runtime.StatusText, host.ViewModel.StatusText);
         }, CancellationToken.None);
     }
 
