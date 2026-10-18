@@ -20,6 +20,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Logging;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
@@ -278,7 +279,6 @@ public partial class ChatView : UserControl
         AddHandler(StrataFileAttachment.OpenRequestedEvent, OnFileAttachmentOpenRequested);
         AddHandler(StrataFileAttachment.PreviewRequestedEvent, OnFileAttachmentPreviewRequested);
         AddHandler(StrataChatMessage.CopyRequestedEvent, OnCopyMessageRequested);
-        AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
         AddHandler(StrataChatMessage.ReplyRequestedEvent, OnReplyRequested);
         AddHandler(StrataChatMessage.ShareRequestedEvent, OnSharePromptRequested);
@@ -1875,16 +1875,27 @@ public partial class ChatView : UserControl
     // ── Copy to clipboard (ViewModel raises event, View handles clipboard API) ──
 
     private async void OnCopyToClipboardRequested(string text)
-        => await SetClipboardTextAsync(text);
-
-    private async Task SetClipboardTextAsync(string text, ClipboardCopyPayload? payload = null)
     {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard is null) return;
         try
         {
-            var data = new Avalonia.Input.DataTransfer();
-            data.Add(Avalonia.Input.DataTransferItem.CreateText(text));
+            await SetClipboardTextAsync(text);
+        }
+        catch (Exception error)
+        {
+            Logger.TryGet(LogEventLevel.Error, "Clipboard")?.Log(
+                this, "Could not copy text: {Error}", error.Message);
+        }
+    }
+
+    private Task SetClipboardTextAsync(string text, ClipboardCopyPayload? payload = null) =>
+        SetClipboardDataAsync(ChatClipboardData.CreateText(text), payload);
+
+    private async Task SetClipboardDataAsync(DataTransfer data, ClipboardCopyPayload? payload = null)
+    {
+        using (data)
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard
+                ?? throw new InvalidOperationException("The system clipboard is unavailable.");
             if (payload is not null && HasCopyContext(payload))
             {
                 data.Add(Avalonia.Input.DataTransferItem.Create(
@@ -1909,57 +1920,46 @@ public partial class ChatView : UserControl
             }
             await clipboard.SetDataAsync(data);
         }
-        catch { /* ignore */ }
     }
 
     private static bool HasCopyContext(ClipboardCopyPayload payload)
         => payload.AttachmentPaths.Count > 0 || payload.SkillNames.Count > 0 || payload.Sources.Count > 0;
 
-    private async Task SetClipboardFormattedAsync(string markdown, StrataCopyFormat format)
-    {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard is null)
-            return;
-
-        try
+    private Task SetClipboardFormattedAsync(
+        string markdown, StrataCopyFormat format, ClipboardCopyPayload? payload = null, Control? renderedContent = null)
+        => SetClipboardDataAsync(format switch
         {
-            await clipboard.SetDataAsync(format == StrataCopyFormat.RichText
-                ? ChatClipboardData.CreateRichText(markdown)
-                : ChatClipboardData.CreateMarkdown(markdown));
-        }
-        catch { /* ignore */ }
-    }
+            StrataCopyFormat.RichText => ChatClipboardData.CreateRichText(markdown, renderedContent),
+            StrataCopyFormat.Markdown => ChatClipboardData.CreateMarkdown(markdown),
+            _ => ChatClipboardData.CreateText(MarkdownClipboardFormatter.ToPlainText(markdown))
+        }, payload);
 
-    private async void OnCopyMessageRequested(object? sender, StrataCopyRequestedEventArgs e)
+    private void OnCopyMessageRequested(object? sender, StrataCopyRequestedEventArgs e)
     {
         if (e.Source is not StrataChatMessage message)
             return;
 
         e.Handled = true;
 
-        if (e.Format != StrataCopyFormat.Text)
-        {
-            // Strata copied the rendered bubble, which for a reply includes its quote block.
-            if (message.DataContext is UserMessageItem { HasReply: true } reply)
-                await SetClipboardFormattedAsync(reply.Content, e.Format);
+        if (e.IsSelection)
             return;
-        }
-
-        if (e.IsSelection && !string.IsNullOrEmpty(e.Text))
-        {
-            await SetClipboardTextAsync(e.Text);
-            return;
-        }
 
         var payload = BuildMessageCopyPayload(message.DataContext, message.Content);
         if (payload is null)
             return;
 
-        var text = FormatClipboardText(payload);
+        var renderedMarkdown = message.GetVisualDescendants().OfType<StrataMarkdown>()
+            .FirstOrDefault(markdown => string.Equals(markdown.Markdown?.Trim(), payload.Text, StringComparison.Ordinal));
+        var portable = payload with
+        {
+            Text = renderedMarkdown?.GetCopyMarkdown() ?? MarkdownClipboardFormatter.ToPortableMarkdown(
+                payload.Text, (message.DataContext as AssistantMessageItem)?.InteractionStates)
+        };
+        var text = FormatClipboardText(portable);
         if (string.IsNullOrWhiteSpace(text))
             return;
 
-        await SetClipboardTextAsync(text, payload);
+        e.ClipboardWriteTask = SetClipboardFormattedAsync(text, e.Format, portable, message);
     }
 
     // ── Fork from here (context menu on any transcript message) ───
@@ -2172,35 +2172,6 @@ public partial class ChatView : UserControl
         _replyFlashTimer.Start();
     }
 
-    // ── Copy turn (context menu on assistant messages) ───
-
-    private async void OnCopyTurnRequested(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        e.Handled = true;
-
-        // Walk up from the event source to find the parent TranscriptTurnControl
-        TranscriptTurnControl? turn = null;
-        if (e.Source is Avalonia.Visual visual)
-        {
-            var current = visual.GetVisualParent();
-            while (current is not null)
-            {
-                if (current is TranscriptTurnControl ttc) { turn = ttc; break; }
-                current = (current as Avalonia.Visual)?.GetVisualParent();
-            }
-        }
-
-        if (turn is null) return;
-
-        var payload = BuildTurnCopyPayload(turn.Items ?? Enumerable.Empty<TranscriptItem>());
-        if (payload is null) return;
-
-        var text = FormatClipboardText(payload);
-        if (string.IsNullOrWhiteSpace(text)) return;
-
-        await SetClipboardTextAsync(text, payload);
-    }
-
     private static ClipboardCopyPayload? BuildMessageCopyPayload(object? dataContext, object? content)
     {
         return dataContext switch
@@ -2223,34 +2194,6 @@ public partial class ChatView : UserControl
                 [],
                 [])
         };
-    }
-
-    private static ClipboardCopyPayload? BuildTurnCopyPayload(IEnumerable<TranscriptItem> items)
-    {
-        var textParts = new List<string>();
-        var attachmentPaths = new List<string>();
-        var skillNames = new List<string>();
-        var sources = new List<string>();
-
-        foreach (var item in items)
-        {
-            if (item is not AssistantMessageItem assistant)
-                continue;
-
-            if (!string.IsNullOrWhiteSpace(assistant.Content))
-                textParts.Add(assistant.Content.Trim());
-
-            attachmentPaths.AddRange(assistant.FileAttachments.Select(static a => a.FilePath));
-            skillNames.AddRange(assistant.Skills.Select(static s => s.Name));
-            sources.AddRange(assistant.Sources.Select(static s =>
-                string.IsNullOrWhiteSpace(s.Url) ? s.Title : $"{s.Title} - {s.Url}"));
-        }
-
-        return CreatePayload(
-            string.Join($"{Environment.NewLine}{Environment.NewLine}", textParts),
-            attachmentPaths,
-            skillNames,
-            sources);
     }
 
     private static ClipboardCopyPayload? CreatePayload(

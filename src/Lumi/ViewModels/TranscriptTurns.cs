@@ -937,12 +937,14 @@ public sealed class TranscriptItemsControl : ItemsControl
 
         SetRegisteredAnchor(FindLeadingVisibleContainer());
         var cachePixels = viewportHeight * RealizationCacheViewportMultiplier;
+        var hasSelection = StrataTextSelection.HasActiveSelection(this);
         foreach (var control in EnumerateTurnControls())
         {
             var point = control.TranslatePoint(default, scrollViewer);
-            var isActive = point is not null
+            var isActive = (point is not null
                 && point.Value.Y + control.Bounds.Height >= -cachePixels
-                && point.Value.Y <= viewportHeight + cachePixels;
+                && point.Value.Y <= viewportHeight + cachePixels)
+                || (hasSelection && StrataTextSelection.ContainsSelection(control));
 
             var wasActive = control.IsViewportActive;
             if (isActive)

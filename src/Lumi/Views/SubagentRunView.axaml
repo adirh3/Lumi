@@ -529,7 +529,7 @@
           <ScrollViewer x:Name="RunTranscriptScroller"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="16,16,16,24">
+            <StackPanel Margin="16,16,16,24" sc:StrataTextSelection.IsSelectionScope="True">
               <!-- Who ran, what it was asked to do, and how it is going. -->
               <sc:StrataAgentRun x:Name="RunHero"
                                  Classes="hero"
