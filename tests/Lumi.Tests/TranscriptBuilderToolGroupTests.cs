@@ -187,6 +187,21 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
+    public void ApplyingAQuestionReceipt_NotifiesTheCardWithoutSubmittingAgain()
+    {
+        var submissions = 0;
+        var question = new QuestionItem("q1", "Choose", ["Yes", "No"], true, (_, _) => submissions++);
+        question.ApplyAnswer("Yes");
+        question.ApplyAnswer("Yes");
+
+        Assert.True(question.IsAnswered);
+        Assert.Equal("Yes", question.SelectedAnswer);
+        Assert.Equal(0, submissions);
+        question.Submit("No");
+        Assert.Equal(1, submissions);
+    }
+
+    [Fact]
     public void NativeSkill_UsesPersistedDisplayNameInTitleAndDetails()
     {
         var builder = CreateBuilder();

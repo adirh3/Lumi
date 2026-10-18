@@ -930,6 +930,13 @@ public partial class ChatViewModel
             && message.QuestionId == questionId);
         if (toolMessage is not null)
             toolMessage.ToolOutput = $"User answered: {answer}";
+
+        if (CurrentChat?.Id == chatId)
+        {
+            foreach (var card in TranscriptTurns.SelectMany(turn => turn.EnumerateItems())
+                         .OfType<QuestionItem>().Where(card => card.QuestionId == questionId))
+                card.ApplyAnswer(answer);
+        }
     }
 
     private void NotifyQuestionAsked(Guid chatId, string question)

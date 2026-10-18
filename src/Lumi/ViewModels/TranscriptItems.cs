@@ -1603,6 +1603,21 @@ public partial class QuestionItem : TranscriptItem
         _submitAction?.Invoke(QuestionId, answer);
         _isSubmitting = false;
     }
+
+    public void ApplyAnswer(string answer)
+    {
+        var wasSubmitting = _isSubmitting;
+        _isSubmitting = true;
+        try
+        {
+            SelectedAnswer = answer;
+            IsAnswered = true;
+        }
+        finally
+        {
+            _isSubmitting = wasSubmitting;
+        }
+    }
 }
 
 // ── Typing indicator ─────────────────────────────────

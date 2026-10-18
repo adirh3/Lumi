@@ -1,6 +1,9 @@
 using Avalonia;
 using Avalonia.Browser;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using System.Runtime.InteropServices.JavaScript;
@@ -95,5 +98,23 @@ internal static class Program
                     RegisterAvaloniaServiceWorker = false,
                     PreferFileDialogPolyfill = true
                 });
+
+        // Resolve Avalonia's lazy storage import before a tap; no folder is opened or permission requested.
+        if (Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime { MainView: { } view }
+            && TopLevel.GetTopLevel(view)?.StorageProvider is { } storage)
+        {
+            try
+            {
+                using var folder = await storage.TryGetWellKnownFolderAsync(WellKnownFolder.Documents);
+            }
+            catch (JSException error)
+            {
+                Console.Error.WriteLine($"[Lumi PWA] The attachment picker could not be initialized: {error}");
+            }
+        }
+        else
+        {
+            Console.Error.WriteLine("[Lumi PWA] The browser storage provider was unavailable during picker initialization.");
+        }
     }
 }

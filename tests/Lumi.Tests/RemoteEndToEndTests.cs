@@ -1625,6 +1625,7 @@ public sealed class RemoteEndToEndTests
         Assert.NotNull(uploaded.Path);
         try
         {
+            Assert.StartsWith(TestProfile.Root, uploaded.Path, StringComparison.OrdinalIgnoreCase);
             Assert.True(File.Exists(uploaded.Path));
             var saved = await File.ReadAllBytesAsync(uploaded.Path);
             Assert.Equal(bytes.Length, saved.Length);

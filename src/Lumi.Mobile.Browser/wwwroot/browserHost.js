@@ -35,6 +35,35 @@ export function revokeObjectUrl(url) {
         URL.revokeObjectURL(url);
 }
 
+export function configureFilePickerCancellation({ StorageProvider }) {
+    const openFileDialog = StorageProvider.openFileDialog;
+    StorageProvider.openFileDialog = async function (...args) {
+        let input;
+        const canceled = () => {
+            // Avalonia's fallback waits for change only; a native cancel must finish that wait too.
+            if (input.files.length === 0)
+                input.dispatchEvent(new Event('change'));
+        };
+        const capturePicker = event => {
+            const target = event.target;
+            if (!input && target?.tagName === 'INPUT' && target.type === 'file') {
+                input = target;
+                input.addEventListener('cancel', canceled);
+            }
+        };
+        document.addEventListener('click', capturePicker, true);
+        try {
+            const operation = openFileDialog.apply(this, args);
+            document.removeEventListener('click', capturePicker, true);
+            return await operation;
+        } finally {
+            document.removeEventListener('click', capturePicker, true);
+            input?.removeEventListener('cancel', canceled);
+            input?.remove();
+        }
+    };
+}
+
 let selectionDialog;
 let nativeTextInputChanged;
 let nativeTextInputKeyPressed;

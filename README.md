@@ -894,7 +894,12 @@ theme/status-bar colors follow Lumi's Light, Dark, or System preference.
 
 The PWA checks for content-versioned updates on launch, resume, network recovery,
 and a live desktop reconnect. New builds download and integrity-check their
-static assets before activation. When there is no unsent work or open editor,
+static assets before activation. Downloads use individual integrity-checked cache
+adds, with at most four in flight: Safari can reject a multi-file cache operation
+even when every asset can be downloaded and cached individually. Every asset must
+succeed before the worker can activate. A retry creates a fresh registration if
+a failed first installation left the previous registration without a worker;
+it does not clear pairing or existing caches. When there is no unsent work or open editor,
 Lumi activates the update and reopens once automatically. Otherwise an **Update
 ready** banner keeps the current app usable and defers activation/reopening until
 drafts (including other chats and question replies), attachments, uploads,
@@ -905,9 +910,16 @@ assets only reconnects; it does not reinstall the bundle or reload the app.
 Other open app windows keep their runtime and drafts until they can safely
 reopen too. The refresh URL is a recovery fallback, not the normal update flow.
 
+The browser prepares its attachment picker before the first tap and releases a
+canceled picker, so **+** remains usable after dismissing the photo/file menu.
+Answers submitted from the phone also update the existing desktop question card
+immediately, without switching chats or submitting the answer again.
+
 If tunnel sign-in expires, the PWA stops treating it as a network reconnect and tries one
 same-origin sign-in refresh only when pending actions have finished and no unsent
-or edited work would be lost. That navigation bypasses the static cache so Microsoft's gateway can renew its session;
+or edited work would be lost. That `/app/?lumi-signin=1` navigation bypasses the
+service worker so Microsoft's gateway can renew its session, then opens the
+normal app without unregistering its worker or forcing a cache rebuild;
 only a confirmed live Lumi connection resets the automatic-attempt guard.
 Otherwise, **Sign in again** appears in the connection banner. The existing
 **Settings > Connection > Browser sign-in > Reload web app** action remains
@@ -923,6 +935,8 @@ The recovered document coordinates activation of the waiting update. Older
 verified framework caches are retained while other app pages remain open, so
 those pages keep their loaded runtime and drafts; subsequent new launches use
 the current build instead of depending on the browser retiring an old page.
+If recovery fails, the page displays the failed step and the browser's error
+message, while keeping pairing and verified caches intact.
 
 **Install as app** does not guarantee a separate Android application identity:
 the browser decides whether it creates a packaged PWA or a browser-hosted

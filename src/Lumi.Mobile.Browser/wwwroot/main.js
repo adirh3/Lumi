@@ -1,4 +1,5 @@
 import {
+    configureFilePickerCancellation,
     configureNativeTextInputs,
     configureViewportInsets
 } from './browserHost.js';
@@ -43,6 +44,14 @@ try {
     const config = runtime.getConfig();
     const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
     const interop = exports.Lumi.Mobile.Browser.BrowserInterop;
+
+    // Avalonia's storage module resolves managed exports when it loads, so the runtime must exist.
+    try {
+        configureFilePickerCancellation(await import('./_framework/storage.js'));
+    } catch (error) {
+        console.warn('[Lumi PWA] The attachment picker could not be prepared.', error);
+    }
+
     const workerFrameMode = new URLSearchParams(location.search).get('workerframes');
     if (workerFrameMode === '1' || workerFrameMode !== '0' &&
         /Android/.test(navigator.userAgent) && /Chrome\//.test(navigator.userAgent)) {
