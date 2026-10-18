@@ -573,8 +573,8 @@
                              OptionsList="{Binding Options}"
                              AllowFreeText="{Binding AllowFreeText}"
                              AllowMultiSelect="{Binding AllowMultiSelect}"
-                             IsAnswered="{Binding IsAnswered}"
-                             SelectedAnswer="{Binding Answer}"
+                             IsAnswered="{Binding IsAnswered, Mode=TwoWay}"
+                             SelectedAnswer="{Binding Answer, Mode=TwoWay}"
                              HasInput="{Binding HasAnswerDraft, Mode=OneWayToSource}"
                              AnswerSubmitted="OnQuestionAnswered" />
     </DataTemplate>

@@ -2243,6 +2243,95 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         }
     }
 
+    [Theory]
+    [InlineData("desktop")]
+    [InlineData("option")]
+    [InlineData("multiple")]
+    [InlineData("free-text")]
+    public Task QuestionAnswerReceiptSurvivesRecreatingThePhoneView(string answerKind) =>
+        RunUiAsync(390, async (shell, view, window) =>
+        {
+            var expected = answerKind switch
+            {
+                "multiple" => "First, Second",
+                "free-text" => "My own answer",
+                _ => "Second"
+            };
+            var question = new RemoteQuestion
+            {
+                QuestionId = "receipt-question", Text = "Which option?",
+                Options = ["First", "Second"],
+                AllowFreeText = answerKind == "free-text",
+                AllowMultiSelect = answerKind == "multiple"
+            };
+            var transcript = new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId, Revision = 1,
+                TotalRawMessageCount = 1, WindowEndMessageIndex = 1,
+                Turns = [new RemoteTranscriptTurn
+                {
+                    Id = "receipt-turn",
+                    Items = [new RemoteTranscriptItem
+                    {
+                        Id = "receipt-row", Kind = RemoteProtocol.ItemKinds.Question,
+                        Question = question
+                    }]
+                }]
+            };
+            shell.Chat.ApplyTranscript(transcript);
+            Pump(window);
+            var card = view.GetVisualDescendants().OfType<StrataQuestionCard>().Single();
+            var item = Assert.IsType<QuestionItemViewModel>(card.DataContext);
+            if (answerKind != "desktop")
+            {
+                await Task.Delay(80);
+                Pump(window);
+                Button Option(string label) => card.GetVisualDescendants().OfType<Button>()
+                    .Single(button => button.Classes.Contains("question-option") && (string?)button.Tag == label);
+                if (answerKind == "free-text")
+                {
+                    var input = Required<TextBox>(card, "PART_FreeTextBox");
+                    input.Focus();
+                    window.KeyTextInput(expected);
+                    Pump(window);
+                    Assert.Equal(expected, input.Text);
+                    Tap(window, Required<Button>(card, "PART_FreeTextSubmit"));
+                }
+                else
+                {
+                    if (answerKind == "multiple")
+                        Tap(window, Option("First"));
+                    Tap(window, Option("Second"));
+                    if (answerKind == "multiple")
+                        Tap(window, Required<Button>(card, "PART_MultiSubmit"));
+                }
+            }
+            else
+            {
+                question.IsAnswered = true;
+                question.Answer = expected;
+                transcript.Revision = 2;
+                shell.Chat.ApplyTranscript(transcript);
+                Pump(window);
+            }
+
+            Assert.True(item.IsAnswered);
+            Assert.Equal(expected, item.Answer);
+            Assert.True(Required<DockPanel>(card, "PART_AnsweredRow").IsEffectivelyVisible);
+            Assert.Equal(expected, Required<TextBlock>(card, "PART_AnswerText").Text);
+
+            window.Content = null;
+            Pump(window);
+            var recreated = new MobileShellView { DataContext = shell };
+            window.Content = recreated;
+            Pump(window);
+            var restored = recreated.GetVisualDescendants().OfType<StrataQuestionCard>().Single();
+            Assert.True(restored.IsAnswered);
+            Assert.Equal(expected, Required<TextBlock>(restored, "PART_AnswerText").Text);
+            Assert.True(Required<DockPanel>(restored, "PART_AnsweredRow").IsEffectivelyVisible);
+            Assert.False(Required<StackPanel>(restored, "PART_Body").IsEffectivelyVisible);
+        });
+
     [Fact]
     public async Task BrowserUpdatesWaitForInFlightRemoteActions()
     {

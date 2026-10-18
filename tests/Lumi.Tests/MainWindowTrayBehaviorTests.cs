@@ -1,6 +1,10 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using Lumi.Models;
 using Lumi.Services;
@@ -105,6 +109,137 @@ public sealed class MainWindowTrayBehaviorTests
             }
         }, CancellationToken.None);
     }
+
+    [Fact]
+    public async Task ReopenAfterClosingToTray_RestoresTheSameWindowAndDraftRepeatedly()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var (window, viewModel) = CreateWindow(minimizeToTray: true);
+            var app = CreateAppWithWindow(window);
+            viewModel.ChatVM.PromptText = "Keep this unsent draft";
+            window.Show();
+            try
+            {
+                for (var cycle = 0; cycle < 3; cycle++)
+                {
+                    window.Close();
+                    await PumpAsync();
+                    Assert.False(window.IsVisible);
+                    Assert.False(window.ShowInTaskbar);
+
+                    Activate(app, ActivationKind.Reopen);
+                    await PumpAsync();
+
+                    Assert.True(window.IsVisible);
+                    Assert.True(window.ShowInTaskbar);
+                    Assert.Equal(WindowState.Normal, window.WindowState);
+                    Assert.Same(viewModel, window.DataContext);
+                    Assert.Same(window, Assert.Single(GetAppWindows(app)));
+                    Assert.Equal("Keep this unsent draft", viewModel.ChatVM.PromptText);
+                    Assert.True(viewModel.SettingsVM.MinimizeToTray);
+                }
+            }
+            finally
+            {
+                CloseWindow(window, viewModel);
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(ActivationKind.Background)]
+    [InlineData(ActivationKind.File)]
+    [InlineData(ActivationKind.OpenUri)]
+    public async Task OtherActivationKinds_DoNotRestoreTheHiddenWindow(ActivationKind kind)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var (window, viewModel) = CreateWindow(minimizeToTray: true);
+            var app = CreateAppWithWindow(window);
+            window.Show();
+            try
+            {
+                window.Close();
+                Activate(app, kind);
+                await PumpAsync();
+                Assert.False(window.IsVisible);
+            }
+            finally
+            {
+                CloseWindow(window, viewModel);
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ReopenAfterMinimizing_RestoresNormalWindowState()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var (window, viewModel) = CreateWindow(minimizeToTray: true);
+            var app = CreateAppWithWindow(window);
+            window.Show();
+            try
+            {
+                window.WindowState = WindowState.Minimized;
+                Activate(app, ActivationKind.Reopen);
+                await PumpAsync();
+                Assert.True(window.IsVisible);
+                Assert.Equal(WindowState.Normal, window.WindowState);
+                Assert.Same(window, Assert.Single(GetAppWindows(app)));
+            }
+            finally
+            {
+                CloseWindow(window, viewModel);
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task QueuedReopen_DoesNotRestoreAWindowDuringShutdown()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var (window, viewModel) = CreateWindow(minimizeToTray: true);
+            var app = CreateAppWithWindow(window);
+            window.Show();
+            try
+            {
+                window.Close();
+                Activate(app, ActivationKind.Reopen);
+                typeof(App).GetField("_isShuttingDown", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(app, true);
+                await PumpAsync();
+                Assert.False(window.IsVisible);
+            }
+            finally
+            {
+                CloseWindow(window, viewModel);
+            }
+        }, CancellationToken.None);
+    }
+
+    private static App CreateAppWithWindow(MainWindow window)
+    {
+        var app = new App();
+        GetAppWindows(app).Add(window);
+        typeof(App).GetField("_mainWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(app, window);
+        return app;
+    }
+
+    private static List<MainWindow> GetAppWindows(App app) =>
+        (List<MainWindow>)typeof(App).GetField("_windows", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(app)!;
+
+    private static void Activate(App app, ActivationKind kind) =>
+        typeof(App).GetMethod("OnApplicationActivated", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(app, [null, new ActivatedEventArgs(kind)]);
 
     private static (MainWindow Window, MainViewModel ViewModel) CreateWindow(
         bool minimizeToTray,
