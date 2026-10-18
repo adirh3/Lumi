@@ -88,21 +88,29 @@
       <Border.BorderBrush>
         <SolidColorBrush Color="{DynamicResource Color.TextPrimary}" Opacity="0.08" />
       </Border.BorderBrush>
-      <Grid>
-        <Border x:Name="ChatIslandHighlight"
-                IsHitTestVisible="False"
-                CornerRadius="{DynamicResource Radius.Overlay}"
-                BorderThickness="0,1,0,0"
-                Opacity="0.75">
-          <Border.BorderBrush>
-            <SolidColorBrush Color="White" Opacity="0.12" />
-          </Border.BorderBrush>
-        </Border>
-        <views:ChatView x:Name="PageChat"
-                        ShowInternalTitle="{Binding ShowInternalTitle, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
-                        UseShellChrome="{Binding UseChatIslandChrome, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
-                        DataContext="{Binding}" />
-      </Grid>
+      <views:ChatView x:Name="PageChat"
+                      ShowInternalTitle="{Binding ShowInternalTitle, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
+                      UseShellChrome="{Binding UseChatIslandChrome, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
+                      DataContext="{Binding}" />
+    </Border>
+
+    <!-- Follow the outer rim above the header glass, fading down the curved sides rather than
+         ending a top-only, inset border abruptly at the corners. -->
+    <Border x:Name="ChatIslandHighlight"
+            Grid.Column="0"
+            IsHitTestVisible="False"
+            CornerRadius="{Binding CornerRadius, ElementName=ChatIsland}"
+            BorderThickness="{Binding BorderThickness, ElementName=ChatIsland}"
+            Opacity="0.75">
+      <Border.BorderBrush>
+        <SolidColorBrush Color="White" Opacity="0.12" />
+      </Border.BorderBrush>
+      <Border.OpacityMask>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="0,32">
+          <GradientStop Offset="0" Color="#FFFFFFFF" />
+          <GradientStop Offset="1" Color="#00FFFFFF" />
+        </LinearGradientBrush>
+      </Border.OpacityMask>
     </Border>
 
     <GridSplitter x:Name="WorkspaceSplitter"

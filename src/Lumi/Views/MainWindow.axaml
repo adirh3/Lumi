@@ -24,7 +24,6 @@
     <Thickness x:Key="MainLayout.IslandOuterMargin">0,38,6,6</Thickness>
     <!-- The open project switcher's glass: the overlay surface, translucent over its frost. -->
     <SolidColorBrush x:Key="ProjectSwitcher.GlassFill" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.72" />
-    <SolidColorBrush x:Key="Navigation.EdgeVeil" Color="{DynamicResource Color.Background}" Opacity="0.9" />
     <SolidColorBrush x:Key="Navigation.PillFill" Color="{DynamicResource Color.Surface1}" Opacity="0.4" />
     <SolidColorBrush x:Key="Navigation.PillBorder" Color="{DynamicResource Color.TextPrimary}" Opacity="0.06" />
     <!-- A plugin's (or the Copilot folder's) parts fold under one row so a large plugin never buries
@@ -2983,19 +2982,11 @@
           </Panel><!-- end sidebar content wrapper -->
         </DockPanel>
 
-        <!-- Like the composer's edge, the sidebar fades into frost while chats scroll beneath it. -->
+        <!-- Frost the scrolling chats without tinting the shared window material: a sidebar-only
+             tint would leave a hard edge beside the chat island on translucent windows. -->
         <Panel x:Name="SidebarNav" VerticalAlignment="Bottom" Background="Transparent">
           <Panel x:Name="NavEdgeMaterial" Margin="0,-40,0,0" IsHitTestVisible="False">
             <sc:StrataBackdropBlur BlurRadius="10" Saturation="1.15" Fade="Top" FadeLength="64" />
-            <Border Background="{StaticResource Navigation.EdgeVeil}">
-              <Border.OpacityMask>
-                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                  <GradientStop Offset="0" Color="#00000000" />
-                  <GradientStop Offset="0.3" Color="#80000000" />
-                  <GradientStop Offset="1" Color="#B3000000" />
-                </LinearGradientBrush>
-              </Border.OpacityMask>
-            </Border>
           </Panel>
           <!-- The active place wears its name; moving between places slides the label across. -->
           <Border x:Name="NavPillHost" Margin="12,4,12,12" ClipToBounds="False">

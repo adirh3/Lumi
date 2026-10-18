@@ -8,6 +8,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Localization;
@@ -22,6 +23,65 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatWorkspaceViewTests
 {
+    [Fact]
+    public async Task ChatIslandHighlightFollowsTheOuterRimAboveTheHeaderGlass()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            using var chatVm = new ChatViewModel(new DataStore(CreateAppData()), TestCopilot.Shared);
+            using var workspace = new ChatWorkspaceView
+            {
+                DataContext = chatVm,
+                IsPresenceEnabled = false,
+            };
+            var window = new Window { Width = 1000, Height = 720, Content = workspace };
+
+            window.Show();
+            try
+            {
+                window.UpdateLayout();
+                var grid = workspace.FindControl<Grid>("WorkspaceGrid")!;
+                var island = workspace.FindControl<Border>("ChatIsland")!;
+                var highlight = workspace.FindControl<Border>("ChatIslandHighlight")!;
+
+                Assert.Same(grid, highlight.GetVisualParent());
+                Assert.True(grid.Children.IndexOf(highlight) > grid.Children.IndexOf(island));
+                Assert.Equal(island.Bounds, highlight.Bounds);
+                Assert.Equal(island.CornerRadius, highlight.CornerRadius);
+                Assert.Equal(new Thickness(1), highlight.BorderThickness);
+                Assert.True(island.ClipToBounds);
+                Assert.False(highlight.IsHitTestVisible);
+
+                var fade = Assert.IsType<LinearGradientBrush>(highlight.OpacityMask);
+                Assert.Equal(255, fade.GradientStops.First().Color.A);
+                Assert.Equal(0, fade.GradientStops.Last().Color.A);
+
+                workspace.UseChatIslandChrome = false;
+                window.UpdateLayout();
+
+                Assert.False(highlight.IsVisible);
+                Assert.Equal(new CornerRadius(0), island.CornerRadius);
+                Assert.Equal(new Thickness(0), island.BorderThickness);
+                Assert.False(island.ClipToBounds);
+
+                workspace.UseChatIslandChrome = true;
+                window.UpdateLayout();
+
+                Assert.True(highlight.IsVisible);
+                Assert.Equal(island.Bounds, highlight.Bounds);
+                Assert.Equal(island.CornerRadius, highlight.CornerRadius);
+                Assert.Equal(island.BorderThickness, highlight.BorderThickness);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task WorkspaceHostsChatAndOneWorkspacePanel()
     {

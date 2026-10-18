@@ -11,7 +11,9 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Media.Transformation;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Converters;
@@ -161,6 +163,62 @@ public sealed class NavigationBarTests
         Assert.True(busy.HasRunningJobs);
         Assert.Equal(1, busy.RunningJobCount);
         Assert.Equal(string.Format(Loc.Culture, Loc.NavTip_JobsRunning, 1), busy.JobsNavTip);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Bar_FrostPreservesTheWindowBackgroundAcrossTheSidebarEdge(bool isDark)
+    {
+        using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+
+        await session.Dispatch(() =>
+        {
+            var window = new MainWindow
+            {
+                RequestedThemeVariant = isDark ? ThemeVariant.Dark : ThemeVariant.Light,
+            };
+            try
+            {
+                var material = window.FindControl<Panel>("NavEdgeMaterial")!;
+                Assert.IsAssignableFrom<Panel>(material.Parent).Children.Remove(material);
+                material.Margin = default;
+                material.Width = 280;
+                material.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+                Assert.True(Assert.Single(material.Children.OfType<StrataBackdropBlur>()).IsVisible);
+
+                var surface = new Panel
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(128, 96, 96, 96)),
+                    Children = { material },
+                };
+                window.Content = surface;
+                surface.Measure(new Size(560, 96));
+                surface.Arrange(new Rect(0, 0, 560, 96));
+
+                using var rendered = new RenderTargetBitmap(new PixelSize(560, 96));
+                rendered.Render(surface);
+                using var stream = new MemoryStream();
+                rendered.Save(stream, PngBitmapEncoderOptions.Default);
+                stream.Position = 0;
+                using var pixels = SkiaSharp.SKBitmap.Decode(stream);
+                Assert.NotNull(pixels);
+
+                var y = pixels.Height - 3;
+                var inside = pixels.GetPixel(277, y);
+                var outside = pixels.GetPixel(283, y);
+
+                Assert.InRange(outside.Alpha, 1, 254);
+                Assert.InRange(Math.Abs(inside.Alpha - outside.Alpha), 0, 1);
+                Assert.InRange(Math.Abs(inside.Red - outside.Red), 0, 1);
+                Assert.InRange(Math.Abs(inside.Green - outside.Green), 0, 1);
+                Assert.InRange(Math.Abs(inside.Blue - outside.Blue), 0, 1);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
     }
 
     [Fact]
