@@ -17,6 +17,8 @@ internal static class AppDataSnapshotFactory
                 UserName = settings.UserName,
                 UserSex = settings.UserSex,
                 IsOnboarded = settings.IsOnboarded,
+                HandledSetupSuggestions = settings.HandledSetupSuggestions is null ? [] : [.. settings.HandledSetupSuggestions],
+                AllowAppSetupSuggestions = settings.AllowAppSetupSuggestions,
                 DefaultsSeeded = settings.DefaultsSeeded,
                 CodingLumiSeeded = settings.CodingLumiSeeded,
                 CodingLumiBrowserToolsSeeded = settings.CodingLumiBrowserToolsSeeded,

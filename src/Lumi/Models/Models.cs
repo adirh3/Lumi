@@ -1432,6 +1432,10 @@ public class UserSettings
     public string? UserName { get; set; }
     public string? UserSex { get; set; } // "male", "female", or null (prefer not to say)
     public bool IsOnboarded { get; set; }
+    /// <summary>Setup suggestions (<c>SetupScenario.Id</c>) the user set up or dismissed; they aren't suggested again.</summary>
+    public List<string> HandledSetupSuggestions { get; set; } = [];
+    /// <summary>Whether Lumi may check app names at startup for setup suggestions (off when welcome wasn't allowed to).</summary>
+    public bool AllowAppSetupSuggestions { get; set; } = true;
     public bool DefaultsSeeded { get; set; }
     public bool CodingLumiSeeded { get; set; }
     public bool CodingLumiBrowserToolsSeeded { get; set; }

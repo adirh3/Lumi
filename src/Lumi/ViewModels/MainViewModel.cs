@@ -320,7 +320,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     private void OnPluginsChanged()
-        => Dispatcher.UIThread.Post(() => _ = RefreshExternalCapabilitiesAsync(force: true));
+        => Dispatcher.UIThread.Post(() =>
+        {
+            _ = RefreshExternalCapabilitiesAsync(force: true);
+            _ = SetupsVM.RefreshAsync();
+        });
 
     partial void OnIsConnectedChanged(bool value) => DiscoverVM?.NotifyConnectionChanged(value);
 
@@ -355,6 +359,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _ = DiscoverVM.OpenInstalledPluginAsync(pluginName);
     }
 
+    /// <summary>A setup's "Try it": a new chat with the prompt ready to review. Nothing is sent.</summary>
+    private void StartSetupDraft(string prompt)
+    {
+        NewChat();
+        ChatVM.PromptText = prompt;
+    }
+
+    /// <summary>A setup that is there but turned off: its plugin in Discover, or the Connectors section.</summary>
+    private void ManageSetup(SetupSuggestionItem setup)
+    {
+        if (setup.Installation is { } plugin)
+            ManageInDiscover(plugin.Name);
+        else
+            SelectedNavIndex = 6;
+    }
+
     /// <summary>Nav index of the Jobs (automations) page.</summary>
     private const int JobsNavIndex = 1;
 
@@ -382,7 +402,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // so secondary windows don't clobber the saved layout preference.
     }
 
-    partial void OnIsOnboardedChanged(bool value) => OnPropertyChanged(nameof(ShowSidebarRail));
+    partial void OnIsOnboardedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowSidebarRail));
+        SetupsVM.IsWelcome = !value;
+    }
 
     [ObservableProperty] private Guid? _activeChatId;
 
@@ -402,6 +426,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Customize → Discover: plugins and MCP servers to add.</summary>
     public DiscoverViewModel DiscoverVM { get; }
+
+    /// <summary>Well-known setups (such as Microsoft 365) and the one suggested now.</summary>
+    public SetupSuggestionsViewModel SetupsVM { get; }
 
     /// <summary>The share sheet for prompts, skills, Lumis and MCP servers (one per window).</summary>
     public ShareSheetViewModel ShareVM { get; }
@@ -514,11 +541,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
         MemoriesVM = new MemoriesViewModel(dataStore);
         McpServersVM = new McpServersViewModel(dataStore);
+        var pluginCatalog = new PluginCatalogService(copilotService);
+        SetupsVM = new SetupSuggestionsViewModel(dataStore, copilotService, pluginCatalog, GetCustomizeCapabilities)
+        {
+            IsWelcome = !_isOnboarded,
+        };
         DiscoverVM = new DiscoverViewModel(
             dataStore,
-            new PluginCatalogService(copilotService),
+            pluginCatalog,
             new McpRegistryClient(),
-            GetCustomizeCapabilities);
+            GetCustomizeCapabilities)
+        {
+            Setups = SetupsVM,
+        };
+        SetupsVM.TryRequested += StartSetupDraft;
+        SetupsVM.ManageRequested += ManageSetup;
         ShareVM = new ShareSheetViewModel(dataStore);
         ImportVM = new ImportSheetViewModel(dataStore);
         NoticeVM = new CapabilityNoticeViewModel(
@@ -778,6 +815,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void AttachChatViewModel(ChatViewModel chatVm)
     {
+        // Only the chat this window shows offers its setup suggestion: a detached chat window has none,
+        // so its buttons can't act on this window.
+        chatVm.SetupSuggestions = SetupsVM;
         chatVm.DefaultModelSelectionChanged += OnChatDefaultModelSelectionChanged;
         chatVm.ChatUpdated += OnChatUpdated;
         chatVm.ChatTitleChanged += OnChatTitleChanged;
@@ -796,6 +836,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void DetachChatViewModel(ChatViewModel chatVm)
     {
+        // A cached chat must not keep this window (through its suggestions) alive after it closes.
+        if (ReferenceEquals(chatVm.SetupSuggestions, SetupsVM))
+            chatVm.SetupSuggestions = null;
         chatVm.DefaultModelSelectionChanged -= OnChatDefaultModelSelectionChanged;
         chatVm.ChatUpdated -= OnChatUpdated;
         chatVm.ChatTitleChanged -= OnChatTitleChanged;
@@ -1028,6 +1071,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         await RefreshCopilotStateAsync(refreshAuthStatus: true);
         _ = WarmSearchIndexAsync();
+        await RefreshExternalCapabilitiesAsync(force: false);
+        if (IsOnboarded)
+            await SetupsVM.CheckAtStartupAsync();
+        else
+            await SetupsVM.RefreshAsync();
     }
 
     private void OnDataStoreChatContentChanged(Guid chatId)
@@ -1107,6 +1155,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         _isDisposed = true;
+        SetupsVM.TryRequested -= StartSetupDraft;
+        SetupsVM.ManageRequested -= ManageSetup;
+        SetupsVM.Dispose();
         ShareVM.CloseCommand.Execute(null);
         _dataStore.ChatContentChanged -= OnDataStoreChatContentChanged;
         _dataStore.ChatsContentReset -= OnDataStoreChatsContentReset;
@@ -2672,6 +2723,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             IsReplay = isReplay,
             LoginVM = LoginVM,
             EasyConnect = SettingsVM.EasyConnect,
+            Setups = SetupsVM,
         };
         onboarding.OnboardingCompleted += OnOnboardingCompleted;
         onboarding.Dismissed += FinishOnboarding;

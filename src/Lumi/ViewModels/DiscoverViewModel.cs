@@ -103,6 +103,37 @@ public sealed partial class DiscoverViewModel : ObservableObject
     /// <summary>Show a plugin's skills, Lumis or MCP servers in their Customize section.</summary>
     public event Action<string, CapabilityKind>? ShowPluginPartsRequested;
 
+    /// <summary>Well-known setups, listed at the top of Everything whether or not Lumi suggested them.</summary>
+    public SetupSuggestionsViewModel? Setups
+    {
+        get => _setups;
+        init
+        {
+            _setups = value;
+            RefreshSetups();
+        }
+    }
+
+    private readonly SetupSuggestionsViewModel? _setups;
+    private IReadOnlyList<SetupSuggestionItem> _setupsInView = [];
+
+    public IReadOnlyList<SetupSuggestionItem> SetupsInView => _setupsInView;
+
+    public bool HasSetupsInView => _setupsInView.Count > 0;
+
+    private void RefreshSetups()
+    {
+        IReadOnlyList<SetupSuggestionItem> setups = _setups is not null && IsAll && SourceKey is null
+            ? _setups.Items.Where(item => item.Matches(SearchQuery)).ToList()
+            : [];
+        if (setups.SequenceEqual(_setupsInView))
+            return;
+
+        _setupsInView = setups;
+        OnPropertyChanged(nameof(SetupsInView));
+        OnPropertyChanged(nameof(HasSetupsInView));
+    }
+
     [ObservableProperty] private DiscoverFilter _filter;
     [ObservableProperty] private string _searchQuery = "";
     [ObservableProperty] private string? _sourceKey;
@@ -536,6 +567,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
     /// <param name="resetGrid">The filter, source or search changed: the grid starts again at its first page.</param>
     private void RefreshView(bool resetGrid = false)
     {
+        RefreshSetups();
         var plugins = FilteredPlugins();
         var servers = ServerCardsInView().ToList();
         _shownPlugins = plugins;

@@ -118,6 +118,8 @@ public partial class OnboardingViewModel : ObservableObject
 
     public event Action<OnboardingCompletion>? OnboardingCompleted;
 
+    public SetupSuggestionsViewModel? Setups { get; init; }
+
     /// <summary>Raised when a replayed welcome is closed early. Whatever it already set up stays.</summary>
     public event Action? Dismissed;
 
@@ -497,6 +499,7 @@ public partial class OnboardingViewModel : ObservableObject
 
     private async Task ScanWorkspaceAsync()
     {
+        Setups?.RememberAppDiscoveryChoice(Sources.Single(source => source.Key == "apps").IsEnabled);
         _scanCts?.Cancel();
         _scanCts?.Dispose();
         var scan = _scanCts = new CancellationTokenSource();
@@ -534,6 +537,7 @@ public partial class OnboardingViewModel : ObservableObject
         }
 
         _workspace = new WorkspaceSnapshot(projects, apps, sites, documents);
+        Setups?.ConsiderWorkspace(_workspace);
         BuildCandidates();
         WorkspacePhase = OnboardingWorkspacePhase.Results;
 
@@ -623,7 +627,10 @@ public partial class OnboardingViewModel : ObservableObject
         _scanCts?.Cancel();
         if (wasScanning || IsConsentPhase)
         {
+            Setups?.RememberAppDiscoveryChoice(false);
             _workspace = WorkspaceSnapshot.Empty;
+            // A scan the user backed out of and skipped no longer suggests anything.
+            Setups?.ConsiderWorkspace(_workspace);
             WorkspacePhase = OnboardingWorkspacePhase.Consent;
         }
 

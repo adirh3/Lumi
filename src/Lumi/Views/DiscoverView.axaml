@@ -4,6 +4,7 @@
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:sa="using:StrataTheme.Animation"
              xmlns:controls="using:Lumi.Views.Controls"
+             xmlns:views="using:Lumi.Views"
              xmlns:loc="using:Lumi.Localization"
              xmlns:mgmt="using:Lumi.Views.Management"
              x:Class="Lumi.Views.DiscoverView"
@@ -238,6 +239,31 @@
 
           <!-- ── Everything: a front page with both kinds ── -->
           <StackPanel Spacing="34" IsVisible="{Binding IsAll}">
+
+            <!-- Well-known setups Lumi adds in one step (such as Microsoft 365), suggested or not -->
+            <StackPanel x:Name="DiscoverSetups" Spacing="14" IsVisible="{Binding HasSetupsInView}">
+              <DockPanel>
+                <Border DockPanel.Dock="Left" Classes="mg-section-icon" VerticalAlignment="Center">
+                  <PathIcon Data="{StaticResource Icon.Sparkle}" />
+                </Border>
+                <StackPanel Spacing="1" VerticalAlignment="Center">
+                  <TextBlock Classes="mg-section-title" Text="{loc:Str Setup_SectionTitle}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Setup_SectionCaption}" />
+                </StackPanel>
+              </DockPanel>
+              <ItemsControl x:Name="DiscoverSetupList" ItemsSource="{Binding SetupsInView}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <controls:AdaptiveGridPanel MinItemWidth="320" ColumnSpacing="14" RowSpacing="14" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SetupSuggestionItem">
+                    <views:SetupSuggestionView CanDismiss="False" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
 
             <StackPanel Spacing="14">
               <DockPanel>

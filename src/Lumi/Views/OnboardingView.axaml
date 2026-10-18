@@ -776,6 +776,13 @@
               <TextBlock Grid.Column="1" Classes="ob-caption" Margin="9,0,0,0" Text="{loc:Str Onboarding_WorkspacePrivacy}" />
             </Grid>
 
+            <!-- A well-known setup the allowed scan points to (such as Microsoft 365) -->
+            <Panel IsVisible="{Binding IsResultsPhase}">
+              <Panel Margin="0,22,0,0" IsVisible="{Binding Setups.HasCurrent, FallbackValue=False}">
+                <views:SetupSuggestionView x:Name="WelcomeSetupSuggestion" DataContext="{Binding Setups.Current}" />
+              </Panel>
+            </Panel>
+
             <!-- What Lumi found: folders to set up as projects. -->
             <ItemsControl x:Name="OnboardingProjectList" ItemsSource="{Binding Candidates}" Margin="0,28,0,0"
                           IsVisible="{Binding IsResultsPhase}">

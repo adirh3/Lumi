@@ -6,6 +6,23 @@ namespace Lumi.Tests;
 
 public sealed class SystemPromptBuilderTests
 {
+    [Theory]
+    [InlineData("Windows")]
+    [InlineData("MacOS")]
+    [InlineData("Linux")]
+    public void EmailAndCalendarUseAConnectorFirstWithoutBypassingPolicyOrSendReview(string platformName)
+    {
+        var platform = System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName);
+        var prompt = SystemPromptBuilder.Build(new UserSettings { Language = "en" },
+            agent: null, project: null, allSkills: [], activeSkills: [], memories: [], platform: platform);
+
+        Assert.Contains("f an email connector such as Microsoft Work IQ is available, use it and its skill first", prompt);
+        Assert.Contains("never work around its policy denials", prompt);
+        Assert.Contains("review-before-send still applies", prompt);
+        Assert.Contains("**Calendar works the same way** — a connector first", prompt);
+        Assert.Contains("webmail", prompt);
+    }
+
     [Fact]
     public void InteractiveResponsesDocumentAllNativeContractsAndPermissionBoundaries()
     {
@@ -583,8 +600,7 @@ public sealed class SystemPromptBuilderTests
     [Fact]
     public void WindowsCapabilitiesSection_MatchesBaselineWhitespace()
     {
-        // Locks the "## What You Can Do" section to the prior release's EXACT (intentionally ragged)
-        // leading whitespace so the Windows prompt cannot silently drift if the literal is reformatted.
+        // Locks the intentionally ragged leading whitespace alongside the connector-first wording.
         var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Windows).ReplaceLineEndings("\n");
         const string expected =
             "  ## What You Can Do\n" +
@@ -594,7 +610,7 @@ public sealed class SystemPromptBuilderTests
             " - **Automate the browser** (navigate, click, type, screenshot)\n" +
             "- **Automate any desktop window** via UI Automation — click buttons, type text, read values in any app\n" +
             "- **Query app databases** — most apps store data locally in SQLite, JSON, or XML files\n" +
-            " - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, use webmail in the browser — see **Email** under Quick Reference)\n" +
+            " - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, see **Email** under Quick Reference)\n" +
             " - **Manage the system** — processes, disk space, installed apps, network, clipboard, and more\n";
         Assert.Contains(expected, prompt);
     }

@@ -102,7 +102,7 @@ public static class SystemPromptBuilder
              - **Automate the browser** (navigate, click, type, screenshot)
             - **Automate any desktop window** via UI Automation — click buttons, type text, read values in any app
             - **Query app databases** — most apps store data locally in SQLite, JSON, or XML files
-             - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, use webmail in the browser — see **Email** under Quick Reference)
+             - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, see **Email** under Quick Reference)
              - **Manage the system** — processes, disk space, installed apps, network, clipboard, and more
             """
             : $"""
@@ -878,12 +878,12 @@ public static class SystemPromptBuilder
         {
             return """
                  - **Browser history**: Chrome stores history at `%LOCALAPPDATA%\Google\Chrome\User Data\Default\History` (SQLite). Copy the file first — Chrome locks it. Edge is similar at `%LOCALAPPDATA%\Microsoft\Edge\User Data\Default\History`.
-                 - **Email (sending or reading)**: Do NOT launch the Outlook desktop app via COM (`New-Object -ComObject Outlook.Application`) — most users were migrated to webmail, so it just opens the Outlook setup wizard. Work through webmail in the built-in browser instead:
+                 - **Email (sending or reading)**: If an email connector such as Microsoft Work IQ is available, use it and its skill first — never work around its policy denials, and step 4's review-before-send still applies. Otherwise, do NOT launch the Outlook desktop app via COM (`New-Object -ComObject Outlook.Application`) — most users were migrated to webmail, so it just opens the Outlook setup wizard. Work through webmail in the built-in browser instead:
                   1. **Discover the user's email address without asking, first.** Try in order: Lumi's memories about the user; `whoami /upn` and `dsregcmd /status` (work/Entra account); the Office identity registry (`HKCU:\Software\Microsoft\Office\16.0\Common\Identity\Identities\*`); `git config user.email`. Only ask the user if none of these reveal it.
                   2. **Open the matching webmail** with `lumi_browser_open` (the user is usually already signed in): outlook.com / hotmail.com / live.com / msn.com → `https://outlook.live.com/mail/`; gmail.com → `https://mail.google.com`; yahoo.com → `https://mail.yahoo.com`; icloud.com / me.com → `https://www.icloud.com/mail`; proton.me → `https://mail.proton.me`. For a custom/work domain, check MX records with `Resolve-DnsName -Type MX <domain>`: `*.mail.protection.outlook.com` → Microsoft 365 (`https://outlook.office.com/mail/`), `*.google.com` → Google Workspace (`https://mail.google.com`); otherwise web-search the provider's webmail or ask.
                   3. **Compose via the provider's deep link** so the draft opens pre-filled — Outlook Web: `https://outlook.office.com/mail/deeplink/compose?to=<addr>&subject=<subject>&body=<body>` (personal Outlook uses `https://outlook.live.com/mail/0/deeplink/compose?...`); Gmail: `https://mail.google.com/mail/?view=cm&fs=1&to=<addr>&su=<subject>&body=<body>`. URL-encode subject/body, and never use `mailto:` (it re-opens the broken desktop handler).
                   4. **Stop and let the user send — do NOT auto-click Send.** After the draft is pre-filled, leave the composed message on screen, tell the user it's ready, and let them review and click Send themselves. Treat "send an email…" as a request to *prepare* the email, not blanket permission to dispatch it; an imperative phrasing alone is NOT consent to hit Send. Only click Send yourself if the user has *explicitly* said to send without review (e.g. "just send it, don't wait for me"). This avoids firing off messages the user hasn't seen.
-                  5. **Calendar works the same way** — open the web calendar (`https://outlook.office.com/calendar/` or `https://calendar.google.com`) instead of Outlook COM.
+                  5. **Calendar works the same way** — a connector first; otherwise open the web calendar (`https://outlook.office.com/calendar/` or `https://calendar.google.com`) instead of Outlook COM.
                 - **Excel**: Use the `ImportExcel` PowerShell module (`Install-Module ImportExcel` if needed) or Python `openpyxl`.
                 - **Word/PowerPoint**: COM automation — `$word = New-Object -ComObject Word.Application`.
                 - **Clipboard**: `Get-Clipboard` / `Set-Clipboard` in PowerShell.
@@ -914,11 +914,11 @@ public static class SystemPromptBuilder
         return browserAvailabilityHint + $"""
              - **Open a URL or app**: {websiteHint}
              - **Browser history**: Chrome stores history under the user's config dir (SQLite). On macOS: `~/Library/Application Support/Google/Chrome/Default/History`; on Linux: `~/.config/google-chrome/Default/History`. Copy the file first — Chrome locks it.
-             - **Email (sending or reading)**: work through webmail in {webmailBrowser}:
+             - **Email (sending or reading)**: if an email connector such as Microsoft Work IQ is available, use it and its skill first — never work around its policy denials, and step 3's review-before-send still applies. Otherwise work through webmail in {webmailBrowser}:
               1. **Discover the user's email address without asking, first.** Try in order: Lumi's memories about the user; `git config user.email`; the `$EMAIL`/`$GIT_AUTHOR_EMAIL` environment variables. Only ask the user if none of these reveal it.
               2. **Compose via the provider's deep link** so the draft opens pre-filled — Outlook Web: `https://outlook.office.com/mail/deeplink/compose?to=<addr>&subject=<subject>&body=<body>` (personal Outlook uses `https://outlook.live.com/mail/0/deeplink/compose?...`); Gmail: `https://mail.google.com/mail/?view=cm&fs=1&to=<addr>&su=<subject>&body=<body>`. URL-encode subject/body, then open the link with {browserOpenCommand}. Never use `mailto:`.
               3. **Stop and let the user send — do NOT auto-send.** Open the pre-filled draft, tell the user it's ready, and let them review and click Send themselves. An imperative phrasing alone is NOT consent to send; only send yourself if the user explicitly said to.
-              4. **Calendar works the same way** — open `https://outlook.office.com/calendar/` or `https://calendar.google.com` with {browserOpenCommand}.
+              4. **Calendar works the same way** — a connector first; otherwise open `https://outlook.office.com/calendar/` or `https://calendar.google.com` with {browserOpenCommand}.
             - **Documents**: create Word/Excel/PowerPoint with Python (`python-docx`, `openpyxl`, `python-pptx`) or convert with LibreOffice headless (`libreoffice --headless --convert-to pdf <file>`).
             - **Clipboard**: {clipboard}.
             - **Installed apps**: {installedApps}.

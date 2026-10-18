@@ -2807,6 +2807,14 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- A well-known setup Lumi noticed (such as Microsoft 365), until the user answers it.
+               Only the main window's chat has SetupSuggestions; elsewhere this stays empty. -->
+          <Panel x:Name="LaunchpadSetupSuggestion" Margin="0,8,0,0"
+                 DataContext="{Binding SetupSuggestions}"
+                 IsVisible="{Binding HasCurrent, FallbackValue=False}">
+            <views:SetupSuggestionView DataContext="{Binding Current}" />
+          </Panel>
+
           <!-- What's going on: chats to pick up (most urgent first) and the automations on watch -->
           <Border x:Name="LaunchpadActivity" Classes="launchpad-card"
                   Margin="0,16,0,0"

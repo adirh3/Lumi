@@ -325,6 +325,21 @@ MCP sampling requests (a server asking to borrow the chat's model), which the C#
 answering at once lets servers such as Azure MCP fall back to explicit commands instead of waiting forever. In Debug builds run with `LUMI_APPDATA_DIR`, plugins install into
 that folder's `copilot-home` instead of `~/.copilot`, so testing never changes your real Copilot setup.
 
+#### Setup suggestions
+
+Well-known setups live in one catalog (`SetupScenarios`): each names an official plugin, the app names or
+work-site domains that point to it, and a starter prompt. Microsoft 365 is the first, adding Microsoft's
+`workiq@work-iq` plugin from `microsoft/work-iq` (hosted Work IQ connector and Microsoft-maintained skills, no
+Node.js needed) through the normal plugin installer. An existing installation is reused, and one the user
+turned off stays off.
+
+Lumi suggests at most one setup, as a small row on the new-chat screen: welcome considers the apps and sites the
+user let it read, and an ordinary start checks local app names once (never history, messages or documents;
+off when welcome's app source was declined). **Set up** or **×** answers it for good
+(`HandledSetupSuggestions`), and **Try it** opens a new draft with the starter prompt, never sending it. Every
+setup stays under **Customize > Discover > Set up in one step**. Sign-in and organization permissions are
+checked by the connector when it is first used.
+
 ### Connectors in a chat
 
 The composer's **Connectors** button shows how many connectors are on in the chat ("Off" when none are), and its

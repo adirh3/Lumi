@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.SetupSuggestionView"
+             x:DataType="vm:SetupSuggestionItem"
+             x:CompileBindings="True">
+  <UserControl.Resources>
+    <!-- Glass, like the launchpad's own cards, so Lumi's presence glows through on the new-chat screen -->
+    <SolidColorBrush x:Key="Setup.Fill" Color="{DynamicResource Color.Surface2}" Opacity="0.55" />
+    <StreamGeometry x:Key="Setup.Close">M5.3 5.3a1 1 0 0 1 1.4 0L12 10.6l5.3-5.3a1 1 0 1 1 1.4 1.4L13.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4L12 13.4l-5.3 5.3a1 1 0 0 1-1.4-1.4L10.6 12 5.3 6.7a1 1 0 0 1 0-1.4z</StreamGeometry>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <Style Selector="Border.setup-row">
+      <Setter Property="Background" Value="{DynamicResource Setup.Fill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Padding" Value="10,9,9,9" />
+    </Style>
+    <Style Selector="Border.setup-mark">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    </Style>
+    <Style Selector="TextBlock.setup-name">
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.setup-detail">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="MaxLines" Value="2" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.setup-detail.ready">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="TextBlock.setup-detail.error">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Border Classes="setup-row">
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+      <Border Classes="setup-mark" VerticalAlignment="Center">
+        <Image Source="{Binding Mark}" Width="17" Height="17" />
+      </Border>
+      <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center" MinWidth="0">
+        <TextBlock Classes="setup-name" Text="{Binding Name}" />
+        <TextBlock x:Name="SetupSuggestionDetail" Classes="setup-detail"
+                   Classes.ready="{Binding IsReady}"
+                   Classes.error="{Binding HasError}"
+                   Text="{Binding Detail}" />
+      </StackPanel>
+      <Button x:Name="SetupSuggestionAction" Grid.Column="2" Classes="accent"
+              Padding="14,6" MinHeight="0" VerticalAlignment="Center"
+              Command="{Binding ActCommand}"
+              IsVisible="{Binding ShowAction}"
+              Content="{Binding ActionLabel}"
+              AutomationProperties.Name="{Binding ActionLabel}" />
+      <!-- No tooltip: the row leaves the tree as soon as it is dismissed -->
+      <Button x:Name="SetupSuggestionDismiss" Grid.Column="3" Classes="subtle"
+              Padding="8" MinHeight="0" VerticalAlignment="Center" Background="Transparent"
+              CornerRadius="{DynamicResource Radius.Full}"
+              Command="{Binding DismissCommand}"
+              AutomationProperties.Name="{loc:Str Setup_NotNow}">
+        <PathIcon Data="{StaticResource Setup.Close}" Width="9" Height="9"
+                  Foreground="{DynamicResource Brush.TextTertiary}" />
+      </Button>
+    </Grid>
+  </Border>
+</UserControl>
