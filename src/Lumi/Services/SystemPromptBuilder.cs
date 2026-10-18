@@ -560,19 +560,18 @@ public static class SystemPromptBuilder
                 .Append(settings.GlobalCustomInstructions.Trim());
         }
 
+        var loadedSkillIds = new HashSet<Guid>();
         if (agent is not null)
         {
-            promptBuilder.Append($"""
-
-
-                --- Active Agent: {agent.Name} ---
-                {agent.SystemPrompt}
-                """);
+            // The selected CustomAgentConfig supplies the persona's authored prompt through the SDK.
+            promptBuilder.Append("\n\n--- Active Agent: ").Append(agent.Name).Append(" ---\n");
 
             // Include agent's linked skills
             if (agent.SkillIds.Count > 0)
             {
-                var agentSkills = allSkills.Where(s => agent.SkillIds.Contains(s.Id)).ToList();
+                var agentSkills = allSkills
+                    .Where(s => agent.SkillIds.Contains(s.Id) && loadedSkillIds.Add(s.Id))
+                    .ToList();
                 if (agentSkills.Count > 0)
                 {
                     promptBuilder.Append("\n\n--- Agent Skills ---\n");
@@ -601,11 +600,12 @@ public static class SystemPromptBuilder
         // Active skills selected by the user for this chat (full content in system prompt).
         // File-based Copilot skills are deliberately NOT included: they are activated per-turn
         // through the SDK slash command, which is what makes them one-shot.
-        if (activeSkills.Count > 0)
+        var selectedSkills = activeSkills.Where(skill => loadedSkillIds.Add(skill.Id)).ToList();
+        if (selectedSkills.Count > 0)
         {
             promptBuilder.Append("\n\n--- Active Skills (use these to help the user) ---\n");
             promptBuilder.Append("These skills are already loaded. Follow their instructions directly; do not fetch them again.\n");
-            foreach (var skill in activeSkills)
+            foreach (var skill in selectedSkills)
                 promptBuilder.Append("\n### ").Append(skill.Name).Append('\n').Append(skill.Content).Append('\n');
         }
 

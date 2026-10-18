@@ -1106,6 +1106,13 @@ storage, editing and existing app-data Markdown mirrors are unchanged. Native
 activation does not depend on those mirrors; no workspace `SKILL.md` stubs or
 replacement loader tool are generated.
 
+The selected agent's authored prompt is supplied once by the Copilot runtime,
+not pasted into Lumi's system prompt a second time. Lumi preloads each linked
+or chat-selected skill once by its ID, including when the same skill is selected
+through both paths. Different skills with identical text remain distinct.
+This applies to new and resumed sessions; agent tool restrictions and delegated
+agents' native skill preloads are unchanged.
+
 Official [Avalonia 12.1.4](https://github.com/AvaloniaUI/Avalonia/releases/tag/12.1.4)
 includes both accepted text fixes: batched input-method selection notifications
 and empty bounds for zero-length text ranges. Lumi and Strata use the official
