@@ -86,6 +86,68 @@ public static class DebugAgentHarness
         ];
     }
 
+    public static IReadOnlyList<LumiChatMessage> CreateTextSelectionFixtureMessages() =>
+    [
+        new LumiChatMessage
+        {
+            Role = "user",
+            Content = "Show me a safe playground for selecting text across chat elements and trying each copy format."
+        },
+        new LumiChatMessage
+        {
+            Role = "assistant", Author = "Lumi", Model = "gpt-5.5",
+            Content = """
+                ## Selection & copy playground
+
+                Start selecting in this **paragraph**, then keep dragging through the list, code,
+                table and adjacent messages. Right-click keeps your highlight.
+
+                - **Copy** chooses rich formatting or readable text for the app you paste into.
+                - **Copy as** lets you choose Plain text, Markdown or Rich text explicitly.
+                - **Select message** selects this answer; the footer copy button copies it whole.
+
+                ```csharp
+                var words = new[] { "Select", "across", "elements" };
+                Console.WriteLine(string.Join(" ", words));
+                ```
+
+                | Content | Markdown / document |
+                | --- | --- |
+                | Cards and comparisons | Headings and readable content |
+                | Charts | A table of every value |
+                | Interactive blocks | Lists and tables with current values |
+
+                ```card
+                {"header":"A portable card","summary":"The **summary** is copied with its formatting.","detail":"The detail is included too, even while the card is collapsed."}
+                ```
+
+                ```comparison
+                {"optionA":{"title":"Markdown","content":"Headings, lists, tables and standard Mermaid source."},"optionB":{"title":"Rich text","content":"Formatted document content and a rendered diagram image."}}
+                ```
+
+                ```chart
+                {"type":"bar","labels":["First","Second"],"series":[{"name":"Example values","values":[12,20]}]}
+                ```
+
+                ```confidence
+                {"label":"Example confidence","value":85,"explanation":"Copying preserves the percentage and this explanation."}
+                ```
+
+                ```mermaid
+                flowchart LR
+                    A[Select] --> B[Copy]
+                    B --> C[Paste]
+                ```
+
+                ```checklist
+                {"id":"copy_try","title":"Try it yourself","items":[{"id":"select","label":"Select across more than one element"},{"id":"menu","label":"Right-click without losing the selection"},{"id":"paste","label":"Copy into a document or Markdown editor"}]}
+                ```
+
+                This is a synthetic, unsaved fixture. It does not send a message to an AI.
+                """
+        }
+    ];
+
     public static Chat CreateTranscriptFixtureChat(DataStore dataStore)
     {
         var root = EnsureFixtureDirectory();

@@ -744,6 +744,33 @@ public sealed class ChatViewReplyWiringTests
     }
 
     [Fact]
+    public async Task BackwardCrossBlockSelection_AnchorsTheReplyPillAtTheReleaseBlock()
+    {
+        using var session = HeadlessTestSession.Start();
+        var (chat, answer, data) = CreateMarkdownChat(fillerTurns: 0);
+        await session.Dispatch(async () =>
+        {
+            await WithChatViewAsync(data, chat, async (_, view, window) =>
+            {
+                var message = await WaitForAnswerAsync(view, answer.Id);
+                var prose = message.GetVisualDescendants().OfType<SelectableTextBlock>()
+                    .First(block => block.FindAncestorOfType<StrataCodeBlock>() is null
+                        && (block.Inlines?.Text ?? block.Text)?.Contains("Keep each method", StringComparison.Ordinal) == true);
+                var code = message.GetVisualDescendants().OfType<StrataCodeBlock>().Single()
+                    .GetVisualDescendants().OfType<SelectableTextBlock>().Single();
+                await WaitForScrollToSettleAsync(message.GetVisualAncestors().OfType<ScrollViewer>().Last());
+
+                DragSelect(window, code, 10, prose, 5);
+                for (var index = 0; index < 5; index++)
+                    await PumpAsync();
+                var popup = SelectionReplyPopup(message);
+                Assert.True(popup?.IsOpen);
+                Assert.Same(prose, popup!.PlacementTarget);
+            });
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task CopyAsMarkdown_OnAReply_CopiesJustTheMessageWithoutItsQuote()
     {
         using var session = HeadlessTestSession.Start();
@@ -1355,24 +1382,29 @@ public sealed class ChatViewReplyWiringTests
 
     /// <summary>Drags the mouse across <paramref name="text"/> from one character index to another.</summary>
     private static void DragSelect(Window window, SelectableTextBlock text, int from, int to)
+        => DragSelect(window, text, from, text, to);
+
+    private static void DragSelect(
+        Window window, SelectableTextBlock fromText, int from, SelectableTextBlock toText, int to)
     {
-        Point PointAt(int index)
+        Point PointAt(SelectableTextBlock text, int index)
         {
             var caret = text.TextLayout.HitTestTextPosition(index);
             return text.TranslatePoint(new Point(caret.X + 0.5, caret.Center.Y), window)!.Value;
         }
 
         var pointer = new Avalonia.Input.Pointer(Avalonia.Input.Pointer.GetNextFreeId(), PointerType.Mouse, isPrimary: true);
-        text.RaiseEvent(new PointerPressedEventArgs(
-            text, pointer, window, PointAt(from), 0,
+        fromText.RaiseEvent(new PointerPressedEventArgs(
+            fromText, pointer, window, PointAt(fromText, from), 0,
             new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
             KeyModifiers.None));
-        text.RaiseEvent(new PointerEventArgs(
-            InputElement.PointerMovedEvent, text, pointer, window, PointAt(to), 1,
+        fromText.RaiseEvent(new PointerEventArgs(
+            InputElement.PointerMovedEvent, fromText, pointer, window, PointAt(toText, to), 1,
             new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
             KeyModifiers.None));
-        text.RaiseEvent(new PointerReleasedEventArgs(
-            text, pointer, window, PointAt(to), 2,
+        var releaseTarget = pointer.Captured as Control ?? fromText;
+        releaseTarget.RaiseEvent(new PointerReleasedEventArgs(
+            releaseTarget, pointer, window, PointAt(toText, to), 2,
             new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
             KeyModifiers.None,
             MouseButton.Left));
