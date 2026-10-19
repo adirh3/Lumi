@@ -22,7 +22,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions; review and edit them in Settings → Memories
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
-- **System tray** — Minimize to tray with global hotkey for instant access
+- **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
 - **Inline images** — Local and online images render directly in chat. Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
@@ -592,6 +592,8 @@ stopping background work. Queued follow-ups drain when the assistant becomes idl
 not only when every background task finishes.
 Explicit external model selections stay with a queued message even if the composer
 changes before delivery, including automatic steering.
+Question cards keep the selected answer in the phone's display state, including
+multiple choices and typed answers, so rebuilding the view retains the answer receipt.
 Mobile attachments show their original filenames instead of PC upload paths, and
 background-job wakes appear as compact events with instructions and output in a
 details sheet. Both presentations also work with older desktop hosts.

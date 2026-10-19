@@ -23,6 +23,7 @@ namespace Lumi;
 public partial class App : Application
 {
     private TrayIcon? _trayIcon;
+    private IActivatableLifetime? _activationLifetime;
     private MainWindow? _mainWindow;
     private GlobalHotkeyService? _hotkeyService;
     private DataStore? _dataStore;
@@ -393,6 +394,9 @@ public partial class App : Application
             var window = CreateWindow(vm, isPrimary: true);
             SetMainWindow(window);
             Program.SingleInstance?.SetActivationHandler(HandleActivationRequest);
+            _activationLifetime = this.TryGetFeature<IActivatableLifetime>();
+            if (_activationLifetime is not null)
+                _activationLifetime.Activated += OnApplicationActivated;
 
 #if DEBUG
             _debugBridge = new LumiDebugBridge(dataStore, vm);
@@ -913,7 +917,8 @@ public partial class App : Application
     {
         window.Show();
         window.ShowInTaskbar = true;
-        window.WindowState = WindowState.Normal;
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
         window.Activate();
 
         if (window.DataContext is MainViewModel vm && vm.SelectedNavIndex == 0)
@@ -984,6 +989,19 @@ public partial class App : Application
 
     private void HandleActivationRequest(AppActivationRequest request)
         => Dispatcher.UIThread.Post(() => ShowMainWindow(request.ChatId));
+
+    private void OnApplicationActivated(object? sender, ActivatedEventArgs e)
+    {
+        // macOS reopens an existing app through its lifetime, not a second process.
+        if (e.Kind != ActivationKind.Reopen)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_isShuttingDown)
+                ShowMainWindow();
+        });
+    }
 
     private bool FocusExistingWindowForChat(Guid chatId)
     {
@@ -1170,7 +1188,8 @@ public partial class App : Application
     {
         window.Show();
         window.ShowInTaskbar = true;
-        window.WindowState = WindowState.Normal;
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
         window.Activate();
         window.FocusComposer();
     }
@@ -1199,7 +1218,14 @@ public partial class App : Application
     }
 
     internal void PrepareForShutdown(bool restartExpected = false)
-        => Program.SingleInstance?.StopAcceptingActivations(restartExpected);
+    {
+        if (_activationLifetime is not null)
+        {
+            _activationLifetime.Activated -= OnApplicationActivated;
+            _activationLifetime = null;
+        }
+        Program.SingleInstance?.StopAcceptingActivations(restartExpected);
+    }
 
     private void PrepareForWindowClosing(Window window)
     {
