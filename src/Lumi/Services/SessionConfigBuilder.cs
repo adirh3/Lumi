@@ -300,63 +300,6 @@ public sealed class LightweightSessionOptions
         };
     }
 
-    /// <summary>
-    /// Builds the system message for a chat session. GPT-family models receive a terse
-    /// "Tone" section from the Copilot CLI base prompt that fights Lumi's writing style: it
-    /// pushes 1-2 paragraph answers, discourages sections and lists, and prefers tables over
-    /// structure, which suppresses rich formatting and Lumi's visualization blocks. Using the
-    /// SDK's section-override mechanism we replace only that one section with a Lumi-aligned
-    /// tone, leaving every other base-prompt section (identity, tool rules, safety, code-change
-    /// rules, additional instructions, etc.) untouched. Other model families already produce
-    /// richly structured output, so they get the prompt appended unchanged.
-    /// </summary>
-    private static SystemMessageConfig BuildSystemMessage(string systemPrompt, string? model)
-    {
-        if (!IsGptFamily(model))
-            return new SystemMessageConfig { Content = systemPrompt, Mode = SystemMessageMode.Append };
-
-        return new SystemMessageConfig
-        {
-            Mode = SystemMessageMode.Customize,
-            Content = systemPrompt,
-            Sections = new Dictionary<SystemMessageSection, SectionOverride>
-            {
-                [SystemMessageSection.Tone] = new SectionOverride
-                {
-                    Action = SectionOverrideAction.Replace,
-                    Content = LumiToneOverride
-                }
-            }
-        };
-    }
-
-    /// <summary>
-    /// True for OpenAI GPT-family model ids (e.g. "gpt-5.5"), matching the CLI's own family
-    /// routing which keys its formatting/tone defaults off the "gpt" prefix.
-    /// </summary>
-    private static bool IsGptFamily(string? model)
-        => !string.IsNullOrWhiteSpace(model)
-           && model.Trim().StartsWith("gpt", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Lumi's replacement for the GPT-family "Tone" section. Keeps the genuinely useful,
-    /// model-agnostic guidance from the default tone (lead with the answer, stay concise, be
-    /// honest about uncertainty, warm natural voice) while removing the length and structure
-    /// suppression and explicitly permitting rich structure and proactive use of Lumi's
-    /// visualization blocks. This reinforces, rather than contradicts, the writing guidance
-    /// already carried in Lumi's appended system prompt.
-    /// </summary>
-    private const string LumiToneOverride =
-        """
-        * Lead with the answer. Start with the main result or conclusion, then add the most important supporting detail.
-        * Be concise and information-dense: cut filler and don't simply restate the request. Concise means high signal, not artificially short, so never drop a genuinely useful answer just to hit a length target.
-        * Match the shape of the response to the request. Use the full Markdown palette (headings, subheadings, tables, lists, code blocks, and inline emphasis) plus Lumi's native visualization blocks (chart, comparison, card, confidence, mermaid) whenever they make the answer clearer or easier to scan. Reach for them proactively, not only when asked.
-        * Lumi's visualization fences activate functional UI controls. Before finalizing, choose the presentation shape: use `comparison` for exactly two meaningful alternatives, `chart` when comparing central numeric values or trends, `card` for a compact profile/lookup/digest/deal with optional detail or a final URL-delivered artifact, `confidence` when uncertainty matters to the decision, and `mermaid` for processes, sequences, or architecture. For a URL artifact, put one clear Markdown action link in the card's always-visible summary instead of returning only a bare URL or prose-only link. When a trigger matches, use that block instead of substituting a plain list or table merely for brevity. Do not wait for an explicit visualization request; use normal Markdown when none of these shapes fits.
-        * Don't force answers into one or two paragraphs. Give comparisons, multi-part answers, and rich explanations the structure they deserve, whether that's sections, a table, or the right visualization.
-        * Be honest and direct: if something is uncertain, incomplete, or blocked, say so plainly.
-        * Keep the voice warm, collaborative, and natural, and leave a blank line between paragraphs.
-        """;
-
     /// <summary>Sets the shared optional properties on a <see cref="SessionConfig"/>.</summary>
     private static void Populate(
         SessionConfig config,
@@ -377,7 +320,11 @@ public sealed class LightweightSessionOptions
         config.ReasoningSummary = DefaultReasoningSummary;
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
-            config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
+            config.SystemMessage = new SystemMessageConfig
+            {
+                Content = systemPrompt,
+                Mode = SystemMessageMode.Append
+            };
 
         config.EnableSkills = enableCapabilityDiscovery || config.SkillProvider is not null;
         if (!enableCapabilityDiscovery)
@@ -428,7 +375,11 @@ public sealed class LightweightSessionOptions
         config.ReasoningSummary = DefaultReasoningSummary;
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
-            config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
+            config.SystemMessage = new SystemMessageConfig
+            {
+                Content = systemPrompt,
+                Mode = SystemMessageMode.Append
+            };
 
         config.EnableSkills = enableCapabilityDiscovery || config.SkillProvider is not null;
         if (!enableCapabilityDiscovery)
