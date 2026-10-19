@@ -2019,6 +2019,16 @@
                                                 IsVisible="{Binding IsPaused}"
                                                 AutomationProperties.Name="{loc:Str Chat_Paused}"
                                                 ToolTip.Tip="{loc:Str Chat_PausedIndicatorTooltip}" />
+                                      <!-- An action in this chat waits for the user's approval. -->
+                                      <sc:StrataLineIcon x:Name="ApprovalNeededIndicator"
+                                                         DockPanel.Dock="Left"
+                                                         Data="{x:Static sc:StrataIcons.Shield}"
+                                                         Width="12" Height="12" StrokeThickness="2"
+                                                         Margin="0,0,6,0"
+                                                         VerticalAlignment="Center"
+                                                         Foreground="{DynamicResource Brush.WarningDefault}"
+                                                         IsVisible="{Binding IsAwaitingApproval}"
+                                                         AutomationProperties.Name="{loc:Str Approval_WaitingOne}" />
                                       <PathIcon x:Name="PinnedChatIndicator"
                                                 DockPanel.Dock="Right"
                                                 Classes="chat-row-pin"
@@ -2837,6 +2847,12 @@
                     <StackPanel Orientation="Horizontal" Spacing="10">
                       <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.Chat}" Foreground="{DynamicResource St.Hue.Chat}" />
                       <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_Chat}" />
+                    </StackPanel>
+                  </ListBoxItem>
+                  <ListBoxItem x:Name="SettingsPermissionsItem">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.Permissions}" Foreground="{DynamicResource St.Hue.Permissions}" />
+                      <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_Permissions}" />
                     </StackPanel>
                   </ListBoxItem>
                   <ListBoxItem Classes="group-start">

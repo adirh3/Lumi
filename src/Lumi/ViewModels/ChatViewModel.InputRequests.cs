@@ -129,7 +129,8 @@ public partial class ChatViewModel
 
     private void RefreshInputWaitingState(Chat chat)
     {
-        chat.IsAwaitingInput = HasPendingQuestion(chat.Id);
+        chat.IsAwaitingInput = HasPendingQuestion(chat.Id) || HasPendingPermissionRequest(chat.Id);
+        chat.IsAwaitingApproval = HasPendingPermissionRequest(chat.Id);
         if (CurrentChat?.Id != chat.Id) return;
         OnPropertyChanged(nameof(IsAwaitingInput));
         if (IsAwaitingInput)

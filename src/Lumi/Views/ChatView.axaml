@@ -2653,6 +2653,95 @@
                              Margin="0,4" />
     </DataTemplate>
 
+    <!-- ── Approval card: a native permission request, where the work waits for it ── -->
+    <DataTemplate DataType="vm:ApprovalItem">
+      <sc:StrataApprovalCard x:Name="ApprovalCard"
+                             Icon="{Binding Request.IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                             Title="{Binding Request.Title}"
+                             StatusText="{Binding Request.StatusText}"
+                             Intention="{Binding Request.Intention}"
+                             Subject="{Binding Request.Subject}"
+                             IsSubjectCode="{Binding Request.IsCommand}"
+                             NoteLabel="{loc:Str Approval_Reviewer}"
+                             Note="{Binding Request.ReviewerReason}"
+                             Warning="{Binding Request.CardWarning}"
+                             IsEscalation="{Binding Request.IsEscalation}"
+                             DetailsLabel="{loc:Str Approval_Details}"
+                             ShowDetails="{Binding Request.HasAnyDetail}"
+                             Error="{Binding Request.Error}"
+                             Status="{Binding Request.CardStatus}"
+                             Receipt="{Binding Request.ReceiptText}"
+                             Margin="0,4">
+        <sc:StrataApprovalCard.Details>
+          <Panel>
+            <sc:StrataDiffView UnifiedDiffText="{Binding Request.Diff}"
+                               FilePath="{Binding Request.Subject}"
+                               IsVisible="{Binding Request.HasDiff}" />
+            <SelectableTextBlock Text="{Binding Request.Detail}"
+                                 IsVisible="{Binding !Request.HasDiff}"
+                                 FontFamily="{DynamicResource Font.FamilyMono}"
+                                 FontSize="12"
+                                 TextWrapping="Wrap"
+                                 Foreground="{DynamicResource Brush.TextSecondary}" />
+          </Panel>
+        </sc:StrataApprovalCard.Details>
+        <sc:StrataApprovalCard.Actions>
+          <StackPanel Spacing="8">
+            <!-- Deny with a note: the agent reads it and changes course. -->
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" IsVisible="{Binding Request.IsFeedbackOpen}">
+              <TextBox x:Name="ApprovalFeedbackBox"
+                       Text="{Binding Request.Feedback}"
+                       PlaceholderText="{loc:Str Approval_FeedbackPlaceholder}"
+                       FontSize="13" MinHeight="34" Padding="11,7" CornerRadius="10"
+                       Background="{DynamicResource Brush.GlassWell}"
+                       BorderBrush="{DynamicResource Brush.GlassDivider}" />
+              <Button x:Name="ApprovalSendFeedbackButton" Grid.Column="1" Classes="accent"
+                      Content="{loc:Str Approval_DenyAndSend}" Command="{Binding Request.SendFeedbackCommand}"
+                      Padding="12,6" MinHeight="0" CornerRadius="10" />
+              <Button Grid.Column="2" Classes="subtle"
+                      Content="{loc:Str Approval_Cancel}" Command="{Binding Request.CancelFeedbackCommand}"
+                      Padding="10,6" MinHeight="0" CornerRadius="10" />
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding !Request.IsFeedbackOpen}">
+              <WrapPanel Orientation="Horizontal">
+                <Button x:Name="ApprovalAllowButton" Classes="accent"
+                        Content="{loc:Str Approval_Allow}" Command="{Binding Request.AllowOnceCommand}"
+                        IsVisible="{Binding Request.CanAllow}"
+                        Padding="14,6" MinHeight="0" CornerRadius="10" Margin="0,0,6,4" />
+                <Button x:Name="ApprovalAllowChatButton" Classes="subtle"
+                        Content="{loc:Str Approval_AllowChat}" Command="{Binding Request.AllowForChatCommand}"
+                        IsVisible="{Binding Request.CanRemember}"
+                        Padding="12,6" MinHeight="0" CornerRadius="10" Margin="0,0,6,4" />
+                <Button x:Name="ApprovalAllowProjectButton" Classes="subtle"
+                        Content="{Binding Request.AllowForProjectShortLabel}" Command="{Binding Request.AllowForProjectCommand}"
+                        IsVisible="{Binding Request.CanRememberForProject}"
+                        Padding="12,6" MinHeight="0" CornerRadius="10" Margin="0,0,6,4" />
+              </WrapPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
+                <Button x:Name="ApprovalDenyButton" Classes="subtle"
+                        Content="{loc:Str Approval_Deny}" Command="{Binding Request.DenyCommand}"
+                        Padding="12,6" MinHeight="0" CornerRadius="10" />
+                <Button x:Name="ApprovalExplainButton" Classes="subtle"
+                        Command="{Binding Request.OpenFeedbackCommand}"
+                        ToolTip.Tip="{loc:Str Approval_DenyWithNote}"
+                        ToolTip.Placement="Top"
+                        AutomationProperties.Name="{loc:Str Approval_DenyWithNote}"
+                        Width="32" Height="30" Padding="0" MinHeight="0" CornerRadius="10">
+                  <sc:StrataLineIcon Width="14" Height="14" StrokeThickness="1.8"
+                                     Data="{x:Static sc:StrataIcons.Pencil}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Button>
+              </StackPanel>
+            </Grid>
+            <TextBlock Text="{Binding Request.RememberHint}"
+                       IsVisible="{Binding Request.HasRememberHint}"
+                       FontSize="11.5" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </StackPanel>
+        </sc:StrataApprovalCard.Actions>
+      </sc:StrataApprovalCard>
+    </DataTemplate>
+
     <!-- ── Typing indicator ─────────────────────────── -->
     <DataTemplate DataType="vm:TypingIndicatorItem">
       <!-- The indicator gets only the width the action leaves, so a long label still trims. -->
@@ -3254,6 +3343,33 @@
     <StackPanel x:Name="ComposerContainer" VerticalAlignment="Bottom" ZIndex="5"
                 HorizontalAlignment="Stretch"
                 Classes.welcome="{Binding IsWelcomeVisible}">
+
+      <!-- Lumi is waiting on the user: one line above the composer, even when the card scrolled away. -->
+      <Border x:Name="ApprovalsWaitingBar"
+              IsVisible="{Binding HasPendingPermissionRequests}"
+              Margin="4,0,4,8" Padding="12,6,8,6"
+              CornerRadius="14"
+              Background="{DynamicResource Brush.GlassFill}"
+              BorderBrush="{DynamicResource Brush.GlassRim}"
+              BorderThickness="1"
+              BoxShadow="{DynamicResource Shadow.GlassChip}">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+          <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.8"
+                             Data="{x:Static sc:StrataIcons.Shield}"
+                             Foreground="{DynamicResource Brush.WarningDefault}"
+                             VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="{Binding ApprovalsWaitingText}"
+                     FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+          <Button x:Name="ApprovalsReviewButton" Grid.Column="2" Classes="subtle"
+                  Content="{loc:Str Approval_Review}" Command="{Binding ReviewPendingApprovalsCommand}"
+                  Padding="10,4" MinHeight="0" CornerRadius="9" FontSize="12" />
+          <Button x:Name="ApprovalsAllowAllButton" Grid.Column="3" Classes="accent"
+                  Content="{Binding AllowAllApprovalsLabel}" Command="{Binding AllowAllPendingApprovalsCommand}"
+                  IsVisible="{Binding HasSeveralPendingPermissionRequests}"
+                  Padding="10,4" MinHeight="0" CornerRadius="9" FontSize="12" />
+        </Grid>
+      </Border>
 
       <!-- The user's usual setups, learned from the chats they start: one click configures this new
            chat's project, checkout, agent and model. Folds away once the chat starts. -->
@@ -4115,6 +4231,73 @@
                              ChatsRequestedCommand="{Binding RefreshChatReferencesCommand}"
                              SkillsManageCommand="{Binding ManageSkillsCommand}"
                              AvailableFiles="{Binding AvailableFileSuggestions}">
+        <!-- How much this chat may do on its own: a setting like the model, beside it. -->
+        <sc:StrataChatComposer.TrailingContent>
+          <sc:StrataModePicker x:Name="ApprovalModePicker"
+                               Icon="{Binding CurrentApprovalMode, Converter={x:Static conv:ApprovalModeIconConverter.Instance}}"
+                               Label="{Binding CurrentApprovalModeOption.Title}"
+                               ShowLabel="{Binding !IsFullAccessMode}"
+                               Tone="{Binding ApprovalModeTone}"
+                               ButtonToolTip="{Binding ApprovalModeToolTip}"
+                               Header="{loc:Str ApprovalMode_PickerHeader}"
+                               Description="{loc:Str ApprovalMode_PickerDescription}"
+                               Items="{Binding ApprovalModeOptions}"
+                               SelectedItem="{Binding CurrentApprovalModeOption}"
+                               SelectCommand="{Binding SelectApprovalModeCommand}"
+                               Margin="0,0,2,0">
+            <sc:StrataModePicker.ItemTemplate>
+              <DataTemplate x:DataType="vm:ApprovalModeOption">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                  <Border Width="30" Height="30" CornerRadius="10" VerticalAlignment="Top"
+                          Background="{DynamicResource Brush.GlassWell}"
+                          BorderBrush="{DynamicResource Brush.GlassDivider}" BorderThickness="1">
+                    <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.8"
+                                       Data="{Binding Mode, Converter={x:Static conv:ApprovalModeIconConverter.Instance}}"
+                                       Foreground="{DynamicResource Brush.TextSecondary}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Spacing="2">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"
+                                 Foreground="{DynamicResource Brush.TextPrimary}" />
+                      <Border IsVisible="{Binding HasBadge}" CornerRadius="999" Padding="7,1"
+                              VerticalAlignment="Center" Background="{DynamicResource Brush.GlassWell}">
+                        <TextBlock Text="{Binding Badge}" FontSize="10.5" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Brush.TextTertiary}" />
+                      </Border>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Summary}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </StackPanel>
+                  <sc:StrataLineIcon Grid.Column="2" Width="16" Height="16" StrokeThickness="2"
+                                     VerticalAlignment="Center"
+                                     Data="{x:Static sc:StrataIcons.Check}"
+                                     Foreground="{DynamicResource Brush.AccentDefault}"
+                                     IsVisible="{Binding $parent[ListBoxItem].IsSelected}" />
+                </Grid>
+              </DataTemplate>
+            </sc:StrataModePicker.ItemTemplate>
+            <sc:StrataModePicker.FooterContent>
+              <StackPanel Spacing="8">
+                <TextBlock Text="{Binding ApprovalModeOrigin}" FontSize="12" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextTertiary}" />
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                  <TextBlock Text="{Binding ApprovalRulesSummary}" FontSize="12" VerticalAlignment="Center"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <Button x:Name="ApprovalModeFollowDefaultButton" Grid.Column="1" Classes="subtle"
+                          Content="{loc:Str ApprovalMode_FollowDefault}"
+                          Command="{Binding FollowDefaultApprovalModeCommand}"
+                          IsVisible="{Binding HasOwnApprovalMode}"
+                          Padding="9,4" MinHeight="0" CornerRadius="9" FontSize="12" />
+                  <Button x:Name="ApprovalModeManageButton" Grid.Column="2" Classes="subtle"
+                          Content="{loc:Str ApprovalMode_Manage}"
+                          Command="{Binding ManageApprovalsCommand}"
+                          Padding="9,4" MinHeight="0" CornerRadius="9" FontSize="12" />
+                </Grid>
+              </StackPanel>
+            </sc:StrataModePicker.FooterContent>
+          </sc:StrataModePicker>
+        </sc:StrataChatComposer.TrailingContent>
         <sc:StrataChatComposer.StatusContent>
           <Grid ColumnDefinitions="Auto,*"
                 MinWidth="0"

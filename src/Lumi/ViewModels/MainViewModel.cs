@@ -664,6 +664,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             RefreshChatList();
         };
+        SettingsVM.ApprovalPolicyChanged += () =>
+        {
+            _chatSessionStore.ApplyToSurfaces(surface => surface.OnApprovalPolicyChanged());
+            ProjectsVM.RefreshApprovals();
+        };
         SettingsVM.SystemPromptSettingsChanged += () =>
         {
             _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateSystemPromptSession());
@@ -690,6 +695,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // detached window). Subscribe at the store level so the main window's collections
         // refresh no matter which surface executed the change.
         _chatSessionStore.SurfaceFeatureManagementStateChanged += OnChatFeatureManagementStateChanged;
+        _chatSessionStore.SurfaceApprovalsRemembered += OnChatApprovalsRemembered;
 
         ProjectsVM.ProjectsChanged += () =>
         {
@@ -699,6 +705,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 surface.RefreshCapabilities();
             });
             RefreshFeatureManagementUi();
+        };
+        ProjectsVM.ApprovalPolicyChanged += () =>
+        {
+            _chatSessionStore.ApplyToSurfaces(surface => surface.OnApprovalPolicyChanged());
+            SettingsVM.RefreshApprovalRules();
+        };
+        ProjectsVM.AddApprovalRuleRequested += projectId =>
+        {
+            SettingsVM.SelectedPageIndex = SettingsViewModel.PermissionsPageIndex;
+            SelectedNavIndex = 7;
+            SettingsVM.StartAddApprovalRuleFor(projectId);
         };
 
         McpServersVM.McpConfigChanged += () =>
@@ -832,6 +849,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.McpRepairRequested += StartMcpRepairChatAsync;
         chatVm.ConnectorsPageRequested += ShowConnectorsPage;
         chatVm.SkillsPageRequested += ShowSkillsPage;
+        chatVm.ManageApprovalsRequested += ShowPermissionsPage;
     }
 
     private void DetachChatViewModel(ChatViewModel chatVm)
@@ -853,6 +871,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.McpRepairRequested -= StartMcpRepairChatAsync;
         chatVm.ConnectorsPageRequested -= ShowConnectorsPage;
         chatVm.SkillsPageRequested -= ShowSkillsPage;
+        chatVm.ManageApprovalsRequested -= ShowPermissionsPage;
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
@@ -888,6 +907,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Opens the Skills section of Customize, from a chat's Skills picker.</summary>
     public void ShowSkillsPage() => SelectedNavIndex = 3;
+
+    /// <summary>Opens Settings → Permissions, from a chat's approval mode picker.</summary>
+    public void ShowPermissionsPage()
+    {
+        SettingsVM.SelectedPageIndex = SettingsViewModel.PermissionsPageIndex;
+        SelectedNavIndex = 7;
+    }
 
     private void OnChatForkRequested(Chat chat, Guid throughMessageId)
         => _ = ForkChatAsync(chat, throughMessageId);
@@ -971,6 +997,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         _backgroundJobService.Reschedule();
         RefreshFeatureManagementUi(preserveJobsEditor: true);
+    }
+
+    /// <summary>"Always in a project" reaches its other open chats, and both lists show the new approval.</summary>
+    private void OnChatApprovalsRemembered()
+    {
+        _chatSessionStore.ApplyToSurfaces(surface => surface.OnApprovalPolicyChanged());
+        SettingsVM.RefreshApprovalRules();
+        ProjectsVM.RefreshApprovals();
     }
 
     internal async Task ApplyFeatureChangeAsync(
@@ -1175,6 +1209,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _copilotService.ModelCatalogChanged -= OnModelCatalogChanged;
         _copilotService.PluginsChanged -= OnPluginsChanged;
         _chatSessionStore.SurfaceFeatureManagementStateChanged -= OnChatFeatureManagementStateChanged;
+        _chatSessionStore.SurfaceApprovalsRemembered -= OnChatApprovalsRemembered;
         _chatOrchestrationService.ChatsChanged -= OnOrchestrationChatsChanged;
         if (_ownsBackgroundJobService)
             _backgroundJobService.Dispose();
@@ -2728,6 +2763,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         onboarding.OnboardingCompleted += OnOnboardingCompleted;
         onboarding.Dismissed += FinishOnboarding;
         onboarding.ThemeChanged += OnOnboardingThemeChanged;
+        onboarding.ApprovalModeChosen += OnOnboardingApprovalModeChosen;
         onboarding.LanguageChangeRequested += OnOnboardingLanguageChangeRequested;
         return onboarding;
     }
@@ -2743,6 +2779,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         previous.OnboardingCompleted -= OnOnboardingCompleted;
         previous.Dismissed -= FinishOnboarding;
         previous.ThemeChanged -= OnOnboardingThemeChanged;
+        previous.ApprovalModeChosen -= OnOnboardingApprovalModeChosen;
         previous.LanguageChangeRequested -= OnOnboardingLanguageChangeRequested;
         previous.LoginVM = null;
         previous.EasyConnect = null;
@@ -2752,6 +2789,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     // Through Settings, which applies it to the app, so its switch stays in step.
     private void OnOnboardingThemeChanged(bool isDark) => SettingsVM.IsDarkTheme = isDark;
+
+    // Through Settings too, which saves it and applies it to live chats.
+    private void OnOnboardingApprovalModeChosen(ApprovalMode mode) => SettingsVM.DefaultApprovalMode = mode;
 
     private void OnOnboardingCompleted(OnboardingCompletion completion)
     {

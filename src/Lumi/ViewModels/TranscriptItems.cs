@@ -1620,6 +1620,23 @@ public partial class QuestionItem : TranscriptItem
     }
 }
 
+// ── Approval card ────────────────────────────────────
+
+/// <summary>
+/// A native permission request shown where the work waits for it. Once answered it stays as a
+/// receipt of the decision.
+/// </summary>
+public sealed class ApprovalItem : TranscriptItem
+{
+    public PermissionRequestViewModel Request { get; }
+
+    public ApprovalItem(PermissionRequestViewModel request)
+        : base($"approval:{request.SessionId}:{request.RequestId}")
+    {
+        Request = request;
+    }
+}
+
 // ── Typing indicator ─────────────────────────────────
 
 public partial class TypingIndicatorItem : TranscriptItem

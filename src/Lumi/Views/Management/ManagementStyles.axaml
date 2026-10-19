@@ -1106,4 +1106,29 @@
     <Setter Property="HorizontalAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
   </Style>
+
+  <!-- An approval rule's answer, the same pill in Settings and Projects: allow, ask or never. -->
+  <Style Selector="Border.approval-action">
+    <Setter Property="CornerRadius" Value="999" />
+    <Setter Property="Padding" Value="9,2,10,3" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SuccessSubtle}" />
+  </Style>
+  <Style Selector="Border.approval-action > TextBlock">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+  </Style>
+  <Style Selector="Border.approval-action.ask">
+    <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
+  </Style>
+  <Style Selector="Border.approval-action.ask > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+  </Style>
+  <Style Selector="Border.approval-action.never">
+    <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+  </Style>
+  <Style Selector="Border.approval-action.never > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+  </Style>
 </Styles>

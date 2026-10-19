@@ -6,6 +6,7 @@
              xmlns:ctrl="using:Lumi.Views.Controls"
              xmlns:views="using:Lumi.Views"
              xmlns:mm="using:Lumi.Views.Management"
+             xmlns:conv="using:Lumi.Converters"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.OnboardingView"
              x:DataType="vm:OnboardingViewModel"
@@ -13,9 +14,9 @@
 
   <!--
     Lumi's first run. One idea per screen over Lumi's living presence: hello, what Lumi can do,
-    the AI behind it, the user's workspace (with project set-up), a short conversation whose
-    answers become memories, and a ready screen that starts the first task. The footer stays put
-    (back · progress · actions) so the content above it can breathe.
+    how much it may do on its own, the AI behind it, the user's workspace (with project set-up), a
+    short conversation whose answers become memories, and a ready screen that starts the first task.
+    The footer stays put (back · progress · actions) so the content above it can breathe.
   -->
 
   <UserControl.Resources>
@@ -69,6 +70,7 @@
       <StreamGeometry x:Key="Ob.Sun">M12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM11 2h2v3h-2zM11 19h2v3h-2zM2 11h3v2H2zM19 11h3v2h-3zM4.22 5.64l1.42-1.42 2.12 2.12-1.42 1.42zM16.24 17.66l1.42-1.42 2.12 2.12-1.42 1.42zM4.22 18.36l2.12-2.12 1.42 1.42-2.12 2.12zM16.24 6.34l2.12-2.12 1.42 1.42-2.12 2.12z</StreamGeometry>
       <StreamGeometry x:Key="Ob.Moon">M20.6 14.6A8.6 8.6 0 0 1 9.4 3.4a8.6 8.6 0 1 0 11.2 11.2z</StreamGeometry>
       <StreamGeometry x:Key="Ob.Lock">M12 2a5 5 0 0 1 5 5v3h.5A2.5 2.5 0 0 1 20 12.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 19.5v-7A2.5 2.5 0 0 1 6.5 10H7V7a5 5 0 0 1 5-5zm0 2a3 3 0 0 0-3 3v3h6V7a3 3 0 0 0-3-3zm0 9.5a1.6 1.6 0 0 0-.8 3v1.5h1.6v-1.5a1.6 1.6 0 0 0-.8-3z</StreamGeometry>
+      <StreamGeometry x:Key="Ob.Shield">M12 1L3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm-1.6 15.4L6.6 12.6l1.4-1.4 2.4 2.4 5.6-5.6 1.4 1.4-7 7z</StreamGeometry>
       <StreamGeometry x:Key="Ob.Sparkle">M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z</StreamGeometry>
       <StreamGeometry x:Key="Ob.Plug">M17 6.1h3V8h-3v2.1a5 5 0 0 1-4 4.9V18h2v2H9v-2h2v-3a5 5 0 0 1-4-4.9V8H4V6.1h3V4h2v2.1h4V4h2v2.1zM9 8v2.1a3 3 0 0 0 6 0V8H9z</StreamGeometry>
       <StreamGeometry x:Key="Ob.FolderOpen">M3 6a2 2 0 0 1 2-2h4.2l2 2H19a2 2 0 0 1 2 2v1H7.4a2 2 0 0 0-1.9 1.4L3 18.2V6zm1.2 14 2.8-8.4a1 1 0 0 1 .9-.6h14.4a.8.8 0 0 1 .8 1l-2.4 7.3a1 1 0 0 1-.9.7H4.2z</StreamGeometry>
@@ -452,6 +454,10 @@
     <Style Selector="Button.ob-candidate.selected Border.ob-checkbox PathIcon">
       <Setter Property="IsVisible" Value="True" />
     </Style>
+    <!-- One choice of several reads as a radio button. -->
+    <Style Selector="Border.ob-checkbox.radio">
+      <Setter Property="CornerRadius" Value="10" />
+    </Style>
     <Style Selector="Border.ob-badge">
       <Setter Property="Width" Value="38" />
       <Setter Property="Height" Value="38" />
@@ -693,6 +699,131 @@
 
             <TextBlock Classes="ob-caption" Margin="0,18,0,0" HorizontalAlignment="Center" TextAlignment="Center"
                        Text="{loc:Str Onboarding_CapabilitiesFooter}" />
+          </StackPanel>
+        </ScrollViewer>
+      </Panel>
+
+      <!-- 3 · How much Lumi does on its own -->
+      <Panel x:Name="AutonomyPage" IsVisible="{Binding IsAutonomyStep}" mm:ManagementMotion.Entrance="True">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel MaxWidth="820" Margin="32,4,32,24" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border Classes="ob-hero-tile">
+              <PathIcon Data="{StaticResource Ob.Shield}" />
+            </Border>
+            <TextBlock Classes="ob-title" Text="{loc:Str Onboarding_AutonomyTitle}" />
+            <TextBlock Classes="ob-lede" Margin="0,10,0,0" MaxWidth="600" Text="{loc:Str Onboarding_AutonomySubtitle}" />
+
+            <Grid Margin="0,28,0,0" ColumnDefinitions="*,18,*">
+              <!-- The three modes, Full access first and chosen -->
+              <ItemsControl x:Name="AutonomyChoices" ItemsSource="{Binding AutonomyCards}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Spacing="10" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ApprovalModeCard">
+                    <Button Classes="mg-card ob-candidate" Classes.selected="{Binding IsSelected}"
+                            Command="{Binding SelectCommand}"
+                            AutomationProperties.Name="{Binding Option.Title}">
+                      <Border Classes="mg-card-frame">
+                        <Grid ColumnDefinitions="Auto,Auto,*">
+                          <Border Classes="ob-checkbox radio" Margin="0,0,14,0" VerticalAlignment="Top">
+                            <PathIcon Data="{StaticResource Ob.Check}" />
+                          </Border>
+                          <Border Grid.Column="1" Classes="ob-icon-tile" Margin="0,0,12,0" VerticalAlignment="Top">
+                            <sc:StrataLineIcon Width="16" Height="16" StrokeThickness="1.8"
+                                               Data="{Binding Mode, Converter={x:Static conv:ApprovalModeIconConverter.Instance}}"
+                                               Foreground="{DynamicResource Brush.AccentDefault}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          </Border>
+                          <StackPanel Grid.Column="2" Spacing="3" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                              <TextBlock Classes="ob-row-title" Text="{Binding Option.Title}" />
+                              <TextBlock Classes="ob-meta" FontWeight="SemiBold" Text="{Binding Option.Badge}"
+                                         IsVisible="{Binding Option.HasBadge}" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock Classes="ob-row-caption" Text="{Binding Option.Summary}" />
+                          </StackPanel>
+                        </Grid>
+                      </Border>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <!-- The same request, as each mode handles it -->
+              <Border x:Name="AutonomyDemo" Grid.Column="2" Classes="ob-card" Padding="20,18">
+                <StackPanel Spacing="12">
+                  <Border Classes="ob-user-bubble">
+                    <TextBlock Text="{loc:Str Onboarding_AutonomyDemoRequest}" />
+                  </Border>
+
+                  <!-- Full access: it just runs -->
+                  <StackPanel Spacing="10" IsVisible="{Binding IsFullAccessDemo}">
+                    <sc:StrataApprovalCard Status="Approved"
+                                           Receipt="{loc:Str Onboarding_AutonomyDemoRan}"
+                                           Title="{loc:Str Approval_RunCommand}"
+                                           Subject="{loc:Str Onboarding_AutonomyDemoCommand}"
+                                           IsHitTestVisible="False" />
+                    <Grid ColumnDefinitions="Auto,*">
+                      <Image Classes="ob-avatar" Source="/Assets/lumi-icon.png"
+                             RenderOptions.BitmapInterpolationMode="HighQuality" />
+                      <TextBlock Grid.Column="1" Text="{loc:Str Onboarding_AutonomyDemoReply}" FontSize="13.5" LineHeight="20"
+                                 TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextPrimary}" />
+                    </Grid>
+                  </StackPanel>
+
+                  <!-- Auto-review: routine runs, risky waits -->
+                  <StackPanel Spacing="10" IsVisible="{Binding IsAutoReviewDemo}">
+                    <sc:StrataApprovalCard Status="Approved"
+                                           Receipt="{loc:Str Approval_Receipt_Reviewer}"
+                                           Title="{loc:Str Approval_RunCommand}"
+                                           Subject="{loc:Str Onboarding_AutonomyDemoListCommand}"
+                                           IsHitTestVisible="False" />
+                    <sc:StrataApprovalCard Icon="{x:Static sc:StrataIcons.Terminal}"
+                                           Title="{loc:Str Approval_RunCommand}"
+                                           StatusText="{loc:Str Approval_StatusNeedsYou}"
+                                           Subject="{loc:Str Onboarding_AutonomyDemoCommand}"
+                                           IsSubjectCode="True"
+                                           NoteLabel="{loc:Str Approval_Reviewer}"
+                                           Note="{loc:Str Onboarding_AutonomyDemoReviewerNote}"
+                                           IsHitTestVisible="False">
+                      <sc:StrataApprovalCard.Actions>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Button Classes="accent" Content="{loc:Str Approval_Allow}" Padding="14,6" MinHeight="0" CornerRadius="10" />
+                          <Button Classes="subtle" Content="{loc:Str Approval_Deny}" Padding="12,6" MinHeight="0" CornerRadius="10" />
+                        </StackPanel>
+                      </sc:StrataApprovalCard.Actions>
+                    </sc:StrataApprovalCard>
+                  </StackPanel>
+
+                  <!-- Ask first: it asks -->
+                  <StackPanel Spacing="10" IsVisible="{Binding IsAskFirstDemo}">
+                    <sc:StrataApprovalCard Icon="{x:Static sc:StrataIcons.Terminal}"
+                                           Title="{loc:Str Approval_RunCommand}"
+                                           StatusText="{loc:Str Approval_StatusNeedsYou}"
+                                           Intention="{loc:Str Onboarding_AutonomyDemoIntention}"
+                                           Subject="{loc:Str Onboarding_AutonomyDemoCommand}"
+                                           IsSubjectCode="True"
+                                           IsHitTestVisible="False">
+                      <sc:StrataApprovalCard.Actions>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Button Classes="accent" Content="{loc:Str Approval_Allow}" Padding="14,6" MinHeight="0" CornerRadius="10" />
+                          <Button Classes="subtle" Content="{loc:Str Approval_AllowChat}" Padding="12,6" MinHeight="0" CornerRadius="10" />
+                          <Button Classes="subtle" Content="{loc:Str Approval_Deny}" Padding="12,6" MinHeight="0" CornerRadius="10" />
+                        </StackPanel>
+                      </sc:StrataApprovalCard.Actions>
+                    </sc:StrataApprovalCard>
+                  </StackPanel>
+
+                  <TextBlock Classes="ob-row-caption" Text="{Binding AutonomyDemoCaption}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+            </Grid>
+
+            <TextBlock Classes="ob-caption" Margin="0,20,0,0" HorizontalAlignment="Center" TextAlignment="Center"
+                       MaxWidth="620" TextWrapping="Wrap" Text="{loc:Str Onboarding_AutonomyFooter}" />
           </StackPanel>
         </ScrollViewer>
       </Panel>
@@ -943,6 +1074,12 @@
                     <Ellipse Width="7" Height="7" VerticalAlignment="Center"
                              Fill="{DynamicResource Brush.WarningDefault}" IsVisible="{Binding !CanLearn}" />
                     <TextBlock Grid.Column="1" Classes="ob-row-caption" Margin="9,0,0,0" Text="{Binding AiStatus}" />
+                  </Grid>
+                  <Grid x:Name="ReadyApprovalLine" ColumnDefinitions="Auto,*">
+                    <PathIcon Data="{StaticResource Ob.Shield}" Width="11" Height="11" VerticalAlignment="Center"
+                              Foreground="{DynamicResource Brush.TextTertiary}" />
+                    <TextBlock Grid.Column="1" Classes="ob-row-caption" Margin="8,0,0,0" TextWrapping="Wrap"
+                               Text="{Binding ReadyApprovalText}" />
                   </Grid>
                 </StackPanel>
               </Border>

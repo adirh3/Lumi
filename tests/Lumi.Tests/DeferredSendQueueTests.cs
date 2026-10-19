@@ -1475,6 +1475,52 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task AJobsTurn_IsUnattendedOnlyUntilTheSessionSettles()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            host.DataStore.Data.Settings.AwayApprovalBehavior = AwayApprovalBehavior.Skip;
+            host.Chat.ApprovalMode = ApprovalMode.AskFirst;
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.ViewModel.MarkTurnUnattended(host.Chat.Id);
+            var answered = new List<string>();
+            PermissionRequestViewModel? Ask(string requestId) => host.ViewModel.PresentPermissionRequest(
+                host.Chat, "session", requestId,
+                new PermissionPromptRequestCommands
+                {
+                    FullCommandText = "git push",
+                    Intention = "Publish the branch",
+                    CommandIdentifiers = ["git push"],
+                    CanOfferSessionApproval = true
+                },
+                managed: false,
+                (_, _, _) =>
+                {
+                    answered.Add(requestId);
+                    return Task.FromResult(true);
+                });
+
+            // While the job's turn runs, nobody is there, so the user's Skip choice answers for them.
+            Assert.Null(Ask("during-job"));
+            Assert.Equal(["during-job"], answered);
+
+            rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData() });
+            Dispatcher.UIThread.RunJobs();
+
+            // Once it settled, what comes next (Regenerate, Edit, a retry) waits for the user.
+            Assert.NotNull(Ask("after-job"));
+            Assert.Equal(["during-job"], answered);
+            Assert.True(host.Chat.IsAwaitingApproval);
+            return Task.CompletedTask;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ChildActivity_AfterAssistantIdle_DoesNotRestartTheAssistantSpinner()
     {
         using var ui = HeadlessTestSession.Start();

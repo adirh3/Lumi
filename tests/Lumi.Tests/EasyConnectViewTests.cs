@@ -363,6 +363,8 @@ public sealed class EasyConnectViewTests
                 vm.UserName = "Test";
                 vm.ContinueCommand.Execute(null);
                 vm.ContinueCommand.Execute(null);
+                Assert.Equal(OnboardingStep.Autonomy, vm.Step);
+                vm.ContinueCommand.Execute(null);
                 window.UpdateLayout();
                 Assert.Equal(OnboardingStep.Connect, vm.Step);
                 var accounts = view.GetVisualDescendants().OfType<EasyConnectView>().Single();

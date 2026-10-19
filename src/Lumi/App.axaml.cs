@@ -1089,6 +1089,13 @@ public partial class App : Application
         }
         chatVm.SkillsPageRequested += OnDetachedSkillsPageRequested;
 
+        void OnDetachedManageApprovalsRequested()
+        {
+            ShowMainWindow();
+            (_mainWindow?.DataContext as MainViewModel)?.ShowPermissionsPage();
+        }
+        chatVm.ManageApprovalsRequested += OnDetachedManageApprovalsRequested;
+
         Guid? trackedChatId = initialChatId;
         ChatWindow? window = null;
         void TrackCurrentChat()
@@ -1140,6 +1147,7 @@ public partial class App : Application
             chatVm.OpenAutomationsRequested -= OnDetachedOpenAutomationsRequested;
             chatVm.ConnectorsPageRequested -= OnDetachedConnectorsPageRequested;
             chatVm.SkillsPageRequested -= OnDetachedSkillsPageRequested;
+            chatVm.ManageApprovalsRequested -= OnDetachedManageApprovalsRequested;
             windowVm.Dispose();
             request.ReleaseSurface();
         };

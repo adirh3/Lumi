@@ -92,7 +92,7 @@ public partial class SettingsView : UserControl
     }
 
     // Page header elements for search mode styling
-    private (TextBlock Title, TextBlock Description)[] _pageHeaders = [];
+    private (TextBlock Title, TextBlock Description)?[] _pageHeaders = [];
 
     public SettingsView()
     {
@@ -116,6 +116,8 @@ public partial class SettingsView : UserControl
             this.FindControl<Control>("PageAI"),
             this.FindControl<Control>("PagePrivacy"),
             this.FindControl<Control>("PageAbout"),
+            null, // Memories has its own page.
+            this.FindControl<Control>("PagePermissions"),
         ];
 
         _searchResultsHeader = this.FindControl<Control>("SearchResultsHeader");
@@ -189,21 +191,21 @@ public partial class SettingsView : UserControl
         if (_cookieImportCancelButton is not null)
             _cookieImportCancelButton.Click += (_, _) => CloseCookieDialog();
 
-        // Each page opens with a header: its tile, then the title and lede.
-        var headers = new List<(TextBlock, TextBlock)>();
-        foreach (var page in _pages)
+        // Each page opens with a header: its tile, then the title and lede. Indexed like the pages.
+        var headers = new (TextBlock Title, TextBlock Description)?[_pages.Length];
+        for (var index = 0; index < _pages.Length; index++)
         {
-            if (page is StackPanel { Children.Count: > 0 } sp
+            if (_pages[index] is StackPanel { Children.Count: > 0 } sp
                 && sp.Children[0] is Grid header && header.Classes.Contains("st-header"))
             {
                 var texts = header.GetLogicalDescendants().OfType<TextBlock>().ToList();
                 var title = texts.FirstOrDefault(static text => text.Classes.Contains("mg-page-title"));
                 var lede = texts.FirstOrDefault(static text => text.Classes.Contains("mg-page-lede"));
                 if (title is not null && lede is not null)
-                    headers.Add((title, lede));
+                    headers[index] = (title, lede);
             }
         }
-        _pageHeaders = headers.ToArray();
+        _pageHeaders = headers;
 
         InitializeDebugTransparencyInfo();
         InitializeDebugFpsOverlay();
@@ -341,6 +343,8 @@ public partial class SettingsView : UserControl
         [Loc.Setting_ShowReasoning] = vm => vm.RevertShowReasoningCommand.Execute(null),
         [Loc.Setting_ExpandReasoningWhileStreaming] = vm => vm.RevertExpandReasoningWhileStreamingCommand.Execute(null),
         [Loc.Setting_SuggestFollowUps] = vm => vm.RevertSuggestFollowUpsCommand.Execute(null),
+        [Loc.Get("Permissions_DefaultMode")] = vm => vm.RevertDefaultApprovalModeCommand.Execute(null),
+        [Loc.Get("Permissions_OnItsOwn")] = vm => vm.RevertAwayApprovalBehaviorCommand.Execute(null),
         [Loc.Setting_AutoGenerateTitles] = vm => vm.RevertAutoGenerateTitlesCommand.Execute(null),
         [Loc.Setting_GlobalCustomInstructions] = vm => vm.RevertGlobalCustomInstructionsCommand.Execute(null),
         [Loc.Setting_PreferredModel] = vm => vm.RevertDefaultModelSelectionCommand.Execute(null),
@@ -374,6 +378,8 @@ public partial class SettingsView : UserControl
                     UpdateHotkeyButtonText();
                 else if (args.PropertyName == nameof(SettingsViewModel.IsMobileSetupReady))
                     RevealMobileSetup();
+                else if (args.PropertyName == nameof(SettingsViewModel.IsAddingApprovalRule) && vm.IsAddingApprovalRule)
+                    RevealApprovalRuleBuilder();
             };
 
             UpdateHotkeyButtonText();
@@ -432,6 +438,16 @@ public partial class SettingsView : UserControl
                     { SelectedPageIndex: 2, UseDevTunnelForMobile: true, IsMobileSetupReady: true } vm
                 && string.IsNullOrWhiteSpace(vm.SearchQuery))
                 this.FindControl<Border>("MobileSetupPanel")?.BringIntoView();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>A rule started elsewhere, such as from a project, opens the builder wherever the page was scrolled.</summary>
+    private void RevealApprovalRuleBuilder()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (IsEffectivelyVisible && DataContext is SettingsViewModel { IsAddingApprovalRule: true })
+                this.FindControl<Border>("ApprovalRuleBuilder")?.BringIntoView();
         }, DispatcherPriority.Loaded);
     }
 
@@ -539,8 +555,8 @@ public partial class SettingsView : UserControl
             pageStack.IsVisible = pageHasResults;
 
             // Hide page descriptions during search — titles act as section dividers
-            if (i < _pageHeaders.Length)
-                _pageHeaders[i].Description.IsVisible = false;
+            if (i < _pageHeaders.Length && _pageHeaders[i] is { } searchedHeader)
+                searchedHeader.Description.IsVisible = false;
         }
 
         // What a narrower query no longer needs open closes again.
@@ -587,8 +603,8 @@ public partial class SettingsView : UserControl
             }
 
             // Restore page header descriptions
-            if (i < _pageHeaders.Length)
-                _pageHeaders[i].Description.IsVisible = true;
+            if (i < _pageHeaders.Length && _pageHeaders[i] is { } restoredHeader)
+                restoredHeader.Description.IsVisible = true;
         }
         CloseOpenedBySearch();
     }

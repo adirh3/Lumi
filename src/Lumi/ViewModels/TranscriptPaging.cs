@@ -77,6 +77,7 @@ internal static class TranscriptPageWeightEstimator
             SubagentGroupItem subagentGroup => Math.Max(3, 2 + subagentGroup.Subagents.Count),
             ToolGroupItem toolGroup => Math.Max(4, 2 + toolGroup.ToolCalls.Count),
             QuestionItem => 3,
+            ApprovalItem approval => approval.Request.IsPending ? 5 : 1,
             InputRequestItem input => input.Definition is StrataTheme.Controls.InteractiveForm form
                 ? Math.Max(4, form.Fields.Count) : 5,
             InteractionReceiptItem => 2,

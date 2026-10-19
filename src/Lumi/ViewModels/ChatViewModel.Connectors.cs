@@ -283,6 +283,8 @@ public partial class ChatViewModel
             LastContextWindowTierUsed = GetSelectedContextWindowTier(),
             ActiveMcpServerNames = ActiveMcpServerNames.Where(selected => !failing.Contains(selected)).ToList(),
             HasExplicitMcpServerSelection = true,
+            // The repair chat runs where this chat runs, so it acts with the same freedom.
+            ApprovalMode = CurrentChat?.ApprovalMode ?? _draftApprovalMode,
         };
 
         var summary = problem.ErrorMessage ?? "";

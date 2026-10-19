@@ -291,6 +291,7 @@ public partial class ProjectsViewModel : ObservableObject
             NewContextFolderPath = "";
             EditAutoSyncMainBranchDaily = false;
             EditDefaultNewChatsUseWorktree = false;
+            EditApprovalMode = null;
         }
         finally
         {
@@ -302,6 +303,7 @@ public partial class ProjectsViewModel : ObservableObject
         DetectedDefaultBranch = null;
         IsDetectingDefaultBranch = false;
         ProjectChats.Clear();
+        RefreshProjectApprovalRules(null);
         RefreshVisibleChats();
         _editorBaseline = CaptureEditor();
         IsPreviewingInstructions = false;
@@ -376,12 +378,14 @@ public partial class ProjectsViewModel : ObservableObject
             EditAdditionalContextDirectories = ProjectContextDirectoryHelper.FormatFolderList(project.AdditionalContextDirectories);
             EditAutoSyncMainBranchDaily = project.AutoSyncMainBranchDaily;
             EditDefaultNewChatsUseWorktree = project.DefaultNewChatsUseWorktree;
+            EditApprovalMode = project.ApprovalMode;
         }
         finally
         {
             _syncingEditor = false;
         }
 
+        RefreshProjectApprovalRules(project);
         RefreshCodingProjectState(project.WorkingDirectory);
         _editorBaseline = CaptureEditor();
         UpdateDirtyState();
@@ -396,7 +400,8 @@ public partial class ProjectsViewModel : ObservableObject
             EditWorkingDirectory,
             ProjectContextDirectoryHelper.FormatFolderList(ProjectContextDirectoryHelper.ParseFolderList(EditAdditionalContextDirectories)),
             EditAutoSyncMainBranchDaily,
-            EditDefaultNewChatsUseWorktree);
+            EditDefaultNewChatsUseWorktree,
+            EditApprovalMode?.ToString() ?? "");
 
     private void UpdateDirtyState()
     {
@@ -564,6 +569,7 @@ public partial class ProjectsViewModel : ObservableObject
             SelectedProject.AdditionalContextDirectories = additionalContextDirectories;
             SelectedProject.AutoSyncMainBranchDaily = EditAutoSyncMainBranchDaily;
             SelectedProject.DefaultNewChatsUseWorktree = EditDefaultNewChatsUseWorktree;
+            SelectedProject.ApprovalMode = EditApprovalMode;
             if (workingDirectoryChanged)
             {
                 SelectedProject.LastMainBranchSyncAttemptAt = null;
@@ -587,7 +593,8 @@ public partial class ProjectsViewModel : ObservableObject
                 WorkingDirectory = workDir,
                 AdditionalContextDirectories = additionalContextDirectories,
                 AutoSyncMainBranchDaily = EditAutoSyncMainBranchDaily,
-                DefaultNewChatsUseWorktree = EditDefaultNewChatsUseWorktree
+                DefaultNewChatsUseWorktree = EditDefaultNewChatsUseWorktree,
+                ApprovalMode = EditApprovalMode
             };
             _dataStore.Data.Projects.Add(project);
             savedProject = project;
@@ -606,6 +613,7 @@ public partial class ProjectsViewModel : ObservableObject
         UpdateDirtyState();
         FlashSaved();
         ProjectsChanged?.Invoke();
+        ApprovalPolicyChanged?.Invoke();
     }
 
     /// <summary>Fired when the project list changes (add/edit/delete).</summary>

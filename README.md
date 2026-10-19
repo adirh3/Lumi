@@ -1078,6 +1078,66 @@ messages) is logged and retained as redacted diagnostics rather than failing the
 MCP connection. Malformed JSON-RPC, process exits, and initialization timeouts still
 fail explicitly; startup failures include the recent captured output.
 
+## Tool approvals
+
+How much Lumi does on its own is one choice, enforced by GitHub Copilot's native permission
+controls (GitHub.Copilot.SDK **1.0.23-preview.5**, runtime **1.0.100-1**), never by asking the
+model to check first. Lumi only chooses them and installs them again on every session create and
+resume, because the runtime keeps neither rules nor session approvals across a resume.
+
+| Mode | Native control | What happens |
+|---|---|---|
+| **Full access** (default) | `allow-all` mode | How Lumi has always worked: commands, file edits, connectors and Lumi's abilities run without asking. Never and Always-ask rules still apply. |
+| **Auto-review** (Preview) | `assisted` mode | GitHub Copilot's reviewer checks each request against what you asked; Lumi runs what it approves (with a receipt) and asks you about the rest, showing the reviewer's reason. Each check is an AI request on your account. The runtime ships the reviewer as an experimental feature, so Lumi turns on its `AUTO_APPROVAL` flag (`COPILOT_CLI_ENABLED_FEATURE_FLAGS`, keeping any flags you set); it only unlocks this mode, so chats in other modes never call the reviewer. With **Use only your own accounts** on, or when the reviewer is unavailable, the chat asks like Ask first. |
+| **Ask first** | `manual` mode | Lumi asks before commands, file edits, connectors and its own abilities. Reading files in the chat's folder doesn't ask, as in Copilot's own apps. |
+
+**Where it's set:** the welcome tour explains the modes with a live demo and preselects Full
+access; **Settings → Permissions** sets the default; **Customize → Projects → Approvals** sets a
+project's mode and rules; the shield beside the model picker sets one chat's mode (**Follow
+default** returns it to its project or the default). A chat's own choice wins over its project's,
+which wins over the default. Existing chats, projects and jobs have no choice of their own, so they
+keep Full access until the user changes something.
+
+**Rules** (Settings → Permissions, everywhere or for one project): **Always allow** and **Never**
+become native session rules for a command prefix, file edits or reads (optionally a path), a
+connector or one of its tools, or a Lumi ability (browser, desktop apps, web pages, Lumi's settings
+and data, other chats). Never wins even in Full access. **Always ask** becomes the native
+managed-settings Ask layer, which requires a person even in Full access; it is fixed when a session
+starts, so changing one rebuilds that chat's session before its next turn.
+
+**Approval cards** appear in the chat that owns the request: the exact command, the file and its
+diff, the connector with its arguments, or the Lumi ability. **Allow**, **Allow for this chat**,
+**Always in _project_**, **Deny**, or Deny with a note that reaches Lumi as feedback. Remembering
+uses Copilot's native session approval and saves an Allow rule only after the runtime accepts the
+answer; every open chat takes it on at once. **Settings → Permissions → Remembered** lists and
+forgets them: each time Lumi applies a chat's policy it clears the session's own approvals and
+installs the saved rules again, so a forgotten approval stops applying even in an open chat.
+Always-ask, sandbox-escape
+and unrecognized requests offer only a one-time answer (unrecognized ones can only be denied). A bar
+above the composer and an amber shield on the chat row show what is waiting; answered cards fold
+into receipts. Stop, session release, disconnect and closing the chat retire waiting requests
+without answering them.
+
+**When nobody is there:** turns driven by jobs or other chats are unattended until they settle.
+**Wait for me** (default) pauses and notifies; **Skip that action** answers the runtime's native
+"user not available" and leaves a receipt. Turns sent from the composer or the phone app, and
+Regenerate or Edit, wait for you.
+
+**Boundaries:** approval decides *whether* an action runs, not what it can reach: this is not a
+sandbox. Once allowed, a command, browser or desktop action, or in-process Lumi tool runs with your
+account's access, and a connector acts on its own service. Existing foreground-consent and
+platform-capability checks are unchanged. Lumi tools that only look or talk to you (for example
+`ask_question`, `announce_file`, `lumi_browser_look`, `ui_inspect`) carry the native
+`skip_permission` flag and never ask, though a Never rule still blocks them; connector tools that
+declare themselves read-only don't ask in Ask first. Website and memory rules aren't offered,
+because the runtime's URL rules don't cover Lumi's own browser and fetch tools. Local or cloud
+sandboxing and the Interactive/Plan/Autopilot agent modes are separate runtime features these
+controls don't configure. Application helper sessions (titles, suggestions, memory and onboarding)
+keep their own restricted tools. GHCP and external-account routing are unchanged.
+
+In an isolated Debug profile, `StartDebugPermissionProbeCommand` (on a fresh chat) raises three
+real native requests — a command, a new file and a Lumi tool — without sending a model message.
+
 ## Tech Stack
 
 - **.NET 11** with C#

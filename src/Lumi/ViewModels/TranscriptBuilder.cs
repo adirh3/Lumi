@@ -2414,6 +2414,7 @@ public class TranscriptBuilder
                 && !ReferenceEquals(assistant, latestAssistant),
             SkillLoadedItem => foldsNarration,
             QuestionItem question => foldsNarration && (question.IsAnswered || question.IsExpired),
+            ApprovalItem approval => foldsNarration && approval.Request.IsDecided,
             SubagentGroupItem agents => foldsNarration && !agents.IsActive,
             TurnSummaryItem summary => summary.InnerItems.All(inner => IsSummaryEligibleBlock(inner, latestAssistant, settled)),
             _ => false,
@@ -2558,6 +2559,7 @@ public class TranscriptBuilder
         var hasReasoning = false;
         var hasNarration = false;
         var hasTodoProgress = false;
+        var approvalCount = 0;
         string? todoMeta = null;
         string? lastIntentLabel = null;
 
@@ -2620,6 +2622,11 @@ public class TranscriptBuilder
             {
                 hasNarration = true;
             }
+            else if (sourceBlock is ApprovalItem)
+            {
+                // A receipt answers for a tool row beside it; it is neither reasoning nor another action.
+                approvalCount++;
+            }
             else
             {
                 hasReasoning = true;
@@ -2649,6 +2656,8 @@ public class TranscriptBuilder
             label = Loc.TurnSummary_Reasoned;
         else if (hasNarration)
             label = Loc.TurnSummary_Worked;
+        else if (approvalCount > 0)
+            label = approvalCount == 1 ? Loc.Get("TurnSummary_OneApproval") : Loc.Get("TurnSummary_Approvals", approvalCount);
         else
             label = Loc.TurnSummary_ReasonedAndOneAction;
 
@@ -3123,6 +3132,17 @@ public class TranscriptBuilder
         CloseCurrentToolGroup();
         var card = new QuestionItem(questionId, question, optionsList, allowFreeText, _submitQuestionAnswerAction, allowMultiSelect);
         AppendToCurrentTurn(card, TurnStableIdFor($"question:{questionId}"));
+    }
+
+    /// <summary>Shows an approval card where the work is waiting, once per request.</summary>
+    public void AddApprovalToTranscript(PermissionRequestViewModel request)
+    {
+        if (_liveTarget?.SelectMany(turn => turn.Items).OfType<ApprovalItem>()
+                .Any(item => ReferenceEquals(item.Request, request)
+                             || (item.Request.RequestId == request.RequestId && item.Request.SessionId == request.SessionId)) == true)
+            return;
+        CloseCurrentToolGroup();
+        AppendToCurrentTurn(new ApprovalItem(request), TurnStableIdFor($"approval:{request.RequestId}"));
     }
 
     public void AddInputRequest(ChatMessage message)

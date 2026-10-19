@@ -1194,6 +1194,10 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        if (value is null)
+            _draftApprovalMode = null;
+        RefreshPermissionRequests(showInTranscript: false);
+        NotifyPermissionPropertiesChanged();
         OnPropertyChanged(nameof(IsAwaitingInput));
         _launchpadBaseline = null;
         ResetContextDetailsForChatChange(value);

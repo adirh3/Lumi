@@ -105,6 +105,8 @@ public static class ChatForkFactory
             ActiveExternalSkillNames = [..source.ActiveExternalSkillNames],
             ActiveMcpServerNames = [..source.ActiveMcpServerNames],
             HasExplicitMcpServerSelection = source.HasExplicitMcpServerSelection,
+            ApprovalMode = source.ApprovalMode,
+            ApprovalRules = AppDataSnapshotFactory.CloneApprovalRules(source.ApprovalRules),
             SdkAgentName = source.SdkAgentName,
             WorktreePath = source.WorktreePath,
             LastModelUsed = source.LastModelUsed,

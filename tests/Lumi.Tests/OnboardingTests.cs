@@ -66,6 +66,19 @@ public sealed class OnboardingTests
             Assert.Same(vm.Capabilities[3], vm.SelectedCapability);
             Assert.Single(vm.Capabilities, capability => capability.IsSelected);
 
+            // Lumi says what it does on its own; Full access, how it has always worked, is chosen.
+            await vm.ContinueCommand.ExecuteAsync(null);
+            Assert.Equal(OnboardingStep.Autonomy, vm.Step);
+            Assert.Equal(ApprovalMode.FullAccess, vm.Autonomy);
+            Assert.Equal(ApprovalMode.FullAccess, Assert.Single(vm.AutonomyCards, card => card.IsSelected).Mode);
+            Assert.True(vm.IsFullAccessDemo);
+            ApprovalMode? chosen = null;
+            vm.ApprovalModeChosen += mode => chosen = mode;
+            vm.AutonomyCards.Single(card => card.Mode == ApprovalMode.AskFirst).SelectCommand.Execute(null);
+            Assert.Equal(ApprovalMode.AskFirst, chosen);
+            Assert.True(vm.IsAskFirstDemo);
+            Assert.Equal(ApprovalMode.AskFirst, Assert.Single(vm.AutonomyCards, card => card.IsSelected).Mode);
+
             await vm.ContinueCommand.ExecuteAsync(null);
             await vm.ContinueCommand.ExecuteAsync(null);
             Assert.Equal(OnboardingStep.Workspace, vm.Step);
@@ -115,6 +128,7 @@ public sealed class OnboardingTests
             Assert.Equal(3, vm.Starters.Count);
             Assert.Equal(lumi.Id, vm.Starters[0].ProjectId);
             Assert.DoesNotContain(vm.Starters, starter => starter.Title == "Revive Old");
+            Assert.Contains(Loc.Get("ApprovalMode_AskFirst"), vm.ReadyApprovalText);
 
             vm.ReadyMemories[2].ForgetCommand.Execute(null);
             Assert.Equal(2, vm.ReadyMemories.Count);
@@ -127,6 +141,7 @@ public sealed class OnboardingTests
             Assert.True(data.Settings.IsOnboarded);
             Assert.Equal("Ada", data.Settings.UserName);
             Assert.Equal("female", data.Settings.UserSex);
+            Assert.Equal(ApprovalMode.AskFirst, data.Settings.DefaultApprovalMode);
         }, CancellationToken.None);
     }
 
@@ -144,7 +159,7 @@ public sealed class OnboardingTests
             vm.OnboardingCompleted += result => completion = result;
 
             vm.UserName = "Ada";
-            for (var step = 0; step < 3; step++)
+            for (var step = 0; step < 4; step++)
                 await vm.ContinueCommand.ExecuteAsync(null);
             Assert.Equal(OnboardingStep.Workspace, vm.Step);
             Assert.Equal(Loc.Onboarding_ConnectMissing, vm.ConnectStatus);
@@ -173,6 +188,8 @@ public sealed class OnboardingTests
             Assert.Null(data.Settings.UserSex);
             Assert.Empty(data.Projects);
             Assert.Empty(data.Memories);
+            // Passing the approval step without choosing keeps Full access.
+            Assert.Equal(ApprovalMode.FullAccess, data.Settings.DefaultApprovalMode);
         }, CancellationToken.None);
     }
 
@@ -360,6 +377,20 @@ public sealed class OnboardingTests
 
                 await vm.ContinueCommand.ExecuteAsync(null);
                 window.UpdateLayout();
+                var modes = view.FindControl<ItemsControl>("AutonomyChoices")!;
+                Assert.True(modes.IsEffectivelyVisible);
+                Assert.Equal(3, modes.ItemCount);
+                var demo = view.FindControl<Border>("AutonomyDemo")!;
+                Assert.True(demo.IsEffectivelyVisible);
+                StrataApprovalCard[] DemoCards() => demo.GetVisualDescendants().OfType<StrataApprovalCard>()
+                    .Where(control => control.IsEffectivelyVisible).ToArray();
+                Assert.Equal(StrataApprovalStatus.Approved, Assert.Single(DemoCards()).Status);
+                vm.AutonomyCards.Single(choice => choice.Mode == ApprovalMode.AskFirst).SelectCommand.Execute(null);
+                window.UpdateLayout();
+                Assert.Equal(StrataApprovalStatus.Pending, Assert.Single(DemoCards()).Status);
+
+                await vm.ContinueCommand.ExecuteAsync(null);
+                window.UpdateLayout();
                 Assert.Contains("ready", view.FindControl<Border>("ConnectStatus")!.Classes);
 
                 await vm.ContinueCommand.ExecuteAsync(null);
@@ -399,6 +430,7 @@ public sealed class OnboardingTests
                 Assert.Equal(string.Format(Loc.Onboarding_ReadyTitle, "Ada"), view.FindControl<TextBlock>("ReadyTitleText")!.Text);
                 Assert.True(view.FindControl<StackPanel>("ReadyStarters")!.IsEffectivelyVisible);
                 Assert.True(view.FindControl<StackPanel>("ReadyPlaces")!.IsEffectivelyVisible);
+                Assert.True(view.FindControl<Control>("ReadyApprovalLine")!.IsEffectivelyVisible);
             }
             finally
             {

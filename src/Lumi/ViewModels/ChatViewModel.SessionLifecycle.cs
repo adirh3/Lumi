@@ -1895,6 +1895,8 @@ public partial class ChatViewModel
 
                         ClearPendingTurnTracking(chat.Id);
                         DropCompletedTurnState(chat.Id, dropCancellation: true);
+                        // A job's turn is over; whatever starts next is someone's own.
+                        MarkTurnAttended(chat.Id);
                         assistantStream.CancelPending();
                         reasoningStream.CancelPending();
                         CompleteAndResetSubagentOutputState();
@@ -2021,6 +2023,7 @@ public partial class ChatViewModel
                             _pendingSessionInvalidations.Add(chat.Id);
 
                         MarkRuntimeTerminal(runtime, display);
+                        MarkTurnAttended(chat.Id);
                         PublishTerminalChatLifecycleEventOnce(
                             chat,
                             ChatLifecycleEventTypes.Error,
@@ -2696,8 +2699,16 @@ public partial class ChatViewModel
                     });
                     break;
 
+                case PermissionRequestedEvent permissionRequested:
+                    Dispatcher.UIThread.Post(() => PresentNativePermissionRequest(chat, session, permissionRequested.Data));
+                    break;
+
+                case PermissionCompletedEvent permissionCompleted:
+                    Dispatcher.UIThread.Post(() => OnNativePermissionCompleted(chat, session, permissionCompleted.Data));
+                    break;
+
                 case SessionModeChangedEvent:
-                    // Mode API removed — Lumi always uses the server default (interactive).
+                    // The agent's interaction mode is separate from the chat's approval mode.
                     break;
 
                 case SessionMcpServerStatusChangedEvent mcpStatusChanged:
@@ -2986,6 +2997,7 @@ public partial class ChatViewModel
 
     private void DetachSessionAfterRemoteShutdown(Chat chat, bool wasActive)
     {
+        CancelPermissionRequests(chat.Id);
         DisposeSessionSubscription(chat.Id);
         // The session already ended server-side (SessionShutdownEvent), so its host runtime and MCP
         // subprocesses are already reaped — dropping the handle here leaks nothing, and a destroy RPC
@@ -3048,6 +3060,9 @@ public partial class ChatViewModel
 
     private void ResetAfterCopilotReconnect()
     {
+        foreach (var chatId in _permissionRequests.Keys.Select(key => key.ChatId).Distinct().ToList())
+            CancelPermissionRequests(chatId);
+        _retiredPermissionRequests.Clear();
         // ChatSessionStore reset the shared catalog before surfaces receive this reconnect event.
         RefreshCapabilities();
 

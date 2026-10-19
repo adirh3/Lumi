@@ -1625,6 +1625,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "privacy" or "privacydata" or "data" => 6,
             "about" or "updates" or "update" => 7,
             "memories" or "memory" => SettingsViewModel.MemoriesPageIndex,
+            "permissions" or "approvals" => SettingsViewModel.PermissionsPageIndex,
             _ => throw new InvalidOperationException($"Unknown settings page '{page}'.")
         };
     }

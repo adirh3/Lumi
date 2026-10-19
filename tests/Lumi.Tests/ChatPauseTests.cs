@@ -98,7 +98,7 @@ public sealed class ChatPauseTests
     {
         var hooks = ChatViewModel.BuildSessionHooks();
         var before = hooks.OnPreToolUse!(new PreToolUseHookInput(), new HookInvocation());
-        Assert.Equal("allow", (await before)!.PermissionDecision);
+        Assert.Null((await before)!.PermissionDecision);
         Assert.Null(hooks.OnPostToolUse);
         Assert.Null(hooks.OnPostToolUseFailure);
     }

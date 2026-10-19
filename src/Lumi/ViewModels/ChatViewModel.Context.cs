@@ -106,6 +106,7 @@ public partial class ChatViewModel
             if (changed)
             {
                 InvalidateProjectSession();
+                _ = ApplyApprovalPolicyAsync(CurrentChat);
             }
         }
         else
@@ -114,6 +115,7 @@ public partial class ChatViewModel
             _pendingProjectId = projectId;
             ApplyDraftProjectWorkspaceDefault(projectId);
             OnPropertyChanged(nameof(CurrentChat));
+            NotifyPermissionPropertiesChanged();
         }
 
         SyncComposerProjectSelectionFromState();
@@ -139,6 +141,7 @@ public partial class ChatViewModel
                 return;
 
             _activeProjectFilterId = value;
+            NotifyPermissionPropertiesChanged();
             RefreshCapabilities();
             RefreshActiveSkillChipsFromState();
             QueueRefreshCodingProjectState();
@@ -165,6 +168,7 @@ public partial class ChatViewModel
             if (changed)
             {
                 InvalidateProjectSession();
+                _ = ApplyApprovalPolicyAsync(CurrentChat);
             }
         }
         else
@@ -172,6 +176,7 @@ public partial class ChatViewModel
             _pendingProjectId = null;
             ApplyDraftProjectWorkspaceDefault(null);
             OnPropertyChanged(nameof(CurrentChat));
+            NotifyPermissionPropertiesChanged();
         }
 
         SyncComposerProjectSelectionFromState();

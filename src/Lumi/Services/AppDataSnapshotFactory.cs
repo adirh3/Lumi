@@ -48,6 +48,9 @@ internal static class AppDataSnapshotFactory
                 ExpandReasoningWhileStreaming = settings.ExpandReasoningWhileStreaming,
                 AutoGenerateTitles = settings.AutoGenerateTitles,
                 SuggestFollowUps = settings.SuggestFollowUps,
+                DefaultApprovalMode = settings.DefaultApprovalMode,
+                ApprovalRules = CloneApprovalRules(settings.ApprovalRules),
+                AwayApprovalBehavior = settings.AwayApprovalBehavior,
                 PreferredModel = settings.PreferredModel,
                 BackgroundModel = settings.BackgroundModel,
                 FavoriteModelIds = settings.FavoriteModelIds is null ? [] : [.. settings.FavoriteModelIds],
@@ -150,6 +153,8 @@ internal static class AppDataSnapshotFactory
                      LastMainBranchSyncAt = p.LastMainBranchSyncAt,
                      LastMainBranchSyncError = p.LastMainBranchSyncError,
                      AdditionalContextDirectories = [..p.AdditionalContextDirectories],
+                     ApprovalMode = p.ApprovalMode,
+                     ApprovalRules = CloneApprovalRules(p.ApprovalRules),
                      CreatedAt = p.CreatedAt
                  })
                  .ToList(),
@@ -305,6 +310,17 @@ internal static class AppDataSnapshotFactory
         return currentSnapshot;
     }
 
+    internal static List<ApprovalRule> CloneApprovalRules(IEnumerable<ApprovalRule> rules) =>
+        rules.Select(static rule => new ApprovalRule
+        {
+            Id = rule.Id,
+            Action = rule.Action,
+            Kind = rule.Kind,
+            Target = rule.Target,
+            Remembered = rule.Remembered,
+            CreatedAt = rule.CreatedAt
+        }).ToList();
+
     private static RemotePairedDevice CloneRemotePairedDevice(RemotePairedDevice source) =>
         new()
         {
@@ -361,6 +377,8 @@ internal static class AppDataSnapshotFactory
             AgentId = source.AgentId,
             TagId = source.TagId,
             CopilotSessionId = source.CopilotSessionId,
+            ApprovalMode = source.ApprovalMode,
+            ApprovalRules = CloneApprovalRules(source.ApprovalRules),
             SessionProviderSignature = source.SessionProviderSignature,
             CreatedAt = source.CreatedAt,
             UpdatedAt = source.UpdatedAt,

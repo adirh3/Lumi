@@ -1906,7 +1906,25 @@ public class CopilotService : IAsyncDisposable
 
         ApplyAgentProcessEnvironment(env);
         ApplySkillListingBudget(env);
+        ApplyAutoReviewFeature(env);
         return env;
+    }
+
+    internal const string FeatureFlagsVariable = "COPILOT_CLI_ENABLED_FEATURE_FLAGS";
+
+    /// <summary>The runtime flag behind its native <c>assisted</c> mode, which Auto-review is.</summary>
+    internal const string AutoReviewFeatureFlag = "AUTO_APPROVAL";
+
+    /// <summary>
+    /// Turns on the runtime's reviewer, keeping any flags the user set (the runtime reads a comma
+    /// list). It only unlocks the <c>assisted</c> mode: chats in other modes never call the reviewer.
+    /// </summary>
+    internal static void ApplyAutoReviewFeature(IDictionary<string, string> environment)
+    {
+        var flags = environment.TryGetValue(FeatureFlagsVariable, out var configured) ? configured.Trim().TrimEnd(',') : "";
+        if (flags.Split(',', StringSplitOptions.TrimEntries).Contains(AutoReviewFeatureFlag, StringComparer.OrdinalIgnoreCase))
+            return;
+        environment[FeatureFlagsVariable] = flags.Length == 0 ? AutoReviewFeatureFlag : flags + "," + AutoReviewFeatureFlag;
     }
 
     /// <summary>

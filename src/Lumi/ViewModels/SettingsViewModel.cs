@@ -31,7 +31,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     // The Settings sidebar, top to bottom, as page indices: you, the app, then intelligence and
     // connections, then data and Lumi itself.
-    private static readonly int[] SidebarPageOrder = [0, MemoriesPageIndex, 1, 3, 4, AiModelsPageIndex, 2, 6, AboutPageIndex];
+    private static readonly int[] SidebarPageOrder = [0, MemoriesPageIndex, 1, 3, 4, PermissionsPageIndex, AiModelsPageIndex, 2, 6, AboutPageIndex];
 
     /// <summary>Row of a page in the Settings sidebar; -1 when it has none.</summary>
     public static int SidebarPositionForPage(int pageIndex) => Array.IndexOf(SidebarPageOrder, pageIndex);
@@ -77,9 +77,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             ShouldAutoNavigateToUpdateCenter = false;
         else if (value == AiModelsPageIndex)
             _ = RefreshAuthStatusAsync();
+        else if (value == PermissionsPageIndex)
+            RefreshApprovalRules();
     }
 
-    // Indexed by page, so Memories (MemoriesPageIndex) comes last although the sidebar lists it under Profile.
+    // Indexed by page, so Memories (MemoriesPageIndex) and Permissions (PermissionsPageIndex) come
+    // last although the sidebar lists them under Profile and after Chat.
     public ObservableCollection<string> Pages { get; } =
     [
         Loc.Settings_Profile,
@@ -90,7 +93,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         Loc.Settings_AIModels,
         Loc.Settings_PrivacyData,
         Loc.Settings_About,
-        Loc.Settings_Memories
+        Loc.Settings_Memories,
+        Loc.Get("Settings_Permissions")
     ];
 
     // ── General ──
@@ -621,6 +625,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _expandReasoningWhileStreaming = s.ExpandReasoningWhileStreaming;
         _autoGenerateTitles = s.AutoGenerateTitles;
         _suggestFollowUps = s.SuggestFollowUps;
+        InitializePermissions(s);
         InitializeAppearanceOptions();
 
         // AI
@@ -2077,6 +2082,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsExpandReasoningWhileStreamingModified => ExpandReasoningWhileStreaming != _defaults.ExpandReasoningWhileStreaming;
     public bool IsAutoGenerateTitlesModified => AutoGenerateTitles != _defaults.AutoGenerateTitles;
     public bool IsSuggestFollowUpsModified => SuggestFollowUps != _defaults.SuggestFollowUps;
+
     public bool IsDefaultModelSelectionModified => PreferredModel != _defaults.PreferredModel
         || ReasoningEffort != _defaults.ReasoningEffort
         || ContextWindowTier != _defaults.ContextWindowTier;
@@ -2116,6 +2122,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsExpandReasoningWhileStreamingModified));
         OnPropertyChanged(nameof(IsAutoGenerateTitlesModified));
         OnPropertyChanged(nameof(IsSuggestFollowUpsModified));
+        OnPropertyChanged(nameof(IsDefaultApprovalModeModified));
+        OnPropertyChanged(nameof(IsAwayApprovalBehaviorModified));
         OnPropertyChanged(nameof(IsAppearanceCustomized));
         OnPropertyChanged(nameof(IsDefaultModelSelectionModified));
         OnPropertyChanged(nameof(IsPreferredModelModified));
@@ -2171,6 +2179,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertExpandReasoningWhileStreaming() => ExpandReasoningWhileStreaming = _defaults.ExpandReasoningWhileStreaming;
     [RelayCommand] private void RevertAutoGenerateTitles() => AutoGenerateTitles = _defaults.AutoGenerateTitles;
     [RelayCommand] private void RevertSuggestFollowUps() => SuggestFollowUps = _defaults.SuggestFollowUps;
+
     [RelayCommand]
     private void RevertDefaultModelSelection()
     {
@@ -2312,6 +2321,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ExpandReasoningWhileStreaming = defaults.ExpandReasoningWhileStreaming;
         AutoGenerateTitles = defaults.AutoGenerateTitles;
         SuggestFollowUps = defaults.SuggestFollowUps;
+        ResetPermissions(defaults);
         PreferredModel = defaults.PreferredModel;
         BackgroundModel = defaults.BackgroundModel;
         ReasoningEffort = defaults.ReasoningEffort;

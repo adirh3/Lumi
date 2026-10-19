@@ -151,6 +151,7 @@ public sealed class LightweightSessionOptions
     {
         var config = new ResumeSessionConfig
         {
+            ContinuePendingWork = false,
             ClientName = ClientName,
             Model = model,
             Streaming = true,
@@ -217,6 +218,29 @@ public sealed class LightweightSessionOptions
         return config;
     }
 
+    /// <summary>
+    /// The host's answer to a native permission request. In Full access the runtime's allow-all mode
+    /// normally answers first, and this approves anything still routed here. Every other request waits
+    /// for Lumi: a person on an approval card, or, in Auto-review, the reviewer's recommendation.
+    /// </summary>
+    internal static Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>> BuildPermissionHandler(
+        Func<ApprovalMode> mode) => (request, _) =>
+        Task.FromResult(NeedsPerson(mode(), request) ? PermissionDecision.NoResult() : PermissionDecision.ApproveOnce());
+
+    /// <summary>
+    /// True when Lumi must not approve a request on its own: stricter modes, an Always-ask rule or
+    /// managed policy (which forbids host auto-approval), a request kind this SDK doesn't know, or a
+    /// request to leave the command sandbox.
+    /// </summary>
+    internal static bool NeedsPerson(ApprovalMode mode, PermissionRequest request)
+        => mode != ApprovalMode.FullAccess
+           || request.ManagedApprovalRequired == true
+           || request.GetType() == typeof(PermissionRequest)
+           || request is PermissionRequestShell { RequestSandboxBypass: true }
+           || request is PermissionRequestWrite { RequestSandboxBypass: true }
+           || request is PermissionRequestRead { RequestSandboxBypass: true }
+           || request is PermissionRequestUrl { RequestSandboxBypass: true };
+
     // Copilot can stop exposing deferred tools after an earlier lookup or a resume.
     // Preload Lumi-owned functions only; MCP tools keep their separate loading policy.
     private static List<AIFunctionDeclaration> PreloadLumiTools(List<AIFunction> tools)
@@ -224,11 +248,19 @@ public sealed class LightweightSessionOptions
 
     private sealed class PreloadedLumiTool(AIFunction innerFunction) : DelegatingAIFunction(innerFunction)
     {
-        public override IReadOnlyDictionary<string, object?> AdditionalProperties { get; } =
-            new Dictionary<string, object?>(innerFunction.AdditionalProperties, StringComparer.Ordinal)
+        public override IReadOnlyDictionary<string, object?> AdditionalProperties { get; } = Describe(innerFunction);
+
+        private static Dictionary<string, object?> Describe(AIFunction function)
+        {
+            var properties = new Dictionary<string, object?>(function.AdditionalProperties, StringComparer.Ordinal)
             {
                 ["defer"] = CopilotToolDefer.Never
             };
+            // Tools that only read or talk to the user run without approval in every mode.
+            if (Permissions.ApprovalPolicy.SkipsApproval(function.Name))
+                properties["skip_permission"] = true;
+            return properties;
+        }
     }
 
     private static string GetDefaultConfigDir()

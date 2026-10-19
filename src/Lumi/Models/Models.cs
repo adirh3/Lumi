@@ -686,6 +686,59 @@ public class ChatTag : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
+/// <summary>How much a chat may do on its own. Each value is a native Copilot permission mode.</summary>
+public enum ApprovalMode
+{
+    /// <summary>Native allow-all: acts without asking. Lumi's default and its behavior before approvals existed.</summary>
+    FullAccess = 0,
+    /// <summary>Native manual mode: asks before commands, edits, connectors and Lumi's actions.</summary>
+    AskFirst = 1,
+    /// <summary>Native assisted mode: Copilot's reviewer approves routine requests; the rest ask.</summary>
+    AutoReview = 2
+}
+
+public enum ApprovalRuleAction
+{
+    Allow = 0,
+    Ask = 1,
+    Never = 2
+}
+
+/// <summary>What a rule covers. Each kind maps onto a native Copilot permission rule family.</summary>
+public enum ApprovalRuleKind
+{
+    Command = 0,
+    EditFiles = 1,
+    ReadFiles = 2,
+    Connector = 3,
+    LumiTool = 4
+}
+
+/// <summary>What a stricter chat does with an approval Lumi needs while nobody is there to give it.</summary>
+public enum AwayApprovalBehavior
+{
+    Wait = 0,
+    Skip = 1
+}
+
+public sealed class ApprovalRule
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public ApprovalRuleAction Action { get; set; }
+    public ApprovalRuleKind Kind { get; set; }
+
+    /// <summary>
+    /// The command a request starts with, a file path, a connector ("server" or "server/tool"), or a
+    /// Lumi tool or tool group. Empty covers every request of the kind.
+    /// </summary>
+    public string? Target { get; set; }
+
+    /// <summary>True when an approval card remembered it, rather than the user adding it as a rule.</summary>
+    public bool Remembered { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+}
+
 public class Chat : INotifyPropertyChanged
 {
     private string _title = "New Chat";
@@ -694,6 +747,7 @@ public class Chat : INotifyPropertyChanged
     private bool _isRunning;
     private bool _isSessionActive;
     private bool _isAwaitingInput;
+    private bool _isAwaitingApproval;
     private bool _isPaused;
     private bool _isPausePending;
     private bool _hasUnreadMessages;
@@ -703,6 +757,7 @@ public class Chat : INotifyPropertyChanged
     private string? _projectBadgeColor;
     private List<string> _activeExternalSkillNames = [];
     private List<string> _followUpSuggestions = [];
+    private List<ApprovalRule> _approvalRules = [];
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Title
@@ -756,6 +811,12 @@ public class Chat : INotifyPropertyChanged
     }
 
     public string? CopilotSessionId { get; set; }
+
+    /// <summary>The chat's own approval mode; null follows its project, then the user's default.</summary>
+    public ApprovalMode? ApprovalMode { get; set; }
+
+    /// <summary>Approvals remembered for this chat only.</summary>
+    public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
     public bool PauseNeedsContinuation { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
@@ -949,6 +1010,19 @@ public class Chat : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Runtime-only: an action waits for the user's approval.</summary>
+    [JsonIgnore]
+    public bool IsAwaitingApproval
+    {
+        get => _isAwaitingApproval;
+        set
+        {
+            if (_isAwaitingApproval == value) return;
+            _isAwaitingApproval = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsAwaitingApproval)));
+        }
+    }
+
     /// <summary>Runtime-only flag for an unseen reply or a chat manually marked as unread.</summary>
     [JsonIgnore]
     public bool HasUnreadMessages
@@ -989,6 +1063,7 @@ public class Project : INotifyPropertyChanged
     private bool _isRunning;
     private int _chatCount;
     private List<string> _additionalContextDirectories = [];
+    private List<ApprovalRule> _approvalRules = [];
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
@@ -1005,6 +1080,12 @@ public class Project : INotifyPropertyChanged
         set => _additionalContextDirectories = value ?? [];
     }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>The approval mode for the project's chats; null follows the user's default.</summary>
+    public ApprovalMode? ApprovalMode { get; set; }
+
+    /// <summary>Approval rules for the project's chats, added here or remembered from approval cards.</summary>
+    public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
 
     /// <summary>Runtime-only flag indicating at least one chat in this project is actively generating a response.</summary>
     [JsonIgnore]
@@ -1428,6 +1509,8 @@ public static class MemoryStatuses
 
 public class UserSettings
 {
+    private List<ApprovalRule> _approvalRules = [];
+
     // ── General ──
     public string? UserName { get; set; }
     public string? UserSex { get; set; } // "male", "female", or null (prefer not to say)
@@ -1499,6 +1582,18 @@ public class UserSettings
 
     /// <summary>Suggest follow-up prompts after Lumi replies. Each suggestion uses the background model.</summary>
     public bool SuggestFollowUps { get; set; } = true;
+
+    // ── Permissions ──
+    /// <summary>
+    /// How much chats may do without asking. Full access was Lumi's only behavior before approvals
+    /// existed, so it stays the default for new and existing users alike.
+    /// </summary>
+    public ApprovalMode DefaultApprovalMode { get; set; } = ApprovalMode.FullAccess;
+
+    /// <summary>Approval rules for every chat.</summary>
+    public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
+
+    public AwayApprovalBehavior AwayApprovalBehavior { get; set; } = AwayApprovalBehavior.Wait;
 
     /// <summary>
     /// User preference for the companion Workspace panel. null = automatic (shows only on wide

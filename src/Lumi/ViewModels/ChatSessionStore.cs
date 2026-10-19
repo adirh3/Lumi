@@ -118,6 +118,9 @@ public sealed class ChatSessionStore : IDisposable
     /// </summary>
     public event Action? SurfaceFeatureManagementStateChanged;
 
+    /// <summary>Raised when an approval card in any surface remembered an approval for a chat or project.</summary>
+    public event Action? SurfaceApprovalsRemembered;
+
     /// <summary>
     /// The chat-orchestration backend shared with every surface this store creates, so any chat
     /// (foreground, background, or detached) can drive the <c>manage_chats</c> tool. Created and
@@ -383,6 +386,7 @@ public sealed class ChatSessionStore : IDisposable
         surface.PropertyChanged += OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged += OnSurfaceFeatureManagementStateChanged;
         surface.FeatureCatalogChanged += OnSurfaceFeatureCatalogChanged;
+        surface.ApprovalsRemembered += OnSurfaceApprovalsRemembered;
         surface.McpProxyReleaseStarted += OnMcpProxyReleaseStarted;
         if (surface.CurrentChat is { } chat)
             RegisterChatOwner(surface, chat.Id);
@@ -396,6 +400,7 @@ public sealed class ChatSessionStore : IDisposable
         surface.PropertyChanged -= OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged -= OnSurfaceFeatureManagementStateChanged;
         surface.FeatureCatalogChanged -= OnSurfaceFeatureCatalogChanged;
+        surface.ApprovalsRemembered -= OnSurfaceApprovalsRemembered;
         _registry.Detach(surface);
         _hostCounts.Remove(surface);
         RemoveFromIdleCache(surface);
@@ -460,6 +465,8 @@ public sealed class ChatSessionStore : IDisposable
            && !_surfaces.Any(surface => surface.CurrentChat?.Id == chat.Id || surface.OwnsLiveChat(chat.Id));
 
     private void OnSurfaceFeatureManagementStateChanged() => SurfaceFeatureManagementStateChanged?.Invoke();
+
+    private void OnSurfaceApprovalsRemembered() => SurfaceApprovalsRemembered?.Invoke();
 
     private void OnMcpProxyReleaseStarted(Guid chatId, Task releaseTask)
     {

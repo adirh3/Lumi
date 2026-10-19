@@ -1804,6 +1804,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnIsBusyChanged(bool value)
     {
+        NotifyPermissionPropertiesChanged();
         OnPropertyChanged(nameof(CanSubmitInteractions));
         OnPropertyChanged(nameof(CanPauseChat));
         OnPropertyChanged(nameof(IsComposerBusy));
@@ -1826,6 +1827,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnIsSessionActiveChanged(bool value)
     {
+        NotifyPermissionPropertiesChanged();
         OnPropertyChanged(nameof(CanPauseChat));
         if (CurrentChat is { } chat && _runtimeStates.TryGetValue(chat.Id, out var runtime))
             RefreshChatPauseState(runtime);
@@ -1890,6 +1892,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Re-show it if this chat is still busy (e.g. switching to a streaming chat).
         if (IsBusy && !IsPaused)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
+
+        // Approval cards are live runtime requests, not saved messages: put the chat's back.
+        RestoreApprovalCardsToTranscript();
 
         // Re-arm the background-shell monitor when switching to a chat that left an async shell
         // running; it rediscovers the shell (by command) and re-marks the freshly-rebuilt card.
@@ -2530,20 +2535,31 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var byokModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
             modelRoute.ByokModel,
             contextTier);
+        var permissionHandler = BuildApprovalHandler(chat);
+        var askLayer = BuildApprovalAskLayer(chat, mcpPlan);
 
-        SessionConfig buildSessionConfig() =>
-            SessionConfigBuilder.Build(
+        SessionConfig buildSessionConfig()
+        {
+            var config = SessionConfigBuilder.Build(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
-                effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
+                effort, userInputHandler, permissionHandler, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
+            config.ManagedSettings = askLayer;
+            return config;
+        }
 
-        ResumeSessionConfig buildResumeConfig() =>
-            SessionConfigBuilder.BuildForResume(
+        ResumeSessionConfig buildResumeConfig()
+        {
+            // The Ask layer is startup-only: a resume must supply it again or it is dropped.
+            var config = SessionConfigBuilder.BuildForResume(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
-                effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
+                effort, userInputHandler, permissionHandler, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
+            config.ManagedSettings = askLayer;
+            return config;
+        }
 
         if (chat.CopilotSessionId is not null)
             await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);
@@ -2557,6 +2573,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 var createConfig = buildSessionConfig();
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
+                await PrepareSessionPermissionsAsync(createdSession, chat, askLayer, sessionCt);
                 if (!TryPublishSession(
                         createdSession,
                         chat,
@@ -2571,6 +2588,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         }))
                     return false;
 
+                await RestorePendingPermissionsAsync(createdSession, chat, sessionCt);
                 // Check MCP server status after session creation and surface errors. Sessions with
                 // remote servers wait for them so the first prompt carries their tools.
                 if (mcpPlan.Servers is { Count: > 0 })
@@ -2600,6 +2618,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var resumeConfig = buildResumeConfig();
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
+                await PrepareSessionPermissionsAsync(session, chat, askLayer, sessionCt);
                 if (!TryPublishSession(
                         session,
                         chat,
@@ -2613,6 +2632,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         }))
                     return false;
 
+                await RestorePendingPermissionsAsync(session, chat, sessionCt);
                 // The SDK does not automatically change the session model on resume —
                 // ResumeSessionConfig.Model only sets a preference for the CLI process,
                 // but the session's internal model stays at whatever it was created with.
@@ -2687,6 +2707,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
             var createConfig = buildSessionConfig();
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
+            await PrepareSessionPermissionsAsync(createdSession, chat, askLayer, sessionCt);
             if (!TryPublishSession(
                     createdSession,
                     chat,
@@ -2695,6 +2716,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     pendingMcpProxyPlan,
                     beforeAttach: () => chat.CopilotSessionId = createdSession.SessionId))
                 return false;
+            await RestorePendingPermissionsAsync(createdSession, chat, sessionCt);
             if (mcpPlan.Servers is { Count: > 0 })
                 await BeginMcpServerStatusCheckAsync(
                     createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, holdForConnectorSignIn, ct);
@@ -3225,6 +3247,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // session with the new project context; an idle session is released immediately for that
         // same-ID resume. No-session chats simply build from the new project on first send.
         InvalidateProjectSession();
+        // The project's approval mode and rules apply at once, as a mode chosen in the picker does.
+        _ = ApplyApprovalPolicyAsync(CurrentChat);
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
@@ -3342,6 +3366,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
            || IsAssistantBusy(chatId)
            || (_runtimeStates.TryGetValue(chatId, out var runtime) && runtime.IsStopping)
            || HasPendingQuestion(chatId)
+           || HasPendingPermissionRequest(chatId)
            || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0);
 
     internal sealed class ExternalSendReservation : IDisposable
@@ -3664,6 +3689,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             throw new InvalidOperationException("The chat project changed while its turn was starting.");
 
         validateBeforeSend?.Invoke();
+        // Jobs and other chats drive this turn; a message from the phone is still the user.
+        if (remoteDeviceId is null)
+            MarkTurnUnattended(targetChat.Id);
+        else
+            MarkTurnAttended(targetChat.Id);
         var userMsg = new ChatMessage
         {
             Role = "user",
@@ -4760,6 +4790,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // was only auto-populated must keep receiving newly discovered servers, while one
                 // the user actually edited must not have their removals added back.
                 HasExplicitMcpServerSelection = _draftMcpSelectionCurated,
+                // Only a mode picked on this draft becomes the chat's own; otherwise it follows its project.
+                ApprovalMode = _draftApprovalMode,
                 SdkAgentName = SelectedSdkAgentName,
                 LastModelUsed = SelectedModel,
                 LastReasoningEffortUsed = selectedReasoningEffort,
@@ -4786,6 +4818,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         // Capture before any async operations — CurrentChat may change if the user switches chats
         var targetChat = CurrentChat!;
+        MarkTurnAttended(targetChat.Id);
         ClearPersistedSuggestions(targetChat);
         targetChat.LastModelUsed = SelectedModel;
         ApplyResolvedModelSelectionToChat(targetChat, selectedReasoningEffort, selectedContextTier);
@@ -6053,7 +6086,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 // The store must reevaluate ownership after the stop guard, not only after SDK idle.
                 if (!_isDisposed)
+                {
                     OnPropertyChanged(nameof(IsSessionActive));
+                    NotifyPermissionPropertiesChanged();
+                }
             }),
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
@@ -6089,6 +6125,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // question remains in _pendingQuestions, HasPendingQuestion keeps the chat "active" forever,
         // and "Send now" plus every later message stays queued until the app restarts.
         var canceledQuestions = CancelPendingQuestions(chat);
+        CancelPermissionRequests(chatId);
 
         // A plain Stop fails pending steers before any abort event can resolve them as delivered.
         // Send now reclaims its selected message into Lumi's queue before entering this path.
@@ -6859,6 +6896,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var idx = CurrentChat.Messages.IndexOf(userMessage);
         if (idx < 0) return;
+        // Regenerate and Edit come from the person in the chat, even after a job's turn.
+        MarkTurnAttended(CurrentChat.Id);
 
         var prompt = userMessage.Content;
         // The resent turn keeps its reply: the model gets the same quoted framing as the original send.

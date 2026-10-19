@@ -190,6 +190,9 @@ public partial class ChatViewModel
         }
 
         _runtimeStates.Clear();
+        foreach (var chatId in _permissionRequests.Keys.Select(key => key.ChatId).Distinct().ToList())
+            CancelPermissionRequests(chatId);
+        _retiredPermissionRequests.Clear();
         ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
         _inProgressMessages.Clear();
@@ -238,7 +241,8 @@ public partial class ChatViewModel
     private bool IsChatRuntimeActive(Guid chatId)
         => (_runtimeStates.TryGetValue(chatId, out var runtime)
             && runtime.HasActiveWork)
-           || HasPendingQuestion(chatId);
+           || HasPendingQuestion(chatId)
+           || HasPendingPermissionRequest(chatId);
 
     internal bool OwnsLiveChat(Guid chatId)
     {
@@ -858,6 +862,8 @@ public partial class ChatViewModel
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)
     {
+        CancelPermissionRequests(chatId);
+        _retiredPermissionRequests.RemoveWhere(key => key.ChatId == chatId);
         if (_runtimeStates.TryGetValue(chatId, out var runtime))
             runtime.PauseGate.CancelWaiters();
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released

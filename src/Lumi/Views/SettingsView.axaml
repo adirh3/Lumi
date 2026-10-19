@@ -1092,6 +1092,273 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    <!-- ═══ Page 9: Permissions ═══ -->
+    <!-- How much Lumi does on its own. Every choice here is a native GitHub Copilot permission
+         control; Lumi chooses and re-applies them, Copilot enforces them. -->
+    <StackPanel x:Name="PagePermissions" Classes="st-page motion-surface" IsVisible="False">
+      <StackPanel.Styles>
+        <Style Selector="Border.approval-rule">
+          <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+          <Setter Property="BorderThickness" Value="1" />
+          <Setter Property="CornerRadius" Value="12" />
+          <Setter Property="Padding" Value="12,9,6,9" />
+        </Style>
+        <Style Selector="TextBlock.approval-boundary">
+          <Setter Property="FontSize" Value="12.5" />
+          <Setter Property="TextWrapping" Value="Wrap" />
+          <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+        </Style>
+      </StackPanel.Styles>
+
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.Permissions}" Foreground="{DynamicResource St.Hue.Permissions}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_Permissions}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_PermissionsDesc}" />
+        </StackPanel>
+      </Grid>
+
+      <!-- How Lumi acts -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_ModeGroup}" Description="{loc:Str Permissions_ModeGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Permissions}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_DefaultMode}"
+                          Description="{loc:Str Permissions_DefaultModeDesc}"
+                          st:SettingsChrome.SearchText="{loc:Str Permissions_ModeKeywords}"
+                          IsModified="{Binding IsDefaultApprovalModeModified}">
+          <ItemsControl x:Name="DefaultApprovalModeChoices" ItemsSource="{Binding DefaultModeCards}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <ctrl:AdaptiveGridPanel MinItemWidth="170" MaxColumns="3" ColumnSpacing="10" RowSpacing="10" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ApprovalModeCard">
+                <Button Classes="st-option" Classes.selected="{Binding IsSelected}"
+                        Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Option.Title}">
+                  <Border Classes="st-option-frame">
+                    <Panel>
+                      <StackPanel Spacing="6" Margin="0,0,20,0">
+                        <sc:StrataLineIcon Width="18" Height="18" StrokeThickness="1.8" HorizontalAlignment="Left"
+                                           Data="{Binding Mode, Converter={x:Static conv:ApprovalModeIconConverter.Instance}}"
+                                           Foreground="{DynamicResource St.Hue.Permissions}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <TextBlock Classes="st-option-title" Text="{Binding Option.Title}" />
+                          <Border Classes="mg-chip" Padding="6,1,7,2" IsVisible="{Binding Option.HasBadge}">
+                            <TextBlock Text="{Binding Option.Badge}" FontSize="10.5" />
+                          </Border>
+                        </StackPanel>
+                        <TextBlock Classes="st-option-text" Text="{Binding Option.Detail}" />
+                      </StackPanel>
+                      <Border Classes="st-check-badge" Margin="0">
+                        <PathIcon Data="{StaticResource St.Icon.Check}" />
+                      </Border>
+                    </Panel>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </sc:StrataSetting>
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_ModeWhere}"
+                          Description="{loc:Str Permissions_ModeWhereDesc}">
+          <TextBlock Classes="st-note" Margin="0" Text="{loc:Str Permissions_AutoReviewNote}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- Rules: your standing answers -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_RulesGroup}" Description="{loc:Str Permissions_RulesGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Rules}"
+                             st:SettingsChrome.SearchText="{loc:Str Permissions_RulesKeywords}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_YourRules}"
+                          Description="{loc:Str Permissions_YourRulesDesc}">
+          <StackPanel Spacing="8">
+            <Border Classes="mg-empty-note" IsVisible="{Binding !HasApprovalRules}">
+              <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_NoRules}" />
+            </Border>
+            <ItemsControl x:Name="ApprovalRulesList" ItemsSource="{Binding ApprovalRuleRows}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ApprovalRuleRowViewModel">
+                  <Border Classes="approval-rule">
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
+                      <Border Classes="approval-action" Classes.ask="{Binding IsAsk}" Classes.never="{Binding IsNever}">
+                        <TextBlock Text="{Binding ActionLabel}" />
+                      </Border>
+                      <sc:StrataLineIcon Grid.Column="1" Width="15" Height="15" StrokeThickness="1.7" VerticalAlignment="Center"
+                                         Data="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                                         Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <TextBlock Grid.Column="2" Text="{Binding Description}" FontSize="13" VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.TextPrimary}" />
+                      <TextBlock Grid.Column="3" Text="{Binding ScopeLabel}" FontSize="12" VerticalAlignment="Center"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <Button Grid.Column="4" Classes="mg-icon-button subtle"
+                              Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveApprovalRuleCommand}"
+                              CommandParameter="{Binding}"
+                              AutomationProperties.Name="{loc:Str Permissions_RemoveRule}"
+                              ToolTip.Tip="{loc:Str Permissions_RemoveRule}" ToolTip.Placement="Left">
+                        <sc:StrataLineIcon Width="13" Height="13" StrokeThickness="1.8" Data="{x:Static sc:StrataIcons.Cross}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}" />
+                      </Button>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Button x:Name="AddApprovalRuleButton" Classes="mg-button" HorizontalAlignment="Left"
+                    Command="{Binding StartAddApprovalRuleCommand}" IsVisible="{Binding !IsAddingApprovalRule}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <sc:StrataLineIcon Width="13" Height="13" StrokeThickness="1.9" Data="{x:Static sc:StrataIcons.Plus}"
+                                   VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                <TextBlock Text="{loc:Str Permissions_AddRule}" />
+              </StackPanel>
+            </Button>
+
+            <!-- The builder: what, which, then allow / ask / never, with the sentence it makes. -->
+            <Border x:Name="ApprovalRuleBuilder" Classes="mg-inset" IsVisible="{Binding IsAddingApprovalRule}">
+              <StackPanel Spacing="12">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="10">
+                  <TextBlock Text="{loc:Str Permissions_WhenLumiWants}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <ComboBox x:Name="NewRuleKindPicker" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding RuleKindOptions}" SelectedItem="{Binding NewRuleKind}" />
+                  <TextBlock Grid.Row="1" Text="{Binding NewRuleTargetLabel}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" IsVisible="{Binding NewRuleUsesText}" />
+                  <TextBox x:Name="NewRuleTargetBox" Grid.Row="1" Grid.Column="1" Classes="mg-field mono"
+                           Text="{Binding NewRuleTarget}" PlaceholderText="{Binding NewRuleTargetPlaceholder}"
+                           IsVisible="{Binding NewRuleUsesText}" />
+                  <TextBlock Grid.Row="1" Text="{loc:Str Permissions_TargetAbility}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" IsVisible="{Binding NewRuleUsesGroup}" />
+                  <ComboBox x:Name="NewRuleGroupPicker" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding LumiToolGroupOptions}" SelectedItem="{Binding NewRuleGroup}"
+                            IsVisible="{Binding NewRuleUsesGroup}" />
+                  <TextBlock Grid.Row="1" Text="{loc:Str Permissions_TargetConnector}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" IsVisible="{Binding NewRuleUsesConnector}" />
+                  <ComboBox x:Name="NewRuleConnectorPicker" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding RuleConnectorOptions}" SelectedItem="{Binding NewRuleConnector}"
+                            PlaceholderText="{loc:Str Permissions_NoConnectors}"
+                            IsVisible="{Binding NewRuleUsesConnector}" />
+                  <TextBlock Grid.Row="2" Text="{loc:Str Permissions_Where}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <ComboBox x:Name="NewRuleScopePicker" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding RuleScopeOptions}" SelectedItem="{Binding NewRuleScope}" />
+                </Grid>
+                <Border Classes="mg-segmented" HorizontalAlignment="Left">
+                  <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button x:Name="NewRuleAllowButton" Classes="mg-segment" Classes.selected="{Binding IsNewRuleAllow}"
+                            Command="{Binding SelectNewRuleActionCommand}" CommandParameter="allow">
+                      <TextBlock Text="{loc:Str Permissions_ActionAllow}" />
+                    </Button>
+                    <Button x:Name="NewRuleAskButton" Classes="mg-segment" Classes.selected="{Binding IsNewRuleAsk}"
+                            Command="{Binding SelectNewRuleActionCommand}" CommandParameter="ask">
+                      <TextBlock Text="{loc:Str Permissions_ActionAsk}" />
+                    </Button>
+                    <Button x:Name="NewRuleNeverButton" Classes="mg-segment" Classes.selected="{Binding IsNewRuleNever}"
+                            Command="{Binding SelectNewRuleActionCommand}" CommandParameter="never">
+                      <TextBlock Text="{loc:Str Permissions_ActionNever}" />
+                    </Button>
+                  </StackPanel>
+                </Border>
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                  <TextBlock Text="{Binding NewRulePreview}" FontSize="12.5" TextWrapping="Wrap" VerticalAlignment="Center"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <Button Grid.Column="1" Classes="mg-button" Command="{Binding CancelAddApprovalRuleCommand}">
+                    <TextBlock Text="{loc:Str Approval_Cancel}" />
+                  </Button>
+                  <Button x:Name="ConfirmAddApprovalRuleButton" Grid.Column="2" Classes="mg-button accent"
+                          Command="{Binding AddApprovalRuleCommand}">
+                    <TextBlock Text="{loc:Str Permissions_AddRuleConfirm}" />
+                  </Button>
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- Remembered from approval cards -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_RememberedGroup}" Description="{loc:Str Permissions_RememberedGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Remembered}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_Remembered}"
+                          Description="{loc:Str Permissions_RememberedDesc}">
+          <StackPanel Spacing="6">
+            <Border Classes="mg-empty-note" IsVisible="{Binding !HasRememberedApprovals}">
+              <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_NoRemembered}" />
+            </Border>
+            <ItemsControl x:Name="RememberedApprovalsList" ItemsSource="{Binding RememberedApprovalRows}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ApprovalRuleRowViewModel">
+                  <Border Classes="approval-rule">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                      <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.7" VerticalAlignment="Center"
+                                         Data="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                                         Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <TextBlock Grid.Column="1" Text="{Binding Description}" FontSize="13" VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.TextPrimary}" />
+                      <TextBlock Grid.Column="2" Text="{Binding ScopeLabel}" FontSize="12" VerticalAlignment="Center"
+                                 MaxWidth="220" TextTrimming="CharacterEllipsis"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <Button Grid.Column="3" Classes="mg-text-button"
+                              Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveApprovalRuleCommand}"
+                              CommandParameter="{Binding}">
+                        <TextBlock Text="{loc:Str Permissions_Forget}" />
+                      </Button>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- When nobody is there to answer -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_AwayGroup}" Description="{loc:Str Permissions_AwayGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Away}">
+        <sc:StrataSetting Header="{loc:Str Permissions_OnItsOwn}" Description="{loc:Str Permissions_OnItsOwnDesc}"
+                          IsModified="{Binding IsAwayApprovalBehaviorModified}">
+          <Border Classes="mg-segmented">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button x:Name="AwayWaitButton" Classes="mg-segment" Classes.selected="{Binding IsWaitWhenAway}"
+                      Command="{Binding SelectAwayBehaviorCommand}" CommandParameter="wait">
+                <TextBlock Text="{loc:Str Permissions_AwayWait}" />
+              </Button>
+              <Button x:Name="AwaySkipButton" Classes="mg-segment" Classes.selected="{Binding IsSkipWhenAway}"
+                      Command="{Binding SelectAwayBehaviorCommand}" CommandParameter="skip">
+                <TextBlock Text="{loc:Str Permissions_AwaySkip}" />
+              </Button>
+            </StackPanel>
+          </Border>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- Honest boundaries -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_CoverGroup}" Description="{loc:Str Permissions_CoverGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.About}"
+                             st:SettingsChrome.SearchText="{loc:Str Permissions_CoverKeywords}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_CoverEnforced}">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverEnforcedBody}" />
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverNeverAsks}" />
+          </StackPanel>
+        </sc:StrataSetting>
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_CoverNot}">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverNotSandbox}" />
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverNotConnectors}" />
+          </StackPanel>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+    </StackPanel>
+
     <!-- ═══ Page 5: AI & Models ═══ -->
     <StackPanel x:Name="PageAI" Classes="st-page motion-surface" IsVisible="False">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">

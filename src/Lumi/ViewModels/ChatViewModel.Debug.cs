@@ -13,6 +13,114 @@ namespace Lumi.ViewModels;
 
 public partial class ChatViewModel
 {
+    private Task? _debugPermissionProbeTask;
+
+    /// <summary>
+    /// Raises real native approval requests (a command, a new file and a Lumi tool) in a fresh chat of
+    /// an isolated Debug profile, without a model message, so the approval cards can be inspected.
+    /// </summary>
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void StartDebugPermissionProbe()
+    {
+        var profile = Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR");
+        if (string.IsNullOrWhiteSpace(profile))
+            throw new InvalidOperationException("Permission probes require an isolated LUMI_APPDATA_DIR.");
+        if (CurrentChat is not { } chat || chat.Messages.Count != 0 || chat.CopilotSessionId is not null
+            || _debugPermissionProbeTask is { IsCompleted: false })
+            throw new InvalidOperationException("Create a fresh, empty isolated Debug chat for this probe.");
+        var root = System.IO.Path.GetFullPath(profile);
+        // A project made through the debug bridge shows in Customize; the probe only writes inside the profile.
+        var project = chat.ProjectId is { } projectId
+            ? _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == projectId)
+            : null;
+        if (project?.WorkingDirectory is not { Length: > 0 } projectFolder
+            || !System.IO.Path.GetFullPath(projectFolder).StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            var probeFolder = System.IO.Path.Combine(root, "approval-probe");
+            project = _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Name == "Approval probe");
+            if (project is null)
+            {
+                project = new Project { Name = "Approval probe", WorkingDirectory = probeFolder };
+                _dataStore.Data.Projects.Add(project);
+            }
+            projectFolder = project.WorkingDirectory ?? probeFolder;
+        }
+        var folder = System.IO.Path.GetFullPath(projectFolder);
+        System.IO.Directory.CreateDirectory(folder);
+        chat.ProjectId = project.Id;
+        chat.ApprovalMode = ApprovalMode.AskFirst;
+        chat.HasExplicitMcpServerSelection = true;
+        chat.ActiveMcpServerNames.Clear();
+        NotifyPermissionPropertiesChanged();
+        _debugPermissionProbeTask = RunDebugPermissionProbeAsync(chat, folder);
+    }
+
+    private async Task RunDebugPermissionProbeAsync(Chat chat, string folder)
+    {
+        var cancellation = new CancellationTokenSource();
+        var ct = cancellation.Token;
+        _ctsSources[chat.Id] = cancellation;
+        ClearManualStopRequested(chat.Id);
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        MarkRuntimeActive(runtime, "Preparing native approval probe");
+        if (CurrentChat?.Id == chat.Id)
+            ApplyDisplayedRuntimeState(runtime);
+        string? errorMessage = null;
+        try
+        {
+            if (!_copilotService.IsConnected)
+                await _copilotService.ConnectAsync();
+            ct.ThrowIfCancellationRequested();
+            if (!await EnsureSessionAsync(chat, ct)
+                || !_sessionCache.TryGetValue(chat.Id, out var session))
+                throw new InvalidOperationException("The isolated native probe session wasn't created.");
+            // No message is sent, so build the session's tool set now, as a turn would.
+            await session.Rpc.Tools.InitializeAndValidateAsync(ct);
+            System.Text.Json.JsonElement Arguments(string json)
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(json);
+                return document.RootElement.Clone();
+            }
+            string Json(string value) => System.Text.Json.JsonSerializer.Serialize(value, AppDataJsonContext.Default.String);
+            var shell = OperatingSystem.IsWindows() ? "powershell" : "bash";
+            var notes = System.IO.Path.Combine(folder, "notes.md");
+            await Task.WhenAll(
+                session.Rpc.Tools.ExecuteAsync(shell, Arguments(
+                    "{\"command\":\"echo 'Hello from the approval probe'\",\"description\":\"Say hello from the approval probe\",\"mode\":\"sync\",\"initial_wait\":10}"),
+                    "debug-approval-command", ct),
+                session.Rpc.Tools.ExecuteAsync("create", Arguments(
+                    "{\"path\":" + Json(notes) + ",\"file_text\":" + Json("# Approval probe\n\nWritten only after you allowed it.\n") + "}"),
+                    "debug-approval-edit", ct),
+                session.Rpc.Tools.ExecuteAsync("manage_current_chat", Arguments("{\"action\":\"get\"}"),
+                    "debug-approval-lumi-tool", ct));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            errorMessage = "Native approval probe stopped.";
+        }
+        catch (Exception error)
+        {
+            System.Diagnostics.Trace.TraceWarning("[Approvals] Isolated Debug probe failed: {0}", error);
+            errorMessage = "Native approval probe failed: " + error.Message;
+        }
+        finally
+        {
+            var ownsRequest = _ctsSources.TryGetValue(chat.Id, out var current) && ReferenceEquals(current, cancellation);
+            if (ownsRequest)
+                ReleaseChatCancellation(chat.Id, cancel: false);
+            if (ownsRequest || !_ctsSources.ContainsKey(chat.Id))
+            {
+                MarkRuntimeTerminal(runtime);
+                if (CurrentChat?.Id == chat.Id)
+                {
+                    ApplyDisplayedRuntimeState(runtime);
+                    StatusText = errorMessage ?? "Native approval probe finished. No model message was sent.";
+                }
+            }
+            _debugPermissionProbeTask = null;
+        }
+    }
+
     /// <summary>Opens a local browser fixture without a model turn, only in an isolated Debug app.</summary>
     internal async Task<string> LoadDebugBrowserFixtureAsync(string url)
     {

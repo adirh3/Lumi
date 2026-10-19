@@ -20,7 +20,7 @@ using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
 
-public enum OnboardingStep { Hello, Capabilities, Connect, Workspace, KnowYou, Ready }
+public enum OnboardingStep { Hello, Capabilities, Autonomy, Connect, Workspace, KnowYou, Ready }
 
 public enum OnboardingWorkspacePhase { Consent, Scanning, Results }
 
@@ -30,14 +30,15 @@ public enum OnboardingPronoun { Unset, He, She, Unspecified }
 public sealed record OnboardingCompletion(string? StarterPrompt, Guid? StarterProjectId);
 
 /// <summary>
-/// Lumi's first run, in six calm steps: say hello, see what Lumi can do, connect an AI, let Lumi look
-/// around and set up projects, answer a few questions that become memories, and start a first task.
+/// Lumi's first run, in seven calm steps: say hello, see what Lumi can do, choose how much it may do
+/// on its own, connect an AI, let Lumi look around and set up projects, answer a few questions that
+/// become memories, and start a first task.
 /// Discovery is local and per-source opt-in; one prefetched, tool-free model call personalizes the
 /// conversation and the first tasks, with deterministic fallbacks when no AI is available.
 /// </summary>
 public partial class OnboardingViewModel : ObservableObject
 {
-    public const int StepCount = 6;
+    public const int StepCount = 7;
     private const int PreselectedProjects = 3;
     private static readonly TimeSpan CapabilityInterval = TimeSpan.FromSeconds(6.5);
     private static readonly TimeSpan PersonalizationTimeout = TimeSpan.FromSeconds(25);
@@ -148,12 +149,13 @@ public partial class OnboardingViewModel : ObservableObject
     public OnboardingStep Step => (OnboardingStep)CurrentStep;
     public bool IsHelloStep => Step == OnboardingStep.Hello;
     public bool IsCapabilitiesStep => Step == OnboardingStep.Capabilities;
+    public bool IsAutonomyStep => Step == OnboardingStep.Autonomy;
     public bool IsConnectStep => Step == OnboardingStep.Connect;
     public bool IsWorkspaceStep => Step == OnboardingStep.Workspace;
     public bool IsKnowYouStep => Step == OnboardingStep.KnowYou;
     public bool IsReadyStep => Step == OnboardingStep.Ready;
 
-    public bool ShowBack => Step is OnboardingStep.Capabilities or OnboardingStep.Connect or OnboardingStep.KnowYou
+    public bool ShowBack => Step is OnboardingStep.Capabilities or OnboardingStep.Autonomy or OnboardingStep.Connect or OnboardingStep.KnowYou
                             || (IsWorkspaceStep && !IsScanningPhase);
 
     /// <summary>
@@ -224,6 +226,7 @@ public partial class OnboardingViewModel : ObservableObject
         OnPropertyChanged(nameof(Step));
         OnPropertyChanged(nameof(IsHelloStep));
         OnPropertyChanged(nameof(IsCapabilitiesStep));
+        OnPropertyChanged(nameof(IsAutonomyStep));
         OnPropertyChanged(nameof(IsConnectStep));
         OnPropertyChanged(nameof(IsWorkspaceStep));
         OnPropertyChanged(nameof(IsKnowYouStep));
@@ -909,6 +912,7 @@ public partial class OnboardingViewModel : ObservableObject
         OnPropertyChanged(nameof(HasReadyMemories));
         OnPropertyChanged(nameof(HasStarters));
         OnPropertyChanged(nameof(AiStatus));
+        OnPropertyChanged(nameof(ReadyApprovalText));
     }
 
     private void ForgetMemory(OnboardingMemoryItem item)
@@ -945,6 +949,7 @@ public partial class OnboardingViewModel : ObservableObject
             if (LanguageIndex >= 0 && LanguageIndex < Loc.AvailableLanguages.Length)
                 settings.Language = Loc.AvailableLanguages[LanguageIndex].Code;
             settings.IsDarkTheme = IsDarkTheme;
+            settings.DefaultApprovalMode = Autonomy;
             settings.IsOnboarded = true;
             await _dataStore.SaveAsync();
 
