@@ -69,6 +69,50 @@ public sealed class SystemPromptBuilderTests
         Assert.DoesNotContain("fetch_skill", prompt);
     }
 
+    [Fact]
+    public void Skills_PreloadEachLinkedAndSelectedSkillOnlyOnce()
+    {
+        var shared = new Skill { Name = "Shared", Content = "SHARED_SKILL_BODY" };
+        var linked = new Skill { Name = "Linked", Content = "LINKED_SKILL_BODY" };
+        var selected = new Skill { Name = "Selected", Content = "SELECTED_SKILL_BODY" };
+        var agent = new LumiAgent { Name = "Agent", SkillIds = [shared.Id, linked.Id, shared.Id] };
+
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" }, agent, project: null,
+            allSkills: [shared, linked, selected],
+            activeSkills: [shared, selected, shared, selected], memories: []);
+
+        foreach (var skill in new[] { shared, linked, selected })
+            Assert.Equal(1, prompt.Split(skill.Content, StringSplitOptions.None).Length - 1);
+        Assert.Contains("--- Agent Skills ---", prompt);
+        Assert.Contains("--- Active Skills (use these to help the user) ---", prompt);
+    }
+
+    [Fact]
+    public void Skills_DeduplicateRepeatedSelectionsWithoutAnAgent()
+    {
+        var skill = new Skill { Name = "Selected", Content = "SELECTED_SKILL_BODY" };
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" }, agent: null, project: null,
+            allSkills: [skill], activeSkills: [skill, skill], memories: []);
+
+        Assert.Equal(1, prompt.Split(skill.Content, StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void Skills_KeepDistinctSkillsWithTheSameContent()
+    {
+        var first = new Skill { Name = "First", Content = "SHARED_AUTHORED_CONTENT" };
+        var second = new Skill { Name = "Second", Content = first.Content };
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" }, agent: null, project: null,
+            allSkills: [first, second], activeSkills: [first, second], memories: []);
+
+        Assert.Contains("### First", prompt);
+        Assert.Contains("### Second", prompt);
+        Assert.Equal(2, prompt.Split(first.Content, StringSplitOptions.None).Length - 1);
+    }
+
     [Theory]
     [InlineData("Windows")]
     [InlineData("MacOS")]
