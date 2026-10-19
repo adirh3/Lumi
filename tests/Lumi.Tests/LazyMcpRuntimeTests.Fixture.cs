@@ -21,11 +21,58 @@ public sealed partial class LazyMcpRuntimeTests
         => Assert.True(JsonNode.DeepEquals(JsonNode.Parse(expected.GetRawText()), JsonNode.Parse(actual.GetRawText())),
             $"Expected {expected.GetRawText()}, got {actual.GetRawText()}");
 
+    [SkippableTheory]
+    [InlineData("static", "discovery-callback")]
+    [InlineData("discovery-callback", "static")]
+    public async Task SetBehavior_WaitsForAnActiveBehaviorReader(string previous, string next)
+    {
+        using var fake = new FakeMcp(previous);
+        var path = Path.Combine(fake.Root, "behavior.txt");
+        using var finishReading = new ManualResetEventSlim();
+        var readingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reading = Task.Run(() =>
+        {
+            using var mutex = new Mutex(false, fake.BehaviorMutexName);
+            mutex.WaitOne();
+            try
+            {
+                using var reader = new StreamReader(File.OpenRead(path));
+                readingStarted.SetResult();
+                if (!finishReading.Wait(TimeSpan.FromSeconds(15)))
+                    throw new TimeoutException("The behavior reader was not released.");
+                return reader.ReadToEnd();
+            }
+            finally { mutex.ReleaseMutex(); }
+        });
+        Task writing = Task.CompletedTask;
+        try
+        {
+            await readingStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            writing = Task.Run(() =>
+            {
+                writingStarted.SetResult();
+                fake.SetBehavior(next);
+            });
+            await writingStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.NotSame(writing, await Task.WhenAny(writing, Task.Delay(100)));
+        }
+        finally
+        {
+            finishReading.Set();
+            await Task.WhenAll(reading, writing).WaitAsync(TimeSpan.FromSeconds(15));
+        }
+
+        Assert.Equal(previous, await reading);
+        Assert.Equal(next, File.ReadAllText(path));
+    }
+
     // Shared only with the gated CLI capture test: no SDK/LLM is needed for the proxy tests.
     internal sealed class FakeMcp : IDisposable
     {
         private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "lumi-lazy-mcp-" + Guid.NewGuid().ToString("N"));
+        public string BehaviorMutexName => Path.GetFileName(Root);
         public string CacheDirectory => Path.Combine(Root, "cache");
         private string ScriptPath => Path.Combine(Root, "fake-mcp.ps1");
         public string[] Starts => File.Exists(Path.Combine(Root, "starts.log"))
@@ -43,7 +90,16 @@ public sealed partial class LazyMcpRuntimeTests
                     [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 40))
                     [Console]::Out.Flush()
                 }
-                $startupMode = [System.IO.File]::ReadAllText($env:MCP_TEST_BEHAVIOR)
+                $behaviorMutex = [System.Threading.Mutex]::new($false, $env:MCP_TEST_BEHAVIOR_MUTEX)
+                function Read-Behavior {
+                    try { [void]$behaviorMutex.WaitOne() }
+                    catch [System.Threading.AbandonedMutexException] {
+                        # A stopped fake server can abandon a read; ownership has still been acquired.
+                    }
+                    try { [System.IO.File]::ReadAllText($env:MCP_TEST_BEHAVIOR) }
+                    finally { $behaviorMutex.ReleaseMutex() }
+                }
+                $startupMode = Read-Behavior
                 $sessionExpiresOnCall = $startupMode -eq "call-session-stuck" -and -not [System.IO.File]::Exists("session-lost")
                 if ($startupMode -in @("startup-logs", "startup-logs-timeout")) {
                     [Console]::Out.WriteLine("[NuGet Manager] [Info] Credential provider ready token=startup-secret")
@@ -56,7 +112,7 @@ public sealed partial class LazyMcpRuntimeTests
                     if ([string]::IsNullOrWhiteSpace($line)) { continue }
                     [System.IO.File]::AppendAllText($env:MCP_TEST_MESSAGES, "$line`n")
                     $msg = $line | ConvertFrom-Json
-                    $mode = [System.IO.File]::ReadAllText($env:MCP_TEST_BEHAVIOR)
+                    $mode = Read-Behavior
                     if ($msg.id -eq "server-roots" -and $null -ne $msg.error -and $null -ne $pendingCall) {
                         Write-Json @{ jsonrpc = "2.0"; id = $pendingCall; error = @{ code = -32603; message = "Required roots request failed" } }
                         $pendingCall = $null
@@ -166,7 +222,17 @@ public sealed partial class LazyMcpRuntimeTests
                 """);
         }
 
-        public void SetBehavior(string behavior) => File.WriteAllText(Path.Combine(Root, "behavior.txt"), behavior);
+        public void SetBehavior(string behavior)
+        {
+            using var mutex = new Mutex(false, BehaviorMutexName);
+            try { mutex.WaitOne(); }
+            catch (AbandonedMutexException)
+            {
+                // A stopped fake server can abandon a read; this thread now owns the mutex.
+            }
+            try { File.WriteAllText(Path.Combine(Root, "behavior.txt"), behavior); }
+            finally { mutex.ReleaseMutex(); }
+        }
 
         public McpProxyServerDefinition Definition(bool lazy = true) => new(
             "test:lazy",
@@ -181,7 +247,8 @@ public sealed partial class LazyMcpRuntimeTests
                 {
                     ["MCP_TEST_STARTS"] = Path.Combine(Root, "starts.log"),
                     ["MCP_TEST_MESSAGES"] = Path.Combine(Root, "messages.jsonl"),
-                    ["MCP_TEST_BEHAVIOR"] = Path.Combine(Root, "behavior.txt")
+                    ["MCP_TEST_BEHAVIOR"] = Path.Combine(Root, "behavior.txt"),
+                    ["MCP_TEST_BEHAVIOR_MUTEX"] = BehaviorMutexName
                 },
                 Tools = ["*"],
                 Timeout = 10_000

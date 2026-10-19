@@ -128,7 +128,7 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task TranscriptPreparesTurnsAheadOneFrameAtATimeAndKeepsThemNearby()
+    public async Task TranscriptPreparesTurnsAheadOneLayoutAtATimeAndKeepsThemNearby()
     {
         using var session = HeadlessMobileSession.Start();
         await session.Dispatch(async () =>
@@ -138,11 +138,10 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
             var view = new ChatDetailView { DataContext = model };
             var window = new Window { Width = 412, Height = 892, Content = view };
             window.Show();
-            var watchingFrames = true;
             try
             {
                 var chatId = Guid.NewGuid();
-                model.Chat.Reset(chatId, "Frame-paced preparation", isLoading: true);
+                model.Chat.Reset(chatId, "Layout-paced preparation", isLoading: true);
                 var page = Transcript(chatId);
                 foreach (var turn in page.Turns)
                     turn.Items[1].Text = "A short answer.";
@@ -155,52 +154,40 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 var viewport = scroll.Viewport.Height;
                 var lastVisible = TurnsWithin(scroll, transcript, 0).Last();
 
-                // Several layout passes can run before a frame is composed.
+                // Preparation is paced by layout, not animation ticks: several layout passes
+                // can run before a frame is composed.
                 var built = transcript.GetVisualDescendants().OfType<TranscriptTurnView>()
                     .Where(turn => turn.IsRealized).ToHashSet();
-                var frame = 0;
-                var lastPrefetchFrame = -1;
-                var prefetchedInFrame = 0;
+                var layouts = 0;
                 var totalPrefetched = 0;
-                var mostPrefetchedInOneFrame = 0;
-                void OnFrame(TimeSpan _)
-                {
-                    if (!watchingFrames)
-                        return;
-                    frame++;
-                    window.RequestAnimationFrame(OnFrame);
-                }
-                window.RequestAnimationFrame(OnFrame);
+                var mostPrefetchedInOneLayout = 0;
                 void OnLayoutUpdated(object? sender, EventArgs e)
                 {
-                    if (lastPrefetchFrame != frame)
-                    {
-                        lastPrefetchFrame = frame;
-                        prefetchedInFrame = 0;
-                    }
+                    layouts++;
+                    var prefetchedInLayout = 0;
                     foreach (var turn in transcript.GetVisualDescendants().OfType<TranscriptTurnView>())
                     {
                         if (!turn.IsRealized)
                             built.Remove(turn);
                         else if (built.Add(turn) && DistanceFromViewport(scroll, turn) > viewport * 0.5)
                         {
-                            prefetchedInFrame++;
+                            prefetchedInLayout++;
                             totalPrefetched++;
                         }
                     }
-                    mostPrefetchedInOneFrame = Math.Max(mostPrefetchedInOneFrame, prefetchedInFrame);
+                    mostPrefetchedInOneLayout = Math.Max(mostPrefetchedInOneLayout, prefetchedInLayout);
                 }
 
-                window.LayoutUpdated += OnLayoutUpdated;
+                view.LayoutUpdated += OnLayoutUpdated;
                 shell.PreserveViewport();
                 shell.ScrollToVerticalOffset(scroll.Offset.Y - viewport);
                 for (var i = 0; i < 4; i++)
                     await PumpAsync();
-                window.LayoutUpdated -= OnLayoutUpdated;
+                view.LayoutUpdated -= OnLayoutUpdated;
 
                 Assert.True(totalPrefetched >= 2,
-                    $"Only {totalPrefetched} turns exercised prefetching (viewport {viewport}, frames {frame})");
-                Assert.Equal(1, mostPrefetchedInOneFrame);
+                    $"Only {totalPrefetched} turns exercised prefetching (viewport {viewport}, layouts {layouts})");
+                Assert.Equal(1, mostPrefetchedInOneLayout);
                 Assert.All(TurnsWithin(scroll, transcript, 1), turn => Assert.True(turn.IsRealized));
                 // A turn that just left the viewport stays built for a quick return.
                 Assert.InRange(DistanceFromViewport(scroll, lastVisible), 1, viewport * 1.5);
@@ -225,7 +212,6 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
             }
             finally
             {
-                watchingFrames = false;
                 window.Close();
             }
         }, CancellationToken.None);
