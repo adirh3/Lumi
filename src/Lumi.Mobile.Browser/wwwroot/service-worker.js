@@ -15,7 +15,20 @@ self.addEventListener('install', event => {
         redirect: 'error',
         cache: 'reload'
     }));
-    event.waitUntil(caches.open(cacheName).then(cache => cache.addAll(requests)));
+    event.waitUntil((async () => {
+        const cache = await caches.open(cacheName);
+        // Safari can reject a multi-asset addAll even when each verified asset caches successfully.
+        for (let index = 0; index < requests.length; index += 4) {
+            await Promise.all(requests.slice(index, index + 4).map(async request => {
+                try {
+                    await cache.add(request);
+                } catch (error) {
+                    console.warn(`[Lumi PWA] Could not cache ${new URL(request.url).pathname}.`, error);
+                    throw error;
+                }
+            }));
+        }
+    })());
     // Do not skipWaiting: a desktop update must not replace a running app's WASM or draft.
 });
 
@@ -54,8 +67,9 @@ self.addEventListener('fetch', event => {
 
     const isAppNavigation = request.mode === 'navigate'
         && (url.pathname === appUrl.pathname || url.href.split('?')[0] === shellUrl);
-    // An explicit reload must reach Microsoft's sign-in gate even when the shell is cached.
-    if (isAppNavigation && url.searchParams.has('lumi-refresh'))
+    // Let the browser handle gateway redirects without rebuilding the cache for sign-in.
+    if (isAppNavigation
+        && (url.searchParams.has('lumi-refresh') || url.searchParams.has('lumi-signin')))
         return;
 
     if (isAppNavigation

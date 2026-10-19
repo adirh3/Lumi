@@ -480,10 +480,9 @@ public class TranscriptBuilder
                 var isAnswered = !string.IsNullOrEmpty(answer) && msg.ToolStatus is not ("Failed" or "Stopped");
                 var isExpired = !isAnswered && IsTerminalToolStatus(msg.ToolStatus);
                 var card = new QuestionItem(qid, question, optionsList, freeText && !isAnswered && !isExpired, _submitQuestionAnswerAction, multiSelect && !isAnswered && !isExpired);
-                if (isAnswered)
+                if (isAnswered && answer is not null)
                 {
-                    card.SelectedAnswer = answer;
-                    card.IsAnswered = true;
+                    card.ApplyAnswer(answer);
                 }
                 else if (isExpired)
                 {

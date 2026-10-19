@@ -2290,6 +2290,46 @@ public sealed class DeferredSendQueueTests
         }
     }
 
+    [Theory]
+    [InlineData("Yes")]
+    [InlineData("An answer typed on the phone")]
+    public async Task RemoteQuestionAnswer_UpdatesTheExistingDesktopCard(string answer)
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                var presented = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                host.ViewModel.QuestionAsked += (id, _, _, _) => presented.TrySetResult(id);
+                var invocation = host.AskQuestionAsync("Choose on the phone");
+                var questionId = await presented.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var card = host.QuestionCard(questionId);
+                var changed = new List<string?>();
+                card.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+                host.ViewModel.SubmitQuestionAnswer(questionId, answer);
+                var result = await invocation.WaitAsync(TimeSpan.FromSeconds(5));
+                Dispatcher.UIThread.RunJobs();
+
+                Assert.Same(card, host.QuestionCard(questionId));
+                Assert.True(card.IsAnswered);
+                Assert.False(card.IsExpired);
+                Assert.Equal(answer, card.SelectedAnswer);
+                Assert.Contains(nameof(QuestionItem.SelectedAnswer), changed);
+                Assert.Contains(nameof(QuestionItem.IsAnswered), changed);
+                Assert.Contains($"User answered: {answer}", result?.ToString());
+                Assert.Equal($"User answered: {answer}", host.Chat.Messages.Last().ToolOutput);
+                Assert.False(host.IsChatRuntimeActive());
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
     /// <summary>
     /// "Send now" is offered for exactly the two pending states. A delivered or failed message has
     /// nothing left to expedite.

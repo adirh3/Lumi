@@ -2364,7 +2364,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     }
 
     private static string GetMobileUploadRoot() =>
-        Path.Combine(
+        DataStore.UsesIsolatedProfile
+        ? Path.Combine(DataStore.AppDirectory, "mobile-uploads")
+        : Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Lumi",
             "mobile-uploads");

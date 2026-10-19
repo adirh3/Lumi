@@ -109,7 +109,7 @@ export async function checkAppUpdate() {
             if (registration.waiting) {
                 publishUpdateState('ready');
                 tryApplyAppUpdate();
-            } else if (!registration.installing && !reloadPending && !activationPending) {
+            } else if (registration.active && !registration.installing && !reloadPending && !activationPending) {
                 publishUpdateState('current');
             }
         } catch (error) {
@@ -139,13 +139,17 @@ export function setTheme(preference) {
 darkPreference.addEventListener('change', applyTheme);
 applyTheme();
 
-export function reloadWebApp() {
+function navigateToApp(marker) {
     const url = new URL('/app/', window.location.origin);
-    url.searchParams.set('lumi-refresh', '1');
+    url.searchParams.set(marker, '1');
     const workerFrames = new URL(window.location.href).searchParams.get('workerframes');
     if (workerFrames === '1' || workerFrames === '0')
         url.searchParams.set('workerframes', workerFrames);
     window.location.assign(url.href);
+}
+
+export function reloadWebApp() {
+    navigateToApp('lumi-refresh');
 }
 
 export function recoverGatewaySignIn() {
@@ -162,7 +166,7 @@ export function recoverGatewaySignIn() {
         return false;
     }
 
-    reloadWebApp();
+    navigateToApp('lumi-signin');
     return true;
 }
 
@@ -207,8 +211,9 @@ export function configureAppLifecycle(onActiveChanged) {
     publish();
 
     const url = new URL(window.location.href);
-    if (url.searchParams.has('lumi-refresh')) {
+    if (url.searchParams.has('lumi-refresh') || url.searchParams.has('lumi-signin')) {
         url.searchParams.delete('lumi-refresh');
+        url.searchParams.delete('lumi-signin');
         window.history.replaceState(window.history.state, '', url.href);
     }
 }
@@ -217,8 +222,13 @@ export async function registerAppCache() {
     if (!('serviceWorker' in navigator) || !window.isSecureContext)
         return;
 
-    if (registrationPromise)
-        return registrationPromise;
+    if (registrationPromise) {
+        if (!appRegistration || appRegistration.active || appRegistration.waiting || appRegistration.installing)
+            return registrationPromise;
+        // A failed first install can leave a registration whose update() always rejects.
+        registrationPromise = undefined;
+        appRegistration = undefined;
+    }
 
     registrationPromise = (async () => {
         try {
@@ -228,23 +238,8 @@ export async function registerAppCache() {
             });
             appRegistration = registration;
             registration.addEventListener('updatefound', () => observeWorker(registration.installing));
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                const controller = navigator.serviceWorker.controller;
-                if (!controller || controller === runtimeController)
-                    return;
-                if (!runtimeController && !activationPending) {
-                    runtimeController = controller;
-                    return;
-                }
-
-                runtimeController = controller;
-                clearTimeout(activationTimeout);
-                activationPending = false;
-                reloadPending = true;
-                publishUpdateState('ready');
-                tryApplyAppUpdate();
-            });
-            window.addEventListener('online', () => void checkAppUpdate());
+            navigator.serviceWorker.addEventListener('controllerchange', onAppControllerChanged);
+            window.addEventListener('online', onAppOnline);
             observeWorker(registration.installing);
             if (registration.waiting) {
                 publishUpdateState('ready');
@@ -261,4 +256,26 @@ export async function registerAppCache() {
     if (!registration)
         registrationPromise = undefined;
     return registration;
+}
+
+function onAppControllerChanged() {
+    const controller = navigator.serviceWorker.controller;
+    if (!controller || controller === runtimeController)
+        return;
+    if (!runtimeController && !activationPending) {
+        runtimeController = controller;
+        publishUpdateState('current');
+        return;
+    }
+
+    runtimeController = controller;
+    clearTimeout(activationTimeout);
+    activationPending = false;
+    reloadPending = true;
+    publishUpdateState('ready');
+    tryApplyAppUpdate();
+}
+
+function onAppOnline() {
+    void checkAppUpdate();
 }
