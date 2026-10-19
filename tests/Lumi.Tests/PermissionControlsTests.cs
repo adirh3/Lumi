@@ -755,8 +755,8 @@ public sealed class PermissionControlsTests
             try
             {
                 window.UpdateLayout();
-                Assert.True(view.FindControl<ItemsControl>("DefaultApprovalModeChoices")!.IsEffectivelyVisible);
-                Assert.False(view.FindControl<Border>("ApprovalRuleBuilder")!.IsVisible);
+                Assert.True(view.FindSettingsControl<ItemsControl>("DefaultApprovalModeChoices")!.IsEffectivelyVisible);
+                Assert.False(view.FindSettingsControl<Border>("ApprovalRuleBuilder")!.IsVisible);
 
                 Assert.Equal(ApprovalMode.FullAccess, Assert.Single(vm.DefaultModeCards, card => card.IsSelected).Mode);
                 vm.DefaultModeCards.Single(card => card.Mode == ApprovalMode.AskFirst).SelectCommand.Execute(null);
@@ -768,7 +768,7 @@ public sealed class PermissionControlsTests
 
                 vm.StartAddApprovalRuleCommand.Execute(null);
                 window.UpdateLayout();
-                Assert.True(view.FindControl<Border>("ApprovalRuleBuilder")!.IsVisible);
+                Assert.True(view.FindSettingsControl<Border>("ApprovalRuleBuilder")!.IsVisible);
                 vm.NewRuleTarget = "git push";
                 vm.SelectNewRuleActionCommand.Execute("never");
                 Assert.Contains("git push", vm.NewRulePreview);

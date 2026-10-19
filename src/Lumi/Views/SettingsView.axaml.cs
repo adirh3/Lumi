@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
-using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -18,9 +19,17 @@ using StrataTheme.Controls;
 
 namespace Lumi.Views;
 
-public partial class SettingsView : UserControl
+public partial class SettingsView : UserControl, IDisposable
 {
-    private Control?[] _pages = [];
+    private static readonly string?[] PageNames =
+        ["PageProfile", "PageGeneral", "PageMobile", "PageAppearance", "PageChat",
+         "PageAI", "PagePrivacy", "PageAbout", null, "PagePermissions"];
+    private static readonly int[] PageOrder = [0, 1, 2, 3, 4, 9, 5, 6, 7];
+    private readonly Control?[] _pages = new Control?[PageNames.Length];
+    private StackPanel? _pagesHost;
+    private StackPanel? _allPagesStack;
+    private SettingsViewModel? _viewModel;
+    private bool _isDisposed;
     private Control? _searchResultsHeader;
     private TextBlock? _searchCountText;
     private TextBlock? _searchQueryText;
@@ -50,8 +59,6 @@ public partial class SettingsView : UserControl
     private StackPanel? _cookieImportActions;
     private Button? _cookieImportButton;
     private Button? _cookieImportCancelButton;
-    private BrowserCookieService.BrowserProfile? _selectedCookieProfile;
-    private bool _isCookieImportInProgress;
 
     // Search opens what holds a match and remembers how each was, so clearing the search puts it back.
     private readonly Dictionary<Expander, bool> _expandedBeforeSearch = new();
@@ -92,7 +99,7 @@ public partial class SettingsView : UserControl
     }
 
     // Page header elements for search mode styling
-    private (TextBlock Title, TextBlock Description)?[] _pageHeaders = [];
+    private readonly (TextBlock Title, TextBlock Description)?[] _pageHeaders = new (TextBlock, TextBlock)?[PageNames.Length];
 
     public SettingsView()
     {
@@ -106,19 +113,8 @@ public partial class SettingsView : UserControl
     {
         AvaloniaXamlLoader.Load(this);
 
-        _pages =
-        [
-            this.FindControl<Control>("PageProfile"),
-            this.FindControl<Control>("PageGeneral"),
-            this.FindControl<Control>("PageMobile"),
-            this.FindControl<Control>("PageAppearance"),
-            this.FindControl<Control>("PageChat"),
-            this.FindControl<Control>("PageAI"),
-            this.FindControl<Control>("PagePrivacy"),
-            this.FindControl<Control>("PageAbout"),
-            null, // Memories has its own page.
-            this.FindControl<Control>("PagePermissions"),
-        ];
+        _pagesHost = this.FindControl<StackPanel>("SettingsPagesHost");
+        _allPagesStack = this.FindControl<StackPanel>("AllPagesStack");
 
         _searchResultsHeader = this.FindControl<Control>("SearchResultsHeader");
         _searchCountText = this.FindControl<TextBlock>("SearchCountText");
@@ -133,34 +129,6 @@ public partial class SettingsView : UserControl
             _clearSearchButton.Click += (_, _) => ClearSearch();
         if (_noResultsClearButton is not null)
             _noResultsClearButton.Click += (_, _) => ClearSearch();
-
-        _hotkeyRecorderButton = this.FindControl<Button>("HotkeyRecorderButton");
-        if (_hotkeyRecorderButton is not null)
-        {
-            _hotkeyRecorderButton.Focusable = false;
-            _hotkeyRecorderButton.Click += OnHotkeyRecorderButtonClick;
-        }
-
-        _uiScaleSlider = this.FindControl<Slider>("UiScaleSlider");
-        if (_uiScaleSlider is not null)
-        {
-            _uiScaleSlider.AddHandler(
-                InputElement.PointerReleasedEvent,
-                OnUiScaleSliderPointerReleased,
-                RoutingStrategies.Bubble,
-                handledEventsToo: true);
-            _uiScaleSlider.AddHandler(
-                InputElement.KeyUpEvent,
-                OnUiScaleSliderKeyUp,
-                RoutingStrategies.Bubble,
-                handledEventsToo: true);
-            _uiScaleSlider.LostFocus += OnUiScaleSliderLostFocus;
-        }
-
-        _debugTransparencySetting = this.FindControl<StrataSetting>("DebugTransparencySetting");
-        _debugTransparencyValue = this.FindControl<TextBlock>("DebugTransparencyValue");
-        _debugFpsOverlaySetting = this.FindControl<StrataSetting>("DebugFpsOverlaySetting");
-        _debugFpsOverlayToggle = this.FindControl<ToggleSwitch>("DebugFpsOverlayToggle");
 
         // Cookie import dialog
         _cookieImportDialog = this.FindControl<StrataDialog>("CookieImportDialog");
@@ -189,26 +157,136 @@ public partial class SettingsView : UserControl
         if (_cookieImportButton is not null)
             _cookieImportButton.Click += OnCookieImportClick;
         if (_cookieImportCancelButton is not null)
-            _cookieImportCancelButton.Click += (_, _) => CloseCookieDialog();
+            _cookieImportCancelButton.Click += OnCookieImportCancelClick;
+    }
 
-        // Each page opens with a header: its tile, then the title and lede. Indexed like the pages.
-        var headers = new (TextBlock Title, TextBlock Description)?[_pages.Length];
-        for (var index = 0; index < _pages.Length; index++)
+    internal T? FindSettingsControl<T>(string name) where T : Control
+        => this.FindControl<T>(name)
+           ?? _pages.OfType<Control>().Select(page => page.FindControl<T>(name)).FirstOrDefault(control => control is not null);
+
+    private void EnsurePage(int index)
+    {
+        if (index == SettingsViewModel.MemoriesPageIndex)
+            return;
+        if (index < 0 || index >= PageNames.Length || PageNames[index] is not { } name)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        if (_pages[index] is not null)
+            return;
+        if (_pagesHost is null || _allPagesStack is null || _viewModel is null)
+            throw new InvalidOperationException("Settings page host is not initialized.");
+        if (!_allPagesStack.TryFindResource(name, out var resource) || resource is not IControlTemplate template)
+            throw new InvalidOperationException($"Settings template '{name}' was not found.");
+
+        var built = template.Build(this)
+            ?? throw new InvalidOperationException($"Settings template '{name}' did not build content.");
+        var page = built.Result as StackPanel
+            ?? throw new InvalidOperationException($"Settings template '{name}' must build a StackPanel.");
+        NameScope.SetNameScope(page, built.NameScope);
+        page.DataContext = _viewModel;
+        page.IsVisible = true;
+        _pages[index] = page;
+        var position = PageOrder.TakeWhile(other => other != index).Count(other => _pages[other] is not null);
+        _pagesHost.Children.Insert(position, page);
+        _allPagesLaidOut = false;
+
+        if (page.Children.FirstOrDefault() is Grid header)
         {
-            if (_pages[index] is StackPanel { Children.Count: > 0 } sp
-                && sp.Children[0] is Grid header && header.Classes.Contains("st-header"))
+            var texts = header.GetLogicalDescendants().OfType<TextBlock>().ToList();
+            var title = texts.FirstOrDefault(text => text.Classes.Contains("mg-page-title"));
+            var description = texts.FirstOrDefault(text => text.Classes.Contains("mg-page-lede"));
+            if (title is not null && description is not null)
+                _pageHeaders[index] = (title, description);
+        }
+
+        if (index == 1)
+        {
+            _hotkeyRecorderButton = page.FindControl<Button>("HotkeyRecorderButton");
+            if (_hotkeyRecorderButton is not null)
             {
-                var texts = header.GetLogicalDescendants().OfType<TextBlock>().ToList();
-                var title = texts.FirstOrDefault(static text => text.Classes.Contains("mg-page-title"));
-                var lede = texts.FirstOrDefault(static text => text.Classes.Contains("mg-page-lede"));
-                if (title is not null && lede is not null)
-                    headers[index] = (title, lede);
+                _hotkeyRecorderButton.Focusable = false;
+                _hotkeyRecorderButton.Click += OnHotkeyRecorderButtonClick;
+                UpdateHotkeyButtonText();
             }
         }
-        _pageHeaders = headers;
+        else if (index == 3)
+        {
+            _uiScaleSlider = page.FindControl<Slider>("UiScaleSlider");
+            if (_uiScaleSlider is not null)
+            {
+                _uiScaleSlider.AddHandler(InputElement.PointerReleasedEvent, OnUiScaleSliderPointerReleased,
+                    RoutingStrategies.Bubble, handledEventsToo: true);
+                _uiScaleSlider.AddHandler(InputElement.KeyUpEvent, OnUiScaleSliderKeyUp,
+                    RoutingStrategies.Bubble, handledEventsToo: true);
+                _uiScaleSlider.LostFocus += OnUiScaleSliderLostFocus;
+            }
+        }
+        else if (index == SettingsViewModel.AboutPageIndex)
+        {
+            _debugTransparencySetting = page.FindControl<StrataSetting>("DebugTransparencySetting");
+            _debugTransparencyValue = page.FindControl<TextBlock>("DebugTransparencyValue");
+            _debugFpsOverlaySetting = page.FindControl<StrataSetting>("DebugFpsOverlaySetting");
+            _debugFpsOverlayToggle = page.FindControl<ToggleSwitch>("DebugFpsOverlayToggle");
+            InitializeDebugTransparencyInfo();
+            InitializeDebugFpsOverlay();
+        }
+    }
 
-        InitializeDebugTransparencyInfo();
-        InitializeDebugFpsOverlay();
+    private void ReleasePage(int index)
+    {
+        if (_pages[index] is not { } page)
+            return;
+        if (index == 1 && _hotkeyRecorderButton is not null)
+        {
+            if (_isRecordingHotkey)
+                StopHotkeyRecording();
+            _hotkeyRecorderButton.Click -= OnHotkeyRecorderButtonClick;
+            _hotkeyRecorderButton = null;
+        }
+        if (index == 3 && _uiScaleSlider is not null)
+        {
+            CommitUiScaleSliderPreview();
+            _uiScaleSlider.RemoveHandler(InputElement.PointerReleasedEvent, OnUiScaleSliderPointerReleased);
+            _uiScaleSlider.RemoveHandler(InputElement.KeyUpEvent, OnUiScaleSliderKeyUp);
+            _uiScaleSlider.LostFocus -= OnUiScaleSliderLostFocus;
+            _uiScaleSlider = null;
+        }
+        if (index == SettingsViewModel.AboutPageIndex)
+        {
+            if (_debugFpsOverlayToggle is not null)
+                _debugFpsOverlayToggle.IsCheckedChanged -= OnDebugFpsOverlayToggled;
+            _debugFpsOverlayToggle = null;
+            _debugFpsOverlaySetting = null;
+            _debugTransparencySetting = null;
+            _debugTransparencyValue = null;
+        }
+
+        // Unbind before detaching: bound value changes can start theme animations that
+        // would otherwise miss the detach event and keep the discarded tree alive.
+        page.DataContext = null;
+        page.IsVisible = false;
+        _pagesHost?.Children.Remove(page);
+        _pages[index] = null;
+        _pageHeaders[index] = null;
+        _allPagesLaidOut = false;
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+            return;
+        _isDisposed = true;
+        ReleaseSearchVisibility();
+        CloseOpenedBySearch();
+        for (var index = 0; index < _pages.Length; index++)
+            ReleasePage(index);
+        if (_viewModel is not null)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.CookieImportDialogRequested -= OnCookieImportDialogRequested;
+            _viewModel = null;
+        }
+        DataContext = null;
+        Content = null;
     }
 
     protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
@@ -229,7 +307,7 @@ public partial class SettingsView : UserControl
 
         // Settings is built the first time it opens, which can be for a search typed on Memories. Its
         // rows know their bound choices and visibility only once they are in the window.
-        if (DataContext is SettingsViewModel { IsSearching: true } vm)
+        if (!_isDisposed && DataContext is SettingsViewModel { IsSearching: true } vm)
             ApplySearch(vm.SearchQuery);
     }
 
@@ -360,33 +438,59 @@ public partial class SettingsView : UserControl
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
-
-        if (DataContext is SettingsViewModel vm)
+        if (_viewModel is not null)
         {
-            ShowPage(vm.SelectedPageIndex);
-
-            vm.PropertyChanged += (_, args) =>
-            {
-                if (args.PropertyName == nameof(SettingsViewModel.SelectedPageIndex))
-                {
-                    ShowPage(vm.SelectedPageIndex);
-                    UpdateDebugTransparencyInfo();
-                }
-                else if (args.PropertyName == nameof(SettingsViewModel.SearchQuery))
-                    ApplySearch(vm.SearchQuery);
-                else if (args.PropertyName == nameof(SettingsViewModel.GlobalHotkey))
-                    UpdateHotkeyButtonText();
-                else if (args.PropertyName == nameof(SettingsViewModel.IsMobileSetupReady))
-                    RevealMobileSetup();
-                else if (args.PropertyName == nameof(SettingsViewModel.IsAddingApprovalRule) && vm.IsAddingApprovalRule)
-                    RevealApprovalRuleBuilder();
-            };
-
-            UpdateHotkeyButtonText();
-
-            vm.CookieImportDialogRequested += () =>
-                Dispatcher.UIThread.Post(OpenCookieDialog);
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.CookieImportDialogRequested -= OnCookieImportDialogRequested;
         }
+        ReleaseSearchVisibility();
+        CloseOpenedBySearch();
+        for (var index = 0; index < _pages.Length; index++)
+            ReleasePage(index);
+        _viewModel = _isDisposed ? null : DataContext as SettingsViewModel;
+        if (_viewModel is not { } vm)
+            return;
+        vm.PropertyChanged += OnViewModelPropertyChanged;
+        vm.CookieImportDialogRequested += OnCookieImportDialogRequested;
+        if (vm.IsSearching)
+        {
+            if (VisualRoot is not null)
+                ApplySearch(vm.SearchQuery);
+        }
+        else
+            ShowPage(vm.SelectedPageIndex);
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (_isDisposed || _viewModel is not { } vm)
+            return;
+        if (args.PropertyName == nameof(SettingsViewModel.SelectedPageIndex))
+            ShowPage(vm.SelectedPageIndex);
+        else if (args.PropertyName == nameof(SettingsViewModel.SearchQuery) && VisualRoot is not null)
+            ApplySearch(vm.SearchQuery);
+        else if (args.PropertyName == nameof(SettingsViewModel.GlobalHotkey))
+            UpdateHotkeyButtonText();
+        else if (args.PropertyName == nameof(SettingsViewModel.IsMobileSetupReady))
+            RevealMobileSetup();
+        else if (args.PropertyName == nameof(SettingsViewModel.IsAddingApprovalRule) && vm.IsAddingApprovalRule)
+            RevealApprovalRuleBuilder();
+        else if (args.PropertyName is nameof(SettingsViewModel.IsCookieImportInProgress)
+                 or nameof(SettingsViewModel.CookieImportStatus) or nameof(SettingsViewModel.CookieImportSucceeded))
+        {
+            UpdateCookieImportUi();
+            if (args.PropertyName == nameof(SettingsViewModel.CookieImportSucceeded) && vm.CookieImportSucceeded)
+                CloseCookieDialog();
+        }
+    }
+
+    private void OnCookieImportDialogRequested()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_isDisposed)
+                OpenCookieDialog();
+        });
     }
 
     private void OnUiScaleSliderPointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -406,23 +510,28 @@ public partial class SettingsView : UserControl
 
     private void CommitUiScaleSliderPreview()
     {
-        if (_uiScaleSlider is null || DataContext is not SettingsViewModel vm)
+        if (_uiScaleSlider is null || _viewModel is not { } vm)
             return;
 
-        vm.UiScaleLevelIndex = (int)Math.Round(_uiScaleSlider.Value);
+        vm.UiScaleLevelIndex = vm.UiScalePreviewLevelIndex;
     }
 
     public void ShowPage(int index)
     {
+        if (_isDisposed)
+            return;
         // Don't switch pages while search is active
         if (DataContext is SettingsViewModel vm && !string.IsNullOrWhiteSpace(vm.SearchQuery))
             return;
 
         for (int i = 0; i < _pages.Length; i++)
         {
-            if (_pages[i] is not null)
-                _pages[i]!.IsVisible = i == index;
+            if (i != index)
+                ReleasePage(i);
         }
+        EnsurePage(index);
+        if (_pages[index] is { } page)
+            page.IsVisible = true;
 
         _mainScrollViewer?.ScrollToHome();
         if (index == 2)
@@ -433,11 +542,11 @@ public partial class SettingsView : UserControl
     {
         Dispatcher.UIThread.Post(() =>
         {
-            if (IsEffectivelyVisible
+            if (!_isDisposed && IsEffectivelyVisible
                 && DataContext is SettingsViewModel
                     { SelectedPageIndex: 2, UseDevTunnelForMobile: true, IsMobileSetupReady: true } vm
                 && string.IsNullOrWhiteSpace(vm.SearchQuery))
-                this.FindControl<Border>("MobileSetupPanel")?.BringIntoView();
+                FindSettingsControl<Border>("MobileSetupPanel")?.BringIntoView();
         }, DispatcherPriority.Loaded);
     }
 
@@ -446,13 +555,15 @@ public partial class SettingsView : UserControl
     {
         Dispatcher.UIThread.Post(() =>
         {
-            if (IsEffectivelyVisible && DataContext is SettingsViewModel { IsAddingApprovalRule: true })
-                this.FindControl<Border>("ApprovalRuleBuilder")?.BringIntoView();
+            if (!_isDisposed && IsEffectivelyVisible && DataContext is SettingsViewModel { IsAddingApprovalRule: true })
+                FindSettingsControl<Border>("ApprovalRuleBuilder")?.BringIntoView();
         }, DispatcherPriority.Loaded);
     }
 
     private void ApplySearch(string? query)
     {
+        if (_isDisposed)
+            return;
         if (string.IsNullOrWhiteSpace(query))
         {
             // Restore normal paged mode
@@ -475,6 +586,8 @@ public partial class SettingsView : UserControl
 
         // Start from each control's own visibility, so a query that narrows doesn't remember the last one.
         ReleaseSearchVisibility();
+        foreach (var index in PageOrder)
+            EnsurePage(index);
         LayOutAllPagesOnce();
 
         for (int i = 0; i < _pages.Length; i++)
@@ -670,7 +783,7 @@ public partial class SettingsView : UserControl
     // (text, choices, visibility) haven't run. The first search lays every page out once.
     private void LayOutAllPagesOnce()
     {
-        if (_allPagesLaidOut || !IsEffectivelyVisible)
+        if (_allPagesLaidOut || !IsEffectivelyVisible || VisualRoot is null)
             return;
 
         foreach (var page in _pages)
@@ -951,7 +1064,7 @@ public partial class SettingsView : UserControl
 
     private void OpenCookieDialog()
     {
-        if (_cookieImportDialog is null || _cookieProfilePicker is null) return;
+        if (_cookieImportDialog is null || _cookieProfilePicker is null || _viewModel is not { } vm) return;
 
         var browsers = BrowserCookieService.GetInstalledBrowsers();
         var profilesByBrowser = browsers
@@ -962,12 +1075,11 @@ public partial class SettingsView : UserControl
         if (profilesByBrowser.Count == 0) return;
 
         _cookieProfilePicker.Children.Clear();
-        _selectedCookieProfile = null;
-        _isCookieImportInProgress = false;
-
-        if (_cookieImportActions is not null) _cookieImportActions.IsVisible = true;
-        if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = false;
-        if (_cookieImportStatusText is not null) _cookieImportStatusText.Text = "Preparing…";
+        var selected = profilesByBrowser.SelectMany(item => item.Profiles)
+            .FirstOrDefault(profile => profile == vm.CookieImportProfile)
+            ?? profilesByBrowser.FirstOrDefault(item => item.Browser.Name.Contains("Edge", StringComparison.OrdinalIgnoreCase)).Profiles?.FirstOrDefault()
+            ?? profilesByBrowser[0].Profiles[0];
+        vm.CookieImportProfile = selected;
 
         foreach (var (browser, profiles) in profilesByBrowser)
         {
@@ -979,27 +1091,35 @@ public partial class SettingsView : UserControl
                     GroupName = "CookieProfile",
                     Padding = new Thickness(8, 8),
                     Tag = profile,
+                    IsChecked = profile == selected,
                 };
                 rb.IsCheckedChanged += (_, _) =>
                 {
                     if (rb.IsChecked == true)
-                        _selectedCookieProfile = (BrowserCookieService.BrowserProfile)rb.Tag!;
+                        vm.CookieImportProfile = profile;
                 };
-
-                if (_selectedCookieProfile is null ||
-                    (browser.Name.Contains("Edge", StringComparison.OrdinalIgnoreCase)
-                     && _selectedCookieProfile.Browser.Name != browser.Name))
-                {
-                    rb.IsChecked = true;
-                    _selectedCookieProfile = profile;
-                }
 
                 _cookieProfilePicker.Children.Add(rb);
             }
         }
 
+        UpdateCookieImportUi();
         _cookieImportDialog.IsDialogOpen = true;
     }
+
+    private void UpdateCookieImportUi()
+    {
+        if (_viewModel is not { } vm)
+            return;
+        if (_cookieImportActions is not null)
+            _cookieImportActions.IsVisible = !vm.IsCookieImportInProgress;
+        if (_cookieImportProgress is not null)
+            _cookieImportProgress.IsVisible = vm.IsCookieImportInProgress || !string.IsNullOrWhiteSpace(vm.CookieImportStatus);
+        if (_cookieImportStatusText is not null)
+            _cookieImportStatusText.Text = vm.CookieImportStatus;
+    }
+
+    private void OnCookieImportCancelClick(object? sender, RoutedEventArgs e) => CloseCookieDialog();
 
     private void CloseCookieDialog()
     {
@@ -1007,59 +1127,9 @@ public partial class SettingsView : UserControl
             _cookieImportDialog.IsDialogOpen = false;
     }
 
-    private async void OnCookieImportClick(object? sender, RoutedEventArgs e)
+    private void OnCookieImportClick(object? sender, RoutedEventArgs e)
     {
-        if (_selectedCookieProfile is null || _isCookieImportInProgress) return;
-        if (DataContext is not SettingsViewModel vm) return;
-
-        _isCookieImportInProgress = true;
-
-        if (_cookieImportActions is not null) _cookieImportActions.IsVisible = false;
-        if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = true;
-        if (_cookieImportStatusText is not null) _cookieImportStatusText.Text = "Importing cookies…";
-
-        try
-        {
-            var count = await vm.BrowserService
-                .ImportCookiesAsync(_selectedCookieProfile)
-                .WaitAsync(TimeSpan.FromSeconds(45));
-
-            if (count <= 0)
-            {
-                if (_cookieImportStatusText is not null)
-                    _cookieImportStatusText.Text = "No cookies imported. Close the selected browser and try again.";
-                await Task.Delay(2200);
-                if (_cookieImportActions is not null) _cookieImportActions.IsVisible = true;
-                if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = false;
-                return;
-            }
-
-            if (_cookieImportStatusText is not null)
-                _cookieImportStatusText.Text = $"Imported {count:N0} cookies!";
-            await Task.Delay(1000);
-
-            vm.MarkCookiesImported();
-            CloseCookieDialog();
-        }
-        catch (TimeoutException)
-        {
-            if (_cookieImportStatusText is not null)
-                _cookieImportStatusText.Text = "Cookie import timed out. Close the browser and try again.";
-            await Task.Delay(2200);
-            if (_cookieImportActions is not null) _cookieImportActions.IsVisible = true;
-            if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = false;
-        }
-        catch (Exception ex)
-        {
-            if (_cookieImportStatusText is not null)
-                _cookieImportStatusText.Text = $"Error: {ex.Message}";
-            await Task.Delay(2000);
-            if (_cookieImportActions is not null) _cookieImportActions.IsVisible = true;
-            if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = false;
-        }
-        finally
-        {
-            _isCookieImportInProgress = false;
-        }
+        if (_viewModel is { } vm && vm.ImportBrowserCookiesCommand.CanExecute(vm.CookieImportProfile))
+            vm.ImportBrowserCookiesCommand.Execute(vm.CookieImportProfile);
     }
 }

@@ -83,29 +83,9 @@
     <!-- The bottom room keeps the last card clear of the floating restart and confirm bars. -->
     <StackPanel x:Name="AllPagesStack" Spacing="0" Margin="0,0,0,88">
 
-    <!-- Search results header (shown during search) -->
-    <DockPanel x:Name="SearchResultsHeader" Classes="motion-surface" IsVisible="False"
-               Margin="32,28,32,0">
-      <Button x:Name="ClearSearchButton" DockPanel.Dock="Right" Classes="mg-text-button motion-action"
-              VerticalAlignment="Center" Margin="16,0,0,0">
-        <StackPanel Orientation="Horizontal" Spacing="5">
-          <PathIcon Data="{StaticResource St.Icon.Close}" />
-          <TextBlock Text="{loc:Str Common_Clear}" />
-        </StackPanel>
-      </Button>
-      <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-        <Border Classes="mg-tile sm">
-          <PathIcon Classes="mg-glyph" Data="{StaticResource St.Icon.Search}" Foreground="{DynamicResource Brush.AccentDefault}" />
-        </Border>
-        <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
-          <TextBlock x:Name="SearchCountText" FontSize="15" FontWeight="SemiBold"
-                     Foreground="{DynamicResource Brush.AccentDefault}" />
-          <TextBlock x:Name="SearchQueryText" FontSize="15"
-                     Foreground="{DynamicResource Brush.TextSecondary}" />
-        </StackPanel>
-      </StackPanel>
-    </DockPanel>
-
+    <StackPanel.Resources>
+    <ResourceDictionary>
+    <ControlTemplate x:Key="PageProfile" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 0: Profile ═══ -->
     <StackPanel x:Name="PageProfile" Classes="st-page motion-surface">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
@@ -180,6 +160,8 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageGeneral" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 1: General ═══ -->
     <StackPanel x:Name="PageGeneral" Classes="st-page motion-surface" IsVisible="False">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
@@ -268,6 +250,8 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageMobile" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 2: Mobile ═══ -->
     <StackPanel x:Name="PageMobile" Classes="st-page motion-surface" IsVisible="False">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
@@ -660,6 +644,8 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageAppearance" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 3: Appearance ═══ -->
     <StackPanel x:Name="PageAppearance" Classes="st-page motion-surface" IsVisible="False">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*,Auto">
@@ -1028,6 +1014,8 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageChat" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 4: Chat ═══ -->
     <StackPanel x:Name="PageChat" Classes="st-page motion-surface" IsVisible="False">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
@@ -1092,6 +1080,8 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PagePermissions" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 9: Permissions ═══ -->
     <!-- How much Lumi does on its own. Every choice here is a native GitHub Copilot permission
          control; Lumi chooses and re-applies them, Copilot enforces them. -->
@@ -1359,6 +1349,8 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageAI" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 5: AI & Models ═══ -->
     <StackPanel x:Name="PageAI" Classes="st-page motion-surface" IsVisible="False">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
@@ -1734,6 +1726,8 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PagePrivacy" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 6: Privacy & Data ═══ -->
     <StackPanel x:Name="PagePrivacy" Classes="st-page motion-surface" IsVisible="False">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
@@ -1809,6 +1803,8 @@
       </sc:StrataSettingGroup>
     </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageAbout" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 7: About ═══ -->
     <StackPanel x:Name="PageAbout" Classes="st-page motion-surface" IsVisible="False">
       <Grid Classes="st-header" ColumnDefinitions="Auto,*">
@@ -2022,7 +2018,32 @@
                           Description="{loc:Str SettingDesc_BuiltWith}" />
       </sc:StrataSettingGroup>
     </StackPanel>
+    </ControlTemplate>
+    </ResourceDictionary>
+    </StackPanel.Resources>
 
+    <DockPanel x:Name="SearchResultsHeader" Classes="motion-surface" IsVisible="False"
+               Margin="32,28,32,0">
+      <Button x:Name="ClearSearchButton" DockPanel.Dock="Right" Classes="mg-text-button motion-action"
+              VerticalAlignment="Center" Margin="16,0,0,0">
+        <StackPanel Orientation="Horizontal" Spacing="5">
+          <PathIcon Data="{StaticResource St.Icon.Close}" />
+          <TextBlock Text="{loc:Str Common_Clear}" />
+        </StackPanel>
+      </Button>
+      <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+        <Border Classes="mg-tile sm">
+          <PathIcon Classes="mg-glyph" Data="{StaticResource St.Icon.Search}" Foreground="{DynamicResource Brush.AccentDefault}" />
+        </Border>
+        <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
+          <TextBlock x:Name="SearchCountText" FontSize="15" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.AccentDefault}" />
+          <TextBlock x:Name="SearchQueryText" FontSize="15"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+        </StackPanel>
+      </StackPanel>
+    </DockPanel>
+    <StackPanel x:Name="SettingsPagesHost" />
     </StackPanel>
     </Grid>
     </ScrollViewer>
@@ -2290,7 +2311,7 @@
 
           <!-- Progress (hidden until import starts) -->
           <StackPanel x:Name="CookieImportProgress" IsVisible="False" Spacing="8">
-            <ProgressBar IsIndeterminate="True" />
+            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsCookieImportInProgress}" />
             <TextBlock x:Name="CookieImportStatusText" Classes="caption"
                        Foreground="{DynamicResource Brush.TextSecondary}"
                        HorizontalAlignment="Center" Text="Preparing…" />

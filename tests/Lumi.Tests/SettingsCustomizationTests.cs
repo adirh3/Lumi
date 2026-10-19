@@ -363,8 +363,8 @@ public sealed class SettingsCustomizationTests
 
                 viewModel.SearchQuery = "OpenRouter";
                 window.UpdateLayout();
-                accountsShown = view.FindControl<StrataSettingGroup>("AiAccountsGroup")!.IsEffectivelyVisible;
-                var byokOnly = view.FindControl<StrataSetting>("ByokOnlySetting")!;
+                accountsShown = view.FindSettingsControl<StrataSettingGroup>("AiAccountsGroup")!.IsEffectivelyVisible;
+                var byokOnly = view.FindSettingsControl<StrataSetting>("ByokOnlySetting")!;
                 byokOnlyShown = byokOnly.IsEffectivelyVisible;
                 byokOnlyHighlighted = byokOnly.IsHighlighted;
             }

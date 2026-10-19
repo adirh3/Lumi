@@ -331,6 +331,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _memoryCleanupStatus = "Memory cleanup has not run yet.";
     [ObservableProperty] private bool _autoSaveChats;
     [ObservableProperty] private string _browserCookieStatus = "";
+    [ObservableProperty] private BrowserCookieService.BrowserProfile? _cookieImportProfile;
+    [ObservableProperty] private string _cookieImportStatus = "";
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ImportBrowserCookiesCommand))]
+    private bool _isCookieImportInProgress;
+    [ObservableProperty] private bool _cookieImportSucceeded;
 
     // ── Language ──
     public ObservableCollection<string> LanguageOptions { get; } = new(
@@ -2263,6 +2269,47 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private void ImportBrowserCookiesAgain()
     {
         CookieImportDialogRequested?.Invoke();
+    }
+
+    private bool CanImportBrowserCookies(BrowserCookieService.BrowserProfile? profile)
+        => profile is not null && !IsCookieImportInProgress;
+
+    [RelayCommand(CanExecute = nameof(CanImportBrowserCookies))]
+    private async Task ImportBrowserCookiesAsync(BrowserCookieService.BrowserProfile? profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        CookieImportSucceeded = false;
+        IsCookieImportInProgress = true;
+        CookieImportStatus = "Importing cookies...";
+        try
+        {
+            var count = await BrowserService.ImportCookiesAsync(profile).WaitAsync(TimeSpan.FromSeconds(45));
+            if (count <= 0)
+            {
+                CookieImportStatus = "No cookies imported. Close the selected browser and try again.";
+                BrowserCookieStatus = CookieImportStatus;
+                return;
+            }
+
+            CookieImportStatus = $"Imported {count:N0} cookies!";
+            MarkCookiesImported();
+            await Task.Delay(1000);
+            CookieImportSucceeded = true;
+        }
+        catch (TimeoutException)
+        {
+            CookieImportStatus = "Cookie import timed out. Close the browser and try again.";
+            BrowserCookieStatus = CookieImportStatus;
+        }
+        catch (Exception ex)
+        {
+            CookieImportStatus = $"Error: {ex.Message}";
+            BrowserCookieStatus = CookieImportStatus;
+        }
+        finally
+        {
+            IsCookieImportInProgress = false;
+        }
     }
 
     public void MarkCookiesImported()

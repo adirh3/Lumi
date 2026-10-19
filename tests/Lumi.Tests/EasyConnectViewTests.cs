@@ -321,12 +321,12 @@ public sealed class EasyConnectViewTests
             try
             {
                 window.UpdateLayout();
-                var advanced = view.FindControl<Expander>("AdvancedByokSettings")!;
+                var advanced = view.FindSettingsControl<Expander>("AdvancedByokSettings")!;
                 Assert.False(advanced.IsExpanded);
                 vm.SearchQuery = "OpenRouter";
                 window.UpdateLayout();
-                Assert.True(view.FindControl<StrataSettingGroup>("AiAccountsGroup")!.IsVisible);
-                Assert.True(view.FindControl<StackPanel>("PageAI")!.IsVisible);
+                Assert.True(view.FindSettingsControl<StrataSettingGroup>("AiAccountsGroup")!.IsVisible);
+                Assert.True(view.FindSettingsControl<StackPanel>("PageAI")!.IsVisible);
                 vm.SearchQuery = "endpoints";
                 window.UpdateLayout();
                 Assert.True(advanced.IsExpanded);

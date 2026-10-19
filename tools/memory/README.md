@@ -71,8 +71,29 @@ text alive by itself. Every capture still reads the file, so external edits (eve
 size/timestamp) and historical revisions stay correct. `TranscriptBuilderToolGroupTests` includes
 the focused `FileSnapshots` checks.
 
+### Settings UI lifetime
+
+Settings creates only the selected page from a deferred control template. Switching pages
+releases the old controls; global search temporarily creates the other pages and releases
+them when the query is cleared. Leaving Settings disposes and drops the view rather than
+caching it or prewarming it on hover. Values, account/model drafts and cookie-import work
+remain owned by `SettingsViewModel`.
+
+Scale teardown commits the ViewModel's preview, not a slider that may not have initialized.
+An already-active search is initialized both on first load and when an attached view receives
+a replacement ViewModel.
+
+Unbind page data before removing it from the logical/visual tree. Clearing a binding can
+change a toggle's state and start a theme animation; doing that after detachment can leave
+the animation paused with references to the discarded tree.
+
+`SettingsPageLifetimeTests` checks selected-only construction, global search, retained
+ViewModel state and collection of released controls while their owners remain alive.
+Use the same working-profile chat/navigation workload before and after a lifetime change;
+reachable managed bytes, private commitment and resident RAM are separate measurements.
+
 ```powershell
-dotnet test tests\Lumi.Tests\Lumi.Tests.csproj --filter "FullyQualifiedName~ChatSurfaceEvictionLeakTests|FullyQualifiedName~SuggestionHistory"
+dotnet test tests\Lumi.Tests\Lumi.Tests.csproj --filter "FullyQualifiedName~ChatSurfaceEvictionLeakTests|FullyQualifiedName~SuggestionHistory|FullyQualifiedName~SettingsPageLifetimeTests"
 ```
 
 ## One-time setup

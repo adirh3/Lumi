@@ -523,14 +523,15 @@ public partial class MainWindow : Window
         base.OnClosing(e);
     }
 
-#if !WINDOWS
     protected override void OnClosed(EventArgs e)
     {
+        ReleaseSettingsView();
+#if !WINDOWS
         // Closing to the tray is cancelled in OnClosing and must keep its host registered.
         BrowserService.UnregisterHostLayer(this);
+#endif
         base.OnClosed(e);
     }
-#endif
 
     protected virtual IReadOnlyList<Window> GetDesktopWindows()
     {
@@ -1268,6 +1269,8 @@ public partial class MainWindow : Window
 
     private void ShowPage(int index)
     {
+        if (index != 7)
+            ReleaseSettingsView();
         EnsurePageViewLoaded(index);
 
         var sectionChanged = _currentShellIndex != index;
@@ -1722,7 +1725,7 @@ public partial class MainWindow : Window
             if (index > 0 && DataContext is MainViewModel hovered)
             {
                 var page = PageForNavButton(hovered, index);
-                if (page >= 0)
+                if (page >= 0 && page != 7)
                     Dispatcher.UIThread.Post(() => EnsurePageViewLoaded(page), DispatcherPriority.Background);
             }
         }, DispatcherPriority.Input);
@@ -3327,6 +3330,16 @@ public partial class MainWindow : Window
 
     /// <summary>Whether the browser panel is currently visible.</summary>
     private bool IsBrowserOpen => _chatWorkspace?.IsBrowserOpen == true;
+
+    private void ReleaseSettingsView()
+    {
+        if (_settingsView is not { } view)
+            return;
+        _settingsView = null;
+        view.Dispose();
+        if (_settingsHost is not null)
+            _settingsHost.Content = null;
+    }
 
     private void EnsurePageViewLoaded(int index)
     {
