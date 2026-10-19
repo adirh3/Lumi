@@ -84,6 +84,32 @@ public sealed class MainWindowTrayBehaviorTests
         Assert.True(detachedChatStayedOpen);
     }
 
+    [Theory]
+    [InlineData(WindowCloseReason.ApplicationShutdown)]
+    [InlineData(WindowCloseReason.OSShutdown)]
+    public async Task ShutdownIsNotCancelledByMinimizeToTray(WindowCloseReason reason)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var testWindow = new TestMainWindow();
+            var (window, viewModel) = CreateWindow(minimizeToTray: true, testWindow);
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                var closing = testWindow.RaiseClosing(reason);
+
+                Assert.False(closing.Cancel);
+                Assert.True(viewModel.SettingsVM.MinimizeToTray);
+            }
+            finally
+            {
+                CloseWindow(window, viewModel);
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task TraySetting_DoesNotHideWindowWhenMinimized()
     {
@@ -224,6 +250,70 @@ public sealed class MainWindowTrayBehaviorTests
         }, CancellationToken.None);
     }
 
+    [Theory]
+    [InlineData(WindowState.Maximized, false)]
+    [InlineData(WindowState.FullScreen, false)]
+    [InlineData(WindowState.Maximized, true)]
+    [InlineData(WindowState.FullScreen, true)]
+    public async Task ReopenKeepsTheExistingWindowState(WindowState state, bool hideFirst)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var (window, viewModel) = CreateWindow(minimizeToTray: true);
+            var app = CreateAppWithWindow(window);
+            window.Show();
+            try
+            {
+                window.WindowState = state;
+                await PumpAsync();
+                if (hideFirst)
+                {
+                    window.Close();
+                    await PumpAsync();
+                    Assert.False(window.IsVisible);
+                }
+                Activate(app, ActivationKind.Reopen);
+                await PumpAsync();
+
+                Assert.True(window.IsVisible);
+                Assert.Equal(state, window.WindowState);
+            }
+            finally
+            {
+                CloseWindow(window, viewModel);
+            }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(WindowState.Maximized, WindowState.Maximized)]
+    [InlineData(WindowState.FullScreen, WindowState.FullScreen)]
+    [InlineData(WindowState.Minimized, WindowState.Normal)]
+    public async Task FocusingDetachedChatRestoresOnlyMinimizedWindows(
+        WindowState state, WindowState expectedState)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var window = new ChatWindow();
+            window.Show();
+            try
+            {
+                window.WindowState = state;
+                await PumpAsync();
+                typeof(App).GetMethod("FocusChatWindow", BindingFlags.Static | BindingFlags.NonPublic)!
+                    .Invoke(null, [window]);
+                await PumpAsync();
+                Assert.Equal(expectedState, window.WindowState);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     private static App CreateAppWithWindow(MainWindow window)
     {
         var app = new App();
@@ -287,5 +377,17 @@ public sealed class MainWindowTrayBehaviorTests
         public IReadOnlyList<Window> DesktopWindows { get; set; } = [];
 
         protected override IReadOnlyList<Window> GetDesktopWindows() => DesktopWindows;
+
+        public WindowClosingEventArgs RaiseClosing(WindowCloseReason reason)
+        {
+            var args = (WindowClosingEventArgs)Activator.CreateInstance(
+                typeof(WindowClosingEventArgs),
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                args: [reason, false],
+                culture: null)!;
+            OnClosing(args);
+            return args;
+        }
     }
 }

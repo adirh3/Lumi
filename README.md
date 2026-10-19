@@ -22,7 +22,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions; review and edit them in Settings → Memories
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
-- **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat and draft.
+- **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
 - **Inline images** — Local and online images render directly in chat. Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback

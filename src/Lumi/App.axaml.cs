@@ -917,7 +917,8 @@ public partial class App : Application
     {
         window.Show();
         window.ShowInTaskbar = true;
-        window.WindowState = WindowState.Normal;
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
         window.Activate();
 
         if (window.DataContext is MainViewModel vm && vm.SelectedNavIndex == 0)
@@ -1187,7 +1188,8 @@ public partial class App : Application
     {
         window.Show();
         window.ShowInTaskbar = true;
-        window.WindowState = WindowState.Normal;
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
         window.Activate();
         window.FocusComposer();
     }

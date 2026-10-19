@@ -504,8 +504,9 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
-        // If tray behavior is enabled, hide instead of closing.
-        if (IsPrimaryWindow && DataContext is MainViewModel vm && vm.SettingsVM.MinimizeToTray)
+        // Shutdown has already disposed services and must not leave a hidden, unusable app.
+        if (e.CloseReason is not (WindowCloseReason.ApplicationShutdown or WindowCloseReason.OSShutdown)
+            && IsPrimaryWindow && DataContext is MainViewModel vm && vm.SettingsVM.MinimizeToTray)
         {
             e.Cancel = true;
             HideToTray();
