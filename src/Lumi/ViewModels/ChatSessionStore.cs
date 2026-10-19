@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,6 +48,8 @@ public sealed class ChatSessionStore : IDisposable
     private readonly HashSet<ChatViewModel> _surfaces = [];
     private readonly LinkedList<ChatViewModel> _idleSurfacesLru = new();
     private readonly SemaphoreSlim _acquireChatLock = new(1, 1);
+    private readonly Dictionary<Guid, object> _pendingMessageReleases = [];
+    private Task _evictedMessagesRelease = Task.CompletedTask;
     private bool _isDisposed;
 
     public ChatSessionStore(
@@ -151,6 +155,7 @@ public sealed class ChatSessionStore : IDisposable
         try
         {
             ThrowIfDisposed();
+            _pendingMessageReleases.Remove(chat.Id);
 
             if (!_sessionsByChatId.TryGetValue(chat.Id, out var surface))
             {
@@ -297,6 +302,7 @@ public sealed class ChatSessionStore : IDisposable
             _capabilityCatalog.Dispose();
         foreach (var surface in _surfaces.ToArray())
             UntrackSurface(surface, dispose: true);
+        _pendingMessageReleases.Clear();
         lock (_mcpProxyReleaseGate)
             _mcpProxyReleaseTasks.Clear();
         _orchestrationService.Dispose();
@@ -382,10 +388,11 @@ public sealed class ChatSessionStore : IDisposable
             RegisterChatOwner(surface, chat.Id);
     }
 
-    private void UntrackSurface(ChatViewModel surface, bool dispose)
+    private void UntrackSurface(ChatViewModel surface, bool dispose, bool releaseMessages = false)
     {
         if (!_surfaces.Remove(surface))
             return;
+        var chat = surface.CurrentChat;
         surface.PropertyChanged -= OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged -= OnSurfaceFeatureManagementStateChanged;
         surface.FeatureCatalogChanged -= OnSurfaceFeatureCatalogChanged;
@@ -397,7 +404,60 @@ public sealed class ChatSessionStore : IDisposable
         if (dispose)
             surface.Dispose();
         surface.McpProxyReleaseStarted -= OnMcpProxyReleaseStarted;
+
+        if (releaseMessages && chat is not null)
+        {
+            var release = new object();
+            _pendingMessageReleases[chat.Id] = release;
+            _evictedMessagesRelease = PersistAndUnloadEvictedMessagesAsync(chat, release, _evictedMessagesRelease);
+        }
     }
+
+    private async Task PersistAndUnloadEvictedMessagesAsync(Chat chat, object release, Task previousRelease)
+    {
+        try
+        {
+            // Navigation can outrun disk writes. Clone only one evicted history at a time.
+            await previousRelease;
+            if (!CanUnloadEvictedMessages(chat, release)
+                || !_dataStore.Data.Settings.AutoSaveChats
+                || chat.Messages.Count == 0
+                || !_dataStore.UsesPersistentStorage)
+                return;
+
+            var messageCount = chat.Messages.Count;
+            await _dataStore.SaveChatAsync(chat);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // Reopening invalidates this attempt even if the new owner has already left again.
+                if (!CanUnloadEvictedMessages(chat, release)
+                    || !_dataStore.Data.Settings.AutoSaveChats
+                    || chat.Messages.Count != messageCount
+                    || !_dataStore.HasStoredMessages(chat.Id))
+                    return;
+
+                chat.MessageCount = messageCount;
+                chat.Messages.Clear();
+                chat.Messages.TrimExcess();
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            Trace.TraceWarning("[Chat] Could not persist evicted chat {0}; keeping its messages in memory: {1}", chat.Id, ex);
+        }
+        finally
+        {
+            if (ReferenceEquals(_pendingMessageReleases.GetValueOrDefault(chat.Id), release))
+                _pendingMessageReleases.Remove(chat.Id);
+        }
+    }
+
+    private bool CanUnloadEvictedMessages(Chat chat, object release)
+        => !_isDisposed
+           && ReferenceEquals(_pendingMessageReleases.GetValueOrDefault(chat.Id), release)
+           && _dataStore.Data.Chats.Contains(chat)
+           && !_sessionsByChatId.ContainsKey(chat.Id)
+           && !_surfaces.Any(surface => surface.CurrentChat?.Id == chat.Id || surface.OwnsLiveChat(chat.Id));
 
     private void OnSurfaceFeatureManagementStateChanged() => SurfaceFeatureManagementStateChanged?.Invoke();
 
@@ -507,7 +567,7 @@ public sealed class ChatSessionStore : IDisposable
             return;
         }
 
-        UntrackSurface(surface, dispose: true);
+        UntrackSurface(surface, dispose: true, releaseMessages: true);
     }
 
     private bool CanCacheIdleSurface(ChatViewModel surface)
@@ -540,7 +600,7 @@ public sealed class ChatSessionStore : IDisposable
                 continue;
             }
 
-            UntrackSurface(surface, dispose: true);
+            UntrackSurface(surface, dispose: true, releaseMessages: true);
         }
     }
 

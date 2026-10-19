@@ -31,12 +31,7 @@ namespace Lumi.ViewModels;
 
 public partial class ChatViewModel : ObservableObject, IDisposable
 {
-    private const int SuggestionHistoryScanLimit = 1000;
     private const int SuggestionFrequentRequestMaxItems = 8;
-    /// <summary>How long a computed user-prompt-history snapshot stays usable before a background refresh.
-    /// The frequent-requests block is a slowly-changing, low-priority aggregate, so serving a slightly
-    /// stale snapshot keeps suggestion latency to just the model call instead of a full cross-chat scan.</summary>
-    private static readonly TimeSpan SuggestionHistoryCacheTtl = TimeSpan.FromMinutes(2);
     private static readonly HttpClient McpDiagnosticsHttp = new()
     {
         Timeout = TimeSpan.FromSeconds(5)
@@ -1007,17 +1002,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly HashSet<Guid> _pendingWorktreeCreations = [];
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
-    /// <summary>Cached cross-chat user-prompt history for the suggestion "frequent requests" block.
-    /// Reused across turns and refreshed in the background so suggestion generation rarely pays the
-    /// cross-chat disk scan. Reference assignment is atomic; staleness is bounded by <see cref="SuggestionHistoryCacheTtl"/>.</summary>
-    private volatile IReadOnlyList<UserPromptHistoryItem>? _cachedUserPromptHistory;
-    /// <summary>UTC ticks of the last history snapshot. Stored as a <see cref="long"/> accessed via
-    /// <see cref="Interlocked"/> so the suggestion thread and background-refresh thread read/write it
-    /// atomically (a 16-byte <see cref="DateTimeOffset"/> struct can tear across threads).</summary>
-    private long _cachedUserPromptHistoryAtTicks = DateTimeOffset.MinValue.UtcTicks;
-    /// <summary>0/1 guard ensuring at most one background history refresh runs at a time.</summary>
-    private int _userPromptHistoryRefreshing;
-
     private sealed record ComposerEditSnapshot(
         string PromptText,
         List<string> PendingAttachments,
@@ -6548,7 +6532,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Guid? latestUserMessageId,
         IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
     {
-        var userPromptHistory = await GetUserPromptHistoryCachedAsync(loadedMessageSnapshots);
+        var userPromptHistory = await _dataStore.GetSuggestionHistoryAsync(loadedMessageSnapshots);
 
         var historyItems = userPromptHistory
             .Where(item => item.MessageId != latestUserMessageId);
@@ -6557,59 +6541,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return SuggestionHistoryRanker.BuildFrequentRequestsBlock(
             historyItems,
             SuggestionFrequentRequestMaxItems);
-    }
-
-    /// <summary>Returns the cross-chat user-prompt history, served from cache when fresh. A stale
-    /// snapshot is returned immediately while a single background refresh updates it, so suggestion
-    /// generation only pays the disk scan on the very first call (cold cache).</summary>
-    private async Task<IReadOnlyList<UserPromptHistoryItem>> GetUserPromptHistoryCachedAsync(
-        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
-    {
-        var cached = _cachedUserPromptHistory;
-        if (cached is not null)
-        {
-            var ageTicks = DateTimeOffset.UtcNow.UtcTicks - Interlocked.Read(ref _cachedUserPromptHistoryAtTicks);
-            if (ageTicks >= SuggestionHistoryCacheTtl.Ticks)
-                QueueUserPromptHistoryRefresh(loadedMessageSnapshots);
-
-            return cached;
-        }
-
-        var history = await _dataStore.GetUserPromptHistoryAsync(
-            SuggestionHistoryScanLimit,
-            loadedMessageSnapshots);
-
-        _cachedUserPromptHistory = history;
-        Interlocked.Exchange(ref _cachedUserPromptHistoryAtTicks, DateTimeOffset.UtcNow.UtcTicks);
-        return history;
-    }
-
-    private void QueueUserPromptHistoryRefresh(
-        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
-    {
-        if (Interlocked.CompareExchange(ref _userPromptHistoryRefreshing, 1, 0) != 0)
-            return;
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var fresh = await _dataStore.GetUserPromptHistoryAsync(
-                    SuggestionHistoryScanLimit,
-                    loadedMessageSnapshots);
-
-                _cachedUserPromptHistory = fresh;
-                Interlocked.Exchange(ref _cachedUserPromptHistoryAtTicks, DateTimeOffset.UtcNow.UtcTicks);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[Lumi] Suggestion history refresh failed: {ex.Message}");
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _userPromptHistoryRefreshing, 0);
-            }
-        });
     }
 
     private sealed record SuggestionGenerationContext(

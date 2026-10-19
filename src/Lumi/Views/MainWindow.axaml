@@ -863,7 +863,7 @@
     <!-- Every project in the drawer can be set up from it. The open project keeps its gear in view;
          the others show theirs while hovered, so the list stays calm. Until a row is first hovered its
          gear is only an empty slot of the same size (see CreateProjectFilterRow). -->
-    <Style Selector=":is(Control).project-switcher-row-edit">
+    <Style Selector="Border.project-switcher-row-edit, Button.project-switcher-row-edit">
       <Setter Property="Width" Value="20" />
       <Setter Property="Height" Value="20" />
       <Setter Property="Margin" Value="4,0,0,0" />

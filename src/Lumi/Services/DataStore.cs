@@ -19,6 +19,8 @@ public sealed record UserPromptHistoryItem(
 
 public class DataStore
 {
+    internal const int SuggestionHistoryScanLimit = 1000;
+    private static readonly TimeSpan SuggestionHistoryCacheTtl = TimeSpan.FromMinutes(2);
     private static readonly string AppDir = Path.Combine(
         ResolveAppDataRoot(), "Lumi");
     private static readonly string DataFile = Path.Combine(AppDir, "data.json");
@@ -82,6 +84,11 @@ public class DataStore
     private readonly HashSet<Guid> _deletedChatFiles = [];
     private readonly object _chatSearchCacheSync = new();
     private readonly Dictionary<Guid, CachedChatSearchSnapshot> _chatSearchCache = [];
+    private readonly object _suggestionHistorySync = new();
+    private IReadOnlyList<UserPromptHistoryItem>? _suggestionHistory;
+    private DateTimeOffset _suggestionHistoryAt = DateTimeOffset.MinValue;
+    private Task<IReadOnlyList<UserPromptHistoryItem>>? _suggestionHistoryRefresh;
+    private int _suggestionHistoryGeneration;
     private readonly object _chatChangeSync = new();
     private readonly object _backgroundJobsSync = new();
     private readonly object _remoteSecuritySync = new();
@@ -709,6 +716,52 @@ public class DataStore
         }
     }
 
+    /// <summary>Shares the frequent-request history across chat surfaces; stale data is refreshed
+    /// once in the background. Rejected prompts never need to stay cached for the ranker.</summary>
+    internal Task<IReadOnlyList<UserPromptHistoryItem>> GetSuggestionHistoryAsync(
+        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
+    {
+        ArgumentNullException.ThrowIfNull(loadedMessageSnapshots);
+        lock (_suggestionHistorySync)
+        {
+            var cached = _suggestionHistory;
+            if (cached is not null && DateTimeOffset.UtcNow - _suggestionHistoryAt < SuggestionHistoryCacheTtl)
+                return Task.FromResult(cached);
+
+            var refresh = _suggestionHistoryRefresh;
+            if (refresh is null || refresh.IsCompleted)
+            {
+                var generation = _suggestionHistoryGeneration;
+                refresh = Task.Run(async () =>
+                {
+                    var history = await GetUserPromptHistoryAsync(
+                        SuggestionHistoryScanLimit, loadedMessageSnapshots).ConfigureAwait(false);
+                    IReadOnlyList<UserPromptHistoryItem> candidates = history
+                        .Where(static item => SuggestionHistoryRanker.IsCandidate(item.Content))
+                        .ToArray();
+                    lock (_suggestionHistorySync)
+                    {
+                        if (generation != _suggestionHistoryGeneration)
+                            return Array.Empty<UserPromptHistoryItem>();
+
+                        _suggestionHistory = candidates;
+                        _suggestionHistoryAt = DateTimeOffset.UtcNow;
+                    }
+
+                    return candidates;
+                });
+                _suggestionHistoryRefresh = refresh;
+                _ = refresh.ContinueWith(
+                    task => Trace.TraceWarning("[Chat] Suggestion history refresh failed: {0}", task.Exception),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
+
+            return cached is null ? refresh : Task.FromResult(cached);
+        }
+    }
+
     /// <summary>Returns recent user-authored prompts across chats for personalized follow-up suggestions.</summary>
     public async Task<IReadOnlyList<UserPromptHistoryItem>> GetUserPromptHistoryAsync(
         int maxMessages,
@@ -1138,6 +1191,13 @@ public class DataStore
     {
         lock (_chatSearchCacheSync)
             _chatSearchCache.Clear();
+        lock (_suggestionHistorySync)
+        {
+            _suggestionHistoryGeneration++;
+            _suggestionHistory = null;
+            _suggestionHistoryRefresh = null;
+            _suggestionHistoryAt = DateTimeOffset.MinValue;
+        }
 
         if (_usesPersistentStorage && Directory.Exists(ChatsDir))
         {

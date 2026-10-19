@@ -49,6 +49,26 @@ Eviction/replacement scenarios enforce enough work to produce expected-dead refe
 smaller `-ActionsPerCycle` value is requested, and fail rather than reporting a vacuous pass if the
 target controls were not realized.
 
+### Persisted chat data and shared history
+
+The synthetic harness keeps autosave off, so its surface checks do not establish that persisted
+message models unload. `ChatSurfaceEvictionLeakTests` also exercises disk-backed eviction: a cold,
+unhosted chat is saved before its message list is released, and reopening restores the same history.
+Save failures, disabled autosave, attached background work and reacquisition during a pending save
+must keep the models alive. Eviction saves run one at a time so rapid navigation cannot queue full
+clones of every old history at once. In-memory stores never discard their only copy.
+Reopening also invalidates an older eviction attempt if the chat is evicted again before that
+attempt finishes, so unchanged message counts cannot hide newer edits.
+
+Suggestion history is shared by the data store instead of cached once per chat surface. It keeps
+only prompts the existing frequent-request ranker can use; the authoritative chat history remains
+unchanged. `SuggestionHistoryTests` checks sharing, refresh, clearing and collection of rejected
+large payloads. Clearing chats invalidates both the cache and any in-flight pre-clear result.
+
+```powershell
+dotnet test tests\Lumi.Tests\Lumi.Tests.csproj --filter "FullyQualifiedName~ChatSurfaceEvictionLeakTests|FullyQualifiedName~SuggestionHistory"
+```
+
 ## One-time setup
 
 ```powershell

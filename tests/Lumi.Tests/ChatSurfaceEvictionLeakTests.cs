@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +30,284 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatSurfaceEvictionLeakTests
 {
+    [Fact]
+    public async Task EvictedPersistedChat_UnloadsMessageModels_AndReloadsUnchangedHistory()
+    {
+        using var session = HeadlessTestSession.Start();
+        DataStore dataStore = null!;
+        Chat chat = null!;
+        ChatSurfaceRegistry registry = null!;
+        ChatSessionStore store = null!;
+        WeakReference[] weakMessages = [];
+        Guid[] expectedIds = [];
+        string[] expectedContent = [];
+        await session.Dispatch(async () =>
+        {
+            dataStore = new DataStore();
+            dataStore.Data.Settings.AutoSaveChats = true;
+            chat = CreateChat("persisted eviction", messageCount: 60);
+            chat.Messages[0].Content = new string('x', 200_000);
+            expectedIds = chat.Messages.Select(message => message.Id).ToArray();
+            expectedContent = chat.Messages.Select(message => message.Content).ToArray();
+            dataStore.Data.Chats.Add(chat);
+            await dataStore.SaveChatAsync(chat);
+            registry = new ChatSurfaceRegistry();
+            store = new ChatSessionStore(
+                dataStore, TestCopilot.Shared, registry, LoadPersistedTranscript,
+                maxIdleCachedSurfaces: 0);
+
+            weakMessages = await OpenAndEvictPersistedChatAsync(store, chat);
+            await WaitForMessageUnloadAsync(chat);
+            Assert.Equal(expectedIds.Length, chat.MessageCount);
+            Assert.Equal(0, chat.Messages.Capacity);
+        }, CancellationToken.None);
+
+        await DrainUntilCollectedAsync(session, () => weakMessages.All(reference => !reference.IsAlive));
+        Assert.All(weakMessages, reference => Assert.False(reference.IsAlive));
+        await session.Dispatch(async () =>
+        {
+            var reloaded = await store.AcquireChatAsync(chat);
+            Assert.Equal(expectedIds, chat.Messages.Select(message => message.Id));
+            Assert.Equal(expectedContent, chat.Messages.Select(message => message.Content));
+            Assert.Equal(expectedIds.Length, reloaded.Messages.Count);
+            store.Dispose();
+            registry.Dispose();
+        }, CancellationToken.None);
+        GC.KeepAlive(dataStore);
+    }
+
+    [Fact]
+    public async Task EvictedChat_WithAutoSaveDisabled_KeepsUnsavedModels()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var dataStore = new DataStore();
+            dataStore.Data.Settings.AutoSaveChats = false;
+            var chat = CreateChat("unsaved eviction", messageCount: 2);
+            dataStore.Data.Chats.Add(chat);
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(
+                dataStore, TestCopilot.Shared, registry, LoadTranscript,
+                maxIdleCachedSurfaces: 0);
+
+            var surface = await store.AcquireChatAsync(chat);
+            store.Release(surface);
+            await Task.Yield();
+
+            Assert.Equal(2, chat.Messages.Count);
+            Assert.False(dataStore.HasStoredMessages(chat.Id));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task HostedOrActiveChat_IsNotUnloadedWhenIdleCacheIsDisabled()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var dataStore = new DataStore();
+            dataStore.Data.Settings.AutoSaveChats = true;
+            var chat = CreateChat("active eviction", messageCount: 2);
+            dataStore.Data.Chats.Add(chat);
+            await dataStore.SaveChatAsync(chat);
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(
+                dataStore, TestCopilot.Shared, registry, LoadTranscript,
+                maxIdleCachedSurfaces: 0);
+
+            var surface = await store.AcquireChatAsync(chat);
+            store.Retain(surface);
+            store.Release(surface);
+            Assert.Equal(2, chat.Messages.Count);
+            Assert.Contains(surface, store.SnapshotSurfaces());
+
+            var runtime = new ChatRuntimeState { Chat = chat, HasPendingBackgroundWork = true };
+            var runtimes = (Dictionary<Guid, ChatRuntimeState>)typeof(ChatViewModel)
+                .GetField("_runtimeStates", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(surface)!;
+            runtimes[chat.Id] = runtime;
+            store.Release(surface);
+            await Task.Yield();
+            Assert.Equal(2, chat.Messages.Count);
+            Assert.Contains(surface, store.SnapshotSurfaces());
+            runtime.HasPendingBackgroundWork = false;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task EvictedChat_FailedSave_KeepsModelsAndExistingFile()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var dataStore = new DataStore();
+            dataStore.Data.Settings.AutoSaveChats = true;
+            var chat = CreateChat("failed eviction", messageCount: 2);
+            dataStore.Data.Chats.Add(chat);
+            await dataStore.SaveChatAsync(chat);
+            var path = Path.Combine(DataStore.ChatsDir, $"{chat.Id}.json");
+            var originalFile = await File.ReadAllBytesAsync(path);
+            chat.Messages[0].Content = "Unsaved changes must survive the failed eviction save.";
+            using var fileLock = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(
+                dataStore, TestCopilot.Shared, registry, LoadTranscript,
+                maxIdleCachedSurfaces: 0);
+
+            var surface = await store.AcquireChatAsync(chat);
+            store.Release(surface);
+            await Task.Yield();
+
+            Assert.Equal(2, chat.Messages.Count);
+            Assert.Equal("Unsaved changes must survive the failed eviction save.", chat.Messages[0].Content);
+            Assert.Equal(originalFile, await File.ReadAllBytesAsync(path));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task EvictedChat_ReacquiredDuringSave_DoesNotUnloadNewOwner()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var dataStore = new DataStore();
+            dataStore.Data.Settings.AutoSaveChats = true;
+            var chat = CreateChat("reacquired eviction", messageCount: 2);
+            dataStore.Data.Chats.Add(chat);
+            await dataStore.SaveChatAsync(chat);
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(
+                dataStore, TestCopilot.Shared, registry, LoadTranscript,
+                maxIdleCachedSurfaces: 0);
+            var writeLock = (SemaphoreSlim)typeof(DataStore)
+                .GetField("_writeLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(dataStore)!;
+            var saved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            dataStore.ChatContentChanged += id =>
+            {
+                if (id == chat.Id)
+                    saved.TrySetResult();
+            };
+
+            var surface = await store.AcquireChatAsync(chat);
+            await writeLock.WaitAsync();
+            ChatViewModel replacement;
+            try
+            {
+                store.Release(surface);
+                replacement = await store.AcquireChatAsync(chat);
+                chat.Messages[0].Content = "Edited by the new owner while the old save was pending.";
+            }
+            finally
+            {
+                writeLock.Release();
+            }
+
+            await saved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+                static () => { }, Avalonia.Threading.DispatcherPriority.Background);
+            Assert.Equal(2, chat.Messages.Count);
+            Assert.Equal("Edited by the new owner while the old save was pending.", chat.Messages[0].Content);
+            Assert.Contains(replacement, store.SnapshotSurfaces());
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task EvictedChat_ReacquiredAndEvictedDuringSave_PreservesNewChanges()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var dataStore = new DataStore();
+            dataStore.Data.Settings.AutoSaveChats = true;
+            var chat = CreateChat("reopened and evicted", messageCount: 2);
+            dataStore.Data.Chats.Add(chat);
+            await dataStore.SaveChatAsync(chat);
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(
+                dataStore, TestCopilot.Shared, registry, LoadTranscript,
+                maxIdleCachedSurfaces: 0);
+            var writeLock = (SemaphoreSlim)typeof(DataStore)
+                .GetField("_writeLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(dataStore)!;
+
+            var firstOwner = await store.AcquireChatAsync(chat);
+            await writeLock.WaitAsync();
+            try
+            {
+                store.Release(firstOwner);
+                var newOwner = await store.AcquireChatAsync(chat);
+                chat.Messages[0].Content = "Changes from the reopened owner must be persisted.";
+                store.Release(newOwner);
+            }
+            finally
+            {
+                writeLock.Release();
+            }
+
+            var release = (Task)typeof(ChatSessionStore)
+                .GetField("_evictedMessagesRelease", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(store)!;
+            await release.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Empty(chat.Messages);
+            var history = await dataStore.ReadChatMessagesAsync(chat);
+            Assert.Equal(2, history.Count);
+            Assert.Equal("Changes from the reopened owner must be persisted.", history[0].Content);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task EvictedChats_SaveOneHistoryAtATime_AndSkipReacquiredQueuedChat()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var dataStore = new DataStore();
+            dataStore.Data.Settings.AutoSaveChats = true;
+            var first = CreateChat("first queued eviction", messageCount: 2);
+            var second = CreateChat("second queued eviction", messageCount: 2);
+            dataStore.Data.Chats.AddRange([first, second]);
+            await dataStore.SaveChatAsync(first);
+            await dataStore.SaveChatAsync(second);
+            var secondSaveCount = 0;
+            dataStore.ChatContentChanged += id =>
+            {
+                if (id == second.Id)
+                    Interlocked.Increment(ref secondSaveCount);
+            };
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(
+                dataStore, TestCopilot.Shared, registry, LoadTranscript,
+                maxIdleCachedSurfaces: 0);
+            var writeLock = (SemaphoreSlim)typeof(DataStore)
+                .GetField("_writeLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(dataStore)!;
+
+            await writeLock.WaitAsync();
+            try
+            {
+                store.Release(await store.AcquireChatAsync(first));
+                store.Release(await store.AcquireChatAsync(second));
+                await store.AcquireChatAsync(second);
+                second.Messages[0].Content = "New owner; the queued eviction must not save or unload it.";
+            }
+            finally
+            {
+                writeLock.Release();
+            }
+
+            var release = (Task)typeof(ChatSessionStore)
+                .GetField("_evictedMessagesRelease", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(store)!;
+            await release.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Empty(first.Messages);
+            Assert.Equal(0, secondSaveCount);
+            Assert.Equal(2, second.Messages.Count);
+            Assert.Equal("New owner; the queued eviction must not save or unload it.", second.Messages[0].Content);
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task EvictedChatSurface_AndItsTranscriptGraph_AreGarbageCollected()
     {
@@ -216,6 +496,24 @@ public sealed class ChatSurfaceEvictionLeakTests
             surface.Messages.Add(new ChatMessageViewModel(message));
         surface.RebuildTranscript();
         return Task.CompletedTask;
+    }
+
+    private static Task LoadPersistedTranscript(ChatViewModel surface, Chat chat) => surface.LoadChatAsync(chat);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static async Task<WeakReference[]> OpenAndEvictPersistedChatAsync(ChatSessionStore store, Chat chat)
+    {
+        var surface = await store.AcquireChatAsync(chat);
+        var references = chat.Messages.Select(message => new WeakReference(message)).ToArray();
+        store.Release(surface);
+        return references;
+    }
+
+    private static async Task WaitForMessageUnloadAsync(Chat chat)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (chat.Messages.Count > 0)
+            await Task.Delay(10, timeout.Token);
     }
 
     private static Chat CreateChat(string title, int messageCount)

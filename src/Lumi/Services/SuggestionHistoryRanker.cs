@@ -106,6 +106,8 @@ public static class SuggestionHistoryRanker
         int minOccurrences = DefaultMinOccurrences)
         => RenderFrequentRequests(RankFrequentRequests(historyItems, maxItems, minOccurrences));
 
+    internal static bool IsCandidate(string content) => NormalizeForGrouping(content) is not null;
+
     /// <summary>
     /// Normalises a prompt for grouping/dedup, or returns <c>null</c> if it is noise that must never be
     /// surfaced (system triggers, trivial replies, or text that is too short or too long to be a chip).
