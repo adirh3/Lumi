@@ -544,6 +544,7 @@
     <!-- Stretch + MaxWidth keeps the palette a fixed 640px wide so it never resizes while typing,
          while still shrinking gracefully on narrow windows. -->
     <Panel x:Name="CardHost"
+           TextOptions.TextRenderingMode="Antialias"
            Height="520"
            MaxWidth="640"
            HorizontalAlignment="Stretch"

@@ -273,8 +273,15 @@ The translucent navigation pill floats over a softly fading backdrop blur, like 
 composer. Chats scroll underneath it, with enough space at the end to bring the last chat
 fully above the navigation.
 
-The chat sidebar uses grayscale text antialiasing to avoid dark or colored fringes over its transparent
-background. Chip and selection fills still provide contrast independently of text rendering.
+Grayscale text antialiasing is scoped to exposed and floating glass surfaces: every sidebar section,
+the navigation bar and collapsed rail, the chat header and composer, follow-up chips and the paused bar,
+the search palette, and glass title/composer pickers. Glass popup content opts in itself, whether hosted
+in the window's overlay or a native popup. The window roots, chat island/transcript body, workspace,
+opaque management pages and ordinary opaque popups keep their renderer defaults; switching to a solid
+window material does not force grayscale onto those areas.
+This changes only glyph smoothing, not font hinting, baseline alignment or text layout. Grayscale can
+look slightly softer than LCD subpixel antialiasing at small sizes on low-DPI displays, so it is not a
+window-wide default. Chip and selection fills still provide contrast independently of text rendering.
 
 - **Projects** keep related chats together. The project switcher at the top of the chat list narrows
   the list to a project, shown by its initial in its own color; while it shows every chat it says how

@@ -61,7 +61,7 @@
       <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
       <Setter Property="Template">
         <ControlTemplate>
-          <Panel Margin="16">
+          <Panel Margin="16" TextOptions.TextRenderingMode="Antialias">
             <sc:StrataBackdropBlur CornerRadius="{TemplateBinding CornerRadius}" BlurRadius="28" Saturation="1.5" />
             <Border Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
@@ -196,7 +196,7 @@
                    IsLightDismissEnabled="False"
                    IsOpen="{TemplateBinding IsSubMenuOpen, Mode=TwoWay}"
                    st:PopupAnimationHelper.EnableOverlayAnimation="True">
-              <Panel Margin="16" MinWidth="200" MaxWidth="300">
+              <Panel Margin="16" MinWidth="200" MaxWidth="300" TextOptions.TextRenderingMode="Antialias">
                 <sc:StrataBackdropBlur CornerRadius="14" BlurRadius="28" Saturation="1.5" />
                 <Border Background="{StaticResource ChatHeader.MenuFill}"
                         BorderBrush="{StaticResource ChatHeader.PillBorder}"
@@ -3005,7 +3005,8 @@
           <!-- Floating glass header: pills anchored to the island's edges over a transcript that runs
                underneath. The veil frosts only while history is behind it. That Lumi is working shows
                in one place, the composer's send button, which also stops it. -->
-          <Panel x:Name="ChatHeaderLayer" Classes.busy="{Binding IsBusy}">
+          <Panel x:Name="ChatHeaderLayer" Classes.busy="{Binding IsBusy}"
+                 TextOptions.TextRenderingMode="Antialias">
             <!-- Full frost behind the pills, then a fade, so history never reads crisply beneath them. -->
             <Panel x:Name="HeaderEdgeMaterial"
                    VerticalAlignment="Top"
@@ -3433,6 +3434,7 @@
       <!-- Follow-up suggestions: one row that never wraps. When the three don't fit, the longest trim,
            and only a trimmed chip offers its full text in a tip. -->
       <lc:FitRowPanel x:Name="SuggestionChipsRow"
+                      TextOptions.TextRenderingMode="Antialias"
                       Spacing="8"
                       Margin="4,0,4,8"
                       IsVisible="{Binding HasSuggestions}">
@@ -4120,6 +4122,7 @@
 
       <!-- Paused: the chat holds where it stopped, its draft kept in the composer below. -->
       <Border x:Name="ChatPauseStatusPanel"
+              TextOptions.TextRenderingMode="Antialias"
               Classes="pause-bar"
               Classes.pending="{Binding IsPausePending}"
               Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
@@ -4171,6 +4174,7 @@
 
       <sc:StrataChatComposer x:Name="Composer"
                              Classes="glass"
+                             TextOptions.TextRenderingMode="Antialias"
                              Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
                              Classes.frosted="{Binding #ChatShell.IsContentUnderComposer}"
                              Placeholder="{Binding ComposerPlaceholder}"

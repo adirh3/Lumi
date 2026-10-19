@@ -1419,7 +1419,8 @@
     <DockPanel x:Name="MainPanel" IsVisible="False">
 
       <!-- ═══ ALWAYS-VISIBLE LEFT SIDEBAR ═══ -->
-      <Border x:Name="SidebarBorder" DockPanel.Dock="Left" Width="280" ClipToBounds="True">
+      <Border x:Name="SidebarBorder" DockPanel.Dock="Left" Width="280" ClipToBounds="True"
+              TextOptions.TextRenderingMode="Antialias">
         <Panel>
         <DockPanel>
 
@@ -1542,8 +1543,7 @@
           <Panel>
 
           <!-- ── 0: Chat sidebar ── -->
-          <!-- Grayscale antialiasing keeps glyph edges alpha-correct over the transparent sidebar. -->
-          <Panel x:Name="SidebarChat" TextOptions.TextRenderingMode="Antialias">
+          <Panel x:Name="SidebarChat">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0" LastChildFill="True">
                 <Button DockPanel.Dock="Right"
@@ -3295,6 +3295,7 @@
 
     <!-- ═══ Collapsed icon rail: quick nav shown in place of the hidden sidebar ═══ -->
     <StackPanel x:Name="SidebarRail"
+                TextOptions.TextRenderingMode="Antialias"
                 Classes.motion-disabled="{Binding !SettingsVM.ShowAnimations}"
                 Orientation="Vertical"
                 Spacing="3"
