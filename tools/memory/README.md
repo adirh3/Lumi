@@ -65,6 +65,12 @@ only prompts the existing frequent-request ranker can use; the authoritative cha
 unchanged. `SuggestionHistoryTests` checks sharing, refresh, clearing and collection of rejected
 large payloads. Clearing chats invalidates both the cache and any in-flight pre-clear result.
 
+Live file-diff snapshots share an identical last-read revision between tool rows, summaries and
+later edits. The lookup holds weak references and resets with the transcript; it cannot keep file
+text alive by itself. Every capture still reads the file, so external edits (even with unchanged
+size/timestamp) and historical revisions stay correct. `TranscriptBuilderToolGroupTests` includes
+the focused `FileSnapshots` checks.
+
 ```powershell
 dotnet test tests\Lumi.Tests\Lumi.Tests.csproj --filter "FullyQualifiedName~ChatSurfaceEvictionLeakTests|FullyQualifiedName~SuggestionHistory"
 ```

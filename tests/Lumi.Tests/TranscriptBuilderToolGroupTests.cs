@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -1183,6 +1184,108 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.Equal(1, change.LinesAdded);
         Assert.Equal(1, change.LinesRemoved);
     }
+
+    [Fact]
+    public void FileSnapshots_ShareUnchangedRevisionAcrossToolSummaryAndNextEdit()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), $"lumi-snapshots-{Guid.NewGuid():N}.txt");
+        var original = new string('x', 200_000) + "\nbefore";
+        var firstRevision = original.Replace("before", "middle", StringComparison.Ordinal);
+        var secondRevision = original.Replace("before", "after!", StringComparison.Ordinal);
+        File.WriteAllText(filePath, original);
+        try
+        {
+            var builder = CreateBuilder();
+            var turns = new ObservableCollection<TranscriptTurn>();
+            builder.SetLiveTarget(turns);
+            var firstMessage = CreateToolVm("first-edit", "edit", "InProgress",
+                JsonSerializer.Serialize(new { filePath, oldString = "before", newString = "middle" }));
+            builder.ProcessMessageToTranscript(firstMessage);
+            var firstTool = turns.SelectMany(turn => turn.EnumerateItems())
+                .OfType<ToolGroupItem>().SelectMany(group => group.ToolCalls).OfType<ToolCallItem>().Single();
+            File.WriteAllText(filePath, firstRevision);
+            firstMessage.ToolStatus = "Completed";
+            builder.FlushPendingFileEdits();
+            var summary = turns.SelectMany(turn => turn.EnumerateItems())
+                .OfType<FileChangesSummaryItem>().Single();
+            Assert.Equal(original, firstTool.DiffOriginalContent);
+            Assert.Equal(firstRevision, firstTool.DiffCurrentContent);
+            Assert.Same(firstTool.DiffCurrentContent, Assert.Single(summary.FileChanges).CurrentContent);
+
+            var secondMessage = CreateToolVm("second-edit", "edit", "InProgress",
+                JsonSerializer.Serialize(new { filePath, oldString = "middle", newString = "after!" }));
+            builder.ProcessMessageToTranscript(secondMessage);
+            var secondTool = turns.SelectMany(turn => turn.EnumerateItems())
+                .OfType<ToolGroupItem>().SelectMany(group => group.ToolCalls).OfType<ToolCallItem>()
+                .Single(tool => tool.StableId == "tool:second-edit");
+            Assert.Same(firstTool.DiffCurrentContent, secondTool.DiffOriginalContent);
+            File.WriteAllText(filePath, secondRevision);
+            secondMessage.ToolStatus = "Completed";
+            Assert.Equal(secondRevision, secondTool.DiffCurrentContent);
+            Assert.Equal(firstRevision, firstTool.DiffCurrentContent);
+            Assert.Equal(original, firstTool.DiffOriginalContent);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public void FileSnapshots_ReadChangedContentEvenWhenLengthAndTimestampMatch()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), $"lumi-snapshots-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(filePath, "before");
+        try
+        {
+            var builder = CreateBuilder();
+            var timestamp = File.GetLastWriteTimeUtc(filePath);
+            var before = ReadFileSnapshot(builder, filePath);
+            File.WriteAllText(filePath, "after!");
+            File.SetLastWriteTimeUtc(filePath, timestamp);
+
+            var after = ReadFileSnapshot(builder, filePath);
+
+            Assert.Equal("before", before);
+            Assert.Equal("after!", after);
+            Assert.NotSame(before, after);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public void FileSnapshots_DoNotKeepUnownedFileTextAlive()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), $"lumi-snapshots-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(filePath, new string('x', 200_000));
+        try
+        {
+            var builder = CreateBuilder();
+            var snapshot = CaptureUnownedFileSnapshot(builder, filePath);
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+
+            Assert.False(snapshot.IsAlive);
+            GC.KeepAlive(builder);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    private static string? ReadFileSnapshot(TranscriptBuilder builder, string filePath)
+        => (string?)typeof(TranscriptBuilder)
+            .GetMethod("ReadFileContentOrEmpty", BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(builder, [filePath, true]);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference CaptureUnownedFileSnapshot(TranscriptBuilder builder, string filePath)
+        => new(ReadFileSnapshot(builder, filePath));
 
     [Fact]
     public void ProcessMessageToTranscript_WorkspaceFileChangedToolFlushesCreatedFileSummary()

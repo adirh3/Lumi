@@ -79,6 +79,7 @@ public class TranscriptBuilder
     public List<FileAttachmentItem> PendingToolFileChips => _fileChipTurn.Pending;
     public List<(string FilePath, string ToolName, string? OldText, string? NewText)> PendingFileEdits { get; } = [];
     private readonly Dictionary<string, string?> _pendingFileOriginalContents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, WeakReference<string>> _lastFileSnapshots = new(FilePathComparer);
     private readonly Dictionary<string, bool> _pendingWorkspaceFileChanges = new(StringComparer.OrdinalIgnoreCase);
     private IList<TranscriptTurn>? _rebuildTarget;
     public bool IsRebuildingTranscript { get; set; }
@@ -333,6 +334,7 @@ public class TranscriptBuilder
         PendingToolFileChips.Clear();
         PendingFileEdits.Clear();
         _pendingFileOriginalContents.Clear();
+        _lastFileSnapshots.Clear();
         _pendingWorkspaceFileChanges.Clear();
         ShownFileChips.Clear();
         _announcedFileTurns.Clear();
@@ -1797,12 +1799,28 @@ public class TranscriptBuilder
         _pendingWorkspaceFileChanges.Remove(filePath);
     }
 
-    private static string? ReadFileContentOrEmpty(string filePath, bool treatMissingAsEmpty = true)
+    private string? ReadFileContentOrEmpty(string filePath, bool treatMissingAsEmpty = true)
     {
         try
         {
             if (File.Exists(filePath))
-                return File.ReadAllText(filePath);
+            {
+                var content = File.ReadAllText(filePath);
+                if (_lastFileSnapshots.TryGetValue(filePath, out var snapshot))
+                {
+                    // Always reread the file; share only text that is still held by a transcript item.
+                    if (snapshot.TryGetTarget(out var existing)
+                        && string.Equals(existing, content, StringComparison.Ordinal))
+                        return existing;
+
+                    snapshot.SetTarget(content);
+                }
+                else
+                {
+                    _lastFileSnapshots[filePath] = new WeakReference<string>(content);
+                }
+                return content;
+            }
             return treatMissingAsEmpty ? string.Empty : null;
         }
         catch
