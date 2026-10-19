@@ -64,6 +64,12 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
+        // Avalonia draws in dp and never reads the phone's font size, so Lumi restates its type scale
+        // the way Android sizes its own text. A change of the setting recreates the activity, which
+        // comes back through here.
+        if (Avalonia.Application.Current is { } application)
+            MobileTypeScale.Apply(application, SpToDips);
+
         TryGetConnectionRequest(Intent, out var launchRequest);
 
         _nativeComposerEditorFactory =
@@ -82,6 +88,23 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
         base.OnCreate(savedInstanceState);
         if (launchRequest is not null)
             DispatchConnectionRequest(launchRequest);
+#if DEBUG
+        // Debug builds open the design preview on request (adb shell am start ... --ez lumi.design_preview
+        // true [--es lumi.theme Light]), so the design is judged on Android's own renderer without a PC.
+        if (Intent?.GetBooleanExtra("lumi.design_preview", false) == true)
+        {
+            var theme = Intent.GetStringExtra("lumi.theme");
+            Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+            {
+                if (Avalonia.Application.Current is not App { Shell: { } shell })
+                    return;
+                if (Enum.TryParse<Lumi.Mobile.ViewModels.MobileShellViewModel.ThemePreference>(
+                        theme, ignoreCase: true, out var preference))
+                    shell.Theme = preference;
+                DesignPreview.Apply(shell);
+            }, TimeSpan.FromSeconds(1));
+        }
+#endif
 
         _textSelectionPresenter = new AndroidTextSelectionPresenter(this);
         MobilePlatformServices.TextSelectionPresenter = _textSelectionPresenter;
@@ -222,6 +245,21 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
         Intent? intent,
         out MobileConnectionLaunchRequest? request) =>
         MobileConnectionLaunchRequest.TryParse(intent?.DataString, out request);
+
+    /// <summary>
+    /// A size in sp as dp, exactly as Android converts its own text: by the font size, and from Android
+    /// 14 growing large text less than small text.
+    /// </summary>
+    private double SpToDips(double sp)
+    {
+        var metrics = Resources?.DisplayMetrics;
+        if (metrics is null || !(metrics.Density > 0))
+            return sp;
+
+        return global::Android.Util.TypedValue.ApplyDimension(
+                   global::Android.Util.ComplexUnitType.Sp, (float)sp, metrics)
+               / metrics.Density;
+    }
 
     private static void DispatchConnectionRequest(
         MobileConnectionLaunchRequest request) =>

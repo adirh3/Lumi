@@ -328,7 +328,7 @@ public sealed class BackdropBlurRenderTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task DrawerControlsShowTheScrollingListRatherThanAFrostedBar(bool darkTheme)
+    public async Task DrawerHeaderDissolvesTheScrollingListBeneathItsControls(bool darkTheme)
     {
         using var session = HeadlessUnitTestSession.StartNew(
             typeof(MobileMotionRenderApp), AvaloniaTestIsolationLevel.PerTest);
@@ -358,30 +358,276 @@ public sealed class BackdropBlurRenderTests
                     scroll.Offset = new Vector(0, 160);
                     await PumpAsync(TimeSpan.FromMilliseconds(400));
 
-                    var controls = new[] { "DrawerSearchButton", "DrawerCloseButton", "DrawerProjectButton", "DrawerAccountButton" };
-                    var samples = controls.Select(name =>
-                    {
-                        var button = drawer.FindControl<Button>(name)!;
-                        var surface = button.GetVisualDescendants().OfType<Border>()
-                            .Single(border => border.Name == "PART_Surface");
-                        // Inside the tint, below the rim and above the icon/text.
-                        return surface.TranslatePoint(new Point(surface.Bounds.Width / 2, 6), window)!.Value;
-                    }).ToArray();
-                    byte[,] dark;
-                    using (var frame = window.CaptureRenderedFrame()!)
-                        dark = Luma(frame);
+                    // Beside the title's glyphs and between the title row and the project switcher.
+                    var search = drawer.FindControl<Button>("DrawerSearchButton")!;
+                    var project = drawer.FindControl<Button>("DrawerProjectButton")!;
+                    var gapTop = search.TranslatePoint(new Point(0, search.Bounds.Height), window)!.Value.Y;
+                    var gapBottom = project.TranslatePoint(default, window)!.Value.Y;
+                    var gap = new Point(window.Width / 2, (gapTop + gapBottom) / 2);
+                    var beside = new Point(window.Width / 2, search.TranslatePoint(new Point(0, search.Bounds.Height / 2), window)!.Value.Y);
+                    var underSwitcher = project.TranslatePoint(new Point(project.Bounds.Width / 2, 6), window)!.Value;
+                    // Well clear of the veil, the list shows as it is.
+                    var header = drawer.FindControl<Panel>("DrawerHeaderChrome")!;
+                    var open = new Point(window.Width / 2,
+                        header.TranslatePoint(new Point(0, header.Bounds.Height), window)!.Value.Y + 80);
 
-                    content.Background = Brushes.White;
-                    await PumpAsync(TimeSpan.FromMilliseconds(400));
-                    using var changed = window.CaptureRenderedFrame()!;
-                    var light = Luma(changed);
-                    for (var index = 0; index < samples.Length; index++)
+                    async Task<byte[,]> Capture(IBrush background)
                     {
-                        var x = (int)samples[index].X;
-                        var y = (int)samples[index].Y;
-                        var contrast = light[x, y] - dark[x, y];
-                        Assert.True(contrast > 75,
-                            $"{controls[index]} hides the scrolling backdrop: luminance change {contrast}.");
+                        content.Background = background;
+                        await PumpAsync(TimeSpan.FromMilliseconds(400));
+                        using var frame = window.CaptureRenderedFrame()!;
+                        return Luma(frame);
+                    }
+                    IBrush Stripes(Color first, Color second) => new LinearGradientBrush
+                    {
+                        StartPoint = new RelativePoint(0, 0, RelativeUnit.Absolute),
+                        EndPoint = new RelativePoint(0, 8, RelativeUnit.Absolute),
+                        SpreadMethod = GradientSpreadMethod.Repeat,
+                        GradientStops =
+                        {
+                            new GradientStop(first, 0), new GradientStop(first, 0.5),
+                            new GradientStop(second, 0.5), new GradientStop(second, 1)
+                        }
+                    };
+
+                    // The list shows through the header, softened: lightening it lightens the header too.
+                    var dark = await Capture(Brushes.Black);
+                    var light = await Capture(Brushes.White);
+                    int Change(byte[,] before, byte[,] after, Point point) =>
+                        Math.Abs(after[(int)point.X, (int)point.Y] - before[(int)point.X, (int)point.Y]);
+                    var openChange = Change(dark, light, open);
+                    Assert.True(openChange > 200, $"the list below the header is veiled: luminance change {openChange}.");
+                    foreach (var (name, point) in new[] { ("beside the title", beside), ("between its rows", gap) })
+                    {
+                        var change = Change(dark, light, point);
+                        Assert.True(change > openChange / 5 && change < openChange * 4 / 5,
+                            $"the list {name} must show through a veil, neither hidden nor clear: luminance change {change}.");
+                    }
+                    // The switcher is the title bar's glass: the list beneath shows through it only faintly, under
+                    // its tint (dimmed here, where nothing is paired to pick from).
+                    Assert.True(Change(dark, light, underSwitcher) < openChange / 2,
+                        $"the project switcher shows the list beneath it: luminance change {Change(dark, light, underSwitcher)}.");
+
+                    // Yet nothing is legible through it: fine detail beneath the header is frosted away, so
+                    // swapping fine stripes for their inverse leaves the header unchanged while the open list flips.
+                    var stripes = await Capture(Stripes(Colors.Black, Colors.White));
+                    var inverse = await Capture(Stripes(Colors.White, Colors.Black));
+                    var openFlip = Math.Max(Change(stripes, inverse, open), Change(stripes, inverse, open + new Point(0, 4)));
+                    Assert.True(openFlip > 150, $"the open list shows its stripes: luminance change {openFlip}.");
+                    foreach (var (name, point) in new[] { ("beside the title", beside), ("between its rows", gap), ("under the switcher", underSwitcher) })
+                    {
+                        var flip = Math.Max(Change(stripes, inverse, point), Change(stripes, inverse, point + new Point(0, 4)));
+                        Assert.True(flip < openFlip / 4,
+                            $"the list shows sharp {name}: luminance change {flip}.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failure = ExceptionDispatchInfo.Capture(ex);
+                }
+                finally
+                {
+                    window.Close();
+                }
+
+                return true;
+            }, CancellationToken.None);
+            failure?.Throw();
+        }
+        finally
+        {
+            if (Directory.Exists(settingsPath))
+                Directory.Delete(settingsPath, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The places pill is glass of its own: it frosts the list passing beneath it, evenly right up to its rim
+    /// because the frost takes in what lies just around the pill, while beside it and just above it the list
+    /// stays sharp, with no band around the bar.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ThePlacesPillFrostsOnlyWhatPassesBeneathItEvenlyToItsRim(bool darkTheme)
+    {
+        using var session = HeadlessUnitTestSession.StartNew(
+            typeof(MobileMotionRenderApp), AvaloniaTestIsolationLevel.PerTest);
+        var settingsPath = Path.Combine(Path.GetTempPath(), "Lumi.Mobile.Tests", Guid.NewGuid().ToString("N"));
+        ExceptionDispatchInfo? failure = null;
+        try
+        {
+            await session.Dispatch<bool>(async () =>
+            {
+                await using var model = new MobileShellViewModel(
+                    store: new MobileSettingsStore(settingsPath), post: action => action());
+                var drawer = new MobileDrawerView { DataContext = model };
+                var window = new Window
+                {
+                    Width = 412, Height = 892, Content = drawer,
+                    RequestedThemeVariant = darkTheme ? ThemeVariant.Dark : ThemeVariant.Light
+                };
+                try
+                {
+                    window.Show();
+                    Dispatcher.UIThread.RunJobs();
+                    var content = new Border { Height = 2000, Background = Brushes.Black };
+                    var scroll = drawer.FindControl<ScrollViewer>("DrawerScroll")!;
+                    scroll.Content = new Border { Child = content };
+                    window.UpdateLayout();
+                    scroll.Offset = new Vector(0, 160);
+                    await PumpAsync(TimeSpan.FromMilliseconds(400));
+
+                    // Through the pill between two places and just inside its top rim there, a little way to its side,
+                    // just above it where a band used to frost, and well above it.
+                    var places = drawer.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "PlacesJobsButton");
+                    var surface = drawer.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "PlacesSurface");
+                    var through = places.TranslatePoint(new Point(-1, places.Bounds.Height / 2), window)!.Value;
+                    var pillTopLeft = surface.TranslatePoint(default, window)!.Value;
+                    var rim = new Point(through.X, pillTopLeft.Y + 2);
+                    var beside = new Point(Math.Max(4, pillTopLeft.X - 16), through.Y - 14);
+                    var justAbove = new Point(through.X, pillTopLeft.Y - 10);
+                    var above = new Point(beside.X, pillTopLeft.Y - 150);
+
+                    async Task<byte[,]> Capture(IBrush background)
+                    {
+                        content.Background = background;
+                        await PumpAsync(TimeSpan.FromMilliseconds(400));
+                        using var frame = window.CaptureRenderedFrame()!;
+                        return Luma(frame);
+                    }
+                    IBrush Stripes(Color first, Color second) => new LinearGradientBrush
+                    {
+                        StartPoint = new RelativePoint(0, 0, RelativeUnit.Absolute),
+                        EndPoint = new RelativePoint(0, 8, RelativeUnit.Absolute),
+                        SpreadMethod = GradientSpreadMethod.Repeat,
+                        GradientStops =
+                        {
+                            new GradientStop(first, 0), new GradientStop(first, 0.5),
+                            new GradientStop(second, 0.5), new GradientStop(second, 1)
+                        }
+                    };
+                    int Change(byte[,] before, byte[,] after, Point point) =>
+                        Math.Abs(after[(int)point.X, (int)point.Y] - before[(int)point.X, (int)point.Y]);
+
+                    var dark = await Capture(Brushes.Black);
+                    var light = await Capture(Brushes.White);
+                    var besideChange = Change(dark, light, beside);
+                    var throughChange = Change(dark, light, through);
+                    Assert.True(besideChange > 150, $"beside the pill the list must keep its light: luminance change {besideChange}.");
+                    Assert.True(throughChange > 70,
+                        $"the list must show through the pill: luminance change {throughChange}.");
+
+                    // Stripes and their inverse: a sharp point flips fully, a frosted one barely.
+                    var stripes = await Capture(Stripes(Colors.Black, Colors.White));
+                    var inverse = await Capture(Stripes(Colors.White, Colors.Black));
+                    int Flip(Point point) => Math.Max(Change(stripes, inverse, point), Change(stripes, inverse, point + new Point(0, 4)));
+                    var aboveFlip = Flip(above);
+                    var justAboveFlip = Flip(justAbove);
+                    var besideFlip = Flip(beside);
+                    var throughFlip = Flip(through);
+                    var rimFlip = Flip(rim);
+                    Assert.True(aboveFlip > 120, $"well above the pill the list shows its detail: luminance change {aboveFlip}.");
+                    Assert.True(justAboveFlip > aboveFlip * 3 / 4, $"just above the pill the list stays sharp: luminance change {justAboveFlip}.");
+                    Assert.True(besideFlip > aboveFlip * 3 / 4, $"beside the pill the list stays sharp: luminance change {besideFlip}.");
+                    Assert.True(throughFlip < aboveFlip / 4, $"through the pill the list is frosted: luminance change {throughFlip}.");
+                    // A frost that saw only its own bounds would stretch the row at its rim across it.
+                    Assert.True(rimFlip <= throughFlip + 12,
+                        $"the frost must be as even at the rim as through the pill: {rimFlip} at the rim, {throughFlip} through it.");
+                }
+                catch (Exception ex)
+                {
+                    failure = ExceptionDispatchInfo.Capture(ex);
+                }
+                finally
+                {
+                    window.Close();
+                }
+
+                return true;
+            }, CancellationToken.None);
+            failure?.Throw();
+        }
+        finally
+        {
+            if (Directory.Exists(settingsPath))
+                Directory.Delete(settingsPath, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The Customize glyph's knobs sit over their tracks. Dimmed as one, as the desktop dims it, each knob is
+    /// a single even shade; dimming each layer on its own would show a knob brighter where it overlaps its
+    /// track, as Skia blends an opacity into each layer's paint.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TheCustomizeGlyphDimsAsOneSoNoKnobChangesShadeOverItsTrack(bool darkTheme)
+    {
+        using var session = HeadlessUnitTestSession.StartNew(
+            typeof(MobileMotionRenderApp), AvaloniaTestIsolationLevel.PerTest);
+        var settingsPath = Path.Combine(Path.GetTempPath(), "Lumi.Mobile.Tests", Guid.NewGuid().ToString("N"));
+        ExceptionDispatchInfo? failure = null;
+        try
+        {
+            await session.Dispatch<bool>(async () =>
+            {
+                await using var model = new MobileShellViewModel(
+                    store: new MobileSettingsStore(settingsPath), post: action => action());
+                // Drawn three times over, as a phone draws it, so each knob spans several pixels.
+                const double scale = 3;
+                var bar = new PlacesBarView { DataContext = model };
+                var window = new Window
+                {
+                    Width = 420 * scale, Height = 120 * scale,
+                    RequestedThemeVariant = darkTheme ? ThemeVariant.Dark : ThemeVariant.Light,
+                    Content = new LayoutTransformControl
+                    {
+                        LayoutTransform = new ScaleTransform(scale, scale), Child = bar,
+                        HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top
+                    }
+                };
+                try
+                {
+                    window.Show();
+                    await PumpAsync(TimeSpan.FromMilliseconds(500));
+                    var customize = bar.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "PlacesCustomizeButton");
+                    Assert.DoesNotContain("active", customize.Classes);
+                    var tune = customize.GetVisualDescendants().OfType<Panel>().Single(panel => panel.Classes.Contains("place-tune"));
+
+                    using var frame = window.CaptureRenderedFrame()!;
+                    var luma = Luma(frame);
+                    // The glyph's 24-unit drawing spans x 3..21 and y 4..20 and is drawn uniformly into its panel.
+                    var unit = tune.Bounds.Width / 18;
+                    var top = (tune.Bounds.Height - 16 * unit) / 2;
+                    Point At(double x, double y) =>
+                        tune.TranslatePoint(new Point((x - 3) * unit, top + (y - 4) * unit), window)!.Value;
+                    int Median(Point point)
+                    {
+                        var values = new List<int>();
+                        for (var dy = -1; dy <= 1; dy++)
+                        for (var dx = -1; dx <= 1; dx++)
+                            values.Add(luma[(int)point.X + dx, (int)point.Y + dy]);
+                        values.Sort();
+                        return values[4];
+                    }
+
+                    // Inside the pill, clear of any glyph, and the full ink of a place's glyph.
+                    var background = Median(tune.TranslatePoint(new Point(-8, tune.Bounds.Height / 2), window)!.Value);
+                    Assert.True(bar.TryFindResource("Color.TextSecondary", bar.ActualThemeVariant, out var inkValue));
+                    var ink = Assert.IsType<Color>(inkValue);
+                    var fullInk = (ink.R + ink.G + ink.B) / 3;
+
+                    // Each knob, above its track and where it crosses it.
+                    foreach (var (knobX, trackY) in new[] { (15.7, 7.0), (8.3, 17.0) })
+                    {
+                        var alone = Median(At(knobX, trackY - 1.9));
+                        var over = Median(At(knobX, trackY));
+                        Assert.True(Math.Abs(over - alone) <= 4,
+                            $"the knob at {knobX} reads {alone} beside its track but {over} over it.");
+                        var dimmed = (alone - background) / (double)(fullInk - background);
+                        Assert.InRange(dimmed, 0.45, 0.75);
                     }
                 }
                 catch (Exception ex)

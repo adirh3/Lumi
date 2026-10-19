@@ -4,6 +4,21 @@
   overscroll-behavior: none;
 }
 
+/* The app's own typeface (Inter 4), so a focused native field keeps the drawn text's look. */
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/inter-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/inter-semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+
 html,
 body {
   width: 100%;

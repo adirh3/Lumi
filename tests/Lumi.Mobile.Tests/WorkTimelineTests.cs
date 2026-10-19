@@ -17,7 +17,7 @@ public sealed class WorkTimelineTests
         chat.ApplyTranscript(transcript);
         var turn = chat.Turns[0];
         var work = Assert.IsType<WorkSummaryItemViewModel>(turn.DisplayItems[1]);
-        Assert.Equal("Worked for 58s", work.Label);
+        Assert.Equal("Worked for 58s · 2 actions", work.Label);
         Assert.False(work.IsExpanded);
         Assert.Empty(work.Items);
         Assert.Equal(3, turn.DisplayItems.Count);
@@ -38,8 +38,10 @@ public sealed class WorkTimelineTests
         Assert.True(work.IsExpanded);
         Assert.Equal(3, turn.DisplayItems.Count);
         Assert.Equal(5, work.Items.Count);
+        // Folding keeps the steps it built, so the summary closes over them instead of emptying first.
         work.ToggleCommand.Execute(null);
-        Assert.Empty(work.Items);
+        Assert.False(work.IsExpanded);
+        Assert.Equal(5, work.Items.Count);
         Assert.Equal(3, turn.DisplayItems.Count);
     }
 
@@ -80,8 +82,8 @@ public sealed class WorkTimelineTests
     }
 
     [Theory]
-    [InlineData(3_200, "Worked for 3s")]
-    [InlineData(91_000, "Worked for 1m 31s")]
+    [InlineData(3_200, "Worked for 3s · 3 actions")]
+    [InlineData(91_000, "Worked for 1m 31s · 3 actions")]
     public async Task CompletionCollapsesPreamblesAndExpandReviewsOriginalChronologyWithoutFetchingHistory(
         double duration, string expectedLabel)
     {
@@ -96,13 +98,12 @@ public sealed class WorkTimelineTests
         var work = Assert.IsType<WorkSummaryItemViewModel>(turn.DisplayItems[1]);
         Assert.Equal(expectedLabel, work.Label);
         Assert.False(work.IsExpanded);
-        var collapsedPath = work.DisclosurePath;
+        Assert.False(work.HasFailures);
         Assert.DoesNotContain(turn.DisplayItems, item => item.Id is "preamble" or "interim");
         var original = turn.Items.ToArray();
 
         work.ToggleCommand.Execute(null);
         Assert.True(work.IsExpanded);
-        Assert.NotEqual(collapsedPath, work.DisclosurePath);
         Assert.Equal(original, VisibleChronology(turn));
         Assert.Equal(new[] { "user", "work-preamble", "answer" }, turn.DisplayItems.Select(item => item.Id));
         Assert.Equal(new[] { "preamble", "research", "interim", "verify" }, work.Items.Select(item => item.Id));
@@ -115,10 +116,10 @@ public sealed class WorkTimelineTests
         Assert.True(chat.IsActivitySheetOpen);
 
         work.ToggleCommand.Execute(null);
-        Assert.Equal(collapsedPath, work.DisclosurePath);
+        Assert.False(work.IsExpanded);
         Assert.Equal(new[] { "user", "work-preamble", "answer" }, turn.DisplayItems.Select(item => item.Id));
         Assert.Equal(original, turn.Items);
-        Assert.Empty(work.Items);
+        Assert.Equal(new[] { "preamble", "research", "interim", "verify" }, work.Items.Select(item => item.Id));
     }
 
     [Fact]
@@ -173,22 +174,25 @@ public sealed class WorkTimelineTests
         ]);
         chat.ApplyTranscript(transcript);
         var turn = Assert.Single(chat.Turns);
-        Assert.Equal(new[] { "user", "work-preamble", "question", "error", "answer", "file" },
+        Assert.Equal(new[] { "user", "work-preamble", "question", "error", "answer" },
             turn.DisplayItems.Select(item => item.Id));
         Assert.Single(Assert.IsType<UserTurnItemViewModel>(turn.DisplayItems[0]).Attachments);
         Assert.Equal("question-id", Assert.IsType<QuestionItemViewModel>(turn.DisplayItems[2]).QuestionId);
         Assert.Equal("Recovered issue", Assert.IsType<ErrorItemViewModel>(turn.DisplayItems[3]).Text);
-        Assert.NotNull(Assert.Single(Assert.IsType<FileItemViewModel>(turn.DisplayItems[^1]).Files).MessageId);
+        // A generated file goes with the answer that closes the turn, as the desktop shows it.
+        var closing = Assert.IsType<AssistantItemViewModel>(turn.DisplayItems[^1]);
+        Assert.NotNull(Assert.Single(closing.Files).MessageId);
         Assert.Equal("file", turn.Items[5].Id);
 
         var protectedRows = turn.DisplayItems.Where(item =>
-            item is QuestionItemViewModel or ErrorItemViewModel or FileItemViewModel).ToArray();
+            item is QuestionItemViewModel or ErrorItemViewModel).ToArray();
         var work = Assert.IsType<WorkSummaryItemViewModel>(turn.DisplayItems[1]);
         work.ToggleCommand.Execute(null);
-        Assert.Equal(new[] { "user", "work-preamble", "question", "error", "answer", "file" },
+        Assert.Equal(new[] { "user", "work-preamble", "question", "error", "answer" },
             turn.DisplayItems.Select(item => item.Id));
         Assert.Equal(protectedRows, turn.DisplayItems.Where(item =>
-            item is QuestionItemViewModel or ErrorItemViewModel or FileItemViewModel));
+            item is QuestionItemViewModel or ErrorItemViewModel));
+        Assert.Single(closing.Files);
         Assert.Equal(new[] { "preamble", "research", "interim", "verify" }, work.Items.Select(item => item.Id));
         Assert.DoesNotContain(work.Items, item =>
             item is UserTurnItemViewModel or QuestionItemViewModel or ErrorItemViewModel or FileItemViewModel);
@@ -256,7 +260,7 @@ public sealed class WorkTimelineTests
         chat.ApplyTranscript(restored);
         Assert.Same(work, turn.DisplayItems[1]);
         Assert.True(work.IsExpanded);
-        Assert.Equal("Worked for 1m 31s", work.Label);
+        Assert.Equal("Worked for 1m 31s · 3 actions", work.Label);
         Assert.Equal("answer", turn.DisplayItems[^1].Id);
         Assert.Equal("Final answer", Assert.IsType<AssistantItemViewModel>(turn.DisplayItems[^1]).Text);
     }

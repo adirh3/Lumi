@@ -490,6 +490,75 @@ public sealed class MobileConnectionEfficiencyTests
     }
 
     [Fact]
+    public async Task ADockedListIsReadAgainOnlyWhenItComesBackIntoView()
+    {
+        using var temp = new TempDirectory();
+        var desktop = new EfficiencyDesktop();
+        await using var shell = CreateShell(desktop, temp.Path, new ManualTimeProvider());
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.IsConnected && shell.BootstrapSnapshotCount == 1);
+        shell.UpdateLayout(984, 1092);
+        Assert.True(shell.IsDrawerDocked);
+        await Task.Delay(50);
+        await WaitUntilAsync(() => !shell.ChatList.IsRefreshing);
+        var pages = desktop.ChatPages;
+
+        // The keyboard shortens the window while the list stays in view, and the PC keeps it current.
+        shell.UpdateLayout(984, 640);
+        Assert.True(shell.IsDrawerVisible);
+        shell.UpdateLayout(984, 1092);
+        await Task.Delay(50);
+        Assert.Equal(pages, desktop.ChatPages);
+
+        // Customize brings its own list, so the PC stops sending chat changes until Chats returns.
+        shell.SelectPlace(MobilePlace.Customize);
+        Assert.False(shell.IsDrawerVisible);
+        await Task.Delay(50);
+        Assert.Equal(pages, desktop.ChatPages);
+
+        shell.SelectPlace(MobilePlace.Chats);
+        await WaitUntilAsync(() => desktop.ChatPages == pages + 1);
+        await WaitUntilAsync(() => desktop.Subscriptions is [.., { IncludeChatList: true }]);
+        await Task.Delay(50);
+        Assert.Equal(pages + 1, desktop.ChatPages);
+    }
+
+    [Fact]
+    public async Task ReturningToTheListDoesNotReadTheChatItCovers()
+    {
+        using var temp = new TempDirectory();
+        var chatId = Guid.NewGuid();
+        var desktop = new EfficiencyDesktop
+        {
+            Snapshot = new RemoteSnapshot { HostName = "TEST-PC", IsConnected = true, ActiveChatId = chatId },
+            TranscriptResponder = (id, _) => Task.FromResult(Transcript(id, "v1", "Hello"))
+        };
+        await using var shell = CreateShell(desktop, temp.Path, new ManualTimeProvider());
+        shell.UpdateLayout(393, 852);
+        await shell.StartAsync();
+        await WaitUntilAsync(() => AnswerText(shell) == "Hello" && !shell.Chat.IsLoading);
+        shell.IsDrawerOpen = false;
+        shell.SelectPlace(MobilePlace.Settings);
+        await Task.Delay(50);
+        var transcripts = desktop.Transcripts;
+        var subscriptions = desktop.Subscriptions.Count;
+
+        // The scope update is still on its way when the list slides over the chat.
+        var link = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        desktop.SubscriptionAnswer = () => link.Task;
+        shell.SelectPlace(MobilePlace.Chats);
+        Assert.True(shell.IsDrawerOverlay);
+        link.SetResult();
+        await WaitUntilAsync(() => desktop.Subscriptions.Count >= subscriptions + 2);
+        await Task.Delay(50);
+        Assert.Equal(transcripts, desktop.Transcripts);
+
+        // The chat is read when the list uncovers it.
+        shell.IsDrawerOpen = false;
+        await WaitUntilAsync(() => desktop.Transcripts == transcripts + 1);
+    }
+
+    [Fact]
     public async Task QuickScopeChangesOnASlowLinkAreAllSent()
     {
         using var temp = new TempDirectory();

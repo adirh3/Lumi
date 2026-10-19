@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Platform;
@@ -53,6 +54,7 @@ public partial class MobileShellView : UserControl
     {
         InitializeComponent();
         AddHandler(StrataBottomSheet.PresentationChangedEvent, OnSheetPresentationChanged);
+        AddHandler(KeyDownEvent, OnShellKeyDown, RoutingStrategies.Bubble);
         _navigationDrawer = this.FindControl<StrataNavigationDrawer>("NavDrawer");
         _navigationSpacer = this.FindControl<Border>("NavigationSpacer");
         if (_navigationDrawer is { } drawer)
@@ -68,6 +70,12 @@ public partial class MobileShellView : UserControl
 
     private void OnDrawerPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
+        // The drawer has just begun settling toward its new state; a change of place lands it there.
+        if (e.Property == StrataNavigationDrawer.IsOpenProperty
+            && _landPlaceChange
+            && sender is StrataNavigationDrawer landing)
+            landing.CompleteMotion();
+
         if (e.Property == StrataNavigationDrawer.ProgressProperty
             && sender is StrataNavigationDrawer drawer
             && DataContext is MobileShellViewModel shell)
@@ -132,8 +140,10 @@ public partial class MobileShellView : UserControl
 
     private void UpdateSheetPresentation()
     {
+        // A side panel sits beside the chat rather than over it, so it never suspends the page.
         if (DataContext is MobileShellViewModel shell)
-            shell.IsModalSheetPresented = _presentedSheets.Any(sheet => sheet.IsEffectivelyVisible);
+            shell.IsModalSheetPresented = _presentedSheets.Any(sheet =>
+                sheet.IsEffectivelyVisible && !sheet.Classes.Contains("side-panel"));
     }
 
     private void OnPageVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -197,6 +207,53 @@ public partial class MobileShellView : UserControl
             shell.CancelChatActionCommand.Execute(null);
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// A tablet with a keyboard answers the desktop's shortcuts: Ctrl+K search, Ctrl+N new chat,
+    /// Ctrl+B the chat list, Ctrl+, Settings and Ctrl+1–4 the places, in the desktop's order.
+    /// </summary>
+    private void OnShellKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled
+            || e.KeyModifiers is not (KeyModifiers.Control or KeyModifiers.Meta)
+            || DataContext is not MobileShellViewModel { IsPaired: true } shell)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.K:
+                shell.OpenSearchCommand.Execute(null);
+                break;
+            case Key.N:
+                shell.ChatList.NewChatCommand.Execute(null);
+                break;
+            case Key.B:
+                if (shell.Page != MobilePage.Chat)
+                    shell.SelectPlace(MobilePlace.Chats);
+                else
+                    shell.ToggleDrawerCommand.Execute(null);
+                break;
+            case Key.OemComma:
+            case Key.D4:
+                shell.SelectPlace(MobilePlace.Settings);
+                break;
+            case Key.D1:
+                shell.SelectPlace(MobilePlace.Chats);
+                break;
+            case Key.D2:
+                shell.SelectPlace(MobilePlace.Jobs);
+                break;
+            case Key.D3:
+                shell.SelectPlace(MobilePlace.Customize);
+                break;
+            default:
+                return;
+        }
+
+        e.Handled = true;
     }
 
     public FoldPosture Posture
@@ -480,12 +537,22 @@ public partial class MobileShellView : UserControl
 
         shell.UpdateLayout(width, height, Posture, HingeSize, HingePosition);
         UpdateNavigationLayout();
+        UpdateSheetPresentation();
         ApplyInsets();
     }
 
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
+
+        if (_placeSource is not null)
+            _placeSource.PropertyChanged -= OnShellPlaceChanged;
+        _placeSource = DataContext as MobileShellViewModel;
+        if (_placeSource is not null)
+        {
+            _lastPlace = _placeSource.Place;
+            _placeSource.PropertyChanged += OnShellPlaceChanged;
+        }
 
         // A fresh view model has no insets yet; re-publish whatever the OS already told us.
         ApplyInsets();
@@ -498,5 +565,29 @@ public partial class MobileShellView : UserControl
         }
         UpdateNavigationLayout();
         UpdateSheetPresentation();
+    }
+
+    private MobileShellViewModel? _placeSource;
+    private MobilePlace _lastPlace;
+    private bool _landPlaceChange;
+
+    /// <summary>
+    /// Moving between places swaps the page in place, as a tab bar does, while the places' highlight
+    /// glides to the new place. On a phone the chat list is the drawer, so going to or from Chats would
+    /// otherwise slide the whole list across the screen; it lands at once instead. Opening a chat from the
+    /// list, search, Back and the swipe keep their movement, since none of them changes the place.
+    /// </summary>
+    private void OnShellPlaceChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MobileShellViewModel.Place)
+            || sender is not MobileShellViewModel shell
+            || shell.Place == _lastPlace)
+            return;
+
+        _lastPlace = shell.Place;
+        // The drawer's open state follows the place later in this same update; it lands the moment it
+        // changes (OnDrawerPropertyChanged), before a frame can show the list sliding.
+        _landPlaceChange = true;
+        Dispatcher.UIThread.Post(() => _landPlaceChange = false);
     }
 }

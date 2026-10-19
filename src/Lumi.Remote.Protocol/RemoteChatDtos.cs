@@ -136,6 +136,11 @@ public sealed class RemoteToolCall
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string? DisplayName { get; set; }
+    /// <summary>
+    /// What kind of step this is, as the desktop's transcript icon key (read, edit, search, web,
+    /// terminal, ...). Null from a host predating icons; the phone then draws a generic step.
+    /// </summary>
+    public string? Icon { get; set; }
     public string? Input { get; set; }
     public string? Output { get; set; }
     /// <summary>research | work | verify | other.</summary>
@@ -237,6 +242,11 @@ public sealed class RemoteTranscriptItem
     public bool IsStreaming { get; set; }
     /// <summary>Header label for grouped kinds, or a linked-chat title embedded in an answer.</summary>
     public string? Label { get; set; }
+    /// <summary>
+    /// For work, the transcript icon key of what it is doing: the running step's while it runs, then
+    /// the kind all its steps share, or "mixed". Null from a host predating icons.
+    /// </summary>
+    public string? Icon { get; set; }
     public string? Status { get; set; }
     public double? DurationMs { get; set; }
     public string? Model { get; set; }
@@ -268,6 +278,12 @@ public sealed class RemoteTranscriptTurn
     public string? FinalAnswerId { get; set; }
     /// <summary>Elapsed work before the final answer, derived from persisted message/tool timing.</summary>
     public double? WorkDurationMs { get; set; }
+    /// <summary>
+    /// Lumi has stopped working on this turn: a later message moved on, or the chat went idle. Its
+    /// finished work folds up to its last word even without a final answer, as on the desktop. Null
+    /// while it runs, and from hosts that predate it, which fold only before a final answer.
+    /// </summary>
+    public bool? IsSettled { get; set; }
     public List<RemoteTranscriptItem> Items { get; set; } = [];
 }
 

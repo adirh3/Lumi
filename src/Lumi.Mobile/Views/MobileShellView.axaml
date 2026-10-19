@@ -13,6 +13,11 @@
       <Setter Property="SheetMargin"
               Value="{Binding #SheetMarginProxy.Padding}" />
     </Style>
+    <!-- A side panel floats beside the chat, clear of the bars, instead of rising from the bottom. -->
+    <Style Selector="sc|StrataBottomSheet.safe-area.side-panel">
+      <Setter Property="SheetMargin"
+              Value="{Binding #SidePanelMarginProxy.Padding}" />
+    </Style>
   </UserControl.Styles>
 
   <Panel x:Name="Root">
@@ -21,6 +26,9 @@
     <Border x:Name="SheetMarginProxy" Width="0" Height="0"
             HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"
             Padding="{Binding SafeAreaSheetMargin}" />
+    <Border x:Name="SidePanelMarginProxy" Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"
+            Padding="{Binding SidePanelSheetMargin}" />
 
     <!-- ═══ Onboarding: not paired with any PC yet ═══ -->
     <Grid x:Name="ConnectLayout"

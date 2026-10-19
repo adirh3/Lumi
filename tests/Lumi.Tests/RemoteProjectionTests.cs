@@ -559,6 +559,30 @@ public sealed class RemoteProjectionTests
     }
 
     [Fact]
+    public void CompactWorkCarriesTheDesktopsIconsForItsSteps()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Icons" };
+        RemoteTranscriptItem ActivityOf(params ChatMessage[] messages) => Assert.Single(
+            Assert.Single(BuildCompact(chat, messages).Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+        ChatMessage Read() => Message("tool", """{"filePath":"C:\\repo\\a.cs"}""", toolName: "view", toolStatus: "Completed");
+        ChatMessage Shell(string status) => Message("tool", """{"command":"dotnet test"}""", toolName: "powershell", toolStatus: status);
+
+        // Steps of one kind share its icon, a mix of kinds reads as mixed work, and while a step runs its
+        // own icon leads: the rule the desktop's tool groups follow.
+        Assert.Equal(TranscriptIcons.Read, ActivityOf(Message("user", "Look"), Read(), Read(), Message("assistant", "Done")).Icon);
+        Assert.Equal(TranscriptIcons.Mixed, ActivityOf(Message("user", "Check"), Read(), Shell("Completed"), Message("assistant", "Done")).Icon);
+        Assert.Equal(TranscriptIcons.Terminal, ActivityOf(Message("user", "Build"), Read(), Shell("InProgress")).Icon);
+
+        var messages = new List<ChatMessage> { Message("user", "Check"), Read(), Shell("Completed"), Message("assistant", "Done") };
+        var activity = Assert.Single(Assert.Single(BuildCompact(chat, messages).Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+        var details = Assert.IsType<RemoteActivityDetails>(
+            RemoteProjector.BuildActivityDetails(chat, messages, activity.ActivityId!));
+        Assert.Equal(new[] { TranscriptIcons.Read, TranscriptIcons.Terminal }, details.Tools.Select(tool => tool.Icon));
+    }
+
+    [Fact]
     public void CompactTranscript_DoesNotDependOnDesktopToolVisibility()
     {
         var chat = new Chat { Id = Guid.NewGuid(), Title = "Compact" };

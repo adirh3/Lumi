@@ -71,28 +71,28 @@ public sealed class OpenCanvasDesignTests
             var navigation = ColorOf(drawer.Background);
             Assert.Equal(255, canvas.A);
             Assert.Equal(canvas, ColorOf(Required<Border>(view, "ConversationFrame").Background));
-            Assert.NotEqual(navigation, canvas);
+            // The panes share the desktop's graphite canvas; a hairline divides them, not a second
+            // colour, and the canvas itself carries no hue.
+            Assert.Equal(navigation, canvas);
+            Assert.True(Math.Abs(canvas.R - canvas.G) <= 3 && Math.Abs(canvas.G - canvas.B) <= 4,
+                $"The canvas is neutral graphite, not tinted: {canvas}.");
             if (dark)
-            {
-                Assert.InRange(canvas.R, (byte)0, (byte)8);
-                Assert.InRange(canvas.G, (byte)0, (byte)8);
-                Assert.InRange(canvas.B, (byte)0, (byte)10);
-                Assert.True(canvas.R < navigation.R && canvas.G < navigation.G && canvas.B < navigation.B);
-            }
+                Assert.InRange(canvas.R, (byte)0, (byte)16);
             else
-            {
-                Assert.InRange(canvas.R, (byte)253, byte.MaxValue);
-                Assert.InRange(canvas.G, (byte)253, byte.MaxValue);
-                Assert.InRange(canvas.B, (byte)253, byte.MaxValue);
-                Assert.True(canvas.R > navigation.R && canvas.G > navigation.G && canvas.B > navigation.B);
-            }
+                Assert.InRange(canvas.R, (byte)240, byte.MaxValue);
             Assert.Equal(default, Required<Border>(chat, "TopBarInset").BorderThickness);
             AssertTransparent(Required<Border>(chat, "TopBarInset").Background);
             var controlsButton = Required<Button>(chat, "HeaderDetailsButton");
             AssertGlass(controlsButton);
-            foreach (var name in new[] { "MenuButton", "NewChatButton" })
+            // New chat is the top right of the chat's bar in every layout, balancing the back or sidebar
+            // button; a docked list leaves it to the chat's bar.
+            var newChat = Required<Button>(chat, "NewChatButton");
+            Assert.True(newChat.IsEffectivelyVisible);
+            Assert.Equal(!model.CanDockDrawer, Required<Button>(drawer, "DrawerNewChatButton").IsVisible);
+            var menuButton = Required<Button>(chat, "MenuButton");
+            var headerActions = new[] { menuButton, newChat };
+            foreach (var action in headerActions)
             {
-                var action = Required<Button>(chat, name);
                 AssertGlass(action);
                 Assert.False(action.ClipToBounds);
                 Assert.True(action.Bounds.Height >= 48);
@@ -102,12 +102,18 @@ public sealed class OpenCanvasDesignTests
                 Assert.Equal(44, surface.Bounds.Height, precision: 1);
                 Assert.True(surface.BoxShadow.Count > 0);
             }
-            Assert.Single(controlsButton.GetVisualDescendants().OfType<TextBlock>());
-            Assert.Equal(model.Chat.ModelDisplayName, Required<TextBlock>(chat, "HeaderModelText").Text);
-            Assert.InRange(Required<TextBlock>(chat, "HeaderModelText").FontSize, 14, 16);
+            Assert.True(newChat.Bounds.Height >= 48 && newChat.Bounds.Width >= 48);
+            // The title pill names the chat on one line, its project in the room the title leaves, as
+            // the desktop's does; the model answering lives beside the composer's send.
+            Assert.Equal(model.ChatDetailsTitle, Required<TextBlock>(chat, "HeaderTitleText").Text);
+            Assert.DoesNotContain(chat.GetVisualDescendants().OfType<Control>(), control => control.Name == "HeaderModelText");
+            Assert.Equal(model.Chat.ProjectName ?? "", Required<TextBlock>(chat, "HeaderProjectText").Text ?? "");
+            // The title pill fills the bar between its buttons, so the bar is symmetrical.
+            double Left(Control control) => control.TranslatePoint(default, chat)!.Value.X;
+            double Right(Control control) => control.TranslatePoint(new Point(control.Bounds.Width, 0), chat)!.Value.X;
+            Assert.Equal(Left(controlsButton) - Right(menuButton), Left(newChat) - Right(controlsButton), 1);
+            Assert.Equal(Left(menuButton), chat.Bounds.Width - Right(newChat), 1);
             Assert.Equal("HeaderControlsIcon", Assert.Single(controlsButton.GetVisualDescendants().OfType<PathIcon>()).Name);
-            Assert.DoesNotContain(controlsButton.GetVisualDescendants().OfType<TextBlock>(),
-                text => text.Text == model.HeaderTitle);
             Assert.True(Required<Button>(chat, "MenuButton").IsEffectivelyVisible);
             var composer = Required<StrataChatComposer>(chat, "Composer");
             Assert.False(composer.ClipToBounds);
@@ -125,45 +131,72 @@ public sealed class OpenCanvasDesignTests
             await SettleAsync(window);
             Assert.Equal(menuTint, TintOf(menu.Background));
             Assert.DoesNotContain("active", menu.Classes);
-            Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<Button>(),
-                button => button.Name == "DrawerNewChatButton");
-            AssertGlass(Required<Button>(drawer, "DrawerSearchButton"));
-            AssertGlass(Required<Button>(drawer, "DrawerAccountButton"));
-            Assert.Equal("Lumi", Required<TextBlock>(drawer, "DrawerBrandTitle").Text);
-            var brand = Required<Panel>(drawer, "DrawerBrandSurface");
-            Assert.False(brand.IsHitTestVisible);
-            Assert.Null(brand.Background);
-            Assert.IsType<TextBlock>(Assert.Single(brand.GetVisualChildren()));
-            Assert.DoesNotContain(brand.GetVisualDescendants(), control => control is Border or StrataBackdropBlur);
+            Assert.Equal(!model.CanDockDrawer, Required<Button>(drawer, "DrawerNewChatButton").IsEffectivelyVisible);
+            Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<Button>(), button => button.Name == "PlacesNewChatButton");
+            // The list's head: Lumi's name as the place's title with the title bar's glass buttons beside it,
+            // and the project lens below in the same glass, built as the chat's title pill is.
+            Assert.Equal("Lumi", Required<TextBlock>(drawer, "DrawerTitle").Text);
+            var search = Required<Button>(drawer, "DrawerSearchButton");
+            AssertGlass(search);
+            Assert.Equal(44, Required<Border>(search, "PART_Surface").Bounds.Width, precision: 1);
+            var switcher = Required<Button>(drawer, "DrawerProjectButton");
+            AssertGlass(switcher);
+            Assert.Equal(Required<Border>(controlsButton, "PART_Surface").Bounds.Height,
+                Required<Border>(switcher, "PART_Surface").Bounds.Height, precision: 1);
+            // The places are the desktop's navigation pill at touch size, glass of its own.
+            AssertTranslucent(Required<Border>(drawer, "PlacesSurface").Background);
+            Assert.True(Required<StrataBackdropBlur>(drawer, "PlacesFrost").IsEffectivelyVisible);
+            Assert.Contains("active", Required<Button>(drawer, "PlacesChatsButton").Classes);
+            // No brand bar or close button: the list is a place of its own.
+            Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<Control>(),
+                control => control.Name is "DrawerBrandTitle" or "DrawerBrandSurface" or "DrawerCloseButton");
             Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<TextBlock>(),
                 text => text.Text == "Conversations");
-            Assert.Equal(!model.CanDockDrawer, Required<Button>(drawer, "DrawerCloseButton").IsEffectivelyVisible);
             Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<Control>(), control => control.Name == "DrawerToggleButton");
             foreach (var row in drawer.GetVisualDescendants().OfType<Button>()
                          .Where(button => button.Classes.Contains("drawer-chat")))
                 Assert.Equal(default, row.BorderThickness);
             foreach (var row in drawer.GetVisualDescendants().OfType<Button>()
-                         .Where(button => button.DataContext is ChatListItemViewModel))
+                         .Where(button => button.DataContext is ChatListItemViewModel chatRow
+                                          && !chatRow.IsRunning && !chatRow.HasBackgroundActivity))
             {
-                Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible);
+                // One line: the title alone, as on the desktop; only a pinned chat adds its quiet pin.
+                var item = (ChatListItemViewModel)row.DataContext!;
+                Assert.True(Required<TextBlock>(row, "ChatRowTitle").IsEffectivelyVisible);
+                Assert.DoesNotContain(row.GetVisualDescendants().OfType<Control>(),
+                    control => control.Name is "ChatRowDetail" or "ChatRowPreview" or "ChatRowProject" or "ChatRowTime");
+                Assert.DoesNotContain(row.GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.IsEffectivelyVisible && text.Name != "ChatRowTitle");
                 Assert.DoesNotContain(row.GetVisualDescendants().OfType<PathIcon>(),
-                    icon => icon.IsEffectivelyVisible);
+                    icon => icon.IsEffectivelyVisible && !(icon.Name == "ChatRowPin" && item.IsPinned));
             }
 
             model.ShowPageCommand.Execute("Settings");
             await SettleAsync(window);
             var settings = Required<MobileSettingsView>(view, "SettingsPage");
+            // Settings groups are the desktop's graphite cards, not text floating on the canvas.
+            AssertCard(Required<Border>(settings, "SettingsConnectionCard"));
+            // The PC's state is a small dot beside it: green only while the PC answers.
+            var dot = Required<Border>(settings, "SettingsConnectionDot");
+            Assert.Equal(new Size(7, 7), dot.Bounds.Size);
+            model.IsConnected = true;
+            model.IsHostReady = true;
+            Pump(window);
+            Assert.Contains("live", dot.Classes);
+            var live = ColorOf(dot.Background);
+            Assert.True(live.G > live.R + 60 && live.G > live.B + 40, $"A live PC shows a green dot, not {live}.");
+            model.IsHostReady = false;
+            Pump(window);
+            Assert.DoesNotContain("live", dot.Classes);
+            Assert.NotEqual(live, ColorOf(dot.Background));
+            model.OpenSettingsSectionCommand.Execute("Connection");
+            await SettleAsync(window);
             var groups = settings.GetVisualDescendants().OfType<Border>()
                 .Where(border => border.Name == "PART_Card"
                                  && border.TemplatedParent is StrataSettingGroup).ToArray();
             Assert.NotEmpty(groups);
             foreach (var group in groups)
-            {
-                AssertTransparent(group.Background);
-                Assert.Equal(default, group.BorderThickness);
-                Assert.Equal(default, group.BoxShadow);
-            }
-            AssertTransparent(Required<Border>(settings, "SettingsConnectionCard").Background);
+                AssertCard(group);
             var refresh = Required<Button>(settings, "RefreshButton");
             var label = refresh.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == "Refresh");
             Assert.Equal(ColorOf(refresh.Foreground), ColorOf(label.Foreground));
@@ -179,7 +212,7 @@ public sealed class OpenCanvasDesignTests
             var composer = Required<StrataChatComposer>(view, "Composer");
             Assert.Equal(PresenceState.Idle, presence.State);
             Assert.False(presence.IsHitTestVisible);
-            Assert.Equal(dark ? 0.56 : 0.20, presence.Intensity, 3);
+            Assert.Equal(dark ? 0.48 : 0.18, presence.Intensity, 3);
             Assert.False(presence.Halo);
             AssertNoCompanion();
             AssertAtComposer();
@@ -196,7 +229,7 @@ public sealed class OpenCanvasDesignTests
             model.Chat.ApplyStatus(new RemoteChatStatus { ChatId = model.Chat.ChatId, IsBusy = true });
             Pump(window);
             Assert.Contains(presence.State, new[] { PresenceState.Thinking, PresenceState.Streaming });
-            Assert.Equal(dark ? 0.56 : 0.20, presence.Intensity, 3);
+            Assert.Equal(dark ? 0.48 : 0.18, presence.Intensity, 3);
             Assert.True(presence.FocusPoint.Y < restingFocus.Y - 0.10);
             AssertNoCompanion();
             model.Chat.ApplyStatus(new RemoteChatStatus
@@ -221,13 +254,13 @@ public sealed class OpenCanvasDesignTests
             });
             Pump(window);
             Assert.Equal(PresenceState.Idle, presence.State);
-            Assert.Equal(dark ? 0.56 : 0.20, presence.Intensity, 3);
+            Assert.Equal(dark ? 0.48 : 0.18, presence.Intensity, 3);
             AssertAtComposer();
             AssertNoCompanion();
 
             window.RequestedThemeVariant = dark ? ThemeVariant.Light : ThemeVariant.Dark;
             await SettleAsync(window);
-            Assert.Equal(dark ? 0.20 : 0.56, presence.Intensity, 3);
+            Assert.Equal(dark ? 0.18 : 0.48, presence.Intensity, 3);
             AssertNoCompanion();
 
             model.Chat.Reset(Guid.Empty, "New conversation");
@@ -269,8 +302,10 @@ public sealed class OpenCanvasDesignTests
             Assert.Equal(frame.Bounds.Height, edge.Bounds.Height);
             Assert.Equal(frame.TranslatePoint(default, view), edge.TranslatePoint(default, view));
             Assert.Equal(drawer.PanelWidth, edge.TranslatePoint(default, view)!.Value.X, precision: 1);
-            Assert.Equal(1, edge.BoxShadow.Count);
-            Assert.InRange(edge.BoxShadow[0].Blur, 1, 8);
+            // A hairline, as the hinge draws on the Fold: no shadow smearing into either pane.
+            for (var shadow = 0; shadow < edge.BoxShadow.Count; shadow++)
+                Assert.Equal(0, edge.BoxShadow[shadow].Color.A);
+            Assert.True(ColorOf(edge.Background).A > 0);
             Assert.Equal(0, frame.BorderThickness.Left);
 
             model.IsNavigationOpen = false;
@@ -413,6 +448,10 @@ public sealed class OpenCanvasDesignTests
     private static void AssertGlass(Button button)
     {
         AssertTranslucent(button.Background);
+        // Glass is graphite, as on the desktop: no navy or slate cast in its tint.
+        Assert.All(TintOf(button.Background), tint =>
+            Assert.True(Math.Abs(tint.R - tint.G) <= 6 && Math.Abs(tint.G - tint.B) <= 6,
+                $"Glass is graphite, not tinted: {tint}."));
         Assert.Equal(new CornerRadius(22), button.CornerRadius);
         Assert.Equal(new Thickness(1), button.BorderThickness);
         Assert.IsAssignableFrom<ISolidColorBrush>(button.BorderBrush);
@@ -421,6 +460,17 @@ public sealed class OpenCanvasDesignTests
         var frost = Assert.Single(button.GetVisualDescendants().OfType<StrataBackdropBlur>());
         Assert.Equal(surface.Bounds, frost.Bounds);
         Assert.Equal(surface.CornerRadius, frost.CornerRadius);
+    }
+
+    /// <summary>A grouped card: an opaque neutral surface with a hairline rim and the desktop's radius.</summary>
+    private static void AssertCard(Border card)
+    {
+        var surface = Assert.Single(TintOf(card.Background));
+        Assert.Equal(255, surface.A);
+        Assert.True(Math.Abs(surface.R - surface.G) <= 6 && Math.Abs(surface.G - surface.B) <= 6,
+            $"Cards are graphite, not tinted: {surface}.");
+        Assert.Equal(new Thickness(1), card.BorderThickness);
+        Assert.Equal(14, card.CornerRadius.TopLeft);
     }
 
     private static void AssertTransparent(IBrush? brush) =>

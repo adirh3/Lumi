@@ -2,6 +2,9 @@ using System.Runtime.ExceptionServices;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.ViewModels;
@@ -396,7 +399,6 @@ public sealed class LibraryExperienceTests
         Assert.Contains("PC", library.EmptyDescription);
         if (section == LibrarySection.Lumis)
             Assert.Contains("add an agent", library.EmptyDescription);
-        Assert.False(string.IsNullOrWhiteSpace(library.SectionDescription));
 
         library.SearchText = "missing";
         Assert.True(library.IsNoResults);
@@ -487,7 +489,7 @@ public sealed class LibraryExperienceTests
     [InlineData(320)]
     [InlineData(600)]
     [InlineData(900)]
-    public async Task RowsExposeA48DipActionWithoutSqueezingNamesAndConfirmationFits(int width)
+    public async Task RowsOpenOnTapKeepRoomForNamesAndTheirActionsConfirmDeletion(int width)
     {
         var sink = new LibrarySink();
         var library = new LibraryViewModel(sink);
@@ -508,21 +510,14 @@ public sealed class LibraryExperienceTests
         await RunView(width, 780, library, async (view, window, _) =>
         {
             var row = Required<Button>(view, "LibraryEntryButton");
-            var action = Required<Button>(view, "LibraryRowActionsButton");
             var name = Required<TextBlock>(row, "LibraryEntryName");
-            Assert.Same(library.BeginEditCommand, row.Command);
-            Assert.Same(library.OpenRowActionsCommand, action.Command);
+            Assert.Same(library.OpenEntryCommand, row.Command);
             Assert.True(name.Bounds.Width >= 120, $"The row name only has {name.Bounds.Width:0.#} DIP.");
-            Assert.InRange(action.Bounds.Width, 48, 56);
-            Assert.InRange(action.Bounds.Height, 48, 56);
+            Assert.True(row.Bounds.Height >= 48);
             AssertInsideViewport(row, window);
-            AssertInsideViewport(action, window);
-            Assert.Contains(library.Entries[0].Name, AutomationProperties.GetName(action));
-            var rowOrigin = row.TranslatePoint(default, window)!.Value;
-            var actionOrigin = action.TranslatePoint(default, window)!.Value;
-            Assert.True(rowOrigin.X + row.Bounds.Width <= actionOrigin.X);
 
-            action.Command!.Execute(action.CommandParameter);
+            // A long press or a secondary click asks for the row's actions.
+            row.RaiseEvent(new ContextRequestedEventArgs());
             Pump(window);
             Assert.True(library.IsRowActionsOpen);
             Required<Button>(view, "LibraryDeleteButton").Command!.Execute(null);
@@ -539,35 +534,211 @@ public sealed class LibraryExperienceTests
         });
     }
 
+    /// <summary>
+    /// Every row opens on a real tap. Lumi's built-in skills and agents open read-only with their full
+    /// content from the PC, and connectors and jobs switch on and off right on their row.
+    /// </summary>
     [Fact]
-    public async Task BuiltInsAndPcManagedRowsDoNotRenderUnsupportedActions()
+    public async Task EveryRowOpensAndOffersOnlyWhatThePhoneCanDo()
     {
-        var library = new LibraryViewModel(new LibrarySink()) { Section = LibrarySection.Skills };
+        var sink = new LibrarySink { Detail = new RemoteLibraryItem { Name = "Built-in skill", Body = "Step one, then step two." } };
+        var library = new LibraryViewModel(sink) { Section = LibrarySection.Skills };
         library.Apply(new RemoteLibrary
         {
             Skills = [new RemoteSkill { Id = Guid.NewGuid(), Name = "Built-in skill", IsBuiltIn = true }],
-            McpServers = [new RemoteMcpServer { Id = Guid.NewGuid(), Name = "Tools", IsEnabled = true }]
+            McpServers = [new RemoteMcpServer { Id = Guid.NewGuid(), Name = "Tools", ServerType = "local", IsEnabled = true }]
         });
-        await RunView(320, 700, library, (view, window, _) =>
+        await RunView(320, 700, library, async (view, window, _) =>
         {
-            Assert.False(Required<Control>(view, "LibraryEntryButton").IsEffectivelyVisible);
-            Assert.False(Required<Control>(view, "LibraryRowActionsButton").IsEffectivelyVisible);
-            Assert.True(Required<Control>(view, "LibraryReadOnlyRow").IsEffectivelyVisible);
+            await Task.Delay(320);
+            Pump(window);
+            Tap(window, Required<Button>(view, "LibraryEntryButton"));
+            Assert.True(library.IsViewing);
+            Assert.False(library.IsEditing);
+            Assert.Equal(1, sink.DetailCount);
+            await Task.Delay(320);
+            Pump(window);
+            Assert.Equal("Step one, then step two.", Required<SelectableTextBlock>(view, "LibraryViewerBody").Text);
+            Assert.False(Required<Control>(view, "LibraryViewerActionsButton").IsEffectivelyVisible);
             library.OpenRowActionsCommand.Execute(library.Entries[0]);
             Assert.False(library.IsRowActionsOpen);
+            Assert.True(library.DismissTopmostSurface());
+            Assert.False(library.IsViewing);
 
             library.Section = LibrarySection.McpServers;
             Pump(window);
+            await Task.Delay(320);
+            Pump(window);
             Assert.False(Required<Control>(view, "LibraryNewButton").IsEffectivelyVisible);
-            Assert.False(Required<Control>(view, "LibraryEntryButton").IsEffectivelyVisible);
-            var actions = Required<Button>(view, "LibraryRowActionsButton");
-            Assert.True(actions.IsEffectivelyVisible);
-            actions.Command!.Execute(actions.CommandParameter);
+            var toggle = Required<ToggleSwitch>(view, "LibraryEntrySwitch");
+            Assert.True(toggle.IsEffectivelyVisible);
+            Assert.True(toggle.IsChecked);
+            Tap(window, toggle);
+            var command = Assert.Single(sink.Commands);
+            Assert.Equal("False", command.Arguments["isEnabled"]);
+            Assert.False(library.Entries[0].IsEnabled);
+            Assert.False(library.IsRowActionsOpen, "a switch never opens a sheet");
+            Assert.False(library.IsViewing, "a switch never opens the page");
+
+            Tap(window, Required<Button>(view, "LibraryEntryButton"));
+            Assert.True(library.IsViewing);
+            library.OpenRowActionsCommand.Execute(library.Entries[0]);
             Pump(window);
             Assert.False(Required<Control>(view, "LibraryEditButton").IsEffectivelyVisible);
             Assert.False(Required<Control>(view, "LibraryDeleteButton").IsEffectivelyVisible);
             Assert.True(Required<Control>(view, "LibraryToggleButton").IsEffectivelyVisible);
         });
+    }
+
+    [Fact]
+    public async Task ASwitchThePcRefusesGoesBack()
+    {
+        var sink = new LibrarySink { Result = new RemoteCommandResult { Ok = false, Error = "Jobs are paused on this PC." } };
+        var library = new LibraryViewModel(sink) { Section = LibrarySection.Jobs };
+        library.Apply(new RemoteLibrary
+        {
+            Jobs = [new RemoteJob { Id = Guid.NewGuid(), Name = "Morning briefing", IsEnabled = true }]
+        });
+        var entry = library.Entries[0];
+        var raised = 0;
+        entry.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(LibraryEntryViewModel.IsEnabled))
+                raised++;
+        };
+
+        await library.ToggleEntryCommand.ExecuteAsync(entry);
+
+        Assert.True(entry.IsEnabled);
+        Assert.True(raised > 0, "the switch is told to show the PC's state again");
+        Assert.Equal("Jobs are paused on this PC.", library.StatusMessage);
+        Assert.False(entry.IsSwitchBusy);
+    }
+
+    [Fact]
+    public void ListsGroupYoursBeforeBuiltInsAndWhatIsOnBeforeWhatIsPaused()
+    {
+        var library = new LibraryViewModel(new LibrarySink()) { Section = LibrarySection.Lumis };
+        library.Apply(new RemoteLibrary
+        {
+            Lumis =
+            [
+                new RemoteLumi { Id = Guid.NewGuid(), Name = "Coding Lumi", IsBuiltIn = true },
+                new RemoteLumi { Id = Guid.NewGuid(), Name = "Release manager" },
+                new RemoteLumi { Id = Guid.NewGuid(), Name = "Daily Planner", IsBuiltIn = true }
+            ],
+            Jobs =
+            [
+                new RemoteJob { Id = Guid.NewGuid(), Name = "Old watcher", IsEnabled = false },
+                new RemoteJob { Id = Guid.NewGuid(), Name = "Morning briefing", IsEnabled = true, ScheduleSummary = "Every day at 08:00", LastRunStatus = "Completed" }
+            ]
+        });
+
+        Assert.Equal(["Release manager", "Coding Lumi", "Daily Planner"], library.Entries.Select(entry => entry.Name));
+        Assert.Equal(["Yours", "Built in", null], library.Entries.Select(entry => entry.GroupLabel));
+        Assert.Equal([true, true, false], library.Entries.Select(entry => entry.IsGroupStart));
+        Assert.Equal([true, false, true], library.Entries.Select(entry => entry.IsGroupEnd));
+        Assert.All(library.Entries.Where(entry => entry.IsBuiltIn), entry => Assert.NotNull(entry.ReadOnlyNote));
+        Assert.Null(library.ScopeSummary);
+
+        Assert.True(library.RequestScope(LibraryScope.Jobs));
+        Assert.Equal(LibrarySection.Jobs, library.Section);
+        Assert.Equal("1 on · 1 paused", library.ScopeSummary);
+        Assert.Equal(["Morning briefing", "Old watcher"], library.Entries.Select(entry => entry.Name));
+        Assert.Equal(["On", "Paused"], library.Entries.Select(entry => entry.GroupLabel));
+        Assert.All(library.Entries, entry => Assert.True(entry.IsGroupStart && entry.IsGroupEnd));
+        Assert.Equal("Every day at 08:00 · Completed", library.Entries[0].Subtitle);
+        Assert.All(library.Entries, entry => Assert.True(entry.HasSwitch));
+
+        // A search keeps each match's edges true to what is shown.
+        library.SearchText = "watcher";
+        var match = Assert.Single(library.Entries);
+        Assert.True(match.IsGroupStart && match.IsGroupEnd);
+        Assert.Equal("Paused", match.GroupLabel);
+    }
+
+    /// <summary>
+    /// Jobs and connectors are switched like settings, so each group sits on one card: its first
+    /// row rounds the top, its last the bottom, and hairlines divide the rows between them. What is
+    /// opened (agents, skills, projects) stays a plain row, as on the desktop's Customize lists.
+    /// </summary>
+    [Fact]
+    public async Task WhatSwitchesSitsOnOneCardPerGroupAndWhatOpensStaysAPlainRow()
+    {
+        var library = new LibraryViewModel(new LibrarySink()) { Section = LibrarySection.Jobs };
+        library.Apply(new RemoteLibrary
+        {
+            Jobs =
+            [
+                new RemoteJob { Id = Guid.NewGuid(), Name = "Morning briefing", IsEnabled = true, ScheduleSummary = "Every day at 08:00", LastRunStatus = "Completed" },
+                new RemoteJob { Id = Guid.NewGuid(), Name = "Evening digest", IsEnabled = true, ScheduleSummary = "Every day at 21:00", LastRunStatus = "Completed" },
+                new RemoteJob { Id = Guid.NewGuid(), Name = "Old watcher", IsEnabled = false }
+            ],
+            Lumis = [new RemoteLumi { Id = Guid.NewGuid(), Name = "Release manager", Description = "Ships Lumi builds" }]
+        });
+        await RunView(320, 700, library, async (view, window, _) =>
+        {
+            await Task.Delay(320);
+            Pump(window);
+            Border[] Segments() => [.. view.GetVisualDescendants().OfType<Border>().Where(border => border.Name == "LibraryRowSegment")];
+
+            var segments = Segments();
+            Assert.Equal(3, segments.Length);
+            Assert.All(segments, segment => Assert.Contains("card", segment.Classes));
+            Assert.All(segments, segment => Assert.Equal(255, ColorOf(segment.Background).A));
+            Assert.Equal(new CornerRadius(14, 14, 0, 0), segments[0].CornerRadius);
+            Assert.Equal(new CornerRadius(0, 0, 14, 14), segments[1].CornerRadius);
+            Assert.Equal(new CornerRadius(14), segments[2].CornerRadius);
+            Assert.Equal(new Thickness(1, 1, 1, 0), segments[0].BorderThickness);
+            Assert.Equal(new Thickness(1, 0, 1, 1), segments[1].BorderThickness);
+
+            // The group's rows join into one card, divided by a hairline only between them.
+            var firstBottom = segments[0].TranslatePoint(new Point(0, segments[0].Bounds.Height), window)!.Value.Y;
+            var secondTop = segments[1].TranslatePoint(default, window)!.Value.Y;
+            Assert.Equal(firstBottom, secondTop, 1);
+            bool DividerShown(Border segment) => Required<Border>(segment, "LibraryRowDivider").IsEffectivelyVisible;
+            Assert.Equal([false, true, false], segments.Select(DividerShown));
+
+            // A switch row reads as one line, and its text keeps clear of the switch.
+            var subtitle = segments[0].GetVisualDescendants().OfType<TextBlock>().Single(text => text.Classes.Contains("entry-subtitle"));
+            Assert.Equal(1, subtitle.MaxLines);
+            var name = Required<TextBlock>(segments[0], "LibraryEntryName");
+            var toggle = Required<ToggleSwitch>(segments[0], "LibraryEntrySwitch");
+            Assert.True(name.TranslatePoint(new Point(name.Bounds.Width, 0), window)!.Value.X
+                        <= toggle.TranslatePoint(default, window)!.Value.X);
+
+            library.Section = LibrarySection.Lumis;
+            Pump(window);
+            await Task.Delay(320);
+            Pump(window);
+            var plain = Assert.Single(Segments());
+            Assert.DoesNotContain("card", plain.Classes);
+            Assert.True(plain.Background is null, "a row that opens is not framed");
+            Assert.False(DividerShown(plain));
+            Assert.Contains("free", Required<Button>(plain, "LibraryEntryButton").Classes);
+        });
+    }
+
+    private static Color ColorOf(IBrush? brush) => Assert.IsAssignableFrom<ISolidColorBrush>(brush).Color;
+
+    [Fact]
+    public async Task AJobsPageOpensTheChatItRunsIn()
+    {
+        var chatId = Guid.NewGuid();
+        var library = new LibraryViewModel(new LibrarySink()) { Section = LibrarySection.Jobs };
+        library.Apply(new RemoteLibrary
+        {
+            Jobs = [new RemoteJob { Id = Guid.NewGuid(), Name = "Morning briefing", ChatId = chatId, IsEnabled = true }]
+        });
+        (Guid Id, string Title)? requested = null;
+        library.ChatRequested += (id, title) => requested = (id, title);
+
+        await library.OpenEntryCommand.ExecuteAsync(library.Entries[0]);
+        Assert.True(library.IsViewing);
+        Assert.True(library.ViewedEntry!.CanOpenChat);
+        library.OpenViewedChatCommand.Execute(null);
+
+        Assert.Equal((chatId, "Morning briefing"), requested);
     }
 
     [Fact]
@@ -690,6 +861,14 @@ public sealed class LibraryExperienceTests
 
     private static T Required<T>(Visual root, string name) where T : Control =>
         root.GetVisualDescendants().OfType<T>().Single(control => control.Name == name);
+
+    private static void Tap(Window window, Control control)
+    {
+        var center = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;
+        window.MouseDown(center, MouseButton.Left);
+        window.MouseUp(center, MouseButton.Left);
+        Pump(window);
+    }
 
     private static void Pump(Window window)
     {

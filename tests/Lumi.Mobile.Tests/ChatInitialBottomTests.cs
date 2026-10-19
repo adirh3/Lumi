@@ -441,7 +441,7 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 {
                     turn.Items[^1].Text += "\n\n"
                         + string.Join(" ", Enumerable.Repeat(
-                            "This longer paragraph reflows when the navigation pane reserves chat width.", 8));
+                            "This longer paragraph reflows when the navigation pane reserves chat width.", 16));
                 }
                 model.Chat.ApplyTranscript(transcript);
                 await PumpAsync();

@@ -572,8 +572,8 @@ setup code to download the APK matching your desktop release. Install it, return
 the setup page, and tap **Open Lumi**. If the app is not installed, **Open Lumi**
 falls back to the official APK download, never an app-store listing.
 
-Announced files appear as readable attachment cards after the reply for their turn,
-including file-only replies, without changing transcript paging or download permissions.
+Announced files appear as file chips at the end of the reply that closes their turn (on
+their own when a turn has no closing reply), without changing transcript paging or download permissions.
 Inline screenshots are also available when that exact raster-image file was successfully
 read by a `view` tool call in the same chat, even if it was not announced as an attachment.
 Arbitrary markdown paths, failed reads and unrelated files remain unavailable remotely.
@@ -631,6 +631,84 @@ moves up. A running chat no longer updates the list at every agent step: the pho
 when it starts and finishes, or when something its row shows changes, and filtered lists
 and search results update their rows instead of downloading the list again.
 
+The phone app is laid out like the desktop, in its calm graphite. The desktop's text is Segoe UI,
+which may not ship outside Windows, so the phone bundles **Inter 4** (rsms/inter, SIL Open Font
+License), the typeface of modern product interfaces, in Regular, SemiBold and Bold. It is used for
+all of the phone's text, the conversation, the composer and the web app included: neutral surfaces,
+with the accent kept for the main action and live work. Inter's lowercase stands as tall as
+Roboto's, so its sizes are Android's own: body text is 16 dp (Android's 16sp), secondary text 14.5
+and captions 13, which is also the floor for words anywhere in the app; icons are Android's 24 dp.
+Your messages are spaced as the desktop's bubbles are, at 1.33 of their size whatever that size is.
+On Android the whole scale follows the phone's own **Font size** setting, converted as Android
+converts its own text (large text grows less), which Avalonia does not do by itself. Its places are the desktop's:
+**Chats**, **Jobs**, **Customize** (agents, skills, connectors and projects) and **Settings**
+(with **Memories**), on a glass pill centred in the thumb zone; the open place always wears its
+name. Moving to another place glides the highlight over to it while the names trade places, as the
+desktop's bar does. The glide sets off with its first frame and eases in over the next few, so a page
+building the first time it shows can't make it jump. The new place's page takes over in place: the
+chat list no longer slides across the screen for it. The chat list is titled **Lumi**, with the title bar's glass search and
+**New chat** buttons at its top right, then the project switcher, a glass pill built as a chat's
+title pill is: the project's mark, its name, how many projects there are and a chevron. The chat list
+is home: it opens first, a chat opens over it, and Back or a swipe from anywhere returns to it.
+Each row is the desktop's: the chat's title, led by a dot that pulses while Lumi works and stays
+while a reply waits, with a ring while background work runs and a quiet pin on pinned chats; the
+date groups say when. The open chat wears the desktop's neutral wash and short accent pipe.
+Search results keep a second line with the chat's project and last reply, to recognise a
+match by. A chat's header is the desktop's: a glass title pill with the chat's mark, its title and,
+in the room the title leaves, its project, which opens its details sheet (it also pins, renames
+and deletes the chat). The pill fills the bar between Back (or the list's toggle) and **New chat**,
+which is always the bar's top right: beside a docked list, New chat leaves the list for the chat's
+bar, so the bar stays symmetrical. A chat that takes a moment to load breathes its outline over
+the canvas, with no box of its own over Lumi's glow. Customize lists its sections, with counts, on one card above the section's
+items; every item opens: your own agents, skills, projects and memories in the editor, and
+Lumi's built-in agents and skills, connectors and jobs on a read-only page with their full
+instructions or command from the PC. Connectors and jobs switch on and off right on their row,
+grouped on cards like settings (Jobs counts how many are on and paused), and a job's page opens
+the chat it runs in. From 700 dp wide (an unfolded Galaxy Z Fold, a tablet) every place keeps its
+list beside its content, as the desktop's sidebar does; a book-posture fold splits at the
+crease, and a phone held sideways keeps one pane with one-line chrome. Where the chat keeps
+480 dp beside it, the plan, sources and activity open as a panel on the right, with the chat
+and composer still live; below 1200 dp the chat list steps aside while the panel is open.
+With a keyboard, Ctrl+K searches, Ctrl+N starts a chat, Ctrl+B shows or hides the list,
+Ctrl+1–4 open the places and Ctrl+, opens Settings; a secondary click on a row opens the same
+actions as a long press.
+
+A conversation on the phone wears the desktop's transcript glass at touch size. Lumi's work
+shows as line-icon glass chips, with the desktop's icon for each tool, that say what it is doing
+and then how long it took, how many actions it ran and the lines it added and removed; a turn's
+finished work folds behind **Worked for … · N actions**, updates included, as on the desktop: once
+Lumi stops, a turn without an answer (steered, stopped or cut off) folds up to its last update,
+work still running in the background stays in view, and the thinking behind an answer folds with
+the work even when it was recorded after it. A chip opens a sheet with every
+step, file change and technical detail. An answer ends with its sources as one chip, the files
+it made as file chips, and its model and time beside copy and share, whose glyphs sit a short
+step apart as the desktop's do while each keeps a full touch target. A question Lumi asks is the
+desktop's question card in touch mode: each option, the reply field and its send button are full
+touch targets at the body size. Your messages carry their
+time as the desktop's bubbles do and use the width beside a narrow gutter. Every place's list
+scrolls under the floating places, as the chat list does. The pill is the desktop's navigation pill
+in the desktop's materials: the surface at 40% under an unbroken hairline and a small shadow, with the
+open place's accent glow inset concentrically. As on the desktop's sidebar, the band beneath it frosts
+the rows passing under the places with no tint of its own, fading in 40 dp above them, so they show
+through as softened shape and colour, never as words. Every popup is glass as the desktop's
+menus are: the page shows through the sheet as frosted colour and light, behind a light dim.
+
+The composer shows what the next message carries, as the desktop's does: the chat's project,
+agent and skills as quiet chips above the message, each with a small tile in its kind's hue, in
+new and started chats alike. Connectors are tools the chat may use rather than what a message
+carries, so, as the desktop keeps them behind its Connectors button, the phone keeps them behind
+**+**. A chip opens its picker. **+** opens a sheet with files and photos and one row each for the
+agent, project, skills and connectors, saying what is chosen now. An agent or project is one
+choice that closes its picker; skills and connectors switch on and off in place. The pickers list
+what the PC has (connectors that are on), and keep a skill or connector the chat already uses even
+when the PC no longer lists it, so it can be taken off. Every change reaches the PC as the
+desktop's menus do, and `@`, `/`, `$` and `#` still work while typing. **+** and send are
+two discs of one size at the composer's ends, in the desktop's line glyphs: send is quiet until
+there is something to send, Lumi's gradient once there is, and to stop while Lumi works the quiet
+disc a shade stronger, its square in the theme's own ink, with a breathing ring. The model sits beside send, as on the desktop, and opens its picker: the
+models by provider, then the reasoning effort and context window as the desktop's segments. The
+chat's own settings (plan, Git changes, workspace, pin, rename and delete) open from its title.
+
 The iPhone PWA fills the Home Screen app's full viewport; Safari tabs instead follow
 the dynamic browser toolbar height. Backgrounds run edge to edge, while controls
 respect the notch and home indicator, including after rotation and resume.
@@ -646,7 +724,7 @@ Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript 
 only turns near the viewport while retaining the full loaded page and offscreen streaming
 updates, avoiding eager layout of every markdown answer when opening a conversation. Turns
 about to be seen are built at once; turns up to a viewport further out are prepared ahead of
-scrolling one per layout pass, so a fling meets ready turns instead of building several in one
+scrolling one per frame, so a fling meets ready turns instead of building several in one
 frame. Past a viewport and a half, a prepared turn stays attached but hidden at its reserved
 height: returning reuses its styles and templates instead of attaching them again. Hidden
 markdown defers updates until it becomes visible, and leaving the bounded transcript page
@@ -699,11 +777,15 @@ the initial layout. Rendered-pixel tests check partial-opacity frames and visibl
 
 The mobile conversation is an unlimited canvas: history runs edge to edge underneath the floating
 top bar and composer, resting clear of both. Every floating control (the top-bar buttons, the
-composer, jump-to-latest and the background-work pill) is glass of its own, a light frost from
-Strata's `StrataBackdropBlur`, so the conversation stays visible through it as it scrolls. A
-scrim frosts only the status bar and gesture area while content passes beneath them. The drawer's
-search, close, project and settings buttons likewise frost the scrolling list directly; its
-noninteractive brand label is plain typography with no background, border or blur.
+composer, jump-to-latest, the background-work pill and the places) is glass, with the desktop's
+values: the top-bar buttons are its header pills (the overlay surface at two-thirds, a hairline
+rim, a soft shadow, frosted by Strata's `StrataBackdropBlur`), so text passing beneath is a soft
+blur; the composer's frost is a little lighter, so Lumi's presence settled behind it still glows
+through. As on the desktop, history passing under the top bar softens under a frost and a light
+veil that cover the bar and fade out just below it, visible yet never legible; beneath the
+composer, which spans the conversation, a scrim frosts only the gesture area. The chat list and
+every place's page veil their headers the same way, and the places pill sits on the desktop's
+untinted navigation frost, in the desktop's own pill materials.
 Mobile uses one continuous, theme-aware presence field, following the desktop choreography:
 it gathers at the welcome greeting, rises into the live answer while working, and settles
 back behind the glass composer when an existing chat is idle. There is no separate composer
@@ -748,6 +830,24 @@ dotnet run --project src\Lumi.Mobile.Desktop\Lumi.Mobile.Desktop.csproj -- --pop
 This Debug-only simulator fixture always uses an isolated local profile. Its preview selector
 opens the existing production sheets and interactive form/date pickers; the device selector
 switches between phone, landscape, tablet and Fold layouts.
+
+Preview the whole app — chats in every state, a conversation with a plan, and each place's
+items — on local fixture data, for example on the Galaxy Z Fold7's unfolded screen:
+
+```powershell
+dotnet run --project src\Lumi.Mobile.Desktop\Lumi.Mobile.Desktop.csproj -- --design-preview --device "Galaxy Z Fold7 — open"
+```
+
+The device selector includes the Fold7's cover (412×960 dp), its unfolded screen at the default
+and a larger display size (984×1092 and 750×832 dp), book and tabletop postures, and a large
+landscape tablet; the readout shows how many panes the layout uses.
+
+A Debug Android build opens the same preview on Android's own renderer (where the glass and the
+typeface can differ from the simulator's), for example on an emulator:
+
+```powershell
+adb shell am start -n com.lumi.mobile/crc6470d511f2159c9bd9.MainActivity --ez lumi.design_preview true --es lumi.theme Dark
+```
 
 ### Lumi tool availability
 

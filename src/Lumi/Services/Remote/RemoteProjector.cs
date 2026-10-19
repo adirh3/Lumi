@@ -964,6 +964,12 @@ internal static class RemoteProjector
                 continue;
             }
 
+            // Lumi has stopped working on this turn: a later message moved on, or the chat went idle. As on
+            // the desktop, its finished work folds up to its last word even when that word is no answer
+            // (a steered, stopped or cut-off turn); what still runs in the background stays in view.
+            if (!HasStreamingMessage(messages, start, end))
+                turn.IsSettled = true;
+
             var answerIndex = FindCompletedTurnAnswerIndex(
                 messages, start, end, runningBackgroundToolCallIds);
             if (answerIndex < 0 || messages[answerIndex].Id != answerId)
@@ -991,6 +997,17 @@ internal static class RemoteProjector
         }
     }
 
+    private static bool HasStreamingMessage(IReadOnlyList<ChatMessage> messages, int start, int end)
+    {
+        for (var index = start; index < end; index++)
+        {
+            if (messages[index].IsStreaming)
+                return true;
+        }
+
+        return false;
+    }
+
     private static int FindCompletedTurnAnswerIndex(
         IReadOnlyList<ChatMessage> messages,
         int start,
@@ -1007,7 +1024,8 @@ internal static class RemoteProjector
                 break;
             }
         }
-        if (answerIndex < 0)
+        // A message the SDK recorded as an update written while working is not an answer, as on the desktop.
+        if (answerIndex < 0 || messages[answerIndex].IsProgress == true)
             return -1;
 
         for (var index = start; index < end; index++)
@@ -1019,14 +1037,15 @@ internal static class RemoteProjector
             {
                 return -1;
             }
-            // Completed file notifications may arrive after idle; they are bookkeeping, not new work.
+            // Completed file notifications may arrive after idle; they are bookkeeping, not new work. The
+            // thinking behind the answer can be recorded just after it, too; it is the answer's, not new work.
             var completedFileNotification = message is
             {
                 Role: "tool",
                 ToolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
                 ToolStatus: "Completed"
             };
-            if (index > answerIndex && !completedFileNotification
+            if (index > answerIndex && !completedFileNotification && message.Role != "reasoning"
                 && (IsCompactTechnicalMessage(message) || message.Role == "error"
                     || message.Role == "tool" && IsQuestion(message)
                     || message.Role == "assistant" && !string.IsNullOrWhiteSpace(message.Content)))
@@ -1532,6 +1551,7 @@ internal static class RemoteProjector
         };
 
         RemoteToolCall? latestRunningTool = null;
+        string? sharedIcon = null;
         var hasReasoning = false;
         foreach (var message in technicalMessages)
         {
@@ -1555,9 +1575,12 @@ internal static class RemoteProjector
             activity.ActionCount = (activity.ActionCount ?? 0) + 1;
             activity.DurationMs = (activity.DurationMs ?? 0) + (call.DurationMs ?? 0);
             activity.Status = MergeActivityStatus(activity.Status, call.Status);
+            sharedIcon = sharedIcon is null || sharedIcon == call.Icon ? call.Icon : TranscriptIcons.Mixed;
             if (string.Equals(call.Status, "InProgress", StringComparison.Ordinal))
                 latestRunningTool = call;
         }
+
+        activity.Icon = latestRunningTool?.Icon ?? sharedIcon;
 
         if (string.Equals(activity.Status, "InProgress", StringComparison.Ordinal)
             && latestRunningTool is null
@@ -1669,6 +1692,7 @@ internal static class RemoteProjector
             Id = message.ToolCallId ?? message.Id.ToString("N"),
             Name = toolName,
             DisplayName = friendly,
+            Icon = ToolDisplayHelper.GetToolIconKey(toolName),
             Input = RemoteProtocol.TruncateForMobile(
                 message.ToolSkillName ?? info ?? message.Content,
                 RemoteProtocol.MobileToolInputLimit),
@@ -2068,6 +2092,7 @@ internal static class RemoteProjector
                 item.Label = BoundOptional(item.Label, RemoteProtocol.MobileMetadataTextLimit);
                 item.Status = BoundOptional(item.Status, RemoteProtocol.MobileStatusValueLimit);
                 item.Model = BoundOptional(item.Model, RemoteProtocol.MobileStatusValueLimit);
+                item.Icon = BoundOptional(item.Icon, RemoteProtocol.MobileStatusValueLimit);
                 item.ActivityId = BoundOptional(
                     item.ActivityId,
                     RemoteProtocol.MobileIdentifierLimit);
@@ -2578,6 +2603,7 @@ internal static class RemoteProjector
             DisplayName = BoundOptional(
                 tool.DisplayName,
                 RemoteProtocol.MobileMetadataTextLimit),
+            Icon = BoundOptional(tool.Icon, RemoteProtocol.MobileStatusValueLimit),
             Input = BoundOptional(tool.Input, RemoteProtocol.MobileToolInputLimit),
             Output = BoundOptional(tool.Output, RemoteProtocol.MobileToolOutputLimit),
             Category = BoundRequired(tool.Category, RemoteProtocol.MobileStatusValueLimit),
@@ -2593,6 +2619,7 @@ internal static class RemoteProjector
             DisplayName = BoundOptional(
                 tool.DisplayName,
                 RemoteProtocol.MobileMetadataTextLimit),
+            Icon = BoundOptional(tool.Icon, RemoteProtocol.MobileStatusValueLimit),
             Input = BoundOptional(tool.Input, RemoteProtocol.MobileActivityToolInputLimit),
             Output = BoundOptional(tool.Output, RemoteProtocol.MobileActivityToolOutputLimit),
             Category = BoundRequired(tool.Category, RemoteProtocol.MobileStatusValueLimit),

@@ -13,8 +13,8 @@ using Lumi.Remote.Protocol;
 namespace Lumi.Mobile.ViewModels;
 
 /// <summary>
-/// What is showing over the chat. The chat surface is always mounted underneath — this app is a
-/// chat, and everything else is a page pushed on top of it, exactly like ChatGPT / Claude.
+/// What is showing over the chat. The chat surface is always mounted underneath; pages for the
+/// other places sit over it so returning to a chat never costs a transcript rebuild.
 /// </summary>
 public enum MobilePage
 {
@@ -27,6 +27,27 @@ public enum MobilePage
 
     /// <summary>Full-screen search, the way every mobile app does it.</summary>
     Search
+}
+
+/// <summary>
+/// The desktop's places, in the order its bar lists them. Library is a desktop place for files the
+/// phone does not browse, so the phone offers the other four.
+/// </summary>
+public enum MobilePlace
+{
+    Chats,
+    Jobs,
+    Customize,
+    Settings
+}
+
+/// <summary>A Settings page. None is the list itself on a phone; a wide window shows a page beside it.</summary>
+public enum SettingsSection
+{
+    None,
+    Appearance,
+    Connection,
+    About
 }
 
 public enum WebAppUpdateState
@@ -59,19 +80,6 @@ public sealed partial class ChatStartSetup(RemoteChatSetup setup) : ObservableOb
     public string Description => Source.Description;
     public string Glyph => Source.Glyph;
     [ObservableProperty] private bool _isSelected;
-}
-
-/// <summary>
-/// One entry in the drawer's horizontal "experiences" strip. Mirrors ChatGPT's simplified sidebar,
-/// where capabilities sit in a scrolling row above the chat history instead of consuming a tab.
-/// </summary>
-public sealed class ExperienceViewModel
-{
-    public required string Name { get; init; }
-
-    public required string Glyph { get; init; }
-
-    public required LibrarySection Section { get; init; }
 }
 
 
@@ -202,6 +210,9 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(ShowConnectionBanner))]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(ShowMenuButton))]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderNewChat))]
+    [NotifyPropertyChangedFor(nameof(ShowBackToChats))]
+    [NotifyPropertyChangedFor(nameof(CanManageOpenChat))]
     [NotifyPropertyChangedFor(nameof(CanChangeProjectScope))]
     [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
     [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
@@ -332,6 +343,25 @@ public sealed partial class MobileShellViewModel :
                 OnPropertyChanged(nameof(ChatDetailsTitle));
             }
             if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
+                or nameof(MobileChatViewModel.ChatId))
+            {
+                OnPropertyChanged(nameof(CanManageOpenChat));
+                OnPropertyChanged(nameof(CanGoBack));
+            }
+            if (e.PropertyName is nameof(MobileChatViewModel.ProjectName)
+                or nameof(MobileChatViewModel.ProjectValue)
+                or nameof(MobileChatViewModel.AgentName)
+                or nameof(MobileChatViewModel.AgentGlyph))
+            {
+                OnPropertyChanged(nameof(ChatHeaderMark));
+                OnPropertyChanged(nameof(HasChatHeaderMark));
+            }
+            if (e.PropertyName is nameof(MobileChatViewModel.IsRunSettingsSheetOpen))
+            {
+                OnPropertyChanged(nameof(CanPinOpenChat));
+                OnPropertyChanged(nameof(OpenChatPinLabel));
+            }
+            if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
                 or nameof(MobileChatViewModel.IsBusy)
                 or nameof(MobileChatViewModel.IsLoading)
                 or nameof(MobileChatViewModel.CanChangeProjectSelection))
@@ -352,6 +382,9 @@ public sealed partial class MobileShellViewModel :
                 OnPropertyChanged(nameof(CanGoBack));
                 OnPropertyChanged(nameof(CanDragDrawer));
             }
+
+            if (e.PropertyName is nameof(MobileChatViewModel.HasSidePanelOpen))
+                OnSidePanelChanged();
 
             if (e.PropertyName is nameof(MobileChatViewModel.HasUnsentWork)
                 or nameof(MobileChatViewModel.HasOpenSheet)
@@ -435,7 +468,21 @@ public sealed partial class MobileShellViewModel :
                 });
         };
 
-        Library.CloseRequested += () => Page = MobilePage.Chat;
+        Library.CloseRequested += () =>
+        {
+            // Memories is a Settings page; the places' own lists step back to the chat list.
+            if (Library.Scope == LibraryScope.Memories)
+                Page = MobilePage.Settings;
+            else
+                ShowHome();
+        };
+        Library.ScopeChanged += NotifyPlaceChanged;
+        // A job's page opens the chat it runs in, as the desktop's job page does.
+        Library.ChatRequested += (chatId, title) =>
+        {
+            Library.CloseViewCommand.Execute(null);
+            OnChatActivated(chatId, title, null);
+        };
 
         if (_settings is { BaseUrl.Length: > 0, Token.Length: > 0 })
         {
@@ -636,6 +683,14 @@ public sealed partial class MobileShellViewModel :
                 .With("chatId", chat.Id.ToString())))
         {
             IsChatActionsOpen = false;
+            // A list that is not on screen hears of the deletion only when it reloads, so the open chat
+            // leaves at once, as on the desktop, and a single pane returns to the list.
+            if (Chat.ChatId == chat.Id)
+            {
+                OnChatRemoved(chat.Id);
+                if (!CanDockDrawer)
+                    ShowHome();
+            }
         }
     }
 
@@ -740,7 +795,44 @@ public sealed partial class MobileShellViewModel :
 
     public bool HasActiveProject => ActiveProjectId.HasValue;
 
-    public string ProjectScopeLabel => ActiveProject ?? "All projects";
+    /// <summary>The chat list's title, as the desktop's project switcher names it.</summary>
+    public string ProjectSwitcherTitle => ActiveProject ?? "All chats";
+
+    /// <summary>"4 projects" beside All chats; nothing once one project is the lens.</summary>
+    public string ProjectSwitcherMeta => HasActiveProject || Projects.Count == 0
+        ? ""
+        : Projects.Count == 1 ? "1 project" : $"{Projects.Count} projects";
+
+    /// <summary>The open project's initial on its hue; empty while every chat is in view.</summary>
+    public ChatIdentityMark ProjectSwitcherMark => ActiveProjectId is { } id && ActiveProject is { } name
+        ? ChatIdentityMark.Create(id, name, null, null) ?? ChatIdentityMark.Empty
+        : ChatIdentityMark.Empty;
+
+    /// <summary>The open chat's identity in its title pill: agent glyph or project initial on its hue.</summary>
+    public ChatIdentityMark ChatHeaderMark => ChatIdentityMark.Create(
+        Guid.TryParse(Chat.ProjectValue, out var projectId) ? projectId : null,
+        Chat.ProjectName, Chat.AgentName, Chat.AgentGlyph) ?? ChatIdentityMark.Empty;
+
+    public bool HasChatHeaderMark => !ReferenceEquals(ChatHeaderMark, ChatIdentityMark.Empty);
+
+    /// <summary>
+    /// New chat is the top right of the chat's title bar in every layout, balancing the back or sidebar
+    /// button at its left. A docked list beside the chat leaves it to the chat's bar.
+    /// </summary>
+    public bool ShowHeaderNewChat => IsPaired;
+
+    /// <summary>
+    /// The chat list carries New chat beside search only when it is a screen of its own; docked beside
+    /// a chat, the chat's title bar has it.
+    /// </summary>
+    public bool ShowListNewChat => !CanDockDrawer;
+
+    private void NotifyProjectSwitcherChanged()
+    {
+        OnPropertyChanged(nameof(ProjectSwitcherTitle));
+        OnPropertyChanged(nameof(ProjectSwitcherMeta));
+        OnPropertyChanged(nameof(ProjectSwitcherMark));
+    }
 
     public bool CanChangeProjectScope =>
         IsPaired && (Chat.ChatId != Guid.Empty || Chat.CanChangeProjectSelection);
@@ -761,7 +853,7 @@ public sealed partial class MobileShellViewModel :
             SearchChatList.ProjectFilterId = value;
         OnPropertyChanged(nameof(ActiveProject));
         OnPropertyChanged(nameof(HasActiveProject));
-        OnPropertyChanged(nameof(ProjectScopeLabel));
+        NotifyProjectSwitcherChanged();
         SyncProjectSelection();
 
         // A project chosen while composing a blank chat is both a history lens and the destination
@@ -814,7 +906,7 @@ public sealed partial class MobileShellViewModel :
 
             OnPropertyChanged(nameof(HasProjects));
             OnPropertyChanged(nameof(ActiveProject));
-            OnPropertyChanged(nameof(ProjectScopeLabel));
+            NotifyProjectSwitcherChanged();
         }
 
         SyncProjectSelection();
@@ -984,23 +1076,75 @@ public sealed partial class MobileShellViewModel :
         ? Chat.Title
         : "New chat";
 
+    // ── The open chat's own actions ─────────────────────────────────────────────────────────
+    //
+    // The chat's details sheet also pins, renames and deletes it, as the desktop's header and
+    // sidebar menu do, so a chat read full-screen never has to be found in the list first.
+
+    public bool CanManageOpenChat => IsPaired && Chat.HasChat && Chat.ChatId != Guid.Empty;
+
+    /// <summary>Pinning is offered when the list knows whether the open chat is pinned.</summary>
+    public bool CanPinOpenChat => CanManageOpenChat && ChatList.FindLoadedChat(Chat.ChatId) is not null;
+
+    public string OpenChatPinLabel =>
+        CanManageOpenChat && ChatList.FindLoadedChat(Chat.ChatId) is { IsPinned: true }
+            ? "Unpin chat"
+            : "Pin chat";
+
+    /// <summary>The open chat as its list row when shown, else as its loaded summary.</summary>
+    private ChatListItemViewModel? OpenChatRow()
+    {
+        if (!CanManageOpenChat)
+            return null;
+        if (ChatList.FindChat(Chat.ChatId) is { } row)
+            return row;
+        return ChatList.FindLoadedChat(Chat.ChatId) is { } loaded
+            ? new ChatListItemViewModel(loaded)
+            : new ChatListItemViewModel(new RemoteChat { Id = Chat.ChatId, Title = Chat.Title });
+    }
+
+    [RelayCommand]
+    private void RenameOpenChat()
+    {
+        if (OpenChatRow() is not { } chat)
+            return;
+        Chat.IsRunSettingsSheetOpen = false;
+        OpenChatActions(chat);
+        RenameActionChat();
+    }
+
+    [RelayCommand]
+    private void DeleteOpenChat()
+    {
+        if (OpenChatRow() is not { } chat)
+            return;
+        Chat.IsRunSettingsSheetOpen = false;
+        OpenChatActions(chat);
+        DeleteActionChat();
+    }
+
+    [RelayCommand]
+    private async Task PinOpenChatAsync()
+    {
+        if (!CanManageOpenChat || ChatList.FindLoadedChat(Chat.ChatId) is not { } chat)
+            return;
+        Chat.IsRunSettingsSheetOpen = false;
+        var chatId = chat.Id;
+        var pinned = !chat.IsPinned;
+        var result = await SendCommandAsync(new RemoteCommand(RemoteProtocol.Actions.PinChat)
+            .With("chatId", chatId.ToString()).With("pinned", pinned.ToString()));
+        if (result.Ok)
+            ChatList.SetPinned(chatId, pinned);
+        else if (Chat.ChatId == chatId)
+            Chat.ErrorText = result.Error ?? "This action didn't complete. Please try again.";
+        OnPropertyChanged(nameof(OpenChatPinLabel));
+    }
+
     partial void OnUserNameChanged(string value)
     {
         OnPropertyChanged(nameof(AccountName));
         OnPropertyChanged(nameof(UserInitial));
         OnPropertyChanged(nameof(Greeting));
-    }
-
-    /// <summary>Opens the library on the tapped experience.</summary>
-    [RelayCommand]
-    private void OpenExperience(ExperienceViewModel? experience)
-    {
-        if (experience is null)
-            return;
-
-        Library.Section = experience.Section;
-        Page = MobilePage.Library;
-        IsDrawerOpen = false;
     }
 
     /// <summary>
@@ -1083,10 +1227,10 @@ public sealed partial class MobileShellViewModel :
 
     // ── Navigation ────────────────────────────────────────────────────────────────────────────
     //
-    // The chat surface is the app. It is always mounted; Library and Settings are pages pushed
-    // over it, and the chat list lives in a drawer rather than a tab. This mirrors ChatGPT, Claude
-    // and Gemini: on a phone the conversation deserves the whole screen, and a permanent tab bar
-    // would spend ~56dp of it advertising destinations the user visits occasionally.
+    // The desktop's places, adapted to the window. With room for one pane the chat list is home:
+    // a chat, or another place, opens over it and Back or a swipe from anywhere returns to it. With
+    // room for two, the open place's list sits beside its content as the desktop sidebar does. The
+    // chat surface is always mounted so coming back to it never rebuilds a transcript.
 
     public bool IsChatPage => Page == MobilePage.Chat;
 
@@ -1099,15 +1243,54 @@ public sealed partial class MobileShellViewModel :
     /// <summary>True when a page is stacked over the conversation.</summary>
     public bool HasPageOverlay => Page != MobilePage.Chat;
 
+    /// <summary>The place the user is in, derived from the page and the Library's scope.</summary>
+    public MobilePlace Place => Page switch
+    {
+        MobilePage.Library => Library.Scope switch
+        {
+            LibraryScope.Jobs => MobilePlace.Jobs,
+            LibraryScope.Memories => MobilePlace.Settings,
+            _ => MobilePlace.Customize
+        },
+        MobilePage.Settings => MobilePlace.Settings,
+        _ => MobilePlace.Chats
+    };
+
+    public bool IsChatsPlace => Place == MobilePlace.Chats;
+
+    public bool IsJobsPlace => Place == MobilePlace.Jobs;
+
+    public bool IsCustomizePlace => Place == MobilePlace.Customize;
+
+    public bool IsSettingsPlace => Place == MobilePlace.Settings;
+
     /// <summary>
-    /// At expanded widths the drawer can dock beside the chat instead of sliding over it. It is
+    /// A place's own list sits beside its content. Not across a physical hinge, where the chat list
+    /// keeps the leading pane and each place uses the other pane as one.
+    /// </summary>
+    public bool IsTwoPane => Layout.CanShowTwoPanes && !HasHingeGap;
+
+    public bool IsSinglePane => !IsTwoPane;
+
+    /// <summary>The window also has room for a supporting panel beside the chat.</summary>
+    public bool IsThreePane => Layout.CanShowThreePanes;
+
+    /// <summary>Width of a place's list column when it sits beside its content.</summary>
+    public double ListPaneWidth => Layout.ListPaneWidth;
+
+    /// <summary>
+    /// At two-pane widths the chat list docks beside the chat instead of sliding over it. It is
     /// still collapsible: the list uses a meaningful share of the conversation width, so its
     /// visibility is controlled by the same button/gesture state and remembered between launches.
     /// </summary>
     public bool IsDrawerDocked => CanDockDrawer && !IsSidebarCollapsed;
 
-    /// <summary>Wide enough to dock, whether or not the user has collapsed it.</summary>
-    public bool CanDockDrawer => Layout.WidthClass == WidthSizeClass.Expanded;
+    /// <summary>
+    /// Wide enough to dock, whether or not the user has collapsed it. Only the chat list docks: the
+    /// other places lay out their own list beside their content. Across a physical hinge the list
+    /// keeps the leading pane for every place, since nothing can span the gap.
+    /// </summary>
+    public bool CanDockDrawer => Layout.CanShowTwoPanes && (Place == MobilePlace.Chats || HasHingeGap);
 
     public bool IsPhoneLayout => Layout.WidthClass == WidthSizeClass.Compact;
 
@@ -1132,13 +1315,13 @@ public sealed partial class MobileShellViewModel :
     /// <summary>
     /// Drawer gestures are suspended while another modal surface owns the pointer. This prevents a
     /// horizontal drift inside a model list or action sheet from stacking the navigation drawer over
-    /// the active modal.
+    /// the active modal. A side panel holds the width the list would take, so it suspends them too.
     /// </summary>
     public bool CanDragDrawer =>
         !IsChatActionsOpen &&
         !IsProjectPickerOpen &&
         !IsDisconnectConfirmationOpen &&
-        (Page != MobilePage.Chat || !Chat.HasOpenSheet) &&
+        (Page != MobilePage.Chat || (!Chat.HasOpenSheet && !Chat.HasSidePanelOpen)) &&
         (Page != MobilePage.Library || !Library.HasOpenSurface);
 
     /// <summary>Scrim is shown for the sliding drawer only; a docked drawer never dims the chat.</summary>
@@ -1151,7 +1334,7 @@ public sealed partial class MobileShellViewModel :
     /// Phones use the full screen. Larger layouts keep a readable pane width or honour the hinge.
     /// </summary>
     public double DrawerWidth => CanDockDrawer
-        ? HasHingeGap ? Layout.HingePosition : 320
+        ? Layout.ListPaneWidth
         : IsPhoneLayout ? Layout.Width + SafeArea.Left + SafeArea.Right : Math.Min(360, Layout.Width);
 
     /// <summary>Final reserved width. The view follows drawer progress between these endpoints.</summary>
@@ -1162,7 +1345,11 @@ public sealed partial class MobileShellViewModel :
     /// <summary>The shared expander lives beside the chat title in both phone and tablet layouts.</summary>
     public bool ShowMenuButton => IsPaired;
 
-    public string NavigationToggleLabel => IsNavigationOpen ? "Hide navigation" : "Open navigation";
+    /// <summary>One pane: the button returns to the list. Two panes: it shows or hides the list.</summary>
+    public bool ShowBackToChats => IsPaired && !CanDockDrawer;
+
+    public string NavigationToggleLabel => !CanDockDrawer ? "Back to chats"
+        : IsNavigationOpen ? "Hide chats" : "Show chats";
 
     /// <summary>Physical hinge gap kept empty between a docked drawer and the conversation.</summary>
     public double HingeGapWidth => Layout.HingeSize;
@@ -1179,30 +1366,270 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void CloseDrawer() => IsDrawerOpen = false;
 
-    partial void OnIsSidebarCollapsedChanged(bool value)
+    /// <summary>
+    /// Shows the chat list: docked beside the chat on a wide window, as the whole screen otherwise.
+    /// This is where the app opens and where Back from any other place returns.
+    /// </summary>
+    public void ShowHome()
     {
-        _settings.IsSidebarCollapsed = value;
-        _store.Save(_settings);
+        Page = MobilePage.Chat;
+        if (!CanDockDrawer && IsPaired)
+            IsDrawerOpen = true;
+    }
 
+    private bool _isOpeningAtLaunch;
+
+    /// <summary>
+    /// Opens on the chat list at launch or right after pairing. The startup snapshot brings the
+    /// chats, so the list is not fetched separately ahead of the connection being ready.
+    /// </summary>
+    public void ShowLaunchHome()
+    {
+        _isOpeningAtLaunch = true;
+        try
+        {
+            ShowHome();
+            // A docked list is in view without the drawer opening; the snapshot brings its chats.
+            FollowChatListVisibility();
+        }
+        finally
+        {
+            _isOpeningAtLaunch = false;
+        }
+    }
+
+    [RelayCommand]
+    private void SelectPlace(string? place)
+    {
+        if (Enum.TryParse<MobilePlace>(place, ignoreCase: true, out var parsed))
+            SelectPlace(parsed);
+    }
+
+    public void SelectPlace(MobilePlace place)
+    {
+        switch (place)
+        {
+            case MobilePlace.Chats:
+                ShowHome();
+                break;
+            case MobilePlace.Jobs:
+                ShowLibraryScope(LibraryScope.Jobs);
+                break;
+            case MobilePlace.Customize:
+                ShowLibraryScope(LibraryScope.Customize);
+                break;
+            case MobilePlace.Settings:
+                SettingsSection = SettingsSection.None;
+                Page = MobilePage.Settings;
+                IsDrawerOpen = false;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Opens the Library page for a place. With unsaved edits the page stays on them and asks first;
+    /// the scope follows only when the user discards.
+    /// </summary>
+    private void ShowLibraryScope(LibraryScope scope)
+    {
+        Library.RequestScope(scope);
+        Page = MobilePage.Library;
         IsDrawerOpen = false;
+        NotifyPlaceChanged();
+    }
 
+    /// <summary>Memories is a page of Settings, kept with the Library editor that already serves it.</summary>
+    [RelayCommand]
+    private void ShowMemories() => ShowLibraryScope(LibraryScope.Memories);
+
+    /// <summary>The Settings page in view. A phone starts on the list; a wide window shows a page beside it.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanGoBack))]
+    private SettingsSection _settingsSection;
+
+    [RelayCommand]
+    private void OpenSettingsSection(string? section)
+    {
+        if (Enum.TryParse<SettingsSection>(section, ignoreCase: true, out var parsed))
+            SettingsSection = parsed;
+    }
+
+    /// <summary>The page a wide Settings shows beside its list: the chosen one, or Appearance.</summary>
+    public SettingsSection VisibleSettingsSection => SettingsSection == SettingsSection.None && IsTwoPane
+        ? SettingsSection.Appearance
+        : SettingsSection;
+
+    public bool ShowSettingsDetail => VisibleSettingsSection != SettingsSection.None;
+
+    public bool IsAppearanceSectionVisible => VisibleSettingsSection == SettingsSection.Appearance;
+
+    public bool IsConnectionSectionVisible => VisibleSettingsSection == SettingsSection.Connection;
+
+    public bool IsAboutSectionVisible => VisibleSettingsSection == SettingsSection.About;
+
+    public string SettingsDetailTitle => VisibleSettingsSection switch
+    {
+        SettingsSection.Appearance => "Appearance",
+        SettingsSection.Connection => "Connection",
+        SettingsSection.About => "About",
+        _ => "Settings"
+    };
+
+    partial void OnSettingsSectionChanged(SettingsSection value) => NotifySettingsSectionChanged();
+
+    private void NotifySettingsSectionChanged()
+    {
+        OnPropertyChanged(nameof(VisibleSettingsSection));
+        OnPropertyChanged(nameof(ShowSettingsDetail));
+        OnPropertyChanged(nameof(IsAppearanceSectionVisible));
+        OnPropertyChanged(nameof(IsConnectionSectionVisible));
+        OnPropertyChanged(nameof(IsAboutSectionVisible));
+        OnPropertyChanged(nameof(SettingsDetailTitle));
+    }
+
+    // ── The supporting panel ──────────────────────────────────────────────────────────────────
+    //
+    // With two panes the plan, sources and activity open beside the chat. Below three panes the
+    // chat list steps aside while one is open, as the desktop's Workspace takes the sidebar's room,
+    // and returns when it closes.
+
+    public const double SidePanelWidth = 400;
+
+    /// <summary>The chat keeps at least this much beside a side panel; narrower windows use sheets.</summary>
+    private const double MinimumChatBesidePanel = 480;
+
+    /// <summary>The plan, sources and activity can open beside the chat rather than over it.</summary>
+    public bool CanShowSidePanels =>
+        IsTwoPane && Layout.Width >= SidePanelWidth + 12 + MinimumChatBesidePanel;
+
+    private bool _sidebarYieldedToPanel;
+    private bool _isYieldingSidebar;
+
+    /// <summary>The chat makes room on its trailing edge for an open side panel.</summary>
+    public Thickness ChatSidePanelInset => Chat.HasSidePanelOpen
+        ? new Thickness(0, 0, SidePanelWidth + 12, 0)
+        : default;
+
+    /// <summary>Where a side panel floats: clear of the status bar, the cutout and the gesture area.</summary>
+    public Thickness SidePanelSheetMargin =>
+        new(0, SafeArea.Top + 8, SafeArea.Right + 8, SafeArea.Bottom + 8);
+
+    private void OnSidePanelChanged()
+    {
+        ReconcileSidebarWithSidePanel();
+        OnPropertyChanged(nameof(ChatSidePanelInset));
+        OnPropertyChanged(nameof(CanGoBack));
+        OnPropertyChanged(nameof(CanDragDrawer));
+    }
+
+    /// <summary>
+    /// Below three panes the chat list steps aside while a side panel is open; it returns when the
+    /// panel closes or the window grows room for all three.
+    /// </summary>
+    private void ReconcileSidebarWithSidePanel()
+    {
+        if (Chat.HasSidePanelOpen && !IsThreePane && IsDrawerDocked)
+            YieldSidebar(collapsed: true);
+        else if (_sidebarYieldedToPanel && (!Chat.HasSidePanelOpen || IsThreePane))
+            YieldSidebar(collapsed: false);
+    }
+
+    private void YieldSidebar(bool collapsed)
+    {
+        _isYieldingSidebar = true;
+        try
+        {
+            IsSidebarCollapsed = collapsed;
+        }
+        finally
+        {
+            _isYieldingSidebar = false;
+        }
+
+        _sidebarYieldedToPanel = collapsed;
+    }
+
+    private void CloseSidePanels()
+    {
+        Chat.IsPlanOpen = false;
+        Chat.IsSourcesSheetOpen = false;
+        Chat.IsActivitySheetOpen = false;
+    }
+
+    /// <summary>Raises everything that follows from the place and the window together.</summary>
+    private void NotifyPlaceChanged()
+    {
+        OnPropertyChanged(nameof(Place));
+        OnPropertyChanged(nameof(IsChatsPlace));
+        OnPropertyChanged(nameof(IsJobsPlace));
+        OnPropertyChanged(nameof(IsCustomizePlace));
+        OnPropertyChanged(nameof(IsSettingsPlace));
+        NotifyNavigationLayoutChanged();
+    }
+
+    private void NotifyNavigationLayoutChanged()
+    {
+        // Open state first: a drawer that closes while still docked and only then turns modal snaps
+        // to its new layout, instead of sliding over the place that replaced it.
         OnPropertyChanged(nameof(IsNavigationOpen));
+        OnPropertyChanged(nameof(CanDockDrawer));
         OnPropertyChanged(nameof(NavigationToggleLabel));
         OnPropertyChanged(nameof(IsDrawerDocked));
         OnPropertyChanged(nameof(IsNavigationCoveringContent));
-        OnPropertyChanged(nameof(NavigationLeadingWidth));
-        OnPropertyChanged(nameof(ShowMenuButton));
         OnPropertyChanged(nameof(CanDragDrawer));
         OnPropertyChanged(nameof(IsDrawerOverlay));
         OnPropertyChanged(nameof(IsDrawerVisible));
         OnPropertyChanged(nameof(ShowScrim));
+        OnPropertyChanged(nameof(ShowMenuButton));
+        OnPropertyChanged(nameof(ShowBackToChats));
+        OnPropertyChanged(nameof(ShowHeaderNewChat));
+        OnPropertyChanged(nameof(ShowListNewChat));
         OnPropertyChanged(nameof(DrawerWidth));
+        OnPropertyChanged(nameof(NavigationLeadingWidth));
+        OnPropertyChanged(nameof(ProjectPickerSheetMargin));
+        OnPropertyChanged(nameof(CanGoBack));
+    }
+
+    private bool _isChatListShown;
+
+    /// <summary>
+    /// The PC tells the phone about its chats only while the list is on screen, so the list reloads when it
+    /// comes back into view (the drawer opening, the sidebar showing, a place or a new layout bringing it
+    /// back), and not on every change while it stays in view. Callers run it after their subscription
+    /// update, so the list is read once the PC already sends what changes after it.
+    /// </summary>
+    private void FollowChatListVisibility()
+    {
+        var shown = IsDrawerVisible;
+        if (shown == _isChatListShown)
+            return;
+
+        _isChatListShown = shown;
+        if (shown && IsPaired && !_isOpeningAtLaunch)
+            _ = ChatList.RefreshFromServerAsync();
+    }
+
+    partial void OnIsSidebarCollapsedChanged(bool value)
+    {
+        if (!_isYieldingSidebar)
+        {
+            _settings.IsSidebarCollapsed = value;
+            _store.Save(_settings);
+
+            // Asking for the list back below three panes trades the supporting panel for it.
+            _sidebarYieldedToPanel = false;
+            if (!value && Chat.HasSidePanelOpen && !IsThreePane)
+                CloseSidePanels();
+        }
+
+        IsDrawerOpen = false;
+
+        NotifyNavigationLayoutChanged();
         OnPropertyChanged(nameof(HingeGapWidth));
         OnPropertyChanged(nameof(HasHingeGap));
         OnPropertyChanged(nameof(UsableContentHeight));
         QueueSubscriptionUpdate();
-        if (IsDrawerVisible)
-            _ = ChatList.RefreshFromServerAsync();
+        FollowChatListVisibility();
     }
 
     [RelayCommand]
@@ -1246,21 +1673,40 @@ public sealed partial class MobileShellViewModel :
             return;
         }
 
-        if (IsDrawerOverlay)
-        {
-            IsDrawerOpen = false;
-            return;
-        }
-
         if (Page == MobilePage.Library && Library.DismissTopmostSurface())
             return;
 
         if (Page == MobilePage.Chat && Chat.DismissTopmostSheet())
             return;
 
+        if (Page == MobilePage.Library && Library.Scope == LibraryScope.Memories)
+        {
+            Page = MobilePage.Settings;
+            return;
+        }
+
+        if (Page == MobilePage.Settings && SettingsSection != SettingsSection.None && IsSinglePane)
+        {
+            SettingsSection = SettingsSection.None;
+            return;
+        }
+
         if (HasPageOverlay)
-            Page = MobilePage.Chat;
+        {
+            ShowHome();
+            return;
+        }
+
+        if (IsReadingChatOverHome)
+            IsDrawerOpen = true;
     }
+
+    /// <summary>
+    /// One pane, a chat (or a new one) in view: Back returns to the chat list. However wide the
+    /// pane, the list is home, so Back from it leaves the app rather than returning to the chat.
+    /// </summary>
+    private bool IsReadingChatOverHome =>
+        IsPaired && Page == MobilePage.Chat && !CanDockDrawer && !IsDrawerOpen;
 
     /// <summary>True when the system back gesture has something of ours to dismiss.</summary>
     public bool CanGoBack =>
@@ -1269,9 +1715,9 @@ public sealed partial class MobileShellViewModel :
         IsChatActionsOpen ||
         IsProjectPickerOpen ||
         (Page == MobilePage.Library && Library.HasOpenSurface) ||
-        (Page == MobilePage.Chat && Chat.HasOpenSheet) ||
-        IsDrawerOverlay ||
-        HasPageOverlay;
+        (Page == MobilePage.Chat && (Chat.HasOpenSheet || Chat.HasSidePanelOpen)) ||
+        HasPageOverlay ||
+        IsReadingChatOverHome;
 
     partial void OnPageChanged(MobilePage value)
     {
@@ -1284,8 +1730,7 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(IsSettingsPage));
         OnPropertyChanged(nameof(IsSearchPage));
         OnPropertyChanged(nameof(HasPageOverlay));
-        OnPropertyChanged(nameof(CanGoBack));
-        OnPropertyChanged(nameof(CanDragDrawer));
+        NotifyPlaceChanged();
         if (_chatActivationOwnsSubscription)
         {
             // ActivateChatAsync installs the exact chat scope before its authoritative fetch.
@@ -1300,6 +1745,7 @@ public sealed partial class MobileShellViewModel :
         {
             QueueSubscriptionUpdate();
         }
+        FollowChatListVisibility();
         if (value == MobilePage.Library)
             _ = RefreshSnapshotAsync();
         if (value == MobilePage.Search)
@@ -1317,39 +1763,37 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(ShowScrim));
         OnPropertyChanged(nameof(CanGoBack));
         QueueSubscriptionUpdate();
-        if (value)
-            _ = ChatList.RefreshFromServerAsync();
-        else if (CanReadChatTranscript)
+        FollowChatListVisibility();
+        if (!value && CanReadChatTranscript)
             _ = RefreshTranscriptAsync();
     }
 
-    partial void OnLayoutChanged(MobileLayoutState value)
+    partial void OnLayoutChanged(MobileLayoutState oldValue, MobileLayoutState newValue)
     {
-        IsDrawerOpen = false;
-        OnPropertyChanged(nameof(IsNavigationOpen));
-        OnPropertyChanged(nameof(NavigationToggleLabel));
-        OnPropertyChanged(nameof(CanDockDrawer));
+        // Folding, unfolding or splitting the screen changes how many panes fit. Whatever was being
+        // read stays in view; with nothing open, a single pane lands on the chat list.
+        if (oldValue.CanShowTwoPanes != newValue.CanShowTwoPanes)
+            IsDrawerOpen = !newValue.CanShowTwoPanes && IsPaired && Page == MobilePage.Chat && !Chat.HasChat;
+        else if (oldValue.WidthClass != newValue.WidthClass && !IsPhoneLayout && Chat.HasChat)
+            IsDrawerOpen = false;
+
         OnPropertyChanged(nameof(IsPhoneLayout));
+        OnPropertyChanged(nameof(IsTwoPane));
+        OnPropertyChanged(nameof(IsSinglePane));
+        OnPropertyChanged(nameof(IsThreePane));
+        OnPropertyChanged(nameof(ListPaneWidth));
+        Chat.UseSidePanels = CanShowSidePanels;
+        ReconcileSidebarWithSidePanel();
         OnPropertyChanged(nameof(SafeAreaSheetMargin));
-        OnPropertyChanged(nameof(ProjectPickerSheetMargin));
-        OnPropertyChanged(nameof(IsDrawerDocked));
-        OnPropertyChanged(nameof(IsNavigationCoveringContent));
-        OnPropertyChanged(nameof(CanDragDrawer));
-        OnPropertyChanged(nameof(IsDrawerOverlay));
-        OnPropertyChanged(nameof(IsDrawerVisible));
-        OnPropertyChanged(nameof(ShowScrim));
-        OnPropertyChanged(nameof(ShowMenuButton));
-        OnPropertyChanged(nameof(DrawerWidth));
-        OnPropertyChanged(nameof(NavigationLeadingWidth));
+        NotifyNavigationLayoutChanged();
+        NotifySettingsSectionChanged();
         OnPropertyChanged(nameof(HingeGapWidth));
         OnPropertyChanged(nameof(HasHingeGap));
         OnPropertyChanged(nameof(UsableContentHeight));
         OnPropertyChanged(nameof(HasWelcomeSpace));
         OnPropertyChanged(nameof(IsWelcomeVisible));
-        OnPropertyChanged(nameof(CanGoBack));
         QueueSubscriptionUpdate();
-        if (IsDrawerVisible)
-            _ = ChatList.RefreshFromServerAsync();
+        FollowChatListVisibility();
     }
 
     /// <summary>
@@ -1372,7 +1816,11 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(IsSystemTheme));
         OnPropertyChanged(nameof(IsLightTheme));
         OnPropertyChanged(nameof(IsDarkTheme));
+        OnPropertyChanged(nameof(ThemeLabel));
     }
+
+    /// <summary>The theme in words, beside Appearance in the Settings list.</summary>
+    public string ThemeLabel => Theme.ToString();
 
     /// <summary>Selected-state helpers for the settings segmented control.</summary>
     public bool IsSystemTheme => Theme == ThemePreference.System;
@@ -1392,7 +1840,7 @@ public sealed partial class MobileShellViewModel :
     public void UpdateLayout(double width, double height, FoldPosture posture = FoldPosture.Flat,
         double hingeSize = 0, double hingePosition = 0)
     {
-        var next = MobileLayoutState.From(width, height, posture, hingeSize, hingePosition);
+        var next = MobileLayoutState.From(width, height, posture, hingeSize, hingePosition).Following(Layout);
         if (next != Layout)
             Layout = next;
     }
@@ -1469,6 +1917,7 @@ public sealed partial class MobileShellViewModel :
     partial void OnSafeAreaChanged(Thickness value)
     {
         OnPropertyChanged(nameof(DrawerWidth));
+        OnPropertyChanged(nameof(SidePanelSheetMargin));
         OnPropertyChanged(nameof(SafeAreaTop));
         OnPropertyChanged(nameof(SafeAreaBottom));
         OnPropertyChanged(nameof(SafeAreaSides));
@@ -1615,6 +2064,9 @@ public sealed partial class MobileShellViewModel :
         HostName = hostName;
         _canAdoptDesktopActiveChat = true;
         IsPaired = true;
+
+        // A newly paired phone opens on the PC's chats, the app's home.
+        ShowLaunchHome();
 
         await StartAsync();
     }
@@ -1864,7 +2316,8 @@ public sealed partial class MobileShellViewModel :
     private async Task ReacquireVisibleChatAsync(Guid chatId)
     {
         await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
-        if (!_isApplicationActive || Page != MobilePage.Chat || Chat.ChatId != chatId)
+        // Under the list on a single pane the chat is fetched when the list uncovers it.
+        if (!_isApplicationActive || Page != MobilePage.Chat || IsDrawerOverlay || Chat.ChatId != chatId)
             return;
 
         await RefreshTranscriptAsync();

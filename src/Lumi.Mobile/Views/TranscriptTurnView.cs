@@ -16,7 +16,7 @@ namespace Lumi.Mobile.Views;
 /// </summary>
 /// <remarks>
 /// Turns about to be seen are built at once. Turns further out are prepared ahead of the viewport,
-/// one per layout pass and nearest first (see <see cref="ChatDetailView.RequestRealization"/>), so a
+/// one per frame and nearest first (see <see cref="ChatDetailView.RequestRealization"/>), so a
 /// fling meets built turns instead of building several in one frame. Content is hidden well past
 /// the band it is built in, and released when its bounded transcript page leaves the tree.
 /// </remarks>
@@ -245,10 +245,14 @@ internal sealed class TranscriptTurnView : Decorator
     {
         if (turn is null)
             return 0;
+        // Measured on a 412 dp phone: a bubble line holds about 42 characters, an answer line 44,
+        // and a closing answer adds its footer row.
         return turn.DisplayItems.Sum(item => item switch
         {
-            AssistantItemViewModel answer => 64 + Math.Ceiling(answer.Text.Length / 50d) * 22,
-            UserTurnItemViewModel user => 48 + Math.Ceiling(user.Text.Length / 50d) * 22,
+            AssistantItemViewModel answer => 10 + Math.Ceiling(answer.Text.Length / 44d) * 25
+                                                + (answer.ShowAnswerActions ? 40 : 0),
+            UserTurnItemViewModel user => 66 + Math.Ceiling(user.Text.Length / 42d) * 24,
+            ActivitySummaryItemViewModel or WorkSummaryItemViewModel => 48,
             _ => 64d
         });
     }

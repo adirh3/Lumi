@@ -101,18 +101,55 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>Plan sheet visibility. Chat-level state, opened from the top bar.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet), nameof(HasSidePanelOpen))]
     private bool _isPlanOpen;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet), nameof(HasSidePanelOpen))]
     private bool _isActivitySheetOpen;
 
     [ObservableProperty] private ActivitySummaryItemViewModel? _selectedActivity;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet), nameof(HasSidePanelOpen))]
     private bool _isSourcesSheetOpen;
+
+    /// <summary>
+    /// With room for two panes, the plan, sources and activity open as a panel beside the chat rather
+    /// than a sheet over it, so the conversation stays readable and the composer usable.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet), nameof(HasSidePanelOpen))]
+    private bool _useSidePanels;
+
+    /// <summary>A supporting panel is open beside the chat.</summary>
+    public bool HasSidePanelOpen => UseSidePanels && (IsPlanOpen || IsSourcesSheetOpen || IsActivitySheetOpen);
+
+    // Beside the chat there is room for one supporting panel, as on the desktop: opening one
+    // replaces the other, so it never lands hidden underneath.
+    partial void OnIsPlanOpenChanged(bool value)
+    {
+        if (!value || !UseSidePanels)
+            return;
+        IsSourcesSheetOpen = false;
+        IsActivitySheetOpen = false;
+    }
+
+    partial void OnIsSourcesSheetOpenChanged(bool value)
+    {
+        if (!value || !UseSidePanels)
+            return;
+        IsPlanOpen = false;
+        IsActivitySheetOpen = false;
+    }
+
+    partial void OnIsActivitySheetOpenChanged(bool value)
+    {
+        if (!value || !UseSidePanels)
+            return;
+        IsPlanOpen = false;
+        IsSourcesSheetOpen = false;
+    }
 
     [ObservableProperty] private AssistantItemViewModel? _selectedSourceAnswer;
 
@@ -138,9 +175,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (!HasPlan)
             IsPlanOpen = false;
     }
-
-    [RelayCommand]
-    private void TogglePlan() => IsPlanOpen = !IsPlanOpen;
 
     private async Task OpenActivityAsync(ActivitySummaryItemViewModel activity)
     {
@@ -482,6 +516,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // via _applyingServerState, leaving only the ones the user actually made on the phone.
         SkillChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addSkills");
         McpChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addMcps");
+        InitializeComposerContext();
         Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasUnsentWork));
         SendCommand.PropertyChanged += OnSendActivityChanged;
         StopAndSendCommand.PropertyChanged += OnSendActivityChanged;
@@ -512,9 +547,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>The three static starters shown when the desktop has nothing more specific.</summary>
     private static readonly ChatStarter[] DefaultStarters =
     [
-        new("M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 15H5V9h14v10zm-7-8h5v5h-5v-5z", "Plan my day"),
-        new("M9.5 3a6.5 6.5 0 1 0 3.98 11.64L19.85 21 21 19.85l-6.36-6.37A6.5 6.5 0 0 0 9.5 3zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z", "Research a topic"),
-        new("M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm0 2.5L17.5 8H14V4.5zM8 13h8v2H8v-2zm0 4h8v2H8v-2zm0-8h4v2H8V9z", "Create a document")
+        new("plan", "Plan my day"),
+        new("search", "Research a topic"),
+        new("create", "Create a document")
     ];
     private IReadOnlyList<ChatStarter>? _desktopStarters;
 
@@ -555,9 +590,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// difference between seeing two lines of your draft and seeing four.</para>
     /// </summary>
     public IReadOnlyList<ChatStarter> Starters => Suggestions.Count > 0
-        ? [.. Suggestions.Take(3).Select(text => new ChatStarter(
-            "M12 2c.7 5.2 2.8 7.3 8 8-5.2.7-7.3 2.8-8 8-.7-5.2-2.8-7.3-8-8 5.2-.7 7.3-2.8 8-8z",
-            text))]
+        ? [.. Suggestions.Take(3).Select(text => new ChatStarter("chat", text))]
         : _desktopStarters ?? DefaultStarters;
 
     public ObservableCollection<string> AvailableModels { get; } = [];
@@ -707,7 +740,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void OpenPlanFromRunSettings()
     {
         IsRunSettingsSheetOpen = false;
-        TogglePlanCommand.Execute(null);
+        IsPlanOpen = true;
     }
 
     [RelayCommand]
@@ -800,7 +833,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         while (ModelGroups.Count > groups.Count)
             ModelGroups.RemoveAt(ModelGroups.Count - 1);
-        SyncOptions(QualityOptions, QualityLevels, Quality);
+        SyncOptions(QualityOptions, QualityLevels, Quality, EffortDisplay);
         SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier);
 
         void SyncOptions(
@@ -842,6 +875,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [RelayCommand]
     private void OpenModelSheet()
     {
+        // The sheet carries the model's context tiers as well as its effort levels.
+        RefreshContextWindowTiers();
         RefreshPickerOptions();
         IsModelSheetOpen = true;
     }
@@ -874,8 +909,15 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public double EffortMax => Math.Max(0, QualityLevels.Count - 1);
 
     public string EffortLabel => Quality is { Length: > 0 } quality
-        ? char.ToUpperInvariant(quality[0]) + quality[1..]
+        ? EffortDisplay(quality)
         : SelectedModelDefaults is { Quality: null } ? "Not supported" : "Set by desktop";
+
+    /// <summary>An effort level as the desktop names it: "High", and "X-High" for xhigh.</summary>
+    internal static string EffortDisplay(string quality) => quality.ToLowerInvariant() switch
+    {
+        "xhigh" => "X-High",
+        _ => quality.Length > 0 ? char.ToUpperInvariant(quality[0]) + quality[1..] : quality
+    };
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
@@ -919,25 +961,40 @@ public sealed partial class MobileChatViewModel : ObservableObject
         IsContextSheetOpen = false;
     }
 
-    /// <summary>Whether any modal sheet currently covers the conversation.</summary>
+    /// <summary>Whether any modal sheet currently covers the conversation. A side panel does not.</summary>
     public bool HasOpenSheet =>
         IsInteractivePickerOpen ||
         IsGitChangesOpen ||
         IsJobWakeSheetOpen ||
-        IsSourcesSheetOpen ||
-        IsActivitySheetOpen ||
+        (!UseSidePanels && (IsSourcesSheetOpen || IsActivitySheetOpen || IsPlanOpen)) ||
         IsRunSettingsSheetOpen ||
         IsModelSheetOpen ||
         IsContextSheetOpen ||
         IsEffortSheetOpen ||
-        IsPlanOpen;
+        IsAddSheetOpen ||
+        IsContextPickerOpen;
 
-    /// <summary>Closes the visually topmost chat sheet.</summary>
+    /// <summary>
+    /// Closes the visually topmost chat sheet. Plan, sources and activity come after the pickers:
+    /// beside the chat they are panels that a picker can open over.
+    /// </summary>
     internal bool DismissTopmostSheet()
     {
         if (IsInteractivePickerOpen)
         {
             IsInteractivePickerOpen = false;
+            return true;
+        }
+
+        if (IsContextPickerOpen)
+        {
+            IsContextPickerOpen = false;
+            return true;
+        }
+
+        if (IsAddSheetOpen)
+        {
+            IsAddSheetOpen = false;
             return true;
         }
 
@@ -953,24 +1010,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 BackFromGitFile();
             else
                 CloseGitChanges();
-            return true;
-        }
-
-        if (IsSourcesSheetOpen)
-        {
-            IsSourcesSheetOpen = false;
-            return true;
-        }
-
-        if (IsActivitySheetOpen)
-        {
-            IsActivitySheetOpen = false;
-            return true;
-        }
-
-        if (IsPlanOpen)
-        {
-            IsPlanOpen = false;
             return true;
         }
 
@@ -995,6 +1034,24 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (IsRunSettingsSheetOpen)
         {
             IsRunSettingsSheetOpen = false;
+            return true;
+        }
+
+        if (IsSourcesSheetOpen)
+        {
+            IsSourcesSheetOpen = false;
+            return true;
+        }
+
+        if (IsActivitySheetOpen)
+        {
+            IsActivitySheetOpen = false;
+            return true;
+        }
+
+        if (IsPlanOpen)
+        {
+            IsPlanOpen = false;
             return true;
         }
 
@@ -1710,6 +1767,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsModelSheetOpen = false;
             IsContextSheetOpen = false;
             IsEffortSheetOpen = false;
+            IsAddSheetOpen = false;
+            IsContextPickerOpen = false;
+            ContextOptions.Clear();
             IsActivitySheetOpen = false;
             SelectedActivity = null;
             IsSourcesSheetOpen = false;
@@ -1896,7 +1956,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 OpenSources,
                 resolveInlineImages,
                 releaseInlineImages,
-                OpenJobWake);
+                OpenJobWake,
+                DisplayModel);
             created.Apply(incoming);
 
             if (i < Turns.Count)
@@ -3192,6 +3253,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             Id = EchoTurnId,
             Kind = RemoteProtocol.ItemKinds.User,
             Text = text,
+            Timestamp = DateTimeOffset.Now,
             Attachments = attachments?.Select(file => new RemoteAttachment
             {
                 FileName = file.FileName,
@@ -3880,9 +3942,10 @@ public interface IRemoteFileSuggestionSink
 public sealed record PendingAttachment(string FileName, string Path);
 
 /// <summary>A one-tap conversation starter offered on the empty chat canvas.</summary>
-/// <param name="Glyph">Emoji shown ahead of the label.</param>
+/// <param name="IconKey">The desktop's line icon for the starter's kind, as transcript chips use.</param>
+/// <param name="Glyph">Emoji shown ahead of the label instead, when the desktop sends one.</param>
 /// <param name="Text">The prompt text placed into the composer when tapped.</param>
-public sealed record ChatStarter(string IconData, string Text, string? Prompt = null, string? Glyph = null)
+public sealed record ChatStarter(string IconKey, string Text, string? Prompt = null, string? Glyph = null)
 {
     public string EffectivePrompt => Prompt ?? Text;
     public bool HasGlyph => !string.IsNullOrWhiteSpace(Glyph);

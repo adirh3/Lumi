@@ -156,6 +156,9 @@ public sealed class NativeTextInputOverlay
             // An input inside any presented sheet stays usable; everything else is behind its scrim.
             if (Array.IndexOf(ancestors, sheet) >= 0)
                 return false;
+            // A side panel sits beside the conversation, not over it.
+            if (sheet.Classes.Contains("side-panel"))
+                continue;
             anySheetPresented = true;
         }
 
@@ -384,7 +387,7 @@ public sealed class NativeTextInputOverlay
                     _textBox.FontStyle.ToString().ToLowerInvariant(),
                     double.IsNaN(_textBox.LineHeight) ? 0 : _textBox.LineHeight,
                     _textBox.LetterSpacing,
-                    _textBox.Padding,
+                    NativePadding(_textBox),
                     _textBox.TextAlignment.ToString().ToLowerInvariant(),
                     _textBox.FlowDirection == FlowDirection.RightToLeft ? "rtl" : "ltr",
                     _textBox.ActualThemeVariant == ThemeVariant.Dark));
@@ -453,6 +456,23 @@ public sealed class NativeTextInputOverlay
             if (!focused && _session is not null)
                 _textBox.CaretIndex = Math.Clamp(_session.CaretIndex, 0, _textBox.Text?.Length ?? 0);
         }
+
+        // The native editor covers the whole field, while Avalonia lays the text out beside a leading
+        // or trailing adornment (a search magnifier, a unit), so the native text must clear it too.
+        internal static Thickness NativePadding(TextBox textBox)
+        {
+            var padding = textBox.Padding;
+            var leading = AdornmentWidth(textBox.InnerLeftContent);
+            var trailing = AdornmentWidth(textBox.InnerRightContent);
+            return leading == 0 && trailing == 0
+                ? padding
+                : new Thickness(padding.Left + leading, padding.Top, padding.Right + trailing, padding.Bottom);
+        }
+
+        private static double AdornmentWidth(object? content) =>
+            content is Control { IsVisible: true } adornment
+                ? adornment.Bounds.Width + adornment.Margin.Left + adornment.Margin.Right
+                : 0;
 
         private static string GetInputMode(TextBox textBox) =>
             TextInputOptions.GetContentType(textBox) switch

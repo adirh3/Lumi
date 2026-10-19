@@ -2841,26 +2841,20 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
-    public async Task BackDismissesTheDrawerThenEveryChatSheetBeforeExit()
+    public async Task BackDismissesEveryChatSheetThenReturnsToTheChatListOnAPhone()
     {
         await using var scope = new ShellScope();
         var shell = scope.Shell;
+        shell.IsPaired = true;
         shell.UpdateLayout(393, 852);
-        shell.IsDrawerOpen = true;
+        shell.Chat.Reset(Guid.NewGuid(), "Reading");
         shell.Chat.IsRunSettingsSheetOpen = true;
         shell.Chat.IsModelSheetOpen = true;
         shell.Chat.IsContextSheetOpen = true;
         shell.Chat.IsEffortSheetOpen = true;
         shell.Chat.IsPlanOpen = true;
 
-        shell.GoBackCommand.Execute(null);
-        Assert.False(shell.IsDrawerOpen);
-        Assert.True(shell.Chat.IsPlanOpen);
-
-        shell.GoBackCommand.Execute(null);
-        Assert.False(shell.Chat.IsPlanOpen);
-        Assert.True(shell.Chat.IsEffortSheetOpen);
-
+        // The pickers draw over the plan (beside a wide chat it is a panel they open over).
         shell.GoBackCommand.Execute(null);
         Assert.False(shell.Chat.IsEffortSheetOpen);
         Assert.True(shell.Chat.IsContextSheetOpen);
@@ -2875,6 +2869,44 @@ public sealed class MobileStateCorrectnessTests
 
         shell.GoBackCommand.Execute(null);
         Assert.False(shell.Chat.IsRunSettingsSheetOpen);
+        Assert.True(shell.Chat.IsPlanOpen);
+
+        shell.GoBackCommand.Execute(null);
+        Assert.False(shell.Chat.IsPlanOpen);
+        Assert.False(shell.IsDrawerOpen);
+
+        // The chat list is home: back returns to it, and from it the system takes over.
+        Assert.True(shell.CanGoBack);
+        shell.GoBackCommand.Execute(null);
+        Assert.True(shell.IsDrawerOpen);
+        Assert.False(shell.CanGoBack);
+    }
+
+    /// <summary>
+    /// However wide a single pane is (a phone or the Fold cover held sideways, a small tablet), the
+    /// list is home: Back from a chat returns to it, and Back from it leaves the app instead of
+    /// trading places with the chat forever.
+    /// </summary>
+    [Theory]
+    [InlineData(640, 900)]
+    [InlineData(852, 393)]
+    [InlineData(968, 412)]
+    public async Task BackOnAWiderSinglePaneReturnsToTheListThenLeaves(double width, double height)
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Shell;
+        shell.IsPaired = true;
+        shell.UpdateLayout(width, height);
+        Assert.False(shell.IsTwoPane);
+        Assert.False(shell.IsPhoneLayout);
+        shell.Chat.Reset(Guid.NewGuid(), "Reading");
+        shell.IsDrawerOpen = false;
+
+        Assert.True(shell.CanGoBack);
+        shell.GoBackCommand.Execute(null);
+        Assert.True(shell.IsDrawerOpen);
+        Assert.True(shell.IsChatPage);
+
         Assert.False(shell.CanGoBack);
     }
 
@@ -2917,27 +2949,46 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
-    public async Task BackDismissesChatActionsThenDrawerThenPageThenFallsThrough()
+    public async Task BackDismissesChatActionsThenLeavesThePlaceForTheChatListThenFallsThrough()
     {
         await using var scope = new ShellScope();
         var shell = scope.Shell;
+        shell.IsPaired = true;
         shell.UpdateLayout(393, 852);
         shell.Page = MobilePage.Settings;
-        shell.IsDrawerOpen = true;
         shell.IsChatActionsOpen = true;
 
         shell.GoBackCommand.Execute(null);
         Assert.False(shell.IsChatActionsOpen);
-        Assert.True(shell.IsDrawerOpen);
         Assert.Equal(MobilePage.Settings, shell.Page);
 
+        shell.OpenSettingsSectionCommand.Execute("Connection");
         shell.GoBackCommand.Execute(null);
-        Assert.False(shell.IsDrawerOpen);
+        Assert.Equal(SettingsSection.None, shell.SettingsSection);
         Assert.Equal(MobilePage.Settings, shell.Page);
 
         shell.GoBackCommand.Execute(null);
         Assert.Equal(MobilePage.Chat, shell.Page);
+        Assert.True(shell.IsDrawerOpen);
         Assert.False(shell.CanGoBack);
+    }
+
+    [Fact]
+    public async Task MemoriesIsASettingsPageAndBackReturnsToSettings()
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Shell;
+        shell.IsPaired = true;
+        shell.UpdateLayout(393, 852);
+        shell.SelectPlace(MobilePlace.Settings);
+        shell.ShowMemoriesCommand.Execute(null);
+        Assert.Equal(MobilePage.Library, shell.Page);
+        Assert.Equal(LibraryScope.Memories, shell.Library.Scope);
+        Assert.Equal(MobilePlace.Settings, shell.Place);
+        Assert.Equal(LibrarySection.Memories, shell.Library.Section);
+
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePage.Settings, shell.Page);
     }
 
     [Fact]

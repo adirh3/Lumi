@@ -67,6 +67,7 @@ public partial class ChatDetailView : UserControl
     private readonly List<TranscriptTurnView> _pendingRealizations = [];
     private bool _realizationQueued;
     private bool _awaitingRealizationLayout;
+    private int _realizationVersion;
 
     public ChatDetailView()
     {
@@ -882,7 +883,7 @@ public partial class ChatDetailView : UserControl
     }
 
     /// <summary>
-    /// Prepares a transcript turn ahead of the viewport, one turn per layout pass and nearest first.
+    /// Prepares a transcript turn ahead of the viewport, one turn per frame and nearest first.
     /// Several turns built together are measured in one pass, which is what made a fling stall for a
     /// long frame.
     /// </summary>
@@ -926,7 +927,8 @@ public partial class ChatDetailView : UserControl
 
             if (_pendingRealizations.Count > 0)
             {
-                // The next turn waits until this one has been measured.
+                // The next turn waits until this one has been measured, and for the next frame:
+                // layout passes are not frames, and a quick turn would otherwise share one.
                 _awaitingRealizationLayout = true;
                 LayoutUpdated += OnRealizationLayoutUpdated;
             }
@@ -937,6 +939,17 @@ public partial class ChatDetailView : UserControl
     private void OnRealizationLayoutUpdated(object? sender, EventArgs e)
     {
         LayoutUpdated -= OnRealizationLayoutUpdated;
+        var version = _realizationVersion;
+        if (TopLevel.GetTopLevel(this) is { } topLevel)
+            topLevel.RequestAnimationFrame(_ => OnRealizationFrame(version));
+        else
+            OnRealizationFrame(version);
+    }
+
+    private void OnRealizationFrame(int version)
+    {
+        if (version != _realizationVersion || !_awaitingRealizationLayout)
+            return;
         _awaitingRealizationLayout = false;
         if (_pendingRealizations.Count > 0)
             QueueRealization();
@@ -948,6 +961,7 @@ public partial class ChatDetailView : UserControl
         if (_awaitingRealizationLayout)
             LayoutUpdated -= OnRealizationLayoutUpdated;
         _awaitingRealizationLayout = false;
+        _realizationVersion++;
     }
 
     private bool IsChatReadyForEntrance()

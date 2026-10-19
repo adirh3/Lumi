@@ -151,10 +151,11 @@ public partial class SimulatorWindow : Window
             return;
 
         var layout = shell.Layout;
-        var hinge = layout.HingeSize > 0 ? $" · hinge {layout.HingeSize:0.#} dp" : "";
+        var hinge = layout.HingeSize > 0 ? $" · hinge {layout.HingeSize:0.#} dp"
+            : layout.FoldPosition > 0 ? $" · fold at {layout.FoldPosition:0} dp" : "";
+        var panes = layout.CanShowThreePanes ? "three panes" : layout.CanShowTwoPanes ? "two panes" : "one pane";
 
         _readout.Text =
-            $"{layout.WidthClass} · " +
-            $"{(shell.CanDockDrawer ? "docked drawer" : "overlay drawer")}{hinge}";
+            $"{layout.Width:0}×{layout.Height:0} dp · {panes}{(layout.IsShortHeight ? " · short" : "")}{hinge}";
     }
 }

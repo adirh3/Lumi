@@ -94,6 +94,106 @@ public sealed class RemoteWorkTimelineTests
     }
 
     [Fact]
+    public void ThinkingRecordedAfterTheAnswerFoldsWithTheWorkItEnded()
+    {
+        var messages = Timeline();
+        messages.Add(Message("reasoning", "the answer's own thinking, recorded late", 93));
+
+        var turn = Assert.Single(Build(messages).Turns);
+        Assert.Equal(messages[^2].Id.ToString("N"), turn.FinalAnswerId);
+        Assert.True(turn.IsSettled);
+        Assert.Equal("activity", turn.Items[^1].Kind);
+
+        using var displayed = new TranscriptTurnViewModel(turn.Id);
+        displayed.Apply(turn);
+        Assert.Collection(displayed.DisplayItems,
+            item => Assert.IsType<UserTurnItemViewModel>(item),
+            item => Assert.IsType<WorkSummaryItemViewModel>(item),
+            item => Assert.Equal("Final answer", Assert.IsType<AssistantItemViewModel>(item).Text));
+    }
+
+    [Fact]
+    public void SteeredTurnFoldsItsUpdatesUpToItsLastWordWithoutCallingItAnAnswer()
+    {
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Do it", 0),
+            Message("assistant", "Checking first", 1),
+            Message("tool", "{}", 2, "view"),
+            Message("assistant", "Now verifying", 3),
+            Message("tool", "{}", 4, "powershell"),
+            Message("assistant", "Still verifying", 5),
+            Message("tool", "{}", 6, "rg"),
+            Message("user", "Also check the light theme", 7),
+            Message("assistant", "Done, both themes pass", 9)
+        };
+
+        var transcript = Build(messages);
+        var steered = transcript.Turns[0];
+        Assert.Null(steered.FinalAnswerId);
+        Assert.True(steered.IsSettled);
+
+        using var displayed = new TranscriptTurnViewModel(steered.Id);
+        displayed.Apply(steered);
+        Assert.Collection(displayed.DisplayItems,
+            item => Assert.IsType<UserTurnItemViewModel>(item),
+            item => Assert.Equal("Worked · 2 actions", Assert.IsType<WorkSummaryItemViewModel>(item).Label),
+            item =>
+            {
+                var last = Assert.IsType<AssistantItemViewModel>(item);
+                Assert.Equal("Still verifying", last.Text);
+                Assert.False(last.IsFinalAnswer);
+            },
+            item => Assert.IsType<ActivitySummaryItemViewModel>(item));
+    }
+
+    [Fact]
+    public void BackgroundWorkStaysInViewWhileTheRestOfTheSettledTurnFolds()
+    {
+        var messages = Timeline();
+        messages[^2].ToolCallId = "background-tool";
+        var transcript = RemoteProjector.BuildTranscript(
+            new Chat(), messages, new RemoteChatStatus(),
+            showReasoning: true, showToolCalls: true, revision: 1, compact: true,
+            runningBackgroundToolCallIds: new HashSet<string> { "background-tool" });
+        var turn = Assert.Single(transcript.Turns);
+        Assert.Null(turn.FinalAnswerId);
+        Assert.True(turn.IsSettled);
+
+        using var displayed = new TranscriptTurnViewModel(turn.Id);
+        displayed.Apply(turn);
+        Assert.Collection(displayed.DisplayItems,
+            item => Assert.IsType<UserTurnItemViewModel>(item),
+            item => Assert.IsType<WorkSummaryItemViewModel>(item),
+            item => Assert.True(Assert.IsType<ActivitySummaryItemViewModel>(item).IsRunning),
+            item => Assert.Equal("Final answer", Assert.IsType<AssistantItemViewModel>(item).Text));
+    }
+
+    [Fact]
+    public void LiveTurnIsNeverSettledAndKeepsEveryUpdateInView()
+    {
+        var messages = Timeline();
+        var turn = Assert.Single(Build(messages, busy: true).Turns);
+        Assert.Null(turn.IsSettled);
+        Assert.Null(turn.FinalAnswerId);
+
+        using var displayed = new TranscriptTurnViewModel(turn.Id);
+        displayed.Apply(turn);
+        Assert.DoesNotContain(displayed.DisplayItems, item => item is WorkSummaryItemViewModel);
+    }
+
+    [Fact]
+    public void AnUpdateTheSdkRecordedAsProgressIsNotTheTurnsAnswer()
+    {
+        var messages = Timeline();
+        messages[^1].IsProgress = true;
+
+        var turn = Assert.Single(Build(messages).Turns);
+        Assert.Null(turn.FinalAnswerId);
+        Assert.True(turn.IsSettled);
+    }
+
+    [Fact]
     public void ActiveCompactWorkStaysBetweenAssistantMessagesAndDetailsAreSegmentScoped()
     {
         var messages = Timeline();

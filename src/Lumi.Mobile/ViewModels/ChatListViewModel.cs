@@ -47,28 +47,6 @@ public sealed partial class ChatListItemViewModel : ObservableObject
         + (HasBackgroundActivity ? $", {ChatSessionStrings.ReadyWithBackgroundActivity}" : "")
         + (HasUnreadMessages ? ", Unread" : "");
 
-    /// <summary>
-    /// Compact "when" label for the row: "now", "14m", "3h", "2d", then a date. Rows are already
-    /// bucketed by day, so this only has to disambiguate within a bucket and must stay narrow.
-    /// </summary>
-    public string RelativeTime
-    {
-        get
-        {
-            if (UpdatedAt == default)
-                return "";
-            var elapsed = DateTimeOffset.Now - UpdatedAt;
-            return elapsed switch
-            {
-                { TotalMinutes: < 1 } => "now",
-                { TotalMinutes: < 60 } => $"{(int)elapsed.TotalMinutes}m",
-                { TotalHours: < 24 } => $"{(int)elapsed.TotalHours}h",
-                { TotalDays: < 7 } => $"{(int)elapsed.TotalDays}d",
-                _ => UpdatedAt.ToString("MMM d")
-            };
-        }
-    }
-
     public ChatListItemViewModel(RemoteChat chat) => Update(chat);
 
     public void Update(RemoteChat chat)
@@ -90,7 +68,6 @@ public sealed partial class ChatListItemViewModel : ObservableObject
         LastModelUsed = chat.LastModelUsed;
         OnPropertyChanged(nameof(HasProject));
         OnPropertyChanged(nameof(HasAgent));
-        OnPropertyChanged(nameof(RelativeTime));
     }
 }
 
@@ -441,12 +418,29 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             realized.HasUnreadMessages = hasUnreadMessages;
     }
 
+    /// <summary>The visible row for a chat, if this list currently shows it.</summary>
+    public ChatListItemViewModel? FindChat(Guid chatId) =>
+        _realizedChats.TryGetValue(chatId, out var realized) ? realized : null;
+
+    /// <summary>The loaded summary for a chat, whether or not its row is realized.</summary>
+    public RemoteChat? FindLoadedChat(Guid chatId) =>
+        _source.SelectMany(group => group.Chats).FirstOrDefault(chat => chat.Id == chatId);
+
     public void SetRunning(Guid chatId, bool isRunning)
     {
         foreach (var chat in _source.SelectMany(group => group.Chats).Where(chat => chat.Id == chatId))
             chat.IsRunning = isRunning;
         if (_realizedChats.TryGetValue(chatId, out var realized))
             realized.IsRunning = isRunning;
+    }
+
+    /// <summary>A pin made from the open chat, held until the PC's list arrives with it.</summary>
+    public void SetPinned(Guid chatId, bool isPinned)
+    {
+        foreach (var chat in _source.SelectMany(group => group.Chats).Where(chat => chat.Id == chatId))
+            chat.IsPinned = isPinned;
+        if (_realizedChats.TryGetValue(chatId, out var realized))
+            realized.IsPinned = isPinned;
     }
 
     public void SetSessionActive(Guid chatId, bool isSessionActive)

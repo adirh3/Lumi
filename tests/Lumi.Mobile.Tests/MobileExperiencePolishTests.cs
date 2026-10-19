@@ -25,7 +25,7 @@ namespace Lumi.Mobile.Tests;
 public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
-    public Task NavigationHasMinimalBrandingTitleOnlyRowsAndReachableFloatingActions() =>
+    public Task NavigationIsAQuietListWithTwoLineRowsAndPlacesInTheThumbZone() =>
         RunUiAsync(320, async (shell, view, window) =>
         {
             shell.ChatList.Apply([new RemoteChatGroup
@@ -42,36 +42,60 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             await Task.Delay(320);
             Pump(window);
             var drawer = Required<MobileDrawerView>(view, "DrawerContent");
-            Assert.Equal("Lumi", Required<TextBlock>(drawer, "DrawerBrandTitle").Text);
+
+            // No brand bar: search and the project lens head the list, as on the desktop's sidebar.
+            Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<TextBlock>(), text => text.Name == "DrawerBrandTitle");
             Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<Image>(), image => image.Name == "DrawerBrandImage");
             Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Your workspace");
-            Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<Button>(),
-                button => button.Name == "DrawerNewChatButton");
+            Assert.Equal("All chats", Required<TextBlock>(drawer, "DrawerProjectLabel").Text);
+            Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<ItemsControl>(),
+                control => control.Name == "DrawerProjects");
+
+            // On a phone the list is a screen of its own, so New chat sits beside search at its top right,
+            // as it does in the chat's bar. The places pill holds only the places, centred.
             Assert.Same(shell.ChatList.NewChatCommand, Required<Button>(view, "NewChatButton").Command);
-            foreach (var name in new[] { "DrawerSearchButton", "DrawerCloseButton" })
+            Assert.Same(shell.ChatList.NewChatCommand, Required<Button>(drawer, "DrawerNewChatButton").Command);
+            Assert.True(Required<Button>(drawer, "DrawerNewChatButton").IsEffectivelyVisible);
+            Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<Button>(), button => button.Name == "PlacesNewChatButton");
+            foreach (var name in new[]
+                     {
+                         "DrawerSearchButton", "DrawerNewChatButton", "DrawerProjectButton", "PlacesChatsButton",
+                         "PlacesJobsButton", "PlacesCustomizeButton", "PlacesSettingsButton"
+                     })
             {
                 var action = Required<Button>(drawer, name);
-                Assert.True(action.Bounds.Width >= 48 && action.Bounds.Height >= 48);
+                Assert.True(action.Bounds.Width >= 48 && action.Bounds.Height >= 48, $"{name} is {action.Bounds}");
                 Assert.True(action.TranslatePoint(new Point(action.Bounds.Width, 0), drawer)!.Value.X <= drawer.Bounds.Width);
             }
+            Assert.Contains("active", Required<Button>(drawer, "PlacesChatsButton").Classes);
+            var places = Required<PlacesBarView>(drawer, "DrawerPlaces");
+            Assert.True(places.TranslatePoint(default, drawer)!.Value.Y > drawer.Bounds.Height - 120,
+                "the places belong in the thumb zone");
+
+            // One line, as the desktop's rows: the title alone at a thumb's height. The date groups say
+            // when a chat last moved, so the row carries no time.
             var row = drawer.GetVisualDescendants().OfType<Button>()
                 .Single(button => button.DataContext is ChatListItemViewModel);
             Assert.Contains("selected", row.Classes);
-            Assert.InRange(row.Bounds.Height, 48, 60);
-            Assert.DoesNotContain(row.GetVisualDescendants().OfType<Border>(),
-                border => border.Classes.Contains("navigation-icon-tile"));
+            Assert.InRange(row.Bounds.Height, 48, 52);
             var title = row.GetVisualDescendants().OfType<TextBlock>()
                 .Single(text => text.Classes.Contains("conversation-title"));
-            Assert.True(title.Bounds.Width >= row.Bounds.Width - 26);
-            Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible);
             Assert.Equal("A useful conversation", title.Text);
             Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, title.TextTrimming);
-            Assert.Equal("All projects", Required<TextBlock>(drawer, "DrawerProjectLabel").Text);
-            Assert.DoesNotContain(drawer.GetVisualDescendants().OfType<ItemsControl>(),
-                control => control.Name == "DrawerProjects");
-            Assert.Single(Required<Border>(drawer, "DrawerAccountSideInset")
-                .GetVisualDescendants().OfType<TextBlock>());
-            Tap(window, Required<Button>(drawer, "DrawerCloseButton"));
+            Assert.Equal(new[] { title }, row.GetVisualDescendants().OfType<TextBlock>().Where(text => text.IsEffectivelyVisible));
+            Assert.InRange(title.TranslatePoint(new Point(0, title.Bounds.Height / 2), row)!.Value.Y
+                           - row.Bounds.Height / 2, -1, 1);
+            // The open chat wears the desktop's neutral wash and its short accent pipe, not an accent fill.
+            var pipe = Required<Border>(row, "ChatRowMarker");
+            Assert.True(pipe.IsEffectivelyVisible);
+            Assert.Equal(16, pipe.Bounds.Height, precision: 1);
+            Assert.Equal(3, pipe.Bounds.Width, precision: 1);
+            var wash = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(row.Background).Color;
+            Assert.True(Math.Abs(wash.R - wash.G) <= 2 && Math.Abs(wash.G - wash.B) <= 2,
+                $"the selected row is a neutral wash, not tinted: {wash}");
+
+            // Picking the chat shows it; on a phone the list steps aside.
+            Tap(window, row);
             Assert.False(shell.IsDrawerOpen);
         }, setup: shell => shell.Projects.Add(
             new ProjectPickViewModel { Id = Guid.NewGuid(), Name = "Lumi" }));
@@ -120,7 +144,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             var pickerButton = Required<Button>(view, "DrawerProjectButton");
             var label = Required<TextBlock>(view, "DrawerProjectLabel");
             var currentChatId = shell.Chat.ChatId;
-            Assert.Equal("All projects", label.Text);
+            Assert.Equal("All chats", label.Text);
             Assert.Null(shell.ChatList.ProjectFilterId);
             Tap(window, pickerButton);
             await Task.Delay(260);
@@ -156,12 +180,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal("Lumi", label.Text);
 
             await Task.Delay(240);
-            if (!shell.CanDockDrawer)
-            {
-                Tap(window, Required<Button>(view, "DrawerCloseButton"));
-                await Task.Delay(240);
-            }
-            Tap(window, Required<Button>(view, "NewChatButton"));
+            // New chat sits at the top right: beside search in the list on a phone, and in the chat's bar
+            // beside a docked list. Either starts the chat in the project the list shows.
+            Tap(window, Required<Button>(view, shell.CanDockDrawer ? "NewChatButton" : "DrawerNewChatButton"));
             Assert.Equal(shell.Projects[0].Id.ToString(), shell.Chat.ProjectValue);
             Assert.Equal("Lumi", shell.Chat.ProjectName);
 
@@ -175,7 +196,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Null(shell.ActiveProjectId);
             Assert.Null(shell.ChatList.ProjectFilterId);
             Assert.Null(shell.Chat.ProjectValue);
-            Assert.Equal("All projects", label.Text);
+            Assert.Equal("All chats", label.Text);
             Assert.False(shell.IsProjectPickerOpen);
         }, setup: shell =>
         {
@@ -197,7 +218,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 .GetVisualDescendants().OfType<Button>());
             Tap(window, Required<Button>(view, "AllProjectsButton"));
             Assert.False(shell.IsProjectPickerOpen);
-            Assert.Equal("All projects", shell.ProjectScopeLabel);
+            Assert.Equal("All chats", shell.ProjectSwitcherTitle);
             shell.OpenProjectPickerCommand.Execute(null);
             shell.IsPaired = false;
             Assert.False(shell.IsProjectPickerOpen);
@@ -298,8 +319,15 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(drawer.IsModal);
             Assert.True(drawer.IsOpen);
             Assert.True(menu.IsEffectivelyVisible);
-            Assert.Equal("Hide navigation", AutomationProperties.GetName(menu));
+            Assert.Equal("Hide chats", AutomationProperties.GetName(menu));
             Assert.Single(view.GetVisualDescendants().OfType<MobileDrawerView>());
+            // The desktop's sidebar toggle: a frame whose list column is filled while the chats show.
+            var glyph = Required<Panel>(menu, "MenuSidebarIcon");
+            Assert.True(glyph.IsEffectivelyVisible);
+            Assert.False(Required<PathIcon>(menu, "MenuBackIcon").IsEffectivelyVisible);
+            Assert.DoesNotContain("collapsed", glyph.Classes);
+            var column = glyph.GetVisualChildren().OfType<Border>().Single(border => border.Classes.Contains("sidebar-glyph-column"));
+            Assert.Equal(1, column.Opacity, 2);
             var chatWidth = chat.Bounds.Width;
             var chatResizes = 0;
             chat.SizeChanged += (_, _) => chatResizes++;
@@ -316,6 +344,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
 
             Tap(window, menu);
             Assert.True(shell.IsSidebarCollapsed);
+            Assert.Contains("collapsed", glyph.Classes);
             Assert.True(drawer.Progress > 0, "The button must not snap to the closed endpoint.");
             await AssertDockedCanvasGeometry(view, drawer, "button release");
             await Task.Delay(55);
@@ -328,6 +357,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal(0, drawer.Progress);
             Assert.False(panel.IsEffectivelyEnabled);
             Assert.True(menu.IsEffectivelyVisible);
+            // With the chats hidden the glyph's list column has emptied out.
+            Assert.InRange(column.Opacity, 0, 0.1);
 
             shell.ToggleDrawerCommand.Execute(null);
             Pump(window);
@@ -402,7 +433,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Pump(window);
             Assert.True(shell.IsDrawerDocked);
             Assert.False(shell.IsDrawerOverlay);
-            Assert.Equal(320, shell.NavigationLeadingWidth);
+            // The docked list is the desktop sidebar's width: about a third of the window, 300 to 360 dp.
+            Assert.Equal(360, shell.NavigationLeadingWidth);
             Assert.True(editor.IsVisible);
             Assert.False(drawer.GetVisualDescendants().OfType<Border>()
                 .Single(border => border.Name == "PART_Scrim" && ReferenceEquals(border.TemplatedParent, drawer)).IsVisible);
@@ -543,17 +575,19 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
 
             try
             {
+                // Progress follows the finger across the docked list's own width.
+                var paneWidth = drawer.PanelWidth;
                 await Move(586, 1400);
-                Assert.Equal(0.8, drawer.Progress, precision: 3);
+                Assert.Equal(1 - 64 / paneWidth, drawer.Progress, precision: 3);
                 window.Width = 1000;
                 Pump(window);
-                Assert.Equal(0.8, drawer.Progress, precision: 3);
+                Assert.Equal(1 - 64 / paneWidth, drawer.Progress, precision: 3);
                 await AssertDockedCanvasGeometry(view, drawer, "resize while captured", verifyHits: true);
                 await Move(618, 1800);
-                Assert.Equal(0.9, drawer.Progress, precision: 3);
+                Assert.Equal(1 - 32 / paneWidth, drawer.Progress, precision: 3);
                 for (var i = 1; i <= 8; i++)
                     await Move(618 - i * 32, (ulong)(1800 + i * 200));
-                Assert.Equal(0.1, drawer.Progress, precision: 3);
+                Assert.Equal(1 - 288 / paneWidth, drawer.Progress, precision: 3);
                 releaseTouch.Invoke(recognizer, [new PointerReleasedEventArgs(chat, touch, drawer, new Point(362, 360), 3800,
                     new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
                     KeyModifiers.None, MouseButton.Left)]);
@@ -686,6 +720,12 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Pump(window);
             var modelSheet = Required<StrataBottomSheet>(view, "ModelSheet");
             AssertSelection(modelSheet, "gpt-6.1-sol");
+            // As in the desktop's picker, the model's context tiers sit beneath it as segments.
+            var segments = Required<StackPanel>(modelSheet, "ModelSheetContext").GetVisualDescendants().OfType<Button>()
+                .Where(button => button.Classes.Contains("segment")).ToArray();
+            Assert.Equal(["Default", "Long context"], segments.Select(segment => ((PickerOption)segment.DataContext!).Name));
+            Assert.Equal("Default", ((PickerOption)Assert.Single(segments, segment => segment.Classes.Contains("selected")).DataContext!).Name);
+            Assert.All(segments, segment => Assert.True(segment.Bounds.Height >= 48));
             var model = modelSheet.GetVisualDescendants().OfType<Button>()
                 .Single(button => button.DataContext is PickerOption { Name: "gpt-6-sol" });
             Tap(window, model);
@@ -709,7 +749,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             static void AssertSelection(StrataBottomSheet sheet, string expected)
             {
                 var rows = sheet.GetVisualDescendants().OfType<Button>()
-                    .Where(button => button.DataContext is PickerOption).ToArray();
+                    .Where(button => button.DataContext is PickerOption && button.Classes.Contains("sheet-item")).ToArray();
                 Assert.All(rows, row => Assert.True(row.Bounds.Height >= 48));
                 var selected = Assert.Single(rows, row => row.Classes.Contains("selected"));
                 Assert.Equal(expected, Assert.IsType<PickerOption>(selected.DataContext).Name);
@@ -737,7 +777,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             var close = Required<Button>(sheet, "PART_CloseButton");
             Assert.True(title.TranslatePoint(new Point(title.Bounds.Width, 0), window)!.Value.X
                         <= close.TranslatePoint(default, window)!.Value.X);
-            Assert.True(title.Bounds.Height <= 2 * title.LineHeight + 1, $"Title height {title.Bounds.Height}");
+            // A long title takes two lines at most, at the font's own spacing, then an ellipsis.
+            Assert.Equal(2, title.TextLayout.TextLines.Count);
             Assert.DoesNotContain(sheet.GetVisualDescendants().OfType<Button>(),
                 button => button.IsEffectivelyVisible && button.Content as string == "Done");
             Tap(window, close);
@@ -772,7 +813,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.True(Required<Button>(picker, "PART_CloseButton").Bounds.Width >= 48);
             var frost = Required<StrataBackdropBlur>(picker, "PART_Backdrop");
             Assert.True(frost.IsEffectivelyVisible);
-            Assert.Equal(24, frost.BlurRadius, precision: 1);
+            Assert.Equal(28, frost.BlurRadius, precision: 1);
             Assert.Equal(surface.Bounds, frost.Bounds);
             Assert.True(shell.IsModalSheetPresented);
             var options = picker.GetVisualDescendants().OfType<Button>()
@@ -848,7 +889,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Pump(window);
             }
             var sheets = view.GetVisualDescendants().OfType<StrataBottomSheet>().ToArray();
-            Assert.Equal(13, sheets.Length);
+            Assert.Equal(15, sheets.Length);
             foreach (var sheet in sheets)
             {
                 shell.Page = sheet.GetVisualAncestors().OfType<LibraryView>().Any() ? MobilePage.Library
@@ -858,8 +899,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Pump(window);
                 await Task.Delay(260);
                 Pump(window);
-                Assert.Equal(sheet.Name == "ProjectPickerSheet"
-                    ? shell.ProjectPickerSheetMargin : shell.SafeAreaSheetMargin, sheet.SheetMargin);
+                // Beside a two-pane chat the plan, sources and activity are a side panel with margins of their own.
+                Assert.Equal(sheet.Name == "ProjectPickerSheet" ? shell.ProjectPickerSheetMargin
+                    : sheet.Classes.Contains("side-panel") ? shell.SidePanelSheetMargin
+                    : shell.SafeAreaSheetMargin, sheet.SheetMargin);
                 var surface = Required<Border>(sheet, "PART_Sheet");
                 var scrim = Required<Border>(sheet, "PART_Scrim");
                 var bounds = new Rect(surface.Bounds.Size).TransformToAABB(surface.TransformToVisual(sheet)!.Value);
@@ -879,10 +922,16 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 // Glass belongs to the popup only: the frost matches the sheet, not the screen.
                 var backdrop = Required<StrataBackdropBlur>(sheet, "PART_Backdrop");
                 Assert.True(backdrop.IsEffectivelyVisible);
-                Assert.Equal(24, backdrop.BlurRadius, precision: 1);
+                Assert.Equal(28, backdrop.BlurRadius, precision: 1);
                 Assert.Equal(surface.Bounds, backdrop.Bounds);
                 Assert.Equal(surface.CornerRadius, backdrop.CornerRadius);
                 Assert.Contains(Required<Border>(sheet, "PART_SheetMotion"), backdrop.GetVisualAncestors());
+                // And it is glass, as the desktop's menus are: the page shows through the sheet, frosted,
+                // behind a light dim rather than a dark one.
+                var tint = Assert.IsAssignableFrom<Avalonia.Media.IGradientBrush>(surface.Background);
+                Assert.All(tint.GradientStops, stop => Assert.InRange(stop.Color.A, (byte)0x90, (byte)0xC0));
+                Assert.InRange(Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(scrim.Background).Color.A,
+                    (byte)0, (byte)0x40);
 
                 Tap(window, close);
                 Assert.False(sheet.IsOpen);
@@ -938,6 +987,28 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.True(SlideFadeEntrance.IsCompositedRunning(body));
             Assert.False(Required<Border>(view, "ChatLoadingOverlay").IsVisible);
             return Task.CompletedTask;
+        });
+
+    /// <summary>
+    /// A chat that takes a moment to load shows its outline breathing over the canvas, where Lumi's
+    /// presence keeps glowing: the overlay paints no backdrop of its own, which on a dark or light canvas
+    /// read as a black or white box over the glow. The chat it replaces has already faded out.
+    /// </summary>
+    [Fact]
+    public Task ASlowLoadShowsItsOutlineOverThePresenceRatherThanABox() =>
+        RunUiAsync(360, async (shell, view, window) =>
+        {
+            // As the shell opens a chat it has to fetch from the PC.
+            shell.Chat.Reset(Guid.NewGuid(), "A slow conversation", isLoading: true);
+            Assert.True(shell.Chat.IsInitialLoading);
+            await Task.Delay(180);
+            Dispatcher.UIThread.RunJobs();
+            var overlay = Required<Border>(view, "ChatLoadingOverlay");
+            Assert.True(overlay.IsVisible);
+            Assert.True(overlay.Background is null
+                        || overlay.Background is Avalonia.Media.ISolidColorBrush { Color.A: 0 },
+                $"the loading overlay paints {overlay.Background} over the canvas.");
+            Assert.Equal(0, Required<Border>(view, "ChatTranscriptSideInset").Opacity);
         });
 
     [Fact]
@@ -1087,24 +1158,36 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         });
 
     [Fact]
-    public Task ChatControlsShowsTheLiveModelWithoutRepeatingTheConversationTitle() =>
+    public Task ChatTitlePillCarriesTheChatsIdentityAndProjectOnOneLine() =>
         RunUiAsync(360, (shell, view, window) =>
         {
             var controls = Required<Button>(view, "HeaderDetailsButton");
-            var model = Required<TextBlock>(view, "HeaderModelText");
-            Assert.Single(controls.GetVisualDescendants().OfType<TextBlock>());
+            var title = Required<TextBlock>(view, "HeaderTitleText");
+            var project = Required<TextBlock>(view, "HeaderProjectText");
+            var mark = Required<Border>(view, "HeaderMark");
             Assert.Equal("HeaderControlsIcon", Assert.Single(controls.GetVisualDescendants().OfType<PathIcon>()).Name);
-            Assert.Equal(shell.Chat.ModelDisplayName, model.Text);
+            Assert.Equal(shell.Chat.Title, title.Text);
+            Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, title.TextTrimming);
+            Assert.False(project.IsVisible, "a chat outside a project names none");
+            Assert.False(mark.IsVisible, "a chat with neither project nor agent has no mark");
+
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
                 ChatId = shell.Chat.ChatId, Model = "gpt-4.1",
                 ProjectId = Guid.NewGuid(), ProjectName = "Lumi"
             });
             Pump(window);
-            Assert.Equal(shell.Chat.ModelDisplayName, model.Text);
-            Assert.Equal($"Chat controls: {shell.Chat.ModelDisplayName}", AutomationProperties.GetName(controls));
-            Assert.DoesNotContain(controls.GetVisualDescendants().OfType<TextBlock>(),
-                text => text.Text == shell.Chat.Title || text.Text == shell.Chat.ProjectName);
+            // As on the desktop, the project follows the title on its line, quieter, and gives way first:
+            // the two share a baseline. Its initial marks the chat on its hue.
+            Assert.True(project.IsVisible);
+            Assert.Equal("Lumi", project.Text);
+            Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, project.TextTrimming);
+            static double Baseline(TextBlock text, Visual root) =>
+                text.TranslatePoint(new Point(0, text.TextLayout.TextLines[0].Baseline), root)!.Value.Y;
+            Assert.InRange(Math.Abs(Baseline(title, view) - Baseline(project, view)), 0, 0.75);
+            Assert.True(mark.IsVisible);
+            Assert.Equal("L", mark.GetVisualDescendants().OfType<TextBlock>().Single().Text);
+            Assert.Equal($"Chat details: {shell.Chat.Title}", AutomationProperties.GetName(controls));
             return Task.CompletedTask;
         });
 
@@ -1129,14 +1212,12 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
 
             var controls = new List<Control>
             {
-                Required<TextBlock>(view, "DrawerBrandTitle"),
                 Required<Button>(view, "DrawerSearchButton"),
                 Required<Button>(view, "MenuButton"),
                 Required<Button>(view, "HeaderDetailsButton"),
+                // New chat is the top right of the chat's bar in every layout.
                 Required<Button>(view, "NewChatButton")
             };
-            if (!shell.CanDockDrawer)
-                controls.Add(Required<Button>(view, "DrawerCloseButton"));
             var centers = controls.Select(control =>
                 control.TranslatePoint(new Point(0, control.Bounds.Height / 2), view)!.Value.Y).ToArray();
             Assert.InRange(centers.Max() - centers.Min(), 0, 1);
@@ -1179,6 +1260,17 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             foreach (var name in new[] { "PART_SendIcon", "PART_StopIcon" })
                 Assert.Equal(foreground, Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(
                     Required<Avalonia.Controls.Shapes.Path>(send, name).Fill).Color);
+            // The desktop's orb: its line glyphs, and while Lumi works a dark disc with a stop square
+            // ringed by a breath that hugs the disc rather than the whole target.
+            Assert.True(Required<Panel>(send, "PART_OrbGlyphs").IsEffectivelyVisible);
+            Assert.False(Required<Viewbox>(send, "PART_SendGlyphs").IsEffectivelyVisible);
+            Assert.True(Required<Border>(send, "PART_OrbStopIcon").IsEffectivelyVisible);
+            var halo = Required<Border>(composer, "PART_SendHalo");
+            Assert.True(halo.IsEffectivelyVisible);
+            Assert.InRange(halo.Bounds.Width, sendSurface.Bounds.Width, sendSurface.Bounds.Width + 6);
+            // The + answers the orb across the composer: a disc of the same size, its whole target tappable.
+            Assert.Equal(sendSurface.Bounds.Width, Required<Border>(attach, "PART_Surface").Bounds.Width, precision: 1);
+            Assert.Equal(48, attach.Bounds.Width, precision: 1);
 
             var edge = send.TranslatePoint(new Point(1, send.Bounds.Height / 2), window)!.Value;
             var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(edge));
@@ -1235,7 +1327,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Same(input, Required<TextBox>(composer, "PART_Input"));
             Assert.Same(transitions, layout.Transitions);
 
-            var settings = Required<Button>(view, "ComposerRunSettingsButton");
+            var settings = Required<Button>(view, "ComposerModelButton");
             settings.Focus();
             Pump(window);
             Assert.False(composer.IsCompact);
@@ -1410,8 +1502,11 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Pump(window);
             Assert.False(composer.IsCompact);
             Assert.Equal("Lumi", shell.Chat.ProjectName);
+            // The chat's project shows in the composer, as on the desktop, beside its staged file.
             Assert.Equal("Lumi", composer.ProjectName);
-            Assert.True(Required<Border>(composer, "PART_ProjectChip").IsEffectivelyVisible);
+            Assert.True(Required<Button>(composer, "ComposerProjectChip").IsEffectivelyVisible);
+            Assert.False(Required<ScrollViewer>(composer, "PART_ContextScroll").IsVisible);
+            Assert.Equal("Lumi", Required<TextBlock>(view, "HeaderProjectText").Text);
             Assert.True(Required<ItemsControl>(composer, "PendingAttachments").IsEffectivelyVisible);
             Assert.True(Required<StrataTypingIndicator>(view, "ChatTyping").IsEffectivelyVisible);
             Tap(window, Required<Button>(composer, "PART_SendButton"));
@@ -1488,85 +1583,157 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal(48, editor.Height);
         }, new FocusEditorFactory());
 
+    private static void ApplyComposerContext(MobileShellViewModel shell, string projectName = "Lumi")
+    {
+        var projectId = Guid.NewGuid();
+        shell.Chat.ApplyLibraryCatalogs(new RemoteLibrary
+        {
+            Projects = [new RemoteProject { Id = projectId, Name = projectName }],
+            Lumis = [new RemoteLumi { Id = Guid.NewGuid(), Name = "Coding Lumi", IconGlyph = "\u26A1" }],
+            Skills =
+            [
+                new RemoteSkill { Id = Guid.NewGuid(), Name = "A detailed research skill with a long descriptive name", IconGlyph = "\U0001F50E" },
+                new RemoteSkill { Id = Guid.NewGuid(), Name = "Debug Expert", IconGlyph = "\U0001F41E" }
+            ],
+            McpServers = [new RemoteMcpServer { Id = Guid.NewGuid(), Name = "GitHub", IsEnabled = true }]
+        });
+        shell.Chat.ApplyStatus(new RemoteChatStatus
+        {
+            ChatId = shell.Chat.ChatId,
+            ProjectId = projectId,
+            ProjectName = projectName,
+            AgentName = "Coding Lumi",
+            AgentGlyph = "\u26A1",
+            SkillNames = ["A detailed research skill with a long descriptive name"],
+            McpNames = ["GitHub"]
+        });
+    }
+
     [Fact]
-    public Task CompactContextChipsKeepTheirSurfaceAndRemovalTargetConsistent() =>
+    public Task TheComposersChipsShowWhatTheChatCarriesAndOpenTheirPickers() =>
         RunUiAsync(360, async (shell, view, window) =>
         {
             var composer = Required<StrataChatComposer>(view, "Composer");
-            var skill = new StrataComposerChip("A detailed research skill with a long descriptive name");
-            composer.ProjectName = "Lumi";
-            composer.AgentName = "A custom assistant with a long descriptive name";
-            composer.AgentGlyph = "\u2726";
-            composer.SkillItems = new[] { skill };
-            composer.SkillRemovedCommand = null;
+            var strip = Required<ScrollViewer>(composer, "ComposerContextScroll");
             await Task.Delay(280);
             Pump(window);
-            var project = Required<Border>(composer, "PART_ProjectChip");
-            var agent = Required<Border>(composer, "PART_AgentChip");
-            var skillChip = composer.GetVisualDescendants().OfType<Border>()
-                .Single(border => border.Classes.Contains("composer-skill-chip"));
-            var projectSurface = Required<Border>(composer, "PART_ProjectChipSurface");
-            var agentSurface = Required<Border>(composer, "PART_AgentChipSurface");
-            var skillSurface = skillChip.GetVisualDescendants().OfType<Border>()
-                .Single(border => border.Classes.Contains("composer-chip-surface"));
-            var remove = skillChip.GetVisualDescendants().OfType<Button>().Single();
+            // A chat that carries nothing keeps the one-row composer.
+            Assert.False(strip.IsEffectivelyVisible);
+            var compactHeight = composer.Bounds.Height;
+
+            ApplyComposerContext(shell, "A very long project name that should not make the composer wider");
+            await Task.Delay(280);
+            Pump(window);
+            Assert.True(strip.IsEffectivelyVisible);
+            // The desktop composer's own chip row has no place for connectors and only a hover-size
+            // remove button, so on a phone the host's chips stand in for it.
+            Assert.False(Required<ScrollViewer>(composer, "PART_ContextScroll").IsVisible);
+            var chips = composer.GetVisualDescendants().OfType<Button>()
+                .Where(button => button.Classes.Contains("context-chip")).ToList();
+            // The project, agent and skills; the chat's connectors stay behind +, as the desktop keeps
+            // them behind its Connectors button.
+            Assert.Equal(["project", "agent", "skill"],
+                chips.Select(chip => chip.Classes.First(name => name is "project" or "agent" or "skill" or "connector")));
+            Assert.NotEmpty(shell.Chat.McpChips);
 
             foreach (var theme in new[] { Avalonia.Styling.ThemeVariant.Light, Avalonia.Styling.ThemeVariant.Dark })
             {
                 window.RequestedThemeVariant = theme;
                 await Task.Delay(200);
                 Pump(window);
-                foreach (var chip in new[] { project, agent, skillChip })
-                {
+                var surfaces = chips.Select(chip => chip.GetVisualDescendants().OfType<Border>()
+                    .Single(border => border.Classes.Contains("context-chip-surface"))).ToList();
+                foreach (var chip in chips)
                     Assert.Equal(48, chip.Bounds.Height, precision: 1);
-                    Assert.True(chip.Bounds.Width <= 268);
-                    Assert.Equal(0, chip.BorderThickness.Left);
-                    Assert.Equal(0, Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(chip.Background).Color.A);
-                }
-                foreach (var surface in new[] { projectSurface, agentSurface, skillSurface })
+                foreach (var surface in surfaces)
                 {
-                    Assert.True(surface.IsEffectivelyVisible);
+                    // One quiet, translucent pill in the desktop's proportions; only its small tile wears a hue.
                     Assert.Equal(32, surface.Bounds.Height, precision: 1);
-                    Assert.Equal(projectSurface.CornerRadius, surface.CornerRadius);
-                    Assert.Equal(
-                        Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(projectSurface.Background).Color,
-                        Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(surface.Background).Color);
+                    Assert.True(surface.Bounds.Width <= 210, $"a chip is {surface.Bounds.Width:0.#} dp wide");
+                    Assert.Equal(surfaces[0].CornerRadius, surface.CornerRadius);
+                    var fill = Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(surface.Background).Color;
+                    Assert.Equal(Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(surfaces[0].Background).Color, fill);
+                    Assert.InRange(fill.A, 1, 60);
                 }
+                var hues = chips.Where(chip => !chip.Classes.Contains("agent"))
+                    .Select(chip => Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(
+                        chip.GetVisualDescendants().OfType<StrataLineIcon>().Single().Foreground).Color)
+                    .ToList();
+                Assert.Equal(hues.Count, hues.Distinct().Count());
             }
-            Assert.True(remove.Bounds.Width >= 48 && remove.Bounds.Height >= 48);
-            var contextRow = Required<WrapPanel>(composer, "PART_ChipsRow");
-            var contextScroll = Required<ScrollViewer>(composer, "PART_ContextScroll");
-            Assert.Equal(48, contextRow.Bounds.Height, precision: 1);
-            Assert.True(contextScroll.Extent.Width > contextScroll.Viewport.Width);
-            remove.BringIntoView();
+            Assert.All(chips.SelectMany(chip => chip.GetVisualDescendants().OfType<TextBlock>()
+                    .Where(text => text.Classes.Contains("context-chip-name"))),
+                name => Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, name.TextTrimming));
+            // The chips add one row; a long one scrolls sideways instead of taking another.
+            Assert.InRange(composer.Bounds.Height - compactHeight, 46, 54);
+
+            // A chip opens its own picker, with what the chat has already checked.
+            Tap(window, chips[0]);
+            Assert.True(shell.Chat.IsContextPickerOpen);
+            Assert.Equal(ContextPickerKind.Project, shell.Chat.ContextPickerKind);
+            shell.Chat.IsContextPickerOpen = false;
+            await Task.Delay(320);
+            Pump(window);
+            chips[2].BringIntoView();
             await Task.Delay(100);
             Pump(window);
-            Assert.Equal($"Remove {skill.Name}", AutomationProperties.GetName(remove));
-            object? removed = null;
-            composer.SkillRemoved += (_, args) => removed = args.Item;
-            Tap(window, remove);
-            Assert.Same(skill, removed);
+            Tap(window, chips[2]);
+            Assert.Equal(ContextPickerKind.Skills, shell.Chat.ContextPickerKind);
+            Assert.Contains(shell.Chat.ContextOptions, option => option.IsSelected);
+            Assert.Equal("Skill: A detailed research skill with a long descriptive name", AutomationProperties.GetName(chips[2]));
         });
 
     [Fact]
-    public Task ProjectContextUsesARestrainedSurfaceWithoutSacrificingTheRemovalTarget() =>
-        RunUiAsync(320, (shell, view, window) =>
+    public Task PlusOpensTheAddSheetWhoseRowsReachEveryKindOfContext() =>
+        RunUiAsync(360, async (shell, view, window) =>
         {
-            var composer = Required<StrataChatComposer>(view, "Composer");
-            composer.ProjectName = "A very long project name that should not make the composer wider";
+            ApplyComposerContext(shell);
+            var picks = 0;
+            shell.Chat.AttachmentPickRequested += () => picks++;
+            await Task.Delay(280);
             Pump(window);
-            var chip = Required<Border>(composer, "PART_ProjectChip");
-            var surface = Required<Border>(composer, "PART_ProjectChipSurface");
-            var label = Required<TextBlock>(composer, "PART_ProjectName");
-            var remove = Required<Button>(composer, "PART_ProjectRemoveButton");
-            Assert.True(chip.IsEffectivelyVisible);
-            Assert.Equal(32, surface.Bounds.Height);
-            Assert.True(chip.Bounds.Width <= 268);
-            Assert.Equal(Avalonia.Media.TextTrimming.CharacterEllipsis, label.TextTrimming);
-            Assert.True(remove.Bounds.Width >= 48 && remove.Bounds.Height >= 48);
-            Assert.True(Required<Border>(composer, "PART_Root").BoxShadow.Count > 0);
-            Assert.NotNull(Required<StrataLineIcon>(composer, "PART_ProjectIcon"));
-            return Task.CompletedTask;
+
+            Tap(window, Required<Button>(view, "ComposerAttachButton"));
+            await Task.Delay(320);
+            Pump(window);
+            Assert.True(shell.Chat.IsAddSheetOpen);
+            string Value(string row) => Required<Button>(view, row).GetVisualDescendants().OfType<TextBlock>()
+                .Single(text => text.Classes.Contains("sheet-value")).Text!;
+            foreach (var name in new[] { "AddFilesButton", "AddAgentButton", "AddProjectButton", "AddSkillsButton", "AddConnectorsButton" })
+            {
+                var row = Required<Button>(view, name);
+                Assert.True(row.IsEffectivelyVisible && row.IsEffectivelyEnabled, name);
+                Assert.True(row.Bounds.Height >= 48, $"{name} is {row.Bounds.Height:0.#} dp");
+            }
+            Assert.Equal("Coding Lumi", Value("AddAgentButton"));
+            Assert.Equal("Lumi", Value("AddProjectButton"));
+            Assert.Equal("A detailed research skill with a long descriptive name", Value("AddSkillsButton"));
+            Assert.Equal("GitHub", Value("AddConnectorsButton"));
+
+            Tap(window, Required<Button>(view, "AddSkillsButton"));
+            await Task.Delay(320);
+            Pump(window);
+            Assert.False(shell.Chat.IsAddSheetOpen);
+            Assert.True(shell.Chat.IsContextPickerOpen);
+            var rows = Required<ItemsControl>(view, "ContextPickerList").GetVisualDescendants().OfType<Button>()
+                .Where(button => button.Classes.Contains("context-option")).ToList();
+            Assert.Equal(2, rows.Count);
+            // Skills are a multi-select: a check, without the single choice's selection band.
+            Assert.Contains("checked", rows[0].Classes);
+            Assert.DoesNotContain("selected", rows[0].Classes);
+            Assert.DoesNotContain("checked", rows[1].Classes);
+            Tap(window, rows[1]);
+            Assert.Contains("checked", rows[1].Classes);
+            Assert.Equal("2 skills", shell.Chat.SkillsSummary);
+            Assert.True(shell.Chat.IsContextPickerOpen);
+
+            shell.Chat.IsContextPickerOpen = false;
+            shell.Chat.OpenAddSheetCommand.Execute(null);
+            await Task.Delay(320);
+            Pump(window);
+            Tap(window, Required<Button>(view, "AddFilesButton"));
+            Assert.False(shell.Chat.IsAddSheetOpen);
+            Assert.Equal(1, picks);
         });
 
     [Fact]
@@ -1868,6 +2035,81 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         Assert.False(shell.IsChatActionsOpen);
     }
 
+    [Fact]
+    public async Task DeletingTheOpenChatFromItsDetailsReturnsToTheList()
+    {
+        var id = Guid.NewGuid();
+        await using var desktop = new FakeLumiDesktop();
+        desktop.Snapshot.Chats.Groups = [new RemoteChatGroup
+        {
+            Label = "Today",
+            Chats = [new RemoteChat { Id = id, Title = "Old plan" }]
+        }];
+        desktop.CommandResultFactory = command =>
+        {
+            if (command?.Action == RemoteProtocol.Actions.DeleteChat)
+                desktop.ChatCatalog = [];
+            return new RemoteCommandResult { Ok = true };
+        };
+        desktop.Start();
+        await using var shell = new MobileShellViewModel(store: new MemoryStore(), post: action => action());
+        await PairAsync(shell, desktop);
+        shell.UpdateLayout(393, 852);
+        await Eventually(() => shell.ChatList.FindLoadedChat(id) is not null);
+        shell.Chat.Reset(id, "Old plan");
+        shell.IsDrawerOpen = false;
+
+        shell.DeleteOpenChatCommand.Execute(null);
+        await shell.ConfirmDeleteActionChatCommand.ExecuteAsync(null);
+
+        var delete = Assert.Single(desktop.ReceivedCommands, command => command.Action == RemoteProtocol.Actions.DeleteChat);
+        Assert.Equal(id, delete.GetGuid("chatId"));
+        // The hidden list hears of no deletion, so the chat leaves at once and the list comes back without it.
+        Assert.Equal(Guid.Empty, shell.Chat.ChatId);
+        Assert.False(shell.IsChatActionsOpen);
+        Assert.True(shell.IsDrawerOpen);
+        await Eventually(() => shell.ChatList.FindLoadedChat(id) is null);
+    }
+
+    [Fact]
+    public async Task PinningTheOpenChatFlipsItsLabelOnceThePcAgrees()
+    {
+        var id = Guid.NewGuid();
+        var served = new RemoteChat { Id = id, Title = "Weekend plans" };
+        await using var desktop = new FakeLumiDesktop();
+        desktop.Snapshot.Chats.Groups = [new RemoteChatGroup { Label = "Today", Chats = [served] }];
+        desktop.CommandResultFactory = command =>
+        {
+            if (command?.Action == RemoteProtocol.Actions.PinChat)
+                served.IsPinned = command.Get("pinned") == bool.TrueString;
+            return new RemoteCommandResult { Ok = true };
+        };
+        desktop.Start();
+        await using var shell = new MobileShellViewModel(store: new MemoryStore(), post: action => action());
+        await PairAsync(shell, desktop);
+        await Eventually(() => shell.ChatList.FindLoadedChat(id) is not null);
+        shell.Chat.Reset(id, "Weekend plans");
+        Assert.True(shell.CanPinOpenChat);
+        Assert.Equal("Pin chat", shell.OpenChatPinLabel);
+
+        await shell.PinOpenChatCommand.ExecuteAsync(null);
+
+        var pin = Assert.Single(desktop.ReceivedCommands, command => command.Action == RemoteProtocol.Actions.PinChat);
+        Assert.Equal(id, pin.GetGuid("chatId"));
+        Assert.Equal(bool.TrueString, pin.Get("pinned"));
+        Assert.True(shell.ChatList.FindLoadedChat(id)!.IsPinned);
+        Assert.Equal("Unpin chat", shell.OpenChatPinLabel);
+    }
+
+    private static async Task Eventually(Func<bool> condition)
+    {
+        for (var waited = 0; !condition(); waited += 10)
+        {
+            Assert.True(waited < 5000, "The expected state was not reached.");
+            await Task.Delay(10);
+        }
+    }
+
     [Theory]
     [InlineData(320)]
     [InlineData(412)]
@@ -1882,9 +2124,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             var topBar = Required<Grid>(view, "TopBar");
             Assert.Equal(3, topBar.GetVisualDescendants().OfType<Button>().Count());
             var details = Required<Button>(view, "HeaderDetailsButton");
-            Assert.InRange(details.Bounds.Width, 48, Math.Min(260, width - 140));
+            // The title pill takes the bar between back and New chat.
+            Assert.InRange(details.Bounds.Width, 48, width - 140);
             Assert.True(details.Bounds.Height >= 48);
-            Assert.Equal($"Chat controls: {shell.Chat.ModelDisplayName}", AutomationProperties.GetName(details));
+            Assert.Equal($"Chat details: {shell.Chat.Title}", AutomationProperties.GetName(details));
             Tap(window, details);
             await Task.Delay(320);
             Pump(window);
@@ -1906,6 +2149,15 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             shell.Page = MobilePage.Settings;
             Pump(window);
             var settings = Required<MobileSettingsView>(view, "SettingsPage");
+            // A phone lists Settings' pages first; the connection is one of them.
+            Assert.False(shell.ShowSettingsDetail);
+            Assert.False(Required<Grid>(settings, "SettingsDetailPane").IsVisible);
+            await Task.Delay(320);
+            Pump(window);
+            Tap(window, Required<Button>(settings, "SettingsConnectionRow"));
+            await Task.Delay(320);
+            Pump(window);
+            Assert.Equal(SettingsSection.Connection, shell.SettingsSection);
             var description = settings.GetVisualDescendants().OfType<TextBlock>()
                 .Single(text => text.Text == "Bring your chats and library up to date.");
             Assert.True(description.Bounds.Width >= 200, $"Description width: {description.Bounds.Width}");
@@ -1970,7 +2222,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Assert.False(Required<Control>(view, "ConnectionBanner").IsEffectivelyVisible);
                 Assert.False(recovery.IsEffectivelyVisible);
 
+                // Browser sign-in lives on Settings' Connection page.
                 shell.Page = MobilePage.Settings;
+                shell.OpenSettingsSectionCommand.Execute("Connection");
                 Pump(window);
                 Assert.Equal(webApp, shell.CanReloadWebApp);
                 Assert.Equal(webApp, shell.ReloadWebAppCommand.CanExecute(null));
@@ -2417,9 +2671,18 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 await desktop.SubscriberConnected.WaitAsync(TimeSpan.FromSeconds(2));
                 shell.Chat.Reset(chatId, "File fixture");
                 shell.Chat.ApplyTranscript(desktop.Transcript);
+                // A newly paired phone opens on its chat list; reading the chat steps the list aside, and
+                // the transcript realizes once the list has finished sliding away.
+                shell.IsDrawerOpen = false;
+                Pump(window);
+                for (var waited = 0; waited < 2000 && shell.IsDrawerMoving; waited += 20)
+                {
+                    await Task.Delay(20);
+                    Pump(window);
+                }
                 Pump(window);
                 var file = view.GetVisualDescendants().OfType<StrataFileAttachment>()
-                    .Single(card => card.Classes.Contains("produced-file"));
+                    .Single(card => card.Classes.Contains("transcript-file"));
                 var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var opening = false;
                 shell.PropertyChanged += (_, e) =>
@@ -2619,7 +2882,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 markdown => markdown.Markdown?.StartsWith("### Heavy chat") == true);
             var surface = Required<Border>(view, "ChatTranscriptSideInset");
             Assert.False(SlideFadeEntrance.IsCompositedRunning(surface));
-            Tap(window, Required<Button>(view, "DrawerCloseButton"));
+            // Picking the chat in the list steps the list aside.
+            shell.IsDrawerOpen = false;
             await Task.Delay(240);
             PumpFrame(window);
             Assert.Equal(0, drawer.Progress);
@@ -2789,17 +3053,19 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             await Task.Delay(65);
             Pump(window);
             Assert.True(SlideFadeEntrance.IsCompositedRunning(Required<StackPanel>(view, "SettingsContent")));
-            Tap(window, Required<Button>(view, "SettingsBackButton"));
+
+            // Back from a place lands on the chat list, the app's home, with the chat kept beneath it.
+            shell.GoBackCommand.Execute(null);
             Pump(window);
             Assert.True(shell.IsChatPage);
+            Assert.True(shell.IsDrawerOpen);
+            shell.IsDrawerOpen = false;
+            await Task.Delay(240);
+            Pump(window);
             Assert.Same(answer, view.GetVisualDescendants().OfType<StrataMarkdown>()
                 .Single(markdown => markdown.Markdown?.StartsWith("A paragraph") == true));
             Assert.Equal(offset, scroll.Offset);
             var surface = Required<Border>(view, "ChatTranscriptSideInset");
-            Assert.True(SlideFadeEntrance.IsCompositedRunning(surface));
-            await Task.Delay(65);
-            Pump(window);
-            Assert.Equal(1, surface.Opacity);
             Assert.True(SlideFadeEntrance.IsCompositedRunning(surface));
             await Task.Delay(300);
             Pump(window);
