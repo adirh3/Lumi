@@ -9,6 +9,22 @@ using StrataTheme.Controls;
 
 namespace Lumi.Mobile.ViewModels;
 
+/// <summary>How one live streaming delta related to the transcript the phone shows.</summary>
+internal enum StreamDeltaOutcome
+{
+    /// <summary>The visible text grew.</summary>
+    Applied,
+
+    /// <summary>Another chat, or text the phone already shows.</summary>
+    Ignored,
+
+    /// <summary>The row is not in the transcript yet.</summary>
+    Missing,
+
+    /// <summary>The delta starts beyond, or disagrees with, the visible text.</summary>
+    Gap
+}
+
 /// <summary>
 /// The open chat: transcript, live status and composer state. All mutations funnel through
 /// <see cref="ApplyTranscript"/> / <see cref="ApplyDelta"/> so the server stays the source of truth
@@ -24,6 +40,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private string? _preferredModel;
     private long _revision = -1;
     private string? _revisionEpoch;
+    private string? _transcriptVersion;
     private long _hostGeneration;
     private long _blankSurfaceGeneration;
     private long? _blankSendInFlightGeneration;
@@ -84,18 +101,55 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>Plan sheet visibility. Chat-level state, opened from the top bar.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet), nameof(HasSidePanelOpen))]
     private bool _isPlanOpen;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet), nameof(HasSidePanelOpen))]
     private bool _isActivitySheetOpen;
 
     [ObservableProperty] private ActivitySummaryItemViewModel? _selectedActivity;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet), nameof(HasSidePanelOpen))]
     private bool _isSourcesSheetOpen;
+
+    /// <summary>
+    /// With room for two panes, the plan, sources and activity open as a panel beside the chat rather
+    /// than a sheet over it, so the conversation stays readable and the composer usable.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet), nameof(HasSidePanelOpen))]
+    private bool _useSidePanels;
+
+    /// <summary>A supporting panel is open beside the chat.</summary>
+    public bool HasSidePanelOpen => UseSidePanels && (IsPlanOpen || IsSourcesSheetOpen || IsActivitySheetOpen);
+
+    // Beside the chat there is room for one supporting panel, as on the desktop: opening one
+    // replaces the other, so it never lands hidden underneath.
+    partial void OnIsPlanOpenChanged(bool value)
+    {
+        if (!value || !UseSidePanels)
+            return;
+        IsSourcesSheetOpen = false;
+        IsActivitySheetOpen = false;
+    }
+
+    partial void OnIsSourcesSheetOpenChanged(bool value)
+    {
+        if (!value || !UseSidePanels)
+            return;
+        IsPlanOpen = false;
+        IsActivitySheetOpen = false;
+    }
+
+    partial void OnIsActivitySheetOpenChanged(bool value)
+    {
+        if (!value || !UseSidePanels)
+            return;
+        IsPlanOpen = false;
+        IsSourcesSheetOpen = false;
+    }
 
     [ObservableProperty] private AssistantItemViewModel? _selectedSourceAnswer;
 
@@ -121,9 +175,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (!HasPlan)
             IsPlanOpen = false;
     }
-
-    [RelayCommand]
-    private void TogglePlan() => IsPlanOpen = !IsPlanOpen;
 
     private async Task OpenActivityAsync(ActivitySummaryItemViewModel activity)
     {
@@ -465,6 +516,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // via _applyingServerState, leaving only the ones the user actually made on the phone.
         SkillChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addSkills");
         McpChips.CollectionChanged += (_, e) => PushChipAdditions(e, "addMcps");
+        InitializeComposerContext();
         Attachments.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasUnsentWork));
         SendCommand.PropertyChanged += OnSendActivityChanged;
         StopAndSendCommand.PropertyChanged += OnSendActivityChanged;
@@ -495,9 +547,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>The three static starters shown when the desktop has nothing more specific.</summary>
     private static readonly ChatStarter[] DefaultStarters =
     [
-        new("M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 15H5V9h14v10zm-7-8h5v5h-5v-5z", "Plan my day"),
-        new("M9.5 3a6.5 6.5 0 1 0 3.98 11.64L19.85 21 21 19.85l-6.36-6.37A6.5 6.5 0 0 0 9.5 3zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z", "Research a topic"),
-        new("M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm0 2.5L17.5 8H14V4.5zM8 13h8v2H8v-2zm0 4h8v2H8v-2zm0-8h4v2H8V9z", "Create a document")
+        new("plan", "Plan my day"),
+        new("search", "Research a topic"),
+        new("create", "Create a document")
     ];
     private IReadOnlyList<ChatStarter>? _desktopStarters;
 
@@ -538,9 +590,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// difference between seeing two lines of your draft and seeing four.</para>
     /// </summary>
     public IReadOnlyList<ChatStarter> Starters => Suggestions.Count > 0
-        ? [.. Suggestions.Take(3).Select(text => new ChatStarter(
-            "M12 2c.7 5.2 2.8 7.3 8 8-5.2.7-7.3 2.8-8 8-.7-5.2-2.8-7.3-8-8 5.2-.7 7.3-2.8 8-8z",
-            text))]
+        ? [.. Suggestions.Take(3).Select(text => new ChatStarter("chat", text))]
         : _desktopStarters ?? DefaultStarters;
 
     public ObservableCollection<string> AvailableModels { get; } = [];
@@ -690,7 +740,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void OpenPlanFromRunSettings()
     {
         IsRunSettingsSheetOpen = false;
-        TogglePlanCommand.Execute(null);
+        IsPlanOpen = true;
     }
 
     [RelayCommand]
@@ -783,7 +833,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         while (ModelGroups.Count > groups.Count)
             ModelGroups.RemoveAt(ModelGroups.Count - 1);
-        SyncOptions(QualityOptions, QualityLevels, Quality);
+        SyncOptions(QualityOptions, QualityLevels, Quality, EffortDisplay);
         SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier);
 
         void SyncOptions(
@@ -825,6 +875,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [RelayCommand]
     private void OpenModelSheet()
     {
+        // The sheet carries the model's context tiers as well as its effort levels.
+        RefreshContextWindowTiers();
         RefreshPickerOptions();
         IsModelSheetOpen = true;
     }
@@ -857,8 +909,15 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public double EffortMax => Math.Max(0, QualityLevels.Count - 1);
 
     public string EffortLabel => Quality is { Length: > 0 } quality
-        ? char.ToUpperInvariant(quality[0]) + quality[1..]
+        ? EffortDisplay(quality)
         : SelectedModelDefaults is { Quality: null } ? "Not supported" : "Set by desktop";
+
+    /// <summary>An effort level as the desktop names it: "High", and "X-High" for xhigh.</summary>
+    internal static string EffortDisplay(string quality) => quality.ToLowerInvariant() switch
+    {
+        "xhigh" => "X-High",
+        _ => quality.Length > 0 ? char.ToUpperInvariant(quality[0]) + quality[1..] : quality
+    };
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
@@ -902,25 +961,40 @@ public sealed partial class MobileChatViewModel : ObservableObject
         IsContextSheetOpen = false;
     }
 
-    /// <summary>Whether any modal sheet currently covers the conversation.</summary>
+    /// <summary>Whether any modal sheet currently covers the conversation. A side panel does not.</summary>
     public bool HasOpenSheet =>
         IsInteractivePickerOpen ||
         IsGitChangesOpen ||
         IsJobWakeSheetOpen ||
-        IsSourcesSheetOpen ||
-        IsActivitySheetOpen ||
+        (!UseSidePanels && (IsSourcesSheetOpen || IsActivitySheetOpen || IsPlanOpen)) ||
         IsRunSettingsSheetOpen ||
         IsModelSheetOpen ||
         IsContextSheetOpen ||
         IsEffortSheetOpen ||
-        IsPlanOpen;
+        IsAddSheetOpen ||
+        IsContextPickerOpen;
 
-    /// <summary>Closes the visually topmost chat sheet.</summary>
+    /// <summary>
+    /// Closes the visually topmost chat sheet. Plan, sources and activity come after the pickers:
+    /// beside the chat they are panels that a picker can open over.
+    /// </summary>
     internal bool DismissTopmostSheet()
     {
         if (IsInteractivePickerOpen)
         {
             IsInteractivePickerOpen = false;
+            return true;
+        }
+
+        if (IsContextPickerOpen)
+        {
+            IsContextPickerOpen = false;
+            return true;
+        }
+
+        if (IsAddSheetOpen)
+        {
+            IsAddSheetOpen = false;
             return true;
         }
 
@@ -936,24 +1010,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 BackFromGitFile();
             else
                 CloseGitChanges();
-            return true;
-        }
-
-        if (IsSourcesSheetOpen)
-        {
-            IsSourcesSheetOpen = false;
-            return true;
-        }
-
-        if (IsActivitySheetOpen)
-        {
-            IsActivitySheetOpen = false;
-            return true;
-        }
-
-        if (IsPlanOpen)
-        {
-            IsPlanOpen = false;
             return true;
         }
 
@@ -978,6 +1034,24 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (IsRunSettingsSheetOpen)
         {
             IsRunSettingsSheetOpen = false;
+            return true;
+        }
+
+        if (IsSourcesSheetOpen)
+        {
+            IsSourcesSheetOpen = false;
+            return true;
+        }
+
+        if (IsActivitySheetOpen)
+        {
+            IsActivitySheetOpen = false;
+            return true;
+        }
+
+        if (IsPlanOpen)
+        {
+            IsPlanOpen = false;
             return true;
         }
 
@@ -1033,6 +1107,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(RunSettingsSummary));
         _revision = -1;
         _revisionEpoch = null;
+        _transcriptVersion = null;
     }
 
     partial void OnPromptTextChanged(string value)
@@ -1692,6 +1767,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsModelSheetOpen = false;
             IsContextSheetOpen = false;
             IsEffortSheetOpen = false;
+            IsAddSheetOpen = false;
+            IsContextPickerOpen = false;
+            ContextOptions.Clear();
             IsActivitySheetOpen = false;
             SelectedActivity = null;
             IsSourcesSheetOpen = false;
@@ -1713,6 +1791,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsStreaming = false;
             IsUploading = false;
             _revision = -1;
+            _transcriptVersion = null;
             _pendingEchoBaselineRevision = null;
             _hasAuthoritativeTranscript = chatId == Guid.Empty;
             WindowStartMessageIndex = 0;
@@ -1808,6 +1887,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (incomingEpoch is not null)
             _revisionEpoch = incomingEpoch;
         _revision = transcript.Revision;
+        _transcriptVersion = transcript.IsLatestWindow ? transcript.TranscriptVersion : null;
         Title = transcript.Title;
         WindowStartMessageIndex = transcript.WindowStartMessageIndex;
         WindowEndMessageIndex = transcript.WindowEndMessageIndex;
@@ -1876,7 +1956,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 OpenSources,
                 resolveInlineImages,
                 releaseInlineImages,
-                OpenJobWake);
+                OpenJobWake,
+                DisplayModel);
             created.Apply(incoming);
 
             if (i < Turns.Count)
@@ -2088,6 +2169,44 @@ public sealed partial class MobileChatViewModel : ObservableObject
             HasNewerActivity = true;
     }
 
+    /// <summary>The desktop's version of the latest window this phone shows, for conditional refreshes.</summary>
+    internal string? TranscriptVersion => IsLatestWindow ? _transcriptVersion : null;
+
+    /// <summary>The next refresh must read the whole window.</summary>
+    internal void ForgetTranscriptVersion() => _transcriptVersion = null;
+
+    /// <summary>
+    /// Applies a conditional refresh that confirmed the latest window is unchanged: the turns stay,
+    /// only the live status, title and revision move. Returns false when the confirmation no longer
+    /// describes what the phone shows, so the caller fetches the full window instead.
+    /// </summary>
+    internal bool ApplyUnchangedTranscript(RemoteTranscript transcript, long? statusVersionAtRequest)
+    {
+        if (transcript.ChatId != ChatId
+            || !transcript.IsUnchanged
+            || !IsLatestWindow
+            || _transcriptVersion is null
+            || !string.Equals(transcript.TranscriptVersion, _transcriptVersion, StringComparison.Ordinal)
+            || (!string.IsNullOrWhiteSpace(transcript.RevisionEpoch)
+                && !string.Equals(transcript.RevisionEpoch, _revisionEpoch, StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        if (transcript.Revision < _revision)
+            return true;
+
+        _revision = transcript.Revision;
+        if (!string.IsNullOrWhiteSpace(transcript.Title))
+            Title = transcript.Title;
+        HasNewerActivity = false;
+        TranscriptErrorText = null;
+        _hasAuthoritativeTranscript = true;
+        if (statusVersionAtRequest is null || statusVersionAtRequest == StatusVersion)
+            ApplyStatus(transcript.Status, trackVersion: false);
+        return true;
+    }
+
     public void InvalidateTranscriptAuthority()
     {
         if (ChatId == Guid.Empty)
@@ -2149,7 +2268,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         IsAwaitingInput = status.IsAwaitingInput;
         ContextCurrentTokens = status.ContextCurrentTokens;
         ContextTokenLimit = status.ContextTokenLimit;
-        PlanContent = status.PlanContent;
+        // A compact status frame leaves an unchanged plan out instead of repeating it.
+        if (!status.IsPlanOmitted)
+            PlanContent = status.PlanContent;
 
         _applyingServerState = true;
         try
@@ -2593,12 +2714,20 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>
     /// Applies hot streaming text without a transcript refetch. Returns false when the target row is
-    /// not present yet, which tells the caller to pull a fresh transcript instead.
+    /// not present yet or the text has a gap, which tells the caller to pull a fresh transcript.
     /// </summary>
-    public bool ApplyDelta(RemoteStreamDelta delta)
+    public bool ApplyDelta(RemoteStreamDelta delta) =>
+        ApplyStreamDelta(delta) is StreamDeltaOutcome.Applied or StreamDeltaOutcome.Ignored;
+
+    /// <summary>
+    /// Applies one streaming delta by position. Text the phone already shows is never shortened or
+    /// duplicated: a delta that overlaps the current text appends only its new tail, one that is
+    /// entirely covered is ignored, and a replacement that is a prefix of the current text is stale.
+    /// </summary>
+    internal StreamDeltaOutcome ApplyStreamDelta(RemoteStreamDelta delta)
     {
         if (delta.ChatId != ChatId)
-            return true;
+            return StreamDeltaOutcome.Ignored;
 
         foreach (var turn in Turns)
         {
@@ -2610,62 +2739,77 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 switch (item)
                 {
                     case AssistantItemViewModel assistant:
-                        if (!ApplyStreamChunk(
-                                assistant.SourceText,
-                                delta,
-                                RemoteProtocol.MobileAssistantTextLimit,
-                                out var assistantText))
-                        {
-                            return false;
-                        }
+                    {
+                        var outcome = MergeStreamChunk(
+                            assistant.SourceText,
+                            delta,
+                            RemoteProtocol.MobileAssistantTextLimit,
+                            out var assistantText);
+                        if (outcome != StreamDeltaOutcome.Applied)
+                            return outcome;
                         assistant.ApplyStreamText(assistantText);
                         turn.ResumeStreaming();
                         MarkVisibleResponseActivity();
-                        return true;
+                        return outcome;
+                    }
                     case ReasoningItemViewModel reasoning:
-                        if (!ApplyStreamChunk(
-                                reasoning.Text,
-                                delta,
-                                RemoteProtocol.MobileReasoningTextLimit,
-                                out var reasoningText))
-                        {
-                            return false;
-                        }
+                    {
+                        var outcome = MergeStreamChunk(
+                            reasoning.Text,
+                            delta,
+                            RemoteProtocol.MobileReasoningTextLimit,
+                            out var reasoningText);
+                        if (outcome != StreamDeltaOutcome.Applied)
+                            return outcome;
                         reasoning.Text = reasoningText;
                         reasoning.IsStreaming = true;
                         turn.ResumeStreaming();
                         MarkVisibleResponseActivity();
-                        return true;
+                        return outcome;
+                    }
                     default:
-                        return false;
+                        return StreamDeltaOutcome.Missing;
                 }
-
             }
         }
 
-        return false;
+        return StreamDeltaOutcome.Missing;
     }
 
-    private static bool ApplyStreamChunk(
+    internal static StreamDeltaOutcome MergeStreamChunk(
         string current,
         RemoteStreamDelta delta,
         int limit,
         out string text)
     {
-        if (delta.Offset == -1)
+        text = current;
+        if (delta.Offset < 0)
         {
-            text = RemoteProtocol.TruncateForMobile(delta.Text, limit) ?? "";
-            return true;
+            var replacement = RemoteProtocol.TruncateForMobile(delta.Text, limit) ?? "";
+            // A full-text frame that the phone already extends is older than what it shows.
+            if (current.StartsWith(replacement, StringComparison.Ordinal))
+                return StreamDeltaOutcome.Ignored;
+
+            text = replacement;
+            return StreamDeltaOutcome.Applied;
         }
 
-        if (delta.Offset != current.Length)
+        if (delta.Offset > current.Length)
+            return StreamDeltaOutcome.Gap;
+
+        var overlap = current.Length - delta.Offset;
+        if (overlap >= delta.Text.Length)
         {
-            text = current;
-            return false;
+            return current.AsSpan(delta.Offset, delta.Text.Length).SequenceEqual(delta.Text)
+                ? StreamDeltaOutcome.Ignored
+                : StreamDeltaOutcome.Gap;
         }
 
-        text = RemoteProtocol.TruncateForMobile(current + delta.Text, limit) ?? "";
-        return true;
+        if (!current.AsSpan(delta.Offset).SequenceEqual(delta.Text.AsSpan(0, overlap)))
+            return StreamDeltaOutcome.Gap;
+
+        text = RemoteProtocol.TruncateForMobile(current + delta.Text[overlap..], limit) ?? "";
+        return StreamDeltaOutcome.Applied;
     }
 
     /// <summary>
@@ -3109,6 +3253,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             Id = EchoTurnId,
             Kind = RemoteProtocol.ItemKinds.User,
             Text = text,
+            Timestamp = DateTimeOffset.Now,
             Attachments = attachments?.Select(file => new RemoteAttachment
             {
                 FileName = file.FileName,
@@ -3797,9 +3942,10 @@ public interface IRemoteFileSuggestionSink
 public sealed record PendingAttachment(string FileName, string Path);
 
 /// <summary>A one-tap conversation starter offered on the empty chat canvas.</summary>
-/// <param name="Glyph">Emoji shown ahead of the label.</param>
+/// <param name="IconKey">The desktop's line icon for the starter's kind, as transcript chips use.</param>
+/// <param name="Glyph">Emoji shown ahead of the label instead, when the desktop sends one.</param>
 /// <param name="Text">The prompt text placed into the composer when tapped.</param>
-public sealed record ChatStarter(string IconData, string Text, string? Prompt = null, string? Glyph = null)
+public sealed record ChatStarter(string IconKey, string Text, string? Prompt = null, string? Glyph = null)
 {
     public string EffectivePrompt => Prompt ?? Text;
     public bool HasGlyph => !string.IsNullOrWhiteSpace(Glyph);

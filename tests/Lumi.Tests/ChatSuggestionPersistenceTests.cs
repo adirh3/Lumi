@@ -152,6 +152,44 @@ public sealed class ChatSuggestionPersistenceTests
         Assert.False(viewModel.HasSuggestions);
     }
 
+    [Fact]
+    public async Task SuggestFollowUpsSetting_HidesAndRestoresSuggestions()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var chat = CreateChatWithSuggestions("Suggestions", ["Run code review", "Push changes"]);
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false,
+                    SuggestFollowUps = false
+                },
+                Chats = [chat]
+            };
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+
+            await viewModel.LoadChatAsync(chat);
+            Assert.False(viewModel.HasSuggestions);
+
+            InvokePrivate(viewModel, "TryApplyDisplayedSuggestions", chat, new List<string> { "Late suggestion" });
+            Assert.False(viewModel.HasSuggestions);
+
+            data.Settings.SuggestFollowUps = true;
+            viewModel.ApplySuggestFollowUpsSetting();
+            Assert.Equal("Run code review", viewModel.SuggestionA);
+            Assert.Equal("Push changes", viewModel.SuggestionB);
+
+            data.Settings.SuggestFollowUps = false;
+            viewModel.ApplySuggestFollowUpsSetting();
+            Assert.Equal("", viewModel.SuggestionA);
+            Assert.False(viewModel.HasSuggestions);
+        }, CancellationToken.None);
+    }
+
     private static Chat CreateChatWithSuggestions(string title, List<string> suggestions)
     {
         var chat = CreateCompletedChat(title);

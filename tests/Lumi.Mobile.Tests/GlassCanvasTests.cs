@@ -30,6 +30,11 @@ public sealed class GlassCanvasTests
             Assert.Equal("answer", Assert.IsType<AssistantItemViewModel>(copy.DataContext).Id);
             Assert.True(copy.Bounds.Width >= 48 && copy.Bounds.Height >= 48);
             Assert.DoesNotContain(Named<Button>(view, "ShareAnswerButton"), button => button.IsEffectivelyVisible);
+            // Without share, the footer follows the copy glyph by the same short step.
+            var copyGlyph = copy.GetVisualDescendants().OfType<Viewbox>().First(box => box.IsEffectivelyVisible);
+            var glyphRight = copyGlyph.TranslatePoint(new Point(copyGlyph.Bounds.Width, 0), view)!.Value.X;
+            var footer = Assert.Single(Named<TextBlock>(view, "AnswerFooter"), item => item.IsEffectivelyVisible);
+            Assert.InRange(footer.TranslatePoint(default, view)!.Value.X - glyphRight, 10, 14);
 
             copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Contains("copied", copy.Classes);
@@ -62,6 +67,27 @@ public sealed class GlassCanvasTests
             await RunChatAsync(Turn(finalAnswerId: "answer"), (model, view, _) =>
             {
                 var button = Assert.Single(Named<Button>(view, "ShareAnswerButton"), item => item.IsEffectivelyVisible);
+                // Two full targets, yet the glyphs sit a short step apart, as the desktop's actions do, with
+                // the copy glyph on the answer's text edge and the footer a short step after share.
+                var copy = Assert.Single(Named<Button>(view, "CopyAnswerButton"), item => item.IsEffectivelyVisible);
+                Assert.True(button.Bounds.Width >= 48 && button.Bounds.Height >= 48);
+                Assert.True(copy.Bounds.Width >= 48 && copy.Bounds.Height >= 48);
+                Rect Glyph(Button host)
+                {
+                    var glyph = host.GetVisualDescendants().OfType<Viewbox>().First(box => box.IsEffectivelyVisible);
+                    return new Rect(glyph.TranslatePoint(default, view)!.Value, glyph.Bounds.Size);
+                }
+                var copyGlyph = Glyph(copy);
+                var shareGlyph = Glyph(button);
+                Assert.InRange(shareGlyph.Center.X - copyGlyph.Center.X, 29, 31);
+                Assert.InRange(shareGlyph.Left - copyGlyph.Right, 9, 13);
+                var text = view.GetVisualDescendants().OfType<StrataMarkdown>()
+                    .First(markdown => markdown.DataContext == copy.DataContext);
+                Assert.InRange(copyGlyph.Left - text.TranslatePoint(default, view)!.Value.X, -1.5, 1.5);
+                var footer = Assert.Single(Named<TextBlock>(view, "AnswerFooter"), item => item.IsEffectivelyVisible);
+                Assert.InRange(footer.TranslatePoint(default, view)!.Value.X - shareGlyph.Right, 10, 14);
+                // The targets meet but never overlap, so every tap lands on exactly one of them.
+                Assert.InRange(button.TranslatePoint(default, view)!.Value.X - copy.TranslatePoint(new Point(copy.Bounds.Width, 0), view)!.Value.X, -0.5, 0.5);
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.Equal(FinalAnswer, share.Text);
                 Assert.Equal(model.Chat.Title, share.Subject);
@@ -209,7 +235,7 @@ public sealed class GlassCanvasTests
     }
 
     [Fact]
-    public Task ChatControlsAreGlassWhileScrimsStayAtTheScreenEdges() =>
+    public Task ChatControlsAreGlassOverAVeiledHeaderAndAComposerScrim() =>
         RunChatAsync(LongTranscript(), async (_, view, window) =>
         {
             var shell = Single<StrataChatShell>(view, "ChatShell");
@@ -229,14 +255,22 @@ public sealed class GlassCanvasTests
             var composer = Single<StrataChatComposer>(view, "Composer");
             var composerFrost = Single<StrataBackdropBlur>(composer, "PART_Backdrop");
             Assert.True(composerFrost.IsEffectivelyVisible);
-            Assert.Equal(controlBlur, composerFrost.BlurRadius);
+            // The composer's frost is its own: lighter, so the presence settled behind it still glows through.
+            Assert.True(view.TryFindResource("Glass.ComposerBlurRadius", out var composerResource));
+            var composerBlur = Assert.IsType<double>(composerResource);
+            Assert.Equal(composerBlur, composerFrost.BlurRadius);
+            Assert.InRange(composerBlur, 6, controlBlur);
             Assert.Equal(controlBlur, Single<StrataBackdropBlur>(shell, "PART_ScrollToBottomBackdrop").BlurRadius);
 
-            // The scrims frost the system bars, never a frost of what is behind a control.
+            // As on the desktop, history passing under the top bar dissolves into a veil that covers
+            // the whole bar and fades out below it, so no sharp text shows between its controls.
             var menu = Single<Button>(view, "MenuButton");
-            var topScrim = Single<Panel>(view, "TopEdgeMaterial");
-            Assert.True(topScrim.TranslatePoint(new Point(0, topScrim.Bounds.Height), view)!.Value.Y
-                        < menu.TranslatePoint(new Point(0, menu.Bounds.Height / 2), view)!.Value.Y);
+            var topVeil = Single<Panel>(view, "TopEdgeMaterial");
+            Assert.Equal(0, topVeil.TranslatePoint(default, view)!.Value.Y, 1);
+            Assert.True(topVeil.TranslatePoint(new Point(0, topVeil.Bounds.Height), view)!.Value.Y
+                        >= menu.TranslatePoint(new Point(0, menu.Bounds.Height), view)!.Value.Y + 20);
+            Assert.Equal(view.Bounds.Width, topVeil.Bounds.Width, 1);
+            // The composer spans the conversation, so beneath it only the gesture area is scrimmed.
             var bottomScrim = Single<Panel>(view, "BottomEdgeMaterial");
             Assert.True(bottomScrim.TranslatePoint(default, view)!.Value.Y
                         > composer.TranslatePoint(new Point(0, composer.Bounds.Height / 2), view)!.Value.Y);
@@ -245,7 +279,7 @@ public sealed class GlassCanvasTests
         });
 
     [Fact]
-    public async Task DrawerScrimsStayClearOfTheFloatingControls()
+    public async Task DrawerHeaderVeilsItsControlsWhileThePlacesPillIsGlassOfItsOwn()
     {
         using var session = HeadlessMobileSession.Start();
         ExceptionDispatchInfo? failure = null;
@@ -264,26 +298,37 @@ public sealed class GlassCanvasTests
                 await SettleAsync(window);
 
                 var top = Single<Panel>(drawer, "DrawerTopEdgeMaterial");
-                var bottom = Single<Panel>(drawer, "DrawerBottomEdgeMaterial");
                 Assert.Equal(1, top.Opacity, 2);
-                Assert.Equal(1, bottom.Opacity, 2);
                 Assert.False(top.IsHitTestVisible);
-                Assert.False(bottom.IsHitTestVisible);
                 Assert.Equal(0, top.TranslatePoint(default, drawer)!.Value.Y, 1);
-                Assert.Equal(drawer.Bounds.Height,
-                    bottom.TranslatePoint(new Point(0, bottom.Bounds.Height), drawer)!.Value.Y, 1);
 
-                foreach (var name in new[] { "DrawerSearchButton", "DrawerCloseButton", "DrawerProjectButton", "DrawerAccountButton" })
+                // As on the desktop's sidebar, rows passing under the header soften under a veil that covers
+                // its controls and fades out beyond them. The controls are the title bar's glass, each
+                // frosting what passes beneath it, as the chat's bar does.
+                var topEnd = top.TranslatePoint(new Point(0, top.Bounds.Height), drawer)!.Value.Y;
+                Assert.True(drawer.TryFindResource("Glass.ControlBlurRadius", out var controlBlur));
+                foreach (var name in new[] { "DrawerSearchButton", "DrawerNewChatButton", "DrawerProjectButton" })
                 {
                     var button = Single<Button>(drawer, name);
-                    var center = button.TranslatePoint(
-                        new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), drawer)!.Value;
-                    Assert.True(center.Y > top.TranslatePoint(new Point(0, top.Bounds.Height), drawer)!.Value.Y);
-                    Assert.True(center.Y < bottom.TranslatePoint(default, drawer)!.Value.Y);
-                    Assert.True(Assert.Single(button.GetVisualDescendants().OfType<StrataBackdropBlur>()).IsEffectivelyVisible);
+                    Assert.True(button.TranslatePoint(new Point(0, button.Bounds.Height), drawer)!.Value.Y + 20 <= topEnd,
+                        $"{name} must sit inside the header's veil");
+                    var frost = Assert.Single(button.GetVisualDescendants().OfType<StrataBackdropBlur>());
+                    Assert.Equal(Assert.IsType<double>(controlBlur), frost.BlurRadius);
+                    Assert.InRange(Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(button.Background).Color.A,
+                        (byte)1, (byte)254);
                 }
-                Assert.Empty(Single<Panel>(drawer, "DrawerBrandSurface")
-                    .GetVisualDescendants().OfType<StrataBackdropBlur>());
+                // The places pill is glass of its own, as the title bar's controls are: one frost beneath its
+                // surface with the same blur and outline, taking in what lies just around the pill, and no band
+                // frosting the rows beside it. The bar does not clip, so the pill's shadow falls whole.
+                var places = Single<Panel>(drawer, "PlacesPill");
+                var pillFrost = Single<StrataBackdropBlur>(drawer, "PlacesFrost");
+                Assert.Same(places, pillFrost.GetVisualParent());
+                Assert.Equal(Assert.IsType<double>(controlBlur), pillFrost.BlurRadius);
+                Assert.True(pillFrost.SamplesBeyondEdges);
+                Assert.Equal(Single<Border>(drawer, "PlacesSurface").CornerRadius, pillFrost.CornerRadius);
+                Assert.Equal(places.Bounds.Size, pillFrost.Bounds.Size);
+                Assert.Equal(new[] { pillFrost }, Single<Panel>(drawer, "DrawerFooterChrome").GetVisualDescendants().OfType<StrataBackdropBlur>());
+                Assert.False(Single<PlacesBarView>(drawer, "DrawerPlaces").ClipToBounds);
                 AssertTapsStayOn(Single<Panel>(drawer, "DrawerHeaderChrome"), window);
                 AssertTapsStayOn(Single<Panel>(drawer, "DrawerFooterChrome"), window);
             }

@@ -302,14 +302,16 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             index = ResolvePageIndex(page);
         }
 
-        if (index is < 0 or > 7)
-            throw new InvalidOperationException("Navigation index must be between 0 and 7.");
+        if (index is < 0 or > MainViewModel.DiscoverNavIndex)
+            throw new InvalidOperationException($"Navigation index must be between 0 and {MainViewModel.DiscoverNavIndex}.");
+
+        // The Settings page is chosen before navigating: Settings reopens on its last page, and
+        // when that is Memories it opens the Memories page instead of the one requested.
+        var settingsPage = GetString(args, "settingsPage");
+        if (index == 7 && !string.IsNullOrWhiteSpace(settingsPage))
+            _mainViewModel.SettingsVM.SelectedPageIndex = ResolveSettingsPageIndex(settingsPage);
 
         _mainViewModel.SelectedNavIndex = index.Value;
-
-        var settingsPage = GetString(args, "settingsPage");
-        if (_mainViewModel.SelectedNavIndex == 7 && !string.IsNullOrWhiteSpace(settingsPage))
-            _mainViewModel.SettingsVM.SelectedPageIndex = ResolveSettingsPageIndex(settingsPage);
 
         return BuildStatus();
     }
@@ -1140,7 +1142,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             else
             {
                 _mainViewModel.ApplyAmbientPresenceSetting(value);
-                _dataStore.NotifyPresenceSettingsChanged();
+                _dataStore.NotifyAppearanceSettingsChanged();
             }
         });
         SetBool("animatePresenceWhileWorking", value =>
@@ -1151,7 +1153,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             else
             {
                 _mainViewModel.ApplyPresenceAnimationSetting(value);
-                _dataStore.NotifyPresenceSettingsChanged();
+                _dataStore.NotifyAppearanceSettingsChanged();
             }
         });
         SetBool("sendWithEnter", value =>
@@ -1584,8 +1586,10 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "skills" or "skill" => 3,
             "agents" or "lumis" or "agent" or "lumi" => 4,
             "memories" or "memory" => 5,
-            "mcp" or "mcps" or "mcpservers" => 6,
+            "mcp" or "mcps" or "mcpservers" or "connectors" or "connector" => 6,
             "settings" or "setting" => 7,
+            "library" => MainViewModel.LibraryNavIndex,
+            "discover" or "plugins" or "customize" => MainViewModel.DiscoverNavIndex,
             _ => throw new InvalidOperationException($"Unknown page '{page}'.")
         };
     }
@@ -1598,10 +1602,12 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             1 => "Jobs",
             2 => "Projects",
             3 => "Skills",
-            4 => "Lumis",
+            4 => "Agents",
             5 => "Memories",
             6 => "MCP Servers",
             7 => "Settings",
+            MainViewModel.LibraryNavIndex => "Library",
+            MainViewModel.DiscoverNavIndex => "Discover",
             _ => "Unknown"
         };
     }
@@ -1618,6 +1624,8 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "aimodels" or "models" or "ai" => 5,
             "privacy" or "privacydata" or "data" => 6,
             "about" or "updates" or "update" => 7,
+            "memories" or "memory" => SettingsViewModel.MemoriesPageIndex,
+            "permissions" or "approvals" => SettingsViewModel.PermissionsPageIndex,
             _ => throw new InvalidOperationException($"Unknown settings page '{page}'.")
         };
     }

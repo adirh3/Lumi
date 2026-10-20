@@ -136,6 +136,12 @@ public sealed class BatteryAnimationTests
                 model.GoBackCommand.Execute(null);
                 Pump(window);
                 Assert.Same(chat, view.GetVisualDescendants().OfType<ChatDetailView>().Single());
+                // Back from a place lands on the chat list, which covers the chat on a phone; the
+                // chat's activity resumes once it is read again.
+                Assert.True(model.IsDrawerOpen);
+                model.IsDrawerOpen = false;
+                await Task.Delay(260);
+                Pump(window);
                 Assert.True(follow.IsEnabled);
                 Assert.True(typingTimer.IsEnabled);
 

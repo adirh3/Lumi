@@ -88,7 +88,7 @@ public partial class ChatViewModel
     internal void RefreshInteractionState(Guid messageId)
     {
         foreach (var turn in TranscriptTurns)
-            foreach (var item in turn.Items.OfType<AssistantMessageItem>())
+            foreach (var item in turn.EnumerateItems().OfType<AssistantMessageItem>())
                 if (item.MessageId == messageId)
                     item.RefreshInteractionState();
         foreach (var input in TranscriptTurns.SelectMany(turn => turn.Items).OfType<InputRequestItem>())

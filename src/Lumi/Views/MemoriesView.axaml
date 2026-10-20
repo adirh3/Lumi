@@ -3,6 +3,7 @@
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:mgmt="using:Lumi.Views.Management"
              x:Class="Lumi.Views.MemoriesView"
              x:DataType="vm:MemoriesViewModel"
              x:CompileBindings="True">
@@ -41,7 +42,8 @@
   <Panel>
 
     <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
-    <Panel x:Name="MemoriesOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}">
+    <Panel x:Name="MemoriesOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}"
+           mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="32,30,32,40" Spacing="22">
@@ -85,6 +87,26 @@
             </Border>
           </StackPanel>
 
+          <!-- Memories is a Settings page, so its search lives here rather than in a sidebar. A capped
+               star column keeps it in line with the filters below (a capped Stretch would centre it). -->
+          <Grid x:Name="MemoriesSearchPanel" IsVisible="{Binding HasAnyMemories}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" MaxWidth="560" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="MemoriesSearchBox" Classes="mg-search" Text="{Binding SearchQuery}"
+                     Padding="10,8,34,8" PlaceholderText="{loc:Str Memories_SearchPlaceholder}">
+              <TextBox.InnerLeftContent>
+                <PathIcon Data="{StaticResource Icon.Search}" Width="13" Height="13" Margin="11,0,3,0"
+                          Foreground="{DynamicResource Brush.TextTertiary}" />
+              </TextBox.InnerLeftContent>
+            </TextBox>
+            <Button Classes="subtle" Padding="5" MinHeight="0" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,9,0"
+                    CornerRadius="{DynamicResource Radius.Full}" Command="{Binding ClearSearchCommand}"
+                    IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+              <PathIcon Data="{StaticResource Icon.Close}" Width="9" Height="9" Foreground="{DynamicResource Brush.TextTertiary}" />
+            </Button>
+          </Grid>
+
           <!-- Category filter -->
           <ItemsControl x:Name="MemoryCategoryFilters" ItemsSource="{Binding CategoryFilters}" IsVisible="{Binding HasAnyMemories}">
             <ItemsControl.ItemsPanel>
@@ -103,17 +125,6 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-
-          <Border Classes="mg-chip hue" HorizontalAlignment="Left" IsVisible="{Binding IsSearching}" Padding="12,5,6,5">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-              <PathIcon Data="{StaticResource Icon.Search}" />
-              <TextBlock Text="{Binding SearchQuery}" MaxWidth="320" TextTrimming="CharacterEllipsis" />
-              <Button Classes="subtle" Padding="4" MinHeight="0" CornerRadius="{DynamicResource Radius.Full}"
-                      Command="{Binding ClearSearchCommand}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
-                <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
-              </Button>
-            </StackPanel>
-          </Border>
 
           <!-- Groups -->
           <ItemsControl x:Name="MemoryGroupsList" ItemsSource="{Binding MemoryGroups}" IsVisible="{Binding HasResults}">
@@ -191,7 +202,8 @@
     </Panel>
 
     <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
-    <Panel x:Name="MemoryDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+    <Panel x:Name="MemoryDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding SelectedMemory}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>

@@ -42,6 +42,9 @@ public partial class ChatViewModel
     [ObservableProperty] private bool _sendWithEnter = true;
     [ObservableProperty] private bool _showAmbientPresence = true;
     [ObservableProperty] private bool _animatePresenceWhileWorking;
+
+    /// <summary>Multiplier on the presence glow's tuned brightness (Settings → Appearance).</summary>
+    [ObservableProperty] private double _presenceBrightness = 1.0;
     [ObservableProperty] private bool _isRecording;
     [ObservableProperty] private string? _selectedAgentName;
     [ObservableProperty] private string _selectedAgentGlyph = "◉";
@@ -122,6 +125,8 @@ public partial class ChatViewModel
     private int _gitRefreshVersion;
     private string? _gitStatusDirectory;
     private CancellationTokenSource? _gitRefreshThrottleCts;
+    // Queued native Git work must not keep an evicted surface's transcript alive.
+    private readonly CancellationTokenSource _gitRefreshCts = new();
     private DateTime _lastLiveGitRefreshUtc = DateTime.MinValue;
     /// <summary>Minimum interval between live git status refreshes triggered by agent
     /// file edits, so the coding strip updates promptly without thrashing during bursts.</summary>
@@ -196,10 +201,6 @@ public partial class ChatViewModel
     public bool IsWelcomeVisible => CurrentChat is null;
     public bool IsChatVisible => CurrentChat is not null;
     public bool HasPendingAttachments => PendingAttachmentItems.Count > 0;
-    public bool HasProjectBadge => !string.IsNullOrWhiteSpace(ProjectBadgeText);
-    public bool HasAgentBadge => !string.IsNullOrWhiteSpace(AgentBadgeText);
-    public bool HasHeaderSubtitle => HasProjectBadge || HasAgentBadge;
-    public bool HasHeaderSubtitleSeparator => HasProjectBadge && HasAgentBadge;
     public bool ShowBrowserToggle => HasUsedBrowser;
 
     public event Action<Guid?>? ComposerProjectFilterRequested;
@@ -247,12 +248,39 @@ public partial class ChatViewModel
     public string ModelUnpinToolTip => Loc.ModelPicker_Unpin;
 
     /// <summary>
+    /// "Using ChatGPT plan" while the selected model runs on a ChatGPT connection — OpenAI asks plan
+    /// usage to be visible beside the model selector, with a way to manage it. Null hides the note.
+    /// </summary>
+    public string? ModelPlanNote => UsesChatGptPlan(SelectedModel) ? Loc.Get("ChatGpt_UsingPlan") : null;
+
+    public string ModelPlanAction => Loc.Get("ChatGpt_ManageUsage");
+
+    private bool UsesChatGptPlan(string? model)
+    {
+        if (!ByokConfigHelper.TryParseModelToken(model, out var id))
+            return false;
+        var settings = _dataStore.Data.Settings;
+        return settings.ByokModels.FirstOrDefault(byok => byok.Id == id) is { } byokModel
+            && ByokConfigHelper.IsChatGptEndpoint(settings.ByokEndpoints.FirstOrDefault(endpoint => endpoint.Id == byokModel.EndpointId));
+    }
+
+    [RelayCommand]
+    private void OpenModelPlanUsage()
+    {
+        try { Process.Start(new ProcessStartInfo(Services.Byok.ChatGptAuthService.UsageUrl) { UseShellExecute = true }); }
+        catch (Exception ex) { Debug.WriteLine($"[Chat] Opening ChatGPT usage failed ({ex.GetType().Name})."); }
+    }
+
+    /// <summary>
     /// Rebuilds <see cref="ModelOptions"/> from the current model list, catalog metadata and saved
     /// favorites. Existing option instances are reused so a rebuild refreshes badges in place instead
     /// of re-creating rows the user may be pointing at.
     /// </summary>
     private void RebuildModelOptions()
-        => ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
+    {
+        ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
+        OnPropertyChanged(nameof(ModelPlanNote));
+    }
 
     /// <summary>
     /// Pins or unpins a model in the picker. Favorites are an app-wide preference, so this writes
@@ -878,9 +906,12 @@ public partial class ChatViewModel
         SendWithEnter = _dataStore.Data.Settings.SendWithEnter;
         ShowAmbientPresence = _dataStore.Data.Settings.ShowAmbientPresence;
         AnimatePresenceWhileWorking = _dataStore.Data.Settings.AnimatePresenceWhileWorking;
+        PresenceBrightness = SettingsViewModel.PresenceBrightnessMultiplier(_dataStore.Data.Settings.PresenceBrightness);
 
         ActiveSkillChips.CollectionChanged += OnActiveSkillChipsCollectionChanged;
         ActiveMcpChips.CollectionChanged += OnActiveMcpChipsCollectionChanged;
+        // With no connectors at all, the connector button invites the user to find some.
+        AvailableMcpChips.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ConnectorsButtonToolTip));
         PendingAttachmentItems.CollectionChanged += OnPendingAttachmentItemsCollectionChanged;
 
         RefreshComposerCatalogs();
@@ -908,8 +939,12 @@ public partial class ChatViewModel
         ReplaceCollection(AvailableAgentChips, BuildCapabilityChips(capabilities, CapabilityKind.Agent));
         ReplaceCollection(AvailableSkillChips, BuildCapabilityChips(capabilities, CapabilityKind.Skill));
 
-        var mcpChips = BuildCapabilityChips(capabilities, CapabilityKind.McpServer);
+        var mcpChips = capabilities
+            .UserInvocable(CapabilityKind.McpServer)
+            .Select(capability => ToMcpChip(capability))
+            .ToList();
         ReplaceCollection(AvailableMcpChips, mcpChips);
+        IsConnectorCatalogLoading = !capabilities.IsComplete;
 
         var discoveredMcpNames = capabilities
             .UserInvocable(CapabilityKind.McpServer)
@@ -1058,7 +1093,7 @@ public partial class ChatViewModel
                     continue;
 
                 if (capabilities.FindMcpServer(chip.Name) is { } resolved)
-                    ActiveMcpChips[i] = ToMcpChip(resolved);
+                    ActiveMcpChips[i] = WithMcpIssue(ToMcpChip(resolved));
             }
         }
         finally
@@ -1161,11 +1196,17 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        if (value is null)
+            _draftApprovalMode = null;
+        RefreshPermissionRequests(showInTranscript: false);
+        NotifyPermissionPropertiesChanged();
         OnPropertyChanged(nameof(IsAwaitingInput));
         _launchpadBaseline = null;
         ResetContextDetailsForChatChange(value);
         IsSessionActive = value?.IsSessionActive == true;
         NotifyChatPausePropertiesChanged();
+        // A message waiting for a connector sign-in belongs to its own chat.
+        ApplyMcpSignInWaitAction();
         BackgroundActivityText = Loc.Get("Chat_BackgroundActivity");
         ResetBackgroundActivityItems();
 
@@ -1224,20 +1265,6 @@ public partial class ChatViewModel
     {
         OnPropertyChanged(nameof(ShowBrowserToggle));
         NotifyWorkspaceVisibilityChanged();
-    }
-
-    partial void OnProjectBadgeTextChanged(string? value)
-    {
-        OnPropertyChanged(nameof(HasProjectBadge));
-        OnPropertyChanged(nameof(HasHeaderSubtitle));
-        OnPropertyChanged(nameof(HasHeaderSubtitleSeparator));
-    }
-
-    partial void OnAgentBadgeTextChanged(string? value)
-    {
-        OnPropertyChanged(nameof(HasAgentBadge));
-        OnPropertyChanged(nameof(HasHeaderSubtitle));
-        OnPropertyChanged(nameof(HasHeaderSubtitleSeparator));
     }
 
     partial void OnGitChangedFileCountChanged(int value)
@@ -1374,6 +1401,7 @@ public partial class ChatViewModel
     {
         var projectName = GetCurrentProjectName();
         ProjectBadgeText = string.IsNullOrWhiteSpace(projectName) ? null : projectName;
+        RefreshHeaderMark();
     }
 
     private void RefreshAgentBadge()
@@ -1382,6 +1410,7 @@ public partial class ChatViewModel
             AgentBadgeText = SelectedSdkAgentName;
         else
             AgentBadgeText = ActiveAgent?.Name;
+        RefreshHeaderMark();
     }
 
     private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> values)
@@ -1424,6 +1453,8 @@ public partial class ChatViewModel
 
     private void OnActiveMcpChipsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
     {
+        OnMcpIssuesChanged();
+
         if (IsLoadingChat || _suppressActiveMcpCollectionSync)
             return;
 
@@ -1439,6 +1470,8 @@ public partial class ChatViewModel
 
         if (args.Action == NotifyCollectionChangedAction.Remove && args.OldItems is not null)
         {
+            var removed = args.OldItems.OfType<StrataComposerChip>().Select(chip => chip.Name).ToList();
+            ForgetMcpIssues(removed);
             foreach (var item in args.OldItems)
             {
                 if (item is StrataComposerChip chip)
@@ -1456,6 +1489,7 @@ public partial class ChatViewModel
 
         if (args.Action == NotifyCollectionChangedAction.Reset)
         {
+            ForgetMcpIssues(null);
             foreach (var name in ActiveMcpServerNames.ToList())
                 _ = SetMcpEnabledOnSessionAsync(name, enabled: false);
 
@@ -1736,8 +1770,11 @@ public partial class ChatViewModel
     /// <summary>Detects whether the current project is a coding project and refreshes git state.</summary>
     public async Task RefreshCodingProjectState()
     {
+        if (_isDisposed)
+            return;
         // Increment version so any in-flight async refresh is discarded on completion.
         var version = Interlocked.Increment(ref _gitRefreshVersion);
+        var cancellationToken = _gitRefreshCts.Token;
 
         try
         {
@@ -1795,9 +1832,9 @@ public partial class ChatViewModel
             GitChangedFileCount = 0;
             GitChangedFiles.Clear();
 
-            var branchTask = GitService.GetCurrentBranchAsync(workDir);
-            var changesTask = GitService.GetChangedFilesAsync(workDir);
-            var worktreesTask = GitService.ListWorktreeInfoAsync(projectDir);
+            var branchTask = GitService.GetCurrentBranchAsync(workDir, cancellationToken);
+            var changesTask = GitService.GetChangedFilesAsync(workDir, cancellationToken);
+            var worktreesTask = GitService.ListWorktreeInfoAsync(projectDir, cancellationToken);
 
             await Task.WhenAll(branchTask, changesTask, worktreesTask).ConfigureAwait(false);
 
@@ -1822,13 +1859,13 @@ public partial class ChatViewModel
             });
 
             // A newer refresh was started while we were awaiting — discard these stale results.
-            if (version != Volatile.Read(ref _gitRefreshVersion))
+            if (_isDisposed || cancellationToken.IsCancellationRequested || version != Volatile.Read(ref _gitRefreshVersion))
                 return;
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 // Double-check inside the UI dispatch in case another refresh snuck in.
-                if (version != Volatile.Read(ref _gitRefreshVersion))
+                if (_isDisposed || cancellationToken.IsCancellationRequested || version != Volatile.Read(ref _gitRefreshVersion))
                     return;
 
                 GitBranch = branch;
@@ -1843,13 +1880,16 @@ public partial class ChatViewModel
                 OnPropertyChanged(nameof(HasAvailableWorktrees));
             });
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
         finally
         {
-            if (version == Volatile.Read(ref _gitRefreshVersion))
+            if (!_isDisposed && version == Volatile.Read(ref _gitRefreshVersion))
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (version == Volatile.Read(ref _gitRefreshVersion))
+                    if (!_isDisposed && version == Volatile.Read(ref _gitRefreshVersion))
                         IsRefreshingGitStatus = false;
                 });
             }

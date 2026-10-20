@@ -84,6 +84,7 @@ jobs:
           |FullyQualifiedName~Lumi.Tests.BrowserServiceLifecycleTests
           |FullyQualifiedName~Lumi.Tests.DataStorePlatformSkillMigrationTests
           |FullyQualifiedName~Lumi.Tests.LocKeyboardHintTests
+          |FullyQualifiedName~Lumi.Tests.LocComputerNameTests
           |FullyQualifiedName~Lumi.Tests.SingleInstanceCoordinatorTests
           |FullyQualifiedName~Lumi.Tests.UpdateServiceSafetyTests.UpdateChannel_)"
 
@@ -219,6 +220,8 @@ jobs:
             "$root/service-worker.js",
             "$root/service-worker-assets.js",
             "$root/pwaHost.js",
+            "$root/workerFrames.js",
+            "$root/workerFramePresenter.js",
             "$root/_framework/dotnet.js"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
@@ -240,10 +243,10 @@ jobs:
             throw "Android installer must use the package-scoped official release flow."
           }
 
-      - name: Test PWA caching and lifecycle
+      - name: Test PWA caching, lifecycle and worker rendering
         env:
           LUMI_PWA_PUBLISH_ROOT: BrowserPublish\wwwroot
-        run: node --test tests/Lumi.Mobile.Tests/PwaHostTests.mjs
+        run: node --test tests/Lumi.Mobile.Tests/PwaHostTests.mjs tests/Lumi.Mobile.Tests/WorkerFramesTests.mjs
 
       - name: Upload browser validation artifact
         uses: actions/upload-artifact@v4

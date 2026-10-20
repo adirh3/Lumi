@@ -400,7 +400,7 @@ public static partial class SecretRedactor
     }
 
     /// <summary>Final safety net: a well-known token format anywhere inside a value is replaced.</summary>
-    private static string RedactEmbeddedTokens(string value, List<string> redacted)
+    internal static string RedactEmbeddedTokens(string value, List<string> redacted)
     {
         var changed = false;
         var result = KnownTokenPattern().Replace(value, match =>

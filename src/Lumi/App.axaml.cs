@@ -7,19 +7,23 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Appearance;
 using Lumi.ViewModels;
 using Lumi.Views;
+using StrataTheme.Controls;
 
 namespace Lumi;
 
 public partial class App : Application
 {
     private TrayIcon? _trayIcon;
+    private IActivatableLifetime? _activationLifetime;
     private MainWindow? _mainWindow;
     private GlobalHotkeyService? _hotkeyService;
     private DataStore? _dataStore;
@@ -63,9 +67,15 @@ public partial class App : Application
 
             Loc.Load(dataStore.Data.Settings.Language);
             Styles.Add(CreateModelPickerTextStyle());
-            RequestedThemeVariant = dataStore.Data.Settings.IsDarkTheme
+            Styles.Add(CreateConnectorPickerTextStyle());
+            Styles.Add(CreateComposerPickerTextStyles());
+            var settings = dataStore.Data.Settings;
+            if (settings.FollowSystemTheme && SystemTheme.PrefersDark(this) is { } systemPrefersDark)
+                settings.IsDarkTheme = systemPrefersDark;
+            RequestedThemeVariant = settings.IsDarkTheme
                 ? ThemeVariant.Dark
                 : ThemeVariant.Light;
+            AccentPalettes.Apply(Resources, settings.AccentColor);
 
             if (dataStore.Data.Settings.StartMinimized)
             {
@@ -112,6 +122,103 @@ public partial class App : Application
             new Setter(StrataTheme.Controls.StrataModelPicker.ContextLabelProperty, Loc.ModelPicker_Context)
         }
     };
+
+    /// <summary>
+    /// Localized labels for the connector list in every chat composer, applied like the model picker's.
+    /// The list's name, tooltip and error labels come from the composer, which each chat view sets.
+    /// </summary>
+    internal static Style CreateConnectorPickerTextStyle() => new(selector => selector.OfType<StrataConnectorPicker>())
+    {
+        Setters =
+        {
+            new Setter(StrataConnectorPicker.SearchWatermarkProperty, Loc.Mcp_SearchPlaceholder),
+            new Setter(StrataConnectorPicker.AttentionLabelProperty, Loc.ConnectorPicker_NeedsAttention),
+            new Setter(StrataConnectorPicker.SummaryFormatProperty, Loc.ConnectorPicker_Summary),
+            new Setter(StrataConnectorPicker.TurnAllOnLabelProperty, Loc.ConnectorPicker_TurnAllOn),
+            new Setter(StrataConnectorPicker.TurnAllOffLabelProperty, Loc.ConnectorPicker_TurnAllOff),
+            new Setter(StrataConnectorPicker.OffLabelProperty, Loc.ConnectorPicker_Off),
+            new Setter(StrataConnectorPicker.BrowseLabelProperty, Loc.ConnectorPicker_FindMore),
+            new Setter(StrataConnectorPicker.ManageLabelProperty, Loc.ConnectorPicker_Manage),
+            new Setter(StrataConnectorPicker.NoResultsFormatProperty, Loc.ConnectorPicker_NoResults),
+            new Setter(StrataConnectorPicker.SearchBrowseFormatProperty, Loc.ConnectorPicker_SearchDiscover),
+            new Setter(StrataConnectorPicker.EmptyTitleProperty, Loc.ConnectorPicker_EmptyTitle),
+            new Setter(StrataConnectorPicker.EmptyTextProperty, Loc.ConnectorPicker_EmptyText),
+            new Setter(StrataConnectorPicker.EmptyActionLabelProperty, Loc.ConnectorPicker_EmptyAction),
+            new Setter(StrataConnectorPicker.LoadingTextProperty, Loc.ConnectorPicker_Loading),
+            new Setter(StrataConnectorPicker.LabelProperty, Loc.Composer_Connectors),
+        }
+    };
+
+    /// <summary>
+    /// Localized words for the composer's + menu, its dictation button and its Skills, Chats and Agents
+    /// lists in every chat window, applied like the connector list's. Each list is told apart by its class
+    /// in the composer template.
+    /// </summary>
+    internal static Styles CreateComposerPickerTextStyles() =>
+    [
+        new Style(selector => selector.OfType<StrataChatComposer>())
+        {
+            Setters =
+            {
+                new Setter(StrataChatComposer.AddButtonToolTipProperty, Loc.Composer_Add),
+                new Setter(StrataChatComposer.AddFilesLabelProperty, Loc.Composer_AddFiles),
+                new Setter(StrataChatComposer.AddRecentChatsLabelProperty, Loc.Composer_ChatsRecent),
+                new Setter(StrataChatComposer.AddAllChatsLabelProperty, Loc.Composer_AddAllChats),
+                new Setter(StrataChatComposer.AddSkillsLabelProperty, Loc.Composer_Skills),
+                new Setter(StrataChatComposer.AddAgentsLabelProperty, Loc.Composer_AddAgents),
+                new Setter(StrataChatComposer.AddConnectorsLabelProperty, Loc.Composer_Connectors),
+                new Setter(StrataChatComposer.AddConnectorsCountFormatProperty, Loc.Composer_ConnectorsOn),
+                new Setter(StrataChatComposer.AddProjectLabelProperty, Loc.Composer_AddProject),
+                new Setter(StrataChatComposer.AddMenuHintProperty, Loc.Composer_AddHint),
+                new Setter(StrataChatComposer.DictateLabelProperty, Loc.Composer_Dictate),
+                new Setter(StrataChatComposer.StopDictatingLabelProperty, Loc.Composer_StopDictating),
+            }
+        },
+        new Style(selector => selector.OfType<StrataComposerPicker>().Class("skills"))
+        {
+            Setters =
+            {
+                new Setter(StrataComposerPicker.LabelProperty, Loc.Composer_Skills),
+                new Setter(StrataComposerPicker.ButtonToolTipProperty, Loc.Composer_SkillsTooltip),
+                new Setter(StrataComposerPicker.SearchWatermarkProperty, Loc.Composer_SkillsSearch),
+                new Setter(StrataComposerPicker.SelectedLabelProperty, Loc.Composer_SkillsSelected),
+                new Setter(StrataComposerPicker.ItemsLabelProperty, Loc.Composer_SkillsAll),
+                new Setter(StrataComposerPicker.EmptyTitleProperty, Loc.Composer_SkillsEmptyTitle),
+                new Setter(StrataComposerPicker.EmptyTextProperty, Loc.Composer_SkillsEmptyText),
+                new Setter(StrataComposerPicker.NoResultsFormatProperty, Loc.Composer_SkillsNoResults),
+                new Setter(StrataComposerPicker.HintTextProperty, Loc.Composer_SkillsHint),
+                new Setter(StrataComposerPicker.ManageLabelProperty, Loc.Composer_SkillsManage),
+            }
+        },
+        new Style(selector => selector.OfType<StrataComposerPicker>().Class("chats"))
+        {
+            Setters =
+            {
+                new Setter(StrataComposerPicker.LabelProperty, Loc.Composer_Chats),
+                new Setter(StrataComposerPicker.SearchWatermarkProperty, Loc.Composer_ChatsSearch),
+                new Setter(StrataComposerPicker.SelectedLabelProperty, Loc.Composer_ChatsSelected),
+                new Setter(StrataComposerPicker.ItemsLabelProperty, Loc.Composer_ChatsRecent),
+                new Setter(StrataComposerPicker.EmptyTitleProperty, Loc.Composer_ChatsEmptyTitle),
+                new Setter(StrataComposerPicker.EmptyTextProperty, Loc.Composer_ChatsEmptyText),
+                new Setter(StrataComposerPicker.NoResultsFormatProperty, Loc.Composer_ChatsNoResults),
+                new Setter(StrataComposerPicker.HintTextProperty, Loc.Composer_ChatsHint),
+            }
+        },
+        new Style(selector => selector.OfType<StrataComposerPicker>().Class("agents"))
+        {
+            Setters =
+            {
+                new Setter(StrataComposerPicker.LabelProperty, Loc.Composer_AddAgents),
+                new Setter(StrataComposerPicker.SearchWatermarkProperty, Loc.Composer_AgentsSearch),
+                new Setter(StrataComposerPicker.SelectedLabelProperty, Loc.Composer_AgentsSelected),
+                new Setter(StrataComposerPicker.ItemsLabelProperty, Loc.Composer_AgentsAll),
+                new Setter(StrataComposerPicker.EmptyTitleProperty, Loc.Composer_AgentsEmptyTitle),
+                new Setter(StrataComposerPicker.EmptyTextProperty, Loc.Composer_AgentsEmptyText),
+                new Setter(StrataComposerPicker.NoResultsFormatProperty, Loc.Composer_AgentsNoResults),
+                new Setter(StrataComposerPicker.HintTextProperty, Loc.Composer_AgentsHint),
+            }
+        },
+    ];
 
     private void InitializeDesktop(DataStore dataStore)
     {
@@ -280,9 +387,16 @@ public partial class App : Application
             MainWindow.ApplyDensityStatic(dataStore.Data.Settings.IsCompactDensity);
             UiScaleService.Apply(dataStore.Data.Settings.UiScalePercent);
 
+            // "Theme: System" follows the OS between light and dark while Lumi runs.
+            if (PlatformSettings is { } platformSettings)
+                platformSettings.ColorValuesChanged += OnPlatformColorValuesChanged;
+
             var window = CreateWindow(vm, isPrimary: true);
             SetMainWindow(window);
             Program.SingleInstance?.SetActivationHandler(HandleActivationRequest);
+            _activationLifetime = this.TryGetFeature<IActivatableLifetime>();
+            if (_activationLifetime is not null)
+                _activationLifetime.Activated += OnApplicationActivated;
 
 #if DEBUG
             _debugBridge = new LumiDebugBridge(dataStore, vm);
@@ -542,6 +656,34 @@ public partial class App : Application
             chatWindow.ApplyUiScaleToChrome(normalizedScalePercent);
     }
 
+    /// <summary>Shows the chosen window material on every open Lumi window.</summary>
+    internal void ApplyWindowMaterial(string? material)
+    {
+        foreach (var window in _windows)
+            WindowMaterials.Apply(window, material);
+        foreach (var chatWindow in _openChatWindows)
+            WindowMaterials.Apply(chatWindow, material);
+    }
+
+    private void OnPlatformColorValuesChanged(object? sender, PlatformColorValues values)
+    {
+        var prefersDark = values.ThemeVariant == PlatformThemeVariant.Dark;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isShuttingDown || _dataStore?.Data.Settings.FollowSystemTheme != true)
+                return;
+
+            var viewModels = _windows
+                .Select(static window => window.DataContext)
+                .OfType<MainViewModel>()
+                .Append(_mainViewModel)
+                .OfType<MainViewModel>()
+                .Distinct();
+            foreach (var viewModel in viewModels)
+                viewModel.SettingsVM.ApplySystemTheme(prefersDark);
+        });
+    }
+
     internal bool TryAdjustUiScale(int delta)
     {
         if (delta == 0 || _dataStore is null)
@@ -579,6 +721,7 @@ public partial class App : Application
             IsPrimaryWindow = isPrimary,
             SecondaryWindowCascadeIndex = isPrimary ? 0 : ++_secondaryWindowSequence
         };
+        WindowMaterials.Apply(window, _dataStore?.Data.Settings.WindowMaterial);
 
         if (Loc.IsRightToLeft)
             window.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
@@ -774,7 +917,8 @@ public partial class App : Application
     {
         window.Show();
         window.ShowInTaskbar = true;
-        window.WindowState = WindowState.Normal;
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
         window.Activate();
 
         if (window.DataContext is MainViewModel vm && vm.SelectedNavIndex == 0)
@@ -846,6 +990,19 @@ public partial class App : Application
     private void HandleActivationRequest(AppActivationRequest request)
         => Dispatcher.UIThread.Post(() => ShowMainWindow(request.ChatId));
 
+    private void OnApplicationActivated(object? sender, ActivatedEventArgs e)
+    {
+        // macOS reopens an existing app through its lifetime, not a second process.
+        if (e.Kind != ActivationKind.Reopen)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_isShuttingDown)
+                ShowMainWindow();
+        });
+    }
+
     private bool FocusExistingWindowForChat(Guid chatId)
     {
         if (_chatWindows.TryGetValue(chatId, out var chatWindow))
@@ -902,12 +1059,42 @@ public partial class App : Application
         void OnDetachedOpenChatRequested(Guid requestedChatId) => ShowMainWindow(requestedChatId);
         chatVm.OpenChatRequested += OnDetachedOpenChatRequested;
 
+        windowVm.McpRepairHandler = repair =>
+        {
+            ShowMainWindow();
+            return _mainWindow?.DataContext is MainViewModel main
+                ? main.StartMcpRepairChatAsync(repair)
+                : Task.FromException(new InvalidOperationException(Loc.Connector_RepairStartFailed));
+        };
+        chatVm.McpRepairRequested += windowVm.StartMcpRepairChatAsync;
+
         void OnDetachedOpenAutomationsRequested()
         {
             ShowMainWindow();
             (_mainWindow?.DataContext as MainViewModel)?.ShowAutomations();
         }
         chatVm.OpenAutomationsRequested += OnDetachedOpenAutomationsRequested;
+
+        void OnDetachedConnectorsPageRequested(ConnectorsPageRequest pageRequest)
+        {
+            ShowMainWindow();
+            (_mainWindow?.DataContext as MainViewModel)?.ShowConnectorsPage(pageRequest);
+        }
+        chatVm.ConnectorsPageRequested += OnDetachedConnectorsPageRequested;
+
+        void OnDetachedSkillsPageRequested()
+        {
+            ShowMainWindow();
+            (_mainWindow?.DataContext as MainViewModel)?.ShowSkillsPage();
+        }
+        chatVm.SkillsPageRequested += OnDetachedSkillsPageRequested;
+
+        void OnDetachedManageApprovalsRequested()
+        {
+            ShowMainWindow();
+            (_mainWindow?.DataContext as MainViewModel)?.ShowPermissionsPage();
+        }
+        chatVm.ManageApprovalsRequested += OnDetachedManageApprovalsRequested;
 
         Guid? trackedChatId = initialChatId;
         ChatWindow? window = null;
@@ -934,6 +1121,7 @@ public partial class App : Application
         chatVm.PropertyChanged += OnDetachedCurrentChatChanged;
 
         window = new ChatWindow(_dataStore, windowVm);
+        WindowMaterials.Apply(window, _dataStore.Data.Settings.WindowMaterial);
         window.Closing += (_, _) => PrepareForWindowClosing(window);
         chatVm.AddDisplayHost();
         _openChatWindows.Add(window);
@@ -955,7 +1143,11 @@ public partial class App : Application
             chatVm.ChatTitleChanged -= OnDetachedChatTitleChanged;
             chatVm.DefaultModelSelectionChanged -= OnDetachedDefaultModelSelectionChanged;
             chatVm.OpenChatRequested -= OnDetachedOpenChatRequested;
+            chatVm.McpRepairRequested -= windowVm.StartMcpRepairChatAsync;
             chatVm.OpenAutomationsRequested -= OnDetachedOpenAutomationsRequested;
+            chatVm.ConnectorsPageRequested -= OnDetachedConnectorsPageRequested;
+            chatVm.SkillsPageRequested -= OnDetachedSkillsPageRequested;
+            chatVm.ManageApprovalsRequested -= OnDetachedManageApprovalsRequested;
             windowVm.Dispose();
             request.ReleaseSurface();
         };
@@ -1004,7 +1196,8 @@ public partial class App : Application
     {
         window.Show();
         window.ShowInTaskbar = true;
-        window.WindowState = WindowState.Normal;
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
         window.Activate();
         window.FocusComposer();
     }
@@ -1033,7 +1226,14 @@ public partial class App : Application
     }
 
     internal void PrepareForShutdown(bool restartExpected = false)
-        => Program.SingleInstance?.StopAcceptingActivations(restartExpected);
+    {
+        if (_activationLifetime is not null)
+        {
+            _activationLifetime.Activated -= OnApplicationActivated;
+            _activationLifetime = null;
+        }
+        Program.SingleInstance?.StopAcceptingActivations(restartExpected);
+    }
 
     private void PrepareForWindowClosing(Window window)
     {

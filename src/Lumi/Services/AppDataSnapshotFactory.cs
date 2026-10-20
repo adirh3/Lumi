@@ -17,6 +17,8 @@ internal static class AppDataSnapshotFactory
                 UserName = settings.UserName,
                 UserSex = settings.UserSex,
                 IsOnboarded = settings.IsOnboarded,
+                HandledSetupSuggestions = settings.HandledSetupSuggestions is null ? [] : [.. settings.HandledSetupSuggestions],
+                AllowAppSetupSuggestions = settings.AllowAppSetupSuggestions,
                 DefaultsSeeded = settings.DefaultsSeeded,
                 CodingLumiSeeded = settings.CodingLumiSeeded,
                 CodingLumiBrowserToolsSeeded = settings.CodingLumiBrowserToolsSeeded,
@@ -30,6 +32,10 @@ internal static class AppDataSnapshotFactory
                 OfferCopiedCapabilities = settings.OfferCopiedCapabilities,
                 DismissedUpdateBannerToken = settings.DismissedUpdateBannerToken,
                 IsDarkTheme = settings.IsDarkTheme,
+                FollowSystemTheme = settings.FollowSystemTheme,
+                AccentColor = settings.AccentColor,
+                WindowMaterial = settings.WindowMaterial,
+                PresenceBrightness = settings.PresenceBrightness,
                 IsCompactDensity = settings.IsCompactDensity,
                 UiScalePercent = settings.UiScalePercent,
                 ShowAmbientPresence = settings.ShowAmbientPresence,
@@ -39,7 +45,12 @@ internal static class AppDataSnapshotFactory
                 ShowTimestamps = settings.ShowTimestamps,
                 ShowToolCalls = settings.ShowToolCalls,
                 ShowReasoning = settings.ShowReasoning,
+                ExpandReasoningWhileStreaming = settings.ExpandReasoningWhileStreaming,
                 AutoGenerateTitles = settings.AutoGenerateTitles,
+                SuggestFollowUps = settings.SuggestFollowUps,
+                DefaultApprovalMode = settings.DefaultApprovalMode,
+                ApprovalRules = CloneApprovalRules(settings.ApprovalRules),
+                AwayApprovalBehavior = settings.AwayApprovalBehavior,
                 PreferredModel = settings.PreferredModel,
                 BackgroundModel = settings.BackgroundModel,
                 FavoriteModelIds = settings.FavoriteModelIds is null ? [] : [.. settings.FavoriteModelIds],
@@ -48,13 +59,16 @@ internal static class AppDataSnapshotFactory
                 UseMcpProxy = settings.UseMcpProxy,
                 UseLazyMcpInitialization = settings.UseLazyMcpInitialization,
                 McpToolTimeoutSeconds = settings.McpToolTimeoutSeconds,
+                McpRegistryUrls = settings.McpRegistryUrls is null ? [] : [.. settings.McpRegistryUrls],
                 ContextWindowTier = settings.ContextWindowTier,
+                ChatGptHostId = settings.ChatGptHostId,
                 ByokEndpoints = settings.ByokEndpoints
                     .Select(e => new ByokEndpoint
                     {
                         Id = e.Id,
                         ConnectionProviderId = e.ConnectionProviderId,
                         CredentialExpiresAt = e.CredentialExpiresAt,
+                        Account = e.Account?.Clone(),
                         Name = e.Name,
                         ProviderType = e.ProviderType,
                         BaseUrl = e.BaseUrl,
@@ -139,6 +153,8 @@ internal static class AppDataSnapshotFactory
                      LastMainBranchSyncAt = p.LastMainBranchSyncAt,
                      LastMainBranchSyncError = p.LastMainBranchSyncError,
                      AdditionalContextDirectories = [..p.AdditionalContextDirectories],
+                     ApprovalMode = p.ApprovalMode,
+                     ApprovalRules = CloneApprovalRules(p.ApprovalRules),
                      CreatedAt = p.CreatedAt
                  })
                  .ToList(),
@@ -186,7 +202,8 @@ internal static class AppDataSnapshotFactory
                     Tools = [..s.Tools],
                     Timeout = s.Timeout,
                     IsEnabled = s.IsEnabled,
-                    CreatedAt = s.CreatedAt
+                    CreatedAt = s.CreatedAt,
+                    CatalogId = s.CatalogId
                 })
                 .ToList(),
             BackgroundJobs = source.BackgroundJobs
@@ -293,6 +310,17 @@ internal static class AppDataSnapshotFactory
         return currentSnapshot;
     }
 
+    internal static List<ApprovalRule> CloneApprovalRules(IEnumerable<ApprovalRule> rules) =>
+        rules.Select(static rule => new ApprovalRule
+        {
+            Id = rule.Id,
+            Action = rule.Action,
+            Kind = rule.Kind,
+            Target = rule.Target,
+            Remembered = rule.Remembered,
+            CreatedAt = rule.CreatedAt
+        }).ToList();
+
     private static RemotePairedDevice CloneRemotePairedDevice(RemotePairedDevice source) =>
         new()
         {
@@ -349,6 +377,8 @@ internal static class AppDataSnapshotFactory
             AgentId = source.AgentId,
             TagId = source.TagId,
             CopilotSessionId = source.CopilotSessionId,
+            ApprovalMode = source.ApprovalMode,
+            ApprovalRules = CloneApprovalRules(source.ApprovalRules),
             SessionProviderSignature = source.SessionProviderSignature,
             CreatedAt = source.CreatedAt,
             UpdatedAt = source.UpdatedAt,

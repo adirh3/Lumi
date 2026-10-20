@@ -117,21 +117,24 @@ public static partial class GitService
     }
 
     /// <summary>Gets the current branch name, or null if not a git repo.</summary>
-    public static async Task<string?> GetCurrentBranchAsync(string dir)
+    public static Task<string?> GetCurrentBranchAsync(string dir)
+        => GetCurrentBranchAsync(dir, CancellationToken.None);
+
+    public static async Task<string?> GetCurrentBranchAsync(string dir, CancellationToken cancellationToken)
     {
-        var result = NormalizeBranchName(await RunGitAsync(dir, "branch --show-current").ConfigureAwait(false));
+        var result = NormalizeBranchName(await RunGitAsync(dir, "branch --show-current", cancellationToken: cancellationToken).ConfigureAwait(false));
         if (result is not null)
             return result;
 
-        result = NormalizeBranchName(await RunGitAsync(dir, "rev-parse --abbrev-ref HEAD").ConfigureAwait(false));
+        result = NormalizeBranchName(await RunGitAsync(dir, "rev-parse --abbrev-ref HEAD", cancellationToken: cancellationToken).ConfigureAwait(false));
         if (result is not null)
             return result;
 
-        result = ParseStatusBranch(await RunGitAsync(dir, "status --short --branch").ConfigureAwait(false));
+        result = ParseStatusBranch(await RunGitAsync(dir, "--no-optional-locks status --short --branch", cancellationToken: cancellationToken).ConfigureAwait(false));
         if (result is not null)
             return result;
 
-        var shortSha = (await RunGitAsync(dir, "rev-parse --short HEAD").ConfigureAwait(false))?.Trim();
+        var shortSha = (await RunGitAsync(dir, "rev-parse --short HEAD", cancellationToken: cancellationToken).ConfigureAwait(false))?.Trim();
         return string.IsNullOrWhiteSpace(shortSha) ? null : $"Detached {shortSha}";
     }
 
@@ -414,16 +417,20 @@ public static partial class GitService
     /// pointer moved.
     /// </summary>
     public static Task<List<GitFileChange>> GetChangedFilesAsync(string dir)
-        => GetChangedFilesAsync(dir, 0);
+        => GetChangedFilesAsync(dir, CancellationToken.None);
+
+    public static Task<List<GitFileChange>> GetChangedFilesAsync(string dir, CancellationToken cancellationToken)
+        => GetChangedFilesAsync(dir, 0, cancellationToken);
 
     /// <summary>Deepest submodule nesting level that is expanded (guards pathological repos).</summary>
     private const int MaxSubmoduleDepth = 3;
 
-    private static async Task<List<GitFileChange>> GetChangedFilesAsync(string dir, int depth)
+    private static async Task<List<GitFileChange>> GetChangedFilesAsync(string dir, int depth, CancellationToken cancellationToken)
     {
         var output = await RunGitAsync(
             dir,
-            "-c submodule.recurse=false status --porcelain -uall --ignore-submodules=none").ConfigureAwait(false);
+            "--no-optional-locks -c submodule.recurse=false status --porcelain -uall --ignore-submodules=none",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(output)) return [];
 
         // Porcelain paths are always relative to the repository root, even when git runs from a
@@ -465,8 +472,8 @@ public static partial class GitService
         }
 
         // Enrich with line stats from numstat
-        var numstat = await RunGitAsync(dir, "diff --numstat").ConfigureAwait(false);
-        var cachedNumstat = await RunGitAsync(dir, "diff --cached --numstat").ConfigureAwait(false);
+        var numstat = await RunGitAsync(dir, "--no-optional-locks -c diff.autoRefreshIndex=false diff --numstat", cancellationToken: cancellationToken).ConfigureAwait(false);
+        var cachedNumstat = await RunGitAsync(dir, "--no-optional-locks diff --cached --numstat", cancellationToken: cancellationToken).ConfigureAwait(false);
         var statsMap = new Dictionary<string, (int added, int removed)>(StringComparer.OrdinalIgnoreCase);
         foreach (var raw in new[] { numstat, cachedNumstat })
         {
@@ -504,7 +511,7 @@ public static partial class GitService
             }
         }
 
-        return await ExpandSubmoduleChangesAsync(repoRoot, changes, depth).ConfigureAwait(false);
+        return await ExpandSubmoduleChangesAsync(repoRoot, changes, depth, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -515,12 +522,13 @@ public static partial class GitService
     private static async Task<List<GitFileChange>> ExpandSubmoduleChangesAsync(
         string repoRoot,
         List<GitFileChange> changes,
-        int depth)
+        int depth,
+        CancellationToken cancellationToken)
     {
         if (depth >= MaxSubmoduleDepth || changes.Count == 0)
             return changes;
 
-        var submodules = await GetSubmoduleStatesAsync(repoRoot).ConfigureAwait(false);
+        var submodules = await GetSubmoduleStatesAsync(repoRoot, cancellationToken).ConfigureAwait(false);
         if (submodules.Count == 0)
             return changes;
 
@@ -540,7 +548,7 @@ public static partial class GitService
                 continue;
             }
 
-            var nested = await GetChangedFilesAsync(submoduleDir, depth + 1).ConfigureAwait(false);
+            var nested = await GetChangedFilesAsync(submoduleDir, depth + 1, cancellationToken).ConfigureAwait(false);
 
             // A staged pointer bump shows up as an index-side status letter on the submodule entry.
             var pointerMoved = state.CommitMoved || change.StatusCode.Length > 0 && change.StatusCode[0] is not ' ' and not '?';
@@ -560,7 +568,8 @@ public static partial class GitService
     /// reports whether each submodule is initialized and whether its checked-out commit differs from
     /// the one recorded by the superproject.
     /// </summary>
-    private static async Task<Dictionary<string, (bool IsInitialized, bool CommitMoved)>> GetSubmoduleStatesAsync(string repoRoot)
+    private static async Task<Dictionary<string, (bool IsInitialized, bool CommitMoved)>> GetSubmoduleStatesAsync(
+        string repoRoot, CancellationToken cancellationToken)
     {
         var states = new Dictionary<string, (bool, bool)>(StringComparer.OrdinalIgnoreCase);
         if (!File.Exists(Path.Combine(repoRoot, ".gitmodules")))
@@ -568,7 +577,8 @@ public static partial class GitService
 
         var output = await RunGitAsync(
             repoRoot,
-            "-c submodule.recurse=false submodule status").ConfigureAwait(false);
+            "--no-optional-locks -c submodule.recurse=false submodule status",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         foreach (var line in ParseLines(output))
         {
             // Format: "<flag><sha1> <path> (<describe>)" — flag is ' ', '+', '-' or 'U'.

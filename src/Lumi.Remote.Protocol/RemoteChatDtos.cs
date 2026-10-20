@@ -1,5 +1,7 @@
 namespace Lumi.Remote.Protocol;
 
+using System.Text.Json.Serialization;
+
 public sealed class RemoteChat
 {
     public Guid Id { get; set; }
@@ -40,6 +42,13 @@ public sealed class RemoteChatPage
     public string TodayGroupLabel { get; set; } = "Today";
     public List<RemoteChatGroup> Groups { get; set; } = [];
     public List<Guid> RemovedChatIds { get; set; } = [];
+
+    /// <summary>
+    /// True when <see cref="Groups"/> carries only rows that changed since the phone's previous
+    /// first-page push; unchanged rows keep their cached values.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsPatch { get; set; }
 }
 
 /// <summary>Live per-chat runtime state pushed on <see cref="RemoteProtocol.Events.ChatStatus"/>.</summary>
@@ -59,6 +68,14 @@ public sealed class RemoteChatStatus
     public long ContextCurrentTokens { get; set; }
     public long ContextTokenLimit { get; set; }
     public string? PlanContent { get; set; }
+
+    /// <summary>
+    /// True when this frame leaves <see cref="PlanContent"/> out because the phone already has the
+    /// same plan. Only sent to subscriptions that opt into compact status frames.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsPlanOmitted { get; set; }
+
     public List<string> Suggestions { get; set; } = [];
 
     // ── Composer configuration ────────────────────────────────────────────────────────────────
@@ -119,6 +136,11 @@ public sealed class RemoteToolCall
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string? DisplayName { get; set; }
+    /// <summary>
+    /// What kind of step this is, as the desktop's transcript icon key (read, edit, search, web,
+    /// terminal, ...). Null from a host predating icons; the phone then draws a generic step.
+    /// </summary>
+    public string? Icon { get; set; }
     public string? Input { get; set; }
     public string? Output { get; set; }
     /// <summary>research | work | verify | other.</summary>
@@ -220,6 +242,11 @@ public sealed class RemoteTranscriptItem
     public bool IsStreaming { get; set; }
     /// <summary>Header label for grouped kinds, or a linked-chat title embedded in an answer.</summary>
     public string? Label { get; set; }
+    /// <summary>
+    /// For work, the transcript icon key of what it is doing: the running step's while it runs, then
+    /// the kind all its steps share, or "mixed". Null from a host predating icons.
+    /// </summary>
+    public string? Icon { get; set; }
     public string? Status { get; set; }
     public double? DurationMs { get; set; }
     public string? Model { get; set; }
@@ -251,6 +278,12 @@ public sealed class RemoteTranscriptTurn
     public string? FinalAnswerId { get; set; }
     /// <summary>Elapsed work before the final answer, derived from persisted message/tool timing.</summary>
     public double? WorkDurationMs { get; set; }
+    /// <summary>
+    /// Lumi has stopped working on this turn: a later message moved on, or the chat went idle. Its
+    /// finished work folds up to its last word even without a final answer, as on the desktop. Null
+    /// while it runs, and from hosts that predate it, which fold only before a final answer.
+    /// </summary>
+    public bool? IsSettled { get; set; }
     public List<RemoteTranscriptItem> Items { get; set; } = [];
 }
 
@@ -274,6 +307,20 @@ public sealed class RemoteTranscript
     public bool HasLaterMessages { get; set; }
     /// <summary>True when this response represents the current tail of the chat.</summary>
     public bool IsLatestWindow { get; set; } = true;
+
+    /// <summary>
+    /// Identifies this exact latest-window projection. A phone sends it back as <c>known=</c>; an
+    /// unchanged projection is then answered without turns. Null for history pages.
+    /// </summary>
+    public string? TranscriptVersion { get; set; }
+
+    /// <summary>
+    /// True when the phone's <c>known=</c> version still describes the projection: <see cref="Turns"/>
+    /// is empty and only <see cref="Status"/>, title and revision are current.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsUnchanged { get; set; }
+
     public List<RemoteTranscriptTurn> Turns { get; set; } = [];
     public RemoteChatStatus Status { get; set; } = new();
 }

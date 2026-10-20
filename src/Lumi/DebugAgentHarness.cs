@@ -86,6 +86,68 @@ public static class DebugAgentHarness
         ];
     }
 
+    public static IReadOnlyList<LumiChatMessage> CreateTextSelectionFixtureMessages() =>
+    [
+        new LumiChatMessage
+        {
+            Role = "user",
+            Content = "Show me a safe playground for selecting text across chat elements and trying each copy format."
+        },
+        new LumiChatMessage
+        {
+            Role = "assistant", Author = "Lumi", Model = "gpt-5.5",
+            Content = """
+                ## Selection & copy playground
+
+                Start selecting in this **paragraph**, then keep dragging through the list, code,
+                table and adjacent messages. Right-click keeps your highlight.
+
+                - **Copy** chooses rich formatting or readable text for the app you paste into.
+                - **Copy as** lets you choose Plain text, Markdown or Rich text explicitly.
+                - **Select message** selects this answer; the footer copy button copies it whole.
+
+                ```csharp
+                var words = new[] { "Select", "across", "elements" };
+                Console.WriteLine(string.Join(" ", words));
+                ```
+
+                | Content | Markdown / document |
+                | --- | --- |
+                | Cards and comparisons | Headings and readable content |
+                | Charts | A table of every value |
+                | Interactive blocks | Lists and tables with current values |
+
+                ```card
+                {"header":"A portable card","summary":"The **summary** is copied with its formatting.","detail":"The detail is included too, even while the card is collapsed."}
+                ```
+
+                ```comparison
+                {"optionA":{"title":"Markdown","content":"Headings, lists, tables and standard Mermaid source."},"optionB":{"title":"Rich text","content":"Formatted document content and a rendered diagram image."}}
+                ```
+
+                ```chart
+                {"type":"bar","labels":["First","Second"],"series":[{"name":"Example values","values":[12,20]}]}
+                ```
+
+                ```confidence
+                {"label":"Example confidence","value":85,"explanation":"Copying preserves the percentage and this explanation."}
+                ```
+
+                ```mermaid
+                flowchart LR
+                    A[Select] --> B[Copy]
+                    B --> C[Paste]
+                ```
+
+                ```checklist
+                {"id":"copy_try","title":"Try it yourself","items":[{"id":"select","label":"Select across more than one element"},{"id":"menu","label":"Right-click without losing the selection"},{"id":"paste","label":"Copy into a document or Markdown editor"}]}
+                ```
+
+                This is a synthetic, unsaved fixture. It does not send a message to an AI.
+                """
+        }
+    ];
+
     public static Chat CreateTranscriptFixtureChat(DataStore dataStore)
     {
         var root = EnsureFixtureDirectory();
@@ -343,6 +405,8 @@ public static class DebugAgentHarness
 
             ### Inline markdown images
 
+            Use an image's top-right expand button to view it full screen. Press Esc or the close button to return.
+
             Local file:
 
             ![Lumi icon loaded from a local file]({fixtureImagePath})
@@ -350,6 +414,8 @@ public static class DebugAgentHarness
             Online image:
 
             ![GitHub mark loaded over HTTPS](https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png)
+
+            In-text image: ![Inline Lumi icon]({fixtureImagePath}) with text on both sides.
             """;
         firstAssistant.Sources.Add(new SearchSource
         {
@@ -684,6 +750,14 @@ public static class DebugAgentHarness
         chat.Messages.Add(activityUser);
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString("README.md"))), "Completed"));
+        // The agent tracks its plan in its SQL todos; the query that changed them shows the plan.
+        var planUpdate = Tool("sql", JsonObject(
+            JsonProperty("description", JsonString("Update todo progress")),
+            JsonProperty("query", JsonString("UPDATE todos SET status = 'done' WHERE id = 'read-builder';"))), "Completed");
+        planUpdate.PlanSnapshot = """
+            {"todoList":[{"title":"Read the transcript builder","status":"completed"},{"title":"Check the transcript tests","status":"in-progress"},{"title":"Wait for the design review","status":"blocked"},{"title":"Polish the activity card","status":"not-started"}]}
+            """;
+        chat.Messages.Add(planUpdate);
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString("src\\Lumi\\ViewModels\\TranscriptBuilder.cs"))), "InProgress"));
         chat.Messages.Add(Tool("powershell", JsonObject(
@@ -768,6 +842,9 @@ public static class DebugAgentHarness
             msg.ToolCallId = toolCallId ?? $"debug-{name}-{Guid.NewGuid():N}";
             msg.ParentToolCallId = parentToolCallId;
             msg.ToolOutput = output;
+            // Running steps carry their start, as live ones do, so their cards count up.
+            if (status == "InProgress")
+                msg.ToolStartedAt = DateTimeOffset.Now;
             return msg;
         }
 

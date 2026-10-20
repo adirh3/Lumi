@@ -393,7 +393,8 @@ public sealed partial class BrowserService : IAsyncDisposable
             if (_initialized) return;
             _parentHwnd = parentHwnd;
 
-            // Get or create the shared environment (all instances share cookies)
+            CoreWebView2Controller controller;
+            // Serialize controller creation too, so its new child HWND can only belong to this tab.
             await _sharedEnvLock.WaitAsync();
             try
             {
@@ -424,13 +425,22 @@ public sealed partial class BrowserService : IAsyncDisposable
                     _environment = _sharedEnvironment;
                     _tabOwner._environment = _environment;
                 }
+
+                var existingWindows = GetWebViewWindows(_parentHwnd);
+                controller = await _environment.CreateCoreWebView2ControllerAsync(_parentHwnd);
+                var createdWindows = GetWebViewWindows(_parentHwnd).Except(existingWindows).ToArray();
+                if (createdWindows.Length != 1)
+                {
+                    CloseControllerIgnoringInvalidState(controller, "after native window identification failed");
+                    throw new InvalidOperationException("Could not identify the new browser tab's native window.");
+                }
+                _webViewHwnd = createdWindows[0];
             }
             finally
             {
                 _sharedEnvLock.Release();
             }
 
-            var controller = await _environment.CreateCoreWebView2ControllerAsync(_parentHwnd);
             if (_isDisposed)
             {
                 CloseControllerIgnoringInvalidState(controller, "after initialization was cancelled");
@@ -712,36 +722,53 @@ public sealed partial class BrowserService : IAsyncDisposable
             return;
         }
 
-        if (cornerRadiusPx > 0)
-            ApplyRoundedRegion(width, height, cornerRadiusPx);
+        ApplyRoundedRegion(width, height, cornerRadiusPx);
+    }
+
+    private static HashSet<IntPtr> GetWebViewWindows(IntPtr parentHwnd)
+    {
+        var windows = new HashSet<IntPtr>();
+        foreach (var className in new[] { "Chrome_WidgetWin_0", "Chrome_WidgetWin_1" })
+        {
+            var child = IntPtr.Zero;
+            while ((child = FindWindowEx(parentHwnd, child, className, null)) != IntPtr.Zero)
+                windows.Add(child);
+        }
+        return windows;
     }
 
     private void ApplyRoundedRegion(int width, int height, int cornerRadiusPx)
     {
-        if (_webViewHwnd == IntPtr.Zero)
-        {
-            _webViewHwnd = FindWindowEx(_parentHwnd, IntPtr.Zero, "Chrome_WidgetWin_0", null);
-            if (_webViewHwnd == IntPtr.Zero)
-                _webViewHwnd = FindWindowEx(_parentHwnd, IntPtr.Zero, "Chrome_WidgetWin_1", null);
-        }
         if (_webViewHwnd == IntPtr.Zero) return;
 
-        // Shift the region upward so only the bottom corners are rounded.
-        var rgn = CreateRoundRectRgn(0, -cornerRadiusPx, width + 1, height + 1, cornerRadiusPx, cornerRadiusPx);
-        if (rgn != IntPtr.Zero)
+        var rgn = IntPtr.Zero;
+        if (cornerRadiusPx > 0)
         {
-            if (SetWindowRgn(_webViewHwnd, rgn, true) == 0)
+            // Win32 takes ellipse diameters. Shift upward to leave the top corners square.
+            var diameter = cornerRadiusPx * 2;
+            rgn = CreateRoundRectRgn(0, -cornerRadiusPx, width + 1, height + 1, diameter, diameter);
+            if (rgn == IntPtr.Zero)
+            {
+                Debug.WriteLine($"WebView2 rounded region creation failed: {Marshal.GetLastWin32Error()}");
+                return;
+            }
+        }
+        if (SetWindowRgn(_webViewHwnd, rgn, true) == 0)
+        {
+            var error = Marshal.GetLastWin32Error();
+            if (rgn != IntPtr.Zero)
                 DeleteObject(rgn);
+            Debug.WriteLine($"WebView2 rounded region update failed: {error}");
         }
     }
 
-    [DllImport("gdi32.dll")]
+    [DllImport("gdi32.dll", SetLastError = true)]
     private static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int cx, int cy);
 
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr hObject);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -1641,7 +1668,6 @@ public sealed partial class BrowserService : IAsyncDisposable
                 controller.IsVisible = false;
                 controller.ParentWindow = hwnd;
                 _parentHwnd = hwnd;
-                _webViewHwnd = IntPtr.Zero;
                 controller.IsVisible = wasVisible;
                 controller.NotifyParentWindowPositionChanged();
             });

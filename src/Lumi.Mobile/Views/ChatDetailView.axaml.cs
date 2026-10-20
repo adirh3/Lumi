@@ -64,6 +64,10 @@ public partial class ChatDetailView : UserControl
     private IDisposable? _loadingDelay;
     private bool _transcriptWidthHeld;
     private StrataInteractiveBlock? _pickerOwner;
+    private readonly List<TranscriptTurnView> _pendingRealizations = [];
+    private bool _realizationQueued;
+    private bool _awaitingRealizationLayout;
+    private int _realizationVersion;
 
     public ChatDetailView()
     {
@@ -111,6 +115,7 @@ public partial class ChatDetailView : UserControl
         _awaitingChatEntrance = false;
         _chatEntranceQueued = false;
         _transcriptContentChanged = false;
+        ResetRealizations();
         if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
             transcript.IsHitTestVisible = true;
         base.OnDetachedFromVisualTree(e);
@@ -721,6 +726,12 @@ public partial class ChatDetailView : UserControl
             SetTranscriptMotionWidth(_shell is { IsDrawerMoving: true, CanDockDrawer: true, HasHingeGap: false });
         }
 
+        if (e.PropertyName == nameof(MobileShellViewModel.IsDrawerMoving)
+            && _shell?.IsDrawerMoving == false && _pendingRealizations.Count > 0 && !_awaitingRealizationLayout)
+        {
+            QueueRealization();
+        }
+
         if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
             or nameof(MobileShellViewModel.IsDrawerPresented)
             or nameof(MobileShellViewModel.HasPageOverlay))
@@ -869,6 +880,88 @@ public partial class ChatDetailView : UserControl
             _transcriptEntrance?.Reveal();
             PlayWelcomeEntrance();
         }, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Prepares a transcript turn ahead of the viewport, one turn per frame and nearest first.
+    /// Several turns built together are measured in one pass, which is what made a fling stall for a
+    /// long frame.
+    /// </summary>
+    internal void RequestRealization(TranscriptTurnView turn)
+    {
+        if (!_pendingRealizations.Contains(turn))
+            _pendingRealizations.Add(turn);
+        if (!_awaitingRealizationLayout)
+            QueueRealization();
+    }
+
+    internal void CancelRealization(TranscriptTurnView turn) => _pendingRealizations.Remove(turn);
+
+    private void QueueRealization()
+    {
+        if (_realizationQueued)
+            return;
+        _realizationQueued = true;
+        Dispatcher.UIThread.Post(RealizeNextTurn, DispatcherPriority.Background);
+    }
+
+    private void RealizeNextTurn()
+    {
+        _realizationQueued = false;
+        // Preparing turns ahead can wait for the drawer to settle (see OnShellPropertyChanged).
+        if (_shell?.IsDrawerMoving == true)
+            return;
+
+        while (_pendingRealizations.Count > 0)
+        {
+            var next = _pendingRealizations[0];
+            foreach (var turn in _pendingRealizations)
+            {
+                if (turn.ViewportDistance < next.ViewportDistance)
+                    next = turn;
+            }
+
+            _pendingRealizations.Remove(next);
+            if (!next.Realize())
+                continue;
+
+            if (_pendingRealizations.Count > 0)
+            {
+                // The next turn waits until this one has been measured, and for the next frame:
+                // layout passes are not frames, and a quick turn would otherwise share one.
+                _awaitingRealizationLayout = true;
+                LayoutUpdated += OnRealizationLayoutUpdated;
+            }
+            return;
+        }
+    }
+
+    private void OnRealizationLayoutUpdated(object? sender, EventArgs e)
+    {
+        LayoutUpdated -= OnRealizationLayoutUpdated;
+        var version = _realizationVersion;
+        if (TopLevel.GetTopLevel(this) is { } topLevel)
+            topLevel.RequestAnimationFrame(_ => OnRealizationFrame(version));
+        else
+            OnRealizationFrame(version);
+    }
+
+    private void OnRealizationFrame(int version)
+    {
+        if (version != _realizationVersion || !_awaitingRealizationLayout)
+            return;
+        _awaitingRealizationLayout = false;
+        if (_pendingRealizations.Count > 0)
+            QueueRealization();
+    }
+
+    private void ResetRealizations()
+    {
+        _pendingRealizations.Clear();
+        if (_awaitingRealizationLayout)
+            LayoutUpdated -= OnRealizationLayoutUpdated;
+        _awaitingRealizationLayout = false;
+        _realizationVersion++;
     }
 
     private bool IsChatReadyForEntrance()

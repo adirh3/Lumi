@@ -101,6 +101,27 @@ public sealed class SessionConfigBuilderTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void InstalledPlugins_ReachSessionsOnlyOnceDiscoveryIsResolved(bool resume)
+    {
+        List<string> plugins = [@"C:\copilot-home\installed-plugins\awesome-copilot\azure"];
+        SessionConfigBase Build(bool discovery) => resume
+            ? SessionConfigBuilder.BuildForResume(
+                "prompt", null, null, null, [], [], [], null, null, null, null,
+                enableCapabilityDiscovery: discovery, pluginDirectories: plugins)
+            : SessionConfigBuilder.Build(
+                "prompt", null, null, null, [], [], [], null, null, null, null,
+                enableCapabilityDiscovery: discovery, pluginDirectories: plugins);
+
+        // Lumi's sessions use their own config folder, so the runtime only loads what plugins
+        // install when it is told where they are.
+        Assert.Equal(plugins, Build(discovery: true).PluginDirectories);
+        // Plugin MCP servers start on load; until discovery is resolved they must stay out.
+        Assert.Null(Build(discovery: false).PluginDirectories);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void UnresolvedExternalDiscovery_DoesNotDisableTheLumiProvider(bool resume)
     {
         var provider = new LumiSkillProvider(_ =>
@@ -351,36 +372,45 @@ public sealed class SessionConfigBuilderTests
         Assert.Equal(ReasoningSummary.Detailed, config.ReasoningSummary);
     }
 
-    [Fact]
-    public void Build_GptToneOverrideIncludesConcreteVisualizationTriggers()
+    [Theory]
+    [InlineData("gpt-6.1-sol")]
+    [InlineData("gpt-5.6-sol")]
+    [InlineData("claude-opus-5.5")]
+    [InlineData("gemini-3-pro")]
+    [InlineData(null)]
+    public void MainSessions_AppendSharedPromptWithoutModelSpecificOverrides(string? model)
     {
-        var config = SessionConfigBuilder.Build(
-            systemPrompt: "prompt",
-            model: "gpt-5.6-sol",
-            workingDirectory: @"C:\Repo",
-            mcpPlan: new McpSessionPlan([], []),
-           skillDirectories: null,
-            customAgents: [],
-            tools: [],
-            reasoningEffort: "high",
-            userInputHandler: null,
-            onPermission: null,
-            hooks: null);
+        const string prompt = "Lumi's shared writing and visualization guidance.";
+        SessionConfigBase[] configs =
+        [
+            SessionConfigBuilder.Build(
+                prompt, model, null, null, null, null, null, "high", null, null, null),
+            SessionConfigBuilder.BuildForResume(
+                prompt, model, null, null, null, null, null, "high", null, null, null)
+        ];
 
-        Assert.NotNull(config.SystemMessage);
-        Assert.Equal(SystemMessageMode.Customize, config.SystemMessage!.Mode);
-        Assert.NotNull(config.SystemMessage.Sections);
-        var tone = config.SystemMessage.Sections![SystemMessageSection.Tone];
-        Assert.Equal(SectionOverrideAction.Replace, tone.Action);
-        Assert.Contains("exactly two meaningful alternatives", tone.Content);
-        Assert.Contains("compact profile/lookup/digest/deal", tone.Content);
-        Assert.Contains("final URL-delivered artifact", tone.Content);
-        Assert.Contains("one clear Markdown action link in the card's always-visible summary", tone.Content);
-        Assert.Contains("bare URL or prose-only link", tone.Content);
-        Assert.Contains("central numeric values or trends", tone.Content);
-        Assert.Contains("functional UI controls", tone.Content);
-        Assert.Contains("use that block instead of substituting a plain list or table", tone.Content);
-        Assert.Contains("Do not wait for an explicit visualization request", tone.Content);
+        foreach (var config in configs)
+        {
+            Assert.NotNull(config.SystemMessage);
+            Assert.Equal(SystemMessageMode.Append, config.SystemMessage!.Mode);
+            Assert.Equal(prompt, config.SystemMessage.Content);
+            Assert.Null(config.SystemMessage.Sections);
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \r\n\t ")]
+    public void MainSessions_OmitBlankSystemPrompt(string? prompt)
+    {
+        var created = SessionConfigBuilder.Build(
+            prompt, "gpt-6.1-sol", null, null, null, null, null, null, null, null, null);
+        var resumed = SessionConfigBuilder.BuildForResume(
+            prompt, "gpt-6.1-sol", null, null, null, null, null, null, null, null, null);
+
+        Assert.Null(created.SystemMessage);
+        Assert.Null(resumed.SystemMessage);
     }
 
     [Fact]
@@ -507,6 +537,9 @@ public sealed class SessionConfigBuilderTests
         Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
         // Helper sessions stay isolated: no capability discovery at all.
         Assert.False(config.EnableConfigDiscovery);
+        Assert.Equal(SystemMessageMode.Replace, config.SystemMessage!.Mode);
+        Assert.Equal("prompt", config.SystemMessage.Content);
+        Assert.Null(config.SystemMessage.Sections);
     }
 
     [Fact]

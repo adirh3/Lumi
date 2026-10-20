@@ -28,8 +28,8 @@
           <SolidColorBrush x:Key="Mg.SegmentTrack" Color="#0BFFFFFF" />
           <SolidColorBrush x:Key="Mg.TileBackground" Color="#0DFFFFFF" />
           <SolidColorBrush x:Key="Mg.TileBorder" Color="#14FFFFFF" />
-          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="#1C818CF8" />
-          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="#4D818CF8" />
+          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="{DynamicResource Color.AccentDefault}" Opacity="0.11" />
+          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="{DynamicResource Color.AccentDefault}" Opacity="0.3" />
           <SolidColorBrush x:Key="Mg.SuccessBackground" Color="#1F10B981" />
           <SolidColorBrush x:Key="Mg.WarningBackground" Color="#1FF59E0B" />
           <LinearGradientBrush x:Key="Mg.InsetFade" StartPoint="0%,0%" EndPoint="0%,100%">
@@ -51,8 +51,8 @@
           <SolidColorBrush x:Key="Mg.SegmentTrack" Color="#FFEEEEF2" />
           <SolidColorBrush x:Key="Mg.TileBackground" Color="#FFF4F4F7" />
           <SolidColorBrush x:Key="Mg.TileBorder" Color="#FFE8E8ED" />
-          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="#0F4F46E5" />
-          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="#474F46E5" />
+          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="{DynamicResource Color.AccentDefault}" Opacity="0.06" />
+          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="{DynamicResource Color.AccentDefault}" Opacity="0.28" />
           <SolidColorBrush x:Key="Mg.SuccessBackground" Color="#1A10B981" />
           <SolidColorBrush x:Key="Mg.WarningBackground" Color="#1CD97706" />
           <LinearGradientBrush x:Key="Mg.InsetFade" StartPoint="0%,0%" EndPoint="0%,100%">
@@ -1105,5 +1105,30 @@
     <Setter Property="TextAlignment" Value="Center" />
     <Setter Property="HorizontalAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+
+  <!-- An approval rule's answer, the same pill in Settings and Projects: allow, ask or never. -->
+  <Style Selector="Border.approval-action">
+    <Setter Property="CornerRadius" Value="999" />
+    <Setter Property="Padding" Value="9,2,10,3" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SuccessSubtle}" />
+  </Style>
+  <Style Selector="Border.approval-action > TextBlock">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+  </Style>
+  <Style Selector="Border.approval-action.ask">
+    <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
+  </Style>
+  <Style Selector="Border.approval-action.ask > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+  </Style>
+  <Style Selector="Border.approval-action.never">
+    <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+  </Style>
+  <Style Selector="Border.approval-action.never > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
   </Style>
 </Styles>

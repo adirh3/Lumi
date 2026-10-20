@@ -114,7 +114,7 @@ public partial class ChatViewModel
     {
         var sourceId = PendingReply?.MessageId;
         foreach (var assistant in TranscriptTurns
-                     .SelectMany(static turn => turn.Items)
+                     .SelectMany(static turn => turn.EnumerateItems())
                      .OfType<AssistantMessageItem>())
         {
             assistant.IsReplySource = sourceId == assistant.MessageId;
@@ -125,6 +125,9 @@ public partial class ChatViewModel
     {
         if (oldValue?.Id == newValue?.Id)
             return;
+
+        // Chats brought into a draft stay with that draft, like its reply below.
+        SwapChatReferenceDrafts(oldValue, newValue);
 
         if (oldValue is not null)
         {

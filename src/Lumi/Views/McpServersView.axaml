@@ -1,9 +1,9 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:sa="using:StrataTheme.Animation"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:mgmt="using:Lumi.Views.Management"
              x:Class="Lumi.Views.McpServersView"
              x:DataType="vm:McpServersViewModel"
              x:CompileBindings="True">
@@ -41,21 +41,13 @@
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
     </Style>
-    <Style Selector="Border.mg-catalog-icon">
-      <Setter Property="Width" Value="42" />
-      <Setter Property="Height" Value="42" />
-      <Setter Property="CornerRadius" Value="12" />
-      <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="HorizontalAlignment" Value="Left" />
-    </Style>
   </UserControl.Styles>
 
   <Panel>
 
     <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
-    <Panel x:Name="McpOverview" Classes="mg-surface" IsVisible="{Binding ShowOverview}">
+    <Panel x:Name="McpOverview" Classes="mg-surface" IsVisible="{Binding ShowOverview}"
+           mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="32,30,32,40" Spacing="24">
@@ -72,10 +64,10 @@
                     <TextBlock Text="{loc:Str Mg_Import}" />
                   </StackPanel>
                 </Button>
-                <Button x:Name="McpBrowseButton" Classes="mg-button" Command="{Binding BrowseCatalogCommand}">
+                <Button x:Name="McpDiscoverButton" Classes="mg-button" Command="{Binding FindInDiscoverCommand}">
                   <StackPanel Orientation="Horizontal" Spacing="7">
-                    <PathIcon Data="{StaticResource Icon.Library}" />
-                    <TextBlock Text="{loc:Str Mcp_Browse}" />
+                    <PathIcon Data="{StaticResource Icon.Compass}" />
+                    <TextBlock Text="{loc:Str Customize_Discover}" />
                   </StackPanel>
                 </Button>
                 <Button x:Name="McpNewButton" Classes="mg-button accent" Command="{Binding NewServerCommand}">
@@ -90,7 +82,7 @@
             <TextBlock Grid.Row="1" Grid.Column="1" Classes="mg-page-lede" Margin="0,2,0,0" Text="{loc:Str Mcp_Lede}" />
           </Grid>
 
-          <DockPanel IsVisible="{Binding HasAnyServers}">
+          <DockPanel IsVisible="{Binding ShowStats}">
             <Border DockPanel.Dock="Right" Classes="mg-segmented" VerticalAlignment="Bottom">
               <StackPanel Orientation="Horizontal" Spacing="2">
                 <Button Classes="mg-segment" Classes.selected="{Binding IsSortedByName}"
@@ -112,6 +104,12 @@
                   <TextBlock Classes="mg-stat-label" Text="{loc:Str Mcp_StatEnabled}" />
                 </StackPanel>
               </Border>
+              <Border Classes="mg-stat" IsVisible="{Binding HasExternal}">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-stat-value" Text="{Binding ExternalCountText}" />
+                  <TextBlock Classes="mg-stat-label" Text="{loc:Str External_SidebarHeading}" />
+                </StackPanel>
+              </Border>
             </StackPanel>
           </DockPanel>
 
@@ -125,6 +123,8 @@
               </Button>
             </StackPanel>
           </Border>
+
+          <TextBlock Classes="mg-eyebrow" Text="{loc:Str External_SectionYours}" IsVisible="{Binding ShowYoursHeading}" Margin="0,0,0,-12" />
 
           <ItemsControl x:Name="McpGallery" ItemsSource="{Binding ServerCards}" IsVisible="{Binding HasResults}">
             <ItemsControl.ItemsPanel>
@@ -175,17 +175,34 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
-          <!-- Way into the catalog, under the servers -->
-          <Button Classes="mg-card" Command="{Binding BrowseCatalogCommand}" IsVisible="{Binding HasAnyServers}">
+          <Button Classes="mg-card" Command="{Binding NewServerCommand}" IsVisible="{Binding ShowCompactEmpty}">
             <Border Classes="mg-card-frame create" Padding="18,14">
               <DockPanel>
                 <PathIcon DockPanel.Dock="Right" Classes="mg-card-arrow" Data="{StaticResource Icon.ChevronRight}" />
                 <Border DockPanel.Dock="Left" Classes="mg-create-plus" Margin="0,0,14,0">
-                  <PathIcon Data="{StaticResource Icon.Library}" />
+                  <PathIcon Data="{StaticResource Icon.Plus}" />
                 </Border>
                 <StackPanel Spacing="2" VerticalAlignment="Center">
-                  <TextBlock Classes="mg-card-title" Text="{loc:Str Mcp_Browse}" />
-                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Mcp_CatalogLede}" />
+                  <TextBlock Classes="mg-card-title" Text="{loc:Str Mcp_New}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Mcp_Lede}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+          </Button>
+
+          <mgmt:ExternalCapabilitySections x:Name="McpExternalSections" DataContext="{Binding External}" />
+
+          <!-- The way to more servers -->
+          <Button x:Name="McpDiscoverCard" AutomationProperties.Name="{loc:Str Customize_FindMoreTitle}" Classes="mg-card" Command="{Binding FindInDiscoverCommand}" IsVisible="{Binding !ShowEmptyState}">
+            <Border Classes="mg-card-frame create" Padding="18,14">
+              <DockPanel>
+                <PathIcon DockPanel.Dock="Right" Classes="mg-card-arrow" Data="{StaticResource Icon.ChevronRight}" />
+                <Border DockPanel.Dock="Left" Classes="mg-create-plus" Margin="0,0,14,0">
+                  <PathIcon Data="{StaticResource Icon.Compass}" />
+                </Border>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Classes="mg-card-title" Text="{loc:Str Customize_FindMoreTitle}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Customize_FindMoreServers}" />
                 </StackPanel>
               </DockPanel>
             </Border>
@@ -211,10 +228,10 @@
                   <TextBlock Text="{loc:Str Import_EmptyHint}" />
                 </StackPanel>
               </Button>
-              <Button Classes="mg-button accent" Command="{Binding BrowseCatalogCommand}">
+              <Button x:Name="McpEmptyDiscoverButton" Classes="mg-button accent" Command="{Binding FindInDiscoverCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="7">
-                  <PathIcon Data="{StaticResource Icon.Library}" />
-                  <TextBlock Text="{loc:Str Mcp_Browse}" />
+                  <PathIcon Data="{StaticResource Icon.Compass}" />
+                  <TextBlock Text="{loc:Str Mcp_FindInDiscover}" />
                 </StackPanel>
               </Button>
             </StackPanel>
@@ -223,8 +240,15 @@
       </ScrollViewer>
     </Panel>
 
+    <!-- ══════════════════════ READ-ONLY (plugins, Copilot) ══════════════════════ -->
+    <Panel x:Name="McpExternalDetail" IsVisible="{Binding External.IsViewing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding External.OpenItem}">
+      <mgmt:ExternalCapabilityDetail DataContext="{Binding External}" />
+    </Panel>
+
     <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
-    <Panel x:Name="McpDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+    <Panel x:Name="McpDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding SelectedServer}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>
@@ -314,6 +338,20 @@
                 </WrapPanel>
               </StackPanel>
             </DockPanel>
+
+            <!-- Added from Discover, values still missing -->
+            <Border x:Name="McpSetupBanner" Classes="mg-section" Padding="18,14" IsVisible="{Binding IsFinishingSetup}"
+                    BorderBrush="{DynamicResource Brush.AccentDefault}">
+              <DockPanel>
+                <Border DockPanel.Dock="Left" Classes="mg-section-icon" VerticalAlignment="Center">
+                  <PathIcon Data="{StaticResource Icon.Key}" />
+                </Border>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Classes="mg-section-title" Text="{loc:Str Mcp_FinishSetupTitle}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Mcp_FinishSetupText}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
 
             <!-- Enabled -->
             <Border Classes="mg-section" Padding="20,14">
@@ -550,124 +588,11 @@
         <StackPanel Orientation="Horizontal" Spacing="8">
           <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12"
                     Foreground="{DynamicResource Brush.SuccessDefault}" />
-          <TextBlock Text="{loc:Str Mg_Saved}" FontSize="12.5" FontWeight="Medium"
+          <TextBlock Text="{Binding SavedToastText}" FontSize="12.5" FontWeight="Medium"
                      Foreground="{DynamicResource Brush.TextPrimary}" />
         </StackPanel>
       </Border>
     </Panel>
 
-    <!-- ══════════════════════════ CATALOG ══════════════════════════ -->
-    <Panel x:Name="McpCatalog" Classes="mg-surface" IsVisible="{Binding IsBrowsing}">
-      <DockPanel>
-        <Border DockPanel.Dock="Top" Classes="mg-topbar">
-          <DockPanel>
-            <Button DockPanel.Dock="Left" x:Name="McpCatalogBackButton" Classes="subtle mg-back" Command="{Binding CloseDetailCommand}">
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
-                <TextBlock Text="{loc:Str Mcp_Title}" />
-              </StackPanel>
-            </Button>
-            <TextBlock DockPanel.Dock="Left" Classes="mg-crumb" Text="/" Margin="2,0,6,0" />
-            <TextBlock Classes="mg-crumb current" Text="{loc:Str Mcp_Browse}" />
-          </DockPanel>
-        </Border>
-
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="32,28,32,40" Spacing="20">
-            <StackPanel Spacing="4">
-              <TextBlock Classes="mg-page-title" Text="{loc:Str Mcp_BrowseCatalog}" />
-              <TextBlock Classes="mg-page-lede" Text="{loc:Str Mcp_CatalogLede}" />
-            </StackPanel>
-
-            <DockPanel>
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center"
-                          Margin="14,0,0,0" IsVisible="{Binding IsSearchingNpm}">
-                <TextBlock Text="●" FontSize="9" VerticalAlignment="Center" Foreground="{DynamicResource Brush.AccentDefault}">
-                  <TextBlock.Styles>
-                    <Style Selector="TextBlock">
-                      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
-                      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
-                      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.8" />
-                      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
-                      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
-                      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
-                    </Style>
-                  </TextBlock.Styles>
-                </TextBlock>
-                <TextBlock Classes="mg-meta" Text="{loc:Str Mcp_SearchingNpm}" />
-              </StackPanel>
-              <TextBox x:Name="McpCatalogSearchBox" Classes="mg-search" Width="460" HorizontalAlignment="Left"
-                       Text="{Binding BrowseSearchQuery}" PlaceholderText="{loc:Str Mcp_SearchCatalog}">
-                <TextBox.InnerLeftContent>
-                  <PathIcon Data="{StaticResource Icon.Search}" Width="13" Height="13" Margin="11,0,3,0"
-                            Foreground="{DynamicResource Brush.TextTertiary}" />
-                </TextBox.InnerLeftContent>
-              </TextBox>
-            </DockPanel>
-
-            <ItemsControl x:Name="McpCatalogList" ItemsSource="{Binding CatalogEntries}">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <controls:AdaptiveGridPanel MinItemWidth="280" ColumnSpacing="14" RowSpacing="14" />
-                </ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:McpCatalogEntry">
-                  <Border Classes="mg-card-frame">
-                    <DockPanel>
-                      <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,12,0,0">
-                        <Border Classes="mg-chip warning" HorizontalAlignment="Left" IsVisible="{Binding HasRequiredEnvVars}"
-                                ToolTip.Tip="{Binding EnvVarHint}">
-                          <StackPanel Orientation="Horizontal" Spacing="6">
-                            <PathIcon Data="{StaticResource Icon.Key}" />
-                            <TextBlock Text="{Binding EnvVarHint}" FontFamily="{DynamicResource Font.FamilyMono}" FontSize="10.5"
-                                       MaxWidth="240" TextTrimming="CharacterEllipsis" />
-                          </StackPanel>
-                        </Border>
-                        <DockPanel>
-                          <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Text="{Binding DownloadsDisplay}" Margin="10,0,0,0"
-                                     IsVisible="{Binding MonthlyDownloads}" />
-                          <TextBlock Classes="mg-meta mg-mono" Text="{Binding NpmPackage}" FontSize="11" />
-                        </DockPanel>
-                      </StackPanel>
-                      <DockPanel DockPanel.Dock="Top">
-                        <Panel DockPanel.Dock="Right" VerticalAlignment="Top">
-                          <Button Classes="mg-button" Padding="11,6" IsVisible="{Binding !IsInstalled}"
-                                  Command="{Binding $parent[UserControl].((vm:McpServersViewModel)DataContext).InstallCatalogEntryCommand}"
-                                  CommandParameter="{Binding}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                              <PathIcon Data="{StaticResource Icon.Plus}" Width="11" Height="11" />
-                              <TextBlock Text="{loc:Str Mcp_Install}" />
-                            </StackPanel>
-                          </Button>
-                          <Border Classes="mg-chip success" IsVisible="{Binding IsInstalled}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                              <PathIcon Data="{StaticResource Icon.Check}" />
-                              <TextBlock Text="{loc:Str Mcp_Installed}" />
-                            </StackPanel>
-                          </Border>
-                        </Panel>
-                        <Border Classes="mg-catalog-icon">
-                          <TextBlock Text="{Binding Icon}" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                      </DockPanel>
-                      <StackPanel Spacing="5" Margin="0,12,0,0">
-                        <DockPanel>
-                          <Border DockPanel.Dock="Right" Classes="mg-chip" Padding="7,1,7,2" Margin="8,0,0,0">
-                            <TextBlock Text="{Binding Category}" FontSize="10.5" />
-                          </Border>
-                          <TextBlock Classes="mg-card-title" Text="{Binding Name}" />
-                        </DockPanel>
-                        <TextBlock Classes="mg-card-text" Text="{Binding Description}" MaxLines="3" />
-                      </StackPanel>
-                    </DockPanel>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-        </ScrollViewer>
-      </DockPanel>
-    </Panel>
   </Panel>
 </UserControl>

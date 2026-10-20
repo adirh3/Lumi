@@ -231,6 +231,43 @@ public class CopilotService : IAsyncDisposable
     /// </summary>
     public event Action<ModelCatalogSnapshot>? ModelCatalogChanged;
 
+    /// <summary>
+    /// Fires after a plugin was installed, updated, enabled, disabled or removed, or a plugin source
+    /// changed, so capability lists and the next chat session pick up what the plugin brings.
+    /// </summary>
+    public event Action? PluginsChanged;
+
+    public void NotifyPluginsChanged() => PluginsChanged?.Invoke();
+
+    /// <summary>
+    /// The Copilot runtime's home folder, where it keeps installed plugins and plugin sources. Lumi
+    /// shares GitHub Copilot's folder (<c>COPILOT_HOME</c> when the user set one, as the runtime
+    /// does), so a plugin added here or in Copilot CLI shows up in both.
+    /// </summary>
+    public static string RuntimeHomeDirectory
+        => IsolatedRuntimeHome
+           ?? (Environment.GetEnvironmentVariable("COPILOT_HOME") is { Length: > 0 } copilotHome ? copilotHome : null)
+           ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".copilot");
+
+    /// <summary>
+    /// Debug runs with an isolated data folder (<c>LUMI_APPDATA_DIR</c>) also get their own runtime
+    /// home, so testing plugins never touches the real Copilot profile. Kept separate from the
+    /// sessions' config folder, exactly like a normal install.
+    /// </summary>
+    internal static string? IsolatedRuntimeHome
+    {
+        get
+        {
+#if DEBUG
+            return string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR"))
+                ? null
+                : Path.Combine(DataStore.AppDirectory, "copilot-home");
+#else
+            return null;
+#endif
+        }
+    }
+
     public bool IsConnected => _client is not null && State == ConnectionState.Connected;
 
     /// <summary>The current connection state of the underlying CopilotClient.
@@ -288,6 +325,11 @@ public class CopilotService : IAsyncDisposable
                 Connection = RuntimeConnection.ForStdio(cliPath ?? "copilot"),
                 LogLevel = CopilotLogLevel.Error,
             };
+            if (IsolatedRuntimeHome is { } isolatedHome)
+            {
+                Directory.CreateDirectory(isolatedHome);
+                clientOptions.BaseDirectory = isolatedHome;
+            }
 
             var storedUser = ConfigureAuthentication(clientOptions);
 
@@ -1110,30 +1152,49 @@ public class CopilotService : IAsyncDisposable
     /// when non-empty, the runtime starts the loopback callback listener before returning and finishes
     /// the flow in the background, signalling completion via the session's
     /// <c>mcp_server_status_changed</c> event.
+    /// <para>
+    /// Microsoft Entra connectors such as Work IQ sign in through the Windows account broker instead of a
+    /// browser: no URL is returned, and the call ends once the broker's own sign-in window is done. That
+    /// window opens without an owner, so the one opening for this login is brought to the front and
+    /// reported through <paramref name="signInWindowShown"/>. The call takes no cancellation token on
+    /// purpose: cancelling it makes the runtime discard a sign-in the user may still be finishing.
+    /// </para>
     /// </remarks>
     /// <returns>The authorization URL that was opened, or an empty string when no browser step was required.</returns>
     public async Task<string> StartMcpOAuthLoginAsync(
         CopilotSession session,
         string serverName,
         bool forceReauth = false,
-        CancellationToken ct = default)
+        Action? signInWindowShown = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         if (string.IsNullOrWhiteSpace(serverName))
             return string.Empty;
 
-        var result = await session.Rpc.Mcp.Oauth.LoginAsync(
-            serverName,
-            forceReauth,
-            clientName: "Lumi",
-            callbackSuccessMessage: $"Signed in to \"{serverName}\". You can return to Lumi — the MCP server will reconnect automatically.",
-            cancellationToken: ct).ConfigureAwait(false);
+        using var promptWatch = new CancellationTokenSource();
+        var prompt = OperatingSystem.IsWindows()
+            ? AccountBrokerPrompt.BringToFrontAsync(signInWindowShown, promptWatch.Token)
+            : Task.CompletedTask;
+        try
+        {
+            var result = await session.Rpc.Mcp.Oauth.LoginAsync(
+                serverName,
+                forceReauth,
+                clientName: "Lumi",
+                callbackSuccessMessage: $"Signed in to \"{serverName}\". You can return to Lumi — the connector will reconnect automatically.")
+                .ConfigureAwait(false);
 
-        var url = result?.AuthorizationUrl;
-        if (!string.IsNullOrWhiteSpace(url))
-            OpenBrowser(url);
+            var url = result?.AuthorizationUrl;
+            if (!string.IsNullOrWhiteSpace(url))
+                OpenBrowser(url);
 
-        return url ?? string.Empty;
+            return url ?? string.Empty;
+        }
+        finally
+        {
+            promptWatch.Cancel();
+            await prompt.ConfigureAwait(false);
+        }
     }
 
     /// <summary>Lists all known sessions, optionally filtered.</summary>
@@ -1735,7 +1796,7 @@ public class CopilotService : IAsyncDisposable
     /// Centralized so the throw sites and <see cref="IsMcpSetupTimeoutError"/> can never drift.
     /// </summary>
     internal const string McpSetupTimeoutMessage =
-        "MCP server connection timed out. Check that your MCP servers are installed and responding.";
+        "A connector took too long to connect. Check that your connectors are installed and responding.";
 
     /// <summary>
     /// True when an error is the client-side MCP session-SETUP timeout (a slow create/resume + MCP
@@ -1745,7 +1806,9 @@ public class CopilotService : IAsyncDisposable
     /// </summary>
     internal static bool IsMcpSetupTimeoutError(string? errorText)
         => !string.IsNullOrWhiteSpace(errorText)
-           && errorText.Contains("MCP server connection timed out", StringComparison.OrdinalIgnoreCase);
+           && (errorText.Contains("A connector took too long to connect", StringComparison.OrdinalIgnoreCase)
+               // Chats saved by earlier versions carry the message's previous wording.
+               || errorText.Contains("MCP server connection timed out", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// The single send-failure decision shared by both handlers. Given whatever the failure exposed
@@ -1842,7 +1905,42 @@ public class CopilotService : IAsyncDisposable
             env["PATH"] = UnixShellPath.Augment(env.TryGetValue("PATH", out var existingPath) ? existingPath : null);
 
         ApplyAgentProcessEnvironment(env);
+        ApplySkillListingBudget(env);
+        ApplyAutoReviewFeature(env);
         return env;
+    }
+
+    internal const string FeatureFlagsVariable = "COPILOT_CLI_ENABLED_FEATURE_FLAGS";
+
+    /// <summary>The runtime flag behind its native <c>assisted</c> mode, which Auto-review is.</summary>
+    internal const string AutoReviewFeatureFlag = "AUTO_APPROVAL";
+
+    /// <summary>
+    /// Turns on the runtime's reviewer, keeping any flags the user set (the runtime reads a comma
+    /// list). It only unlocks the <c>assisted</c> mode: chats in other modes never call the reviewer.
+    /// </summary>
+    internal static void ApplyAutoReviewFeature(IDictionary<string, string> environment)
+    {
+        var flags = environment.TryGetValue(FeatureFlagsVariable, out var configured) ? configured.Trim().TrimEnd(',') : "";
+        if (flags.Split(',', StringSplitOptions.TrimEntries).Contains(AutoReviewFeatureFlag, StringComparer.OrdinalIgnoreCase))
+            return;
+        environment[FeatureFlagsVariable] = flags.Length == 0 ? AutoReviewFeatureFlag : flags + "," + AutoReviewFeatureFlag;
+    }
+
+    /// <summary>
+    /// How many characters of skill descriptions the runtime lists for the model. Past its default
+    /// of 15,000 it lists the remaining skills by name only, so the model cannot tell when to use
+    /// them, and a single large plugin (Azure brings about 24,000) used up the whole default.
+    /// </summary>
+    internal const int SkillListingBudget = 40_000;
+
+    internal const string SkillListingBudgetVariable = "SKILL_CHAR_BUDGET";
+
+    /// <summary>Raises the runtime's skill listing budget unless the user chose their own.</summary>
+    internal static void ApplySkillListingBudget(IDictionary<string, string> environment)
+    {
+        if (!environment.TryGetValue(SkillListingBudgetVariable, out var configured) || string.IsNullOrWhiteSpace(configured))
+            environment[SkillListingBudgetVariable] = SkillListingBudget.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static void ApplyAgentProcessEnvironment(IDictionary<string, string> environment)

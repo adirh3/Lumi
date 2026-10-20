@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Lumi.ViewModels;
 
@@ -21,6 +22,10 @@ public partial class ChatViewModel
 
     /// <summary>The new-chat launchpad shown while this surface has no chat.</summary>
     public LaunchpadViewModel Launchpad => _launchpad ??= new LaunchpadViewModel(this, _dataStore, _chatEvents);
+
+    /// <summary>The window's well-known setups; the launchpad shows the one suggested now.</summary>
+    [ObservableProperty]
+    private SetupSuggestionsViewModel? _setupSuggestions;
 
     /// <summary>Raised when the launchpad opens a chat; the main window also reveals it in the sidebar.</summary>
     public event Action<Guid>? RevealChatRequested;

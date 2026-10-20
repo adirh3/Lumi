@@ -308,6 +308,7 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(HasRunningSubagents));
         OnPropertyChanged(nameof(SubagentRunsSummary));
         OnPropertyChanged(nameof(WorkspaceToggleToolTip));
+        OnPropertyChanged(nameof(HeaderAgentsText));
     }
 
     /// <summary>
@@ -357,6 +358,7 @@ public partial class ChatViewModel
         _subagentIndexSignature = signature;
         _orderedSubagentRuns = OrderSubagentRuns(runs);
         RefreshWorkspaceAgents(_orderedSubagentRuns);
+        RefreshHeaderRunningAgents(_orderedSubagentRuns);
 
         if (SelectedSubagentRun is { } selected && !runs.Contains(selected))
             SelectedSubagentRun = ResolveReplacementRun(selected);
@@ -592,6 +594,7 @@ public partial class ChatViewModel
         SelectedSubagentRun = null;
         SubagentRunCount = 0;
         RunningSubagentCount = 0;
+        HeaderRunningAgents = [];
         SubagentRunFilter = SubagentRunFilter.All;
         _subagentRunRebuild?.CancelPending();
     }

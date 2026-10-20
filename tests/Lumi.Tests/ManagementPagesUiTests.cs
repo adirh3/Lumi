@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -13,6 +14,7 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
+using StrataTheme.Animation;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -100,18 +102,62 @@ public sealed class ManagementPagesUiTests
                     await CheckPage(4, "LumisOverview", "LumiDetail", "LumisListBox", agent,
                         () => vm.AgentsVM.SelectedAgent = agent, () => vm.AgentsVM.CloseDetailCommand.Execute(null),
                         () => vm.AgentsVM.SelectedAgent);
-                    await CheckPage(5, "MemoriesOverview", "MemoryDetail", "MemoriesListBox", memory,
-                        () => vm.MemoriesVM.SelectedMemory = memory, () => vm.MemoriesVM.CloseDetailCommand.Execute(null),
-                        () => vm.MemoriesVM.SelectedMemory);
                     await CheckPage(6, "McpOverview", "McpDetail", "McpServersListBox", server,
                         () => vm.McpServersVM.SelectedServer = server, () => vm.McpServersVM.CloseDetailCommand.Execute(null),
                         () => vm.McpServersVM.SelectedServer);
 
-                    // The MCP page opens on its servers, not the catalog, and the catalog is one click away.
-                    vm.McpServersVM.BrowseCatalogCommand.Execute(null);
+                    // Memories is a Settings page: the Settings list stays beside it with Memories selected,
+                    // Settings stays lit in the bar, and memories open from the page's own cards.
+                    vm.SelectedNavIndex = MainViewModel.MemoriesNavIndex;
                     await Settle();
-                    Assert.True(Named<Panel>("McpCatalog").IsVisible);
-                    Assert.NotEmpty(vm.McpServersVM.CatalogEntries);
+                    Assert.True(Named<Panel>("MemoriesOverview").IsVisible);
+                    Assert.True(Named<ListBox>("SettingsPagesList").IsEffectivelyVisible);
+                    Assert.True(Named<ListBoxItem>("SettingsMemoriesItem").IsSelected);
+                    Assert.Contains("active", Named<Button>("NavSettings").Classes);
+                    vm.MemoriesVM.SelectedMemory = memory;
+                    await Settle();
+                    Assert.True(Named<Panel>("MemoryDetail").IsVisible);
+                    vm.MemoriesVM.CloseDetailCommand.Execute(null);
+                    await Settle();
+                    Assert.True(Named<Panel>("MemoriesOverview").IsVisible);
+
+                    // The Settings list moves between Memories and the other Settings pages.
+                    Named<ListBox>("SettingsPagesList").SelectedIndex = 0;
+                    await Settle();
+                    Assert.Equal(7, vm.SelectedNavIndex);
+                    Assert.Equal(0, vm.SettingsVM.SelectedPageIndex);
+                    Named<ListBox>("SettingsPagesList").SelectedItem = Named<ListBoxItem>("SettingsMemoriesItem");
+                    await Settle();
+                    Assert.Equal(MainViewModel.MemoriesNavIndex, vm.SelectedNavIndex);
+                    Assert.True(Named<Panel>("MemoriesOverview").IsVisible);
+
+                    // Agents, skills, connectors and projects are sections of Customize: one place in the
+                    // bar stays lit across them and the open section's row is selected.
+                    foreach (var (nav, tab) in new[] { (2, "CustomizeProjectsTab"), (3, "CustomizeSkillsTab"), (4, "CustomizeLumisTab"), (6, "CustomizeMcpTab") })
+                    {
+                        vm.SelectedNavIndex = nav;
+                        await Settle();
+                        Assert.True(Named<Border>("CustomizeSwitcher").IsVisible);
+                        Assert.Contains("active", Named<Button>("NavCustomize").Classes);
+                        Assert.Contains("selected", Named<Button>(tab).Classes);
+                        Assert.DoesNotContain("selected", Named<Button>("CustomizeDiscoverTab").Classes);
+                        Assert.Equal(nav, vm.LastCustomizeNavIndex);
+                    }
+
+                    // The Customize button returns to the section used last, as it was left.
+                    vm.SelectedNavIndex = 0;
+                    await Settle();
+                    vm.OpenCustomizeCommand.Execute(null);
+                    await Settle();
+                    Assert.Equal(6, vm.SelectedNavIndex);
+                    Assert.True(Named<Panel>("McpDetail").IsVisible);
+                    Assert.Same(server, Named<ListBox>("McpServersListBox").SelectedItem);
+
+                    // Clicking the open section's row again goes back to that section's overview.
+                    vm.OpenCustomizeSectionCommand.Execute("6");
+                    await Settle();
+                    Assert.Equal(6, vm.SelectedNavIndex);
+                    Assert.True(Named<Panel>("McpOverview").IsVisible);
 
                     // Editing shows the save bar; saving keeps the skill open and hides it again.
                     vm.SelectedNavIndex = 3;
@@ -126,6 +172,104 @@ public sealed class ManagementPagesUiTests
                     Assert.False(Named<Border>("SkillSaveBar").IsVisible);
                     Assert.True(Named<Panel>("SkillDetail").IsVisible);
                     Assert.Equal("Warm and friendly", skill.Description);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            try { Directory.Delete(skillsDirectory, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task PluginParts_ShowReadOnlyInTheirSection_AndOwnItemsStillOpenTheEditor()
+    {
+        using var session = HeadlessTestSession.Start();
+        var skillsDirectory = Path.Combine(Path.GetTempPath(), $"lumi-management-ui-{Guid.NewGuid():N}");
+
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                Loc.Load("en");
+                var skill = new Skill { Name = "Tone", Description = "Friendly", Content = "# Tone\nBe kind." };
+                var data = new AppData
+                {
+                    Settings = new UserSettings { IsOnboarded = true, AutoSaveChats = false, EnableMemoryAutoSave = false },
+                    Skills = [skill]
+                };
+                using var vm = new MainViewModel(
+                    new DataStore(data, skillsDirectory),
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    startBackgroundJobs: false,
+                    initializeCopilotOnStartup: false);
+                var window = new MainWindow { DataContext = vm, Width = 1280, Height = 860 };
+                window.Show();
+
+                try
+                {
+                    async Task Settle()
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                        window.UpdateLayout();
+                    }
+
+                    T Named<T>(string name) where T : Control
+                        => window.GetVisualDescendants().OfType<T>().Single(control => control.Name == name);
+
+                    // Opening the section refreshes what Copilot provides; let that land first so it
+                    // cannot replace the plugin parts this test shows.
+                    var refreshed = new TaskCompletionSource();
+                    vm.SkillsVM.External.PropertyChanged += (_, e) =>
+                    {
+                        if (e.PropertyName == nameof(ExternalCapabilitiesViewModel.TotalCount))
+                            refreshed.TrySetResult();
+                    };
+                    vm.SelectedNavIndex = 3;
+                    await Task.WhenAny(refreshed.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+                    await Settle();
+
+                    vm.SkillsVM.External.Update(new Lumi.Services.Capabilities.CapabilitySnapshot(
+                        Lumi.Services.Capabilities.CapabilityQuery.Empty,
+                        [
+                            new Lumi.Services.Capabilities.CapabilityDescriptor
+                            {
+                                Kind = Lumi.Services.Capabilities.CapabilityKind.Skill,
+                                Name = "azure:deploy",
+                                Origin = Lumi.Services.Capabilities.CapabilityOrigin.ForPlugin("azure"),
+                                Description = "Ship to Azure",
+                                PluginName = "azure",
+                            },
+                        ],
+                        isComplete: true));
+                    await Settle();
+
+                    var sections = Named<Control>("SkillsExternalSections");
+                    Assert.True(sections.IsEffectivelyVisible);
+                    var texts = sections.GetVisualDescendants().OfType<TextBlock>().Select(static text => text.Text).ToList();
+                    Assert.Contains("Azure", texts);
+                    Assert.Contains("deploy", texts);
+                    Assert.True(vm.SkillsVM.HasExternal);
+
+                    vm.SkillsVM.External.Groups.SelectMany(static group => group.Items)
+                        .Single(static item => item.Descriptor.Name == "azure:deploy").OpenCommand.Execute(null);
+                    await Settle();
+                    Assert.True(Named<Panel>("SkillExternalDetail").IsVisible);
+                    Assert.False(Named<Panel>("SkillsOverview").IsVisible);
+                    Assert.False(Named<Panel>("SkillDetail").IsVisible);
+
+                    // The user's own skill still opens in the editor, replacing the read-only view.
+                    vm.SkillsVM.SelectedSkill = skill;
+                    await Settle();
+                    Assert.False(vm.SkillsVM.External.IsViewing);
+                    Assert.False(Named<Panel>("SkillExternalDetail").IsVisible);
+                    Assert.True(Named<Panel>("SkillDetail").IsVisible);
                 }
                 finally
                 {
@@ -191,6 +335,84 @@ public sealed class ManagementPagesUiTests
 
                         Assert.True(clipping.Count == 0, $"Page {nav}: cards are clipped by {string.Join(" > ", clipping)}");
                     }
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            try { Directory.Delete(skillsDirectory, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task OpeningAnItem_RaisesItsSectionsIntoPlace_UnlessAnimationsAreOff()
+    {
+        using var session = HeadlessTestSession.Start();
+        var skillsDirectory = Path.Combine(Path.GetTempPath(), $"lumi-management-ui-{Guid.NewGuid():N}");
+
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                Loc.Load("en");
+                var tone = new Skill { Name = "Tone", Content = "# Tone\nBe kind." };
+                var brief = new Skill { Name = "Brief", Content = "# Brief\nKeep it short." };
+                var data = new AppData
+                {
+                    Settings = new UserSettings { IsOnboarded = true, AutoSaveChats = false, EnableMemoryAutoSave = false },
+                    Skills = [tone, brief]
+                };
+                using var vm = new MainViewModel(
+                    new DataStore(data, skillsDirectory),
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    startBackgroundJobs: false,
+                    initializeCopilotOnStartup: false);
+                var window = new MainWindow { DataContext = vm, Width = 1280, Height = 860 };
+                window.Show();
+
+                try
+                {
+                    async Task Settle()
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                        window.UpdateLayout();
+                    }
+
+                    List<Control> DetailSections()
+                        => ((Panel)window.GetVisualDescendants().OfType<ScrollViewer>().Single(scroll => scroll.Name == "SkillDetailScroll").Content!)
+                            .Children.Where(static section => section.IsVisible).ToList();
+
+                    vm.SelectedNavIndex = 3;
+                    await Settle();
+
+                    // The page is built on first open, and its sections still rise in one after another.
+                    vm.SkillsVM.SelectedSkill = tone;
+                    await Settle();
+                    var sections = DetailSections();
+                    Assert.True(sections.Count > 1);
+                    Assert.All(sections, section => Assert.True(SlideFadeEntrance.IsCompositedRunning(section)));
+
+                    // Moving to another skill plays it again.
+                    sections.ForEach(SlideFadeEntrance.StopComposited);
+                    vm.SkillsVM.SelectedSkill = brief;
+                    await Settle();
+                    Assert.All(sections, section => Assert.True(SlideFadeEntrance.IsCompositedRunning(section)));
+
+                    // Leaving the page stops its motion.
+                    vm.SkillsVM.CloseDetailCommand.Execute(null);
+                    await Settle();
+                    Assert.All(sections, section => Assert.False(SlideFadeEntrance.IsCompositedRunning(section)));
+
+                    vm.SettingsVM.ShowAnimations = false;
+                    vm.SkillsVM.SelectedSkill = tone;
+                    await Settle();
+                    Assert.All(DetailSections(), section => Assert.False(SlideFadeEntrance.IsCompositedRunning(section)));
                 }
                 finally
                 {

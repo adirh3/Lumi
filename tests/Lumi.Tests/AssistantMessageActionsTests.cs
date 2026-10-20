@@ -87,7 +87,7 @@ public sealed class AssistantMessageActionsTests
     }
 
     [Fact]
-    public async Task FooterCopyAndMoreMenu_PreserveSelectedTextAndResetConfirmation()
+    public async Task FooterCopiesWholeMessage_AndMoreMenuPreservesSelectedText()
     {
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
@@ -104,11 +104,12 @@ public sealed class AssistantMessageActionsTests
                 var copy = FindButton(message, "PART_CopyButton");
                 copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await PumpAsync();
-                Assert.Equal("beta", await window.Clipboard!.TryGetTextAsync());
+                Assert.Equal("Alpha beta gamma", await window.Clipboard!.TryGetTextAsync());
 
                 FindButton(message, "PART_MoreButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var menu = Assert.IsType<ContextMenu>(message.ContextMenu);
-                var selectedCopy = menu.ItemsSource!.OfType<MenuItem>().Single(item => Equals(item.Header, message.CopySelectionLabel));
+                var copyAs = menu.ItemsSource!.OfType<MenuItem>().Single(item => Equals(item.Header, message.CopyAsLabel));
+                var selectedCopy = copyAs.Items.OfType<MenuItem>().Single(item => Equals(item.Header, message.CopyPlainTextLabel));
                 text.SelectionStart = text.SelectionEnd = 0;
                 selectedCopy.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 await PumpAsync();
@@ -149,13 +150,15 @@ public sealed class AssistantMessageActionsTests
                 FindButton(message, "PART_MoreButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var menu = Assert.IsType<ContextMenu>(message.ContextMenu);
                 var label = format == StrataCopyFormat.Markdown ? message.CopyMarkdownLabel : message.CopyRichTextLabel;
-                menu.ItemsSource!.OfType<MenuItem>().Single(item => Equals(item.Header, label))
+                menu.ItemsSource!.OfType<MenuItem>().Single(item => Equals(item.Header, message.CopyAsLabel))
+                    .Items.OfType<MenuItem>().Single(item => Equals(item.Header, label))
                     .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
                 await PumpAsync();
 
                 using var data = await window.Clipboard!.TryGetDataAsync();
                 Assert.NotNull(data);
-                Assert.Equal(markdown, await data!.TryGetTextAsync());
+                Assert.Equal(format == StrataCopyFormat.Markdown ? markdown : "Bold answer with code.",
+                    await data!.TryGetTextAsync());
                 if (format == StrataCopyFormat.Markdown)
                     Assert.Equal(markdown, await data.TryGetValueAsync(DataFormat.CreateStringPlatformFormat("text/markdown")));
                 else
@@ -192,7 +195,8 @@ public sealed class AssistantMessageActionsTests
                 var menu = Assert.IsType<ContextMenu>(message.ContextMenu);
                 Assert.True(menu.IsOpen);
                 Assert.Contains(":menu-open", message.Classes);
-                Assert.Contains(menu.ItemsSource!.OfType<MenuItem>(), item => Equals(item.Header, "Copy as Markdown"));
+                var copyAs = menu.ItemsSource!.OfType<MenuItem>().Single(item => Equals(item.Header, message.CopyAsLabel));
+                Assert.Contains(copyAs.Items.OfType<MenuItem>(), item => Equals(item.Header, message.CopyMarkdownLabel));
                 menu.Close();
                 Assert.DoesNotContain(":menu-open", message.Classes);
 
@@ -318,11 +322,24 @@ public sealed class AssistantMessageActionsTests
                 Assert.True(menu.IsOpen);
                 Assert.Contains(":menu-open", message.Classes);
                 var labels = menu.ItemsSource!.OfType<MenuItem>().Select(item => item.Header).ToList();
-                Assert.Contains(Loc.Chat_CopyMarkdown, labels);
-                Assert.Contains(Loc.Chat_CopyRichText, labels);
-                Assert.Contains(Loc.Chat_CopyTurn, labels);
+                Assert.Contains(Loc.Chat_CopyAs, labels);
+                var copyFormats = menu.ItemsSource.OfType<MenuItem>()
+                    .Single(item => Equals(item.Header, Loc.Chat_CopyAs)).Items.OfType<MenuItem>()
+                    .Select(item => item.Header).ToArray();
+                Assert.Contains(Loc.Chat_CopyMarkdown, copyFormats);
+                Assert.Contains(Loc.Chat_CopyRichText, copyFormats);
+                Assert.DoesNotContain(Loc.Chat_CopyTurn, labels);
+                Assert.DoesNotContain(Loc.Chat_CopySelection, labels);
+                Assert.DoesNotContain(Loc.Chat_CopyMessage, labels);
                 Assert.Contains(Loc.Menu_ForkFromHere, labels);
                 menu.Close();
+                // The menu fades out briefly before it is gone.
+                for (var i = 0; i < 50 && message.Classes.Contains(":menu-open"); i++)
+                {
+                    await Task.Delay(10);
+                    await PumpAsync();
+                }
+
                 Assert.DoesNotContain(":menu-open", message.Classes);
                 Assert.Equal(PlacementMode.Pointer, menu.Placement);
 

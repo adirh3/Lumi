@@ -740,7 +740,9 @@ internal static class RemoteProjector
         // re-rendered the whole plan on every token. It travels on RemoteChatStatus.PlanContent
         // instead, where the phone can show it on demand.
 
-        return EnforceTranscriptWireLimit(BoundTranscript(transcript));
+        return EnforceTranscriptWireLimit(
+            BoundTranscript(transcript),
+            compact ? compactSource : null);
     }
 
     public static RemoteActivityDetails? BuildActivityDetails(
@@ -962,36 +964,15 @@ internal static class RemoteProjector
                 continue;
             }
 
-            var answerIndex = -1;
-            var interrupted = false;
-            for (var index = start; index < end; index++)
-            {
-                var message = messages[index];
-                if (message.Id == answerId)
-                    answerIndex = index;
-                if (message.IsStreaming
-                    || message.Role == "tool"
-                    && ProjectedToolStatus(message, runningBackgroundToolCallIds) is "InProgress" or "Stopped")
-                {
-                    interrupted = true;
-                }
-                // Completed file notifications may arrive after idle; they are bookkeeping, not new work.
-                var completedFileNotification = message is
-                {
-                    Role: "tool",
-                    ToolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
-                    ToolStatus: "Completed"
-                };
-                if (answerIndex >= 0 && index > answerIndex && !completedFileNotification
-                    && (IsCompactTechnicalMessage(message) || message.Role == "error"
-                        || message.Role == "tool" && IsQuestion(message)
-                        || message.Role == "assistant" && !string.IsNullOrWhiteSpace(message.Content)))
-                {
-                    interrupted = true;
-                }
-            }
+            // Lumi has stopped working on this turn: a later message moved on, or the chat went idle. As on
+            // the desktop, its finished work folds up to its last word even when that word is no answer
+            // (a steered, stopped or cut-off turn); what still runs in the background stays in view.
+            if (!HasStreamingMessage(messages, start, end))
+                turn.IsSettled = true;
 
-            if (interrupted || answerIndex < 0 || messages[answerIndex].Role != "assistant")
+            var answerIndex = FindCompletedTurnAnswerIndex(
+                messages, start, end, runningBackgroundToolCallIds);
+            if (answerIndex < 0 || messages[answerIndex].Id != answerId)
                 continue;
 
             turn.FinalAnswerId = answer.Id;
@@ -1014,6 +995,66 @@ internal static class RemoteProjector
 
             turn.WorkDurationMs = Math.Max(0, (finishedAt - startedAt).TotalMilliseconds);
         }
+    }
+
+    private static bool HasStreamingMessage(IReadOnlyList<ChatMessage> messages, int start, int end)
+    {
+        for (var index = start; index < end; index++)
+        {
+            if (messages[index].IsStreaming)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static int FindCompletedTurnAnswerIndex(
+        IReadOnlyList<ChatMessage> messages,
+        int start,
+        int end,
+        IReadOnlySet<string>? runningBackgroundToolCallIds)
+    {
+        var answerIndex = -1;
+        for (var index = end - 1; index >= start; index--)
+        {
+            if (messages[index].Role == "assistant"
+                && !string.IsNullOrWhiteSpace(messages[index].Content))
+            {
+                answerIndex = index;
+                break;
+            }
+        }
+        // A message the SDK recorded as an update written while working is not an answer, as on the desktop.
+        if (answerIndex < 0 || messages[answerIndex].IsProgress == true)
+            return -1;
+
+        for (var index = start; index < end; index++)
+        {
+            var message = messages[index];
+            if (message.IsStreaming
+                || message.Role == "tool"
+                && ProjectedToolStatus(message, runningBackgroundToolCallIds) is "InProgress" or "Stopped")
+            {
+                return -1;
+            }
+            // Completed file notifications may arrive after idle; they are bookkeeping, not new work. The
+            // thinking behind the answer can be recorded just after it, too; it is the answer's, not new work.
+            var completedFileNotification = message is
+            {
+                Role: "tool",
+                ToolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
+                ToolStatus: "Completed"
+            };
+            if (index > answerIndex && !completedFileNotification && message.Role != "reasoning"
+                && (IsCompactTechnicalMessage(message) || message.Role == "error"
+                    || message.Role == "tool" && IsQuestion(message)
+                    || message.Role == "assistant" && !string.IsNullOrWhiteSpace(message.Content)))
+            {
+                return -1;
+            }
+        }
+
+        return answerIndex;
     }
 
     /// <summary>
@@ -1085,7 +1126,9 @@ internal static class RemoteProjector
         IReadOnlyList<ChatMessage> messages,
         int? beforeMessageIndex,
         int maxVisibleItems,
-        int textBudgetCharacters = RemoteProtocol.CompactTranscriptWindowTextBudgetCharacters)
+        int textBudgetCharacters = RemoteProtocol.CompactTranscriptWindowTextBudgetCharacters,
+        RemoteChatStatus? latestStatus = null,
+        IReadOnlySet<string>? runningBackgroundToolCallIds = null)
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxVisibleItems, 1);
@@ -1108,15 +1151,21 @@ internal static class RemoteProjector
             var remainingTextBudget = Math.Max(
                 0,
                 textBudgetCharacters - visibleTextCharacters);
+            var finalAnswerIndex = start == total
+                                   && (latestStatus?.IsBusy == true || latestStatus?.IsStreaming == true)
+                ? -1
+                : FindCompletedTurnAnswerIndex(
+                    messages, turnStart, start, runningBackgroundToolCallIds);
             var turnCost = EstimateCompactTurn(
                 messages,
                 turnStart,
                 start,
-                remainingTextBudget);
+                remainingTextBudget,
+                finalAnswerIndex);
 
             // Always include the newest represented turn so paging advances even when one answer is
             // individually oversized. Older turns are admitted by what the phone will actually draw:
-            // user/assistant/question/file rows plus contiguous activity cards, never raw command count.
+            // completed work is one disclosure, while live work keeps its chronological rows.
             if (start < end
                 && (visibleItemCount + turnCost.VisibleItems > maxVisibleItems
                     || visibleTextCharacters + turnCost.TextCharacters
@@ -1174,22 +1223,28 @@ internal static class RemoteProjector
         IReadOnlyList<ChatMessage> messages,
         int start,
         int end,
-        long stopAfterTextCharacters)
+        long stopAfterTextCharacters,
+        int finalAnswerIndex)
     {
         var visibleItems = 0;
         long textCharacters = 0;
         var hasActivity = false;
+        var hasWorkSummary = false;
 
         for (var index = start; index < end; index++)
         {
             var message = messages[index];
             if (IsCompactTechnicalMessage(message))
             {
-                if (!hasActivity)
+                if (index < finalAnswerIndex)
+                {
+                    AddWorkSummary();
+                }
+                else if (!hasActivity)
                 {
                     visibleItems++;
-                    hasActivity = true;
                 }
+                hasActivity = true;
                 continue;
             }
 
@@ -1197,13 +1252,24 @@ internal static class RemoteProjector
             if (!ProducesCompactTranscriptItem(message))
                 continue;
 
-            visibleItems++;
+            if (index < finalAnswerIndex && message.Role == "assistant")
+                AddWorkSummary();
+            else
+                visibleItems++;
             textCharacters += EstimateCompactMessageTextCharacters(
                 message,
                 Math.Max(0, stopAfterTextCharacters - textCharacters));
         }
 
         return (visibleItems, textCharacters);
+
+        void AddWorkSummary()
+        {
+            if (hasWorkSummary)
+                return;
+            visibleItems++;
+            hasWorkSummary = true;
+        }
     }
 
     private static bool ProducesCompactTranscriptItem(ChatMessage message) =>
@@ -1485,6 +1551,7 @@ internal static class RemoteProjector
         };
 
         RemoteToolCall? latestRunningTool = null;
+        string? sharedIcon = null;
         var hasReasoning = false;
         foreach (var message in technicalMessages)
         {
@@ -1508,9 +1575,12 @@ internal static class RemoteProjector
             activity.ActionCount = (activity.ActionCount ?? 0) + 1;
             activity.DurationMs = (activity.DurationMs ?? 0) + (call.DurationMs ?? 0);
             activity.Status = MergeActivityStatus(activity.Status, call.Status);
+            sharedIcon = sharedIcon is null || sharedIcon == call.Icon ? call.Icon : TranscriptIcons.Mixed;
             if (string.Equals(call.Status, "InProgress", StringComparison.Ordinal))
                 latestRunningTool = call;
         }
+
+        activity.Icon = latestRunningTool?.Icon ?? sharedIcon;
 
         if (string.Equals(activity.Status, "InProgress", StringComparison.Ordinal)
             && latestRunningTool is null
@@ -1622,6 +1692,7 @@ internal static class RemoteProjector
             Id = message.ToolCallId ?? message.Id.ToString("N"),
             Name = toolName,
             DisplayName = friendly,
+            Icon = ToolDisplayHelper.GetToolIconKey(toolName),
             Input = RemoteProtocol.TruncateForMobile(
                 message.ToolSkillName ?? info ?? message.Content,
                 RemoteProtocol.MobileToolInputLimit),
@@ -2021,6 +2092,7 @@ internal static class RemoteProjector
                 item.Label = BoundOptional(item.Label, RemoteProtocol.MobileMetadataTextLimit);
                 item.Status = BoundOptional(item.Status, RemoteProtocol.MobileStatusValueLimit);
                 item.Model = BoundOptional(item.Model, RemoteProtocol.MobileStatusValueLimit);
+                item.Icon = BoundOptional(item.Icon, RemoteProtocol.MobileStatusValueLimit);
                 item.ActivityId = BoundOptional(
                     item.ActivityId,
                     RemoteProtocol.MobileIdentifierLimit);
@@ -2049,10 +2121,43 @@ internal static class RemoteProjector
         return transcript;
     }
 
-    private static RemoteTranscript EnforceTranscriptWireLimit(RemoteTranscript transcript)
+    private static RemoteTranscript EnforceTranscriptWireLimit(
+        RemoteTranscript transcript,
+        IReadOnlyList<ChatMessage>? compactSourceMessages)
     {
         if (SerializedTranscriptFits(transcript))
             return transcript;
+
+        // Collapsed work still retains its detail rows. Page whole older turns out before
+        // truncating text, keeping their raw cursor so the next request can reach them.
+        if (compactSourceMessages?.Count == transcript.TotalRawMessageCount)
+        {
+            while (transcript.Turns.Count > 1)
+            {
+                var removeCount = transcript.Turns.Count / 2;
+                var firstItem = transcript.Turns[removeCount].Items.FirstOrDefault();
+                if (firstItem is not { Kind: RemoteProtocol.ItemKinds.User }
+                    || !Guid.TryParseExact(firstItem.Id, "N", out var firstMessageId))
+                {
+                    break;
+                }
+
+                var newStart = transcript.WindowStartMessageIndex;
+                while (newStart < transcript.WindowEndMessageIndex
+                       && compactSourceMessages[newStart].Id != firstMessageId)
+                {
+                    newStart++;
+                }
+                if (newStart == transcript.WindowEndMessageIndex)
+                    break;
+
+                transcript.Turns.RemoveRange(0, removeCount);
+                transcript.WindowStartMessageIndex = newStart;
+                transcript.HasEarlierMessages = newStart > 0;
+                if (SerializedTranscriptFits(transcript))
+                    return transcript;
+            }
+        }
 
         var minimumLength = RemoteProtocol.MobileTruncationMarker.Length + 1;
         for (var pass = 0; pass < 12; pass++)
@@ -2498,6 +2603,7 @@ internal static class RemoteProjector
             DisplayName = BoundOptional(
                 tool.DisplayName,
                 RemoteProtocol.MobileMetadataTextLimit),
+            Icon = BoundOptional(tool.Icon, RemoteProtocol.MobileStatusValueLimit),
             Input = BoundOptional(tool.Input, RemoteProtocol.MobileToolInputLimit),
             Output = BoundOptional(tool.Output, RemoteProtocol.MobileToolOutputLimit),
             Category = BoundRequired(tool.Category, RemoteProtocol.MobileStatusValueLimit),
@@ -2513,6 +2619,7 @@ internal static class RemoteProjector
             DisplayName = BoundOptional(
                 tool.DisplayName,
                 RemoteProtocol.MobileMetadataTextLimit),
+            Icon = BoundOptional(tool.Icon, RemoteProtocol.MobileStatusValueLimit),
             Input = BoundOptional(tool.Input, RemoteProtocol.MobileActivityToolInputLimit),
             Output = BoundOptional(tool.Output, RemoteProtocol.MobileActivityToolOutputLimit),
             Category = BoundRequired(tool.Category, RemoteProtocol.MobileStatusValueLimit),

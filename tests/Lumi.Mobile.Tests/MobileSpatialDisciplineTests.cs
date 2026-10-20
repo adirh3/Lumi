@@ -1,5 +1,6 @@
 using System.Runtime.ExceptionServices;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
@@ -180,7 +181,7 @@ public sealed class MobileSpatialDisciplineTests
                 var library = Required<LibraryView>(window, "LibraryPage");
                 var libraryRow = Required<ItemsControl>(library, "LibraryEntries")
                     .GetVisualDescendants().OfType<Button>()
-                    .Single(button => ReferenceEquals(button.Command, shell.Library.BeginEditCommand));
+                    .Single(button => ReferenceEquals(button.Command, shell.Library.OpenEntryCommand));
                 AssertSharedAxis(
                 [
                     Left(Required<Control>(library, "LibraryHeaderLayout"), window),
@@ -236,35 +237,42 @@ public sealed class MobileSpatialDisciplineTests
             (_, window, _) =>
             {
                 var drawer = Required<MobileDrawerView>(window, "DrawerContent");
+                var search = Required<Button>(drawer, "DrawerSearchButton");
                 var projectButton = Required<Button>(drawer, "DrawerProjectButton");
                 var chatButton = Required<ItemsControl>(drawer, "DrawerChatGroups")
                     .GetVisualDescendants().OfType<Button>().First();
-                var rows = new[]
-                {
-                    Required<Button>(drawer, "DrawerLibraryButton"),
-                    chatButton,
-                    Required<Button>(drawer, "DrawerLoadMoreButton")
-                };
-                Assert.All(rows, row => Assert.Equal(12, Left(row, drawer), 1));
+                var rows = new[] { chatButton, Required<Button>(drawer, "DrawerLoadMoreButton") };
+                Assert.All(rows, row => Assert.Equal(10, Left(row, drawer), 1));
+
+                // The title and the project lens share the 16 dp navigation gutter, search closes the
+                // header row on the same axis, and the places pill sits centred under the list. Docked
+                // beside the chat, the list leaves New chat to the top right of the chat's bar.
+                Assert.Equal(16, Left(Required<TextBlock>(drawer, "DrawerTitle"), drawer), 1);
                 Assert.Equal(16, Left(projectButton, drawer), 1);
-                Assert.Equal("All projects", Required<TextBlock>(drawer, "DrawerProjectLabel").Text);
-                var settings = Required<Button>(drawer, "DrawerAccountButton");
-                Assert.Equal(48, settings.Bounds.Width);
-                Assert.Equal(drawer.Bounds.Width - 12,
-                    settings.TranslatePoint(new Point(settings.Bounds.Width, 0), drawer)!.Value.X, 1);
-                var iconTiles = new[]
-                {
-                    Required<Button>(drawer, "DrawerLibraryButton")
-                }.Select(row => row.GetVisualDescendants().OfType<Border>()
-                    .Single(border => border.Classes.Contains("navigation-icon-tile")));
-                AssertSharedAxis(iconTiles.Select(tile => Left(tile, drawer)).ToArray(), expected: 24, tolerance: 1);
+                Assert.Equal(drawer.Bounds.Width - 16,
+                    projectButton.TranslatePoint(new Point(projectButton.Bounds.Width, 0), drawer)!.Value.X, 1);
+                Assert.Equal(48, search.Bounds.Width);
+                Assert.Equal(drawer.Bounds.Width - 16,
+                    search.TranslatePoint(new Point(search.Bounds.Width, 0), drawer)!.Value.X, 1);
+                Assert.False(Required<Button>(drawer, "DrawerNewChatButton").IsVisible);
+                // Centred to within the layout's rounding of an odd remainder.
+                var places = Required<PlacesBarView>(drawer, "DrawerPlaces");
+                Assert.InRange(Left(places, drawer) - (drawer.Bounds.Width - Left(places, drawer) - places.Bounds.Width), -1, 1);
+                var chat = Required<ChatDetailView>(window, "ChatSurface");
+                var newChat = Required<Button>(chat, "NewChatButton");
+                Assert.True(newChat.IsEffectivelyVisible);
+                Assert.Equal(48, newChat.Bounds.Width);
+                Assert.Equal(chat.Bounds.Width - 16,
+                    newChat.TranslatePoint(new Point(newChat.Bounds.Width, 0), chat)!.Value.X, 1);
+                Assert.Equal("All chats", Required<TextBlock>(drawer, "DrawerProjectLabel").Text);
+
                 var chatTitle = chatButton.GetVisualDescendants().OfType<TextBlock>()
                     .Single(text => text.Classes.Contains("conversation-title"));
                 Assert.Equal(24, Left(chatTitle, drawer), 1);
                 Assert.Single(drawer.GetVisualDescendants().OfType<ScrollViewer>());
                 AssertInteractiveMinimum(drawer, 48);
 
-                _output.WriteLine("Navigation surfaces use a 12dp gutter and a shared 24dp icon/section axis.");
+                _output.WriteLine("Navigation surfaces use a 16dp control gutter, 12dp rows and a 24dp text axis.");
             });
     }
 
@@ -375,9 +383,9 @@ public sealed class MobileSpatialDisciplineTests
                 Required<Control>(window, "PendingAttachments").IsVisible = true;
 
                 var composer = Required<StrataChatComposer>(window, "Composer");
-                composer.AgentName = "Coding Lumi";
-                composer.ProjectName = "Lumi";
-                composer.SkillItems = new[] { new StrataComposerChip("Review") };
+                shell.Chat.AgentName = "Coding Lumi";
+                shell.Chat.ProjectName = "Lumi";
+                shell.Chat.SkillChips.Add(new StrataComposerChip("Review"));
                 Pump(window);
 
                 foreach (var name in new[]
@@ -408,25 +416,17 @@ public sealed class MobileSpatialDisciplineTests
                     $"Attachment removal target was {removeButton.Bounds.Width:0.#}×" +
                     $"{removeButton.Bounds.Height:0.#}dp");
 
-                foreach (var name in new[] { "PART_AgentRemoveButton", "PART_ProjectRemoveButton" })
+                // The chat's context is a row of chips, each one 48 dp target that opens its picker.
+                var contextChips = composer.GetVisualDescendants().OfType<Button>()
+                    .Where(button => button.Classes.Contains("context-chip") && button.IsEffectivelyVisible)
+                    .ToList();
+                Assert.Equal(3, contextChips.Count);
+                foreach (var chip in contextChips)
                 {
-                    var button = Required<Button>(composer, name);
                     Assert.True(
-                        button.Bounds.Width is >= 48 and <= 52 &&
-                        button.Bounds.Height is >= 48 and <= 52,
-                        $"{name} was {button.Bounds.Width:0.#}×{button.Bounds.Height:0.#}dp");
+                        chip.Bounds.Width >= 48 && chip.Bounds.Height is >= 48 and <= 52,
+                        $"{AutomationProperties.GetName(chip)} was {chip.Bounds.Width:0.#}×{chip.Bounds.Height:0.#}dp");
                 }
-
-                var skillRemoveButton = Assert.Single(
-                    composer.GetVisualDescendants().OfType<Button>(),
-                    button =>
-                        button.Classes.Contains("chip-remove") &&
-                        button.DataContext is not PendingAttachment);
-                Assert.True(
-                    skillRemoveButton.Bounds.Width is >= 48 and <= 52 &&
-                    skillRemoveButton.Bounds.Height is >= 48 and <= 52,
-                    $"Skill removal target was {skillRemoveButton.Bounds.Width:0.#}×" +
-                    $"{skillRemoveButton.Bounds.Height:0.#}dp");
             });
     }
 

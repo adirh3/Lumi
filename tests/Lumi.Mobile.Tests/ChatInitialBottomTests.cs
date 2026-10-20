@@ -86,8 +86,8 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 var shell = view.FindControl<StrataChatShell>("ChatShell")!;
                 var transcript = view.FindControl<ItemsControl>("Transcript")!;
                 Assert.Equal(48, model.Chat.Turns.Sum(turn => turn.Items.Count));
-                Assert.InRange(RealizedTurns(transcript), 1, 8);
-                Assert.NotNull(TurnView(transcript, 23).Child);
+                AssertOnlyNearbyTurnsRealized(shell, transcript);
+                Assert.True(TurnView(transcript, 23).IsRealized);
                 Assert.Null(TurnView(transcript, 0).Child);
                 AssertAtBottom(shell, "virtualized initial landing");
                 Assert.InRange(initializedAnswers.Count, 1, 8);
@@ -97,8 +97,8 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 await PumpAsync();
                 var first = Assert.IsAssignableFrom<Control>(transcript.ContainerFromIndex(0));
                 var readerPosition = first.TranslatePoint(default, shell)!.Value.Y;
-                Assert.Null(TurnView(transcript, 23).Child);
-                Assert.InRange(RealizedTurns(transcript), 1, 8);
+                Assert.False(TurnView(transcript, 23).IsRealized);
+                AssertOnlyNearbyTurnsRealized(shell, transcript);
                 Assert.False(shell.IsFollowingTail);
 
                 const string tail = "## Updated while offscreen\n\nThis answer remains available after scrolling back.";
@@ -108,7 +108,7 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 }));
                 await PumpAsync();
                 Assert.False(shell.IsFollowingTail);
-                Assert.Null(TurnView(transcript, 23).Child);
+                Assert.False(TurnView(transcript, 23).IsRealized);
                 Assert.InRange(Math.Abs(first.TranslatePoint(default, shell)!.Value.Y - readerPosition), 0, 1);
 
                 shell.JumpToLatest();
@@ -117,8 +117,137 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 var last = Assert.IsAssignableFrom<Control>(transcript.ContainerFromIndex(23));
                 Assert.Contains(last.GetVisualDescendants().OfType<StrataMarkdown>(),
                     markdown => markdown.Markdown == tail);
-                Assert.InRange(RealizedTurns(transcript), 1, 8);
+                AssertOnlyNearbyTurnsRealized(shell, transcript);
                 Assert.Equal(48, model.Chat.Turns.Sum(turn => turn.Items.Count));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task TranscriptPreparesTurnsAheadOneLayoutAtATimeAndKeepsThemNearby()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MobileShellViewModel(
+                store: session.NewStore(), post: action => action());
+            var view = new ChatDetailView { DataContext = model };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            window.Show();
+            try
+            {
+                var chatId = Guid.NewGuid();
+                model.Chat.Reset(chatId, "Layout-paced preparation", isLoading: true);
+                var page = Transcript(chatId);
+                foreach (var turn in page.Turns)
+                    turn.Items[1].Text = "A short answer.";
+                model.Chat.ApplyTranscript(page);
+                model.Chat.IsLoading = false;
+                await PumpAsync();
+                var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+                var scroll = shell.TranscriptScrollViewer!;
+                var transcript = view.FindControl<ItemsControl>("Transcript")!;
+                var viewport = scroll.Viewport.Height;
+                var lastVisible = TurnsWithin(scroll, transcript, 0).Last();
+
+                // Preparation is paced by layout, not animation ticks: several layout passes
+                // can run before a frame is composed.
+                var built = transcript.GetVisualDescendants().OfType<TranscriptTurnView>()
+                    .Where(turn => turn.IsRealized).ToHashSet();
+                var layouts = 0;
+                var totalPrefetched = 0;
+                var mostPrefetchedInOneLayout = 0;
+                void OnLayoutUpdated(object? sender, EventArgs e)
+                {
+                    layouts++;
+                    var prefetchedInLayout = 0;
+                    foreach (var turn in transcript.GetVisualDescendants().OfType<TranscriptTurnView>())
+                    {
+                        if (!turn.IsRealized)
+                            built.Remove(turn);
+                        else if (built.Add(turn) && DistanceFromViewport(scroll, turn) > viewport * 0.5)
+                        {
+                            prefetchedInLayout++;
+                            totalPrefetched++;
+                        }
+                    }
+                    mostPrefetchedInOneLayout = Math.Max(mostPrefetchedInOneLayout, prefetchedInLayout);
+                }
+
+                view.LayoutUpdated += OnLayoutUpdated;
+                shell.PreserveViewport();
+                shell.ScrollToVerticalOffset(scroll.Offset.Y - viewport);
+                for (var i = 0; i < 4; i++)
+                    await PumpAsync();
+                view.LayoutUpdated -= OnLayoutUpdated;
+
+                Assert.True(totalPrefetched >= 2,
+                    $"Only {totalPrefetched} turns exercised prefetching (viewport {viewport}, layouts {layouts})");
+                Assert.Equal(1, mostPrefetchedInOneLayout);
+                Assert.All(TurnsWithin(scroll, transcript, 1), turn => Assert.True(turn.IsRealized));
+                // A turn that just left the viewport stays built for a quick return.
+                Assert.InRange(DistanceFromViewport(scroll, lastVisible), 1, viewport * 1.5);
+                Assert.True(lastVisible.IsRealized);
+                var retained = Assert.IsType<ItemsControl>(lastVisible.Child);
+                var detachments = 0;
+                retained.DetachedFromLogicalTree += (_, _) => detachments++;
+
+                shell.ScrollToVerticalOffset(scroll.Offset.Y - 2 * viewport);
+                await PumpAsync();
+                Assert.True(DistanceFromViewport(scroll, lastVisible) > viewport * 1.5);
+                Assert.False(lastVisible.IsRealized);
+                Assert.Same(retained, lastVisible.Child);
+                Assert.Equal(0, detachments);
+                AssertOnlyNearbyTurnsRealized(shell, transcript);
+
+                shell.JumpToLatest();
+                await PumpAsync();
+                Assert.True(lastVisible.IsRealized);
+                Assert.Same(retained, lastVisible.Child);
+                Assert.Equal(0, detachments);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PreparingTurnsAheadWaitsForAMovingDrawer()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MobileShellViewModel(
+                store: session.NewStore(), post: action => action());
+            var view = new ChatDetailView { DataContext = model };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            window.Show();
+            try
+            {
+                await OpenChatAsync(model, Guid.NewGuid());
+                await PumpAsync();
+                var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+                var scroll = shell.TranscriptScrollViewer!;
+                var transcript = view.FindControl<ItemsControl>("Transcript")!;
+
+                model.IsDrawerMoving = true;
+                shell.PreserveViewport();
+                shell.ScrollToVerticalOffset(scroll.Offset.Y - scroll.Viewport.Height);
+                for (var i = 0; i < 2; i++)
+                    await PumpAsync();
+                Assert.All(TurnsWithin(scroll, transcript, 0.5), turn => Assert.True(turn.IsRealized));
+                Assert.Contains(TurnsWithin(scroll, transcript, 1), turn => !turn.IsRealized);
+
+                model.IsDrawerMoving = false;
+                for (var i = 0; i < 4; i++)
+                    await PumpAsync();
+                Assert.All(TurnsWithin(scroll, transcript, 1), turn => Assert.True(turn.IsRealized));
             }
             finally
             {
@@ -312,7 +441,7 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 {
                     turn.Items[^1].Text += "\n\n"
                         + string.Join(" ", Enumerable.Repeat(
-                            "This longer paragraph reflows when the navigation pane reserves chat width.", 8));
+                            "This longer paragraph reflows when the navigation pane reserves chat width.", 16));
                 }
                 model.Chat.ApplyTranscript(transcript);
                 await PumpAsync();
@@ -480,8 +609,38 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
             .Last();
     }
 
-    private static int RealizedTurns(ItemsControl transcript) =>
-        transcript.GetVisualDescendants().OfType<TranscriptTurnView>().Count(turn => turn.Child is not null);
+    private static double DistanceFromViewport(ScrollViewer scroll, TranscriptTurnView turn)
+    {
+        var top = turn.TranslatePoint(default, scroll)!.Value.Y;
+        var bottom = top + turn.Bounds.Height;
+        return bottom < 0 ? -bottom : top > scroll.Viewport.Height ? top - scroll.Viewport.Height : 0;
+    }
+
+    private static List<TranscriptTurnView> TurnsWithin(ScrollViewer scroll, ItemsControl transcript, double band) =>
+        transcript.GetVisualDescendants().OfType<TranscriptTurnView>()
+            .Where(turn => DistanceFromViewport(scroll, turn) <= scroll.Viewport.Height * band)
+            .OrderBy(turn => turn.TranslatePoint(default, scroll)!.Value.Y)
+            .ToList();
+
+    /// <summary>
+    /// Turns are built ahead of the viewport and hidden past 1.5 viewports. Hidden retained content
+    /// does not participate in layout; its host keeps the reserved height.
+    /// </summary>
+    private static void AssertOnlyNearbyTurnsRealized(StrataChatShell shell, ItemsControl transcript)
+    {
+        var scroll = shell.TranscriptScrollViewer!;
+        var band = scroll.Viewport.Height * 1.5;
+        var turns = transcript.GetVisualDescendants().OfType<TranscriptTurnView>().ToList();
+        var realized = turns.Where(turn => turn.IsRealized).ToList();
+        Assert.NotEmpty(realized);
+        Assert.True(realized.Count < turns.Count, $"all {turns.Count} turns are built");
+        foreach (var turn in realized)
+        {
+            var top = turn.TranslatePoint(default, scroll)!.Value.Y;
+            Assert.True(top + turn.Bounds.Height >= -band && top <= scroll.Viewport.Height + band,
+                $"a turn {top:F0} DIP from the viewport top is built (viewport {scroll.Viewport.Height:F0})");
+        }
+    }
 
     private static TranscriptTurnView TurnView(ItemsControl transcript, int index) =>
         transcript.ContainerFromIndex(index)!.GetVisualDescendants().OfType<TranscriptTurnView>().Single();

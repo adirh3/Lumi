@@ -14,23 +14,33 @@
   -->
 
   <!-- ── Type scale ────────────────────────────────────────────────────────────────────────────
-    THE most important change. Android's baseline body size is 16sp; Strata's desktop body is 14px,
-    and mobile views additionally hardcoded 9-13px in places. At phone viewing distance that is
-    genuinely hard to read and is the single biggest reason the app did not feel native.
+    THE most important change. Android reads body text at 16sp and secondary text at 14sp, in Roboto
+    or Samsung's own font. Inter's lowercase stands as tall as Roboto's (x-height 0.546em against
+    0.528em), so the scale is Android's own, a touch more generous for the secondary rungs: 16 is the
+    16sp body, 14.5 the 14sp secondary and 13 just above the 12sp label. That is also the desktop's
+    own 12/14 scale, a sixth larger.
 
-    Body is the anchor: message text, drawer rows, composer text and list items all sit at 16.
+    Body is the anchor: message text, chat rows, composer text and list items all sit at 16. On
+    Android the whole scale also follows the phone's font size (MobileTypeScale), as native text does.
   -->
   <x:Double x:Key="Font.SizeCaption">13</x:Double>
   <x:Double x:Key="Font.SizeBody">16</x:Double>
   <x:Double x:Key="Font.SizeBodyStrong">16</x:Double>
-  <x:Double x:Key="Font.SizeSubtitle">18</x:Double>
+  <x:Double x:Key="Font.SizeSubtitle">18.5</x:Double>
   <x:Double x:Key="Font.SizeTitle">22</x:Double>
   <x:Double x:Key="Font.SizeHeadline">28</x:Double>
-  <x:Double x:Key="Font.SizeDisplay">34</x:Double>
+  <x:Double x:Key="Font.SizeDisplay">33</x:Double>
 
-  <!-- Secondary rung for things that must be quieter than body but stay legible. Nothing on a
-       phone should render below this. -->
-  <x:Double x:Key="Font.SizeMeta">14</x:Double>
+  <!-- Secondary rung for things that must be quieter than body but stay legible. Words on a phone
+       never render below the caption rung. -->
+  <x:Double x:Key="Font.SizeMeta">14.5</x:Double>
+  <!-- Your messages are spaced as the desktop's bubbles are, at Segoe UI's own line height (1.33 of the
+       size); secondary text that wraps (descriptions, sheet text) at 1.4 of its size, as Android spaces
+       its 14sp text. MobileTypeScale keeps both proportions when the phone's font size changes. -->
+  <x:Double x:Key="Font.LineHeightBody">21.28</x:Double>
+  <x:Double x:Key="Font.LineHeightMeta">20.3</x:Double>
+  <!-- A place's title over its list: Lumi, Jobs, Customize, Settings. -->
+  <x:Double x:Key="Mobile.Place.TitleSize">24</x:Double>
 
   <!-- ── Surfaces ──────────────────────────────────────────────────────────────────────────────
     Colours are NOT here. They are per-theme-variant and live in Colors.Mobile.Dark/Light.axaml,
@@ -54,14 +64,11 @@
   <x:Double x:Key="Size.ControlHeightM">52</x:Double>
   <x:Double x:Key="Size.ControlHeightL">60</x:Double>
 
-  <!-- Named so views stop inventing their own row and icon-button metrics. -->
+  <!-- Named so views stop inventing their own row and icon-button metrics. Icons are Android's 24dp. -->
   <x:Double x:Key="Touch.RowHeight">56</x:Double>
   <x:Double x:Key="Touch.IconButtonSize">48</x:Double>
   <x:Double x:Key="Touch.MinTarget">48</x:Double>
-  <x:Double x:Key="Touch.IconSize">22</x:Double>
-
-  <!-- Secondary indicators (chevrons, ticks) — smaller than a primary icon but never decorative-tiny. -->
-  <x:Double x:Key="Touch.IconSizeSmall">18</x:Double>
+  <x:Double x:Key="Touch.IconSize">24</x:Double>
 
   <!-- The composer chips' remove affordances are 16dp on desktop, which is under half a fingertip. -->
   <x:Double x:Key="Size.IconButtonXS">28</x:Double>
@@ -78,18 +85,16 @@
   <x:Double x:Key="Space.XXL">40</x:Double>
 
   <!-- ── Mobile layout rhythm ─────────────────────────────────────────────────────────────────
-    Safe-area padding is always applied outside these values. The 12dp page gutter is the shared
-    phone axis; navigation surfaces use a 12dp outer gutter with a matching inner row inset,
-    giving section labels and action content a consistent 24dp axis.
+    Safe-area padding is always applied outside these values. The 16dp page gutter is the shared
+    phone axis; navigation rows sit 10dp in from the edge with a 14dp inner inset, so their text
+    shares the section labels' 24dp axis.
   -->
   <Thickness x:Key="Mobile.Page.HeaderMargin">16,8,16,12</Thickness>
   <Thickness x:Key="Mobile.Page.ContentMargin">16,0,16,16</Thickness>
-  <Thickness x:Key="Mobile.Page.ControlMargin">16,0,16,12</Thickness>
   <Thickness x:Key="Mobile.Page.FormContentMargin">16,0,16,24</Thickness>
   <Thickness x:Key="Mobile.Setup.ContentMargin">24,28,24,24</Thickness>
-  <Thickness x:Key="Mobile.Drawer.RowMargin">12,3</Thickness>
+  <Thickness x:Key="Mobile.Drawer.RowMargin">10,1</Thickness>
   <Thickness x:Key="Mobile.Drawer.RowPadding">12,10</Thickness>
-  <Thickness x:Key="Mobile.Drawer.ChatRowPadding">12,9</Thickness>
   <Thickness x:Key="Mobile.Drawer.GroupLabelMargin">24,14,24,6</Thickness>
   <Thickness x:Key="Mobile.Navigation.HeaderMargin">16,8,16,8</Thickness>
 
@@ -98,36 +103,42 @@
   <Thickness x:Key="Mobile.Chat.TranscriptPadding">16,12,16,16</Thickness>
 
   <!--
-    Scroll-edge glass. The conversation runs under the floating top bar and composer; these bands
-    frost it only where it passes beneath them. The top band extends below the bar to fade out, and
-    the bottom band reaches past the composer host's padding to the screen edges and the gesture area.
+    Scroll-edge glass, as on the desktop. Content runs under the floating headers; while it is beneath
+    them it softens under a frost and a light veil that cover the chrome and fade out 28dp beyond it:
+    what passes beneath stays visible, never legible. The desktop's edges use the same blur and the
+    same faint saturation. The places pill is glass of its own instead, with no band around it.
   -->
   <Thickness x:Key="Mobile.Chat.TopEdgeMargin">0,0,0,-28</Thickness>
   <x:Double x:Key="Mobile.Chat.EdgeFadeLength">36</x:Double>
-  <x:Double x:Key="Glass.BlurRadius">20</x:Double>
-  <x:Double x:Key="Glass.Saturation">1.7</x:Double>
+  <x:Double x:Key="Glass.BlurRadius">12</x:Double>
+  <x:Double x:Key="Glass.Saturation">1.15</x:Double>
 
   <!--
-    In chat and navigation every floating control is its own lens, so the scroll-edge glass is only a scrim over
-    the system bars: the status bar or gesture area plus a short fade, frosted most at the screen edge.
-    It stays out from behind the controls, which would otherwise show a frost of a frost. The bottom
-    scrim reaches past the composer host's padding to the screen edges.
+    The composer spans the conversation, so beneath it the scroll-edge glass is only a scrim over the
+    gesture area plus a short fade, reaching past the composer host's padding to the screen edges.
   -->
   <x:Double x:Key="Mobile.Chat.EdgeScrimExtent">20</x:Double>
   <Thickness x:Key="Mobile.Chat.BottomEdgeMargin">-12,0,-12,-12</Thickness>
-  <!-- A light blur keeps the conversation recognisable through each control. -->
-  <x:Double x:Key="Glass.ControlBlurRadius">3</x:Double>
-  <x:Double x:Key="Glass.ControlSaturation">1.8</x:Double>
-
-  <!-- Popups are glass: a strong frost beneath the sheet only, so its text never competes with
-       the conversation while the page around it stays sharp. -->
-  <x:Double x:Key="Glass.SheetBlurRadius">24</x:Double>
-  <x:Double x:Key="Glass.SheetSaturation">1.6</x:Double>
+  <!-- Each control frosts what passes beneath it as the desktop's header pills do: the same blur, which
+       keeps text beneath illegible, and the same light saturation. -->
+  <x:Double x:Key="Glass.ControlBlurRadius">14</x:Double>
+  <x:Double x:Key="Glass.ControlSaturation">1.3</x:Double>
+  <!-- The composer is where Lumi's presence settles, so its frost is lighter and keeps the glow's
+       colour: enough to soften the conversation passing under it while the glow stays visible. -->
+  <x:Double x:Key="Glass.ComposerBlurRadius">8</x:Double>
+  <x:Double x:Key="Glass.ComposerSaturation">1.8</x:Double>
+  <!-- Popups are glass, as the desktop's menus are: a deep frost beneath the sheet only, so the page
+       shows through as colour and light while its text never competes with the sheet's, and the page
+       around it stays sharp. -->
+  <x:Double x:Key="Glass.SheetBlurRadius">28</x:Double>
+  <x:Double x:Key="Glass.SheetSaturation">1.5</x:Double>
   <x:Double x:Key="Mobile.Sheet.MaxWidth">560</x:Double>
+  <!-- With two panes the plan, sources and activity open beside the chat at this width. -->
+  <x:Double x:Key="Mobile.SidePanel.Width">400</x:Double>
   <CornerRadius x:Key="Mobile.Sheet.CornerRadius">28</CornerRadius>
-  <x:Double x:Key="Mobile.Sheet.TitleSize">20</x:Double>
+  <x:Double x:Key="Mobile.Sheet.TitleSize">20.5</x:Double>
   <Thickness x:Key="Mobile.Sheet.HeaderMargin">24,0,12,12</Thickness>
-  <x:Double x:Key="Mobile.Sheet.RowHeight">52</x:Double>
+  <x:Double x:Key="Mobile.Sheet.RowHeight">56</x:Double>
   <Thickness x:Key="Mobile.Sheet.ItemMargin">8,1</Thickness>
   <Thickness x:Key="Mobile.Sheet.ItemPadding">16,10</Thickness>
   <Thickness x:Key="Mobile.Sheet.LabelMargin">24,16,24,6</Thickness>
@@ -140,9 +151,15 @@
   <Thickness x:Key="Touch.ListItemPadding">18,16</Thickness>
 
   <!--
-    Strata's default stack starts with Segoe UI Variable / SF Pro, neither of which exists on
-    Android. Inter is embedded by every head, so the phone renders identically to the PC.
+    The desktop asks for Segoe UI Variable, which Windows resolves to Segoe UI; neither may ship outside
+    Windows. The phone bundles Inter 4 (rsms/inter, OFL), the typeface of modern product interfaces:
+    crisp at phone sizes, with a full set of arrows and symbols, in the weights the app draws (Regular,
+    SemiBold, Bold). Medium resolves to Regular, as Segoe UI's missing Medium does on the desktop.
   -->
-  <FontFamily x:Key="Font.Family">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>
+  <FontFamily x:Key="Font.Family">avares://Lumi.Mobile/Assets/Fonts#Inter</FontFamily>
+  <!-- The roots the theme draws (the phone's view, popups) take it too, so text no style names, such as
+       the conversation's selectable text, reads in the bundled Inter 4 rather than the theme's older
+       Inter 3. -->
+  <FontFamily x:Key="ContentControlThemeFontFamily">avares://Lumi.Mobile/Assets/Fonts#Inter</FontFamily>
   <FontFamily x:Key="Font.FamilyMono">Cascadia Code, JetBrains Mono, Consolas, Roboto Mono, Droid Sans Mono, monospace</FontFamily>
 </ResourceDictionary>

@@ -1,0 +1,193 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.Management.ExternalCapabilityDetail"
+             x:DataType="vm:ExternalCapabilitiesViewModel"
+             x:CompileBindings="True">
+
+  <UserControl.Styles>
+    <Style Selector="TextBlock.ext-title">
+      <Setter Property="FontSize" Value="22" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.ext-notice">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="LineHeight" Value="19" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.ext-fact-label">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,1,0,0" />
+    </Style>
+    <Style Selector="SelectableTextBlock.ext-fact-value">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="SelectableTextBlock.ext-fact-value.mono">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+      <Setter Property="FontSize" Value="11.5" />
+    </Style>
+  </UserControl.Styles>
+
+  <Panel Classes="mg-surface">
+    <DockPanel>
+      <Border DockPanel.Dock="Top" Classes="mg-topbar">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+            <Button x:Name="ExternalOpenFolderButton" Classes="mg-button" Command="{Binding OpenFolderCommand}"
+                    IsVisible="{Binding CanOpenFolder}" AutomationProperties.Name="{loc:Str External_OpenFolder}">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <PathIcon Data="{StaticResource Icon.FolderOpen}" />
+                <TextBlock Text="{loc:Str External_OpenFolder}" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+          <DockPanel>
+            <Button DockPanel.Dock="Left" x:Name="ExternalBackButton" Classes="subtle mg-back" Command="{Binding CloseCommand}"
+                    AutomationProperties.Name="{Binding BackLabel}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
+                <TextBlock Text="{Binding BackLabel}" />
+              </StackPanel>
+            </Button>
+            <TextBlock DockPanel.Dock="Left" Classes="mg-crumb" Text="/" Margin="2,0,6,0" />
+            <TextBlock Classes="mg-crumb current" Text="{Binding DetailTitle}" />
+          </DockPanel>
+        </DockPanel>
+      </Border>
+
+      <ScrollViewer x:Name="ExternalDetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="40,32,40,64" MaxWidth="900" Spacing="20">
+
+          <!-- Hero -->
+          <DockPanel>
+            <Border DockPanel.Dock="Left" Classes="mg-tile lg" Margin="0,0,22,0">
+              <TextBlock Classes="mg-glyph" Text="{Binding DetailGlyph}" />
+            </Border>
+            <StackPanel Spacing="4" VerticalAlignment="Center">
+              <TextBlock Classes="ext-title" Text="{Binding DetailTitle}" />
+              <TextBlock Classes="mg-page-lede" Text="{Binding DetailDescription}" IsVisible="{Binding HasDetailDescription}" />
+              <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,8,0,0">
+                <Border Classes="mg-chip hue">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Data="{StaticResource Icon.Layers}" />
+                    <TextBlock Text="{Binding DetailSourceTitle}" />
+                    <TextBlock Text="·" Opacity="0.6" />
+                    <TextBlock Text="{Binding DetailSourceCaption}" />
+                  </StackPanel>
+                </Border>
+                <Border Classes="mg-chip">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Data="{StaticResource Icon.Lock}" />
+                    <TextBlock Text="{loc:Str External_ReadOnly}" />
+                  </StackPanel>
+                </Border>
+                <Border Classes="mg-chip warning" IsVisible="{Binding DetailIsDisabled}">
+                  <TextBlock Text="{loc:Str External_Off}" />
+                </Border>
+              </WrapPanel>
+            </StackPanel>
+          </DockPanel>
+
+          <!-- Why it is read-only, and the way to change it -->
+          <Border x:Name="ExternalNotice" Classes="mg-section" Padding="18,16">
+            <DockPanel>
+              <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                <PathIcon Data="{StaticResource Icon.Lock}" />
+              </Border>
+              <StackPanel Spacing="12">
+                <TextBlock Classes="ext-notice" Text="{Binding DetailNotice}" />
+                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                  <Button x:Name="ExternalCopyButton" Classes="mg-button accent" Command="{Binding MakeCopyCommand}" IsVisible="{Binding CanCopy}"
+                          AutomationProperties.Name="{loc:Str External_MakeCopy}">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <PathIcon Data="{StaticResource Icon.Duplicate}" />
+                      <TextBlock Text="{loc:Str External_MakeCopy}" />
+                    </StackPanel>
+                  </Button>
+                  <Button x:Name="ExternalManageButton" Classes="mg-button" Command="{Binding ManageInDiscoverCommand}" IsVisible="{Binding DetailIsPlugin}"
+                          AutomationProperties.Name="{loc:Str External_ManageInDiscover}">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <PathIcon Data="{StaticResource Icon.Compass}" />
+                      <TextBlock Text="{loc:Str External_ManageInDiscover}" />
+                    </StackPanel>
+                  </Button>
+                </WrapPanel>
+                <TextBlock Classes="mg-section-caption" Text="{Binding CopyHint}" IsVisible="{Binding CanCopy}" />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <!-- Instructions or persona -->
+          <Border Classes="mg-section" IsVisible="{Binding ShowsBody}">
+            <StackPanel Spacing="14">
+              <DockPanel>
+                <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                  <PathIcon Data="{StaticResource Icon.Document}" />
+                </Border>
+                <TextBlock Classes="mg-section-title" Text="{Binding BodyTitle}" VerticalAlignment="Center" />
+              </DockPanel>
+              <StackPanel Spacing="10" IsVisible="{Binding HasDetailBody}">
+                <Panel>
+                  <Border Classes="mg-inset" Padding="20,16" Classes.mg-clipped="{Binding IsBodyClipped}">
+                    <sc:StrataMarkdown Markdown="{Binding DetailBody}" IsInline="True" />
+                  </Border>
+                  <Border Classes="mg-fade" IsVisible="{Binding IsBodyClipped}" />
+                </Panel>
+                <Button Classes="subtle mg-text-button" HorizontalAlignment="Center" IsVisible="{Binding IsBodyLong}"
+                        Command="{Binding ToggleBodyExpandedCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{Binding BodyToggleText}" />
+                    <PathIcon Classes="mg-chevron" Classes.flipped="{Binding IsBodyExpanded}" Data="{StaticResource Icon.ChevronDown}" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+              <Border Classes="mg-empty-note" IsVisible="{Binding !HasDetailBody}">
+                <TextBlock Classes="mg-section-caption" Text="{loc:Str Mg_NoDescription}" />
+              </Border>
+            </StackPanel>
+          </Border>
+
+          <!-- Details -->
+          <Border Classes="mg-section" IsVisible="{Binding HasDetailFacts}">
+            <StackPanel Spacing="14">
+              <DockPanel>
+                <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                  <PathIcon Data="{StaticResource Icon.Wrench}" />
+                </Border>
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-section-title" Text="{loc:Str External_DetailsTitle}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str External_DetailsCaption}" />
+                </StackPanel>
+              </DockPanel>
+              <ItemsControl ItemsSource="{Binding DetailFacts}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Spacing="10" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ExternalDetailFact">
+                    <Grid ColumnDefinitions="120,*" ColumnSpacing="14">
+                      <TextBlock Classes="ext-fact-label" Text="{Binding Label}" />
+                      <SelectableTextBlock Grid.Column="1" Classes="ext-fact-value" Classes.mono="{Binding IsMono}"
+                                           Text="{Binding Value}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </DockPanel>
+  </Panel>
+</UserControl>

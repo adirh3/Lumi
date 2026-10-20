@@ -5,6 +5,7 @@
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:mgmt="using:Lumi.Views.Management"
              x:Class="Lumi.Views.ProjectsView"
              x:DataType="vm:ProjectsViewModel"
              x:CompileBindings="True">
@@ -49,7 +50,8 @@
   <Panel>
 
     <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
-    <Panel x:Name="ProjectsOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}">
+    <Panel x:Name="ProjectsOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}"
+           mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="32,30,32,40" Spacing="24">
@@ -182,7 +184,8 @@
     </Panel>
 
     <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
-    <Panel x:Name="ProjectDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+    <Panel x:Name="ProjectDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding SelectedProject}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>
@@ -346,6 +349,74 @@
                     </Border>
                   </StackPanel>
                 </Border>
+              </StackPanel>
+            </Border>
+
+            <!-- Approvals: how much the project's chats may do on their own -->
+            <Border Name="ProjectApprovalsPanel" Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Button Name="ProjectAddApprovalRuleButton" DockPanel.Dock="Right" Classes="mg-button" VerticalAlignment="Center"
+                          Margin="12,0,0,0" Command="{Binding AddProjectApprovalRuleCommand}" IsVisible="{Binding !IsNewProject}">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <PathIcon Data="{StaticResource Icon.Plus}" />
+                      <TextBlock Text="{loc:Str Permissions_AddRule}" />
+                    </StackPanel>
+                  </Button>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Shield}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Projects_Approvals}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_ApprovalsCaption}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <Border Classes="mg-segmented" HorizontalAlignment="Left">
+                  <ItemsControl Name="ProjectApprovalModeChoices" ItemsSource="{Binding ProjectApprovalChoices}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="2" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ProjectApprovalChoice">
+                        <Button Classes="mg-segment" Classes.selected="{Binding IsSelected}" Command="{Binding SelectCommand}">
+                          <TextBlock Text="{Binding Label}" />
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Border>
+                <TextBlock Classes="mg-section-caption" Text="{Binding ProjectApprovalModeHint}" TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding ProjectApprovalRules}" IsVisible="{Binding HasProjectApprovalRules}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Spacing="6" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ApprovalRuleRowViewModel">
+                      <Border Classes="mg-inset" Padding="12,8">
+                        <DockPanel>
+                          <Button DockPanel.Dock="Right" Classes="mg-icon-button subtle" Width="26" Height="26"
+                                  Command="{Binding $parent[ItemsControl].((vm:ProjectsViewModel)DataContext).RemoveProjectApprovalRuleCommand}"
+                                  CommandParameter="{Binding}"
+                                  AutomationProperties.Name="{loc:Str Permissions_RemoveRule}">
+                            <PathIcon Data="{StaticResource Icon.Close}" Width="9" Height="9" />
+                          </Button>
+                          <Border DockPanel.Dock="Left" Classes="approval-action" Classes.ask="{Binding IsAsk}"
+                                  Classes.never="{Binding IsNever}" Margin="0,0,10,0">
+                            <TextBlock Text="{Binding ActionLabel}" />
+                          </Border>
+                          <TextBlock Text="{Binding Description}" FontSize="13" VerticalAlignment="Center"
+                                     Foreground="{DynamicResource Brush.TextPrimary}" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </StackPanel>
             </Border>
 

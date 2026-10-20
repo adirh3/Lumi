@@ -27,8 +27,11 @@ public sealed class ProviderConnectionTests
         Assert.DoesNotContain(ProviderCatalog.All, profile => profile.Id is "claude-pro" or "antigravity");
         Assert.Equal(ProviderOAuthKind.OpenRouter, ProviderCatalog.Find("openrouter")!.OAuth);
         Assert.Equal(ProviderOAuthKind.Poe, ProviderCatalog.Find("poe")!.OAuth);
+        // ChatGPT uses OpenAI's supported Sign in with ChatGPT plan flow, not a reused consumer session.
+        Assert.Equal(ProviderOAuthKind.ChatGpt, ProviderCatalog.Find("chatgpt")!.OAuth);
         Assert.Equal(ProviderCatalog.All.Count, ProviderCatalog.All.Select(profile => profile.Id).Distinct().Count());
-        Assert.All(ProviderCatalog.All.Where(profile => !profile.IsCopilot && !profile.IsCustom),
+        // Copilot and ChatGPT tiles show their marks; custom shows a plug. Everyone else needs a monogram.
+        Assert.All(ProviderCatalog.All.Where(profile => !profile.IsCopilot && !profile.IsCustom && !profile.IsChatGpt),
             profile => Assert.False(string.IsNullOrWhiteSpace(profile.Monogram)));
         Assert.Equal(ProviderCategory.Recommended, ProviderCatalog.Find("copilot")!.Category);
         foreach (var profile in ProviderCatalog.All)
@@ -765,7 +768,7 @@ public sealed class ProviderConnectionTests
         {
             LoginVM = new GitHubLoginViewModel(TestCopilot.Shared)
         };
-        Assert.Equal("copilot", vm.ProviderGroups[0].Providers.Single().Profile.Id);
+        Assert.Equal(["copilot", "chatgpt"], vm.ProviderGroups[0].Providers.Select(card => card.Profile.Id));
         vm.Providers.Single(card => card.Profile.Id == "openai").OpenCommand.Execute(null);
         Assert.True(vm.MakeDefault);
         Assert.False(vm.CanToggleDefault);

@@ -4,6 +4,7 @@
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:mgmt="using:Lumi.Views.Management"
              x:Class="Lumi.Views.AgentsView"
              x:DataType="vm:AgentsViewModel"
              x:CompileBindings="True">
@@ -59,7 +60,8 @@
   <Panel>
 
     <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
-    <Panel x:Name="LumisOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}">
+    <Panel x:Name="LumisOverview" Classes="mg-surface" IsVisible="{Binding ShowOverview}"
+           mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="32,30,32,40" Spacing="24">
@@ -88,7 +90,7 @@
             <TextBlock Grid.Row="1" Grid.Column="1" Classes="mg-page-lede" Margin="0,2,0,0" Text="{loc:Str Lumis_Lede}" />
           </Grid>
 
-          <DockPanel IsVisible="{Binding HasAnyAgents}">
+          <DockPanel IsVisible="{Binding ShowStats}">
             <Border DockPanel.Dock="Right" Classes="mg-segmented" VerticalAlignment="Bottom">
               <StackPanel Orientation="Horizontal" Spacing="2">
                 <Button Classes="mg-segment" Classes.selected="{Binding IsSortedByName}"
@@ -110,6 +112,12 @@
                   <TextBlock Classes="mg-stat-label" Text="{loc:Str Lumis_StatChats}" />
                 </StackPanel>
               </Border>
+              <Border Classes="mg-stat" IsVisible="{Binding HasExternal}">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-stat-value" Text="{Binding ExternalCountText}" />
+                  <TextBlock Classes="mg-stat-label" Text="{loc:Str External_SidebarHeading}" />
+                </StackPanel>
+              </Border>
             </StackPanel>
           </DockPanel>
 
@@ -123,6 +131,8 @@
               </Button>
             </StackPanel>
           </Border>
+
+          <TextBlock Classes="mg-eyebrow" Text="{loc:Str External_SectionYours}" IsVisible="{Binding ShowYoursHeading}" Margin="0,0,0,-12" />
 
           <ItemsControl x:Name="LumisGallery" ItemsSource="{Binding AgentCards}" IsVisible="{Binding HasResults}">
             <ItemsControl.ItemsPanel>
@@ -186,6 +196,38 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <Button Classes="mg-card" Command="{Binding NewAgentCommand}" IsVisible="{Binding ShowCompactEmpty}">
+            <Border Classes="mg-card-frame create" Padding="18,14">
+              <DockPanel>
+                <PathIcon DockPanel.Dock="Right" Classes="mg-card-arrow" Data="{StaticResource Icon.ChevronRight}" />
+                <Border DockPanel.Dock="Left" Classes="mg-create-plus" Margin="0,0,14,0">
+                  <PathIcon Data="{StaticResource Icon.Plus}" />
+                </Border>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Classes="mg-card-title" Text="{loc:Str Lumis_New}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Lumis_EmptyText}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+          </Button>
+
+          <mgmt:ExternalCapabilitySections x:Name="LumisExternalSections" DataContext="{Binding External}" />
+
+          <Button x:Name="LumisDiscoverCard" AutomationProperties.Name="{loc:Str Customize_FindMoreTitle}" Classes="mg-card" Command="{Binding FindInDiscoverCommand}" IsVisible="{Binding !ShowEmptyState}">
+            <Border Classes="mg-card-frame create" Padding="18,14">
+              <DockPanel>
+                <PathIcon DockPanel.Dock="Right" Classes="mg-card-arrow" Data="{StaticResource Icon.ChevronRight}" />
+                <Border DockPanel.Dock="Left" Classes="mg-create-plus" Margin="0,0,14,0">
+                  <PathIcon Data="{StaticResource Icon.Compass}" />
+                </Border>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Classes="mg-card-title" Text="{loc:Str Customize_FindMoreTitle}" />
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Customize_FindMoreLumis}" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+          </Button>
+
           <StackPanel IsVisible="{Binding ShowNoResults}" Spacing="8" Margin="0,40,0,0" HorizontalAlignment="Center">
             <TextBlock Classes="mg-empty-title" Text="{Binding NoResultsText}" />
             <TextBlock Classes="mg-empty-text" Text="{loc:Str Mg_NoResultsHint}" />
@@ -206,6 +248,12 @@
                   <TextBlock Text="{loc:Str Import_EmptyHint}" />
                 </StackPanel>
               </Button>
+              <Button x:Name="LumisEmptyDiscoverButton" Classes="mg-button" Command="{Binding FindInDiscoverCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Compass}" />
+                  <TextBlock Text="{loc:Str Customize_FindMoreTitle}" />
+                </StackPanel>
+              </Button>
               <Button Classes="mg-button accent" Command="{Binding NewAgentCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="7">
                   <PathIcon Data="{StaticResource Icon.Plus}" />
@@ -218,8 +266,15 @@
       </ScrollViewer>
     </Panel>
 
+    <!-- ══════════════════════ READ-ONLY (plugins, Copilot) ══════════════════════ -->
+    <Panel x:Name="LumiExternalDetail" IsVisible="{Binding External.IsViewing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding External.OpenItem}">
+      <mgmt:ExternalCapabilityDetail DataContext="{Binding External}" />
+    </Panel>
+
     <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
-    <Panel x:Name="LumiDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+    <Panel x:Name="LumiDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding SelectedAgent}">
       <DockPanel>
         <Border DockPanel.Dock="Top" Classes="mg-topbar">
           <DockPanel>
@@ -628,7 +683,7 @@
         <StackPanel Orientation="Horizontal" Spacing="8">
           <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12"
                     Foreground="{DynamicResource Brush.SuccessDefault}" />
-          <TextBlock Text="{loc:Str Mg_Saved}" FontSize="12.5" FontWeight="Medium"
+          <TextBlock Text="{Binding SavedToastText}" FontSize="12.5" FontWeight="Medium"
                      Foreground="{DynamicResource Brush.TextPrimary}" />
         </StackPanel>
       </Border>

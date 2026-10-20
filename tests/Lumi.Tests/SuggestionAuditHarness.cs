@@ -27,7 +27,7 @@ namespace Lumi.Tests;
 /// </summary>
 public class SuggestionAuditHarness
 {
-    private const int ScanLimit = 1000;                     // matches ChatViewModel.SuggestionHistoryScanLimit
+    private const int ScanLimit = DataStore.SuggestionHistoryScanLimit;
     private const int FrequentRequestMaxItems = 8;          // matches ChatViewModel.SuggestionFrequentRequestMaxItems
 
     private static readonly string LumiRoot =

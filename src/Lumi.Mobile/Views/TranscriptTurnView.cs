@@ -12,13 +12,25 @@ namespace Lumi.Mobile.Views;
 
 /// <summary>
 /// Keeps a stable height for offscreen turns and defers their heavy content until it is near
-/// the viewport. Like desktop transcript turns, a revisited turn reuses its retained controls.
+/// the viewport. Built turns stay attached but hidden so returning does not reapply their styles.
 /// </summary>
+/// <remarks>
+/// Turns about to be seen are built at once. Turns further out are prepared ahead of the viewport,
+/// one per frame and nearest first (see <see cref="ChatDetailView.RequestRealization"/>), so a
+/// fling meets built turns instead of building several in one frame. Content is hidden well past
+/// the band it is built in, and released when its bounded transcript page leaves the tree.
+/// </remarks>
 internal sealed class TranscriptTurnView : Decorator
 {
+    // In viewport heights beyond each edge of the viewport.
+    private const double EntranceBand = 0.5;
+    private const double RealizeBand = 1;
+    private const double RetainBand = 1.5;
+
     private TranscriptTurnViewModel? _turn;
     private ItemsControl? _items;
     private ScrollViewer? _scroll;
+    private ChatDetailView? _chat;
     private Rect _viewport;
     private double _reservedHeight;
     private bool _attached;
@@ -26,13 +38,30 @@ internal sealed class TranscriptTurnView : Decorator
     private bool _registeredAnchor;
     private int _version;
 
+    internal bool IsRealized => _items?.IsVisible == true;
+
     internal bool IsReadyForEntrance =>
         !_updateQueued && (!IsNearViewport || _turn?.DisplayItems.Count == 0
-            || (Child is not null && IsMeasureValid && IsArrangeValid));
+            || (IsRealized && IsMeasureValid && IsArrangeValid));
 
-    private bool IsNearViewport =>
-        _viewport.Width > 0 && _viewport.Height > 0 && double.IsFinite(_viewport.Height)
-        && new Rect(Bounds.Size).Intersects(_viewport.Inflate(new Thickness(0, _viewport.Height * 0.5)));
+    private bool HasViewport =>
+        _viewport.Width > 0 && _viewport.Height > 0 && double.IsFinite(_viewport.Height);
+
+    private bool IsNearViewport => IsWithin(EntranceBand);
+
+    /// <summary>How far this turn is from the viewport, for building the nearest turns first.</summary>
+    internal double ViewportDistance
+    {
+        get
+        {
+            if (!HasViewport)
+                return double.MaxValue;
+            var bounds = new Rect(Bounds.Size);
+            return bounds.Bottom < _viewport.Top ? _viewport.Top - bounds.Bottom
+                : bounds.Top > _viewport.Bottom ? bounds.Top - _viewport.Bottom
+                : 0;
+        }
+    }
 
     public TranscriptTurnView()
     {
@@ -48,6 +77,7 @@ internal sealed class TranscriptTurnView : Decorator
     {
         _version++;
         _updateQueued = false;
+        _chat?.CancelRealization(this);
         if (_attached && _turn is not null)
             _turn.DisplayItems.CollectionChanged -= OnItemsChanged;
         Child = null;
@@ -66,6 +96,7 @@ internal sealed class TranscriptTurnView : Decorator
         base.OnAttachedToVisualTree(e);
         _attached = true;
         _scroll = this.FindAncestorOfType<ScrollViewer>();
+        _chat = this.FindAncestorOfType<ChatDetailView>();
         if (_turn is not null)
             _turn.DisplayItems.CollectionChanged += OnItemsChanged;
         QueueUpdate();
@@ -76,6 +107,8 @@ internal sealed class TranscriptTurnView : Decorator
         _attached = false;
         _version++;
         _updateQueued = false;
+        _chat?.CancelRealization(this);
+        _chat = null;
         if (_turn is not null)
             _turn.DisplayItems.CollectionChanged -= OnItemsChanged;
         SetAnchor(false);
@@ -87,7 +120,7 @@ internal sealed class TranscriptTurnView : Decorator
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        if (Child is null)
+        if (!IsRealized)
             return new Size(double.IsFinite(availableSize.Width) ? availableSize.Width : 0, _reservedHeight);
 
         var measured = base.MeasureOverride(availableSize);
@@ -97,7 +130,7 @@ internal sealed class TranscriptTurnView : Decorator
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (Child is not null)
+        if (IsRealized)
             QueueUpdate();
     }
 
@@ -112,42 +145,66 @@ internal sealed class TranscriptTurnView : Decorator
             if (!_attached || version != _version)
                 return;
             _updateQueued = false;
-            var bounds = new Rect(Bounds.Size);
-            var hasViewport = _viewport.Width > 0 && _viewport.Height > 0 &&
-                              double.IsFinite(_viewport.Height);
-            var visible = hasViewport && bounds.Intersects(_viewport);
-            SetAnchor(visible);
-            var nearby = hasViewport &&
-                         bounds.Intersects(_viewport.Inflate(new Thickness(0, _viewport.Height * 0.5)));
-            var chat = this.FindAncestorOfType<ChatDetailView>();
-            if (!nearby || _turn is null || chat?.ShouldDeferTranscriptRealization == true)
+            SetAnchor(IsWithin(0));
+            var chat = _chat;
+            if (_turn is null || chat?.ShouldDeferTranscriptRealization == true || !IsWithin(RetainBand))
             {
-                Child = null;
+                chat?.CancelRealization(this);
+                if (_items is not null)
+                    _items.IsVisible = false;
             }
-            else
+            else if (IsRealized)
             {
-                if (_items is null)
-                {
-                    _items = new ItemsControl
-                    {
-                        DataContext = _turn,
-                        ItemsSource = new ObservableCollection<TranscriptItemViewModel>()
-                    };
-                    _items.ContainerPrepared += OnContainerPrepared;
-                }
-                Child = _items;
                 RefreshItems();
+            }
+            else if (chat is null || IsWithin(EntranceBand))
+            {
+                // Content about to be seen appears at once, never one turn per frame.
+                Realize();
+            }
+            else if (IsWithin(RealizeBand))
+            {
+                chat.RequestRealization(this);
             }
             chat?.QueueChatEntrance();
         }, DispatcherPriority.Background);
     }
+
+    /// <summary>Builds or restores this turn's content; false when there was nothing to do.</summary>
+    internal bool Realize()
+    {
+        if (!_attached || _turn is null || IsRealized || !IsWithin(RealizeBand)
+            || _chat?.ShouldDeferTranscriptRealization == true)
+            return false;
+
+        if (_items is null)
+        {
+            _items = new ItemsControl
+            {
+                DataContext = _turn,
+                ItemsSource = new ObservableCollection<TranscriptItemViewModel>(_turn.DisplayItems),
+                IsVisible = false
+            };
+            _items.ContainerPrepared += OnContainerPrepared;
+            Child = _items;
+        }
+        else
+            RefreshItems();
+        _items.IsVisible = true;
+        _chat?.QueueChatEntrance();
+        return true;
+    }
+
+    private bool IsWithin(double band) =>
+        HasViewport
+        && new Rect(Bounds.Size).Intersects(_viewport.Inflate(new Thickness(0, _viewport.Height * band)));
 
     private void RefreshItems()
     {
         if (_items is null || _turn is null)
             return;
 
-        // A detached host keeps its last item snapshot; collection changes are applied on return.
+        // A hidden host keeps its last item snapshot; collection changes are applied on return.
         // Existing item properties remain live, while retained markdown defers offscreen rebuilding.
         if (_items.ItemsSource is ObservableCollection<TranscriptItemViewModel> snapshot)
             TranscriptTurnViewModel.SynchronizeDisplayItems(snapshot, _turn.DisplayItems);
@@ -188,10 +245,14 @@ internal sealed class TranscriptTurnView : Decorator
     {
         if (turn is null)
             return 0;
+        // Measured on a 412 dp phone: a bubble line holds about 42 characters, an answer line 44,
+        // and a closing answer adds its footer row.
         return turn.DisplayItems.Sum(item => item switch
         {
-            AssistantItemViewModel answer => 64 + Math.Ceiling(answer.Text.Length / 50d) * 22,
-            UserTurnItemViewModel user => 48 + Math.Ceiling(user.Text.Length / 50d) * 22,
+            AssistantItemViewModel answer => 10 + Math.Ceiling(answer.Text.Length / 44d) * 25
+                                                + (answer.ShowAnswerActions ? 40 : 0),
+            UserTurnItemViewModel user => 66 + Math.Ceiling(user.Text.Length / 42d) * 24,
+            ActivitySummaryItemViewModel or WorkSummaryItemViewModel => 48,
             _ => 64d
         });
     }

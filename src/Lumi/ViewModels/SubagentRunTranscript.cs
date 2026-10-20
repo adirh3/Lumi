@@ -35,13 +35,15 @@ internal sealed class SubagentRunTranscript
     {
         _dataStore = dataStore;
         // A read-only view: editing, resending and answering belong to the chat that owns the run.
+        // The page exists to inspect the agent's steps, so its messages stay unfolded between them.
         _builder = new TranscriptBuilder(
             dataStore,
             showDiffAction,
             submitQuestionAnswerAction: static (_, _) => { },
             beginEditMessageAction: static _ => { },
             resendFromMessageAction: static (_, _) => System.Threading.Tasks.Task.CompletedTask,
-            getSelectedModel: static () => null);
+            getSelectedModel: static () => null,
+            foldProgressMessages: false);
     }
 
     /// <summary>The run rendered as transcript turns, ready for the chat's own turn control.</summary>

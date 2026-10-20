@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Permissions;
 using Lumi.Services.Sharing;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
@@ -230,6 +231,179 @@ public class CopilotIntegrationTests : IAsyncLifetime
         _service = new CopilotService();
         await _service.ConnectAsync();
     }
+
+#pragma warning disable GHCP001 // Deterministic native permission pipeline; no model inference.
+    /// <summary>
+    /// Lumi's approval choices, applied by its own policy code, are what the native runtime enforces:
+    /// a Never rule even in Full access, an Always-ask layer even in Full access, Ask first, and an
+    /// Allow rule, on a created session and again after resume (the runtime keeps no rules across it).
+    /// </summary>
+    [SkippableFact]
+    public async Task Permissions_LumisPolicy_IsEnforcedNatively_OnCreateAndResume()
+    {
+        SkipIfDisabled();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
+        var ct = timeout.Token;
+        var executions = 0;
+        var tool = AIFunctionFactory.Create((string receipt) =>
+        {
+            Interlocked.Increment(ref executions);
+            return receipt;
+        }, "permission_probe", "Return the isolated permission-test receipt.");
+        ApprovalRule ProbeRule(ApprovalRuleAction action)
+            => new() { Action = action, Kind = ApprovalRuleKind.LumiTool, Target = "permission_probe" };
+
+        var data = new AppData();
+        var chat = new Chat();
+        data.Chats.Add(chat);
+        data.Settings.ApprovalRules.Add(ProbeRule(ApprovalRuleAction.Never));
+        using var vm = new ChatViewModel(new DataStore(data), _service);
+        var handler = SessionConfigBuilder.BuildPermissionHandler(() => ApprovalPolicy.ResolveMode(chat, null, data.Settings).Mode);
+
+        var created = await _service.CreateSessionAsync(SessionConfigBuilder.Build(
+            "Permission integration fixture. No inference is needed.", null, null, null,
+            [], [], [tool], null, null, handler, ChatViewModel.BuildSessionHooks(),
+            enableCapabilityDiscovery: false), ct);
+        var sessionId = created.SessionId;
+        try
+        {
+            // Full access, the default, still refuses what the user said Never to, without asking.
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.Equal(PermissionMode.AllowAll, (await created.Rpc.Permissions.GetModeAsync(ct)).Mode);
+            Assert.Null(await RunAsync(created, chat, "never", answer: null));
+            Assert.Equal(0, executions);
+
+            // Auto-review is the runtime's native assisted mode, which Lumi's CLI environment turns on.
+            chat.ApprovalMode = ApprovalMode.AutoReview;
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.Equal(PermissionMode.Assisted, (await created.Rpc.Permissions.GetModeAsync(ct)).Mode);
+
+            // Ask first: the request waits for a person, and runs once allowed.
+            data.Settings.ApprovalRules.Clear();
+            chat.ApprovalMode = ApprovalMode.AskFirst;
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.Equal(PermissionMode.Manual, (await created.Rpc.Permissions.GetModeAsync(ct)).Mode);
+            Assert.NotNull(await RunAsync(created, chat, "ask-allow", ApproveOnce()));
+            Assert.Equal(1, executions);
+            Assert.NotNull(await RunAsync(created, chat, "ask-deny", Deny()));
+            Assert.Equal(1, executions);
+
+            // "Allow for this chat" is a native session approval, kept apart from the rules: replacing
+            // the rules alone leaves it, and Lumi's policy apply clears it, so a forgotten one asks again.
+            Assert.NotNull(await RunAsync(created, chat, "session-allow", ApproveForSession()));
+            Assert.Equal(2, executions);
+            Assert.True((await created.Rpc.Permissions.ConfigureAsync(rules: ApprovalPolicy.BuildSessionRules([]), cancellationToken: ct)).Success);
+            Assert.Null(await RunAsync(created, chat, "session-remembered", answer: null));
+            Assert.Equal(3, executions);
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.NotNull(await RunAsync(created, chat, "session-forgotten", Deny()));
+            Assert.Equal(3, executions);
+
+            // A remembered Allow rule runs it without asking.
+            chat.ApprovalRules.Add(ProbeRule(ApprovalRuleAction.Allow));
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.Null(await RunAsync(created, chat, "allowed", answer: null));
+            Assert.Equal(4, executions);
+        }
+        finally
+        {
+            await created.DisposeAsync();
+        }
+
+        // After a resume Lumi installs the chat's mode and rules again.
+        await using var resumed = await _service.ResumeSessionAsync(sessionId, SessionConfigBuilder.BuildForResume(
+            "Permission integration fixture. No inference is needed.", null, null, null,
+            [], [], [tool], null, null, handler, ChatViewModel.BuildSessionHooks(),
+            enableCapabilityDiscovery: false), ct);
+        await vm.PrepareSessionPermissionsAsync(resumed, chat, null, ct);
+        Assert.Equal(PermissionMode.Manual, (await resumed.Rpc.Permissions.GetModeAsync(ct)).Mode);
+        Assert.Null(await RunAsync(resumed, chat, "resume-allowed", answer: null));
+        Assert.Equal(5, executions);
+        chat.ApprovalRules.Clear();
+        await vm.PrepareSessionPermissionsAsync(resumed, chat, null, ct);
+        Assert.NotNull(await RunAsync(resumed, chat, "resume-deny", Deny()));
+        Assert.Equal(5, executions);
+
+        // Stop: native Abort retires a waiting request without running it.
+        var stoppingRequest = new TaskCompletionSource<PermissionRequestedData>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using (resumed.On<PermissionRequestedEvent>(evt => stoppingRequest.TrySetResult(evt.Data)))
+        {
+            var stoppingArguments = JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["receipt"] = "must-not-execute" });
+            var stoppingExecution = resumed.Rpc.Tools.ExecuteAsync("permission_probe", stoppingArguments, "stop-pending", ct);
+            var stoppingPermission = await stoppingRequest.Task.WaitAsync(TimeSpan.FromSeconds(20), ct);
+            await resumed.AbortAsync(ct);
+            var stopError = await Record.ExceptionAsync(() => stoppingExecution.WaitAsync(TimeSpan.FromSeconds(10), ct));
+            Assert.False(stopError is TimeoutException, "Native Abort must release the blocked tool call.");
+            Assert.DoesNotContain((await resumed.Rpc.Permissions.PendingRequestsAsync(ct)).Items,
+                item => item.RequestId == stoppingPermission.RequestId);
+            Assert.Equal(5, executions);
+        }
+
+        // An Always-ask rule is a startup layer that requires a person even in Full access.
+        var alwaysAsk = new Chat();
+        data.Chats.Add(alwaysAsk);
+        alwaysAsk.ApprovalRules.Add(ProbeRule(ApprovalRuleAction.Ask));
+        var askLayer = ApprovalPolicy.BuildAskLayer(alwaysAsk.ApprovalRules);
+        var askConfig = SessionConfigBuilder.Build(
+            "Permission integration fixture. No inference is needed.", null, null, null,
+            [], [], [tool], null, null,
+            SessionConfigBuilder.BuildPermissionHandler(() => ApprovalPolicy.ResolveMode(alwaysAsk, null, data.Settings).Mode),
+            ChatViewModel.BuildSessionHooks(), enableCapabilityDiscovery: false);
+        askConfig.ManagedSettings = askLayer;
+        await using var asking = await _service.CreateSessionAsync(askConfig, ct);
+        await vm.PrepareSessionPermissionsAsync(asking, alwaysAsk, askLayer, ct);
+        Assert.Equal(PermissionMode.AllowAll, (await asking.Rpc.Permissions.GetModeAsync(ct)).Mode);
+        var managed = await RunAsync(asking, alwaysAsk, "always-ask", ApproveOnce());
+        Assert.True(managed?.PermissionRequest?.ManagedApprovalRequired);
+        Assert.Equal(6, executions);
+
+        static GitHub.Copilot.Rpc.PermissionDecision ApproveOnce()
+            => new GitHub.Copilot.Rpc.PermissionDecisionApproveOnce { ApprovedInteractively = true };
+
+        static GitHub.Copilot.Rpc.PermissionDecision ApproveForSession()
+            => new GitHub.Copilot.Rpc.PermissionDecisionApproveForSession
+            {
+                Approval = new GitHub.Copilot.Rpc.PermissionDecisionApproveForSessionApprovalCustomTool { ToolName = "permission_probe" }
+            };
+
+        static GitHub.Copilot.Rpc.PermissionDecision Deny()
+            => GitHub.Copilot.Rpc.PermissionDecision.Reject("Denied by the isolated test user.");
+
+        // Runs the probe; answers the request it raises, or returns null when none needed a person.
+        async Task<PermissionRequestedData?> RunAsync(
+            CopilotSession session, Chat owner, string toolCallId, GitHub.Copilot.Rpc.PermissionDecision? answer)
+        {
+            var requested = new TaskCompletionSource<PermissionRequestedData>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var subscription = session.On<PermissionRequestedEvent>(evt =>
+            {
+                if (evt.Data.ResolvedByHook != true
+                    && evt.Data.PermissionRequest is PermissionRequestCustomTool { ToolName: "permission_probe" } request
+                    && SessionConfigBuilder.NeedsPerson(ApprovalPolicy.ResolveMode(owner, null, data.Settings).Mode, request))
+                    requested.TrySetResult(evt.Data);
+            });
+            var arguments = JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["receipt"] = toolCallId });
+            var execution = session.Rpc.Tools.ExecuteAsync("permission_probe", arguments, toolCallId, ct);
+            if (await Task.WhenAny(execution, requested.Task).WaitAsync(TimeSpan.FromSeconds(30), ct) == execution)
+            {
+                await execution;
+                Assert.Null(answer);
+                _output.WriteLine($"{toolCallId}: settled without asking");
+                return null;
+            }
+
+            var permission = await requested.Task;
+            Assert.NotNull(answer);
+            Assert.False(execution.IsCompleted);
+            Assert.True((await session.Rpc.Permissions.HandlePendingPermissionRequestAsync(
+                permission.RequestId, answer!, cancellationToken: ct)).Success);
+            await execution.WaitAsync(TimeSpan.FromSeconds(20), ct);
+            Assert.False((await session.Rpc.Permissions.HandlePendingPermissionRequestAsync(
+                permission.RequestId, answer!, cancellationToken: ct)).Success);
+            _output.WriteLine($"{toolCallId}: native request {permission.RequestId} answered {answer!.Kind}");
+            return permission;
+        }
+    }
+#pragma warning restore GHCP001
 
     public async Task DisposeAsync()
     {

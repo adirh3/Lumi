@@ -96,7 +96,8 @@ public sealed class LightweightSessionOptions
         GitHub.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
         ISkillProvider? skillProvider = null,
-        ModelCapabilitiesOverride? modelCapabilities = null)
+        ModelCapabilitiesOverride? modelCapabilities = null,
+        IReadOnlyList<string>? pluginDirectories = null)
     {
         var config = new SessionConfig
         {
@@ -120,6 +121,7 @@ public sealed class LightweightSessionOptions
 
         Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
             customAgents, tools, userInputHandler, hooks, agentName, enableCapabilityDiscovery);
+        ApplySessionPluginDirectories(config, enableCapabilityDiscovery, pluginDirectories);
 
         return config;
     }
@@ -144,10 +146,12 @@ public sealed class LightweightSessionOptions
         GitHub.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
         ISkillProvider? skillProvider = null,
-        ModelCapabilitiesOverride? modelCapabilities = null)
+        ModelCapabilitiesOverride? modelCapabilities = null,
+        IReadOnlyList<string>? pluginDirectories = null)
     {
         var config = new ResumeSessionConfig
         {
+            ContinuePendingWork = false,
             ClientName = ClientName,
             Model = model,
             Streaming = true,
@@ -168,6 +172,7 @@ public sealed class LightweightSessionOptions
 
         Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
             customAgents, tools, userInputHandler, hooks, agentName, enableCapabilityDiscovery);
+        ApplySessionPluginDirectories(config, enableCapabilityDiscovery, pluginDirectories);
 
         return config;
     }
@@ -213,6 +218,29 @@ public sealed class LightweightSessionOptions
         return config;
     }
 
+    /// <summary>
+    /// The host's answer to a native permission request. In Full access the runtime's allow-all mode
+    /// normally answers first, and this approves anything still routed here. Every other request waits
+    /// for Lumi: a person on an approval card, or, in Auto-review, the reviewer's recommendation.
+    /// </summary>
+    internal static Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>> BuildPermissionHandler(
+        Func<ApprovalMode> mode) => (request, _) =>
+        Task.FromResult(NeedsPerson(mode(), request) ? PermissionDecision.NoResult() : PermissionDecision.ApproveOnce());
+
+    /// <summary>
+    /// True when Lumi must not approve a request on its own: stricter modes, an Always-ask rule or
+    /// managed policy (which forbids host auto-approval), a request kind this SDK doesn't know, or a
+    /// request to leave the command sandbox.
+    /// </summary>
+    internal static bool NeedsPerson(ApprovalMode mode, PermissionRequest request)
+        => mode != ApprovalMode.FullAccess
+           || request.ManagedApprovalRequired == true
+           || request.GetType() == typeof(PermissionRequest)
+           || request is PermissionRequestShell { RequestSandboxBypass: true }
+           || request is PermissionRequestWrite { RequestSandboxBypass: true }
+           || request is PermissionRequestRead { RequestSandboxBypass: true }
+           || request is PermissionRequestUrl { RequestSandboxBypass: true };
+
     // Copilot can stop exposing deferred tools after an earlier lookup or a resume.
     // Preload Lumi-owned functions only; MCP tools keep their separate loading policy.
     private static List<AIFunctionDeclaration> PreloadLumiTools(List<AIFunction> tools)
@@ -220,11 +248,19 @@ public sealed class LightweightSessionOptions
 
     private sealed class PreloadedLumiTool(AIFunction innerFunction) : DelegatingAIFunction(innerFunction)
     {
-        public override IReadOnlyDictionary<string, object?> AdditionalProperties { get; } =
-            new Dictionary<string, object?>(innerFunction.AdditionalProperties, StringComparer.Ordinal)
+        public override IReadOnlyDictionary<string, object?> AdditionalProperties { get; } = Describe(innerFunction);
+
+        private static Dictionary<string, object?> Describe(AIFunction function)
+        {
+            var properties = new Dictionary<string, object?>(function.AdditionalProperties, StringComparer.Ordinal)
             {
                 ["defer"] = CopilotToolDefer.Never
             };
+            // Tools that only read or talk to the user run without approval in every mode.
+            if (Permissions.ApprovalPolicy.SkipsApproval(function.Name))
+                properties["skip_permission"] = true;
+            return properties;
+        }
     }
 
     private static string GetDefaultConfigDir()
@@ -263,6 +299,26 @@ public sealed class LightweightSessionOptions
         config.SkillDirectories = skillDirectories;
     }
 
+    /// <summary>
+    /// Loads the user's installed Copilot plugins into a session.
+    /// </summary>
+    /// <remarks>
+    /// The runtime installs plugins into its own home and only loads them for sessions configured
+    /// from there; Lumi's sessions use Lumi's folder. Like discovery itself this needs a resolved
+    /// snapshot: a plugin's MCP servers start unless named in DisabledMcpServers, which is derived
+    /// from that snapshot.
+    /// </remarks>
+    private static void ApplySessionPluginDirectories(
+        SessionConfigBase config,
+        bool enableCapabilityDiscovery,
+        IReadOnlyList<string>? pluginDirectories)
+    {
+        if (!enableCapabilityDiscovery || pluginDirectories is not { Count: > 0 })
+            return;
+
+        config.PluginDirectories = pluginDirectories.ToList();
+    }
+
     internal static ContextTier? CreateContextTier(string? contextTier)
     {
         if (string.IsNullOrWhiteSpace(contextTier))
@@ -275,63 +331,6 @@ public sealed class LightweightSessionOptions
             var tier => new ContextTier(tier)
         };
     }
-
-    /// <summary>
-    /// Builds the system message for a chat session. GPT-family models receive a terse
-    /// "Tone" section from the Copilot CLI base prompt that fights Lumi's writing style: it
-    /// pushes 1-2 paragraph answers, discourages sections and lists, and prefers tables over
-    /// structure, which suppresses rich formatting and Lumi's visualization blocks. Using the
-    /// SDK's section-override mechanism we replace only that one section with a Lumi-aligned
-    /// tone, leaving every other base-prompt section (identity, tool rules, safety, code-change
-    /// rules, additional instructions, etc.) untouched. Other model families already produce
-    /// richly structured output, so they get the prompt appended unchanged.
-    /// </summary>
-    private static SystemMessageConfig BuildSystemMessage(string systemPrompt, string? model)
-    {
-        if (!IsGptFamily(model))
-            return new SystemMessageConfig { Content = systemPrompt, Mode = SystemMessageMode.Append };
-
-        return new SystemMessageConfig
-        {
-            Mode = SystemMessageMode.Customize,
-            Content = systemPrompt,
-            Sections = new Dictionary<SystemMessageSection, SectionOverride>
-            {
-                [SystemMessageSection.Tone] = new SectionOverride
-                {
-                    Action = SectionOverrideAction.Replace,
-                    Content = LumiToneOverride
-                }
-            }
-        };
-    }
-
-    /// <summary>
-    /// True for OpenAI GPT-family model ids (e.g. "gpt-5.5"), matching the CLI's own family
-    /// routing which keys its formatting/tone defaults off the "gpt" prefix.
-    /// </summary>
-    private static bool IsGptFamily(string? model)
-        => !string.IsNullOrWhiteSpace(model)
-           && model.Trim().StartsWith("gpt", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Lumi's replacement for the GPT-family "Tone" section. Keeps the genuinely useful,
-    /// model-agnostic guidance from the default tone (lead with the answer, stay concise, be
-    /// honest about uncertainty, warm natural voice) while removing the length and structure
-    /// suppression and explicitly permitting rich structure and proactive use of Lumi's
-    /// visualization blocks. This reinforces, rather than contradicts, the writing guidance
-    /// already carried in Lumi's appended system prompt.
-    /// </summary>
-    private const string LumiToneOverride =
-        """
-        * Lead with the answer. Start with the main result or conclusion, then add the most important supporting detail.
-        * Be concise and information-dense: cut filler and don't simply restate the request. Concise means high signal, not artificially short, so never drop a genuinely useful answer just to hit a length target.
-        * Match the shape of the response to the request. Use the full Markdown palette (headings, subheadings, tables, lists, code blocks, and inline emphasis) plus Lumi's native visualization blocks (chart, comparison, card, confidence, mermaid) whenever they make the answer clearer or easier to scan. Reach for them proactively, not only when asked.
-        * Lumi's visualization fences activate functional UI controls. Before finalizing, choose the presentation shape: use `comparison` for exactly two meaningful alternatives, `chart` when comparing central numeric values or trends, `card` for a compact profile/lookup/digest/deal with optional detail or a final URL-delivered artifact, `confidence` when uncertainty matters to the decision, and `mermaid` for processes, sequences, or architecture. For a URL artifact, put one clear Markdown action link in the card's always-visible summary instead of returning only a bare URL or prose-only link. When a trigger matches, use that block instead of substituting a plain list or table merely for brevity. Do not wait for an explicit visualization request; use normal Markdown when none of these shapes fits.
-        * Don't force answers into one or two paragraphs. Give comparisons, multi-part answers, and rich explanations the structure they deserve, whether that's sections, a table, or the right visualization.
-        * Be honest and direct: if something is uncertain, incomplete, or blocked, say so plainly.
-        * Keep the voice warm, collaborative, and natural, and leave a blank line between paragraphs.
-        """;
 
     /// <summary>Sets the shared optional properties on a <see cref="SessionConfig"/>.</summary>
     private static void Populate(
@@ -353,7 +352,11 @@ public sealed class LightweightSessionOptions
         config.ReasoningSummary = DefaultReasoningSummary;
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
-            config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
+            config.SystemMessage = new SystemMessageConfig
+            {
+                Content = systemPrompt,
+                Mode = SystemMessageMode.Append
+            };
 
         config.EnableSkills = enableCapabilityDiscovery || config.SkillProvider is not null;
         if (!enableCapabilityDiscovery)
@@ -404,7 +407,11 @@ public sealed class LightweightSessionOptions
         config.ReasoningSummary = DefaultReasoningSummary;
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
-            config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
+            config.SystemMessage = new SystemMessageConfig
+            {
+                Content = systemPrompt,
+                Mode = SystemMessageMode.Append
+            };
 
         config.EnableSkills = enableCapabilityDiscovery || config.SkillProvider is not null;
         if (!enableCapabilityDiscovery)

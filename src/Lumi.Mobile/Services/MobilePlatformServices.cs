@@ -155,6 +155,18 @@ public static class MobilePlatformServices
     public static IMobileHostEnvironment HostEnvironment { get; set; } =
         new DefaultMobileHostEnvironment();
 
+    /// <summary>
+    /// Connectivity changes for the connection supervisor. Android and the browser host install
+    /// platform monitors; desktop hosts observe System.Net.NetworkInformation.NetworkChange.
+    /// </summary>
+    public static IRemoteNetworkMonitor NetworkMonitor
+    {
+        get => _networkMonitor ?? SystemNetworkMonitor.Instance;
+        set => _networkMonitor = value;
+    }
+
+    private static IRemoteNetworkMonitor? _networkMonitor;
+
     public static string? DeviceNameOverride { get; set; }
 
     internal static INativeComposerEditorFactory NativeComposerEditorFactory { get; set; } =

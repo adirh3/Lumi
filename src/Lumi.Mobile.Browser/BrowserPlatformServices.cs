@@ -417,6 +417,12 @@ internal static partial class BrowserInterop
 {
     internal static BrowserNativeTextInputOverlayPresenter? NativeTextInputOverlayPresenter { get; set; }
 
+    /// <summary>Fed by the page's online/offline events so reconnects follow the network.</summary>
+    internal static PushedNetworkMonitor NetworkMonitor { get; } = new();
+
+    [JSExport]
+    internal static void SetNetworkAvailable(bool available) => NetworkMonitor.Report(available);
+
     [JSImport("setTheme", "./pwaHost.js")]
     internal static partial void SetTheme(string preference);
 

@@ -15,7 +15,7 @@ using System.Threading.Tasks;
 
 namespace Lumi.Services.Byok;
 
-public enum ProviderOAuthKind { OpenRouter, NanoGpt, Poe }
+public enum ProviderOAuthKind { OpenRouter, NanoGpt, Poe, ChatGpt }
 
 public sealed record ProviderOAuthOptions(ProviderOAuthKind Kind, string? ClientId = null);
 
@@ -88,11 +88,11 @@ public sealed class ProviderOAuthService : IDisposable
 
             // Start receiving before invoking the callback: tests and browser launchers may
             // await the local HTTP response themselves.
-            var codeTask = ReceiveCodeAsync(listener, callback, state, options.Kind, flow);
+            var callbackTask = ReceiveCallbackAsync(listener, callback, state, options.Kind, flow);
             var browserTask = OpenBrowserAsync(openBrowser, authorizationUri, flow);
-            await Task.WhenAll(browserTask, codeTask).ConfigureAwait(false);
-            return await ExchangeAsync(options, callback, await codeTask.ConfigureAwait(false), verifier, flow.Token)
-                .ConfigureAwait(false);
+            await Task.WhenAll(browserTask, callbackTask).ConfigureAwait(false);
+            var code = (await callbackTask.ConfigureAwait(false))["code"];
+            return await ExchangeAsync(options, callback, code, verifier, flow.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -118,7 +118,7 @@ public sealed class ProviderOAuthService : IDisposable
         }
     }
 
-    private static async Task OpenBrowserAsync(
+    internal static async Task OpenBrowserAsync(
         Func<Uri, Task> openBrowser, Uri authorizationUri, CancellationTokenSource flow)
     {
         try
@@ -142,7 +142,7 @@ public sealed class ProviderOAuthService : IDisposable
     internal static string CreateCodeChallenge(string verifier)
         => Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
 
-    private static string Base64Url(byte[] bytes)
+    internal static string Base64Url(byte[] bytes)
         => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     internal static Uri CreateAuthorizationUri(
@@ -188,7 +188,8 @@ public sealed class ProviderOAuthService : IDisposable
     private static void ValidateOptions(ProviderOAuthOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        if (!Enum.IsDefined(options.Kind))
+        // ChatGPT issues renewable OAuth tokens rather than an API key; ChatGptAuthService owns it.
+        if (!Enum.IsDefined(options.Kind) || options.Kind == ProviderOAuthKind.ChatGpt)
             throw new ArgumentOutOfRangeException(nameof(options), "This provider does not support Easy Connect.");
         if (options.Kind == ProviderOAuthKind.Poe &&
             (string.IsNullOrWhiteSpace(options.ClientId) || options.ClientId.Length > 1024 ||
@@ -197,7 +198,12 @@ public sealed class ProviderOAuthService : IDisposable
                 "Poe sign-in requires a public Client ID registered at poe.com/api/clients. Configure it or enter an API key instead.");
     }
 
-    private static async Task<string> ReceiveCodeAsync(
+    /// <summary>
+    /// Accepts exactly one loopback callback for <paramref name="callback"/> and returns its query
+    /// values once state, denial and the authorization code have been validated. The browser always
+    /// receives a page that reveals none of the parameters.
+    /// </summary>
+    internal static async Task<IReadOnlyDictionary<string, string>> ReceiveCallbackAsync(
         TcpListener listener, Uri callback, string state, ProviderOAuthKind kind, CancellationTokenSource flow)
     {
         try
@@ -206,20 +212,19 @@ public sealed class ProviderOAuthService : IDisposable
             using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(flow.Token);
             requestTimeout.CancelAfter(TimeSpan.FromSeconds(10));
             var stream = client.GetStream();
-            string code;
+            IReadOnlyDictionary<string, string> values;
             try
             {
                 var headers = await ReadHeadersAsync(stream, requestTimeout.Token).ConfigureAwait(false);
-                code = ValidateCallback(headers, callback, state, kind);
+                values = ValidateCallback(headers, callback, state, kind);
             }
             catch (ProviderOAuthException)
             {
                 await WriteCallbackResponseAsync(stream, false, requestTimeout.Token).ConfigureAwait(false);
                 throw;
             }
-
             await WriteCallbackResponseAsync(stream, true, requestTimeout.Token).ConfigureAwait(false);
-            return code;
+            return values;
         }
         catch (OperationCanceledException) when (!flow.IsCancellationRequested)
         {
@@ -265,7 +270,8 @@ public sealed class ProviderOAuthService : IDisposable
         throw new ProviderOAuthException("The local sign-in callback was incomplete or too large. Start sign-in again.");
     }
 
-    private static string ValidateCallback(string[] headers, Uri callback, string expectedState, ProviderOAuthKind kind)
+    private static IReadOnlyDictionary<string, string> ValidateCallback(
+        string[] headers, Uri callback, string expectedState, ProviderOAuthKind kind)
     {
         var request = headers[0].Split(' ');
         if (request.Length != 3 || request[0] != "GET" || request[2] is not ("HTTP/1.1" or "HTTP/1.0"))
@@ -294,7 +300,7 @@ public sealed class ProviderOAuthService : IDisposable
 
         var target = request[1];
         var queryStart = target.IndexOf('?');
-        if (queryStart < 0 || target[..queryStart] != CallbackPath || target.Contains('#'))
+        if (queryStart < 0 || target[..queryStart] != callback.AbsolutePath || target.Contains('#'))
             throw InvalidCallback();
 
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -319,7 +325,7 @@ public sealed class ProviderOAuthService : IDisposable
         if (!values.TryGetValue("code", out var code) || string.IsNullOrWhiteSpace(code) ||
             code.Length > 2048 || code.Any(char.IsControl))
             throw new ProviderOAuthException("The provider did not return an authorization code. Start sign-in again.");
-        return code;
+        return values;
     }
 
     private static ProviderOAuthException InvalidCallback()
@@ -473,6 +479,7 @@ public sealed class ProviderOAuthService : IDisposable
         ProviderOAuthKind.OpenRouter => "OpenRouter",
         ProviderOAuthKind.NanoGpt => "NanoGPT",
         ProviderOAuthKind.Poe => "Poe",
+        ProviderOAuthKind.ChatGpt => "ChatGPT",
         _ => "The provider",
     };
 

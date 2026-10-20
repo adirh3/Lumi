@@ -103,7 +103,7 @@ public static partial class Loc
 
 /// <summary>
 /// XAML markup extension for localized strings.
-/// Usage: {loc:Str Nav_Chats}
+/// Usage: {loc:Str NavTip_Chats}
 /// </summary>
 public class StrExtension : MarkupExtension
 {

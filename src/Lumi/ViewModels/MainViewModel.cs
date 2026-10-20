@@ -15,6 +15,8 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
+using Lumi.Services.Discover;
 using Lumi.Services.Sharing;
 
 namespace Lumi.ViewModels;
@@ -75,9 +77,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _connectionStatus = Loc.Status_Disconnected;
     [ObservableProperty] private string _userName = "";
     [ObservableProperty] private bool _isOnboarded;
-    [ObservableProperty] private string _onboardingName = "";
-    [ObservableProperty] private int _onboardingSexIndex; // 0=Male, 1=Female, 2=Prefer not to say
-    [ObservableProperty] private int _onboardingLanguageIndex; // index into Loc.AvailableLanguages
     [ObservableProperty] private Guid? _selectedProjectFilter;
     [ObservableProperty] private bool _isSidebarCollapsed;
     [ObservableProperty] private bool _isAgentDebugMapDismissed;
@@ -114,24 +113,51 @@ public partial class MainViewModel : ObservableObject, IDisposable
         1 => "1 Jobs (#PageJobs)",
         2 => "2 Projects (#PageProjects)",
         3 => "3 Skills (#PageSkills)",
-        4 => "4 Lumis (#PageAgents)",
+        4 => "4 Agents (#PageAgents)",
         5 => "5 Memories (#PageMemories)",
         6 => "6 MCP Servers (#PageMcpServers)",
         7 => "7 Settings (#PageSettings)",
         8 => "8 Library (#PageLibrary)",
+        9 => "9 Discover (#PageDiscover)",
         _ => $"{index} Unknown"
     };
 
     public string AgentDebugMapText =>
         "Debug-only agent map\n" +
-        "Nav: #NavChat=0, #NavJobs=1, #NavProjects=2, #NavSkills=3, #NavAgents=4, #NavMemories=5, #NavMcpServers=6, #NavSettings=7, #LibraryEntryButton=8\n" +
+        "Nav: #NavChat=0, #NavLibrary=8, #NavJobs=1, #NavCustomize (last section), #NavSettings=7 (or Memories=5)\n" +
+        "Customize: #CustomizeDiscoverTab=9, #CustomizeLumisTab=4, #CustomizeSkillsTab=3, #CustomizeMcpTab=6, #CustomizeProjectsTab=2\n" +
+        "Settings: #SettingsMemoriesItem=5 · Chat list project switcher: #ProjectSwitchButton, #ProjectSwitcherManageButton, #ProjectEditButton\n" +
         "Chat controls: #PageChat, #ChatShell, #Transcript, #Composer, #SearchInput\n" +
         "CLI: --skip-onboarding --debug-agent-harness opens fixture, --test-chat-stress checks tools, --test-mcp-native checks SDK MCP";
 
     partial void OnSelectedNavIndexChanged(int value)
     {
+        // Settings reopens on the page used last; when that is Memories, its own page opens instead.
+        if (value == 7 && SettingsVM is not null && SettingsTarget == MemoriesNavIndex)
+        {
+            SelectedNavIndex = MemoriesNavIndex;
+            return;
+        }
+
+        if (value == MemoriesNavIndex && SettingsVM is not null)
+        {
+            // Memories shows no Settings search results, so opening it ends the search.
+            if (SettingsVM.SelectedPageIndex != SettingsViewModel.MemoriesPageIndex)
+                SettingsVM.SelectedPageIndex = SettingsViewModel.MemoriesPageIndex;
+            SettingsVM.SearchQuery = "";
+        }
+
         OnPropertyChanged(nameof(IsGlobalUpdateBannerVisible));
         OnPropertyChanged(nameof(AgentDebugCurrentPage));
+        NotifyCustomizeState();
+        if (IsCustomizeIndex(value))
+        {
+            LastCustomizeNavIndex = value;
+            _ = RefreshExternalCapabilitiesAsync(force: false);
+            if (value == DiscoverNavIndex)
+                _ = DiscoverVM.EnsureLoadedAsync();
+        }
+
         if (value == 1)
         {
             JobsVM.SetPreferredChat(ChatVM.CurrentChat);
@@ -148,17 +174,212 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Nav index of the Library page. It is reached from the chat sidebar, not the nav pill.</summary>
+    /// <summary>Nav index of the Library page, the second place in the nav pill.</summary>
     public const int LibraryNavIndex = 8;
+
+    /// <summary>Nav index of Customize → Discover. The other Customize sections keep their page indices.</summary>
+    public const int DiscoverNavIndex = 9;
+
+    /// <summary>
+    /// Nav index of Settings → Memories. Memories is about the user rather than what Lumi can do, so it
+    /// is a Settings page: it keeps the Settings sidebar and lights Settings in the pill.
+    /// </summary>
+    public const int MemoriesNavIndex = 5;
+
+    /// <summary>
+    /// Customize groups the pages that set up how Lumi works: agents, skills, connectors and projects,
+    /// plus Discover. Projects are switched from the chat list and set up here, the way agents, skills
+    /// and connectors are picked in a chat and set up here. The indices predate the group, so global
+    /// search, the debug bridge and saved shortcuts keep addressing the same pages.
+    /// </summary>
+    public static bool IsCustomizeIndex(int index) => index is 2 or 3 or 4 or 6 or DiscoverNavIndex;
+
+    /// <summary>The Customize section the nav button returns to.</summary>
+    public int LastCustomizeNavIndex { get; set; } = 4;
+
+    public bool IsCustomizeOpen => IsCustomizeIndex(SelectedNavIndex);
+    public bool IsDiscoverSection => SelectedNavIndex == DiscoverNavIndex;
+    public bool IsLumisSection => SelectedNavIndex == 4;
+    public bool IsSkillsSection => SelectedNavIndex == 3;
+    public bool IsMcpSection => SelectedNavIndex == 6;
+    public bool IsProjectsSection => SelectedNavIndex == 2;
+
+    /// <summary>What the Customize area lists as available everywhere: the same scope as a chat with no project.</summary>
+    private static readonly CapabilityQuery CustomizeCapabilityQuery =
+        new([Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)]);
+
+    [RelayCommand]
+    private void OpenCustomize() => SelectedNavIndex = CustomizeTarget;
+
+    /// <summary>The Customize section the Customize place opens: the one used last.</summary>
+    internal int CustomizeTarget => IsCustomizeIndex(LastCustomizeNavIndex) ? LastCustomizeNavIndex : 4;
+
+    /// <summary>
+    /// The page the Settings place opens: the Settings page used last, which may be Memories. A search
+    /// typed in the Settings list shows its results on the Settings page, even from Memories.
+    /// </summary>
+    internal int SettingsTarget =>
+        SettingsVM.SelectedPageIndex == SettingsViewModel.MemoriesPageIndex && !SettingsVM.IsSearching
+            ? MemoriesNavIndex
+            : 7;
+
+    /// <summary>
+    /// A Customize section row. Clicking the section already open takes it back to its overview, the
+    /// way the "All …" row used to.
+    /// </summary>
+    [RelayCommand]
+    private void OpenCustomizeSection(string indexText)
+    {
+        if (!int.TryParse(indexText, out var index) || !IsCustomizeIndex(index))
+            return;
+
+        if (SelectedNavIndex != index)
+        {
+            SelectedNavIndex = index;
+            return;
+        }
+
+        switch (index)
+        {
+            case 2: ProjectsVM.CloseDetailCommand.Execute(null); break;
+            case 3: SkillsVM.CloseDetailCommand.Execute(null); break;
+            case 4: AgentsVM.CloseDetailCommand.Execute(null); break;
+            case 6: McpServersVM.CloseDetailCommand.Execute(null); break;
+            case DiscoverNavIndex: DiscoverVM.CloseDetailCommand.Execute(null); break;
+        }
+    }
+
+    /// <summary>Settings reopens on the page used last, which may be Memories.</summary>
+    [RelayCommand]
+    private void OpenSettings()
+    {
+        if (SettingsVM.ShouldAutoNavigateToUpdateCenter)
+            SettingsVM.OpenUpdateCenter();
+
+        SelectedNavIndex = SettingsTarget;
+    }
+
+    /// <summary>
+    /// Keeps the Settings list and the open page in step: picking Memories in the list opens its page,
+    /// picking another Settings page while Memories is open returns to Settings, and a search typed in
+    /// the list shows its results on the Settings page.
+    /// </summary>
+    private void SyncSettingsPageWithNav()
+    {
+        if (SelectedNavIndex is 7 or MemoriesNavIndex)
+            SelectedNavIndex = SettingsTarget;
+    }
+
+    private void NotifyCustomizeState()
+    {
+        OnPropertyChanged(nameof(IsCustomizeOpen));
+        OnPropertyChanged(nameof(IsDiscoverSection));
+        OnPropertyChanged(nameof(IsLumisSection));
+        OnPropertyChanged(nameof(IsSkillsSection));
+        OnPropertyChanged(nameof(IsMcpSection));
+        OnPropertyChanged(nameof(IsProjectsSection));
+    }
+
+    /// <summary>
+    /// Loads what plugins and the user's Copilot folder provide and hands it to the Skills, Lumis
+    /// and MCP sections. Uses the chats' own capability catalog, so the pages list exactly what a
+    /// new chat can use.
+    /// </summary>
+    private async Task RefreshExternalCapabilitiesAsync(bool force)
+    {
+        if (_isDisposed)
+            return;
+
+        try
+        {
+            await _chatSessionStore.CapabilityCatalog.LoadAsync(CustomizeCapabilityQuery, forceRefresh: force);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Customize] Capability refresh failed: {ex.Message}");
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+            ApplyExternalCapabilities();
+        else
+            Dispatcher.UIThread.Post(ApplyExternalCapabilities);
+    }
+
+    private CapabilitySnapshot? GetCustomizeCapabilities()
+        => _isDisposed ? null : _chatSessionStore.CapabilityCatalog.GetSnapshot(CustomizeCapabilityQuery);
+
+    private void ApplyExternalCapabilities()
+    {
+        if (GetCustomizeCapabilities() is not { } snapshot)
+            return;
+
+        SkillsVM.External.Update(snapshot);
+        AgentsVM.External.Update(snapshot);
+        McpServersVM.External.Update(snapshot);
+        DiscoverVM.NotifyCapabilitiesChanged();
+    }
+
+    private void OnPluginsChanged()
+        => Dispatcher.UIThread.Post(() =>
+        {
+            _ = RefreshExternalCapabilitiesAsync(force: true);
+            _ = SetupsVM.RefreshAsync();
+        });
+
+    partial void OnIsConnectedChanged(bool value) => DiscoverVM?.NotifyConnectionChanged(value);
+
+    /// <summary>
+    /// A connection starts a new capability generation. Customize reloads only after that reset, or
+    /// the reset would discard its result and leave the sections without plugin and Copilot items.
+    /// </summary>
+    private void RefreshCapabilitiesAfterConnection()
+    {
+        _chatSessionStore.RefreshCapabilitiesAfterConnectionChange();
+        if (IsCustomizeOpen)
+            _ = RefreshExternalCapabilitiesAsync(force: false);
+    }
+
+    /// <summary>Opens a Customize section with a plugin's parts unfolded in its sidebar.</summary>
+    private void ShowPluginParts(string pluginName, CapabilityKind kind)
+    {
+        var (index, external) = kind switch
+        {
+            CapabilityKind.Agent => (4, AgentsVM.External),
+            CapabilityKind.McpServer => (6, McpServersVM.External),
+            _ => (3, SkillsVM.External),
+        };
+
+        SelectedNavIndex = index;
+        external.Reveal(pluginName);
+    }
+
+    private void ManageInDiscover(string pluginName)
+    {
+        SelectedNavIndex = DiscoverNavIndex;
+        _ = DiscoverVM.OpenInstalledPluginAsync(pluginName);
+    }
+
+    /// <summary>A setup's "Try it": a new chat with the prompt ready to review. Nothing is sent.</summary>
+    private void StartSetupDraft(string prompt)
+    {
+        NewChat();
+        ChatVM.PromptText = prompt;
+    }
+
+    /// <summary>A setup that is there but turned off: its plugin in Discover, or the Connectors section.</summary>
+    private void ManageSetup(SetupSuggestionItem setup)
+    {
+        if (setup.Installation is { } plugin)
+            ManageInDiscover(plugin.Name);
+        else
+            SelectedNavIndex = 6;
+    }
 
     /// <summary>Nav index of the Jobs (automations) page.</summary>
     private const int JobsNavIndex = 1;
 
     [RelayCommand]
     private void OpenLibrary() => SelectedNavIndex = LibraryNavIndex;
-
-    [RelayCommand]
-    private void CloseLibrary() => SelectedNavIndex = 0;
 
     [RelayCommand]
     private void ToggleSidebar() => IsSidebarCollapsed = !IsSidebarCollapsed;
@@ -181,7 +402,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // so secondary windows don't clobber the saved layout preference.
     }
 
-    partial void OnIsOnboardedChanged(bool value) => OnPropertyChanged(nameof(ShowSidebarRail));
+    partial void OnIsOnboardedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowSidebarRail));
+        SetupsVM.IsWelcome = !value;
+    }
 
     [ObservableProperty] private Guid? _activeChatId;
 
@@ -199,6 +424,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public MemoriesViewModel MemoriesVM { get; }
     public McpServersViewModel McpServersVM { get; }
 
+    /// <summary>Customize → Discover: plugins and MCP servers to add.</summary>
+    public DiscoverViewModel DiscoverVM { get; }
+
+    /// <summary>Well-known setups (such as Microsoft 365) and the one suggested now.</summary>
+    public SetupSuggestionsViewModel SetupsVM { get; }
+
     /// <summary>The share sheet for prompts, skills, Lumis and MCP servers (one per window).</summary>
     public ShareSheetViewModel ShareVM { get; }
 
@@ -211,7 +442,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ChatTagsViewModel ChatTagsVM { get; }
     public LibraryViewModel LibraryVM { get; }
     public SettingsViewModel SettingsVM { get; }
-    public OnboardingViewModel OnboardingVM { get; }
+
+    /// <summary>The welcome. Each replay from Settings swaps in a fresh one.</summary>
+    public OnboardingViewModel OnboardingVM
+    {
+        get => _onboardingVM;
+        private set => SetProperty(ref _onboardingVM, value);
+    }
+
+    private OnboardingViewModel _onboardingVM;
+
     public SearchOverlayViewModel SearchOverlayVM { get; }
     public GitHubLoginViewModel LoginVM { get; }
 
@@ -283,24 +523,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // Shared GitHub login ViewModel
         LoginVM = new GitHubLoginViewModel(copilotService);
 
-        // Onboarding ViewModel — available even if already onboarded (for --onboarding flag)
-        OnboardingVM = new OnboardingViewModel(dataStore, copilotService);
-        OnboardingVM.LoginVM = LoginVM;
-        OnboardingVM.OnboardingCompleted += () =>
-        {
-            UserName = OnboardingVM.UserName;
-            IsDarkTheme = OnboardingVM.IsDarkTheme;
-            IsOnboarded = true;
-
-            // Sync GitHub auth state if user signed in during onboarding
-            if (LoginVM.IsAuthenticated)
-                _ = SettingsVM?.RefreshAuthStatusAsync();
-
-            // Refresh memories in case learning created some
-            ChatVM?.RefreshComposerCatalogs();
-        };
-        OnboardingVM.ThemeChanged += isDark => IsDarkTheme = isDark;
-
         _chatVM = AcquireDraftChatSurface(SelectedProjectFilter);
         _chatVM.AddDisplayHost();
         if (backgroundJobService is null)
@@ -319,6 +541,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
         MemoriesVM = new MemoriesViewModel(dataStore);
         McpServersVM = new McpServersViewModel(dataStore);
+        var pluginCatalog = new PluginCatalogService(copilotService);
+        SetupsVM = new SetupSuggestionsViewModel(dataStore, copilotService, pluginCatalog, GetCustomizeCapabilities)
+        {
+            IsWelcome = !_isOnboarded,
+        };
+        DiscoverVM = new DiscoverViewModel(
+            dataStore,
+            pluginCatalog,
+            new McpRegistryClient(),
+            GetCustomizeCapabilities)
+        {
+            Setups = SetupsVM,
+        };
+        SetupsVM.TryRequested += StartSetupDraft;
+        SetupsVM.ManageRequested += ManageSetup;
         ShareVM = new ShareSheetViewModel(dataStore);
         ImportVM = new ImportSheetViewModel(dataStore);
         NoticeVM = new CapabilityNoticeViewModel(
@@ -327,11 +564,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             () => IsOnboarded && !ImportVM.IsOpen && !ShareVM.IsOpen);
         LibraryVM = new LibraryViewModel(
             dataStore,
-            async chatId => await OpenChatByIdAsync(chatId),
-            () => SelectedNavIndex = 0);
+            async chatId => await OpenChatByIdAsync(chatId));
         SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService, updateService, _secureKeyStore);
         SettingsVM.LoginVM = LoginVM;
-        OnboardingVM.EasyConnect = SettingsVM.EasyConnect;
+        // Available even when already onboarded, for the --onboarding flag; someone who has been
+        // through it before can leave it early.
+        _onboardingVM = CreateOnboardingViewModel(isReplay: settings.IsOnboarded);
         SearchOverlayVM = new SearchOverlayViewModel(
             _globalSearchService,
             () => SelectedNavIndex);
@@ -351,6 +589,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(IsGlobalUpdateBannerVisible));
             }
 
+            if (args.PropertyName is nameof(SettingsViewModel.SelectedPageIndex) or nameof(SettingsViewModel.IsSearching))
+                SyncSettingsPageWithNav();
+
             if (args.PropertyName == nameof(SettingsViewModel.IsDarkTheme))
                 IsDarkTheme = SettingsVM.IsDarkTheme;
             else if (args.PropertyName == nameof(SettingsViewModel.IsCompactDensity))
@@ -369,6 +610,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                      or nameof(SettingsViewModel.ShowReasoning)
                      or nameof(SettingsViewModel.ExpandReasoningWhileStreaming))
                 _chatSessionStore.ApplyToSurfaces(surface => surface.RebuildTranscript());
+            else if (args.PropertyName == nameof(SettingsViewModel.SuggestFollowUps))
+                _chatSessionStore.ApplyToSurfaces(surface => surface.ApplySuggestFollowUpsSetting());
             else if (args.PropertyName == nameof(SettingsViewModel.IsAuthenticated))
             {
                 if (SettingsVM.IsAuthenticated)
@@ -415,9 +658,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         SettingsVM.AmbientPresenceChanged += ApplyAmbientPresenceSetting;
         SettingsVM.PresenceAnimationChanged += ApplyPresenceAnimationSetting;
+        SettingsVM.PresenceBrightnessChanged += ApplyPresenceBrightnessSetting;
+        SettingsVM.ReplayWelcomeRequested += ReplayWelcome;
         SettingsVM.SettingsChanged += () =>
         {
             RefreshChatList();
+        };
+        SettingsVM.ApprovalPolicyChanged += () =>
+        {
+            _chatSessionStore.ApplyToSurfaces(surface => surface.OnApprovalPolicyChanged());
+            ProjectsVM.RefreshApprovals();
         };
         SettingsVM.SystemPromptSettingsChanged += () =>
         {
@@ -445,6 +695,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // detached window). Subscribe at the store level so the main window's collections
         // refresh no matter which surface executed the change.
         _chatSessionStore.SurfaceFeatureManagementStateChanged += OnChatFeatureManagementStateChanged;
+        _chatSessionStore.SurfaceApprovalsRemembered += OnChatApprovalsRemembered;
 
         ProjectsVM.ProjectsChanged += () =>
         {
@@ -455,12 +706,49 @@ public partial class MainViewModel : ObservableObject, IDisposable
             });
             RefreshFeatureManagementUi();
         };
+        ProjectsVM.ApprovalPolicyChanged += () =>
+        {
+            _chatSessionStore.ApplyToSurfaces(surface => surface.OnApprovalPolicyChanged());
+            SettingsVM.RefreshApprovalRules();
+        };
+        ProjectsVM.AddApprovalRuleRequested += projectId =>
+        {
+            SettingsVM.SelectedPageIndex = SettingsViewModel.PermissionsPageIndex;
+            SelectedNavIndex = 7;
+            SettingsVM.StartAddApprovalRuleFor(projectId);
+        };
 
         McpServersVM.McpConfigChanged += () =>
         {
             _chatSessionStore.ApplyMcpConfigurationChange();
             RefreshFeatureManagementUi();
         };
+
+        DiscoverVM.McpServersChanged += () =>
+        {
+            _chatSessionStore.ApplyMcpConfigurationChange();
+            RefreshFeatureManagementUi();
+        };
+        DiscoverVM.OpenMcpServerRequested += (id, needsSetup) =>
+        {
+            SelectedNavIndex = 6;
+            if (needsSetup)
+                McpServersVM.OpenForSetup(id);
+            else
+                McpServersVM.OpenById(id);
+        };
+        DiscoverVM.ShowPluginPartsRequested += ShowPluginParts;
+        SkillsVM.DiscoverRequested += () => SelectedNavIndex = DiscoverNavIndex;
+        AgentsVM.DiscoverRequested += () => SelectedNavIndex = DiscoverNavIndex;
+        McpServersVM.DiscoverRequested += () =>
+        {
+            SelectedNavIndex = DiscoverNavIndex;
+            DiscoverVM.ShowServersCommand.Execute(null);
+        };
+        SkillsVM.External.ManageInDiscoverRequested += ManageInDiscover;
+        AgentsVM.External.ManageInDiscoverRequested += ManageInDiscover;
+        McpServersVM.External.ManageInDiscoverRequested += ManageInDiscover;
+        _copilotService.PluginsChanged += OnPluginsChanged;
 
         SkillsVM.ShareRequested += ShareVM.OpenFor;
         AgentsVM.ShareRequested += ShareVM.OpenFor;
@@ -536,11 +824,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
     internal void ApplyPresenceAnimationSetting(bool enabled)
         => _chatSessionStore.ApplyToSurfaces(surface => surface.AnimatePresenceWhileWorking = enabled);
 
+    internal void ApplyPresenceBrightnessSetting(double brightness)
+        => _chatSessionStore.ApplyToSurfaces(surface => surface.PresenceBrightness = brightness);
+
     private Task<ChatViewModel> AcquireChatSurfaceAsync(Chat chat)
         => _chatSessionStore.AcquireChatAsync(chat, PrepareChatSurface);
 
     private void AttachChatViewModel(ChatViewModel chatVm)
     {
+        // Only the chat this window shows offers its setup suggestion: a detached chat window has none,
+        // so its buttons can't act on this window.
+        chatVm.SetupSuggestions = SetupsVM;
         chatVm.DefaultModelSelectionChanged += OnChatDefaultModelSelectionChanged;
         chatVm.ChatUpdated += OnChatUpdated;
         chatVm.ChatTitleChanged += OnChatTitleChanged;
@@ -552,10 +846,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ForkChatRequested += OnChatForkRequested;
         chatVm.SharePromptRequested += OnChatSharePromptRequested;
         chatVm.PromptImportRequested += OnChatPromptImportRequested;
+        chatVm.McpRepairRequested += StartMcpRepairChatAsync;
+        chatVm.ConnectorsPageRequested += ShowConnectorsPage;
+        chatVm.SkillsPageRequested += ShowSkillsPage;
+        chatVm.ManageApprovalsRequested += ShowPermissionsPage;
     }
 
     private void DetachChatViewModel(ChatViewModel chatVm)
     {
+        // A cached chat must not keep this window (through its suggestions) alive after it closes.
+        if (ReferenceEquals(chatVm.SetupSuggestions, SetupsVM))
+            chatVm.SetupSuggestions = null;
         chatVm.DefaultModelSelectionChanged -= OnChatDefaultModelSelectionChanged;
         chatVm.ChatUpdated -= OnChatUpdated;
         chatVm.ChatTitleChanged -= OnChatTitleChanged;
@@ -567,6 +868,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ForkChatRequested -= OnChatForkRequested;
         chatVm.SharePromptRequested -= OnChatSharePromptRequested;
         chatVm.PromptImportRequested -= OnChatPromptImportRequested;
+        chatVm.McpRepairRequested -= StartMcpRepairChatAsync;
+        chatVm.ConnectorsPageRequested -= ShowConnectorsPage;
+        chatVm.SkillsPageRequested -= ShowSkillsPage;
+        chatVm.ManageApprovalsRequested -= ShowPermissionsPage;
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
@@ -582,6 +887,33 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Shows the Jobs page, where the user's automations live.</summary>
     public void ShowAutomations() => SelectedNavIndex = JobsNavIndex;
+
+    /// <summary>
+    /// From a chat's connector list: Discover's connectors, searching for what the user typed, or the
+    /// Connectors section of Customize.
+    /// </summary>
+    public void ShowConnectorsPage(ConnectorsPageRequest request)
+    {
+        if (!request.Discover)
+        {
+            SelectedNavIndex = 6;
+            return;
+        }
+
+        SelectedNavIndex = DiscoverNavIndex;
+        DiscoverVM.ShowServersCommand.Execute(null);
+        DiscoverVM.SearchQuery = request.Query ?? string.Empty;
+    }
+
+    /// <summary>Opens the Skills section of Customize, from a chat's Skills picker.</summary>
+    public void ShowSkillsPage() => SelectedNavIndex = 3;
+
+    /// <summary>Opens Settings → Permissions, from a chat's approval mode picker.</summary>
+    public void ShowPermissionsPage()
+    {
+        SettingsVM.SelectedPageIndex = SettingsViewModel.PermissionsPageIndex;
+        SelectedNavIndex = 7;
+    }
 
     private void OnChatForkRequested(Chat chat, Guid throughMessageId)
         => _ = ForkChatAsync(chat, throughMessageId);
@@ -665,6 +997,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         _backgroundJobService.Reschedule();
         RefreshFeatureManagementUi(preserveJobsEditor: true);
+    }
+
+    /// <summary>"Always in a project" reaches its other open chats, and both lists show the new approval.</summary>
+    private void OnChatApprovalsRemembered()
+    {
+        _chatSessionStore.ApplyToSurfaces(surface => surface.OnApprovalPolicyChanged());
+        SettingsVM.RefreshApprovalRules();
+        ProjectsVM.RefreshApprovals();
     }
 
     internal async Task ApplyFeatureChangeAsync(
@@ -765,6 +1105,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         await RefreshCopilotStateAsync(refreshAuthStatus: true);
         _ = WarmSearchIndexAsync();
+        await RefreshExternalCapabilitiesAsync(force: false);
+        if (IsOnboarded)
+            await SetupsVM.CheckAtStartupAsync();
+        else
+            await SetupsVM.RefreshAsync();
     }
 
     private void OnDataStoreChatContentChanged(Guid chatId)
@@ -844,6 +1189,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         _isDisposed = true;
+        SetupsVM.TryRequested -= StartSetupDraft;
+        SetupsVM.ManageRequested -= ManageSetup;
+        SetupsVM.Dispose();
         ShareVM.CloseCommand.Execute(null);
         _dataStore.ChatContentChanged -= OnDataStoreChatContentChanged;
         _dataStore.ChatsContentReset -= OnDataStoreChatsContentReset;
@@ -859,7 +1207,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _searchIndexCts.Dispose();
         _backgroundJobService.JobsChanged -= OnBackgroundJobServiceJobsChanged;
         _copilotService.ModelCatalogChanged -= OnModelCatalogChanged;
+        _copilotService.PluginsChanged -= OnPluginsChanged;
         _chatSessionStore.SurfaceFeatureManagementStateChanged -= OnChatFeatureManagementStateChanged;
+        _chatSessionStore.SurfaceApprovalsRemembered -= OnChatApprovalsRemembered;
         _chatOrchestrationService.ChatsChanged -= OnOrchestrationChatsChanged;
         if (_ownsBackgroundJobService)
             _backgroundJobService.Dispose();
@@ -870,6 +1220,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_ownsChatSessionStore)
             _chatSessionStore.Dispose();
         UnsubscribeChatRunningState();
+        foreach (var repairChat in _mcpRepairChats.Keys)
+            repairChat.PropertyChanged -= OnMcpRepairChatChanged;
+        _mcpRepairChats.Clear();
         if (_ownsChatSurfaceRegistry)
             _chatSurfaceRegistry.Dispose();
         ChatTagsVM.Dispose();
@@ -904,7 +1257,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     ChatVM.RestoreDefaultModelSelection();
                 IsConnected = true;
                 ConnectionStatus = Loc.Status_Connected;
-                _chatSessionStore.RefreshCapabilitiesAfterConnectionChange();
+                RefreshCapabilitiesAfterConnection();
                 return;
             }
 
@@ -924,7 +1277,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             // The runtime is now available, so start one new capability generation and refresh every
             // surface against it.
-            _chatSessionStore.RefreshCapabilitiesAfterConnectionChange();
+            RefreshCapabilitiesAfterConnection();
         }
         catch (Exception ex)
         {
@@ -1242,6 +1595,64 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NoticeVM.HideOffer();
     }
 
+    /// <summary>"Fix with Lumi" chats this window opened, with the chat and connector each one repairs.</summary>
+    private readonly Dictionary<Chat, (Guid? SourceChatId, string ConnectorName)> _mcpRepairChats = [];
+
+    /// <summary>
+    /// Opens a new chat that asks Lumi to fix a connector and sends the request, with the full report
+    /// attached. A repair of the same connector that is still running is opened instead of a second one.
+    /// </summary>
+    internal async Task StartMcpRepairChatAsync(McpRepairRequest request)
+    {
+        var running = _mcpRepairChats.FirstOrDefault(pair =>
+            pair.Key.IsRunning
+            && pair.Value.SourceChatId == request.SourceChatId
+            && string.Equals(pair.Value.ConnectorName, request.ConnectorName, StringComparison.OrdinalIgnoreCase)
+            && _dataStore.Data.Chats.Contains(pair.Key)).Key;
+        if (running is not null)
+        {
+            await LoadChatAndShowAsync(running);
+            return;
+        }
+
+        var chat = request.Chat;
+        var reportDirectory = Path.Combine(DataStore.AppDirectory, "diagnostics", chat.Id.ToString("N"));
+        Directory.CreateDirectory(reportDirectory);
+        var reportPath = Path.Combine(reportDirectory, request.ReportFileName);
+        await File.WriteAllTextAsync(reportPath, request.ReportContent);
+
+        _dataStore.Data.Chats.Add(chat);
+        _dataStore.MarkChatChanged(chat);
+        await _dataStore.SaveChatAsync(chat);
+        await _dataStore.SaveAsync();
+        RefreshChatList();
+        ProjectsVM.RefreshSelectedProjectChats();
+
+        if (!await LoadChatAndShowAsync(chat) || ChatVM.CurrentChat?.Id != chat.Id)
+            throw new InvalidOperationException(Loc.Connector_RepairStartFailed);
+
+        _mcpRepairChats[chat] = (request.SourceChatId, request.ConnectorName);
+        chat.PropertyChanged += OnMcpRepairChatChanged;
+
+        var repairSurface = ChatVM;
+        repairSurface.AddAttachment(reportPath);
+        repairSurface.SetComposerDraft(request.Message);
+        await repairSurface.SendMessageCommand.ExecuteAsync(null);
+    }
+
+    /// <summary>When a repair turn ends, the original chat reconnects the connector with its next message.</summary>
+    private void OnMcpRepairChatChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isDisposed
+            || e.PropertyName != nameof(Chat.IsRunning)
+            || sender is not Chat { IsRunning: false } chat
+            || !_mcpRepairChats.TryGetValue(chat, out var repair)
+            || repair.SourceChatId is not Guid sourceChatId)
+            return;
+
+        _chatSessionStore.ApplyToSurfaces(surface => surface.RetryMcpConnectorAfterRepair(sourceChatId, repair.ConnectorName));
+    }
+
     private void OpenLumiPage(Guid agentId)
     {
         SelectedNavIndex = 4;
@@ -1265,6 +1676,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         AgentsVM.RefreshFromStore();
         MemoriesVM.RefreshFromStore();
         McpServersVM.RefreshFromStore();
+        DiscoverVM.RefreshAddedServers();
+        if (IsCustomizeOpen)
+            ApplyExternalCapabilities();
 
         if (SelectedProjectFilter.HasValue
             && !_dataStore.Data.Projects.Any(project => project.Id == SelectedProjectFilter.Value))
@@ -1272,6 +1686,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         RefreshChatList();
         RefreshProjectRunningState();
+        NotifyRunningJobs();
     }
 
     private void SubscribeChatRunningState()
@@ -1399,6 +1814,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // "All projects" view (no active project filter). Setting these observable properties lets
         // the sidebar bind directly to each Chat, so the badge stays correct across virtualization,
         // container recycling, and group reshuffles (e.g. a chat bumped into "Today" on send).
+        // The folder wears the project's own hue, as the chat header and the launchpad do.
         var showBadges = !SelectedProjectFilter.HasValue;
         foreach (var chat in ordered)
         {
@@ -1406,6 +1822,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var name = showBadges ? GetProjectName(chat.ProjectId) : null;
             chat.ProjectBadgeText = name;
             chat.ShowProjectBadge = name is not null;
+            chat.ProjectBadgeColor = name is not null && chat.ProjectId is { } projectId
+                ? LaunchpadProjectBadge.HueFor(projectId).ToString()
+                : null;
         }
 
         // Group by time period
@@ -1902,7 +2321,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // editable draft. Set after navigation, and only if the fork is what actually opened —
             // otherwise the draft would land in whichever chat is on screen.
             if (opened && plan.ComposerPrefill is { Length: > 0 } draft)
-                ChatVM.SetComposerDraft(draft, plan.ComposerReply);
+                ChatVM.SetComposerDraft(draft, plan.ComposerReply, plan.ComposerReferencedChats);
 
             return fork;
         }
@@ -2097,8 +2516,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         if (int.TryParse(indexStr, out var idx))
         {
-            if (idx == 7 && SettingsVM.ShouldAutoNavigateToUpdateCenter)
-                SettingsVM.OpenUpdateCenter();
+            if (idx == 7)
+            {
+                OpenSettings();
+                return;
+            }
 
             SelectedNavIndex = idx;
         }
@@ -2128,6 +2550,48 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         SelectedProjectFilter = project.Id;
         ChatVM.ActiveProjectFilterId = project.Id;
+    }
+
+    // The switcher only switches; its actions open Customize → Projects, where projects are set up.
+
+    /// <summary>The switcher's "New project": the Projects section opens straight into an empty editor.</summary>
+    [RelayCommand]
+    private void NewProjectFromSwitcher()
+    {
+        SelectedNavIndex = 2;
+        ProjectsVM.NewProjectCommand.Execute(null);
+    }
+
+    /// <summary>The gear on a project in the switcher's list: opens that project, wherever the list is narrowed.</summary>
+    [RelayCommand]
+    private void EditProject(Project project)
+    {
+        SelectedNavIndex = 2;
+        ProjectsVM.OpenById(project.Id);
+    }
+
+    /// <summary>The switcher's "Manage projects": every project at a glance.</summary>
+    [RelayCommand]
+    private void ManageProjects()
+    {
+        SelectedNavIndex = 2;
+        ProjectsVM.CloseDetailCommand.Execute(null);
+    }
+
+    /// <summary>How many background jobs are running right now; lights the dot on Jobs.</summary>
+    public int RunningJobCount => _dataStore.SnapshotBackgroundJobs().Count(static job => job.IsRunning);
+
+    public bool HasRunningJobs => RunningJobCount > 0;
+
+    public string JobsNavTip => Loc.AdaptKeyboardHint(RunningJobCount is var running and > 0
+        ? string.Format(Loc.Culture, Loc.NavTip_JobsRunning, running)
+        : Loc.NavTip_Jobs);
+
+    private void NotifyRunningJobs()
+    {
+        OnPropertyChanged(nameof(RunningJobCount));
+        OnPropertyChanged(nameof(HasRunningJobs));
+        OnPropertyChanged(nameof(JobsNavTip));
     }
 
     [RelayCommand]
@@ -2287,39 +2751,104 @@ public partial class MainViewModel : ObservableObject, IDisposable
         LoadProjects();
     }
 
-    [RelayCommand]
-    private async Task CompleteOnboarding()
+    private OnboardingViewModel CreateOnboardingViewModel(bool isReplay)
     {
-        if (string.IsNullOrWhiteSpace(OnboardingName)) return;
-
-        var settings = _dataStore.Data.Settings;
-        settings.UserName = OnboardingName.Trim();
-        settings.UserSex = OnboardingSexIndex switch
+        var onboarding = new OnboardingViewModel(_dataStore, _copilotService)
         {
-            0 => "male",
-            1 => "female",
-            _ => null
+            IsReplay = isReplay,
+            LoginVM = LoginVM,
+            EasyConnect = SettingsVM.EasyConnect,
+            Setups = SetupsVM,
         };
+        onboarding.OnboardingCompleted += OnOnboardingCompleted;
+        onboarding.Dismissed += FinishOnboarding;
+        onboarding.ThemeChanged += OnOnboardingThemeChanged;
+        onboarding.ApprovalModeChosen += OnOnboardingApprovalModeChosen;
+        onboarding.LanguageChangeRequested += OnOnboardingLanguageChangeRequested;
+        return onboarding;
+    }
 
-        // Apply selected language
-        var selectedLang = "en";
-        if (OnboardingLanguageIndex >= 0 && OnboardingLanguageIndex < Loc.AvailableLanguages.Length)
-        {
-            selectedLang = Loc.AvailableLanguages[OnboardingLanguageIndex].Code;
-            settings.Language = selectedLang;
-        }
+    /// <summary>Opens the welcome again from the start. Whatever earlier runs set up stays.</summary>
+    public void ReplayWelcome()
+    {
+        if (!IsOnboarded)
+            return;
 
-        settings.IsOnboarded = true;
-        await _dataStore.SaveAsync();
+        var previous = OnboardingVM;
+        OnboardingVM = CreateOnboardingViewModel(isReplay: true);
+        previous.OnboardingCompleted -= OnOnboardingCompleted;
+        previous.Dismissed -= FinishOnboarding;
+        previous.ThemeChanged -= OnOnboardingThemeChanged;
+        previous.ApprovalModeChosen -= OnOnboardingApprovalModeChosen;
+        previous.LanguageChangeRequested -= OnOnboardingLanguageChangeRequested;
+        previous.LoginVM = null;
+        previous.EasyConnect = null;
 
-        UserName = OnboardingName.Trim();
+        IsOnboarded = false;
+    }
+
+    // Through Settings, which applies it to the app, so its switch stays in step.
+    private void OnOnboardingThemeChanged(bool isDark) => SettingsVM.IsDarkTheme = isDark;
+
+    // Through Settings too, which saves it and applies it to live chats.
+    private void OnOnboardingApprovalModeChosen(ApprovalMode mode) => SettingsVM.DefaultApprovalMode = mode;
+
+    private void OnOnboardingCompleted(OnboardingCompletion completion)
+    {
+        var settings = _dataStore.Data.Settings;
+        UserName = OnboardingVM.UserName.Trim();
+        IsDarkTheme = OnboardingVM.IsDarkTheme;
+        SettingsVM.UserName = settings.UserName ?? "";
+        SettingsVM.UserSexIndex = settings.UserSex switch { "male" => 0, "female" => 1, _ => 2 };
+        FinishOnboarding();
+
+        if (!string.IsNullOrWhiteSpace(completion.StarterPrompt))
+            StartFirstChat(completion.StarterPrompt, completion.StarterProjectId);
+        else
+            SelectedNavIndex = 0; // "Start using Lumi" leads to the chats, also from a replay in Settings.
+    }
+
+    /// <summary>Back to the app, which picks up the projects, memories and accounts onboarding set up.</summary>
+    private void FinishOnboarding()
+    {
         IsOnboarded = true;
 
-        // If a non-default language was selected, restart so the UI loads in that language
-        if (selectedLang != "en")
+        // Sync GitHub auth state if user signed in during onboarding
+        if (LoginVM.IsAuthenticated)
+            _ = SettingsVM.RefreshAuthStatusAsync();
+
+        _chatSessionStore.ApplyToSurfaces(surface =>
         {
-            SettingsVM.RestartAppCommand.Execute(null);
-        }
+            surface.InvalidateProjectSession();
+            surface.RefreshCapabilities();
+        });
+        RefreshFeatureManagementUi();
+        ChatVM.RefreshComposerCatalogs();
+    }
+
+    /// <summary>
+    /// Sends the starter from a new chat (in the starter's project, when it has one). After a replay the
+    /// open chat may be a conversation, so the starter must never land in it.
+    /// </summary>
+    private void StartFirstChat(string prompt, Guid? projectId)
+    {
+        NewChat();
+        // With the new chat still empty, choosing the project only moves it there.
+        if (projectId is { } id && _dataStore.Data.Projects.Any(project => project.Id == id))
+            SelectedProjectFilter = id;
+        if (ChatVM.SelectSuggestionCommand.CanExecute(prompt))
+            ChatVM.SelectSuggestionCommand.Execute(prompt);
+    }
+
+    /// <summary>Lumi's UI language is fixed at startup, so a new choice is saved and Lumi restarts in it.</summary>
+    private void OnOnboardingLanguageChangeRequested(string language)
+    {
+        var settings = _dataStore.Data.Settings;
+        settings.Language = language;
+        if (!string.IsNullOrWhiteSpace(OnboardingVM.UserName))
+            settings.UserName = OnboardingVM.UserName.Trim();
+        _dataStore.Save();
+        SettingsVM.RestartAppCommand.Execute(null);
     }
 
     partial void OnSelectedProjectFilterChanged(Guid? value)

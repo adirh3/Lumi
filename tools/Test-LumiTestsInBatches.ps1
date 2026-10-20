@@ -67,7 +67,17 @@ $isolatedClasses = @(
     "Lumi.Tests.UIAutomationTests",
     # New-chat launchpad tests run in their own hosts for the same reason.
     "Lumi.Tests.LaunchpadPlannerTests",
-    "Lumi.Tests.LaunchpadViewModelTests"
+    "Lumi.Tests.LaunchpadViewModelTests",
+    # Onboarding and localization tests run in their own hosts for the same reason.
+    "Lumi.Tests.LocLanguageTests",
+    "Lumi.Tests.OnboardingPersonalizerTests",
+    "Lumi.Tests.OnboardingTests",
+    "Lumi.Tests.WorkspaceDiscoveryTests",
+    # Connector issue and picker tests run in their own hosts for the same reason.
+    "Lumi.Tests.ChatViewModelConnectorTests",
+    "Lumi.Tests.McpConnectorIssuesTests",
+    # Chat reference tests run in their own hosts for the same reason.
+    "Lumi.Tests.ChatReferenceTests"
 ) | Where-Object { $classes -contains $_ }
 $batchedClasses = @($classes | Where-Object { $_ -notin $isolatedClasses })
 $batchCount = [Math]::Ceiling($batchedClasses.Count / $BatchSize)

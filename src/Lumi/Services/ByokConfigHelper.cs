@@ -70,6 +70,10 @@ public static class ByokConfigHelper
         => !string.IsNullOrWhiteSpace(modelId)
            && modelId.StartsWith(TokenPrefix, StringComparison.Ordinal);
 
+    /// <summary>True for a connection that uses a ChatGPT plan through Sign in with ChatGPT.</summary>
+    public static bool IsChatGptEndpoint(ByokEndpoint? endpoint)
+        => string.Equals(endpoint?.ConnectionProviderId, ProviderCatalog.ChatGptId, StringComparison.Ordinal);
+
     /// <summary>Builds the canonical token for a model entry.</summary>
     public static string BuildModelToken(ByokModel model) => $"{TokenPrefix}{model.Id}";
 
@@ -384,6 +388,16 @@ public static class ByokConfigHelper
         if (validationError is not null)
             throw new InvalidOperationException($"Invalid BYOK endpoint configuration: {validationError}");
 
+        if (IsChatGptEndpoint(endpoint))
+        {
+            // The plan's renewable token stays inside Lumi: sessions reach ChatGPT through the bridge.
+            if (endpoint.CredentialExpiresAt is { } signInExpiry && signInExpiry <= DateTimeOffset.UtcNow)
+                throw new InvalidOperationException(Lumi.Localization.Loc.Get("ChatGpt_SignInExpired"));
+            var bridged = ChatGptPlanBridge.Shared.CreateProviderConfig(endpoint, keyStore);
+            bridged.MaxPromptTokens = model is null ? null : NormalizePositiveTokenLimit(model.MaxPromptTokens);
+            return bridged;
+        }
+
         // Resolve the API key ONCE and reuse it everywhere. This matters for correctness, not
         // just perf: a ${apiKey} header placeholder must resolve to the EXACT same value as
         // pc.ApiKey (the SDK sends the latter as 'Authorization: Bearer'). Resolving twice would
@@ -503,6 +517,7 @@ public static class ByokConfigHelper
             Id = endpoint.Id,
             ConnectionProviderId = endpoint.ConnectionProviderId,
             CredentialExpiresAt = endpoint.CredentialExpiresAt,
+            Account = endpoint.Account?.Clone(),
             Name = endpoint.Name,
             ProviderType = endpoint.ProviderType,
             BaseUrl = endpoint.BaseUrl,
@@ -641,7 +656,11 @@ public static class ByokConfigHelper
     {
         if (provider is null) return null;
 
-        var apiKeyHash = HashOpaqueSecret(provider.ApiKey);
+        // A ChatGPT connection is served by Lumi's loopback bridge, whose port and key change with
+        // every launch. Resuming passes the current ones, so they must not make a chat's session look
+        // bound to another provider: the bridge route's connection id stands in for both.
+        var bridged = ChatGptPlanBridge.TryGetBridgedEndpoint(provider.BaseUrl, out var bridgedEndpoint);
+        var apiKeyHash = bridged ? "" : HashOpaqueSecret(provider.ApiKey);
         var bearerTokenHash = HashOpaqueSecret(provider.BearerToken);
         var azureApiVersion = provider.Azure?.ApiVersion?.Trim() ?? "";
         var headers = provider.Headers is null
@@ -661,7 +680,7 @@ public static class ByokConfigHelper
         var signature = string.Join(
             "|",
             provider.Type?.Trim() ?? "",
-            provider.BaseUrl?.Trim() ?? "",
+            bridged ? $"chatgpt-bridge:{bridgedEndpoint}" : provider.BaseUrl?.Trim() ?? "",
             provider.WireApi?.Trim() ?? "",
             apiKeyHash,
             bearerTokenHash,

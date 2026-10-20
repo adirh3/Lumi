@@ -1097,6 +1097,44 @@ public sealed class ChatViewModelAgentRoutingTests
         Assert.Null(active.Skills);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ActivePersonaAndSharedSkill_ReachCreateAndResumeOnlyOnce(bool resume)
+    {
+        var skill = new Skill { Name = "Shared helper", Content = "SHARED_PRELOADED_SKILL_BODY" };
+        var agent = new LumiAgent
+        {
+            Name = "Focused agent",
+            SystemPrompt = "AUTHORED_PERSONA_INSTRUCTIONS",
+            SkillIds = [skill.Id],
+            ToolNames = ["lumi_fetch"]
+        };
+        var data = new AppData { Skills = [skill], Agents = [agent] };
+        using var harness = CreateHarness(data);
+        var agents = InvokeBuildCustomAgents(harness.ViewModel, activeAgentName: agent.Name);
+        var prompt = SystemPromptBuilder.Build(
+            data.Settings, agent, project: null, allSkills: data.Skills,
+            activeSkills: [skill], memories: []);
+        var agentName = ChatViewModel.ResolveSessionAgentName(agent, routedAgentName: null);
+
+        SessionConfigBase config = resume
+            ? SessionConfigBuilder.BuildForResume(
+                prompt, "gpt-5.4", null, null, [], agents, [], null, null, null, null, agentName: agentName)
+            : SessionConfigBuilder.Build(
+                prompt, "gpt-5.4", null, null, [], agents, [], null, null, null, null, agentName: agentName);
+
+        var persona = Assert.Single(config.CustomAgents!);
+        Assert.Equal(agent.Name, config.Agent);
+        Assert.Equal(agent.SystemPrompt, persona.Prompt);
+        Assert.Null(persona.Tools);
+        Assert.Null(persona.Model);
+        Assert.Null(persona.Skills);
+        Assert.Contains("--- Active Agent: Focused agent ---", config.SystemMessage!.Content);
+        Assert.DoesNotContain(agent.SystemPrompt, config.SystemMessage.Content);
+        Assert.Equal(1, config.SystemMessage.Content!.Split(skill.Content, StringSplitOptions.None).Length - 1);
+    }
+
     [Fact]
     public void DelegatedLumiSkills_UseTheProvidersCollisionFreeRuntimeName()
     {
@@ -1321,7 +1359,8 @@ public sealed class ChatViewModelAgentRoutingTests
             "EnsureSessionAsync",
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
-        var result = method!.Invoke(viewModel, [chat, ct, allowCreateFallback]);
+        // Reflection does not apply optional defaults, so pass holdForConnectorSignIn explicitly.
+        var result = method!.Invoke(viewModel, [chat, ct, allowCreateFallback, false]);
         // Not IsType: .NET 11 may hand back a runtime-async task subtype rather than a plain
         // Task<bool>, and which one appears depends on JIT tiering — an implementation detail.
         return await Assert.IsAssignableFrom<Task<bool>>(result);

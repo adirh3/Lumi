@@ -325,6 +325,14 @@ internal sealed class WorkspacePanelController : IDisposable
 
     public void Toggle()
     {
+        // The Browser and the Desktop light their own header buttons, so from their pages the
+        // Workspace button brings the overview back rather than closing what the user is looking at.
+        if (IsOpen && _page is (WorkspacePage.Browser or WorkspacePage.Desktop))
+        {
+            ShowOverview();
+            return;
+        }
+
         if (IsOpen)
         {
             Close();

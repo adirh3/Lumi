@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Lumi.Localization;
 using Lumi.Services;
@@ -16,6 +17,54 @@ namespace Lumi.Tests;
 /// </summary>
 public sealed class GitChangesTests
 {
+    [Fact]
+    public async Task CancellableStatusRefreshDoesNotRewriteTheIndex()
+    {
+        using var temp = new TempDir();
+        var trackedFile = Path.Combine(temp.Path, "tracked.txt");
+        var modifiedFile = Path.Combine(temp.Path, "modified.txt");
+        File.WriteAllText(trackedFile, "unchanged\n");
+        File.WriteAllText(modifiedFile, "before\n");
+        InitRepo(temp.Path);
+
+        var indexPath = Path.Combine(temp.Path, ".git", "index");
+        var originalIndex = File.ReadAllBytes(indexPath);
+        File.SetLastWriteTimeUtc(trackedFile, File.GetLastWriteTimeUtc(trackedFile).AddMinutes(-5));
+        File.WriteAllText(modifiedFile, "after\nchanged\n");
+        using var cancellation = new CancellationTokenSource();
+
+        var changes = await GitService.GetChangedFilesAsync(temp.Path, cancellation.Token);
+
+        var change = Assert.Single(changes);
+        Assert.Equal("modified.txt", change.RelativePath);
+        Assert.Equal(2, change.LinesAdded);
+        Assert.Equal(1, change.LinesRemoved);
+        Assert.Equal(originalIndex, File.ReadAllBytes(indexPath));
+        Assert.False(File.Exists(indexPath + ".lock"));
+    }
+
+    [Fact]
+    public async Task CancellableDetachedBranchRefreshDoesNotRewriteTheIndex()
+    {
+        using var temp = new TempDir();
+        var trackedFile = Path.Combine(temp.Path, "tracked.txt");
+        File.WriteAllText(trackedFile, "unchanged\n");
+        InitRepo(temp.Path);
+        Git(temp.Path, "checkout -q --detach");
+
+        var indexPath = Path.Combine(temp.Path, ".git", "index");
+        var originalIndex = File.ReadAllBytes(indexPath);
+        File.SetLastWriteTimeUtc(trackedFile, File.GetLastWriteTimeUtc(trackedFile).AddMinutes(-5));
+        using var cancellation = new CancellationTokenSource();
+
+        var branch = await GitService.GetCurrentBranchAsync(temp.Path, cancellation.Token);
+
+        Assert.NotNull(branch);
+        Assert.StartsWith("Detached ", branch);
+        Assert.Equal(originalIndex, File.ReadAllBytes(indexPath));
+        Assert.False(File.Exists(indexPath + ".lock"));
+    }
+
     [Fact]
     public async Task GetChangedFilesAsync_ExpandsSubmoduleFiles()
     {

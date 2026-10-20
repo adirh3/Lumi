@@ -215,6 +215,7 @@
     <Style Selector="Button.mg-text-button.ec-centered">
       <Setter Property="HorizontalAlignment" Value="Center" />
     </Style>
+    <StyleInclude Source="avares://Lumi/Views/Controls/ChatGptStyles.axaml" />
   </UserControl.Styles>
 
   <Panel MinHeight="300">
@@ -298,7 +299,7 @@
             </Border>
             <Button Classes="mg-text-button" Command="{Binding OpenUsageCommand}" IsVisible="{Binding HasUsageLink}">
               <StackPanel Orientation="Horizontal" Spacing="5">
-                <TextBlock Text="{loc:Str EasyConnect_Usage}" />
+                <TextBlock Text="{Binding UsageLinkText}" />
                 <PathIcon Data="{StaticResource Ec.External}" />
               </StackPanel>
             </Button>
@@ -347,19 +348,30 @@
 
         <!-- Browser sign-in: the fast path -->
         <StackPanel Spacing="10" IsVisible="{Binding ShowSignInChoice}">
-          <Button x:Name="ProviderSignIn" Classes="accent ec-hero" HorizontalAlignment="Stretch" Command="{Binding SignInCommand}">
+          <Button x:Name="ProviderSignIn" Classes="accent ec-hero" HorizontalAlignment="Stretch" Command="{Binding SignInCommand}"
+                  IsVisible="{Binding !IsChatGpt}">
             <StackPanel Orientation="Horizontal" Spacing="8">
               <TextBlock Text="{Binding ContinueWithText}" />
               <PathIcon Data="{StaticResource Ec.External}" />
             </StackPanel>
           </Button>
+          <!-- OpenAI's approved "Continue with ChatGPT" format: the ChatGPT mark on black or white. -->
+          <Button x:Name="ChatGptSignIn" Classes="ec-chatgpt" HorizontalAlignment="Stretch" Padding="16,11" MinHeight="0"
+                  CornerRadius="11" Command="{Binding SignInCommand}" IsVisible="{Binding IsChatGpt}"
+                  AutomationProperties.Name="{loc:Str ChatGpt_Continue}">
+            <StackPanel Orientation="Horizontal" Spacing="9">
+              <PathIcon Data="{StaticResource Ec.ChatGpt}" Width="17" Height="17" />
+              <TextBlock Text="{loc:Str ChatGpt_Continue}" FontSize="14" />
+            </StackPanel>
+          </Button>
           <TextBlock Classes="ec-hint" Text="{Binding SignInHint}" TextAlignment="Center" HorizontalAlignment="Center" />
-          <Grid ColumnDefinitions="*,Auto,*" Margin="0,6,0,0">
+          <Grid ColumnDefinitions="*,Auto,*" Margin="0,6,0,0" IsVisible="{Binding ShowKeyAlternative}">
             <Border Classes="ec-or-line" />
             <TextBlock Grid.Column="1" Classes="ec-hint" Text="{loc:Str EasyConnect_Or}" Margin="12,0" />
             <Border Grid.Column="2" Classes="ec-or-line" />
           </Grid>
-          <Button x:Name="UseApiKeyInstead" Classes="mg-text-button ec-centered" Command="{Binding ToggleKeyEntryCommand}">
+          <Button x:Name="UseApiKeyInstead" Classes="mg-text-button ec-centered" Command="{Binding ToggleKeyEntryCommand}"
+                  IsVisible="{Binding ShowKeyAlternative}">
             <TextBlock Text="{loc:Str EasyConnect_UseKeyInstead}" />
           </Button>
         </StackPanel>
@@ -513,7 +525,7 @@
                 <TextBlock Text="{loc:Str EasyConnect_RefreshModels}" />
               </StackPanel>
             </Button>
-            <Button Classes="mg-text-button" Command="{Binding ReplaceKeyCommand}" IsVisible="{Binding HasKey}">
+            <Button Classes="mg-text-button" Command="{Binding ReplaceKeyCommand}" IsVisible="{Binding ShowReplaceKey}">
               <TextBlock Text="{loc:Str EasyConnect_ReplaceKey}" />
             </Button>
           </StackPanel>
@@ -662,6 +674,13 @@
         </Border>
         <TextBlock Classes="mg-empty-title" Text="{Binding DoneTitle}" Margin="0,6,0,0" />
         <TextBlock Classes="mg-empty-text" Text="{Binding DoneText}" />
+        <Button x:Name="ChatGptManageUsage" Classes="mg-text-button ec-centered" Command="{Binding OpenUsageCommand}"
+                IsVisible="{Binding ShowPlanConfirmation}">
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <TextBlock Text="{loc:Str ChatGpt_ManageUsage}" />
+            <PathIcon Data="{StaticResource Ec.External}" />
+          </StackPanel>
+        </Button>
       </StackPanel>
 
       <TextBlock Classes="ec-hint" Text="{Binding Status}" IsVisible="{Binding HasStatus}" />

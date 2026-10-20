@@ -446,9 +446,12 @@ public sealed class PlatformLayoutReviewFixTests
                 var library = Required<LibraryView>(shellView, "LibraryPage");
                 AssertSameRenderedBounds(library, chat);
                 AssertRenderedSideInset(Required<Border>(library, "LibraryHeaderSideInset"), sideInsets);
-                AssertRenderedSideInset(Required<Border>(library, "LibrarySectionsSideInset"), sideInsets);
-                AssertRenderedSideInset(Required<Border>(library, "LibrarySearchSideInset"), sideInsets);
                 AssertRenderedSideInset(Required<Border>(library, "LibraryListSideInset"), sideInsets);
+                // Customize's sections and search scroll with the list, inside its side inset.
+                Assert.True(Required<Border>(library, "LibrarySectionsSideInset").TranslatePoint(default, library)!.Value.X
+                            >= sideInsets.Left);
+                Assert.True(Required<Border>(library, "LibrarySearchSideInset").TranslatePoint(default, library)!.Value.X
+                            >= sideInsets.Left);
 
                 var libraryActions = Required<StrataBottomSheet>(library, "LibraryActionsSheet");
                 shell.Library.IsRowActionsOpen = true;

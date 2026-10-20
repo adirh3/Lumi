@@ -17,6 +17,13 @@ public sealed class ChatWindowViewModel : ObservableObject, IDisposable
 
     public ChatViewModel ChatVM { get; }
 
+    /// <summary>Opens a "Fix with Lumi" chat; a detached window hands it to the main window.</summary>
+    internal Func<McpRepairRequest, Task>? McpRepairHandler { get; set; }
+
+    internal Task StartMcpRepairChatAsync(McpRepairRequest request)
+        => McpRepairHandler?.Invoke(request)
+           ?? Task.FromException(new InvalidOperationException(Loc.Connector_RepairStartFailed));
+
     public string WindowTitle
     {
         get
@@ -32,6 +39,7 @@ public sealed class ChatWindowViewModel : ObservableObject, IDisposable
             return;
 
         _isDisposed = true;
+        McpRepairHandler = null;
         ChatVM.PropertyChanged -= OnChatViewModelPropertyChanged;
     }
 

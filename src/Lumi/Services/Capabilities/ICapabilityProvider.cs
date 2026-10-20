@@ -59,10 +59,15 @@ public sealed class CapabilityQuery : IEquatable<CapabilityQuery>
 /// Skill roots a session must be told about explicitly because its own configuration would not
 /// reach them. These come from the runtime's own discovery paths, never from Lumi scanning disk.
 /// </param>
+/// <param name="SessionPluginRoots">
+/// Installed plugin folders a session must load explicitly: the runtime installs plugins into its
+/// own home, which a session pointed at Lumi's configuration folder does not read.
+/// </param>
 public sealed record CapabilityProviderResult(
     IReadOnlyList<CapabilityDescriptor> Capabilities,
     bool IsAvailable = true,
-    IReadOnlyList<string>? SessionSkillRoots = null)
+    IReadOnlyList<string>? SessionSkillRoots = null,
+    IReadOnlyList<string>? SessionPluginRoots = null)
 {
     public static readonly CapabilityProviderResult Empty = new([]);
 

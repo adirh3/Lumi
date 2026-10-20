@@ -4,46 +4,45 @@
   <!--
     ══ Lumi mobile — LIGHT surfaces ══════════════════════════════════════════════════════════════
 
-    The mirror of the dark set, and the reason light mode was broken: these colours used to live in
-    the density file, which is merged variant-agnostically at the application level. Application
-    resources outrank a theme's ThemeDictionaries, so the dark values won in BOTH variants and
-    switching to light changed nothing at all.
-
-    A near-white conversation canvas sits beside softly tinted navigation. A fine edge separates
-    the panes without adding frames around the content or floating controls.
+    The mirror of the dark set: a soft neutral canvas with white cards that lift by a hairline and a
+    faint shadow. Colour belongs to the accent (selection, the primary action, live work) and to the
+    small hue marks on icons — never to the surfaces themselves.
   -->
 
-  <!-- Level 0 — the canvas. A hint off white so raised white surfaces have something to lift from. -->
-  <Color x:Key="Color.Background">#FAFAFD</Color>
-  <Color x:Key="Color.Surface0">#FAFAFD</Color>
+  <!-- Level 0 — the canvas. -->
+  <Color x:Key="Color.Background">#F5F5F7</Color>
+  <Color x:Key="Color.Surface0">#F5F5F7</Color>
 
-  <!-- Level 1 — drawer, cards. -->
-  <Color x:Key="Color.Surface1">#FCFCFE</Color>
+  <!-- Level 1 — cards. -->
+  <Color x:Key="Color.Surface1">#FFFFFF</Color>
 
-  <!-- Level 2 — composer, raised controls, chips. -->
+  <!-- Level 2 — grouped rows, raised controls, chips. -->
   <Color x:Key="Color.Surface2">#FFFFFF</Color>
 
   <!-- Level 3 — sheets and popups. -->
   <Color x:Key="Color.SurfaceOverlay">#FFFFFF</Color>
 
   <Color x:Key="Color.ControlDefault">#FFFFFF</Color>
-  <Color x:Key="Color.ControlHover">#F2F2F5</Color>
-  <Color x:Key="Color.ControlPressed">#E7E7EC</Color>
+  <Color x:Key="Color.ControlHover">#F0F0F3</Color>
+  <Color x:Key="Color.ControlPressed">#E6E6EB</Color>
   <Color x:Key="Color.ControlDisabled">#F0F0F3</Color>
 
-  <Color x:Key="Color.BorderSubtle">#E9E9EE</Color>
-  <Color x:Key="Color.BorderDefault">#DCDCE3</Color>
-  <Color x:Key="Color.BorderStrong">#BFBFC9</Color>
+  <Color x:Key="Color.BorderSubtle">#E7E7EC</Color>
+  <Color x:Key="Color.BorderDefault">#DCDCE2</Color>
+  <Color x:Key="Color.BorderStrong">#BEBEC8</Color>
 
   <!-- Not pure black: full-contrast body text on white is harsh at phone reading distance. -->
-  <Color x:Key="Color.TextPrimary">#16161A</Color>
-  <Color x:Key="Color.TextSecondary">#5A5A66</Color>
-  <Color x:Key="Color.TextTertiary">#6D6D7B</Color>
+  <Color x:Key="Color.TextPrimary">#18181C</Color>
+  <Color x:Key="Color.TextSecondary">#55555F</Color>
+  <Color x:Key="Color.TextTertiary">#6B6B75</Color>
 
-  <Color x:Key="Color.SubtleHover">#0D000000</Color>
-  <Color x:Key="Color.SubtlePressed">#1A000000</Color>
+  <Color x:Key="Color.SubtleHover">#0A18181C</Color>
+  <Color x:Key="Color.SubtlePressed">#1418181C</Color>
 
   <Color x:Key="Color.OverlayScrim">#59000000</Color>
+
+  <Color x:Key="Color.AccentSubtle">#124F46E5</Color>
+  <Color x:Key="Color.AccentSubtleHover">#1F4F46E5</Color>
 
   <!-- Softer and wider than the dark set: on white, a shadow IS the elevation cue. -->
   <BoxShadows x:Key="Shadow.Level1">0 1 3 0 #14000000</BoxShadows>
@@ -84,72 +83,94 @@
   <SolidColorBrush x:Key="Brush.SubtleHover" Color="{StaticResource Color.SubtleHover}" />
   <SolidColorBrush x:Key="Brush.SubtlePressed" Color="{StaticResource Color.SubtlePressed}" />
   <SolidColorBrush x:Key="Brush.OverlayScrim" Color="{StaticResource Color.OverlayScrim}" />
-  <SolidColorBrush x:Key="Brush.NavigationSurface" Color="#F4F5F8" />
-  <SolidColorBrush x:Key="Brush.NavigationControl" Color="#FFFFFF" />
-  <SolidColorBrush x:Key="Brush.NavigationSelected" Color="#E9E3F9" />
-  <SolidColorBrush x:Key="Brush.ChatCanvas" Color="#FDFDFE" />
-  <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#DFE2EA" />
-  <BoxShadows x:Key="Shadow.ChatPaneSeparation">2 0 6 0 #10182033</BoxShadows>
-  <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#EBE6FA" />
-  <!-- Quiet glass: a subtle neutral tint, one uniform keyline, and soft elevation. -->
-  <LinearGradientBrush x:Key="Brush.FloatingControl" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#A8FFFFFF" />
-    <GradientStop Offset="1" Color="#94FFFFFF" />
-  </LinearGradientBrush>
-  <SolidColorBrush x:Key="Brush.FloatingControlPressed" Color="#C7F0EDF9" />
-  <SolidColorBrush x:Key="Brush.GlassBorder" Color="#2453647A" />
-  <SolidColorBrush x:Key="Brush.GlassBorderStrong" Color="#4053647A" />
-  <LinearGradientBrush x:Key="Brush.ComposerGlass" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#73FFFFFF" />
-    <GradientStop Offset="1" Color="#66FFFFFF" />
-  </LinearGradientBrush>
-  <BoxShadows x:Key="Shadow.FloatingControl">0 3 10 -2 #180C1730</BoxShadows>
-  <BoxShadows x:Key="Shadow.FloatingControlPressed">0 1 4 -1 #100C1730</BoxShadows>
-  <BoxShadows x:Key="Shadow.Composer">0 4 14 -3 #1C0C1730</BoxShadows>
+  <SolidColorBrush x:Key="Brush.AccentSubtle" Color="{StaticResource Color.AccentSubtle}" />
+  <SolidColorBrush x:Key="Brush.AccentSubtleHover" Color="{StaticResource Color.AccentSubtleHover}" />
 
-  <!-- Popup glass: a bright translucent tint over the frost beneath the sheet, a crisp top edge,
-       and a soft lift that separates it from the lightly dimmed page. -->
+  <SolidColorBrush x:Key="Brush.NavigationSurface" Color="{StaticResource Color.Background}" />
+  <SolidColorBrush x:Key="Brush.NavigationControl" Color="#FFFFFF" />
+  <SolidColorBrush x:Key="Brush.NavigationSelected" Color="#124F46E5" />
+  <SolidColorBrush x:Key="Brush.ChatRowSelected" Color="#1218181C" />
+  <SolidColorBrush x:Key="Brush.ChatCanvas" Color="{StaticResource Color.Background}" />
+  <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#1418181C" />
+  <BoxShadows x:Key="Shadow.ChatPaneSeparation">0 0 0 0 #00000000</BoxShadows>
+  <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#E6E1FF" />
+
+  <SolidColorBrush x:Key="Brush.GroupSurface" Color="#FFFFFF" />
+  <SolidColorBrush x:Key="Brush.GroupBorder" Color="#1418181C" />
+  <BoxShadows x:Key="Shadow.Group">0 1 2 0 #0D1E1E3C</BoxShadows>
+  <SolidColorBrush x:Key="Brush.RowDivider" Color="#1218181C" />
+  <SolidColorBrush x:Key="Brush.RowTile" Color="#0D18181C" />
+  <SolidColorBrush x:Key="Brush.QuietField" Color="#0818181C" />
+  <SolidColorBrush x:Key="Brush.QuietFieldBorder" Color="#1218181C" />
+  <SolidColorBrush x:Key="Brush.ListSearchField" Color="#0D18181C" />
+  <SolidColorBrush x:Key="Brush.AccentSelection" Color="#1F4F46E5" />
+  <SolidColorBrush x:Key="Brush.AccentText" Color="#4F46E5" />
+  <SolidColorBrush x:Key="Brush.AccentSolid" Color="#4F46E5" />
+
+  <SolidColorBrush x:Key="Brush.Hue.Agent" Color="#5E50B5" />
+  <SolidColorBrush x:Key="Brush.Hue.Skill" Color="#94701F" />
+  <SolidColorBrush x:Key="Brush.Hue.Connector" Color="#2F7D70" />
+  <SolidColorBrush x:Key="Brush.Hue.Project" Color="#3D6F99" />
+  <SolidColorBrush x:Key="Brush.Hue.Memory" Color="#98506F" />
+  <SolidColorBrush x:Key="Brush.Hue.Job" Color="#6B6455" />
+  <SolidColorBrush x:Key="Brush.Hue.Appearance" Color="#7B4A9C" />
+  <SolidColorBrush x:Key="Brush.Hue.About" Color="#8F6A22" />
+  <SolidColorBrush x:Key="Brush.Status.Ok" Color="#0F9F6E" />
+
+  <!-- Glass, as the desktop's header pills: white at two-thirds over a frost of whatever moves
+       beneath, with a hairline rim and a soft shadow. -->
+  <SolidColorBrush x:Key="Brush.FloatingControl" Color="#A8FFFFFF" />
+  <SolidColorBrush x:Key="Brush.FloatingControlPressed" Color="#E6EFEFF3" />
+  <SolidColorBrush x:Key="Brush.GlassBorder" Color="#1A18181C" />
+  <SolidColorBrush x:Key="Brush.GlassBorderStrong" Color="#2118181C" />
+  <LinearGradientBrush x:Key="Brush.ComposerGlass" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#A6FFFFFF" />
+    <GradientStop Offset="1" Color="#99FFFFFF" />
+  </LinearGradientBrush>
+  <BoxShadows x:Key="Shadow.FloatingControl">0 6 18 -6 #2E1E1E3C</BoxShadows>
+  <BoxShadows x:Key="Shadow.FloatingControlPressed">0 2 6 -3 #261E1E3C</BoxShadows>
+  <BoxShadows x:Key="Shadow.Composer">0 8 22 -12 #4D1E1E3C</BoxShadows>
+  <!-- The places pill in the desktop's materials (Navigation.PillFill and PillBorder): Surface1 at 40%,
+       a hairline of TextPrimary at 6% all round, and the nav pill's small shadow. -->
+  <SolidColorBrush x:Key="Brush.PlacesFill" Color="#66FFFFFF" />
+  <SolidColorBrush x:Key="Brush.PlacesBorder" Color="#0F18181C" />
+  <BoxShadows x:Key="Shadow.Places">0 1 6 0 #16000000</BoxShadows>
+  <!-- Stop, while Lumi works: the composer's quiet disc a shade deeper, its square in this theme's ink. -->
+  <SolidColorBrush x:Key="Brush.ComposerOrbStop" Color="#1A18181C" />
+
+  <!-- Popup glass, as the desktop's menus: white at about two-thirds over a deep frost of the page, so
+       the page stays present behind the sheet. -->
   <LinearGradientBrush x:Key="Brush.SheetSurface" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#C2FFFFFF" />
-    <GradientStop Offset="1" Color="#D1F7F8FC" />
+    <GradientStop Offset="0" Color="#B3FFFFFF" />
+    <GradientStop Offset="1" Color="#BFFAFAFB" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.SheetBorder" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#F2FFFFFF" />
-    <GradientStop Offset="1" Color="#1A0F1428" />
+    <GradientStop Offset="0" Color="#FFFFFFFF" />
+    <GradientStop Offset="1" Color="#1418181C" />
   </LinearGradientBrush>
-  <SolidColorBrush x:Key="Brush.SheetScrim" Color="#2E0F1428" />
-  <SolidColorBrush x:Key="Brush.SheetControl" Color="#0D0F1428" />
-  <SolidColorBrush x:Key="Brush.SheetRowHover" Color="#080F1428" />
-  <SolidColorBrush x:Key="Brush.SheetRowPressed" Color="#140F1428" />
-  <SolidColorBrush x:Key="Brush.SheetRowSelected" Color="#1A4F46E5" />
-  <SolidColorBrush x:Key="Brush.SheetGrip" Color="#330F1428" />
-  <BoxShadows x:Key="Shadow.Sheet">0 12 36 -10 #3D0F1428, 0 1 3 0 #0F0F1428</BoxShadows>
+  <SolidColorBrush x:Key="Brush.SheetScrim" Color="#1A18181C" />
+  <SolidColorBrush x:Key="Brush.SheetControl" Color="#0A18181C" />
+  <SolidColorBrush x:Key="Brush.SheetRowHover" Color="#0818181C" />
+  <SolidColorBrush x:Key="Brush.SheetRowPressed" Color="#1218181C" />
+  <SolidColorBrush x:Key="Brush.SheetRowSelected" Color="#1018181C" />
+  <SolidColorBrush x:Key="Brush.SheetGrip" Color="#3318181C" />
+  <SolidColorBrush x:Key="Brush.SegmentSelected" Color="#FFFFFF" />
+  <BoxShadows x:Key="Shadow.Segment">0 1 3 0 #241E1E3C</BoxShadows>
+  <BoxShadows x:Key="Shadow.Sheet">0 18 40 -22 #4D1E1E3C, 0 1 3 0 #0F18181C</BoxShadows>
 
-  <!-- Scroll-edge tints over the frost: dense at the screen edge, where the status bar and gesture
-       area need contrast, and nearly clear behind the floating controls. -->
-  <LinearGradientBrush x:Key="Brush.ChromeEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#B3FDFDFE" />
-    <GradientStop Offset="0.5" Color="#33FDFDFE" />
-    <GradientStop Offset="1" Color="#00FDFDFE" />
-  </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.ChromeEdgeBottom" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#00FDFDFE" />
-    <GradientStop Offset="0.5" Color="#29FDFDFE" />
-    <GradientStop Offset="1" Color="#B3FDFDFE" />
+    <GradientStop Offset="0" Color="#00F5F5F7" />
+    <GradientStop Offset="0.5" Color="#33F5F5F7" />
+    <GradientStop Offset="1" Color="#BFF5F5F7" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.NavigationEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#CCF4F5F8" />
-    <GradientStop Offset="0.62" Color="#99F4F5F8" />
-    <GradientStop Offset="1" Color="#00F4F5F8" />
-  </LinearGradientBrush>
-  <LinearGradientBrush x:Key="Brush.NavigationEdgeBottom" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#00F4F5F8" />
-    <GradientStop Offset="0.3" Color="#99F4F5F8" />
-    <GradientStop Offset="1" Color="#CCF4F5F8" />
+    <GradientStop Offset="0" Color="#BFF5F5F7" />
+    <GradientStop Offset="0.5" Color="#7AF5F5F7" />
+    <GradientStop Offset="1" Color="#00F5F5F7" />
   </LinearGradientBrush>
   <LinearGradientBrush x:Key="Brush.PageEdgeTop" StartPoint="0%,0%" EndPoint="0%,100%">
-    <GradientStop Offset="0" Color="#CCFAFAFD" />
-    <GradientStop Offset="0.62" Color="#99FAFAFD" />
-    <GradientStop Offset="1" Color="#00FAFAFD" />
+    <GradientStop Offset="0" Color="#BFF5F5F7" />
+    <GradientStop Offset="0.5" Color="#7AF5F5F7" />
+    <GradientStop Offset="1" Color="#00F5F5F7" />
   </LinearGradientBrush>
 </ResourceDictionary>

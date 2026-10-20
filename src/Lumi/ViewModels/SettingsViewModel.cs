@@ -23,6 +23,23 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public const int AiModelsPageIndex = 5;
     public const int AboutPageIndex = 7;
 
+    /// <summary>
+    /// Memories, listed under Profile in the Settings sidebar but shown by its own page (nav 5). It
+    /// takes the next free index so every existing page keeps the index other code relies on.
+    /// </summary>
+    public const int MemoriesPageIndex = 8;
+
+    // The Settings sidebar, top to bottom, as page indices: you, the app, then intelligence and
+    // connections, then data and Lumi itself.
+    private static readonly int[] SidebarPageOrder = [0, MemoriesPageIndex, 1, 3, 4, PermissionsPageIndex, AiModelsPageIndex, 2, 6, AboutPageIndex];
+
+    /// <summary>Row of a page in the Settings sidebar; -1 when it has none.</summary>
+    public static int SidebarPositionForPage(int pageIndex) => Array.IndexOf(SidebarPageOrder, pageIndex);
+
+    /// <summary>Page shown by a row of the Settings sidebar; -1 for no row.</summary>
+    public static int PageForSidebarPosition(int position)
+        => position >= 0 && position < SidebarPageOrder.Length ? SidebarPageOrder[position] : -1;
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
@@ -54,12 +71,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (IsSearching)
             SearchQuery = "";
 
+        PendingDangerAction = null;
+
         if (value == AboutPageIndex)
             ShouldAutoNavigateToUpdateCenter = false;
         else if (value == AiModelsPageIndex)
             _ = RefreshAuthStatusAsync();
+        else if (value == PermissionsPageIndex)
+            RefreshApprovalRules();
     }
 
+    // Indexed by page, so Memories (MemoriesPageIndex) and Permissions (PermissionsPageIndex) come
+    // last although the sidebar lists them under Profile and after Chat.
     public ObservableCollection<string> Pages { get; } =
     [
         Loc.Settings_Profile,
@@ -69,7 +92,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         Loc.Settings_Chat,
         Loc.Settings_AIModels,
         Loc.Settings_PrivacyData,
-        Loc.Settings_About
+        Loc.Settings_About,
+        Loc.Settings_Memories,
+        Loc.Get("Settings_Permissions")
     ];
 
     // ── General ──
@@ -89,11 +114,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(UiScalePreviewPercent))]
     private int _uiScalePreviewLevelIndex;
-    [ObservableProperty] private bool _showAmbientPresence;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PreviewGlowOpacity))]
+    private bool _showAmbientPresence;
     [ObservableProperty] private bool _animatePresenceWhileWorking;
     [ObservableProperty] private bool _showAnimations;
     private bool _isSynchronizingUiScaleFromApplication;
-    private bool _isSynchronizingPresenceSettings;
+    private bool _isSynchronizingAppearance;
 
     public int UiScalePreviewPercent
         => UiScaleService.GetScalePercentAtLevelIndex(UiScalePreviewLevelIndex);
@@ -116,6 +143,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _showReasoning;
     [ObservableProperty] private bool _expandReasoningWhileStreaming;
     [ObservableProperty] private bool _autoGenerateTitles;
+    [ObservableProperty] private bool _suggestFollowUps;
 
     // ── AI & Models ──
     [ObservableProperty]
@@ -303,6 +331,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _memoryCleanupStatus = "Memory cleanup has not run yet.";
     [ObservableProperty] private bool _autoSaveChats;
     [ObservableProperty] private string _browserCookieStatus = "";
+    [ObservableProperty] private BrowserCookieService.BrowserProfile? _cookieImportProfile;
+    [ObservableProperty] private string _cookieImportStatus = "";
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ImportBrowserCookiesCommand))]
+    private bool _isCookieImportInProgress;
+    [ObservableProperty] private bool _cookieImportSucceeded;
 
     // ── Language ──
     public ObservableCollection<string> LanguageOptions { get; } = new(
@@ -528,6 +562,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     /// <summary>Raised when the BYOK endpoint/model configuration changes. Consumers re-inject picker tokens and clear stale selections.</summary>
     public event Action? ByokConfigurationChanged;
 
+    /// <summary>Raised when the user asks to go through the welcome again; the shell opens it.</summary>
+    public event Action? ReplayWelcomeRequested;
+
+    [RelayCommand]
+    private void ReplayWelcome() => ReplayWelcomeRequested?.Invoke();
+
     public BrowserService BrowserService => _browserService;
 
     /// <summary>Global hotkey registration is Windows-only (Win32 RegisterHotKey), so the
@@ -568,6 +608,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         // Appearance
         _isDarkTheme = s.IsDarkTheme;
+        _followSystemTheme = s.FollowSystemTheme;
+        _accentColor = Lumi.Services.Appearance.AccentPalettes.Normalize(s.AccentColor);
+        _windowMaterial = Lumi.Services.Appearance.WindowMaterials.Normalize(s.WindowMaterial);
+        _presenceBrightness = NormalizePresenceBrightness(s.PresenceBrightness);
         _isCompactDensity = s.IsCompactDensity;
         _uiScalePercent = s.LegacyFontSize > 0
             ? UiScaleService.MigrateLegacyFontSize(s.LegacyFontSize)
@@ -586,6 +630,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _showReasoning = s.ShowReasoning;
         _expandReasoningWhileStreaming = s.ExpandReasoningWhileStreaming;
         _autoGenerateTitles = s.AutoGenerateTitles;
+        _suggestFollowUps = s.SuggestFollowUps;
+        InitializePermissions(s);
+        InitializeAppearanceOptions();
 
         // AI
         _preferredModel = s.PreferredModel;
@@ -659,7 +706,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         // Wire update status changes
         _updateService.StatusChanged += OnUpdateStatusChanged;
-        _dataStore.PresenceSettingsChanged += OnPresenceSettingsChanged;
+        _dataStore.AppearanceSettingsChanged += OnAppearanceSettingsChanged;
         ApplyUpdateStatus(_updateService.CurrentStatus);
         EasyConnect = new EasyConnectViewModel(dataStore, copilotService,
             _secureKeyStore ?? Lumi.Services.Byok.SecureKeyStoreFactory.Instance, OnEasyConnectSaved)
@@ -684,7 +731,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         EasyConnect.Dispose();
         _updateService.StatusChanged -= OnUpdateStatusChanged;
-        _dataStore.PresenceSettingsChanged -= OnPresenceSettingsChanged;
+        _dataStore.AppearanceSettingsChanged -= OnAppearanceSettingsChanged;
         DisposeRemoteState();
     }
 
@@ -705,30 +752,31 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ByokConfigurationChanged?.Invoke();
     }
 
-    private void OnPresenceSettingsChanged(
-        object? source,
-        bool showAmbientPresence,
-        bool animatePresenceWhileWorking)
+    // Another Settings window changed a look setting that every window shares; this one shows it.
+    private void OnAppearanceSettingsChanged(object? source)
     {
         if (ReferenceEquals(source, this))
             return;
 
         if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                OnPresenceSettingsChanged(source, showAmbientPresence, animatePresenceWhileWorking));
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => OnAppearanceSettingsChanged(source));
             return;
         }
 
-        _isSynchronizingPresenceSettings = true;
+        var settings = _dataStore.Data.Settings;
+        _isSynchronizingAppearance = true;
         try
         {
-            ShowAmbientPresence = showAmbientPresence;
-            AnimatePresenceWhileWorking = animatePresenceWhileWorking;
+            ShowAmbientPresence = settings.ShowAmbientPresence;
+            AnimatePresenceWhileWorking = settings.AnimatePresenceWhileWorking;
+            PresenceBrightness = settings.PresenceBrightness;
+            AccentColor = settings.AccentColor;
+            WindowMaterial = settings.WindowMaterial;
         }
         finally
         {
-            _isSynchronizingPresenceSettings = false;
+            _isSynchronizingAppearance = false;
         }
         NotifyModified();
     }
@@ -894,8 +942,15 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     // ── Auto-save on every property change + notify IsModified ──
 
-    partial void OnUserNameChanged(string value) { _dataStore.Data.Settings.UserName = value.Trim(); Save(); }
-    partial void OnUserSexIndexChanged(int value) { _dataStore.Data.Settings.UserSex = value switch { 0 => "male", 1 => "female", _ => null }; Save(); }
+    partial void OnUserNameChanged(string value) { _dataStore.Data.Settings.UserName = value.Trim(); Save(); NotifyProfileChanged(); }
+    partial void OnUserSexIndexChanged(int value)
+    {
+        _dataStore.Data.Settings.UserSex = value switch { 0 => "male", 1 => "female", _ => null };
+        Save();
+        OnPropertyChanged(nameof(IsSexMale));
+        OnPropertyChanged(nameof(IsSexFemale));
+        OnPropertyChanged(nameof(IsSexUnspecified));
+    }
     partial void OnLaunchAtStartupChanged(bool value) { _dataStore.Data.Settings.LaunchAtStartup = value; Save(); Views.MainWindow.ApplyLaunchAtStartup(value); NotifyModified(); }
     partial void OnStartMinimizedChanged(bool value) { _dataStore.Data.Settings.StartMinimized = value; Save(); NotifyModified(); }
     partial void OnMinimizeToTrayChanged(bool value)
@@ -917,8 +972,24 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     partial void OnNotificationsEnabledChanged(bool value) { _dataStore.Data.Settings.NotificationsEnabled = value; Save(); NotifyModified(); }
     partial void OnOfferCopiedCapabilitiesChanged(bool value) { _dataStore.Data.Settings.OfferCopiedCapabilities = value; Save(); NotifyModified(); }
 
-    partial void OnIsDarkThemeChanged(bool value) { _dataStore.Data.Settings.IsDarkTheme = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
-    partial void OnIsCompactDensityChanged(bool value) { _dataStore.Data.Settings.IsCompactDensity = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+    partial void OnIsDarkThemeChanged(bool value)
+    {
+        // Choosing light or dark anywhere (Settings, the welcome tour) stops following the system.
+        if (!_isApplyingSystemTheme)
+        {
+            _dataStore.Data.Settings.FollowSystemTheme = false;
+            if (FollowSystemTheme)
+                FollowSystemTheme = false;
+        }
+
+        _dataStore.Data.Settings.IsDarkTheme = value;
+        Save();
+        SettingsChanged?.Invoke();
+        RefreshAccentSwatches();
+        NotifyThemeSelectionChanged();
+        NotifyModified();
+    }
+    partial void OnIsCompactDensityChanged(bool value) { _dataStore.Data.Settings.IsCompactDensity = value; Save(); SettingsChanged?.Invoke(); OnPropertyChanged(nameof(IsComfortableDensity)); NotifyModified(); }
     partial void OnUiScalePercentChanged(int value)
     {
         if (_isSynchronizingUiScaleFromApplication)
@@ -958,36 +1029,37 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnShowAmbientPresenceChanged(bool value)
     {
-        if (_isSynchronizingPresenceSettings)
+        if (_isSynchronizingAppearance)
             return;
 
         AmbientPresenceChanged?.Invoke(value);
         _dataStore.Data.Settings.ShowAmbientPresence = value;
-        _dataStore.NotifyPresenceSettingsChanged(this);
+        _dataStore.NotifyAppearanceSettingsChanged(this);
         Save();
         SettingsChanged?.Invoke();
         NotifyModified();
     }
     partial void OnAnimatePresenceWhileWorkingChanged(bool value)
     {
-        if (_isSynchronizingPresenceSettings)
+        if (_isSynchronizingAppearance)
             return;
 
         PresenceAnimationChanged?.Invoke(value);
         _dataStore.Data.Settings.AnimatePresenceWhileWorking = value;
-        _dataStore.NotifyPresenceSettingsChanged(this);
+        _dataStore.NotifyAppearanceSettingsChanged(this);
         Save();
         SettingsChanged?.Invoke();
         NotifyModified();
     }
     partial void OnShowAnimationsChanged(bool value) { _dataStore.Data.Settings.ShowAnimations = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); NeedsRestart = true; }
 
-    partial void OnSendWithEnterChanged(bool value) { _dataStore.Data.Settings.SendWithEnter = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+    partial void OnSendWithEnterChanged(bool value) { _dataStore.Data.Settings.SendWithEnter = value; Save(); SettingsChanged?.Invoke(); OnPropertyChanged(nameof(IsSendWithCtrlEnter)); NotifyModified(); }
     partial void OnShowTimestampsChanged(bool value) { _dataStore.Data.Settings.ShowTimestamps = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnShowToolCallsChanged(bool value) { _dataStore.Data.Settings.ShowToolCalls = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnShowReasoningChanged(bool value) { _dataStore.Data.Settings.ShowReasoning = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnExpandReasoningWhileStreamingChanged(bool value) { _dataStore.Data.Settings.ExpandReasoningWhileStreaming = value; Save(); NotifyModified(); }
     partial void OnAutoGenerateTitlesChanged(bool value) { _dataStore.Data.Settings.AutoGenerateTitles = value; Save(); NotifyModified(); }
+    partial void OnSuggestFollowUpsChanged(bool value) { _dataStore.Data.Settings.SuggestFollowUps = value; Save(); NotifyModified(); }
     partial void OnGlobalCustomInstructionsChanged(string value)
     {
         _dataStore.Data.Settings.GlobalCustomInstructions = value;
@@ -1413,6 +1485,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             Id = Guid.NewGuid().ToString("N"),
             ConnectionProviderId = source.ConnectionProviderId,
             CredentialExpiresAt = source.CredentialExpiresAt,
+            Account = source.Account?.Clone(),
             Name = source.Name + " (copy)",
             ProviderType = source.ProviderType,
             BaseUrl = source.BaseUrl,
@@ -1999,7 +2072,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsGlobalHotkeyModified => GlobalHotkey != _defaults.GlobalHotkey;
     public bool IsNotificationsEnabledModified => NotificationsEnabled != _defaults.NotificationsEnabled;
     public bool IsOfferCopiedCapabilitiesModified => OfferCopiedCapabilities != _defaults.OfferCopiedCapabilities;
-    public bool IsDarkThemeModified => IsDarkTheme != _defaults.IsDarkTheme;
+    public bool IsThemeModified => IsDarkTheme != _defaults.IsDarkTheme || FollowSystemTheme != _defaults.FollowSystemTheme;
+    public bool IsAccentColorModified => AccentColor != _defaults.AccentColor;
+    public bool IsWindowMaterialModified => WindowMaterial != _defaults.WindowMaterial;
+    public bool IsPresenceBrightnessModified => PresenceBrightness != _defaults.PresenceBrightness;
     public bool IsCompactDensityModified => IsCompactDensity != _defaults.IsCompactDensity;
     public bool IsUiScaleModified => UiScalePercent != _defaults.UiScalePercent;
     public bool IsShowAmbientPresenceModified => ShowAmbientPresence != _defaults.ShowAmbientPresence;
@@ -2011,6 +2087,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsShowReasoningModified => ShowReasoning != _defaults.ShowReasoning;
     public bool IsExpandReasoningWhileStreamingModified => ExpandReasoningWhileStreaming != _defaults.ExpandReasoningWhileStreaming;
     public bool IsAutoGenerateTitlesModified => AutoGenerateTitles != _defaults.AutoGenerateTitles;
+    public bool IsSuggestFollowUpsModified => SuggestFollowUps != _defaults.SuggestFollowUps;
+
     public bool IsDefaultModelSelectionModified => PreferredModel != _defaults.PreferredModel
         || ReasoningEffort != _defaults.ReasoningEffort
         || ContextWindowTier != _defaults.ContextWindowTier;
@@ -2034,7 +2112,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsGlobalHotkeyModified));
         OnPropertyChanged(nameof(IsNotificationsEnabledModified));
         OnPropertyChanged(nameof(IsOfferCopiedCapabilitiesModified));
-        OnPropertyChanged(nameof(IsDarkThemeModified));
+        OnPropertyChanged(nameof(IsThemeModified));
+        OnPropertyChanged(nameof(IsAccentColorModified));
+        OnPropertyChanged(nameof(IsWindowMaterialModified));
+        OnPropertyChanged(nameof(IsPresenceBrightnessModified));
         OnPropertyChanged(nameof(IsCompactDensityModified));
         OnPropertyChanged(nameof(IsUiScaleModified));
         OnPropertyChanged(nameof(IsShowAmbientPresenceModified));
@@ -2046,6 +2127,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsShowReasoningModified));
         OnPropertyChanged(nameof(IsExpandReasoningWhileStreamingModified));
         OnPropertyChanged(nameof(IsAutoGenerateTitlesModified));
+        OnPropertyChanged(nameof(IsSuggestFollowUpsModified));
+        OnPropertyChanged(nameof(IsDefaultApprovalModeModified));
+        OnPropertyChanged(nameof(IsAwayApprovalBehaviorModified));
+        OnPropertyChanged(nameof(IsAppearanceCustomized));
         OnPropertyChanged(nameof(IsDefaultModelSelectionModified));
         OnPropertyChanged(nameof(IsPreferredModelModified));
         OnPropertyChanged(nameof(IsBackgroundModelModified));
@@ -2084,7 +2169,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertGlobalHotkey() => GlobalHotkey = _defaults.GlobalHotkey;
     [RelayCommand] private void RevertNotificationsEnabled() => NotificationsEnabled = _defaults.NotificationsEnabled;
     [RelayCommand] private void RevertOfferCopiedCapabilities() => OfferCopiedCapabilities = _defaults.OfferCopiedCapabilities;
-    [RelayCommand] private void RevertIsDarkTheme() => IsDarkTheme = _defaults.IsDarkTheme;
+    [RelayCommand] private void RevertTheme() => SelectTheme(_defaults.IsDarkTheme ? "dark" : "light");
+    [RelayCommand] private void RevertAccentColor() => AccentColor = _defaults.AccentColor;
+    [RelayCommand] private void RevertWindowMaterial() => WindowMaterial = _defaults.WindowMaterial;
+    [RelayCommand] private void RevertPresenceBrightness() => PresenceBrightness = _defaults.PresenceBrightness;
     [RelayCommand] private void RevertIsCompactDensity() => IsCompactDensity = _defaults.IsCompactDensity;
     [RelayCommand] private void RevertUiScale() => UiScalePercent = _defaults.UiScalePercent;
     [RelayCommand] private void RevertShowAmbientPresence() => ShowAmbientPresence = _defaults.ShowAmbientPresence;
@@ -2096,6 +2184,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertShowReasoning() => ShowReasoning = _defaults.ShowReasoning;
     [RelayCommand] private void RevertExpandReasoningWhileStreaming() => ExpandReasoningWhileStreaming = _defaults.ExpandReasoningWhileStreaming;
     [RelayCommand] private void RevertAutoGenerateTitles() => AutoGenerateTitles = _defaults.AutoGenerateTitles;
+    [RelayCommand] private void RevertSuggestFollowUps() => SuggestFollowUps = _defaults.SuggestFollowUps;
+
     [RelayCommand]
     private void RevertDefaultModelSelection()
     {
@@ -2137,7 +2227,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private void Save() => _ = _dataStore.SaveAsync();
 
-    [RelayCommand]
+    // Destructive: only reached through ConfirmDangerAction, after the user confirms.
     private void ClearAllChats()
     {
         _dataStore.Data.Chats.Clear();
@@ -2146,7 +2236,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         SettingsChanged?.Invoke();
     }
 
-    [RelayCommand]
     private void ClearAllMemories()
     {
         _dataStore.Data.Memories.Clear();
@@ -2180,6 +2269,47 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private void ImportBrowserCookiesAgain()
     {
         CookieImportDialogRequested?.Invoke();
+    }
+
+    private bool CanImportBrowserCookies(BrowserCookieService.BrowserProfile? profile)
+        => profile is not null && !IsCookieImportInProgress;
+
+    [RelayCommand(CanExecute = nameof(CanImportBrowserCookies))]
+    private async Task ImportBrowserCookiesAsync(BrowserCookieService.BrowserProfile? profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        CookieImportSucceeded = false;
+        IsCookieImportInProgress = true;
+        CookieImportStatus = "Importing cookies...";
+        try
+        {
+            var count = await BrowserService.ImportCookiesAsync(profile).WaitAsync(TimeSpan.FromSeconds(45));
+            if (count <= 0)
+            {
+                CookieImportStatus = "No cookies imported. Close the selected browser and try again.";
+                BrowserCookieStatus = CookieImportStatus;
+                return;
+            }
+
+            CookieImportStatus = $"Imported {count:N0} cookies!";
+            MarkCookiesImported();
+            await Task.Delay(1000);
+            CookieImportSucceeded = true;
+        }
+        catch (TimeoutException)
+        {
+            CookieImportStatus = "Cookie import timed out. Close the browser and try again.";
+            BrowserCookieStatus = CookieImportStatus;
+        }
+        catch (Exception ex)
+        {
+            CookieImportStatus = $"Error: {ex.Message}";
+            BrowserCookieStatus = CookieImportStatus;
+        }
+        finally
+        {
+            IsCookieImportInProgress = false;
+        }
     }
 
     public void MarkCookiesImported()
@@ -2230,17 +2360,15 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         GlobalHotkey = defaults.GlobalHotkey;
         NotificationsEnabled = defaults.NotificationsEnabled;
         OfferCopiedCapabilities = defaults.OfferCopiedCapabilities;
-        IsDarkTheme = defaults.IsDarkTheme;
-        IsCompactDensity = defaults.IsCompactDensity;
-        UiScalePercent = defaults.UiScalePercent;
-        ShowAmbientPresence = defaults.ShowAmbientPresence;
-        AnimatePresenceWhileWorking = defaults.AnimatePresenceWhileWorking;
-        ShowAnimations = defaults.ShowAnimations;
+        ResetAppearance();
         SendWithEnter = defaults.SendWithEnter;
         ShowTimestamps = defaults.ShowTimestamps;
         ShowToolCalls = defaults.ShowToolCalls;
         ShowReasoning = defaults.ShowReasoning;
+        ExpandReasoningWhileStreaming = defaults.ExpandReasoningWhileStreaming;
         AutoGenerateTitles = defaults.AutoGenerateTitles;
+        SuggestFollowUps = defaults.SuggestFollowUps;
+        ResetPermissions(defaults);
         PreferredModel = defaults.PreferredModel;
         BackgroundModel = defaults.BackgroundModel;
         ReasoningEffort = defaults.ReasoningEffort;

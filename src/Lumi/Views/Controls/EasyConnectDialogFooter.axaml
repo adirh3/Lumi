@@ -86,7 +86,7 @@
     <DockPanel IsVisible="{Binding IsComplete}">
       <StackPanel DockPanel.Dock="Right" Classes="ec-actions">
         <Button x:Name="ConnectDoneButton" Classes="accent mg-button" Command="{Binding DoneCommand}"
-                Content="{loc:Str EasyConnect_Done}" />
+                Content="{Binding DoneActionText}" />
       </StackPanel>
       <Panel />
     </DockPanel>

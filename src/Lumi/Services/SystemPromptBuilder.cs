@@ -103,7 +103,7 @@ public static class SystemPromptBuilder
              - **Automate the browser** (navigate, click, type, screenshot)
             - **Automate any desktop window** via UI Automation — click buttons, type text, read values in any app
             - **Query app databases** — most apps store data locally in SQLite, JSON, or XML files
-             - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, use webmail in the browser — see **Email** under Quick Reference)
+             - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, see **Email** under Quick Reference)
              - **Manage the system** — processes, disk space, installed apps, network, clipboard, and more
             """
             : $"""
@@ -175,6 +175,8 @@ public static class SystemPromptBuilder
             ## Writing Style
 
             Write like a knowledgeable friend — warm, direct, and genuinely helpful. Lead with the answer, not the preamble. Use plain language and contractions naturally. Emoji are welcome when they fit the moment naturally — celebrations, encouragement, casual warmth — but don't force them.
+
+            Short progress updates while you work are welcome, but Lumi folds them away with your tool calls once your final reply arrives. Make that final reply stand on its own: put the key findings and results in it rather than pointing back to earlier updates.
 
             When the user shares something personal or emotional, respond as a person first. Acknowledge the feeling before offering advice. When they share a win, celebrate it — and show genuine curiosity about what they built or achieved.
 
@@ -559,19 +561,18 @@ public static class SystemPromptBuilder
                 .Append(settings.GlobalCustomInstructions.Trim());
         }
 
+        var loadedSkillIds = new HashSet<Guid>();
         if (agent is not null)
         {
-            promptBuilder.Append($"""
-
-
-                --- Active Agent: {agent.Name} ---
-                {agent.SystemPrompt}
-                """);
+            // The selected CustomAgentConfig supplies the persona's authored prompt through the SDK.
+            promptBuilder.Append("\n\n--- Active Agent: ").Append(agent.Name).Append(" ---\n");
 
             // Include agent's linked skills
             if (agent.SkillIds.Count > 0)
             {
-                var agentSkills = allSkills.Where(s => agent.SkillIds.Contains(s.Id)).ToList();
+                var agentSkills = allSkills
+                    .Where(s => agent.SkillIds.Contains(s.Id) && loadedSkillIds.Add(s.Id))
+                    .ToList();
                 if (agentSkills.Count > 0)
                 {
                     promptBuilder.Append("\n\n--- Agent Skills ---\n");
@@ -600,11 +601,12 @@ public static class SystemPromptBuilder
         // Active skills selected by the user for this chat (full content in system prompt).
         // File-based Copilot skills are deliberately NOT included: they are activated per-turn
         // through the SDK slash command, which is what makes them one-shot.
-        if (activeSkills.Count > 0)
+        var selectedSkills = activeSkills.Where(skill => loadedSkillIds.Add(skill.Id)).ToList();
+        if (selectedSkills.Count > 0)
         {
             promptBuilder.Append("\n\n--- Active Skills (use these to help the user) ---\n");
             promptBuilder.Append("These skills are already loaded. Follow their instructions directly; do not fetch them again.\n");
-            foreach (var skill in activeSkills)
+            foreach (var skill in selectedSkills)
                 promptBuilder.Append("\n### ").Append(skill.Name).Append('\n').Append(skill.Content).Append('\n');
         }
 
@@ -877,12 +879,12 @@ public static class SystemPromptBuilder
         {
             return """
                  - **Browser history**: Chrome stores history at `%LOCALAPPDATA%\Google\Chrome\User Data\Default\History` (SQLite). Copy the file first — Chrome locks it. Edge is similar at `%LOCALAPPDATA%\Microsoft\Edge\User Data\Default\History`.
-                 - **Email (sending or reading)**: Do NOT launch the Outlook desktop app via COM (`New-Object -ComObject Outlook.Application`) — most users were migrated to webmail, so it just opens the Outlook setup wizard. Work through webmail in the built-in browser instead:
+                 - **Email (sending or reading)**: If an email connector such as Microsoft Work IQ is available, use it and its skill first — never work around its policy denials, and step 4's review-before-send still applies. Otherwise, do NOT launch the Outlook desktop app via COM (`New-Object -ComObject Outlook.Application`) — most users were migrated to webmail, so it just opens the Outlook setup wizard. Work through webmail in the built-in browser instead:
                   1. **Discover the user's email address without asking, first.** Try in order: Lumi's memories about the user; `whoami /upn` and `dsregcmd /status` (work/Entra account); the Office identity registry (`HKCU:\Software\Microsoft\Office\16.0\Common\Identity\Identities\*`); `git config user.email`. Only ask the user if none of these reveal it.
                   2. **Open the matching webmail** with `lumi_browser_open` (the user is usually already signed in): outlook.com / hotmail.com / live.com / msn.com → `https://outlook.live.com/mail/`; gmail.com → `https://mail.google.com`; yahoo.com → `https://mail.yahoo.com`; icloud.com / me.com → `https://www.icloud.com/mail`; proton.me → `https://mail.proton.me`. For a custom/work domain, check MX records with `Resolve-DnsName -Type MX <domain>`: `*.mail.protection.outlook.com` → Microsoft 365 (`https://outlook.office.com/mail/`), `*.google.com` → Google Workspace (`https://mail.google.com`); otherwise web-search the provider's webmail or ask.
                   3. **Compose via the provider's deep link** so the draft opens pre-filled — Outlook Web: `https://outlook.office.com/mail/deeplink/compose?to=<addr>&subject=<subject>&body=<body>` (personal Outlook uses `https://outlook.live.com/mail/0/deeplink/compose?...`); Gmail: `https://mail.google.com/mail/?view=cm&fs=1&to=<addr>&su=<subject>&body=<body>`. URL-encode subject/body, and never use `mailto:` (it re-opens the broken desktop handler).
                   4. **Stop and let the user send — do NOT auto-click Send.** After the draft is pre-filled, leave the composed message on screen, tell the user it's ready, and let them review and click Send themselves. Treat "send an email…" as a request to *prepare* the email, not blanket permission to dispatch it; an imperative phrasing alone is NOT consent to hit Send. Only click Send yourself if the user has *explicitly* said to send without review (e.g. "just send it, don't wait for me"). This avoids firing off messages the user hasn't seen.
-                  5. **Calendar works the same way** — open the web calendar (`https://outlook.office.com/calendar/` or `https://calendar.google.com`) instead of Outlook COM.
+                  5. **Calendar works the same way** — a connector first; otherwise open the web calendar (`https://outlook.office.com/calendar/` or `https://calendar.google.com`) instead of Outlook COM.
                 - **Excel**: Use the `ImportExcel` PowerShell module (`Install-Module ImportExcel` if needed) or Python `openpyxl`.
                 - **Word/PowerPoint**: COM automation — `$word = New-Object -ComObject Word.Application`.
                 - **Clipboard**: `Get-Clipboard` / `Set-Clipboard` in PowerShell.
@@ -913,11 +915,11 @@ public static class SystemPromptBuilder
         return browserAvailabilityHint + $"""
              - **Open a URL or app**: {websiteHint}
              - **Browser history**: Chrome stores history under the user's config dir (SQLite). On macOS: `~/Library/Application Support/Google/Chrome/Default/History`; on Linux: `~/.config/google-chrome/Default/History`. Copy the file first — Chrome locks it.
-             - **Email (sending or reading)**: work through webmail in {webmailBrowser}:
+             - **Email (sending or reading)**: if an email connector such as Microsoft Work IQ is available, use it and its skill first — never work around its policy denials, and step 3's review-before-send still applies. Otherwise work through webmail in {webmailBrowser}:
               1. **Discover the user's email address without asking, first.** Try in order: Lumi's memories about the user; `git config user.email`; the `$EMAIL`/`$GIT_AUTHOR_EMAIL` environment variables. Only ask the user if none of these reveal it.
               2. **Compose via the provider's deep link** so the draft opens pre-filled — Outlook Web: `https://outlook.office.com/mail/deeplink/compose?to=<addr>&subject=<subject>&body=<body>` (personal Outlook uses `https://outlook.live.com/mail/0/deeplink/compose?...`); Gmail: `https://mail.google.com/mail/?view=cm&fs=1&to=<addr>&su=<subject>&body=<body>`. URL-encode subject/body, then open the link with {browserOpenCommand}. Never use `mailto:`.
               3. **Stop and let the user send — do NOT auto-send.** Open the pre-filled draft, tell the user it's ready, and let them review and click Send themselves. An imperative phrasing alone is NOT consent to send; only send yourself if the user explicitly said to.
-              4. **Calendar works the same way** — open `https://outlook.office.com/calendar/` or `https://calendar.google.com` with {browserOpenCommand}.
+              4. **Calendar works the same way** — a connector first; otherwise open `https://outlook.office.com/calendar/` or `https://calendar.google.com` with {browserOpenCommand}.
             - **Documents**: create Word/Excel/PowerPoint with Python (`python-docx`, `openpyxl`, `python-pptx`) or convert with LibreOffice headless (`libreoffice --headless --convert-to pdf <file>`).
             - **Clipboard**: {clipboard}.
             - **Installed apps**: {installedApps}.

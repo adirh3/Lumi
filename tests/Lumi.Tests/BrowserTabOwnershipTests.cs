@@ -1,7 +1,10 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.LogicalTree;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Views;
@@ -72,18 +75,30 @@ public sealed class BrowserTabOwnershipTests
         var clearedCount = -1;
         string? selectionName = null;
         string? closeName = null;
+        string? title = null;
+        var isActive = false;
+        var keptOnReshow = false;
         string? tabId = null;
         await session.Dispatch(async () =>
         {
+            Loc.Load("en");
             await using var browser = new BrowserService();
             tabId = browser.ActiveTabId;
+            var store = new DataStore(new AppData());
             var view = new BrowserView();
-            view.SetBrowserService(browser, new DataStore(new AppData()));
+            view.SetBrowserService(browser, store);
             var strip = view.FindControl<StackPanel>("BrowserTabs")!;
             renderedCount = strip.Children.Count;
-            var row = (StackPanel)strip.Children[0];
-            selectionName = row.Children[0].Name;
-            closeName = row.Children[1].Name;
+            var chip = strip.Children[0];
+            var buttons = chip.GetLogicalDescendants().OfType<Button>().ToArray();
+            selectionName = buttons[0].Name;
+            closeName = buttons[1].Name;
+            title = chip.GetLogicalDescendants().OfType<TextBlock>()
+                .FirstOrDefault(text => text.Classes.Contains("browser-tab-title"))?.Text;
+            isActive = chip.Classes.Contains("active");
+            // Agent browser actions show the same browser again: its tabs must not be rebuilt.
+            view.SetBrowserService(browser, store);
+            keptOnReshow = strip.Children.Count == 1 && ReferenceEquals(chip, strip.Children[0]);
             view.ClearBrowserService();
             clearedCount = strip.Children.Count;
         }, CancellationToken.None);
@@ -91,6 +106,9 @@ public sealed class BrowserTabOwnershipTests
         Assert.Equal(1, renderedCount);
         Assert.Equal("BrowserTab_" + tabId, selectionName);
         Assert.Equal("BrowserTabClose_" + tabId, closeName);
+        Assert.Equal("New tab", title);
+        Assert.True(isActive);
+        Assert.True(keptOnReshow);
         Assert.Equal(0, clearedCount);
     }
 }

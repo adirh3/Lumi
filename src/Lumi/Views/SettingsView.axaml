@@ -6,20 +6,29 @@
              xmlns:conv="using:Lumi.Converters"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:ctrl="using:Lumi.Views.Controls"
+             xmlns:st="using:Lumi.Views.Settings"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.SettingsView"
              x:DataType="vm:SettingsViewModel"
              x:CompileBindings="True">
 
   <UserControl.Resources>
-    <conv:ModelDisplayConverter x:Key="ModelDisplayConverter" />
-    <conv:ByokEndpointByIdConverter x:Key="ByokEndpointByIdConverter"
-                                    EndpointSource="{Binding ByokEndpoints}" />
-    <conv:StringToNullableIntConverter x:Key="StringToNullableIntConverter" />
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Settings/SettingsResources.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+      <conv:ModelDisplayConverter x:Key="ModelDisplayConverter" />
+      <conv:ByokEndpointByIdConverter x:Key="ByokEndpointByIdConverter"
+                                      EndpointSource="{Binding ByokEndpoints}" />
+      <conv:StringToNullableIntConverter x:Key="StringToNullableIntConverter" />
+    </ResourceDictionary>
   </UserControl.Resources>
 
   <UserControl.Styles>
-    <Style Selector="Border.motion-surface, DockPanel.motion-surface, StackPanel.motion-surface">
+    <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
+    <StyleInclude Source="avares://Lumi/Views/Settings/SettingsStyles.axaml" />
+
+    <Style Selector="StackPanel.motion-surface, DockPanel.motion-surface">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="Transitions">
         <Transitions>
@@ -27,7 +36,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Border.motion-surface[IsVisible=true], DockPanel.motion-surface[IsVisible=true], StackPanel.motion-surface[IsVisible=true]">
+    <Style Selector="StackPanel.motion-surface[IsVisible=true], DockPanel.motion-surface[IsVisible=true]">
       <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Button.motion-action">
@@ -46,11 +55,11 @@
       <Setter Property="VerticalContentAlignment" Value="Stretch" />
     </Style>
     <Style Selector="Button.mobile-transport /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
     </Style>
     <Style Selector="Button.mobile-transport.selected /template/ Border#PART_Surface, Button.mobile-experience.selected /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <Style Selector="Button.mobile-transport.selected TextBlock.mobile-transport-title">
@@ -59,153 +68,205 @@
     <Style Selector="Grid#MobileTransportChoices.stacked Button.mobile-transport">
       <Setter Property="MinHeight" Value="0" />
     </Style>
-    <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > Border#PART_HighlightBar">
-      <Setter Property="Grid.RowSpan" Value="2" />
-    </Style>
-    <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > StackPanel">
-      <Setter Property="Grid.ColumnSpan" Value="2" />
-      <Setter Property="Margin" Value="0" />
-    </Style>
-    <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > ContentPresenter">
-      <Setter Property="Grid.Row" Value="1" />
-      <Setter Property="Grid.Column" Value="1" />
-      <Setter Property="Grid.ColumnSpan" Value="2" />
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="Margin" Value="0,10,0,0" />
-    </Style>
   </UserControl.Styles>
 
   <Panel>
-
-    <!-- ═══ Restart banner (shown when a restart-required setting changes) ═══ -->
-    <Border x:Name="RestartBanner"
-            Classes="motion-surface"
-            IsVisible="{Binding NeedsRestart}"
-            Background="{DynamicResource Brush.WarningSubtle}"
-            CornerRadius="8" Padding="16,10" Margin="36,24,36,0"
-            MaxWidth="560" HorizontalAlignment="Left"
-            VerticalAlignment="Top" ZIndex="10">
-      <DockPanel>
-        <Button DockPanel.Dock="Right" Classes="accent motion-action" Content="{loc:Str Settings_Restart}"
-                Padding="14,6" MinHeight="0" Margin="12,0,0,0"
-                Command="{Binding RestartAppCommand}" />
-        <TextBlock Text="{loc:Str Settings_RestartBanner}"
-                   VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
-                   Foreground="{DynamicResource Brush.TextPrimary}" />
-      </DockPanel>
-    </Border>
+    <Border Classes="st-wash" />
 
     <ScrollViewer x:Name="MainScrollViewer" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel x:Name="AllPagesStack" Spacing="0">
+    <!-- A capped star column: every page takes the same width up to the cap and stays at the left,
+         where a capped Stretch would centre and a Left panel would shrink to its content. -->
+    <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*" MaxWidth="884" />
+    </Grid.ColumnDefinitions>
+    <!-- The bottom room keeps the last card clear of the floating restart and confirm bars. -->
+    <StackPanel x:Name="AllPagesStack" Spacing="0" Margin="0,0,0,88">
 
-    <!-- Search results header (shown during search) -->
-    <DockPanel x:Name="SearchResultsHeader" Classes="motion-surface" IsVisible="False"
-              Margin="36,24,36,4" MaxWidth="560" HorizontalAlignment="Left">
-      <Button x:Name="ClearSearchButton" DockPanel.Dock="Right" Classes="subtle motion-action"
-              Content="{loc:Str Common_Clear}" Padding="8,4" MinHeight="0" MinWidth="0"
-              FontSize="{DynamicResource Font.SizeCaption}"
-              Foreground="{DynamicResource Brush.AccentDefault}"
-              VerticalAlignment="Center" />
-      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-        <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextTertiary}">
-          <PathIcon.Data>
-            <StreamGeometry>M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
-          </PathIcon.Data>
-        </PathIcon>
-        <StackPanel Orientation="Horizontal" Spacing="0">
-          <TextBlock x:Name="SearchCountText" FontSize="13" FontWeight="SemiBold"
-                     Foreground="{DynamicResource Brush.AccentDefault}" />
-          <TextBlock x:Name="SearchQueryText" FontSize="13"
-                     Foreground="{DynamicResource Brush.TextSecondary}" />
-        </StackPanel>
-      </StackPanel>
-    </DockPanel>
-
+    <StackPanel.Resources>
+    <ResourceDictionary>
+    <ControlTemplate x:Key="PageProfile" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 0: Profile ═══ -->
-      <StackPanel x:Name="PageProfile" Classes="motion-surface" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_Profile}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_ProfileDesc}" FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
+    <StackPanel x:Name="PageProfile" Classes="st-page motion-surface">
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.Profile}" Foreground="{DynamicResource St.Hue.Profile}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_Profile}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_ProfileDesc}" />
         </StackPanel>
+      </Grid>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Profile}">
-          <sc:StrataSetting Header="{loc:Str Setting_YourName}" Description="{loc:Str SettingDesc_YourName}">
-            <TextBox Text="{Binding UserName}" PlaceholderText="{loc:Str Watermark_EnterName}" Width="220" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_Sex}" Description="{loc:Str SettingDesc_Sex}">
-            <ComboBox x:Name="SettingsSexCombo" Width="220"
-                      SelectedIndex="{Binding UserSexIndex}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      <Border x:Name="ProfileHero" Classes="st-hero">
+        <Panel>
+          <Border Classes="st-hero-glow" />
+          <Grid ColumnDefinitions="Auto,*" Margin="22,20">
+            <Border Classes="st-avatar" Margin="0,0,18,0">
+              <Panel>
+                <TextBlock x:Name="ProfileInitialText" Text="{Binding ProfileInitial}" IsVisible="{Binding HasProfileInitial}" />
+                <PathIcon Data="{StaticResource St.Icon.Profile}" IsVisible="{Binding !HasProfileInitial}" />
+              </Panel>
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+              <TextBlock x:Name="ProfileGreetingText" Classes="st-hero-title" Text="{Binding ProfileGreeting}" />
+              <TextBlock Classes="st-hero-text" Text="{loc:Str Settings_ProfileHeroText}" />
+            </StackPanel>
+          </Grid>
+        </Panel>
+      </Border>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Language}">
-          <sc:StrataSetting Header="{loc:Str Setting_Language}" Description="{loc:Str SettingDesc_Language}">
-            <ComboBox ItemsSource="{Binding LanguageOptions}"
-                      SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}"
-                      Width="200" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-      </StackPanel>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_AboutYou}" Description="{loc:Str SettingsGroupDesc_AboutYou}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Profile}">
+        <sc:StrataSetting Header="{loc:Str Setting_YourName}" Description="{loc:Str SettingDesc_YourName}">
+          <TextBox x:Name="ProfileNameBox" Classes="mg-field" Text="{Binding UserName}"
+                   PlaceholderText="{loc:Str Watermark_EnterName}" Width="240" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_Sex}" Description="{loc:Str SettingDesc_Sex}">
+          <Border Classes="mg-segmented">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button x:Name="SettingsSexMale" Classes="mg-segment" Classes.selected="{Binding IsSexMale}"
+                      Command="{Binding SelectSexCommand}" CommandParameter="male">
+                <TextBlock Text="{loc:Str Onboarding_SexMale}" />
+              </Button>
+              <Button x:Name="SettingsSexFemale" Classes="mg-segment" Classes.selected="{Binding IsSexFemale}"
+                      Command="{Binding SelectSexCommand}" CommandParameter="female">
+                <TextBlock Text="{loc:Str Onboarding_SexFemale}" />
+              </Button>
+              <Button x:Name="SettingsSexUnspecified" Classes="mg-segment" Classes.selected="{Binding IsSexUnspecified}"
+                      Command="{Binding SelectSexCommand}" CommandParameter="none">
+                <TextBlock Text="{loc:Str Onboarding_SexPreferNot}" />
+              </Button>
+            </StackPanel>
+          </Border>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Language}" Description="{loc:Str SettingsGroupDesc_Language}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Globe}">
+        <sc:StrataSetting Header="{loc:Str Setting_Language}" Description="{loc:Str SettingDesc_Language}">
+          <ComboBox ItemsSource="{Binding LanguageOptions}"
+                    SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}"
+                    Width="220" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_GettingStarted}" Description="{loc:Str SettingsGroupDesc_GettingStarted}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Flag}">
+        <sc:StrataSetting Header="{loc:Str Setting_WelcomeTour}" Description="{loc:Str SettingDesc_WelcomeTour}">
+          <Button x:Name="ReplayWelcomeButton" Classes="mg-button motion-action" Content="{loc:Str Button_ReplayWelcome}"
+                  Command="{Binding ReplayWelcomeCommand}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+    </StackPanel>
+
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageGeneral" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 1: General ═══ -->
-      <StackPanel x:Name="PageGeneral" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_General}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_GeneralDesc}" FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
+    <StackPanel x:Name="PageGeneral" Classes="st-page motion-surface" IsVisible="False">
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.General}" Foreground="{DynamicResource St.Hue.General}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_General}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_GeneralDesc}" />
         </StackPanel>
+      </Grid>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Startup}">
-          <sc:StrataSetting Header="{loc:Str Setting_LaunchAtStartup}" Description="{loc:Str SettingDesc_LaunchAtStartup}"
-                            IsModified="{Binding IsLaunchAtStartupModified}">
-            <ToggleSwitch IsChecked="{Binding LaunchAtStartup}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_StartMinimized}" Description="{loc:Str SettingDesc_StartMinimized}"
-                            IsModified="{Binding IsStartMinimizedModified}">
-            <ToggleSwitch IsChecked="{Binding StartMinimized}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_MinimizeToTray}" Description="{loc:Str SettingDesc_MinimizeToTray}"
-                            IsModified="{Binding IsMinimizeToTrayModified}">
-            <ToggleSwitch IsChecked="{Binding MinimizeToTray}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Startup}" Description="{loc:Str SettingsGroupDesc_Startup}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Power}">
+        <sc:StrataSetting Header="{loc:Str Setting_LaunchAtStartup}" Description="{loc:Str SettingDesc_LaunchAtStartup}"
+                          IsModified="{Binding IsLaunchAtStartupModified}">
+          <ToggleSwitch IsChecked="{Binding LaunchAtStartup}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_StartMinimized}" Description="{loc:Str SettingDesc_StartMinimized}"
+                          IsModified="{Binding IsStartMinimizedModified}">
+          <ToggleSwitch IsChecked="{Binding StartMinimized}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_MinimizeToTray}" Description="{loc:Str SettingDesc_MinimizeToTray}"
+                          IsModified="{Binding IsMinimizeToTrayModified}">
+          <ToggleSwitch IsChecked="{Binding MinimizeToTray}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Notifications}">
-          <sc:StrataSetting Header="{loc:Str Setting_EnableNotifications}" Description="{loc:Str SettingDesc_EnableNotifications}"
-                            IsModified="{Binding IsNotificationsEnabledModified}">
-            <ToggleSwitch IsChecked="{Binding NotificationsEnabled}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Notifications}" Description="{loc:Str SettingsGroupDesc_Notifications}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Bell}">
+        <sc:StrataSetting Header="{loc:Str Setting_EnableNotifications}" Description="{loc:Str SettingDesc_EnableNotifications}"
+                          IsModified="{Binding IsNotificationsEnabledModified}">
+          <ToggleSwitch IsChecked="{Binding NotificationsEnabled}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Sharing}">
-          <sc:StrataSetting Header="{loc:Str Setting_OfferCopiedCapabilities}" Description="{loc:Str SettingDesc_OfferCopiedCapabilities}"
-                            IsModified="{Binding IsOfferCopiedCapabilitiesModified}">
-            <ToggleSwitch x:Name="OfferCopiedCapabilitiesToggle" IsChecked="{Binding OfferCopiedCapabilities}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Keyboard}" Description="{loc:Str SettingsGroupDesc_Keyboard}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Keyboard}">
+        <sc:StrataSetting x:Name="KeyboardShortcutsSetting" Classes="stacked-content"
+                          Header="{loc:Str Setting_KeyboardShortcuts}" Description="{loc:Str SettingDesc_KeyboardShortcuts}">
+          <ItemsControl x:Name="KeyboardShortcutList" ItemsSource="{Binding KeyboardShortcuts}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <ctrl:AdaptiveGridPanel MinItemWidth="260" MaxColumns="2" ColumnSpacing="28" RowSpacing="10" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:KeyboardShortcutItem">
+                <DockPanel>
+                  <ItemsControl DockPanel.Dock="Right" ItemsSource="{Binding Keys}" Margin="12,0,0,0" VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="4" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <Border Classes="st-keycap">
+                          <TextBlock Text="{Binding}" />
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="{Binding Description}" FontSize="12.5" VerticalAlignment="Center"
+                             Foreground="{DynamicResource Brush.TextSecondary}" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_GlobalHotkey}" Description="{loc:Str SettingDesc_GlobalHotkey}"
+                          IsModified="{Binding IsGlobalHotkeyModified}"
+                          IsVisible="{Binding IsGlobalHotkeyAvailable}">
+          <Button x:Name="HotkeyRecorderButton" Classes="mg-button motion-action"
+                  MinWidth="132" HorizontalContentAlignment="Center"
+                  FontFamily="{DynamicResource Font.FamilyMono}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Keyboard}" IsVisible="{Binding IsGlobalHotkeyAvailable}">
-          <sc:StrataSetting Header="{loc:Str Setting_GlobalHotkey}" Description="{loc:Str SettingDesc_GlobalHotkey}"
-                            IsModified="{Binding IsGlobalHotkeyModified}">
-            <Button x:Name="HotkeyRecorderButton" Classes="subtle motion-action" Padding="14,6" MinHeight="0"
-                    MinWidth="120" HorizontalContentAlignment="Center"
-                    FontSize="{DynamicResource Font.SizeCaption}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Sharing}" Description="{loc:Str SettingsGroupDesc_Sharing}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Clipboard}">
+        <sc:StrataSetting Header="{loc:Str Setting_OfferCopiedCapabilities}" Description="{loc:Str SettingDesc_OfferCopiedCapabilities}"
+                          IsModified="{Binding IsOfferCopiedCapabilitiesModified}">
+          <ToggleSwitch x:Name="OfferCopiedCapabilitiesToggle" IsChecked="{Binding OfferCopiedCapabilities}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+    </StackPanel>
 
-      </StackPanel>
-
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageMobile" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 2: Mobile ═══ -->
-      <StackPanel x:Name="PageMobile" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="680">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_Mobile}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_MobileDesc}" FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
+    <StackPanel x:Name="PageMobile" Classes="st-page motion-surface" IsVisible="False">
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.Mobile}" Foreground="{DynamicResource St.Hue.Mobile}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_Mobile}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_MobileDesc}" />
         </StackPanel>
+      </Grid>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Phone}"
-                              IsEnabled="{Binding CanManageRemoteSecurity}">
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Phone}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Mobile}"
+                             IsEnabled="{Binding CanManageRemoteSecurity}">
           <sc:StrataSetting Header="{loc:Str Setting_RemoteAccess}" Description="{loc:Str SettingDesc_RemoteAccess}">
             <ToggleSwitch x:Name="RemoteAccessToggle"
                           IsEnabled="{Binding CanManageRemoteSecurity}"
@@ -580,143 +641,985 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      </sc:StrataSettingGroup>
+    </StackPanel>
 
-      </StackPanel>
-
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageAppearance" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 3: Appearance ═══ -->
-      <StackPanel x:Name="PageAppearance" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_Appearance}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_AppearanceDesc}" FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
+    <StackPanel x:Name="PageAppearance" Classes="st-page motion-surface" IsVisible="False">
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*,Auto">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.Appearance}" Foreground="{DynamicResource St.Hue.Appearance}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_Appearance}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_AppearanceDesc}" />
         </StackPanel>
+        <Button x:Name="ResetAppearanceButton" Grid.Column="2" Classes="mg-button motion-action"
+                VerticalAlignment="Top" Margin="16,6,0,0"
+                IsVisible="{Binding IsAppearanceCustomized}"
+                Command="{Binding ResetAppearanceCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="7">
+            <PathIcon Data="{StaticResource St.Icon.Undo}" />
+            <TextBlock Text="{loc:Str Settings_ResetAppearance}" />
+          </StackPanel>
+        </Button>
+      </Grid>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Theme}">
-          <sc:StrataSetting Header="{loc:Str Setting_DarkMode}" Description="{loc:Str SettingDesc_DarkMode}"
-                            IsModified="{Binding IsDarkThemeModified}">
-            <ToggleSwitch IsChecked="{Binding IsDarkTheme}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      <!-- A small Lumi, drawn from the live theme tokens, so every choice below shows here at once. -->
+      <Border x:Name="AppearancePreview" Classes="st-preview">
+        <Panel>
+          <Canvas x:Name="AppearancePreviewGlow" IsHitTestVisible="False" Opacity="{Binding PreviewGlowOpacity}">
+            <Ellipse Canvas.Left="190" Canvas.Top="120" Width="260" Height="150" Fill="{DynamicResource Brush.AccentDefault}" Opacity="0.85">
+              <Ellipse.Effect>
+                <BlurEffect Radius="60" />
+              </Ellipse.Effect>
+            </Ellipse>
+            <Ellipse Canvas.Left="380" Canvas.Top="110" Width="220" Height="140">
+              <Ellipse.Fill>
+                <SolidColorBrush Color="{DynamicResource Color.AccentViolet}" Opacity="0.75" />
+              </Ellipse.Fill>
+              <Ellipse.Effect>
+                <BlurEffect Radius="60" />
+              </Ellipse.Effect>
+            </Ellipse>
+            <Ellipse Canvas.Left="300" Canvas.Top="160" Width="200" Height="120">
+              <Ellipse.Fill>
+                <SolidColorBrush Color="{DynamicResource Color.AccentRose}" Opacity="0.5" />
+              </Ellipse.Fill>
+              <Ellipse.Effect>
+                <BlurEffect Radius="60" />
+              </Ellipse.Effect>
+            </Ellipse>
+          </Canvas>
+          <Grid ColumnDefinitions="104,*">
+            <StackPanel Margin="14,18,10,12" Spacing="10">
+              <Border Height="22" CornerRadius="7" Background="{DynamicResource Brush.AccentSubtle}">
+                <Border Classes="st-preview-line" Width="46" Margin="9,0" VerticalAlignment="Center" Opacity="0.3" />
+              </Border>
+              <Border Classes="st-preview-line" Width="58" Margin="9,0,0,0" />
+              <Border Classes="st-preview-line" Width="42" Margin="9,0,0,0" />
+              <Border Classes="st-preview-line" Width="52" Margin="9,0,0,0" />
+              <Border Classes="st-preview-line" Width="36" Margin="9,0,0,0" />
+            </StackPanel>
+            <Border Grid.Column="1" Margin="0,12,12,12" CornerRadius="12"
+                    Background="{DynamicResource Brush.Surface1Glass}"
+                    BorderBrush="{DynamicResource Mg.CardBorder}" BorderThickness="1">
+              <Grid RowDefinitions="*,Auto" Margin="16,14,16,12">
+                <StackPanel Spacing="9">
+                  <Border HorizontalAlignment="Right" CornerRadius="12,12,4,12" Padding="11,6" MaxWidth="280"
+                          Background="{DynamicResource Brush.ChatUserBubble}">
+                    <TextBlock Text="{loc:Str Settings_PreviewUser}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.ChatUserBubbleText}" />
+                  </Border>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Width="18" Height="18" CornerRadius="9" Margin="0,0,9,0" VerticalAlignment="Top"
+                            Background="{DynamicResource Brush.AccentGradient}" />
+                    <StackPanel Spacing="8">
+                      <TextBlock Classes="st-preview-text" Text="{loc:Str Settings_PreviewAssistant}" MaxWidth="340" HorizontalAlignment="Left" />
+                      <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Border CornerRadius="8" Padding="10,4" Background="{DynamicResource Brush.AccentDefault}">
+                          <TextBlock Text="{loc:Str Settings_PreviewAction}" FontSize="11.5" FontWeight="SemiBold"
+                                     Foreground="{DynamicResource Brush.TextOnAccent}" />
+                        </Border>
+                        <ToggleSwitch IsChecked="True" IsHitTestVisible="False" Focusable="False" VerticalAlignment="Center" />
+                      </StackPanel>
+                    </StackPanel>
+                  </DockPanel>
+                </StackPanel>
+                <Border Grid.Row="1" Margin="0,10,0,0" CornerRadius="12" Padding="12,6,6,6"
+                        Background="{DynamicResource Mg.InputBackground}"
+                        BorderBrush="{DynamicResource Mg.CardBorder}" BorderThickness="1">
+                  <DockPanel>
+                    <Border DockPanel.Dock="Right" Width="24" Height="24" CornerRadius="12"
+                            Background="{DynamicResource Brush.AccentGradient}">
+                      <PathIcon Width="10" Height="10" Foreground="{DynamicResource Brush.TextOnAccent}"
+                                Data="M12 4l7 7-1.4 1.4L13 7.8V20h-2V7.8l-4.6 4.6L5 11z" />
+                    </Border>
+                    <TextBlock Text="{loc:Str Settings_PreviewComposer}" FontSize="12" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </DockPanel>
+                </Border>
+              </Grid>
+            </Border>
+          </Grid>
+          <Border Classes="st-preview-label">
+            <TextBlock Text="{loc:Str Settings_PreviewLabel}" />
+          </Border>
+        </Panel>
+      </Border>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Layout}">
-          <sc:StrataSetting Header="{loc:Str Setting_CompactDensity}" Description="{loc:Str SettingDesc_CompactDensity}"
-                            IsModified="{Binding IsCompactDensityModified}">
-            <ToggleSwitch IsChecked="{Binding IsCompactDensity}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Classes="stacked-content"
-                            Header="{loc:Str Setting_FontSize}" Description="{loc:Str SettingDesc_FontSize}"
-                            IsModified="{Binding IsUiScaleModified}">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <Slider x:Name="UiScaleSlider" Minimum="0" Maximum="16"
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_ThemeColor}" Description="{loc:Str SettingsGroupDesc_ThemeColor}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Contrast}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Setting_Theme}" Description="{loc:Str SettingDesc_Theme}"
+                          IsModified="{Binding IsThemeModified}">
+          <ItemsControl x:Name="ThemeChoices">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <ctrl:AdaptiveGridPanel MinItemWidth="130" MaxColumns="3" ColumnSpacing="12" RowSpacing="12" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+
+            <Button x:Name="ThemeLightButton" Classes="st-theme" Classes.selected="{Binding IsLightThemeSelected}"
+                    Command="{Binding SelectThemeCommand}" CommandParameter="light"
+                    AutomationProperties.Name="{loc:Str Theme_Light}">
+              <StackPanel Spacing="8">
+                <Border Classes="st-theme-frame">
+                  <Panel>
+                    <Grid Background="#F3F3F5" ColumnDefinitions="28,*">
+                      <StackPanel Margin="7,10,0,0" Spacing="5">
+                        <Border Height="5" Width="14" CornerRadius="3" Background="#D6D6DC" HorizontalAlignment="Left" />
+                        <Border Height="5" Width="11" CornerRadius="3" Background="#E2E2E7" HorizontalAlignment="Left" />
+                        <Border Height="5" Width="15" CornerRadius="3" Background="#E2E2E7" HorizontalAlignment="Left" />
+                      </StackPanel>
+                      <Border Grid.Column="1" Margin="2,7,7,7" CornerRadius="6" Background="#FFFFFF"
+                              BorderBrush="#E3E3E8" BorderThickness="1">
+                        <StackPanel Margin="9,9" Spacing="6">
+                          <Border Height="7" Width="38" CornerRadius="4" HorizontalAlignment="Right" Background="{DynamicResource Brush.AccentDefault}" Opacity="0.7" />
+                          <Border Height="5" Width="58" CornerRadius="3" HorizontalAlignment="Left" Background="#D6D6DC" />
+                          <Border Height="5" Width="42" CornerRadius="3" HorizontalAlignment="Left" Background="#E2E2E7" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+                    <Border Classes="st-theme-outline" />
+                    <Border Classes="st-check-badge">
+                      <PathIcon Data="{StaticResource St.Icon.Check}" />
+                    </Border>
+                  </Panel>
+                </Border>
+                <TextBlock Classes="st-choice-label" Text="{loc:Str Theme_Light}" />
+              </StackPanel>
+            </Button>
+
+            <Button x:Name="ThemeDarkButton" Classes="st-theme" Classes.selected="{Binding IsDarkThemeSelected}"
+                    Command="{Binding SelectThemeCommand}" CommandParameter="dark"
+                    AutomationProperties.Name="{loc:Str Theme_Dark}">
+              <StackPanel Spacing="8">
+                <Border Classes="st-theme-frame">
+                  <Panel>
+                    <Grid Background="#17171A" ColumnDefinitions="28,*">
+                      <StackPanel Margin="7,10,0,0" Spacing="5">
+                        <Border Height="5" Width="14" CornerRadius="3" Background="#3A3A42" HorizontalAlignment="Left" />
+                        <Border Height="5" Width="11" CornerRadius="3" Background="#2C2C33" HorizontalAlignment="Left" />
+                        <Border Height="5" Width="15" CornerRadius="3" Background="#2C2C33" HorizontalAlignment="Left" />
+                      </StackPanel>
+                      <Border Grid.Column="1" Margin="2,7,7,7" CornerRadius="6" Background="#232328"
+                              BorderBrush="#303037" BorderThickness="1">
+                        <StackPanel Margin="9,9" Spacing="6">
+                          <Border Height="7" Width="38" CornerRadius="4" HorizontalAlignment="Right" Background="{DynamicResource Brush.AccentDefault}" Opacity="0.7" />
+                          <Border Height="5" Width="58" CornerRadius="3" HorizontalAlignment="Left" Background="#3A3A42" />
+                          <Border Height="5" Width="42" CornerRadius="3" HorizontalAlignment="Left" Background="#2E2E35" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+                    <Border Classes="st-theme-outline" />
+                    <Border Classes="st-check-badge">
+                      <PathIcon Data="{StaticResource St.Icon.Check}" />
+                    </Border>
+                  </Panel>
+                </Border>
+                <TextBlock Classes="st-choice-label" Text="{loc:Str Theme_Dark}" />
+              </StackPanel>
+            </Button>
+
+            <Button x:Name="ThemeSystemButton" Classes="st-theme" Classes.selected="{Binding IsSystemThemeSelected}"
+                    Command="{Binding SelectThemeCommand}" CommandParameter="system"
+                    AutomationProperties.Name="{loc:Str Theme_System}">
+              <StackPanel Spacing="8">
+                <Border Classes="st-theme-frame">
+                  <Panel>
+                    <Grid Background="#F3F3F5" ColumnDefinitions="28,*">
+                      <StackPanel Margin="7,10,0,0" Spacing="5">
+                        <Border Height="5" Width="14" CornerRadius="3" Background="#D6D6DC" HorizontalAlignment="Left" />
+                        <Border Height="5" Width="11" CornerRadius="3" Background="#E2E2E7" HorizontalAlignment="Left" />
+                        <Border Height="5" Width="15" CornerRadius="3" Background="#E2E2E7" HorizontalAlignment="Left" />
+                      </StackPanel>
+                      <Border Grid.Column="1" Margin="2,7,7,7" CornerRadius="6" Background="#FFFFFF"
+                              BorderBrush="#E3E3E8" BorderThickness="1">
+                        <StackPanel Margin="9,9" Spacing="6">
+                          <Border Height="7" Width="38" CornerRadius="4" HorizontalAlignment="Right" Background="{DynamicResource Brush.AccentDefault}" Opacity="0.7" />
+                          <Border Height="5" Width="58" CornerRadius="3" HorizontalAlignment="Left" Background="#D6D6DC" />
+                          <Border Height="5" Width="42" CornerRadius="3" HorizontalAlignment="Left" Background="#E2E2E7" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+                    <!-- The dark half, cut on the diagonal. -->
+                    <Grid Background="#17171A" ColumnDefinitions="28,*">
+                      <Grid.OpacityMask>
+                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                          <GradientStop Offset="0.5" Color="#00000000" />
+                          <GradientStop Offset="0.5" Color="#FF000000" />
+                        </LinearGradientBrush>
+                      </Grid.OpacityMask>
+                      <StackPanel Margin="7,10,0,0" Spacing="5">
+                        <Border Height="5" Width="14" CornerRadius="3" Background="#3A3A42" HorizontalAlignment="Left" />
+                        <Border Height="5" Width="11" CornerRadius="3" Background="#2C2C33" HorizontalAlignment="Left" />
+                        <Border Height="5" Width="15" CornerRadius="3" Background="#2C2C33" HorizontalAlignment="Left" />
+                      </StackPanel>
+                      <Border Grid.Column="1" Margin="2,7,7,7" CornerRadius="6" Background="#232328"
+                              BorderBrush="#303037" BorderThickness="1">
+                        <StackPanel Margin="9,9" Spacing="6">
+                          <Border Height="7" Width="38" CornerRadius="4" HorizontalAlignment="Right" Background="{DynamicResource Brush.AccentDefault}" Opacity="0.7" />
+                          <Border Height="5" Width="58" CornerRadius="3" HorizontalAlignment="Left" Background="#3A3A42" />
+                          <Border Height="5" Width="42" CornerRadius="3" HorizontalAlignment="Left" Background="#2E2E35" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+                    <Border Classes="st-theme-outline" />
+                    <Border Classes="st-check-badge">
+                      <PathIcon Data="{StaticResource St.Icon.Check}" />
+                    </Border>
+                  </Panel>
+                </Border>
+                <TextBlock Classes="st-choice-label" Text="{loc:Str Theme_System}" />
+              </StackPanel>
+            </Button>
+          </ItemsControl>
+        </sc:StrataSetting>
+
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Setting_AccentColor}" Description="{loc:Str SettingDesc_AccentColor}"
+                          IsModified="{Binding IsAccentColorModified}">
+          <ItemsControl x:Name="AccentSwatches" ItemsSource="{Binding AccentOptions}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" ItemSpacing="12" LineSpacing="10" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:AccentOption">
+                <Button Classes="st-swatch" Classes.selected="{Binding IsSelected}"
+                        Command="{Binding SelectCommand}"
+                        AutomationProperties.Name="{Binding Name}">
+                  <StackPanel Spacing="5" MinWidth="52">
+                    <Border Classes="st-swatch-ring" HorizontalAlignment="Center">
+                      <Panel>
+                        <Ellipse Classes="st-swatch-dot" Fill="{Binding Swatch}" />
+                        <PathIcon Classes="st-swatch-check" Data="{StaticResource St.Icon.Check}" />
+                      </Panel>
+                    </Border>
+                    <TextBlock Classes="st-swatch-name" Text="{Binding Name}" />
+                  </StackPanel>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Window}" Description="{loc:Str SettingsGroupDesc_Window}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Window}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Setting_WindowMaterial}" Description="{loc:Str SettingDesc_WindowMaterial}"
+                          IsModified="{Binding IsWindowMaterialModified}">
+          <ItemsControl x:Name="WindowMaterialChoices" ItemsSource="{Binding WindowMaterialOptions}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <ctrl:AdaptiveGridPanel MinItemWidth="150" MaxColumns="3" ColumnSpacing="10" RowSpacing="10" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SettingsChoice">
+                <Button Classes="st-option" Classes.selected="{Binding IsSelected}"
+                        Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Label}">
+                  <Border Classes="st-option-frame">
+                    <Panel>
+                      <StackPanel Spacing="2" Margin="0,0,20,0">
+                        <TextBlock Classes="st-option-title" Text="{Binding Label}" />
+                        <TextBlock Classes="st-option-text" Text="{Binding Description}" />
+                      </StackPanel>
+                      <Border Classes="st-check-badge" Margin="0">
+                        <PathIcon Data="{StaticResource St.Icon.Check}" />
+                      </Border>
+                    </Panel>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_TextSpacing}" Description="{loc:Str SettingsGroupDesc_TextSpacing}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Text}">
+        <sc:StrataSetting Classes="stacked-content"
+                          Header="{loc:Str Setting_FontSize}" Description="{loc:Str SettingDesc_FontSize}"
+                          st:SettingsChrome.SearchText="{loc:Str SettingKeywords_FontSize}"
+                          IsModified="{Binding IsUiScaleModified}">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+            <TextBlock Text="A" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextTertiary}" />
+            <Slider x:Name="UiScaleSlider" Grid.Column="1" Minimum="0" Maximum="16"
                     Value="{Binding UiScalePreviewLevelIndex, Mode=TwoWay}"
                     TickFrequency="1" IsSnapToTickEnabled="True" MinWidth="80" />
-            <TextBlock x:Name="UiScaleValueText" Grid.Column="1"
-                       Text="{Binding UiScalePreviewPercent, StringFormat='{}{0}%'}"
-                       VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextSecondary}" MinWidth="40" />
-            </Grid>
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+            <TextBlock Grid.Column="2" Text="A" FontSize="17" VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextTertiary}" />
+            <Border Grid.Column="3" Classes="mg-chip accent" MinWidth="52">
+              <TextBlock x:Name="UiScaleValueText"
+                         Text="{Binding UiScalePreviewPercent, StringFormat='{}{0}%'}"
+                         HorizontalAlignment="Center" />
+            </Border>
+          </Grid>
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_Density}" Description="{loc:Str SettingDesc_Density}"
+                          IsModified="{Binding IsCompactDensityModified}">
+          <Border Classes="mg-segmented">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button x:Name="DensityComfortableButton" Classes="mg-segment" Classes.selected="{Binding IsComfortableDensity}"
+                      Command="{Binding SelectDensityCommand}" CommandParameter="comfortable">
+                <TextBlock Text="{loc:Str Density_Comfortable}" />
+              </Button>
+              <Button x:Name="DensityCompactButton" Classes="mg-segment" Classes.selected="{Binding IsCompactDensity}"
+                      Command="{Binding SelectDensityCommand}" CommandParameter="compact">
+                <TextBlock Text="{loc:Str Density_Compact}" />
+              </Button>
+            </StackPanel>
+          </Border>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Motion}">
-          <sc:StrataSetting Header="{loc:Str Setting_AmbientPresence}" Description="{loc:Str SettingDesc_AmbientPresence}"
-                            IsModified="{Binding IsShowAmbientPresenceModified}">
-            <ToggleSwitch x:Name="AmbientPresenceToggle" IsChecked="{Binding ShowAmbientPresence}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_AnimatePresenceWhileWorking}"
-                            Description="{loc:Str SettingDesc_AnimatePresenceWhileWorking}"
-                            IsModified="{Binding IsAnimatePresenceWhileWorkingModified}">
-            <ToggleSwitch x:Name="PresenceWorkingAnimationToggle"
-                          IsChecked="{Binding AnimatePresenceWhileWorking}"
-                          IsEnabled="{Binding ShowAmbientPresence}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_ShowAnimations}" Description="{loc:Str SettingDesc_ShowAnimations}"
-                            IsModified="{Binding IsShowAnimationsModified}">
-            <ToggleSwitch IsChecked="{Binding ShowAnimations}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-      </StackPanel>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_MotionPresence}" Description="{loc:Str SettingsGroupDesc_MotionPresence}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Motion}">
+        <sc:StrataSetting Header="{loc:Str Setting_AmbientPresence}" Description="{loc:Str SettingDesc_AmbientPresence}"
+                          IsModified="{Binding IsShowAmbientPresenceModified}">
+          <ToggleSwitch x:Name="AmbientPresenceToggle" IsChecked="{Binding ShowAmbientPresence}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_PresenceBrightness}" Description="{loc:Str SettingDesc_PresenceBrightness}"
+                          IsModified="{Binding IsPresenceBrightnessModified}">
+          <Border Classes="mg-segmented" IsEnabled="{Binding ShowAmbientPresence}">
+            <ItemsControl x:Name="PresenceBrightnessChoices" ItemsSource="{Binding PresenceBrightnessOptions}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="2" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:SettingsChoice">
+                  <Button Classes="mg-segment" Classes.selected="{Binding IsSelected}" Command="{Binding SelectCommand}">
+                    <TextBlock Text="{Binding Label}" />
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_AnimatePresenceWhileWorking}"
+                          Description="{loc:Str SettingDesc_AnimatePresenceWhileWorking}"
+                          IsModified="{Binding IsAnimatePresenceWhileWorkingModified}">
+          <ToggleSwitch x:Name="PresenceWorkingAnimationToggle"
+                        IsChecked="{Binding AnimatePresenceWhileWorking}"
+                        IsEnabled="{Binding ShowAmbientPresence}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_ShowAnimations}" Description="{loc:Str SettingDesc_ShowAnimations}"
+                          IsModified="{Binding IsShowAnimationsModified}">
+          <ToggleSwitch IsChecked="{Binding ShowAnimations}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+    </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageChat" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 4: Chat ═══ -->
-      <StackPanel x:Name="PageChat" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_Chat}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_ChatDesc}" FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
+    <StackPanel x:Name="PageChat" Classes="st-page motion-surface" IsVisible="False">
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.Chat}" Foreground="{DynamicResource St.Hue.Chat}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_Chat}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_ChatDesc}" />
         </StackPanel>
+      </Grid>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Input}">
-          <sc:StrataSetting Header="{loc:Str Setting_SendWithEnter}" Description="{loc:Str SettingDesc_SendWithEnter}"
-                            IsModified="{Binding IsSendWithEnterModified}">
-            <ToggleSwitch IsChecked="{Binding SendWithEnter}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Composer}" Description="{loc:Str SettingsGroupDesc_Composer}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Pencil}">
+        <sc:StrataSetting Header="{loc:Str Setting_SendKey}" Description="{loc:Str SettingDesc_SendKey}"
+                          IsModified="{Binding IsSendWithEnterModified}">
+          <Border Classes="mg-segmented">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button x:Name="SendWithEnterButton" Classes="mg-segment" Classes.selected="{Binding SendWithEnter}"
+                      Command="{Binding SelectSendKeyCommand}" CommandParameter="enter">
+                <TextBlock Text="{loc:Str SendKey_Enter}" />
+              </Button>
+              <Button x:Name="SendWithCtrlEnterButton" Classes="mg-segment" Classes.selected="{Binding IsSendWithCtrlEnter}"
+                      Command="{Binding SelectSendKeyCommand}" CommandParameter="ctrl-enter">
+                <TextBlock Text="{loc:Str SendKey_CtrlEnter}" />
+              </Button>
+            </StackPanel>
+          </Border>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Display}">
-          <sc:StrataSetting Header="{loc:Str Setting_ShowTimestamps}" Description="{loc:Str SettingDesc_ShowTimestamps}"
-                            IsModified="{Binding IsShowTimestampsModified}">
-            <ToggleSwitch IsChecked="{Binding ShowTimestamps}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_ShowToolCalls}" Description="{loc:Str SettingDesc_ShowToolCalls}"
-                            IsModified="{Binding IsShowToolCallsModified}">
-            <ToggleSwitch IsChecked="{Binding ShowToolCalls}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_ShowReasoning}" Description="{loc:Str SettingDesc_ShowReasoning}"
-                            IsModified="{Binding IsShowReasoningModified}">
-            <ToggleSwitch IsChecked="{Binding ShowReasoning}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_ExpandReasoningWhileStreaming}" Description="{loc:Str SettingDesc_ExpandReasoningWhileStreaming}"
-                            IsModified="{Binding IsExpandReasoningWhileStreamingModified}">
-            <ToggleSwitch IsChecked="{Binding ExpandReasoningWhileStreaming}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Transcript}" Description="{loc:Str SettingsGroupDesc_Transcript}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Chat}">
+        <sc:StrataSetting Header="{loc:Str Setting_ShowTimestamps}" Description="{loc:Str SettingDesc_ShowTimestamps}"
+                          IsModified="{Binding IsShowTimestampsModified}">
+          <ToggleSwitch IsChecked="{Binding ShowTimestamps}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_ShowToolCalls}" Description="{loc:Str SettingDesc_ShowToolCalls}"
+                          IsModified="{Binding IsShowToolCallsModified}">
+          <ToggleSwitch IsChecked="{Binding ShowToolCalls}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_ShowReasoning}" Description="{loc:Str SettingDesc_ShowReasoning}"
+                          IsModified="{Binding IsShowReasoningModified}">
+          <ToggleSwitch IsChecked="{Binding ShowReasoning}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_ExpandReasoningWhileStreaming}" Description="{loc:Str SettingDesc_ExpandReasoningWhileStreaming}"
+                          IsModified="{Binding IsExpandReasoningWhileStreamingModified}">
+          <ToggleSwitch IsChecked="{Binding ExpandReasoningWhileStreaming}" IsEnabled="{Binding ShowReasoning}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Behavior}">
-          <sc:StrataSetting Header="{loc:Str Setting_AutoGenerateTitles}" Description="{loc:Str SettingDesc_AutoGenerateTitles}"
-                            IsModified="{Binding IsAutoGenerateTitlesModified}">
-            <ToggleSwitch IsChecked="{Binding AutoGenerateTitles}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-      </StackPanel>
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Helpers}" Description="{loc:Str SettingsGroupDesc_Helpers}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Bulb}">
+        <sc:StrataSetting Header="{loc:Str Setting_SuggestFollowUps}" Description="{loc:Str SettingDesc_SuggestFollowUps}"
+                          IsModified="{Binding IsSuggestFollowUpsModified}">
+          <ToggleSwitch x:Name="SuggestFollowUpsToggle" IsChecked="{Binding SuggestFollowUps}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_AutoGenerateTitles}" Description="{loc:Str SettingDesc_AutoGenerateTitles}"
+                          IsModified="{Binding IsAutoGenerateTitlesModified}">
+          <ToggleSwitch IsChecked="{Binding AutoGenerateTitles}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+    </StackPanel>
 
+    </ControlTemplate>
+    <ControlTemplate x:Key="PagePermissions" x:DataType="vm:SettingsViewModel">
+    <!-- ═══ Page 9: Permissions ═══ -->
+    <!-- How much Lumi does on its own. Every choice here is a native GitHub Copilot permission
+         control; Lumi chooses and re-applies them, Copilot enforces them. -->
+    <StackPanel x:Name="PagePermissions" Classes="st-page motion-surface" IsVisible="False">
+      <StackPanel.Styles>
+        <Style Selector="Border.approval-rule">
+          <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+          <Setter Property="BorderThickness" Value="1" />
+          <Setter Property="CornerRadius" Value="12" />
+          <Setter Property="Padding" Value="12,9,6,9" />
+        </Style>
+        <Style Selector="TextBlock.approval-boundary">
+          <Setter Property="FontSize" Value="12.5" />
+          <Setter Property="TextWrapping" Value="Wrap" />
+          <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+        </Style>
+      </StackPanel.Styles>
+
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.Permissions}" Foreground="{DynamicResource St.Hue.Permissions}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_Permissions}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_PermissionsDesc}" />
+        </StackPanel>
+      </Grid>
+
+      <!-- How Lumi acts -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_ModeGroup}" Description="{loc:Str Permissions_ModeGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Permissions}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_DefaultMode}"
+                          Description="{loc:Str Permissions_DefaultModeDesc}"
+                          st:SettingsChrome.SearchText="{loc:Str Permissions_ModeKeywords}"
+                          IsModified="{Binding IsDefaultApprovalModeModified}">
+          <ItemsControl x:Name="DefaultApprovalModeChoices" ItemsSource="{Binding DefaultModeCards}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <ctrl:AdaptiveGridPanel MinItemWidth="170" MaxColumns="3" ColumnSpacing="10" RowSpacing="10" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ApprovalModeCard">
+                <Button Classes="st-option" Classes.selected="{Binding IsSelected}"
+                        Command="{Binding SelectCommand}" AutomationProperties.Name="{Binding Option.Title}">
+                  <Border Classes="st-option-frame">
+                    <Panel>
+                      <StackPanel Spacing="6" Margin="0,0,20,0">
+                        <sc:StrataLineIcon Width="18" Height="18" StrokeThickness="1.8" HorizontalAlignment="Left"
+                                           Data="{Binding Mode, Converter={x:Static conv:ApprovalModeIconConverter.Instance}}"
+                                           Foreground="{DynamicResource St.Hue.Permissions}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <TextBlock Classes="st-option-title" Text="{Binding Option.Title}" />
+                          <Border Classes="mg-chip" Padding="6,1,7,2" IsVisible="{Binding Option.HasBadge}">
+                            <TextBlock Text="{Binding Option.Badge}" FontSize="10.5" />
+                          </Border>
+                        </StackPanel>
+                        <TextBlock Classes="st-option-text" Text="{Binding Option.Detail}" />
+                      </StackPanel>
+                      <Border Classes="st-check-badge" Margin="0">
+                        <PathIcon Data="{StaticResource St.Icon.Check}" />
+                      </Border>
+                    </Panel>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </sc:StrataSetting>
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_ModeWhere}"
+                          Description="{loc:Str Permissions_ModeWhereDesc}">
+          <TextBlock Classes="st-note" Margin="0" Text="{loc:Str Permissions_AutoReviewNote}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- Rules: your standing answers -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_RulesGroup}" Description="{loc:Str Permissions_RulesGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Rules}"
+                             st:SettingsChrome.SearchText="{loc:Str Permissions_RulesKeywords}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_YourRules}"
+                          Description="{loc:Str Permissions_YourRulesDesc}">
+          <StackPanel Spacing="8">
+            <Border Classes="mg-empty-note" IsVisible="{Binding !HasApprovalRules}">
+              <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_NoRules}" />
+            </Border>
+            <ItemsControl x:Name="ApprovalRulesList" ItemsSource="{Binding ApprovalRuleRows}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ApprovalRuleRowViewModel">
+                  <Border Classes="approval-rule">
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
+                      <Border Classes="approval-action" Classes.ask="{Binding IsAsk}" Classes.never="{Binding IsNever}">
+                        <TextBlock Text="{Binding ActionLabel}" />
+                      </Border>
+                      <sc:StrataLineIcon Grid.Column="1" Width="15" Height="15" StrokeThickness="1.7" VerticalAlignment="Center"
+                                         Data="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                                         Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <TextBlock Grid.Column="2" Text="{Binding Description}" FontSize="13" VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.TextPrimary}" />
+                      <TextBlock Grid.Column="3" Text="{Binding ScopeLabel}" FontSize="12" VerticalAlignment="Center"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <Button Grid.Column="4" Classes="mg-icon-button subtle"
+                              Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveApprovalRuleCommand}"
+                              CommandParameter="{Binding}"
+                              AutomationProperties.Name="{loc:Str Permissions_RemoveRule}"
+                              ToolTip.Tip="{loc:Str Permissions_RemoveRule}" ToolTip.Placement="Left">
+                        <sc:StrataLineIcon Width="13" Height="13" StrokeThickness="1.8" Data="{x:Static sc:StrataIcons.Cross}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}" />
+                      </Button>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Button x:Name="AddApprovalRuleButton" Classes="mg-button" HorizontalAlignment="Left"
+                    Command="{Binding StartAddApprovalRuleCommand}" IsVisible="{Binding !IsAddingApprovalRule}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <sc:StrataLineIcon Width="13" Height="13" StrokeThickness="1.9" Data="{x:Static sc:StrataIcons.Plus}"
+                                   VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                <TextBlock Text="{loc:Str Permissions_AddRule}" />
+              </StackPanel>
+            </Button>
+
+            <!-- The builder: what, which, then allow / ask / never, with the sentence it makes. -->
+            <Border x:Name="ApprovalRuleBuilder" Classes="mg-inset" IsVisible="{Binding IsAddingApprovalRule}">
+              <StackPanel Spacing="12">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="10">
+                  <TextBlock Text="{loc:Str Permissions_WhenLumiWants}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <ComboBox x:Name="NewRuleKindPicker" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding RuleKindOptions}" SelectedItem="{Binding NewRuleKind}" />
+                  <TextBlock Grid.Row="1" Text="{Binding NewRuleTargetLabel}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" IsVisible="{Binding NewRuleUsesText}" />
+                  <TextBox x:Name="NewRuleTargetBox" Grid.Row="1" Grid.Column="1" Classes="mg-field mono"
+                           Text="{Binding NewRuleTarget}" PlaceholderText="{Binding NewRuleTargetPlaceholder}"
+                           IsVisible="{Binding NewRuleUsesText}" />
+                  <TextBlock Grid.Row="1" Text="{loc:Str Permissions_TargetAbility}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" IsVisible="{Binding NewRuleUsesGroup}" />
+                  <ComboBox x:Name="NewRuleGroupPicker" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding LumiToolGroupOptions}" SelectedItem="{Binding NewRuleGroup}"
+                            IsVisible="{Binding NewRuleUsesGroup}" />
+                  <TextBlock Grid.Row="1" Text="{loc:Str Permissions_TargetConnector}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" IsVisible="{Binding NewRuleUsesConnector}" />
+                  <ComboBox x:Name="NewRuleConnectorPicker" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding RuleConnectorOptions}" SelectedItem="{Binding NewRuleConnector}"
+                            PlaceholderText="{loc:Str Permissions_NoConnectors}"
+                            IsVisible="{Binding NewRuleUsesConnector}" />
+                  <TextBlock Grid.Row="2" Text="{loc:Str Permissions_Where}" VerticalAlignment="Center" FontSize="13"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <ComboBox x:Name="NewRuleScopePicker" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding RuleScopeOptions}" SelectedItem="{Binding NewRuleScope}" />
+                </Grid>
+                <Border Classes="mg-segmented" HorizontalAlignment="Left">
+                  <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button x:Name="NewRuleAllowButton" Classes="mg-segment" Classes.selected="{Binding IsNewRuleAllow}"
+                            Command="{Binding SelectNewRuleActionCommand}" CommandParameter="allow">
+                      <TextBlock Text="{loc:Str Permissions_ActionAllow}" />
+                    </Button>
+                    <Button x:Name="NewRuleAskButton" Classes="mg-segment" Classes.selected="{Binding IsNewRuleAsk}"
+                            Command="{Binding SelectNewRuleActionCommand}" CommandParameter="ask">
+                      <TextBlock Text="{loc:Str Permissions_ActionAsk}" />
+                    </Button>
+                    <Button x:Name="NewRuleNeverButton" Classes="mg-segment" Classes.selected="{Binding IsNewRuleNever}"
+                            Command="{Binding SelectNewRuleActionCommand}" CommandParameter="never">
+                      <TextBlock Text="{loc:Str Permissions_ActionNever}" />
+                    </Button>
+                  </StackPanel>
+                </Border>
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                  <TextBlock Text="{Binding NewRulePreview}" FontSize="12.5" TextWrapping="Wrap" VerticalAlignment="Center"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <Button Grid.Column="1" Classes="mg-button" Command="{Binding CancelAddApprovalRuleCommand}">
+                    <TextBlock Text="{loc:Str Approval_Cancel}" />
+                  </Button>
+                  <Button x:Name="ConfirmAddApprovalRuleButton" Grid.Column="2" Classes="mg-button accent"
+                          Command="{Binding AddApprovalRuleCommand}">
+                    <TextBlock Text="{loc:Str Permissions_AddRuleConfirm}" />
+                  </Button>
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- Remembered from approval cards -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_RememberedGroup}" Description="{loc:Str Permissions_RememberedGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Remembered}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_Remembered}"
+                          Description="{loc:Str Permissions_RememberedDesc}">
+          <StackPanel Spacing="6">
+            <Border Classes="mg-empty-note" IsVisible="{Binding !HasRememberedApprovals}">
+              <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_NoRemembered}" />
+            </Border>
+            <ItemsControl x:Name="RememberedApprovalsList" ItemsSource="{Binding RememberedApprovalRows}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ApprovalRuleRowViewModel">
+                  <Border Classes="approval-rule">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                      <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.7" VerticalAlignment="Center"
+                                         Data="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
+                                         Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <TextBlock Grid.Column="1" Text="{Binding Description}" FontSize="13" VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.TextPrimary}" />
+                      <TextBlock Grid.Column="2" Text="{Binding ScopeLabel}" FontSize="12" VerticalAlignment="Center"
+                                 MaxWidth="220" TextTrimming="CharacterEllipsis"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                      <Button Grid.Column="3" Classes="mg-text-button"
+                              Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemoveApprovalRuleCommand}"
+                              CommandParameter="{Binding}">
+                        <TextBlock Text="{loc:Str Permissions_Forget}" />
+                      </Button>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- When nobody is there to answer -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_AwayGroup}" Description="{loc:Str Permissions_AwayGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Away}">
+        <sc:StrataSetting Header="{loc:Str Permissions_OnItsOwn}" Description="{loc:Str Permissions_OnItsOwnDesc}"
+                          IsModified="{Binding IsAwayApprovalBehaviorModified}">
+          <Border Classes="mg-segmented">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button x:Name="AwayWaitButton" Classes="mg-segment" Classes.selected="{Binding IsWaitWhenAway}"
+                      Command="{Binding SelectAwayBehaviorCommand}" CommandParameter="wait">
+                <TextBlock Text="{loc:Str Permissions_AwayWait}" />
+              </Button>
+              <Button x:Name="AwaySkipButton" Classes="mg-segment" Classes.selected="{Binding IsSkipWhenAway}"
+                      Command="{Binding SelectAwayBehaviorCommand}" CommandParameter="skip">
+                <TextBlock Text="{loc:Str Permissions_AwaySkip}" />
+              </Button>
+            </StackPanel>
+          </Border>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <!-- Honest boundaries -->
+      <sc:StrataSettingGroup Header="{loc:Str Permissions_CoverGroup}" Description="{loc:Str Permissions_CoverGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.About}"
+                             st:SettingsChrome.SearchText="{loc:Str Permissions_CoverKeywords}">
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_CoverEnforced}">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverEnforcedBody}" />
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverNeverAsks}" />
+          </StackPanel>
+        </sc:StrataSetting>
+        <sc:StrataSetting Classes="stacked-content" Header="{loc:Str Permissions_CoverNot}">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverNotSandbox}" />
+            <TextBlock Classes="approval-boundary" Text="{loc:Str Permissions_CoverNotConnectors}" />
+          </StackPanel>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+    </StackPanel>
+
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageAI" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 5: AI & Models ═══ -->
-      <StackPanel x:Name="PageAI" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_AIModels}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_AIModelsDesc}" FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
+    <StackPanel x:Name="PageAI" Classes="st-page motion-surface" IsVisible="False">
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.AI}" Foreground="{DynamicResource St.Hue.AI}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_AIModels}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_AIModelsDesc}" />
         </StackPanel>
+      </Grid>
 
-        <sc:StrataSettingGroup x:Name="AiAccountsGroup"
-                               Header="{loc:Str EasyConnect_AccountsTitle}"
-                               Description="{loc:Str EasyConnect_AccountsDescription}">
-          <ctrl:EasyConnectView x:Name="SettingsEasyConnect" DataContext="{Binding EasyConnect}" />
-          <TextBlock Text="{Binding GitHubAuthErrorText}"
-                     IsVisible="{Binding GitHubAuthErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                     FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.DangerDefault}"
-                     TextWrapping="Wrap"
-                     Margin="10,4,10,0" />
-        </sc:StrataSettingGroup>
+      <sc:StrataSettingGroup x:Name="AiAccountsGroup" Classes="plain"
+                             Header="{loc:Str EasyConnect_AccountsTitle}"
+                             Description="{loc:Str EasyConnect_AccountsDescription}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Key}">
+        <ctrl:EasyConnectView x:Name="SettingsEasyConnect" DataContext="{Binding EasyConnect}" />
+        <TextBlock Text="{Binding GitHubAuthErrorText}"
+                   IsVisible="{Binding GitHubAuthErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   FontSize="{DynamicResource Font.SizeCaption}"
+                   Foreground="{DynamicResource Brush.DangerDefault}"
+                   TextWrapping="Wrap"
+                   Margin="4,8,4,0" />
+        <!-- What every account shares: whether GitHub Copilot may run at all, and the accounts
+             themselves, edited by hand for what the guided setup does not ask. -->
+        <Border x:Name="AiAccountsOptions" Classes="st-rows" Margin="0,14,0,0">
+          <StackPanel>
+            <sc:StrataSetting x:Name="ByokOnlySetting"
+                              Header="{loc:Str Settings_Byok_UseByokOnly}"
+                              Description="{loc:Str Settings_Byok_UseByokOnlyHint}"
+                              st:SettingsChrome.SearchText="{loc:Str SettingKeywords_UseByokOnly}">
+              <ToggleSwitch IsChecked="{Binding UseBYOKOnly}" />
+            </sc:StrataSetting>
+            <Border Classes="st-row-divider" />
+            <Expander x:Name="AdvancedByokSettings" Classes="st-disclosure"
+                      st:SettingsChrome.SearchText="{loc:Str SettingKeywords_AccountsAdvanced}">
+              <Expander.Header>
+                <StackPanel Classes="st-row-labels">
+                  <TextBlock Classes="st-row-title" Text="{loc:Str EasyConnect_Advanced}" />
+                  <TextBlock Classes="st-row-caption" Text="{loc:Str Settings_AccountsAdvancedDesc}" />
+                </StackPanel>
+              </Expander.Header>
+              <StackPanel Spacing="16">
+                <!-- ── Endpoints ── -->
+                <StackPanel Spacing="8">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{loc:Str SettingsGroup_ByokEndpoints}" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button Padding="8,3" MinHeight="0"
+                            Classes="subtle motion-action"
+                            Command="{Binding AddByokEndpointCommand}">
+                          <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="＋" /><TextBlock Text="{loc:Str Settings_Byok_AddEndpoint}" />
+                          </StackPanel>
+                        </Button>
+                  </StackPanel>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Instructions}">
-          <sc:StrataSetting Header="{loc:Str Setting_GlobalCustomInstructions}"
-                            Description="{loc:Str SettingDesc_GlobalCustomInstructions}"
-                            IsModified="{Binding IsGlobalCustomInstructionsModified}">
-            <TextBox x:Name="GlobalCustomInstructionsTextBox"
-                     Text="{Binding GlobalCustomInstructions, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                     AcceptsReturn="True"
-                     TextWrapping="Wrap"
-                     MinHeight="100"
-                     MaxHeight="280"
-                     Width="220"
-                     VerticalContentAlignment="Top"
-                     PlaceholderText="{loc:Str Watermark_GlobalCustomInstructions}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
+                  <ListBox ItemsSource="{Binding ByokEndpoints}"
+                           IsVisible="{Binding !!ByokEndpoints.Count}"
+                           SelectedItem="{Binding SelectedByokEndpoint, Mode=TwoWay}"
+                           MinHeight="60" MaxHeight="180"
+                           Background="{DynamicResource Brush.Surface2}"
+                           BorderBrush="{DynamicResource Brush.Border1}"
+                           BorderThickness="1" CornerRadius="6">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate DataType="m:ByokEndpoint">
+                        <StackPanel Spacing="2">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding ProviderType}" FontSize="{DynamicResource Font.SizeCaption}"
+                                       Foreground="{DynamicResource Brush.TextTertiary}" />
+                          </StackPanel>
+                          <TextBlock Text="{Binding BaseUrl}" FontSize="{DynamicResource Font.SizeCaption}"
+                                     Foreground="{DynamicResource Brush.TextTertiary}" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock Text="{loc:Str Settings_Byok_EmptyEndpoints}"
+                             IsVisible="{Binding !ByokEndpoints.Count}"
+                             Foreground="{DynamicResource Brush.TextTertiary}"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             TextWrapping="Wrap" />
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Model}">
+                  <!-- Endpoint editor -->
+                  <Border IsVisible="{Binding IsByokEndpointSelected}"
+                          Padding="14" CornerRadius="8" Margin="0,4,0,0"
+                          Background="{DynamicResource Brush.Surface2}"
+                          BorderBrush="{DynamicResource Brush.Border1}"
+                          BorderThickness="1">
+                    <StackPanel Spacing="10">
+                      <DockPanel LastChildFill="False">
+                        <Button DockPanel.Dock="Left" Padding="8,3" MinHeight="0"
+                                Classes="subtle motion-action"
+                                Command="{Binding CloseByokEndpointCommand}"
+                                ToolTip.Tip="{loc:Str Settings_Byok_CloseEndpoint}">
+                          <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="✕" /><TextBlock Text="{loc:Str Settings_Byok_CloseEndpoint}" />
+                          </StackPanel>
+                        </Button>
+                        <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right">
+                          <Button Content="{loc:Str Settings_Byok_DuplicateEndpoint}" Padding="8,3" MinHeight="0"
+                                  Classes="subtle motion-action"
+                                  Command="{Binding DuplicateByokEndpointCommand}" />
+                          <Button Content="{loc:Str Settings_Byok_DeleteEndpoint}" Padding="8,3" MinHeight="0"
+                                  Classes="danger subtle motion-action"
+                                  Command="{Binding DeleteByokEndpointCommand}" />
+                        </StackPanel>
+                      </DockPanel>
+
+                      <StackPanel Spacing="4">
+                        <TextBlock Text="{loc:Str Settings_Byok_EndpointName}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding ByokEditorEndpoint.Name, Mode=TwoWay}"
+                                 PlaceholderText="{loc:Str Settings_Byok_EndpointNamePlaceholder}" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4">
+                        <TextBlock Text="{loc:Str Settings_Byok_ProviderType}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <ComboBox ItemsSource="{Binding ByokProviderTypes}"
+                                  SelectedItem="{Binding ByokEditorEndpoint.ProviderType, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4">
+                        <TextBlock Text="{loc:Str Settings_Byok_BaseUrl}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding ByokEditorEndpoint.BaseUrl, Mode=TwoWay}"
+                                 PlaceholderText="{loc:Str Settings_Byok_BaseUrlPlaceholder}" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4" IsVisible="{Binding IsSelectedByokWireApiVisible}">
+                        <TextBlock Text="{loc:Str Settings_Byok_WireApi}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <ComboBox ItemsSource="{Binding ByokWireApiOptions}"
+                                  SelectedItem="{Binding ByokEditorEndpoint.WireApi, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" />
+                        <TextBlock Text="{loc:Str Settings_Byok_WireApiHint}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextTertiary}" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4" IsVisible="{Binding IsSelectedByokAzure}">
+                        <TextBlock Text="{loc:Str Settings_Byok_AzureApiVersion}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding ByokEditorEndpoint.AzureApiVersion, Mode=TwoWay}"
+                                 PlaceholderText="{loc:Str Settings_Byok_AzureApiVersionPlaceholder}" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4">
+                        <TextBlock Text="{loc:Str Settings_Byok_ApiKeyMode}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <ComboBox Name="ByokApiKeyModePicker"
+                                  ItemsSource="{Binding ByokApiKeyModeOptions}"
+                                  SelectedItem="{Binding SelectedByokEndpointApiKeyModeOption, Mode=OneWay}"
+                                  SelectionChanged="OnByokApiKeyModeSelectionChanged"
+                                  HorizontalAlignment="Stretch" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4" IsVisible="{Binding UsesEnvVarApiKey}">
+                        <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVar}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding ByokEditorEndpoint.ApiKeyEnvVar, Mode=TwoWay}"
+                                 PlaceholderText="{loc:Str Settings_Byok_ApiKeyEnvVarPlaceholder}" />
+                        <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVarHint}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextTertiary}" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4" IsVisible="{Binding UsesStoredApiKey}">
+                        <TextBlock Text="{loc:Str Settings_Byok_ApiKey}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding ByokEditorEndpoint.ApiKey, Mode=TwoWay}"
+                                 PasswordChar="•" RevealPassword="False" />
+                        <Border Background="{DynamicResource Brush.WarningSubtle}" CornerRadius="4" Padding="8,4">
+                          <TextBlock Text="{loc:Str Settings_Byok_ApiKeyInsecureWarning}"
+                                     Foreground="{DynamicResource Brush.Warning}"
+                                     FontSize="{DynamicResource Font.SizeCaption}"
+                                     TextWrapping="Wrap" />
+                        </Border>
+                      </StackPanel>
+
+                      <StackPanel Spacing="4" IsVisible="{Binding UsesCredentialStoreApiKey}">
+                        <TextBlock Text="{loc:Str Settings_Byok_CredentialStoreKey}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding ByokCredentialStoreKeyEntry, Mode=TwoWay}"
+                                 PasswordChar="•" RevealPassword="False"
+                                 PlaceholderText="{loc:Str Settings_Byok_CredentialStoreKeyPlaceholder}" />
+                        <TextBlock Text="{loc:Str Settings_Byok_CredentialStoreKeyHint}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock IsVisible="{Binding HasByokCredentialStoreEntry}"
+                                   Text="{loc:Str Settings_Byok_CredentialStoreKeyPresent}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.Success}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+                          <Button Content="{loc:Str Settings_Byok_CredentialStoreKeySave}"
+                                  Command="{Binding SaveByokCredentialStoreKeyCommand}" />
+                          <Button Content="{loc:Str Settings_Byok_CredentialStoreKeyClear}"
+                                  Command="{Binding ClearByokCredentialStoreKeyCommand}"
+                                  IsVisible="{Binding HasByokCredentialStoreEntry}" />
+                        </StackPanel>
+                      </StackPanel>
+
+                      <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+                        <ToggleSwitch IsChecked="{Binding ByokEditorEndpoint.IsEnabled, Mode=TwoWay}" />
+                        <TextBlock Text="{loc:Str Settings_Byok_IsEnabled}" VerticalAlignment="Center" />
+                      </StackPanel>
+
+                      <Button Content="{loc:Str Settings_Byok_TestEndpoint}" Padding="10,4" MinHeight="0"
+                              Classes="subtle motion-action" HorizontalAlignment="Left"
+                              Command="{Binding TestByokEndpointCommand}" />
+                      <TextBlock Text="{Binding ByokValidationMessage}"
+                                 IsVisible="{Binding IsByokValidationVisible}"
+                                 FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                </StackPanel>
+
+                <!-- ── Models ── -->
+                <StackPanel Spacing="8">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{loc:Str SettingsGroup_ByokModels}" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button Padding="8,3" MinHeight="0"
+                            Classes="subtle motion-action"
+                            Command="{Binding AddByokModelCommand}">
+                          <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="＋" /><TextBlock Text="{loc:Str Settings_Byok_AddModel}" />
+                          </StackPanel>
+                        </Button>
+                  </StackPanel>
+
+                  <ListBox ItemsSource="{Binding ByokModels}"
+                           IsVisible="{Binding !!ByokModels.Count}"
+                           SelectedItem="{Binding SelectedByokModel, Mode=TwoWay}"
+                           MinHeight="60" MaxHeight="180"
+                           Background="{DynamicResource Brush.Surface2}"
+                           BorderBrush="{DynamicResource Brush.Border1}"
+                           BorderThickness="1" CornerRadius="6">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate DataType="m:ByokModel">
+                        <StackPanel Spacing="2">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                          </StackPanel>
+                          <TextBlock Text="{Binding ModelId}" FontSize="{DynamicResource Font.SizeCaption}"
+                                     Foreground="{DynamicResource Brush.TextTertiary}" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock Text="{loc:Str Settings_Byok_EmptyModels}"
+                             IsVisible="{Binding !ByokModels.Count}"
+                             Foreground="{DynamicResource Brush.TextTertiary}"
+                             FontSize="{DynamicResource Font.SizeCaption}" />
+                </StackPanel>
+              </StackPanel>
+            </Expander>
+          </StackPanel>
+        </Border>
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Model}" Description="{loc:Str SettingsGroupDesc_Model}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Chip}">
           <sc:StrataSetting Header="{loc:Str Setting_PreferredModel}" Description="{loc:Str SettingDesc_PreferredModel}"
                             IsModified="{Binding IsDefaultModelSelectionModified}">
             <sc:StrataModelPicker Width="300"
@@ -762,260 +1665,27 @@
                          TextWrapping="Wrap" MaxWidth="300" />
             </StackPanel>
           </sc:StrataSetting>
-          <TextBlock Text="{loc:Str SettingDesc_BackgroundModelAuto}"
-                     FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}"
-                     TextWrapping="Wrap" />
-        </sc:StrataSettingGroup>
+        <TextBlock Classes="st-note" Text="{loc:Str SettingDesc_BackgroundModelAuto}" />
+      </sc:StrataSettingGroup>
 
-        <!-- ═══ BYOK ═══ -->
-        <Expander x:Name="AdvancedByokSettings" Header="{loc:Str EasyConnect_Advanced}">
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Byok}">
-          <StackPanel Spacing="16">
-            <TextBlock Text="{loc:Str Settings_Byok_Description}"
-                       FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}"
-                       TextWrapping="Wrap" />
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Instructions}" Description="{loc:Str SettingsGroupDesc_Instructions}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Document}">
+        <sc:StrataSetting Classes="stacked-content"
+                          Header="{loc:Str Setting_GlobalCustomInstructions}"
+                          Description="{loc:Str SettingDesc_GlobalCustomInstructions}"
+                          IsModified="{Binding IsGlobalCustomInstructionsModified}">
+          <TextBox x:Name="GlobalCustomInstructionsTextBox"
+                   Classes="mg-editor prose"
+                   Text="{Binding GlobalCustomInstructions, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                   MinHeight="110"
+                   MaxHeight="320"
+                   FontSize="13"
+                   PlaceholderText="{loc:Str Watermark_GlobalCustomInstructions}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
-            <!-- ── Privacy guard: route inference to BYOK only ── -->
-            <Border Background="{DynamicResource Brush.SurfaceCard}"
-                    CornerRadius="8"
-                    Padding="12,10">
-              <StackPanel Spacing="4">
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <ToggleSwitch IsChecked="{Binding UseBYOKOnly}" />
-                  <TextBlock Text="{loc:Str Settings_Byok_UseByokOnly}"
-                             FontWeight="SemiBold"
-                             VerticalAlignment="Center" />
-                </StackPanel>
-                <TextBlock Text="{loc:Str Settings_Byok_UseByokOnlyHint}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           TextWrapping="Wrap" />
-              </StackPanel>
-            </Border>
-
-            <!-- ── Endpoints ── -->
-            <StackPanel Spacing="8">
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="{loc:Str SettingsGroup_ByokEndpoints}" FontWeight="SemiBold"
-                           VerticalAlignment="Center" />
-                <Button Padding="8,3" MinHeight="0"
-                        Classes="subtle motion-action"
-                        Command="{Binding AddByokEndpointCommand}">
-                      <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="＋" /><TextBlock Text="{loc:Str Settings_Byok_AddEndpoint}" />
-                      </StackPanel>
-                    </Button>
-              </StackPanel>
-
-              <ListBox ItemsSource="{Binding ByokEndpoints}"
-                       SelectedItem="{Binding SelectedByokEndpoint, Mode=TwoWay}"
-                       MinHeight="60" MaxHeight="180"
-                       Background="{DynamicResource Brush.Surface2}"
-                       BorderBrush="{DynamicResource Brush.Border1}"
-                       BorderThickness="1" CornerRadius="6">
-                <ListBox.ItemTemplate>
-                  <DataTemplate DataType="m:ByokEndpoint">
-                    <StackPanel Spacing="2">
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding ProviderType}" FontSize="{DynamicResource Font.SizeCaption}"
-                                   Foreground="{DynamicResource Brush.TextTertiary}" />
-                      </StackPanel>
-                      <TextBlock Text="{Binding BaseUrl}" FontSize="{DynamicResource Font.SizeCaption}"
-                                 Foreground="{DynamicResource Brush.TextTertiary}" />
-                    </StackPanel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-              <TextBlock Text="{loc:Str Settings_Byok_EmptyEndpoints}"
-                         IsVisible="{Binding !ByokEndpoints.Count}"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         FontSize="{DynamicResource Font.SizeCaption}"
-                         TextWrapping="Wrap" />
-
-              <!-- Endpoint editor -->
-              <Border IsVisible="{Binding IsByokEndpointSelected}"
-                      Padding="14" CornerRadius="8" Margin="0,4,0,0"
-                      Background="{DynamicResource Brush.Surface2}"
-                      BorderBrush="{DynamicResource Brush.Border1}"
-                      BorderThickness="1">
-                <StackPanel Spacing="10">
-                  <DockPanel LastChildFill="False">
-                    <Button DockPanel.Dock="Left" Padding="8,3" MinHeight="0"
-                            Classes="subtle motion-action"
-                            Command="{Binding CloseByokEndpointCommand}"
-                            ToolTip.Tip="{loc:Str Settings_Byok_CloseEndpoint}">
-                      <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="✕" /><TextBlock Text="{loc:Str Settings_Byok_CloseEndpoint}" />
-                      </StackPanel>
-                    </Button>
-                    <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right">
-                      <Button Content="{loc:Str Settings_Byok_DuplicateEndpoint}" Padding="8,3" MinHeight="0"
-                              Classes="subtle motion-action"
-                              Command="{Binding DuplicateByokEndpointCommand}" />
-                      <Button Content="{loc:Str Settings_Byok_DeleteEndpoint}" Padding="8,3" MinHeight="0"
-                              Classes="danger subtle motion-action"
-                              Command="{Binding DeleteByokEndpointCommand}" />
-                    </StackPanel>
-                  </DockPanel>
-
-                  <StackPanel Spacing="4">
-                    <TextBlock Text="{loc:Str Settings_Byok_EndpointName}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding ByokEditorEndpoint.Name, Mode=TwoWay}"
-                             PlaceholderText="{loc:Str Settings_Byok_EndpointNamePlaceholder}" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="4">
-                    <TextBlock Text="{loc:Str Settings_Byok_ProviderType}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <ComboBox ItemsSource="{Binding ByokProviderTypes}"
-                              SelectedItem="{Binding ByokEditorEndpoint.ProviderType, Mode=TwoWay}"
-                              HorizontalAlignment="Stretch" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="4">
-                    <TextBlock Text="{loc:Str Settings_Byok_BaseUrl}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding ByokEditorEndpoint.BaseUrl, Mode=TwoWay}"
-                             PlaceholderText="{loc:Str Settings_Byok_BaseUrlPlaceholder}" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="4" IsVisible="{Binding IsSelectedByokWireApiVisible}">
-                    <TextBlock Text="{loc:Str Settings_Byok_WireApi}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <ComboBox ItemsSource="{Binding ByokWireApiOptions}"
-                              SelectedItem="{Binding ByokEditorEndpoint.WireApi, Mode=TwoWay}"
-                              HorizontalAlignment="Stretch" />
-                    <TextBlock Text="{loc:Str Settings_Byok_WireApiHint}"
-                               FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextTertiary}" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="4" IsVisible="{Binding IsSelectedByokAzure}">
-                    <TextBlock Text="{loc:Str Settings_Byok_AzureApiVersion}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding ByokEditorEndpoint.AzureApiVersion, Mode=TwoWay}"
-                             PlaceholderText="{loc:Str Settings_Byok_AzureApiVersionPlaceholder}" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="4">
-                    <TextBlock Text="{loc:Str Settings_Byok_ApiKeyMode}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <ComboBox Name="ByokApiKeyModePicker"
-                              ItemsSource="{Binding ByokApiKeyModeOptions}"
-                              SelectedItem="{Binding SelectedByokEndpointApiKeyModeOption, Mode=OneWay}"
-                              SelectionChanged="OnByokApiKeyModeSelectionChanged"
-                              HorizontalAlignment="Stretch" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="4" IsVisible="{Binding UsesEnvVarApiKey}">
-                    <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVar}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding ByokEditorEndpoint.ApiKeyEnvVar, Mode=TwoWay}"
-                             PlaceholderText="{loc:Str Settings_Byok_ApiKeyEnvVarPlaceholder}" />
-                    <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVarHint}"
-                               FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextTertiary}" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="4" IsVisible="{Binding UsesStoredApiKey}">
-                    <TextBlock Text="{loc:Str Settings_Byok_ApiKey}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding ByokEditorEndpoint.ApiKey, Mode=TwoWay}"
-                             PasswordChar="•" RevealPassword="False" />
-                    <Border Background="{DynamicResource Brush.WarningSubtle}" CornerRadius="4" Padding="8,4">
-                      <TextBlock Text="{loc:Str Settings_Byok_ApiKeyInsecureWarning}"
-                                 Foreground="{DynamicResource Brush.Warning}"
-                                 FontSize="{DynamicResource Font.SizeCaption}"
-                                 TextWrapping="Wrap" />
-                    </Border>
-                  </StackPanel>
-
-                  <StackPanel Spacing="4" IsVisible="{Binding UsesCredentialStoreApiKey}">
-                    <TextBlock Text="{loc:Str Settings_Byok_CredentialStoreKey}" FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBox Text="{Binding ByokCredentialStoreKeyEntry, Mode=TwoWay}"
-                             PasswordChar="•" RevealPassword="False"
-                             PlaceholderText="{loc:Str Settings_Byok_CredentialStoreKeyPlaceholder}" />
-                    <TextBlock Text="{loc:Str Settings_Byok_CredentialStoreKeyHint}"
-                               FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextTertiary}"
-                               TextWrapping="Wrap" />
-                    <TextBlock IsVisible="{Binding HasByokCredentialStoreEntry}"
-                               Text="{loc:Str Settings_Byok_CredentialStoreKeyPresent}"
-                               FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.Success}" />
-                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
-                      <Button Content="{loc:Str Settings_Byok_CredentialStoreKeySave}"
-                              Command="{Binding SaveByokCredentialStoreKeyCommand}" />
-                      <Button Content="{loc:Str Settings_Byok_CredentialStoreKeyClear}"
-                              Command="{Binding ClearByokCredentialStoreKeyCommand}"
-                              IsVisible="{Binding HasByokCredentialStoreEntry}" />
-                    </StackPanel>
-                  </StackPanel>
-
-                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
-                    <ToggleSwitch IsChecked="{Binding ByokEditorEndpoint.IsEnabled, Mode=TwoWay}" />
-                    <TextBlock Text="{loc:Str Settings_Byok_IsEnabled}" VerticalAlignment="Center" />
-                  </StackPanel>
-
-                  <Button Content="{loc:Str Settings_Byok_TestEndpoint}" Padding="10,4" MinHeight="0"
-                          Classes="subtle motion-action" HorizontalAlignment="Left"
-                          Command="{Binding TestByokEndpointCommand}" />
-                  <TextBlock Text="{Binding ByokValidationMessage}"
-                             IsVisible="{Binding IsByokValidationVisible}"
-                             FontSize="{DynamicResource Font.SizeCaption}"
-                             Foreground="{DynamicResource Brush.TextSecondary}"
-                             TextWrapping="Wrap" />
-                </StackPanel>
-              </Border>
-            </StackPanel>
-
-            <!-- ── Models ── -->
-            <StackPanel Spacing="8">
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="{loc:Str SettingsGroup_ByokModels}" FontWeight="SemiBold"
-                           VerticalAlignment="Center" />
-                <Button Padding="8,3" MinHeight="0"
-                        Classes="subtle motion-action"
-                        Command="{Binding AddByokModelCommand}">
-                      <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="＋" /><TextBlock Text="{loc:Str Settings_Byok_AddModel}" />
-                      </StackPanel>
-                    </Button>
-              </StackPanel>
-
-              <ListBox ItemsSource="{Binding ByokModels}"
-                       SelectedItem="{Binding SelectedByokModel, Mode=TwoWay}"
-                       MinHeight="60" MaxHeight="180"
-                       Background="{DynamicResource Brush.Surface2}"
-                       BorderBrush="{DynamicResource Brush.Border1}"
-                       BorderThickness="1" CornerRadius="6">
-                <ListBox.ItemTemplate>
-                  <DataTemplate DataType="m:ByokModel">
-                    <StackPanel Spacing="2">
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
-                      </StackPanel>
-                      <TextBlock Text="{Binding ModelId}" FontSize="{DynamicResource Font.SizeCaption}"
-                                 Foreground="{DynamicResource Brush.TextTertiary}" />
-                    </StackPanel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-              <TextBlock Text="{loc:Str Settings_Byok_EmptyModels}"
-                         IsVisible="{Binding !ByokModels.Count}"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         FontSize="{DynamicResource Font.SizeCaption}" />
-            </StackPanel>
-          </StackPanel>
-        </sc:StrataSettingGroup>
-        </Expander>
-
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_McpServers}">
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_McpServers}" Description="{loc:Str SettingsGroupDesc_McpServers}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Plug}">
           <sc:StrataSetting Header="{loc:Str Setting_UseMcpProxy}" Description="{loc:Str SettingDesc_UseMcpProxy}"
                             IsModified="{Binding IsUseMcpProxyModified}">
             <ToggleSwitch x:Name="McpProxyToggle" IsChecked="{Binding UseMcpProxy}" />
@@ -1053,313 +1723,379 @@
                            Increment="1" FormatString="0" ParsingNumberStyle="Integer"
                            Width="140" />
           </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-      </StackPanel>
-
-    <!-- ═══ Page 6: Privacy & Data ═══ -->
-      <StackPanel x:Name="PagePrivacy" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_PrivacyData}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_PrivacyDataDesc}" FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
-        </StackPanel>
-
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Memory}">
-          <sc:StrataSetting Header="{loc:Str Setting_AutoSaveMemories}" Description="{loc:Str SettingDesc_AutoSaveMemories}"
-                            IsModified="{Binding IsEnableMemoryAutoSaveModified}">
-            <ToggleSwitch IsChecked="{Binding EnableMemoryAutoSave}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_AutoMaintainMemories}" Description="{loc:Str SettingDesc_AutoMaintainMemories}"
-                            IsModified="{Binding IsEnableMemoryAutoMaintenanceModified}">
-            <ToggleSwitch IsChecked="{Binding EnableMemoryAutoMaintenance}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_CleanUpMemories}" Description="{Binding MemoryCleanupStatus}">
-            <Button Classes="subtle motion-action" Content="{loc:Str Button_CleanUpMemories}" Padding="14,6" MinHeight="0"
-                    Command="{Binding CleanUpMemoriesNowCommand}"
-                    IsEnabled="{Binding !IsMemoryCleanupRunning}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_ChatHistory}">
-          <sc:StrataSetting Header="{loc:Str Setting_AutoSaveChats}" Description="{loc:Str SettingDesc_AutoSaveChats}"
-                            IsModified="{Binding IsAutoSaveChatsModified}">
-            <ToggleSwitch IsChecked="{Binding AutoSaveChats}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-
-        <sc:StrataSettingGroup Header="Browser" IsVisible="{Binding IsEmbeddedBrowserAvailable}">
-          <sc:StrataSetting Header="Import browser cookies"
-                            Description="{Binding BrowserCookieStatus}">
-            <Button Classes="subtle motion-action" Content="Import cookies" Padding="14,6" MinHeight="0"
-                    Command="{Binding ImportBrowserCookiesAgainCommand}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="Reset embedded browser cookies"
-                            Description="Clear all Lumi browser cookies and start fresh.">
-            <Button Classes="subtle motion-action" Content="Reset cookies" Padding="14,6" MinHeight="0"
-                    Foreground="{DynamicResource Brush.DangerDefault}"
-                    Command="{Binding ResetBrowserCookiesCommand}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_DataManagement}">
-          <sc:StrataSetting Header="{loc:Str Setting_ClearAllChats}" Description="{loc:Str SettingDesc_ClearAllChats}">
-            <Button Classes="subtle motion-action" Content="{loc:Str Button_ClearChats}" Padding="14,6" MinHeight="0"
-                    Foreground="{DynamicResource Brush.DangerDefault}"
-                    Command="{Binding ClearAllChatsCommand}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_ClearAllMemories}" Description="{loc:Str SettingDesc_ClearAllMemories}">
-            <Button Classes="subtle motion-action" Content="{loc:Str Button_ClearMemories}" Padding="14,6" MinHeight="0"
-                    Foreground="{DynamicResource Brush.DangerDefault}"
-                    Command="{Binding ClearAllMemoriesCommand}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_ResetAllSettings}" Description="{loc:Str SettingDesc_ResetAllSettings}">
-            <Button Classes="subtle motion-action" Content="{loc:Str Button_ResetDefaults}" Padding="14,6" MinHeight="0"
-                    Command="{Binding ResetSettingsCommand}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-      </StackPanel>
-
-    <!-- ═══ Page 7: About ═══ -->
-      <StackPanel x:Name="PageAbout" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_About}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_AboutDesc}" FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
-        </StackPanel>
-
-        <Border Background="{DynamicResource Brush.AccentSubtle}"
-                BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                BorderThickness="1"
-                CornerRadius="{DynamicResource Radius.Overlay}"
-                Padding="18">
-          <StackPanel Spacing="14">
-            <Border HorizontalAlignment="Left"
-                    Background="{DynamicResource Brush.SurfaceCard}"
-                    BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                    BorderThickness="1"
-                    CornerRadius="999"
-                    Padding="8,2">
-              <TextBlock Text="{Binding UpdateStatusBadgeText}"
-                         FontSize="10"
-                         FontWeight="SemiBold"
-                         Foreground="{DynamicResource Brush.AccentDefault}" />
-            </Border>
-
-            <StackPanel Spacing="4">
-              <TextBlock Text="{Binding UpdateHeroTitle}"
-                         FontSize="{DynamicResource Font.SizeBody}"
-                         FontWeight="SemiBold"
-                         Foreground="{DynamicResource Brush.TextPrimary}" />
-              <TextBlock Text="{Binding UpdateHeroDescription}"
-                         TextWrapping="Wrap"
-                         FontSize="{DynamicResource Font.SizeCaption}"
-                         Foreground="{DynamicResource Brush.TextSecondary}" />
-            </StackPanel>
-
-            <Grid ColumnDefinitions="*,*"
-                  RowDefinitions="Auto,Auto"
-                  ColumnSpacing="16"
-                  RowSpacing="10">
-              <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
-                <TextBlock Text="{loc:Str Update_CurrentVersion}"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextTertiary}" />
-                <TextBlock Text="{Binding AppVersion, StringFormat='v{0}'}"
-                           FontSize="{DynamicResource Font.SizeBody}"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextPrimary}" />
-              </StackPanel>
-
-              <StackPanel Grid.Row="0" Grid.Column="1"
-                          Spacing="2"
-                          IsVisible="{Binding HasAvailableUpdateVersion}">
-                <TextBlock Text="{loc:Str Update_AvailableVersion}"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextTertiary}" />
-                <TextBlock Text="{Binding AvailableUpdateVersion, StringFormat='v{0}'}"
-                           FontSize="{DynamicResource Font.SizeBody}"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextPrimary}" />
-              </StackPanel>
-
-              <StackPanel Grid.Row="1" Grid.Column="0"
-                          Spacing="2"
-                          IsVisible="{Binding UpdateLastCheckedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                <TextBlock Text="{loc:Str Update_LastChecked}"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextTertiary}" />
-                <TextBlock Text="{Binding UpdateLastCheckedText}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           Foreground="{DynamicResource Brush.TextPrimary}" />
-              </StackPanel>
-
-              <StackPanel Grid.Row="1" Grid.Column="1"
-                          Spacing="2"
-                          IsVisible="{Binding UpdatePublishedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                <TextBlock Text="{loc:Str Update_Published}"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextTertiary}" />
-                <TextBlock Text="{Binding UpdatePublishedText}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           Foreground="{DynamicResource Brush.TextPrimary}" />
-              </StackPanel>
-            </Grid>
-
-            <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button Content="{loc:Str Update_CheckNow}"
-                      Classes="subtle"
-                      Padding="14,6"
-                      MinHeight="0"
-                      Command="{Binding CheckForUpdateCommand}"
-                      IsVisible="{Binding IsCheckButtonVisible}"
-                      IsEnabled="{Binding !IsCheckingForUpdate}" />
-              <Button Content="{loc:Str Update_Download}"
-                      Classes="accent"
-                      Padding="14,6"
-                      MinHeight="0"
-                      Command="{Binding DownloadUpdateCommand}"
-                      IsVisible="{Binding IsUpdateAvailable}" />
-              <Button Content="{loc:Str Update_Restart}"
-                      Classes="accent"
-                      Padding="14,6"
-                      MinHeight="0"
-                      Command="{Binding ApplyUpdateAndRestartCommand}"
-                      IsVisible="{Binding IsUpdateReadyToRestart}" />
-              <Button Content="{Binding OpenReleasePageButtonText}"
-                      Classes="subtle"
-                      Padding="14,6"
-                      MinHeight="0"
-                      Command="{Binding OpenReleasePageCommand}" />
-            </StackPanel>
-
-            <ProgressBar IsIndeterminate="True"
-                         IsVisible="{Binding IsCheckingForUpdate}" />
-
-            <ProgressBar Minimum="0"
-                         Maximum="100"
-                         Value="{Binding UpdateDownloadProgress}"
-                         IsVisible="{Binding IsUpdateDownloading}" />
-
-            <TextBlock Text="{Binding UpdateStatusText}"
-                       IsVisible="{Binding UpdateStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                       TextWrapping="Wrap"
-                       FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextSecondary}" />
-          </StackPanel>
-        </Border>
-
-        <Border IsVisible="{Binding IsUpdateReleaseNotesVisible}"
-                Background="{DynamicResource Brush.SurfaceSubtle}"
-                BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                BorderThickness="1"
-                CornerRadius="{DynamicResource Radius.Overlay}"
-                Padding="18">
-          <StackPanel Spacing="12">
-            <DockPanel LastChildFill="False">
-              <Button DockPanel.Dock="Right"
-                      Classes="subtle motion-action"
-                      Content="{Binding OpenReleasePageButtonText}"
-                      Padding="12,6"
-                      MinHeight="0"
-                      Command="{Binding OpenReleasePageCommand}" />
-              <StackPanel Spacing="2">
-                <TextBlock Text="{Binding UpdateReleaseNotesHeading}"
-                           FontSize="{DynamicResource Font.SizeBody}"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextPrimary}" />
-                <TextBlock Text="{Binding UpdateReleaseTitle}"
-                           IsVisible="{Binding UpdateReleaseTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           Foreground="{DynamicResource Brush.TextTertiary}" />
-              </StackPanel>
-            </DockPanel>
-
-            <sc:StrataMarkdown Markdown="{Binding UpdateReleaseNotesDisplayMarkdown}" />
-          </StackPanel>
-        </Border>
-
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_App}">
-          <sc:StrataSetting Header="{loc:Str Setting_DotNetRuntime}">
-            <TextBlock Text="{Binding DotNetVersion}" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}" TextTrimming="CharacterEllipsis" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_OperatingSystem}">
-            <TextBlock Text="{Binding OsVersion}" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}" TextTrimming="CharacterEllipsis" />
-          </sc:StrataSetting>
-          <sc:StrataSetting x:Name="DebugTransparencySetting"
-                            Header="Window Transparency (Debug)"
-                            IsVisible="False">
-            <TextBlock x:Name="DebugTransparencyValue"
-                       FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}"
-                       Text="Unavailable" />
-          </sc:StrataSetting>
-          <sc:StrataSetting x:Name="DebugFpsOverlaySetting"
-                            Header="FPS Overlay (Debug)"
-                            Description="Show Avalonia's debug FPS counter overlay."
-                            IsVisible="False">
-            <ToggleSwitch x:Name="DebugFpsOverlayToggle" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Statistics}">
-          <sc:StrataSetting Header="{loc:Str Setting_TotalChats}">
-            <TextBlock Text="{Binding TotalChats}" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_TotalMemories}">
-            <TextBlock Text="{Binding TotalMemories}" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_StatsSkills}">
-            <TextBlock Text="{Binding TotalSkills}" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_StatsAgents}">
-            <TextBlock Text="{Binding TotalAgents}" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}" />
-          </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_StatsProjects}">
-            <TextBlock Text="{Binding TotalProjects}" FontSize="{DynamicResource Font.SizeCaption}"
-                       Foreground="{DynamicResource Brush.TextTertiary}" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Credits}">
-          <sc:StrataSetting Header="{loc:Str Setting_BuiltWith}"
-                            Description="{loc:Str SettingDesc_BuiltWith}">
-            <TextBlock Text="❤️" FontSize="16" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
-      </StackPanel>
-
+      </sc:StrataSettingGroup>
     </StackPanel>
+
+    </ControlTemplate>
+    <ControlTemplate x:Key="PagePrivacy" x:DataType="vm:SettingsViewModel">
+    <!-- ═══ Page 6: Privacy & Data ═══ -->
+    <StackPanel x:Name="PagePrivacy" Classes="st-page motion-surface" IsVisible="False">
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.Privacy}" Foreground="{DynamicResource St.Hue.Privacy}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_PrivacyData}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_PrivacyDataDesc}" />
+        </StackPanel>
+      </Grid>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Memory}" Description="{loc:Str SettingsGroupDesc_Memory}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Memories}">
+        <sc:StrataSetting Header="{loc:Str Setting_AutoSaveMemories}" Description="{loc:Str SettingDesc_AutoSaveMemories}"
+                          IsModified="{Binding IsEnableMemoryAutoSaveModified}">
+          <ToggleSwitch IsChecked="{Binding EnableMemoryAutoSave}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_AutoMaintainMemories}" Description="{loc:Str SettingDesc_AutoMaintainMemories}"
+                          IsModified="{Binding IsEnableMemoryAutoMaintenanceModified}">
+          <ToggleSwitch IsChecked="{Binding EnableMemoryAutoMaintenance}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_CleanUpMemories}" Description="{Binding MemoryCleanupStatus}">
+          <Button Classes="mg-button motion-action" Content="{loc:Str Button_CleanUpMemories}"
+                  Command="{Binding CleanUpMemoriesNowCommand}"
+                  IsEnabled="{Binding !IsMemoryCleanupRunning}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_ChatHistory}" Description="{loc:Str SettingsGroupDesc_ChatHistory}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.History}">
+        <sc:StrataSetting Header="{loc:Str Setting_AutoSaveChats}" Description="{loc:Str SettingDesc_AutoSaveChats}"
+                          IsModified="{Binding IsAutoSaveChatsModified}">
+          <ToggleSwitch IsChecked="{Binding AutoSaveChats}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Browser}" Description="{loc:Str SettingsGroupDesc_Browser}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Globe}"
+                             IsVisible="{Binding IsEmbeddedBrowserAvailable}">
+        <sc:StrataSetting Header="{loc:Str Setting_ImportCookies}" Description="{Binding BrowserCookieStatus}">
+          <Button Classes="mg-button motion-action" Content="{loc:Str Button_ImportCookies}"
+                  Command="{Binding ImportBrowserCookiesAgainCommand}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_ResetCookies}" Description="{loc:Str SettingDesc_ResetCookies}">
+          <Button Classes="mg-button st-danger-button motion-action"
+                  Command="{Binding ResetBrowserCookiesCommand}">
+            <TextBlock Text="{loc:Str Button_ResetCookies}" />
+          </Button>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup x:Name="DangerZoneGroup" Classes="danger"
+                             Header="{loc:Str SettingsGroup_DangerZone}" Description="{loc:Str SettingsGroupDesc_DangerZone}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Warning}">
+        <sc:StrataSetting Header="{loc:Str Setting_ClearAllChats}" Description="{loc:Str SettingDesc_ClearAllChats}">
+          <Button x:Name="ClearAllChatsButton" Classes="mg-button st-danger-button motion-action"
+                  Command="{Binding RequestDangerActionCommand}" CommandParameter="chats">
+            <TextBlock Text="{loc:Str Button_ClearChats}" />
+          </Button>
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_ClearAllMemories}" Description="{loc:Str SettingDesc_ClearAllMemories}">
+          <Button x:Name="ClearAllMemoriesButton" Classes="mg-button st-danger-button motion-action"
+                  Command="{Binding RequestDangerActionCommand}" CommandParameter="memories">
+            <TextBlock Text="{loc:Str Button_ClearMemories}" />
+          </Button>
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_ResetAllSettings}" Description="{loc:Str SettingDesc_ResetAllSettings}">
+          <Button x:Name="ResetAllSettingsButton" Classes="mg-button motion-action"
+                  Command="{Binding RequestDangerActionCommand}" CommandParameter="settings"
+                  Content="{loc:Str Button_ResetDefaults}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+    </StackPanel>
+
+    </ControlTemplate>
+    <ControlTemplate x:Key="PageAbout" x:DataType="vm:SettingsViewModel">
+    <!-- ═══ Page 7: About ═══ -->
+    <StackPanel x:Name="PageAbout" Classes="st-page motion-surface" IsVisible="False">
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.About}" Foreground="{DynamicResource St.Hue.About}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_About}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_AboutDesc}" />
+        </StackPanel>
+      </Grid>
+
+      <!-- Update center -->
+      <Border x:Name="UpdateCenter" Classes="st-hero"
+              st:SettingsChrome.SearchText="{loc:Str Settings_UpdatesSearchText}">
+        <Panel>
+          <Border Classes="st-hero-glow" />
+          <Grid ColumnDefinitions="Auto,*" Margin="22,20,22,20">
+            <Border Width="64" Height="64" CornerRadius="18" VerticalAlignment="Top" Margin="0,0,18,0"
+                    Background="{DynamicResource Mg.TileBackground}"
+                    BorderBrush="{DynamicResource Mg.TileBorder}" BorderThickness="1">
+              <Panel>
+                <Ellipse Width="30" Height="30" Fill="{DynamicResource Brush.AccentGradient}" Opacity="0.55">
+                  <Ellipse.Effect>
+                    <BlurEffect Radius="12" />
+                  </Ellipse.Effect>
+                </Ellipse>
+                <Ellipse Width="22" Height="22" Fill="{DynamicResource Brush.AccentGradient}" />
+                <Ellipse Width="8" Height="8" Fill="White" Opacity="0.85" Margin="-6,-6,0,0" />
+              </Panel>
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="14">
+              <StackPanel Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <TextBlock Classes="st-hero-title" Text="{loc:Str App_Name}" VerticalAlignment="Center" />
+                  <Border Classes="mg-chip">
+                    <TextBlock Classes="mg-mono" Text="{Binding AppVersion, StringFormat='v{0}'}" />
+                  </Border>
+                  <Border Classes="mg-chip accent">
+                    <TextBlock Text="{Binding UpdateStatusBadgeText}" />
+                  </Border>
+                </StackPanel>
+                <TextBlock Classes="st-hero-text" Text="{loc:Str Settings_AboutTagline}" />
+              </StackPanel>
+
+              <Border Height="1" Background="{DynamicResource Mg.Divider}" />
+
+              <StackPanel Spacing="4">
+                <TextBlock Text="{Binding UpdateHeroTitle}"
+                           FontSize="14" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.TextPrimary}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding UpdateHeroDescription}"
+                           Classes="mg-section-caption" FontSize="12.5" />
+              </StackPanel>
+
+              <WrapPanel Orientation="Horizontal" ItemSpacing="18" LineSpacing="8"
+                         IsVisible="{Binding HasAvailableUpdateVersion}">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-eyebrow" Text="{loc:Str Update_AvailableVersion}" />
+                  <TextBlock Text="{Binding AvailableUpdateVersion, StringFormat='v{0}'}" FontSize="13" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel Spacing="1" IsVisible="{Binding UpdatePublishedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                  <TextBlock Classes="mg-eyebrow" Text="{loc:Str Update_Published}" />
+                  <TextBlock Text="{Binding UpdatePublishedText}" FontSize="12.5" Foreground="{DynamicResource Brush.TextSecondary}" />
+                </StackPanel>
+              </WrapPanel>
+
+              <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                <Button Classes="mg-button accent motion-action"
+                        Command="{Binding DownloadUpdateCommand}"
+                        IsVisible="{Binding IsUpdateAvailable}">
+                  <TextBlock Text="{loc:Str Update_Download}" />
+                </Button>
+                <Button Classes="mg-button accent motion-action"
+                        Command="{Binding ApplyUpdateAndRestartCommand}"
+                        IsVisible="{Binding IsUpdateReadyToRestart}">
+                  <TextBlock Text="{loc:Str Update_Restart}" />
+                </Button>
+                <Button Classes="mg-button motion-action"
+                        Command="{Binding CheckForUpdateCommand}"
+                        IsVisible="{Binding IsCheckButtonVisible}"
+                        IsEnabled="{Binding !IsCheckingForUpdate}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource St.Icon.Refresh}" />
+                    <TextBlock Text="{loc:Str Update_CheckNow}" />
+                  </StackPanel>
+                </Button>
+                <Button Classes="mg-button motion-action"
+                        Command="{Binding OpenReleasePageCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource St.Icon.External}" />
+                    <TextBlock Text="{Binding OpenReleasePageButtonText}" />
+                  </StackPanel>
+                </Button>
+              </WrapPanel>
+
+              <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsCheckingForUpdate}" />
+              <ProgressBar Minimum="0" Maximum="100"
+                           Value="{Binding UpdateDownloadProgress}"
+                           IsVisible="{Binding IsUpdateDownloading}" />
+
+              <StackPanel Spacing="2">
+                <TextBlock Text="{Binding UpdateStatusText}"
+                           IsVisible="{Binding UpdateStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                           Classes="mg-section-caption" />
+                <TextBlock IsVisible="{Binding UpdateLastCheckedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                           Classes="mg-section-caption">
+                  <Run Text="{loc:Str Update_LastChecked}" />
+                  <Run Text=" · " />
+                  <Run Text="{Binding UpdateLastCheckedText}" />
+                </TextBlock>
+              </StackPanel>
+            </StackPanel>
+          </Grid>
+        </Panel>
+      </Border>
+
+      <Border x:Name="ReleaseNotesCard" Classes="st-card" IsVisible="{Binding IsUpdateReleaseNotesVisible}"
+              st:SettingsChrome.SearchText="{loc:Str Settings_UpdatesSearchText}">
+        <StackPanel Spacing="12">
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="mg-text-button motion-action" VerticalAlignment="Top"
+                    Command="{Binding OpenReleasePageCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <TextBlock Text="{Binding OpenReleasePageButtonText}" />
+                <PathIcon Data="{StaticResource St.Icon.External}" />
+              </StackPanel>
+            </Button>
+            <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+              <PathIcon Data="{StaticResource St.Icon.Document}" />
+            </Border>
+            <StackPanel Spacing="1" VerticalAlignment="Center">
+              <TextBlock Classes="mg-section-title" Text="{Binding UpdateReleaseNotesHeading}" />
+              <TextBlock Classes="mg-section-caption" Text="{Binding UpdateReleaseTitle}"
+                         IsVisible="{Binding UpdateReleaseTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+          </DockPanel>
+          <Border Classes="mg-inset">
+            <sc:StrataMarkdown Markdown="{Binding UpdateReleaseNotesDisplayMarkdown}" />
+          </Border>
+        </StackPanel>
+      </Border>
+
+      <Border x:Name="AboutStats" Classes="st-card" st:SettingsChrome.SearchText="{loc:Str SettingsGroup_Statistics}">
+        <StackPanel Spacing="14">
+          <DockPanel>
+            <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+              <PathIcon Data="{StaticResource St.Icon.Chart}" />
+            </Border>
+            <TextBlock Classes="mg-section-title" Text="{loc:Str SettingsGroup_Statistics}" VerticalAlignment="Center" />
+          </DockPanel>
+          <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="12">
+            <Border Classes="mg-stat">
+              <StackPanel Spacing="1">
+                <TextBlock Classes="mg-stat-value" Text="{Binding TotalChats}" />
+                <TextBlock Classes="mg-stat-label" Text="{loc:Str Settings_StatChats}" />
+              </StackPanel>
+            </Border>
+            <Border Classes="mg-stat">
+              <StackPanel Spacing="1">
+                <TextBlock Classes="mg-stat-value" Text="{Binding TotalMemories}" />
+                <TextBlock Classes="mg-stat-label" Text="{loc:Str Settings_StatMemories}" />
+              </StackPanel>
+            </Border>
+            <Border Classes="mg-stat">
+              <StackPanel Spacing="1">
+                <TextBlock Classes="mg-stat-value" Text="{Binding TotalSkills}" />
+                <TextBlock Classes="mg-stat-label" Text="{loc:Str Setting_StatsSkills}" />
+              </StackPanel>
+            </Border>
+            <Border Classes="mg-stat">
+              <StackPanel Spacing="1">
+                <TextBlock Classes="mg-stat-value" Text="{Binding TotalAgents}" />
+                <TextBlock Classes="mg-stat-label" Text="{loc:Str Setting_StatsAgents}" />
+              </StackPanel>
+            </Border>
+            <Border Classes="mg-stat">
+              <StackPanel Spacing="1">
+                <TextBlock Classes="mg-stat-value" Text="{Binding TotalProjects}" />
+                <TextBlock Classes="mg-stat-label" Text="{loc:Str Setting_StatsProjects}" />
+              </StackPanel>
+            </Border>
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_System}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Monitor}">
+        <sc:StrataSetting Header="{loc:Str Setting_DotNetRuntime}">
+          <TextBlock Classes="mg-meta mg-mono" Text="{Binding DotNetVersion}" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_OperatingSystem}">
+          <TextBlock Classes="mg-meta mg-mono" Text="{Binding OsVersion}" MaxWidth="360" />
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="DebugTransparencySetting"
+                          Header="Window Transparency (Debug)"
+                          IsVisible="False">
+          <TextBlock x:Name="DebugTransparencyValue" Classes="mg-meta mg-mono" Text="Unavailable" />
+        </sc:StrataSetting>
+        <sc:StrataSetting x:Name="DebugFpsOverlaySetting"
+                          Header="FPS Overlay (Debug)"
+                          Description="Show Avalonia's debug FPS counter overlay."
+                          IsVisible="False">
+          <ToggleSwitch x:Name="DebugFpsOverlayToggle" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Credits}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Heart}">
+        <sc:StrataSetting Header="{loc:Str Setting_BuiltWith}"
+                          Description="{loc:Str SettingDesc_BuiltWith}" />
+      </sc:StrataSettingGroup>
+    </StackPanel>
+    </ControlTemplate>
+    </ResourceDictionary>
+    </StackPanel.Resources>
+
+    <DockPanel x:Name="SearchResultsHeader" Classes="motion-surface" IsVisible="False"
+               Margin="32,28,32,0">
+      <Button x:Name="ClearSearchButton" DockPanel.Dock="Right" Classes="mg-text-button motion-action"
+              VerticalAlignment="Center" Margin="16,0,0,0">
+        <StackPanel Orientation="Horizontal" Spacing="5">
+          <PathIcon Data="{StaticResource St.Icon.Close}" />
+          <TextBlock Text="{loc:Str Common_Clear}" />
+        </StackPanel>
+      </Button>
+      <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+        <Border Classes="mg-tile sm">
+          <PathIcon Classes="mg-glyph" Data="{StaticResource St.Icon.Search}" Foreground="{DynamicResource Brush.AccentDefault}" />
+        </Border>
+        <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
+          <TextBlock x:Name="SearchCountText" FontSize="15" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.AccentDefault}" />
+          <TextBlock x:Name="SearchQueryText" FontSize="15"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+        </StackPanel>
+      </StackPanel>
+    </DockPanel>
+    <StackPanel x:Name="SettingsPagesHost" />
+    </StackPanel>
+    </Grid>
     </ScrollViewer>
 
-    <!-- No results indicator -->
+    <!-- No results -->
     <StackPanel x:Name="NoResultsPanel" Classes="motion-surface" IsVisible="False"
                 VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
-      <PathIcon Width="40" Height="40" Foreground="{DynamicResource Brush.TextTertiary}"
-                HorizontalAlignment="Center">
-        <PathIcon.Data>
-          <StreamGeometry>M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
-        </PathIcon.Data>
-      </PathIcon>
-      <StackPanel Spacing="4" HorizontalAlignment="Center">
-        <TextBlock x:Name="NoResultsQueryText" FontSize="{DynamicResource Font.SizeBody}"
-                   Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" />
-        <TextBlock Text="{loc:Str Settings_TryDifferentSearch}" FontSize="{DynamicResource Font.SizeCaption}"
-                   Foreground="{DynamicResource Brush.TextTertiary}" HorizontalAlignment="Center" />
-      </StackPanel>
-      <Button x:Name="NoResultsClearButton" Classes="subtle motion-action" Content="{loc:Str Settings_ClearSearch}"
-              Padding="12,6" MinHeight="0" HorizontalAlignment="Center"
-              Foreground="{DynamicResource Brush.AccentDefault}" />
+      <Border Classes="mg-empty-hero">
+        <PathIcon Data="{StaticResource St.Icon.Search}" Foreground="{DynamicResource Brush.TextTertiary}" />
+      </Border>
+      <TextBlock x:Name="NoResultsQueryText" Classes="mg-empty-title" Margin="0,6,0,0" />
+      <TextBlock Classes="mg-empty-text" Text="{loc:Str Settings_TryDifferentSearch}" />
+      <Button x:Name="NoResultsClearButton" Classes="mg-button motion-action" HorizontalAlignment="Center" Margin="0,6,0,0"
+              Content="{loc:Str Settings_ClearSearch}" />
     </StackPanel>
+
+    <!-- Some changes wait for a restart. -->
+    <Border x:Name="RestartBanner" Classes="mg-floatbar">
+      <Border.IsVisible>
+        <MultiBinding Converter="{x:Static BoolConverters.And}">
+          <Binding Path="NeedsRestart" />
+          <Binding Path="!IsConfirmingDanger" />
+        </MultiBinding>
+      </Border.IsVisible>
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+        <DockPanel VerticalAlignment="Center">
+          <PathIcon DockPanel.Dock="Left" Data="{StaticResource St.Icon.Refresh}" Width="13" Height="13"
+                    Foreground="{DynamicResource Brush.WarningDefault}" Margin="0,0,9,0" />
+          <TextBlock Classes="mg-floatbar-text" Text="{loc:Str Settings_RestartBanner}" TextWrapping="Wrap" MaxWidth="420" />
+        </DockPanel>
+        <Button Grid.Column="1" Classes="accent mg-button motion-action" Content="{loc:Str Settings_Restart}"
+                Command="{Binding RestartAppCommand}" />
+      </Grid>
+    </Border>
+
+    <!-- Destructive actions ask once. -->
+    <Border x:Name="DangerConfirmBar" Classes="mg-floatbar danger" IsVisible="{Binding IsConfirmingDanger}">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+        <DockPanel VerticalAlignment="Center">
+          <PathIcon DockPanel.Dock="Left" Data="{StaticResource St.Icon.Warning}" Width="13" Height="13"
+                    Foreground="{DynamicResource Brush.DangerDefault}" Margin="0,0,9,0" />
+          <TextBlock x:Name="DangerConfirmText" Classes="mg-floatbar-text" Text="{Binding DangerConfirmText}"
+                     TextWrapping="Wrap" MaxWidth="440" />
+        </DockPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+          <Button x:Name="DangerCancelButton" Classes="subtle mg-button" Content="{loc:Str Common_Cancel}"
+                  Command="{Binding CancelDangerActionCommand}" />
+          <Button x:Name="DangerConfirmButton" Classes="danger mg-button" Content="{Binding DangerConfirmActionText}"
+                  Command="{Binding ConfirmDangerActionCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
 
     <!-- BYOK model editor dialog -->
     <sc:StrataDialog x:Name="ByokModelEditorDialog"
@@ -1575,7 +2311,7 @@
 
           <!-- Progress (hidden until import starts) -->
           <StackPanel x:Name="CookieImportProgress" IsVisible="False" Spacing="8">
-            <ProgressBar IsIndeterminate="True" />
+            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsCookieImportInProgress}" />
             <TextBlock x:Name="CookieImportStatusText" Classes="caption"
                        Foreground="{DynamicResource Brush.TextSecondary}"
                        HorizontalAlignment="Center" Text="Preparing…" />

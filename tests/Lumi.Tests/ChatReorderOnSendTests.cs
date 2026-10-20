@@ -329,6 +329,7 @@ public class ChatReorderOnSendTests
             Assert.Same(group, Assert.Single(vm.ChatGroups));
             Assert.Equal(chats.Where(chat => chat.ProjectId == project.Id), group.Chats);
             Assert.All(group.Chats, chat => Assert.False(chat.ShowProjectBadge));
+            Assert.All(group.Chats, chat => Assert.Null(chat.ProjectBadgeColor));
             Assert.DoesNotContain(NotifyCollectionChangedAction.Reset, changes);
 
             vm.ClearProjectFilterCommand.Execute(null);
@@ -338,6 +339,12 @@ public class ChatReorderOnSendTests
             Assert.True(vm.HasMoreChats);
             Assert.All(group.Chats.Where(chat => chat.ProjectId == project.Id),
                 chat => Assert.Equal("Work", chat.ProjectBadgeText));
+            // The folder wears the project's own hue, the one its chat header and launchpad tile use.
+            var hue = LaunchpadProjectBadge.HueFor(project.Id).ToString();
+            Assert.All(group.Chats.Where(chat => chat.ProjectId == project.Id),
+                chat => Assert.Equal(hue, chat.ProjectBadgeColor));
+            Assert.All(group.Chats.Where(chat => chat.ProjectId is null),
+                chat => Assert.Null(chat.ProjectBadgeColor));
             Assert.DoesNotContain(NotifyCollectionChangedAction.Reset, changes);
         }, CancellationToken.None);
     }
@@ -527,7 +534,7 @@ public class ChatReorderOnSendTests
                 Assert.Equal("Work", window.FindControl<TextBlock>("ProjectSwitchTitleText")!.Text);
                 Assert.Equal(0, changes);
                 Assert.Equal(rows, results.Children);
-                Assert.DoesNotContain("open", window.FindControl<Button>("ProjectSwitchButton")!.Classes);
+                Assert.DoesNotContain("open", window.FindControl<Panel>("ProjectSwitcherRoot")!.Classes);
             }
             finally
             {

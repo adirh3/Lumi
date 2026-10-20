@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -571,6 +572,64 @@ public sealed class DesktopPreviewUiTests
                 {
                     firstWindow.Close();
                     secondWindow.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(session.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task HeaderLightsTheDesktopAndTheWorkspaceButtonSwitchesBackToTheOverview()
+    {
+        var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                Loc.Load("en");
+                var store = CreateStore();
+                using var vm = new ChatViewModel(store, TestCopilot.Shared) { CurrentChat = new Chat() };
+                vm.PublishDesktopPreview(CreateUpdate(vm.CurrentChat.Id));
+                var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                vm.DesktopPreviewRefreshAsync = () =>
+                {
+                    captured.TrySetResult();
+                    return Task.CompletedTask;
+                };
+                using var workspace = new ChatWorkspaceView { DataContext = vm, DataStore = store };
+                var window = new Window { Content = workspace, Width = 1100, Height = 760 };
+                window.Show();
+                try
+                {
+                    var desktopButton = workspace.ChatView!.FindControl<Button>("DesktopPreviewButton")!;
+                    var workspaceButton = workspace.ChatView.FindControl<Button>("WorkspaceToggleButton")!;
+
+                    vm.RequestShowDesktop();
+                    await captured.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.True(IsDesktopShown(workspace));
+                    Assert.Contains("open", desktopButton.Classes);
+                    Assert.DoesNotContain("open", workspaceButton.Classes);
+
+                    // The unlit Workspace button switches to the overview instead of closing the Desktop.
+                    new ButtonAutomationPeer(workspaceButton).Invoke();
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.True(workspace.IsWorkspaceOpen);
+                    Assert.Equal(WorkspacePage.Overview, workspace.WorkspacePage);
+                    Assert.DoesNotContain("open", desktopButton.Classes);
+                    Assert.Contains("open", workspaceButton.Classes);
+
+                    new ButtonAutomationPeer(workspaceButton).Invoke();
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.False(workspace.IsWorkspaceOpen);
+                    Assert.DoesNotContain("open", workspaceButton.Classes);
+                }
+                finally
+                {
+                    window.Close();
                 }
             }, CancellationToken.None);
         }

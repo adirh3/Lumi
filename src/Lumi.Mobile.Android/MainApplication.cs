@@ -27,9 +27,11 @@ public class MainApplication : AvaloniaAndroidApplication<App>
     {
         // Before anything else: a crash during Avalonia startup is exactly the one we cannot see.
         RemotePlatformServices.RouteVerifier = new AndroidRemoteRouteVerifier(this);
+        MobilePlatformServices.NetworkMonitor = new AndroidNetworkMonitor(this);
         MobilePlatformServices.ProducedFileOpener = new AndroidProducedFileOpener(this);
         MobilePlatformServices.TextShare = new AndroidTextShareService(this);
         MobilePlatformServices.DeviceNameOverride = ResolveDeviceName();
+        System.Diagnostics.Trace.Listeners.Add(new LogcatTraceListener());
         CrashReporter.Install();
     }
 

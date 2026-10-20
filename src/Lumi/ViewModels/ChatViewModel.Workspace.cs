@@ -304,16 +304,22 @@ public partial class ChatViewModel
     // ── Panel state (mirrored from the view) ──
 
     /// <summary>Effective visibility of the panel, pushed from the view so the toggle reflects it.</summary>
-    [ObservableProperty] private bool _isWorkspacePanelOpen;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHeaderWorkspaceActive))]
+    [NotifyPropertyChangedFor(nameof(IsHeaderDesktopActive))]
+    private bool _isWorkspacePanelOpen;
 
     /// <summary>
-    /// The page the panel last showed, pushed from the view for ambient layers (the presence glow).
-    /// The header itself reads the view's own <see cref="WorkspaceHeader"/>, since two windows can
-    /// show this chat on different pages.
+    /// The page the panel last showed, pushed from the view for ambient layers (the presence glow) and
+    /// for the chat header, which lights the tool for this page. The panel's own header reads the
+    /// view's <see cref="WorkspaceHeader"/>, since two windows can show this chat on different pages.
     /// </summary>
-    [ObservableProperty] private WorkspacePage _workspacePage = WorkspacePage.Overview;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHeaderWorkspaceActive))]
+    [NotifyPropertyChangedFor(nameof(IsHeaderDesktopActive))]
+    private WorkspacePage _workspacePage = WorkspacePage.Overview;
 
-    /// <summary>The header toggle stands in for the old agents button, so it names live agents too.</summary>
+    /// <summary>The header toggle names live agents too, so its tooltip says what the Workspace is busy with.</summary>
     public string WorkspaceToggleToolTip => HasRunningSubagents
         ? $"{Loc.Workspace_Title} · {SubagentRunsSummary}"
         : Loc.Workspace_Title;
@@ -470,7 +476,8 @@ public partial class ChatViewModel
     /// <summary>Skills attached to a message or loaded mid-turn, newest first, one row per skill.</summary>
     private List<SkillChipItem> CollectSkills()
         => LatestFirst(
-            TranscriptTurns.SelectMany(static turn => turn.Items).SelectMany(static item => item switch
+            // A skill loaded mid-turn folds away with the turn's work, so the work is searched too.
+            TranscriptTurns.SelectMany(static turn => turn.EnumerateItems()).SelectMany(static item => item switch
             {
                 UserMessageItem user => user.SkillChips,
                 SkillLoadedItem loaded => [loaded.Chip],

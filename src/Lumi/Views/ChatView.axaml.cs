@@ -15,10 +15,12 @@ using Avalonia.Animation.Easings;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Logging;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
@@ -28,6 +30,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views.Controls;
 using StrataTheme.Animation;
 using StrataTheme.Controls;
 
@@ -90,6 +93,9 @@ public partial class ChatView : UserControl
     private int _currentHitIndex = -1;
     private SelectableTextBlock? _highlightedStb;
     private System.Threading.CancellationTokenSource? _searchDebounce;
+
+    /// <summary>Space kept above and below a search hit brought into view.</summary>
+    private const double SearchHitContext = 40;
 
     // ── Reply jump state ──
     private SelectableTextBlock? _replyHighlightedTextBlock;
@@ -174,17 +180,27 @@ public partial class ChatView : UserControl
             _subscribedVm.StatusText = InteractiveLabels.ForLanguage(Loc.Culture.Name)["sourceUnavailable"];
             return;
         }
-        var sourceTurn = _subscribedVm.TranscriptTurns.FirstOrDefault(turn => turn.Items.Any(child =>
+        var sourceTurn = _subscribedVm.TranscriptTurns.FirstOrDefault(turn => turn.EnumerateItems().Any(child =>
             child is AssistantMessageItem assistant && assistant.MessageId == sourceId));
         if (sourceTurn is null) return;
+        var sourceItem = sourceTurn.EnumerateItems().First(child =>
+            child is AssistantMessageItem assistant && assistant.MessageId == sourceId);
+        var revealed = sourceTurn.RevealFoldedItem(sourceItem);
         var realized = await EnsureTurnRealizedAsync(sourceTurn);
+        if (revealed && realized is not null)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            await RealizeFoldedItemAsync(realized, sourceItem);
+        }
         var target = realized?.GetVisualDescendants().OfType<StrataInteractiveBlock>()
             .FirstOrDefault(control => control.Definition?.Id == item.Receipt.BlockId);
         if (target is null || _transcriptScrollViewer is null) return;
+        await RevealWithinFoldAsync(target);
         if (target.TranslatePoint(default, _transcriptScrollViewer) is { } position)
         {
             _chatShell?.PreserveViewport();
-            _chatShell?.ScrollToVerticalOffset(Math.Max(0, _chatShell.VerticalOffset + position.Y - 48));
+            _chatShell?.ScrollToVerticalOffset(
+                Math.Max(0, _chatShell.VerticalOffset + position.Y - _chatShell.TopChromeInset - 48));
         }
         target.Focus();
     }
@@ -195,6 +211,7 @@ public partial class ChatView : UserControl
 
         _chatShell = this.FindControl<StrataChatShell>("ChatShell");
         ApplyShellChrome();
+        InitializeHeader();
         _composer = this.FindControl<StrataChatComposer>("Composer");
         _backgroundActivityButton = this.FindControl<Button>("BackgroundActivityButton");
         if (_backgroundActivityButton?.Flyout is { } activityFlyout)
@@ -215,6 +232,26 @@ public partial class ChatView : UserControl
                 if (e.Property == IsVisibleProperty && codingStrip.IsVisible
                     && _subscribedVm?.AreAnimationsEnabled != false)
                     SlideFadeEntrance.Play(codingStrip, offsetY: 6);
+            };
+        }
+
+        // Follow-up chips rise in one after another when a reply's suggestions arrive. The motion runs on
+        // the render thread, so it still plays while opening a chat keeps the UI thread busy. Suggestions
+        // are applied one at a time, so it starts once the set is complete, still before the next frame.
+        var suggestionRow = this.FindControl<Panel>("SuggestionChipsRow");
+        if (suggestionRow is not null)
+        {
+            suggestionRow.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == IsVisibleProperty && suggestionRow.IsVisible
+                    && _subscribedVm?.AreAnimationsEnabled != false)
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (suggestionRow.IsVisible)
+                            PlayFollowUpEntrance(suggestionRow);
+                    }, DispatcherPriority.Normal);
+                }
             };
         }
 
@@ -242,7 +279,6 @@ public partial class ChatView : UserControl
         AddHandler(StrataFileAttachment.OpenRequestedEvent, OnFileAttachmentOpenRequested);
         AddHandler(StrataFileAttachment.PreviewRequestedEvent, OnFileAttachmentPreviewRequested);
         AddHandler(StrataChatMessage.CopyRequestedEvent, OnCopyMessageRequested);
-        AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
         AddHandler(StrataChatMessage.ReplyRequestedEvent, OnReplyRequested);
         AddHandler(StrataChatMessage.ShareRequestedEvent, OnSharePromptRequested);
@@ -263,6 +299,19 @@ public partial class ChatView : UserControl
                 if (e.Property == IsVisibleProperty && replyCard.IsVisible
                     && _subscribedVm?.AreAnimationsEnabled != false)
                     SlideFadeEntrance.Play(replyCard, offsetY: 6);
+            };
+        }
+
+        // So does the paused bar, when a chat pauses or a paused chat opens. It moves on the render thread,
+        // as opening a chat keeps the UI thread busy.
+        var pauseBar = this.FindControl<Border>("ChatPauseStatusPanel");
+        if (pauseBar is not null)
+        {
+            pauseBar.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == IsVisibleProperty && pauseBar.IsVisible
+                    && _subscribedVm?.AreAnimationsEnabled != false)
+                    SlideFadeEntrance.PlayComposited(pauseBar, offsetY: 6);
             };
         }
 
@@ -291,6 +340,18 @@ public partial class ChatView : UserControl
     private void ApplyShellChrome()
     {
         _chatShell?.Classes.Set("flat-window", !UseShellChrome);
+    }
+
+    private static void PlayFollowUpEntrance(Panel row)
+    {
+        var delay = TimeSpan.Zero;
+        foreach (var chip in row.Children)
+        {
+            if (!chip.IsVisible)
+                continue;
+            SlideFadeEntrance.PlayComposited(chip, offsetY: 8, TimeSpan.FromMilliseconds(280), delay);
+            delay += TimeSpan.FromMilliseconds(60);
+        }
     }
 
     private void ApplyAgentAutomationLandmarks()
@@ -341,6 +402,7 @@ public partial class ChatView : UserControl
             vm.FocusComposerAtEndRequested += FocusComposerAtEnd;
             vm.WorkspaceJumpToTurnRequested += OnWorkspaceJumpToTurnRequested;
             vm.ReplySourceJumpRequested += OnReplySourceJumpRequested;
+            vm.SubagentRunShowRequested += OnSubagentRunShowRequested;
             SubscribeToMountedTurns(vm.MountedTranscriptTurns);
             Dispatcher.UIThread.Post(EnsureTranscriptScrollViewer, DispatcherPriority.Loaded);
             QueueInitialTranscriptTailSyncIfNeeded(vm);
@@ -382,6 +444,9 @@ public partial class ChatView : UserControl
             await vm.RefreshBackgroundActivityAsync();
     }
 
+    /// <summary>An agent's run opening in the Workspace takes over from the transient activity list.</summary>
+    private void OnSubagentRunShowRequested() => _backgroundActivityButton?.Flyout?.Hide();
+
     private void UnsubscribeFromViewModel()
     {
         DeactivateLaunchpad();
@@ -398,6 +463,7 @@ public partial class ChatView : UserControl
         _subscribedVm.FocusComposerAtEndRequested -= FocusComposerAtEnd;
         _subscribedVm.WorkspaceJumpToTurnRequested -= OnWorkspaceJumpToTurnRequested;
         _subscribedVm.ReplySourceJumpRequested -= OnReplySourceJumpRequested;
+        _subscribedVm.SubagentRunShowRequested -= OnSubagentRunShowRequested;
         // Clear the realizing gate so a view detach mid-open can't leave the overlay stuck up on the VM:
         // a suspended OpenTranscriptAtLatestAsync won't reach its gate-clearing finally once _subscribedVm
         // is null / the sync version has been bumped below.
@@ -1494,7 +1560,7 @@ public partial class ChatView : UserControl
         if (target is null || point is null)
             return;
 
-        var offset = Math.Max(0, _chatShell.VerticalOffset + point.Value.Y - 64);
+        var offset = Math.Max(0, _chatShell.VerticalOffset + point.Value.Y - _chatShell.TopChromeInset - 64);
         _chatShell.PreserveViewport();
         _chatShell.ScrollToVerticalOffset(offset);
     }
@@ -1809,16 +1875,27 @@ public partial class ChatView : UserControl
     // ── Copy to clipboard (ViewModel raises event, View handles clipboard API) ──
 
     private async void OnCopyToClipboardRequested(string text)
-        => await SetClipboardTextAsync(text);
-
-    private async Task SetClipboardTextAsync(string text, ClipboardCopyPayload? payload = null)
     {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard is null) return;
         try
         {
-            var data = new Avalonia.Input.DataTransfer();
-            data.Add(Avalonia.Input.DataTransferItem.CreateText(text));
+            await SetClipboardTextAsync(text);
+        }
+        catch (Exception error)
+        {
+            Logger.TryGet(LogEventLevel.Error, "Clipboard")?.Log(
+                this, "Could not copy text: {Error}", error.Message);
+        }
+    }
+
+    private Task SetClipboardTextAsync(string text, ClipboardCopyPayload? payload = null) =>
+        SetClipboardDataAsync(ChatClipboardData.CreateText(text), payload);
+
+    private async Task SetClipboardDataAsync(DataTransfer data, ClipboardCopyPayload? payload = null)
+    {
+        using (data)
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard
+                ?? throw new InvalidOperationException("The system clipboard is unavailable.");
             if (payload is not null && HasCopyContext(payload))
             {
                 data.Add(Avalonia.Input.DataTransferItem.Create(
@@ -1843,57 +1920,46 @@ public partial class ChatView : UserControl
             }
             await clipboard.SetDataAsync(data);
         }
-        catch { /* ignore */ }
     }
 
     private static bool HasCopyContext(ClipboardCopyPayload payload)
         => payload.AttachmentPaths.Count > 0 || payload.SkillNames.Count > 0 || payload.Sources.Count > 0;
 
-    private async Task SetClipboardFormattedAsync(string markdown, StrataCopyFormat format)
-    {
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard is null)
-            return;
-
-        try
+    private Task SetClipboardFormattedAsync(
+        string markdown, StrataCopyFormat format, ClipboardCopyPayload? payload = null, Control? renderedContent = null)
+        => SetClipboardDataAsync(format switch
         {
-            await clipboard.SetDataAsync(format == StrataCopyFormat.RichText
-                ? ChatClipboardData.CreateRichText(markdown)
-                : ChatClipboardData.CreateMarkdown(markdown));
-        }
-        catch { /* ignore */ }
-    }
+            StrataCopyFormat.RichText => ChatClipboardData.CreateRichText(markdown, renderedContent),
+            StrataCopyFormat.Markdown => ChatClipboardData.CreateMarkdown(markdown),
+            _ => ChatClipboardData.CreateText(MarkdownClipboardFormatter.ToPlainText(markdown))
+        }, payload);
 
-    private async void OnCopyMessageRequested(object? sender, StrataCopyRequestedEventArgs e)
+    private void OnCopyMessageRequested(object? sender, StrataCopyRequestedEventArgs e)
     {
         if (e.Source is not StrataChatMessage message)
             return;
 
         e.Handled = true;
 
-        if (e.Format != StrataCopyFormat.Text)
-        {
-            // Strata copied the rendered bubble, which for a reply includes its quote block.
-            if (message.DataContext is UserMessageItem { HasReply: true } reply)
-                await SetClipboardFormattedAsync(reply.Content, e.Format);
+        if (e.IsSelection)
             return;
-        }
-
-        if (e.IsSelection && !string.IsNullOrEmpty(e.Text))
-        {
-            await SetClipboardTextAsync(e.Text);
-            return;
-        }
 
         var payload = BuildMessageCopyPayload(message.DataContext, message.Content);
         if (payload is null)
             return;
 
-        var text = FormatClipboardText(payload);
+        var renderedMarkdown = message.GetVisualDescendants().OfType<StrataMarkdown>()
+            .FirstOrDefault(markdown => string.Equals(markdown.Markdown?.Trim(), payload.Text, StringComparison.Ordinal));
+        var portable = payload with
+        {
+            Text = renderedMarkdown?.GetCopyMarkdown() ?? MarkdownClipboardFormatter.ToPortableMarkdown(
+                payload.Text, (message.DataContext as AssistantMessageItem)?.InteractionStates)
+        };
+        var text = FormatClipboardText(portable);
         if (string.IsNullOrWhiteSpace(text))
             return;
 
-        await SetClipboardTextAsync(text, payload);
+        e.ClipboardWriteTask = SetClipboardFormattedAsync(text, e.Format, portable, message);
     }
 
     // ── Fork from here (context menu on any transcript message) ───
@@ -1976,7 +2042,7 @@ public partial class ChatView : UserControl
         AssistantMessageItem? sourceItem = null;
         foreach (var turn in _subscribedVm.TranscriptTurns)
         {
-            sourceItem = turn.Items
+            sourceItem = turn.EnumerateItems()
                 .OfType<AssistantMessageItem>()
                 .FirstOrDefault(item => item.MessageId == reply.MessageId);
             if (sourceItem is not null)
@@ -1989,20 +2055,27 @@ public partial class ChatView : UserControl
         if (sourceTurn is null || sourceItem is null)
             return;
 
+        // A reply to a progress update lands inside the folded work, so open it first.
+        var revealed = sourceTurn.RevealFoldedItem(sourceItem);
         var turnControl = await EnsureTurnRealizedAsync(sourceTurn);
-        var message = turnControl?
-            .GetVisualDescendants()
-            .OfType<Control>()
-            .FirstOrDefault(control => ReferenceEquals(TranscriptTurnControl.GetHostedItem(control), sourceItem))
-            is { } itemView
-                ? itemView as StrataChatMessage ?? itemView.GetVisualDescendants().OfType<StrataChatMessage>().FirstOrDefault()
-                : null;
+        if (revealed && turnControl is not null)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            await RealizeFoldedItemAsync(turnControl, sourceItem);
+        }
+        var message = turnControl is not null && FindTranscriptItemView(turnControl, sourceItem) is { } itemView
+            ? itemView as StrataChatMessage ?? itemView.GetVisualDescendants().OfType<StrataChatMessage>().FirstOrDefault()
+            : null;
         if (message is null || _transcriptScrollViewer is null)
             return;
 
         Control target = message;
         if (reply.IsSelection && SelectReplyQuote(message, reply.Quote) is { } quotedText)
             target = quotedText;
+
+        await RevealWithinFoldAsync(target);
+        if (_transcriptScrollViewer is null || _chatShell is null)
+            return;
 
         // Land the quote in the upper part of the viewport, like jumping to a search hit.
         if (target.TranslatePoint(default, _transcriptScrollViewer) is { } position)
@@ -2099,35 +2172,6 @@ public partial class ChatView : UserControl
         _replyFlashTimer.Start();
     }
 
-    // ── Copy turn (context menu on assistant messages) ───
-
-    private async void OnCopyTurnRequested(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        e.Handled = true;
-
-        // Walk up from the event source to find the parent TranscriptTurnControl
-        TranscriptTurnControl? turn = null;
-        if (e.Source is Avalonia.Visual visual)
-        {
-            var current = visual.GetVisualParent();
-            while (current is not null)
-            {
-                if (current is TranscriptTurnControl ttc) { turn = ttc; break; }
-                current = (current as Avalonia.Visual)?.GetVisualParent();
-            }
-        }
-
-        if (turn is null) return;
-
-        var payload = BuildTurnCopyPayload(turn.Items ?? Enumerable.Empty<TranscriptItem>());
-        if (payload is null) return;
-
-        var text = FormatClipboardText(payload);
-        if (string.IsNullOrWhiteSpace(text)) return;
-
-        await SetClipboardTextAsync(text, payload);
-    }
-
     private static ClipboardCopyPayload? BuildMessageCopyPayload(object? dataContext, object? content)
     {
         return dataContext switch
@@ -2150,34 +2194,6 @@ public partial class ChatView : UserControl
                 [],
                 [])
         };
-    }
-
-    private static ClipboardCopyPayload? BuildTurnCopyPayload(IEnumerable<TranscriptItem> items)
-    {
-        var textParts = new List<string>();
-        var attachmentPaths = new List<string>();
-        var skillNames = new List<string>();
-        var sources = new List<string>();
-
-        foreach (var item in items)
-        {
-            if (item is not AssistantMessageItem assistant)
-                continue;
-
-            if (!string.IsNullOrWhiteSpace(assistant.Content))
-                textParts.Add(assistant.Content.Trim());
-
-            attachmentPaths.AddRange(assistant.FileAttachments.Select(static a => a.FilePath));
-            skillNames.AddRange(assistant.Skills.Select(static s => s.Name));
-            sources.AddRange(assistant.Sources.Select(static s =>
-                string.IsNullOrWhiteSpace(s.Url) ? s.Title : $"{s.Title} - {s.Url}"));
-        }
-
-        return CreatePayload(
-            string.Join($"{Environment.NewLine}{Environment.NewLine}", textParts),
-            attachmentPaths,
-            skillNames,
-            sources);
     }
 
     private static ClipboardCopyPayload? CreatePayload(
@@ -2465,10 +2481,10 @@ public partial class ChatView : UserControl
             return;
         }
 
-        // Search ALL transcript turns (including unmounted/off-screen)
+        // Search ALL transcript turns (including unmounted/off-screen) and the work folded into them
         foreach (var turn in _subscribedVm.TranscriptTurns)
         {
-            foreach (var item in turn.Items)
+            foreach (var item in turn.EnumerateItems())
             {
                 var content = item switch
                 {
@@ -2514,27 +2530,35 @@ public partial class ChatView : UserControl
         var hit = _searchHits[_currentHitIndex];
         if (_subscribedVm is null) return;
 
-        if (await EnsureTurnRealizedAsync(hit.Turn) is null)
+        var revealed = hit.Turn.RevealFoldedItem(hit.Item);
+        if (await EnsureTurnRealizedAsync(hit.Turn) is not { } turnControl)
+            return;
+        if (revealed)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            await RealizeFoldedItemAsync(turnControl, hit.Item);
+        }
+
+        if (HighlightHit(hit) is not { } stb)
             return;
 
-        HighlightHit(hit);
+        // Room around the hit keeps it clear of the floating header's soft edge, with context.
+        var context = new Rect(0, -SearchHitContext, stb.Bounds.Width, stb.Bounds.Height + 2 * SearchHitContext);
+        await RevealWithinFoldAsync(stb, context);
+        if (ReferenceEquals(_highlightedStb, stb))
+            stb.BringIntoView(context);
     }
 
-    private void HighlightHit(SearchHit hit)
+    /// <summary>Selects the hit's text and returns the text block that shows it.</summary>
+    private SelectableTextBlock? HighlightHit(SearchHit hit)
     {
         var query = hit.Query;
-        if (string.IsNullOrEmpty(query) || _transcript is null) return;
+        if (string.IsNullOrEmpty(query) || _transcript is null) return null;
 
-        // Find the visual for this item. Host children are directly-built item views carrying the
-        // HostedItem attached property (no longer ContentPresenters whose Content is the item), so a
-        // retained switch-back reuses the same instances; match on HostedItem to locate the hit.
-        Control? itemVisual = null;
-        foreach (var d in _transcript.GetVisualDescendants())
-        {
-            if (d is Control c && ReferenceEquals(TranscriptTurnControl.GetHostedItem(c), hit.Item))
-            { itemVisual = c; break; }
-        }
-        if (itemVisual is null) return;
+        // Find the visual for this item: a directly-built host in its turn, or a view inside an
+        // opened history row.
+        var itemVisual = FindTranscriptItemView(_transcript, hit.Item);
+        if (itemVisual is null) return null;
 
         // Walk SelectableTextBlocks inside, find the Nth occurrence
         var occurrencesSeen = 0;
@@ -2558,14 +2582,67 @@ public partial class ChatView : UserControl
                     stb.SelectionStart = selStart;
                     stb.SelectionEnd = selEnd;
                     _highlightedStb = stb;
-                    stb.BringIntoView();
-                    return;
+                    return stb;
                 }
 
                 occurrencesSeen++;
                 searchFrom = idx + query.Length;
             }
         }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The view of a transcript item. Turn items are directly-built hosts carrying the HostedItem
+    /// attached property; items inside an opened history row are presented by its item list.
+    /// </summary>
+    private static Control? FindTranscriptItemView(Visual root, TranscriptItem item)
+    {
+        foreach (var visual in root.GetVisualDescendants())
+        {
+            if (visual is Control control
+                && (ReferenceEquals(TranscriptTurnControl.GetHostedItem(control), item)
+                    || control is ContentPresenter { Content: var content } && ReferenceEquals(content, item)))
+            {
+                return control;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Opened work shows its steps from the top a few at a time, so a step further along may not be
+    /// built yet: the row is shown through it first, and its view exists afterwards.
+    /// </summary>
+    private static async Task RealizeFoldedItemAsync(Visual turnView, TranscriptItem item)
+    {
+        var steps = turnView.GetVisualDescendants().OfType<ProgressiveItemsControl>()
+            .FirstOrDefault(list => list.Source?.Contains(item) == true);
+        if (steps is null)
+            return;
+
+        await steps.ShowThroughAsync(item);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Folded work scrolls inside its own bounded area, and that area keeps a request to bring a target
+    /// into view whenever it has to scroll for it. So a target there is first scrolled into that area's
+    /// view; asking the transcript to show it afterwards, or measuring against the transcript, then
+    /// lands where the reader will see it.
+    /// </summary>
+    private static async Task RevealWithinFoldAsync(Control target, Rect? targetRect = null)
+    {
+        if (target.FindAncestorOfType<StrataTurnSummary>() is null)
+            return;
+
+        if (targetRect is { } rect)
+            target.BringIntoView(rect);
+        else
+            target.BringIntoView();
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
     }
 
     private static string? ExtractStbText(SelectableTextBlock stb, out List<int>? posMap)

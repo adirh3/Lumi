@@ -28,16 +28,18 @@ public sealed class LocComputerNameTests
     }
 
     [Theory]
-    [InlineData("Onboarding_LearnDescription")]
-    [InlineData("Onboarding_LearnPrivacy")]
-    [InlineData("Onboarding_ScanningYourPC")]
-    [InlineData("Onboarding_ExploringComputer")]
+    [InlineData("Onboarding_CapPcChip")]
+    [InlineData("Onboarding_CapPcTitle")]
+    [InlineData("Onboarding_WorkspacePrivacy")]
     [InlineData("SettingDesc_RemoteAccess")]
     [InlineData("Remote_TransportUnavailable")]
     [InlineData("Remote_DevTunnelPhoneTipsDescription")]
     [InlineData("Remote_DevTunnelStartFailed")]
     [InlineData("SettingDesc_MobileChoose")]
     [InlineData("Remote_SetupAndroidPanelDesc")]
+    [InlineData("Discover_TrustTitle")]
+    [InlineData("Discover_RunsLocal")]
+    [InlineData("Discover_RuntimeMissing")]
     public void ComputerCopy_UsesTheCurrentHostName(string key)
     {
         var computerName = OperatingSystem.IsMacOS() ? "Mac"
@@ -54,7 +56,8 @@ public sealed class LocComputerNameTests
         var computerName = OperatingSystem.IsMacOS() ? "Mac"
             : OperatingSystem.IsWindows() ? "PC" : "Linux computer";
 
-        Assert.Contains(computerName, Loc.Onboarding_ScanningYourPC);
-        Assert.Equal(Loc.Get("Onboarding_ScanningYourPC"), Loc.Onboarding_ScanningYourPC);
+        Assert.Contains(computerName, Loc.Onboarding_CapPcTitle);
+        Assert.Equal(Loc.Get("Onboarding_CapPcTitle"), Loc.Onboarding_CapPcTitle);
+        Assert.Equal($"Runs on this {computerName} with node", Loc.Get("Discover_RunsLocal", "node"));
     }
 }

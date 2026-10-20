@@ -163,6 +163,8 @@ public sealed class UiScaleShortcutTests
                 var slider = window.GetVisualDescendants()
                     .OfType<Slider>()
                     .Single(control => control.Name == "UiScaleSlider");
+                slider.BringIntoView();
+                await PumpAsync();
                 var valueText = window.GetVisualDescendants()
                     .OfType<TextBlock>()
                     .Single(control => control.Name == "UiScaleValueText");

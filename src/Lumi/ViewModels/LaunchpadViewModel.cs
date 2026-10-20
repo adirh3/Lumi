@@ -31,9 +31,12 @@ public sealed record LaunchpadProjectBadge(Guid ProjectId, string Initial, IBrus
 
     private static int HueIndex(Guid projectId) => (int)((uint)projectId.GetHashCode() % (uint)Hues.Length);
 
+    /// <summary>The project's own hue, shared by every surface that shows its identity.</summary>
+    internal static Color HueFor(Guid projectId) => Hues[HueIndex(projectId)];
+
     internal static LaunchpadProjectBadge For(Project project)
     {
-        var hue = Hues[HueIndex(project.Id)];
+        var hue = HueFor(project.Id);
         return new LaunchpadProjectBadge(
             project.Id,
             InitialOf(project.Name),

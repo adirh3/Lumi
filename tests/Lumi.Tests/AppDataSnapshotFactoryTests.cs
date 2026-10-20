@@ -53,6 +53,64 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void AppearanceAndChatCustomization_SurvivesSnapshotAndJsonRoundTrip()
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                FollowSystemTheme = true,
+                AccentColor = "sunset",
+                WindowMaterial = UserSettings.WindowMaterialSolid,
+                PresenceBrightness = UserSettings.PresenceBrightnessVivid,
+                SuggestFollowUps = false,
+                ExpandReasoningWhileStreaming = false,
+            }
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!.Settings;
+
+        Assert.True(restored.FollowSystemTheme);
+        Assert.Equal("sunset", restored.AccentColor);
+        Assert.Equal(UserSettings.WindowMaterialSolid, restored.WindowMaterial);
+        Assert.Equal(UserSettings.PresenceBrightnessVivid, restored.PresenceBrightness);
+        Assert.False(restored.SuggestFollowUps);
+        Assert.False(restored.ExpandReasoningWhileStreaming);
+    }
+
+    [Fact]
+    public void AppearanceAndChatCustomization_DefaultsForExistingSettings()
+    {
+        var settings = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;
+
+        Assert.False(settings.FollowSystemTheme);
+        Assert.Equal(UserSettings.DefaultAccentColor, settings.AccentColor);
+        Assert.Equal(UserSettings.WindowMaterialAuto, settings.WindowMaterial);
+        Assert.Equal(UserSettings.PresenceBrightnessBalanced, settings.PresenceBrightness);
+        Assert.True(settings.SuggestFollowUps);
+    }
+
+    [Fact]
+    public void DiscoverFields_SurviveSnapshotAndJsonRoundTrip()
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings { McpRegistryUrls = [UserSettings.DefaultMcpRegistryUrl, "https://registry.example"] },
+            McpServers = [new McpServer { Name = "Microsoft Learn", CatalogId = "microsoftdocs/mcp" }]
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        data.Settings.McpRegistryUrls.Clear();
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
+
+        Assert.Equal([UserSettings.DefaultMcpRegistryUrl, "https://registry.example"], restored.Settings.McpRegistryUrls);
+        Assert.Equal("microsoftdocs/mcp", Assert.Single(restored.McpServers).CatalogId);
+        Assert.Equal([UserSettings.DefaultMcpRegistryUrl],
+            JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!.McpRegistryUrls);
+    }
+
+    [Fact]
     public void RemoteSecuritySnapshotReplacesEveryOwnerControlledField()
     {
         var store = new DataStore(new AppData

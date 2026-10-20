@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,14 +17,18 @@ namespace Lumi.ViewModels;
 public partial class ChatViewModel
 {
     /// <summary>
-    /// Seeds the composer with an editable draft (and the reply it quotes, if any) and puts the caret
-    /// at the end. Used by "fork and edit", where the user's own turn becomes the opening prompt of
-    /// the new branch instead of a copied message that nothing has answered.
+    /// Seeds the composer with an editable draft, the reply it quotes and the chats it brings in (if any),
+    /// and puts the caret at the end. Used by "fork and edit", where the user's own turn becomes the opening
+    /// prompt of the new branch instead of a copied message that nothing has answered.
     /// </summary>
-    internal void SetComposerDraft(string draft, MessageReply? reply = null)
+    internal void SetComposerDraft(
+        string draft,
+        MessageReply? reply = null,
+        IEnumerable<ChatReference>? referencedChats = null)
     {
         PromptText = draft;
         PendingReply = reply;
+        ReplaceReferencedChats(referencedChats);
         FocusComposerAtEndRequested?.Invoke();
     }
 

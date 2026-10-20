@@ -21,7 +21,9 @@ public sealed class CapabilitySnapshot
         IReadOnlyList<CapabilityDescriptor> capabilities,
         bool isComplete,
         IReadOnlyList<string>? sessionSkillRoots = null,
-        IEnumerable<string>? nativeSkillInvocationNames = null)
+        IEnumerable<string>? nativeSkillInvocationNames = null,
+        IReadOnlyList<string>? sessionPluginRoots = null,
+        IReadOnlyList<CapabilityDescriptor>? externalCapabilities = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -29,6 +31,8 @@ public sealed class CapabilitySnapshot
         Query = query;
         IsComplete = isComplete;
         SessionSkillRoots = sessionSkillRoots ?? [];
+        SessionPluginRoots = sessionPluginRoots ?? [];
+        External = externalCapabilities ?? capabilities.Where(static c => !c.Origin.IsLumi).ToArray();
         NativeSkillInvocationNames = (nativeSkillInvocationNames ?? GetNativeSkillInvocationNames(capabilities))
             .ToHashSet(NameComparer);
 
@@ -45,6 +49,19 @@ public sealed class CapabilitySnapshot
     /// config directory at its own folder. Reported by the runtime, never discovered by Lumi.
     /// </summary>
     public IReadOnlyList<string> SessionSkillRoots { get; }
+
+    /// <summary>
+    /// Installed plugin folders a session must load explicitly, for the same reason as
+    /// <see cref="SessionSkillRoots"/>: plugins live in the runtime's home, not in Lumi's folder.
+    /// </summary>
+    public IReadOnlyList<string> SessionPluginRoots { get; }
+
+    /// <summary>
+    /// Everything external providers reported, before Lumi's own items shadow identically named
+    /// ones. Management pages list these so a plugin's parts stay visible even when the user made
+    /// a copy of one.
+    /// </summary>
+    public IReadOnlyList<CapabilityDescriptor> External { get; }
 
     /// <summary>Native identities reserved even when a Lumi entry wins display-catalog deduplication.</summary>
     public IReadOnlySet<string> NativeSkillInvocationNames { get; }

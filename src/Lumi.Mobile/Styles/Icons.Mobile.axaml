@@ -1,0 +1,31 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    ══ The desktop's place and action glyphs ═══════════════════════════════════════════════════
+    The same geometry the desktop's navigation pill and sidebar draw, so each place is recognised
+    on sight across PC and phone. Only the size changes on a phone.
+  -->
+  <StreamGeometry x:Key="Mobile.Icon.Chat">M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7l-4 3V6a2 2 0 0 1 2-2z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Clock">M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 5h-2v6l5 3 .9-1.6-3.9-2.3V7z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.CustomizeTracks">M3 4h.01v.01h-.01z M20.99 19.99h.01v.01h-.01z M4 6h16a1 1 0 0 1 0 2H4a1 1 0 0 1 0-2z M4 16h16a1 1 0 0 1 0 2H4a1 1 0 0 1 0-2z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.CustomizeKnobTop">M3 4h.01v.01h-.01z M20.99 19.99h.01v.01h-.01z M13.2 6a2.6 2.6 0 0 1 5 0v2a2.6 2.6 0 0 1-5 0z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.CustomizeKnobBottom">M3 4h.01v.01h-.01z M20.99 19.99h.01v.01h-.01z M5.8 16a2.6 2.6 0 0 1 5 0v2a2.6 2.6 0 0 1-5 0z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Gear">M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915z M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Folder">M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z</StreamGeometry>
+  <!-- Navigation chevrons and the docked list's show/hide glyph. -->
+  <StreamGeometry x:Key="Mobile.Icon.Back">M15.4 6.4 14 5l-7 7 7 7 1.4-1.4L9.8 12z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.ChevronDown">M7.4 8.6 6 10l6 6 6-6-1.4-1.4-4.6 4.6z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.ChevronRight">M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Memory">M9.5 2A1.5 1.5 0 0 0 8 3.5V4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-4v-.5A1.5 1.5 0 0 0 14.5 2h-5zM10 4V3.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4h-4zm-2 5a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm-5 4a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0z</StreamGeometry>
+  <!-- Customize's sections, in the desktop's own glyphs. -->
+  <StreamGeometry x:Key="Mobile.Icon.Sparkle">M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Bolt">M21.64 3.64l-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Plug">M17 6.1h3V8h-3v2.1a5 5 0 0 1-4 4.9V18h2v2H9v-2h2v-3a5 5 0 0 1-4-4.9V8H4V6.1h3V4h2v2.1h4V4h2v2.1zM9 8v2.1a3 3 0 0 0 6 0V8H9z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.More">M5,10 A2,2 0 1 1 5,14 A2,2 0 1 1 5,10 Z M12,10 A2,2 0 1 1 12,14 A2,2 0 1 1 12,10 Z M19,10 A2,2 0 1 1 19,14 A2,2 0 1 1 19,10 Z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Palette">M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Monitor">M3 4h18v12H3V4zm2 2v8h14V6H5zm3 12h8v2H8v-2z</StreamGeometry>
+  <StreamGeometry x:Key="Mobile.Icon.Info">M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z</StreamGeometry>
+  <!-- The desktop chat list's pin, on its 16-unit grid. -->
+  <StreamGeometry x:Key="Mobile.Icon.Pin">M10.0589 2.44535C9.34701 1.73087 8.14697 1.90854 7.67261 2.79864L5.6526 6.58902L2.8419 7.52592C2.6775 7.58072 2.5532 7.71673 2.51339 7.88539C2.47357 8.05404 2.52392 8.23128 2.64646 8.35382L4.79291 10.5003L2.14645 13.1467L2 14.0003L2.85356 13.8538L5.50002 11.2074L7.64646 13.3538C7.76899 13.4764 7.94623 13.5267 8.11489 13.4869C8.28354 13.4471 8.41955 13.3228 8.47435 13.1584L9.41143 10.3472L13.1897 8.32448C14.0759 7.85006 14.2538 6.65535 13.5443 5.9433L10.0589 2.44535ZM8.55511 3.26895C8.71323 2.97225 9.11324 2.91303 9.35055 3.15119L12.836 6.64914C13.0725 6.88648 13.0131 7.28472 12.7178 7.44286L8.76403 9.55946C8.65137 9.61977 8.56608 9.72092 8.52567 9.84215L7.7815 12.0746L3.92562 8.21877L6.15812 7.47461C6.27966 7.43409 6.38101 7.34848 6.44126 7.23542L8.55511 3.26895Z</StreamGeometry>
+</ResourceDictionary>

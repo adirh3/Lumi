@@ -6,35 +6,48 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 
 ## Features
 
-- **AI accounts** — GitHub Copilot is the default. Add OpenRouter, Poe, other supported plans, API credits, or local models in a few clicks; the Copilot agent runtime stays the same.
+- **AI accounts** — GitHub Copilot is the default. Sign in with your ChatGPT Plus or Pro plan, or add OpenRouter, Poe, other supported plans, API credits, or local models in a few clicks; the Copilot agent runtime stays the same.
 
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
+- **Result-first replies** — While Lumi works, its progress updates stay in view, without the answer's actions, model and time, and only finished tool steps compact between them. Once the answer arrives, the updates fold with the rest of the work (tool calls, loaded skills, answered questions, finished agents) into one "Worked for 1m 42s" row above it, where they read in a quieter gray, while a linked chat or a plan card stays in view; a turn that ends without an answer folds its work the same way but keeps its last update in view. Open the row to see every step in order: it glides open (unless animations are off), and long work scrolls inside a bounded area that builds its steps a screen ahead as you scroll, so even hours of work open at once; in-chat search and reply jumps open it for you. Lumi tells updates from answers using the model's own labels (GPT) or the tool calls a message started (other models), and older chats read the same evidence from their history: a message followed by tool calls or by a later message was an update, so a turn stopped mid-work never shows its last update as the answer
 - **Reply actions** — A compact footer below each answer groups its model name with copy, Share prompt, reply, and a more-actions menu for formatted copying and branching. The quiet actions stay discoverable without moving the answer; hovering over its timestamp shows the full date, time, and UTC offset. Missing snippet models use the recorded model for that turn; genuinely missing historical metadata is marked "Model not recorded" rather than guessed from the current model picker
+- **Select and copy** — Drag across paragraphs, lists, tables, code and adjacent messages, with edge scrolling and Shift-click extension. Right-click keeps the selection highlighted. Ctrl+C (Cmd+C on macOS) supplies both readable text and rich formatting; the context menu has one **Copy as** group for Plain text, Markdown and Rich text, each copying the selection or the message when nothing is selected. The footer's copy button always copies its whole message, and **Select message** / Ctrl+A selects that message. Cards, comparisons, charts, confidence, sources and interactive blocks become ordinary headings, lists and tables with current values instead of raw widget JSON; Markdown keeps Mermaid fences, while rich copying includes the rendered diagram when available. File and skill context still travels when pasted into Lumi
 - **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
-- **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
+- **Glass composer** — The composer is a floating glass card that frosts the conversation scrolling beneath it, and focusing it brings the whole composer forward and draws Lumi's Strata line under what you write. **+** holds everything a message can bring in: files and photos, your three most recent chats (or **All chats**), skills, agents, connectors and a project. **Skills** and **Connectors** stay one click away beside it. **+ → Agents** lists your agents; the one you choose answers and shows as a chip. The send button dictates while there is nothing to send and stops Lumi while it works. Chats you bring in are read when you send (their recent messages) and show as pills on your message that open the chat; type `#` for chats and files, `/` for skills or `@` for agents without leaving the keyboard
+- **Agents** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
-- **Sharing** — Share reusable prompts, skills, Lumis and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
-- **Projects** — Organize chats with custom instructions that shape Lumi's behavior. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
-- **Memories** — Persistent facts extracted from conversations, remembered across all sessions
+- **Customize & Discover** — One place to set up agents, skills, connectors (MCP servers) and projects, plus Discover: browse and install GitHub Copilot plugins from plugin marketplaces and add connectors from MCP registries
+- **Sharing** — Share reusable prompts, skills, agents and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
+- **Projects** — Organize chats with custom instructions that shape Lumi's behavior; switch between them from the project switcher at the top of the chat list and set them up in Customize → Projects. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
+- **Memories** — Persistent facts extracted from conversations, remembered across all sessions; review and edit them in Settings → Memories
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
-- **System tray** — Minimize to tray with global hotkey for instant access
+- **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
+- **Inline images** — Local and online images render directly in chat. Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Platform-aware wording** — English desktop copy and assistant instructions use Mac, PC, or Linux computer for the host OS. Mobile copy says computer, since the paired host can run any of them; saved host names and user content stay unchanged.
+- **Make it yours** — Settings → Appearance: a Light, Dark or System theme, eight accent palettes that recolor buttons, selection, your messages and Lumi's glow, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
 - **Desktop notifications** — Toast notifications when responses complete in the background
+- **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
 - **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
 ### AI accounts
 
-Open **Settings > AI & Models > AI accounts**, or use **Choose your AI** on the
-onboarding welcome step. **GitHub Copilot** is always listed first and remains
+Open **Settings > AI & Models > AI accounts**, or use **Choose the AI behind Lumi**
+during onboarding. **GitHub Copilot** is always listed first and remains
 Lumi's default when you are signed in. Other accounts are added alongside it:
 their models appear in every model menu, but they only become the default when you
 turn on **Use for new chats** or choose **Use as default**. Without a GitHub
 sign-in, the first connected account becomes the default so Lumi can work.
+
+Every account you add is a bring-your-own-key (BYOK) endpoint with its models, so
+there is one place for them. **Endpoints & models**, at the bottom of the AI accounts
+card, edits those same accounts by hand for what the guided setup doesn't ask: a base
+URL, wire API, a key from an environment variable, or per-model limits. **Use only your
+own accounts**, beside it, keeps every chat off GitHub Copilot.
 
 Desktop model pickers group models under GitHub Copilot or the connected account
 name. Model names no longer repeat the account or append a BYOK suffix; model IDs
@@ -68,7 +81,7 @@ computer, or a custom compatible endpoint. Each connection follows the same thre
 steps:
 
 1. **Account** — continue in the provider's official browser sign-in where
-   available (OpenRouter, Poe, NanoGPT), or open the provider's key page and paste
+   available (ChatGPT, OpenRouter, Poe, NanoGPT), or open the provider's key page and paste
    a key. Local apps only need their server address.
 2. **Model** — Lumi discovers models, prioritizes tool-capable and listed-free
    options, and carries the provider's context-window metadata. New lists start
@@ -98,12 +111,30 @@ capabilities are retained.
 The `none` effort is not offered because the runtime omits that request
 field rather than forwarding an explicit off setting to the provider.
 
-Connections include OpenRouter, Poe, NanoGPT, MiniMax M Plan, Mistral, Ollama
+Connections include ChatGPT, OpenRouter, Poe, NanoGPT, MiniMax M Plan, Mistral, Ollama
 Cloud, Microsoft Foundry, standard model APIs, and local Ollama/LM Studio. The provider cards explain
 the billing source and restrictions: **Claude API** does not reuse Claude Pro/Max,
-**OpenAI API** does not reuse ChatGPT, and **Gemini API** does not reuse Google AI
+**OpenAI API** bills API credits (use **ChatGPT** for a ChatGPT plan), and **Gemini API** does not reuse Google AI
 Pro/Ultra. Poe uses eligible Poe subscription/add-on points. Restricted consumer
 OAuth tokens and unsupported coding-plan keys are not imported.
+
+**ChatGPT** is listed right under GitHub Copilot, in the gallery and as
+**Continue with ChatGPT** in AI accounts. It uses OpenAI's
+[Sign in with ChatGPT for open-source apps](https://developers.openai.com/siwc/token-sharing-open-source):
+approve Lumi on OpenAI's page and eligible usage counts toward your ChatGPT plan
+instead of API credits, with your plan's limits; manage it at
+[chatgpt.com/settings/usage](https://chatgpt.com/settings/usage), also linked from
+the model picker ("Using ChatGPT plan · Manage usage"). Lumi registers itself with
+your account, signs in with PKCE on a loopback address, validates OpenAI's ID token
+and lists the models your plan offers. Only the rotating refresh token is saved,
+in the OS credential store (required for ChatGPT). Chats reach ChatGPT through a
+local bridge that adds a fresh access token, so tokens never reach the Copilot
+runtime or its session files. The bridge keeps requests within the plan route's
+contract (stateless and streamed, without unsupported parameters or hosted tools,
+and with tools in the "responses lite" form the newest models take), completes the
+final response from the streamed items, and explains plan errors such as a reached
+usage limit. An expired sign-in asks you to continue with ChatGPT again; **Disconnect**
+also revokes the sign-in at OpenAI.
 
 **Microsoft Foundry** has its own API-key option in both onboarding and Settings.
 Paste the Foundry/Azure OpenAI resource endpoint and resource API key. Resource
@@ -120,7 +151,7 @@ Foundry's model list does not report reasoning-effort levels. For recognized
 model IDs, Lumi uses Microsoft's documented model-specific levels; GPT-6 Luna
 with Responses offers Low, Medium, High, X-High and Max. Reported or explicitly
 configured effort lists take precedence. Arbitrary deployment aliases and unknown
-models need their capabilities configured in **Advanced endpoints & models**.
+models need their capabilities configured in **AI accounts → Endpoints & models**.
 For an older connection, **Refresh list** or save it again to add known reasoning
 metadata; this does not require a GitHub subscription.
 Entra sign-in, Azure resource browsing, Foundry Agent Service and legacy model
@@ -133,12 +164,13 @@ users can give that consent on the model step without copying a key manually.
 API keys, authorization codes, and tokens are not shown in connection errors. Disconnect
 removes the local connection and stored key; removing authentication from a
 connection also removes its saved OS key. Disconnect does not cancel the provider's
-subscription or revoke its key remotely. Existing chats remain available. If the
+subscription or revoke its key remotely (a ChatGPT sign-in is the exception: it is revoked). Existing chats remain available. If the
 disconnected account was the default, GitHub Copilot becomes the default again
 when you are signed in and Copilot requests are allowed. Otherwise Lumi uses a
 remaining enabled, unexpired external model, or leaves the default unset when no
-account is ready. Personalized onboarding is available only when an allowed
-GitHub account or a usable external model is connected.
+account is ready. Onboarding personalizes its conversation and first tasks only when
+an allowed GitHub account or a usable external model is connected; otherwise it uses
+its built-in questions and suggestions.
 
 Lumi never purchases credits or connects another paid provider automatically.
 Default fallbacks stay within accounts you have already connected. Provider-side
@@ -148,11 +180,11 @@ guarantee of paid entitlement or reliable tool use.
 The **Background model** setting controls helpers such as titles, suggestions and
 memory processing. An explicit choice takes precedence. **Auto** uses the cheapest
 usable Copilot model while GitHub is signed in, even if another account is the
-chat default. Without a GitHub sign-in, or with **Block internal Copilot requests**
+chat default. Without a GitHub sign-in, or with **Use only your own accounts**
 turned on, Auto uses the default external model. Stale or removed connections fail
 explicitly instead of sending context to GitHub; an explicit Copilot background
-choice is still blocked by BYOK Only. Existing Copilot and manual BYOK
-configurations remain supported under **Advanced endpoints & models**.
+choice is still blocked by **Use only your own accounts**. Existing Copilot and manual
+BYOK configurations remain editable under **AI accounts → Endpoints & models**.
 
 ### Interactive answers
 
@@ -232,19 +264,145 @@ and only complete records, never a misleading partial row. **Refresh** reloads
 the file, and **Open** still opens it in its default app. Previewing never edits
 the source file.
 
-### Sharing prompts, skills, Lumis and MCP servers
+### Navigation
+
+The bar at the bottom of the sidebar has five places: **Chats**, **Library**, **Jobs**, **Customize**
+and **Settings** (`Ctrl+1`–`Ctrl+5`, `⌘1`–`⌘5` on macOS; `Ctrl+,` / `⌘,` also opens Settings). The open
+place is highlighted and named when the sidebar is wide enough; a narrower sidebar shows icons only,
+and the collapsed sidebar shows the same places as a rail.
+The translucent navigation pill floats over a softly fading backdrop blur, like the chat header and
+composer. Chats scroll underneath it, with enough space at the end to bring the last chat
+fully above the navigation.
+
+Grayscale text antialiasing is scoped to exposed and floating glass surfaces: every sidebar section,
+the navigation bar and collapsed rail, the chat header and composer, follow-up chips and the paused bar,
+the search palette, and glass title/composer pickers. Glass popup content opts in itself, whether hosted
+in the window's overlay or a native popup. The window roots, chat island/transcript body, workspace,
+opaque management pages and ordinary opaque popups keep their renderer defaults; switching to a solid
+window material does not force grayscale onto those areas.
+This changes only glyph smoothing, not font hinting, baseline alignment or text layout. Grayscale can
+look slightly softer than LCD subpixel antialiasing at small sizes on low-DPI displays, so it is not a
+window-wide default. Chip and selection fills still provide contrast independently of text rendering.
+
+- **Projects** keep related chats together. The project switcher at the top of the chat list narrows
+  the list to a project, shown by its initial in its own color; while it shows every chat it says how
+  many projects you have, and each chat names its project beside a folder in that color.
+  Opened, it grows over the chat list into a searchable list of projects.
+  Projects are set up in **Customize → Projects**: in that list the project you're in keeps its gear in
+  view and every other project shows one on hover, and its **New project** and **Manage projects** open
+  the section too.
+- **Memories** is a Settings page, listed under **Profile**. Settings reopens on the page used last,
+  so it reopens Memories if that is where you left it.
+- **Settings** lists its pages under a search box and your profile card. Search finds a setting by its
+  name (forgiving a typo), the words of its description, or the choices it offers — `ocean` finds the
+  accent color, `compact` the density. Clearing chats or memories and resetting settings ask once more
+  in a bar at the bottom of the page; Esc cancels.
+
+### Customize and Discover
+
+**Customize** (the fourth place in the bar, `Ctrl+4`, `⌘4` on macOS) gathers everything that sets up how
+Lumi works: **Discover**, **Agents**, **Skills**, **Connectors** and **Projects**, listed at the top of its
+sidebar with how many of each you have. What you pick while chatting (an agent, skills, connectors) or
+switch to in the chat list (a project) is set up here. It reopens on the section used last; choosing the
+open section again returns to its overview. Connectors are MCP (Model Context Protocol) servers: Lumi's UI
+names them by what they do, and keeps "MCP" for the protocol, config files and registries.
+
+**Discover** finds things to add, from sources you control under **Sources**:
+
+- **Plugins** come from *plugin marketplaces*: Git repositories with a `marketplace.json`
+  (`.github/plugin/marketplace.json` or `.claude-plugin/marketplace.json`), the format GitHub Copilot,
+  VS Code and Claude Code share. Lumi lists, installs, updates and removes plugins through the GitHub
+  Copilot runtime, so they are the same plugins the Copilot CLI sees in `~/.copilot`. The runtime's
+  marketplaces appear automatically; add any other with `owner/repo` or a Git URL. A plugin's page
+  previews what it brings — skills, agents, MCP servers and whether it has hooks —
+  read from its repository before you install.
+- **Connectors** come from *MCP registries* that serve the official registry API (`/v0.1/servers`).
+  GitHub's MCP Registry (`https://api.mcp.github.com`) is the default; add others the same way.
+  Adding one creates a normal Lumi connector: the hosted endpoint when the server offers one,
+  otherwise its package through `npx`, `uvx`, `dnx` or `docker`. A connector that needs keys or values
+  opens in the connector editor to finish setup. Lumi never installs runtimes; a missing one is named on
+  the connector's page.
+
+What installed plugins bring shows up in the **Skills**, **Agents** and **Connectors** sections, grouped by
+plugin, next to items from your GitHub Copilot folder. These are read-only because they update with
+their source: **Make a copy** creates an editable Lumi item, and **Manage in Discover** updates or
+removes the plugin. New chats load installed plugins automatically, and plugin MCP servers start like
+other servers Copilot discovers. The runtime describes skills to the model only up to a character budget
+and lists the rest by name alone, so Lumi raises that budget (`SKILL_CHAR_BUDGET`, 40,000 characters
+unless you set your own) to keep a large plugin from hiding every skill installed after it. Lumi declines
+MCP sampling requests (a server asking to borrow the chat's model), which the C# SDK can't yet carry out;
+answering at once lets servers such as Azure MCP fall back to explicit commands instead of waiting forever. In Debug builds run with `LUMI_APPDATA_DIR`, plugins install into
+that folder's `copilot-home` instead of `~/.copilot`, so testing never changes your real Copilot setup.
+
+#### Setup suggestions
+
+Well-known setups live in one catalog (`SetupScenarios`): each names an official plugin, the app names or
+work-site domains that point to it, and a starter prompt. Microsoft 365 is the first, adding Microsoft's
+`workiq@work-iq` plugin from `microsoft/work-iq` (hosted Work IQ connector and Microsoft-maintained skills, no
+Node.js needed) through the normal plugin installer. An existing installation is reused, and one the user
+turned off stays off.
+
+Lumi suggests at most one setup, as a small row on the new-chat screen: welcome considers the apps and sites the
+user let it read, and an ordinary start checks local app names once (never history, messages or documents;
+off when welcome's app source was declined). **Set up** or **×** answers it for good
+(`HandledSetupSuggestions`), and **Try it** opens a new draft with the starter prompt, never sending it. Every
+setup stays under **Customize > Discover > Set up in one step**. Sign-in and organization permissions are
+checked by the connector when it is first used.
+
+### Connectors in a chat
+
+The composer's **Connectors** button shows how many connectors are on in the chat ("Off" when none are), and its
+tooltip says so in words. It opens the chat's connector list, in the window like the model picker:
+
+- **Search** filters by name, by what a connector is, and by where it comes from. When nothing matches,
+  **Search Discover** looks the same text up in Discover's connector registries.
+- Connectors are grouped like the Connectors page, **Yours** and **From plugins & Copilot**, and each says
+  in one line what it is: your description, "Runs on this computer", "Online service", "From the azure
+  plugin", "From this project". Commands and URLs stay on the connector's page.
+- A switch turns each connector on or off for this chat only; clicking anywhere on the row does the same.
+  The line above the list counts what is on and offers **Turn all on** / **Turn all off**.
+- Typing searches, `↑`/`↓` move through the list, `Enter` switches the highlighted connector and `Esc`
+  closes. Nothing is highlighted until you move or type, so a stray `Enter` changes nothing.
+- **Find more** opens Discover's connectors, and **Manage** opens Customize > Connectors. Without any
+  connectors the list invites you to find some, and while Lumi is still discovering them it says so.
+
+### When a connector can't start
+
+A connector that fails in a chat never interrupts the conversation. The composer's connector button gets
+a small amber dot, and its tooltip says how many connectors need attention. Opening the button's list puts
+those connectors first, each with a plain one-line reason ("Couldn't start: “npx” wasn't found on this
+computer.", "Couldn't connect: access was denied (401).") and two actions:
+
+- **Fix with Lumi** opens a new chat, in the same project and checkout, that asks Lumi to find the root
+  cause, fix it and check that the connector starts. The request stays short; the complete error and the
+  connector's settings travel as an attached report, with credentials removed and environment variables
+  and headers listed by name only. Connectors with a problem stay off in that chat so they can't hold it
+  up, and the chat you were in, its draft and its work are left alone. When the repair turn ends, the
+  original chat shows "Reconnects with your next message" and rebuilds its session on that message, which
+  picks up both setting changes and fixed files. A repair that is still running is reopened instead of
+  starting a second one.
+- **Details** reveals the full technical error, selectable and copyable.
+
+States that need nothing from you — signing in through the browser, still starting, about to reconnect —
+read as quiet status lines without the dot or the action. A connector's status lasts as long as the
+session that reported it, so unrelated changes never make a broken connector look healthy. When Lumi
+changes a connector's environment variables or headers with `manage_mcps`, an entry such as
+`KEY=[REDACTED]` keeps the saved value instead of overwriting it, and a placeholder inside an argument or
+address is refused rather than saved over the real value.
+
+### Sharing prompts, skills, agents and MCP servers
 
 **Share** (editor header, or right-click an item) opens a card with a receipt of what leaves the
 computer. A skill is shared as a standard Agent Skills `SKILL.md` (slug `name`, Lumi's display name
 and icon under `metadata`), so it works in Claude Code, Codex, Cursor and Gemini CLI; **Send to**
 installs it as `<skills folder>/<name>/SKILL.md` for those tools when they are present, and
-**Save to folder** writes the same layout anywhere (for example a repo's `.github/skills`). A Lumi or
+**Save to folder** writes the same layout anywhere (for example a repo's `.github/skills`). An agent or
 MCP server becomes a `*.lumi.md` capability pack: readable markdown whose tagged code blocks carry the
-Lumi, its skills and its MCP servers (as a standard `mcpServers` config).
+agent, its skills and its MCP servers (as a standard `mcpServers` config).
 
 Secrets never travel: environment variable and header values are left out (only their names are
 shared), and credentials inlined into arguments or URLs are replaced with `<REDACTED>`. **Import**
-(sidebar, empty state, or drop a file on the Skills, Lumis or MCP Servers page) accepts Lumi packs,
+(sidebar, empty state, or drop a file on the Skills, Agents or Connectors page) accepts Lumi packs,
 any `SKILL.md` or skill folder, and MCP JSON from Claude Desktop, VS Code or a README. It shows a
 receipt first — the exact commands and URLs, the keys you will need to add, and anything reused or
 renamed — and adds nothing until you confirm. Imported MCP servers arrive turned off with empty
@@ -291,7 +449,7 @@ Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior
 | Chat titles | A new conversation starts, when automatic titles are enabled | Produces a short title from the first user message |
 | Follow-up suggestions | An eligible assistant reply completes | Proposes three concise next messages using the current exchange and frequently typed requests as low-priority context |
 | Automatic memories | A completed exchange contains potential lasting facts, when auto-save is enabled | Saves, updates, or removes personal facts and durable project conventions using restricted memory tools |
-| Onboarding discovery | The optional getting-to-know-you flow | Analyzes deterministic computer scans, investigates with restricted tools, asks questions, and records durable memories |
+| Onboarding personalization | The first-run getting-to-know-you step, prefetched once the user allows a look around (or skips it) | Turns a short local summary of projects, known apps, top sites and recent-file counts — never paths or document contents — into Lumi's first words, three tailored questions and three first tasks in one tool-free call; built-in fallbacks apply when it is unavailable |
 | Reusable prompt drafts | You choose Share prompt on a completed reply | Turns the bounded, redacted conversation snapshot into a portable task |
 | Coding helpers | The assistant invokes `code_review`, `generate_tests`, `explain_code`, or `analyze_project` | Performs the requested specialized analysis in an isolated, tool-free session |
 
@@ -316,7 +474,7 @@ the next helper request without interrupting current work or changing any chat's
 
 An explicit choice can be a Copilot model or a configured **BYOK** model. BYOK helpers use the
 same endpoint, credential store, capability overrides, and per-model rate limiter as chats.
-**BYOK Only** still blocks every non-BYOK inference request: choose a BYOK background model to
+**Use only your own accounts** (BYOK only) still blocks every non-BYOK inference request: choose a BYOK background model to
 run helpers in that mode. Auto does not guess private-provider prices or silently inherit the
 source chat's model, including for Share prompt.
 
@@ -345,12 +503,22 @@ works for background and remote sends without first opening the chat. Unrelated
 errors retain their existing retry behavior; authentication and quota failures
 still require their normal resolution.
 
+### Copilot housekeeping notices
+
+Automatic image-pruning notices (`image_limit`) stay out of the chat transcript
+and activity status when Copilot supplies no remediation action or link. They
+remain available in diagnostics. Image-limit warnings with an action or link,
+all other warning categories, and actual image-processing errors keep their
+existing visible handling.
+
 ### Pause and resume chats
 
 While a chat is working, **Pause** appears above the composer beside its activity
 and context controls, and in its sidebar context menu. Idle chats have no pause
-control, and the title bar stays clear. A paused chat gets a pause marker and a
-**Resume** panel above the composer; your draft stays editable.
+control, and the title bar stays clear. A paused chat gets a pause marker in the
+sidebar and a paused bar of the composer's glass above the composer, with **Resume**
+and **Cancel task**: its badge breathes slowly while the chat holds, and the Strata
+line runs along its foot while it is still pausing. Your draft stays editable.
 Messages submitted while paused are visibly queued until the chat resumes.
 That queue survives app restarts, retaining message order, attachments, and replies.
 The **… Chat actions** menu beside **New Chat** offers **Pause all chats** when
@@ -376,16 +544,32 @@ If the original session cannot be restored, Lumi reports the failure instead of
 silently creating a replacement. Sends from another chat or device are rejected
 with a clear paused-chat message until resumed.
 
+### Background work
+
+When Lumi finishes replying while commands, delegated agents or other tasks keep
+running, a **Background** chip appears above the composer beside the context chip.
+Open it to see each running task with a live clock and what it is doing right now:
+a command's newest output line, an agent's latest step, or a task's progress message.
+Click a command to show its newest output lines, or an agent to open its run on the
+Workspace's **Agents** page, the same view its row in the chat opens. The list updates
+in place while it is open, so an expanded command keeps streaming. **Stop session**
+cancels everything still running in that chat.
+
 ### Desktop motion
 
-The composer keeps its thin Stratum underline, drawing it from left to right on focus and
-then showing a travelling highlight for two seconds before resting. Refocusing replays it.
-Newly sent messages and live assistant
+Focusing the glass composer brings it forward: the whole composer, glass, text and tools together, grows
+from just under full size to full size about its bottom edge, starting gently and landing softly, while its
+shadow deepens and its rim brightens. It moves on the render thread, so nothing is laid out again and
+nothing around it moves, and you always write at full size. The + menu and the composer's lists keep it
+forward. Lumi's Strata line draws under what you write at the same time, from left to right, then a
+travelling highlight crosses it for two seconds before it rests; refocusing replays it. It stays just as
+clear, with no ring, and, in a chat at rest, the presence light behind it brightens in one slow fade. Newly sent messages and live assistant
 replies rise into place once, without moving transcript layout or replaying on
 history rebuilds, paging, or chat switches. Section navigation and the coding strip use the
 same short, interruptible motion, and the welcome-to-chat handoff has no delayed fade.
-The existing **Show Animations** setting disables the new message/section entrances and
-composer focus motion; the static underline remains visible.
+The existing **Show Animations** setting disables the new message/section entrances and the composer
+focus motion (the composer then stays at full size and the line appears at once), and keeps the ring
+around the send button still while Lumi works.
 
 ### Mobile conversations
 
@@ -396,8 +580,8 @@ setup code to download the APK matching your desktop release. Install it, return
 the setup page, and tap **Open Lumi**. If the app is not installed, **Open Lumi**
 falls back to the official APK download, never an app-store listing.
 
-Announced files appear as readable attachment cards after the reply for their turn,
-including file-only replies, without changing transcript paging or download permissions.
+Announced files appear as file chips at the end of the reply that closes their turn (on
+their own when a turn has no closing reply), without changing transcript paging or download permissions.
 Inline screenshots are also available when that exact raster-image file was successfully
 read by a `view` tool call in the same chat, even if it was not announced as an attachment.
 Arbitrary markdown paths, failed reads and unrelated files remain unavailable remotely.
@@ -416,6 +600,8 @@ stopping background work. Queued follow-ups drain when the assistant becomes idl
 not only when every background task finishes.
 Explicit external model selections stay with a queued message even if the composer
 changes before delivery, including automatic steering.
+Question cards keep the selected answer in the phone's display state, including
+multiple choices and typed answers, so rebuilding the view retains the answer receipt.
 Mobile attachments show their original filenames instead of computer upload paths, and
 background-job wakes appear as compact events with instructions and output in a
 details sheet. Both presentations also work with older desktop hosts.
@@ -432,18 +618,155 @@ This confirmation is read-only: it does not resend the message, and newer draft 
 are preserved. Android uses the managed HTTP transport so stopping a live connection
 does not leave foreground reconnection waiting on a native streaming read.
 
+To save battery, the phone keeps one quiet connection and only asks for what changed.
+A short app switch (file picker, share sheet, another app for under a minute) keeps
+the live stream instead of reconnecting; reopening later skips the handshake and the
+startup snapshot omits the chat list, library and settings the phone already holds.
+Reopening a chat whose transcript has not changed returns no transcript body. Sends
+and uploads finish even if the app is backgrounded mid-request. Answers stream to the
+phone at most every 150 ms, with each batch written in one network flush, and status
+and chat-list pushes leave out unchanged plans, pickers and rows. Streamed text is merged
+by position, so an answer never loses or repeats a chunk while a transcript is loading.
+Retries back off from 1 second to 1 minute and stop after 3 minutes without reaching the
+PC; a returning network or **Retry** reconnects at once. Older desktops keep the previous
+behavior. **Settings → Connection activity** shows the phone's request and stream counts.
+
+The phone's chat list does not reshuffle while it is on screen. Live updates change rows
+where they are (running, unread, title, preview); new chats appear at the top, pinning
+moves a chat, and the desktop's most-recent-first order returns when the list is opened
+again, filtered or reloaded after a reconnect. Like the desktop sidebar, a chat you send to
+moves up. A running chat no longer updates the list at every agent step: the phone hears
+when it starts and finishes, or when something its row shows changes, and filtered lists
+and search results update their rows instead of downloading the list again.
+
+The phone app is laid out like the desktop, in its calm graphite. The desktop's text is Segoe UI,
+which may not ship outside Windows, so the phone bundles **Inter 4** (rsms/inter, SIL Open Font
+License), the typeface of modern product interfaces, in Regular, SemiBold and Bold. It is used for
+all of the phone's text, the conversation, the composer and the web app included: neutral surfaces,
+with the accent kept for the main action and live work. Inter's lowercase stands as tall as
+Roboto's, so its sizes are Android's own: body text is 16 dp (Android's 16sp), secondary text 14.5
+and captions 13, which is also the floor for words anywhere in the app; icons are Android's 24 dp.
+Your messages are spaced as the desktop's bubbles are, at 1.33 of their size whatever that size is.
+On Android the whole scale follows the phone's own **Font size** setting, converted as Android
+converts its own text (large text grows less), which Avalonia does not do by itself. Its places are the desktop's:
+**Chats**, **Jobs**, **Customize** (agents, skills, connectors and projects) and **Settings**
+(with **Memories**), on a glass pill centred in the thumb zone; the open place always wears its
+name. Moving to another place glides the highlight over to it while the names trade places, as the
+desktop's bar does. The glide sets off with its first frame and eases in over the next few, so a page
+building the first time it shows can't make it jump. The new place's page takes over in place: the
+chat list no longer slides across the screen for it. The chat list is titled **Lumi**, with the title bar's glass search and
+**New chat** buttons at its top right, then the project switcher, a glass pill built as a chat's
+title pill is: the project's mark, its name, how many projects there are and a chevron. The chat list
+is home: it opens first, a chat opens over it, and Back or a swipe from anywhere returns to it.
+Each row is the desktop's: the chat's title, led by a dot that pulses while Lumi works and stays
+while a reply waits, with a ring while background work runs and a quiet pin on pinned chats; the
+date groups say when. The open chat wears the desktop's neutral wash and short accent pipe.
+Search results keep a second line with the chat's project and last reply, to recognise a
+match by. A chat's header is the desktop's: a glass title pill with the chat's mark, its title and,
+in the room the title leaves, its project, which opens its details sheet (it also pins, renames
+and deletes the chat). The pill fills the bar between Back (or the list's toggle) and **New chat**,
+which is always the bar's top right: beside a docked list, New chat leaves the list for the chat's
+bar, so the bar stays symmetrical. A chat that takes a moment to load breathes its outline over
+the canvas, with no box of its own over Lumi's glow. Customize lists its sections, with counts, on one card above the section's
+items; every item opens: your own agents, skills, projects and memories in the editor, and
+Lumi's built-in agents and skills, connectors and jobs on a read-only page with their full
+instructions or command from the PC. Connectors and jobs switch on and off right on their row,
+grouped on cards like settings (Jobs counts how many are on and paused), and a job's page opens
+the chat it runs in. From 700 dp wide (an unfolded Galaxy Z Fold, a tablet) every place keeps its
+list beside its content, as the desktop's sidebar does; a book-posture fold splits at the
+crease, and a phone held sideways keeps one pane with one-line chrome. Where the chat keeps
+480 dp beside it, the plan, sources and activity open as a panel on the right, with the chat
+and composer still live; below 1200 dp the chat list steps aside while the panel is open.
+With a keyboard, Ctrl+K searches, Ctrl+N starts a chat, Ctrl+B shows or hides the list,
+Ctrl+1–4 open the places and Ctrl+, opens Settings; a secondary click on a row opens the same
+actions as a long press.
+
+A conversation on the phone wears the desktop's transcript glass at touch size. Lumi's work
+shows as line-icon glass chips, with the desktop's icon for each tool, that say what it is doing
+and then how long it took, how many actions it ran and the lines it added and removed; a turn's
+finished work folds behind **Worked for … · N actions**, updates included, as on the desktop: once
+Lumi stops, a turn without an answer (steered, stopped or cut off) folds up to its last update,
+work still running in the background stays in view, and the thinking behind an answer folds with
+the work even when it was recorded after it. A chip opens a sheet with every
+step, file change and technical detail. An answer ends with its sources as one chip, the files
+it made as file chips, and its model and time beside copy and share, whose glyphs sit a short
+step apart as the desktop's do while each keeps a full touch target. A question Lumi asks is the
+desktop's question card in touch mode: each option, the reply field and its send button are full
+touch targets at the body size. Your messages carry their
+time as the desktop's bubbles do and use the width beside a narrow gutter. Every place's list
+scrolls under the floating places, as the chat list does. The pill is the desktop's navigation pill
+in the desktop's materials: the surface at 40% under an unbroken hairline and a small shadow, with the
+open place's accent glow inset concentrically. As on the desktop's sidebar, the band beneath it frosts
+the rows passing under the places with no tint of its own, fading in 40 dp above them, so they show
+through as softened shape and colour, never as words. Every popup is glass as the desktop's
+menus are: the page shows through the sheet as frosted colour and light, behind a light dim.
+
+The composer shows what the next message carries, as the desktop's does: the chat's project,
+agent and skills as quiet chips above the message, each with a small tile in its kind's hue, in
+new and started chats alike. Connectors are tools the chat may use rather than what a message
+carries, so, as the desktop keeps them behind its Connectors button, the phone keeps them behind
+**+**. A chip opens its picker. **+** opens a sheet with files and photos and one row each for the
+agent, project, skills and connectors, saying what is chosen now. An agent or project is one
+choice that closes its picker; skills and connectors switch on and off in place. The pickers list
+what the PC has (connectors that are on), and keep a skill or connector the chat already uses even
+when the PC no longer lists it, so it can be taken off. Every change reaches the PC as the
+desktop's menus do, and `@`, `/`, `$` and `#` still work while typing. **+** and send are
+two discs of one size at the composer's ends, in the desktop's line glyphs: send is quiet until
+there is something to send, Lumi's gradient once there is, and to stop while Lumi works the quiet
+disc a shade stronger, its square in the theme's own ink, with a breathing ring. The model sits beside send, as on the desktop, and opens its picker: the
+models by provider, then the reasoning effort and context window as the desktop's segments. The
+chat's own settings (plan, Git changes, workspace, pin, rename and delete) open from its title.
+
 The iPhone PWA fills the Home Screen app's full viewport; Safari tabs instead follow
 the dynamic browser toolbar height. Backgrounds run edge to edge, while controls
 respect the notch and home indicator, including after rotation and resume.
 The browser's measured safe areas remain authoritative instead of being overwritten
 by native resize notifications. Keyboard overlap is measured against the actual
 canvas only while an editable field is focused, so browser resizing, zoom, or a
-dismissed keyboard does not add a second bottom gap. Native browser editors use at
-least 16 CSS pixels to avoid Safari's automatic focus zoom and horizontal panning.
+dismissed keyboard does not add a second bottom gap. Android browsers resize the app above
+the keyboard, as Android apps do, instead of panning the whole page up to the editor.
+Native browser editors use at least 16 CSS pixels to avoid Safari's automatic focus zoom
+and horizontal panning.
 Browser chrome and startup backgrounds follow the selected Light, Dark, or System theme.
 Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript realizes
 only turns near the viewport while retaining the full loaded page and offscreen streaming
-updates, avoiding eager layout of every markdown answer when opening a conversation.
+updates, avoiding eager layout of every markdown answer when opening a conversation. Turns
+about to be seen are built at once; turns up to a viewport further out are prepared ahead of
+scrolling one per frame, so a fling meets ready turns instead of building several in one
+frame. Past a viewport and a half, a prepared turn stays attached but hidden at its reserved
+height: returning reuses its styles and templates instead of attaching them again. Hidden
+markdown defers updates until it becomes visible, and leaving the bounded transcript page
+releases its turn controls.
+In the browser everything (layout, rendering and .NET) shares one thread, so per-frame work
+is kept small: native browser editors are only updated when their position, text or options
+actually change (open sheets are tracked rather than searched for after every layout pass),
+code blocks lay out highlighted code as one text with colour ranges instead of one element per
+token (shaped once per content, with one run style per colour), and the drawer and search
+results are one virtualized list of headers and rows, so row controls are recycled across date
+groups. The PWA runtime uses a 16 MB young generation, so garbage collections interrupt
+scrolling and typing about a third as often. Glass surfaces reuse their Skia filter and paint
+objects from frame to frame.
+
+Compatible Android Chromium browsers present completed WebGL frames through a worker-owned
+canvas. Its frame clock avoids Chromium's main-frame high-refresh throttle while rendering
+or touching, with touch moves resampled to that clock. The implementation adapts the
+MIT-licensed [flutter_shim](https://github.com/aumb/flutter_shim) approach to Avalonia's
+WebGL renderer without clearing Skia's drawing buffer. Native editors, mouse/pen input,
+and trusted down/up events keep their normal path. The clock returns to native scheduling
+after drawing stops. Clock messages are bounded to one queued tick, so a busy UI thread
+does not replay a backlog of old refreshes. Acknowledging a received tick lets the next
+refresh overlap rendering; input resampling and animation timestamps advance to the
+current refresh after a stall. Bitmap presentation remains independent of that handshake.
+Unsupported browsers and worker failures use the original canvas.
+The runtime remains single-threaded .NET 10 AOT; no cross-origin isolation is required.
+
+`/app/?workerframes=1` shows the renderer status badge and enables the path for desktop
+Chromium testing. It separates the worker's Hz clock from new frames transferred to its
+canvas each second; neither is a measurement of physical display presentation.
+`/app/?workerframes=0` explicitly selects the normal renderer. Both overrides survive
+cache recovery and app reload without clearing pairing. High-refresh scheduling depends
+on the browser and display; it adds snapshot cost and can increase battery use while
+animating. Normal launches show no diagnostic badge and do not record or upload profiling data.
 
 Mobile uses Strata's short, interruptible rise-and-fade motion for chat switches, new chats,
 page returns and Library categories; native forms and pairing steps fade without moving
@@ -462,11 +785,15 @@ the initial layout. Rendered-pixel tests check partial-opacity frames and visibl
 
 The mobile conversation is an unlimited canvas: history runs edge to edge underneath the floating
 top bar and composer, resting clear of both. Every floating control (the top-bar buttons, the
-composer, jump-to-latest and the background-work pill) is glass of its own, a light frost from
-Strata's `StrataBackdropBlur`, so the conversation stays visible through it as it scrolls. A
-scrim frosts only the status bar and gesture area while content passes beneath them. The drawer's
-search, close, project and settings buttons likewise frost the scrolling list directly; its
-noninteractive brand label is plain typography with no background, border or blur.
+composer, jump-to-latest, the background-work pill and the places) is glass, with the desktop's
+values: the top-bar buttons are its header pills (the overlay surface at two-thirds, a hairline
+rim, a soft shadow, frosted by Strata's `StrataBackdropBlur`), so text passing beneath is a soft
+blur; the composer's frost is a little lighter, so Lumi's presence settled behind it still glows
+through. As on the desktop, history passing under the top bar softens under a frost and a light
+veil that cover the bar and fade out just below it, visible yet never legible; beneath the
+composer, which spans the conversation, a scrim frosts only the gesture area. The chat list and
+every place's page veil their headers the same way, and the places pill sits on the desktop's
+untinted navigation frost, in the desktop's own pill materials.
 Mobile uses one continuous, theme-aware presence field, following the desktop choreography:
 it gathers at the welcome greeting, rises into the live answer while working, and settles
 back behind the glass composer when an existing chat is idle. There is no separate composer
@@ -482,7 +809,11 @@ keylines and soft elevation; their blur is painted before the tint and border so
 crisp instead of being filtered into itself. At rest no
 scrim is drawn, so idle screens spend no extra GPU time. A settled final answer offers one-tap
 **Copy** (confirmed on the tap, before the clipboard write completes) and, on Android, **Share**
-through the system share sheet. Finished work collapses to a compact "Work" disclosure.
+through the system share sheet. Finished work collapses to a compact "Worked for …" disclosure.
+Initial history counts that disclosure once, not every hidden preamble and activity step,
+so tool-heavy chats still open with several recent prompts and replies. Expanding it keeps
+the original steps available; older history and retained source text remain bounded and paged.
+Large history pages shrink at whole-turn boundaries to stay within the response limit.
 
 Mobile popups are floating glass sheets. Only the popup is frosted: it blurs the content
 beneath its own surface and slides with it, while the page around it stays sharp behind a
@@ -507,6 +838,24 @@ dotnet run --project src\Lumi.Mobile.Desktop\Lumi.Mobile.Desktop.csproj -- --pop
 This Debug-only simulator fixture always uses an isolated local profile. Its preview selector
 opens the existing production sheets and interactive form/date pickers; the device selector
 switches between phone, landscape, tablet and Fold layouts.
+
+Preview the whole app — chats in every state, a conversation with a plan, and each place's
+items — on local fixture data, for example on the Galaxy Z Fold7's unfolded screen:
+
+```powershell
+dotnet run --project src\Lumi.Mobile.Desktop\Lumi.Mobile.Desktop.csproj -- --design-preview --device "Galaxy Z Fold7 — open"
+```
+
+The device selector includes the Fold7's cover (412×960 dp), its unfolded screen at the default
+and a larger display size (984×1092 and 750×832 dp), book and tabletop postures, and a large
+landscape tablet; the readout shows how many panes the layout uses.
+
+A Debug Android build opens the same preview on Android's own renderer (where the glass and the
+typeface can differ from the simulator's), for example on an emulator:
+
+```powershell
+adb shell am start -n com.lumi.mobile/crc6470d511f2159c9bd9.MainActivity --ez lumi.design_preview true --es lumi.theme Dark
+```
 
 ### Lumi tool availability
 
@@ -656,7 +1005,12 @@ theme/status-bar colors follow Lumi's Light, Dark, or System preference.
 
 The PWA checks for content-versioned updates on launch, resume, network recovery,
 and a live desktop reconnect. New builds download and integrity-check their
-static assets before activation. When there is no unsent work or open editor,
+static assets before activation. Downloads use individual integrity-checked cache
+adds, with at most four in flight: Safari can reject a multi-file cache operation
+even when every asset can be downloaded and cached individually. Every asset must
+succeed before the worker can activate. A retry creates a fresh registration if
+a failed first installation left the previous registration without a worker;
+it does not clear pairing or existing caches. When there is no unsent work or open editor,
 Lumi activates the update and reopens once automatically. Otherwise an **Update
 ready** banner keeps the current app usable and defers activation/reopening until
 drafts (including other chats and question replies), attachments, uploads,
@@ -667,9 +1021,16 @@ assets only reconnects; it does not reinstall the bundle or reload the app.
 Other open app windows keep their runtime and drafts until they can safely
 reopen too. The refresh URL is a recovery fallback, not the normal update flow.
 
+The browser prepares its attachment picker before the first tap and releases a
+canceled picker, so **+** remains usable after dismissing the photo/file menu.
+Answers submitted from the phone also update the existing desktop question card
+immediately, without switching chats or submitting the answer again.
+
 If tunnel sign-in expires, the PWA stops treating it as a network reconnect and tries one
 same-origin sign-in refresh only when pending actions have finished and no unsent
-or edited work would be lost. That navigation bypasses the static cache so Microsoft's gateway can renew its session;
+or edited work would be lost. That `/app/?lumi-signin=1` navigation bypasses the
+service worker so Microsoft's gateway can renew its session, then opens the
+normal app without unregistering its worker or forcing a cache rebuild;
 only a confirmed live Lumi connection resets the automatic-attempt guard.
 Otherwise, **Sign in again** appears in the connection banner. The existing
 **Settings > Connection > Browser sign-in > Reload web app** action remains
@@ -685,6 +1046,8 @@ The recovered document coordinates activation of the waiting update. Older
 verified framework caches are retained while other app pages remain open, so
 those pages keep their loaded runtime and drafts; subsequent new launches use
 the current build instead of depending on the browser retiring an old page.
+If recovery fails, the page displays the failed step and the browser's error
+message, while keeping pairing and verified caches intact.
 
 **Install as app** does not guarantee a separate Android application identity:
 the browser decides whether it creates a packaged PWA or a browser-hosted
@@ -756,8 +1119,8 @@ Developer builds need the browser assets published to the desktop executable's
 
 ### Lazy MCP initialization
 
-In **Settings > AI & Models > MCP Servers**, enable **Fast MCP Initialization**, then
-**Lazy MCP Initialization** (off by default). Changes apply to new sessions; existing
+In **Settings > AI & Models > Connectors**, enable **Fast Connector Initialization**, then
+**Lazy Connector Initialization** (off by default). Changes apply to new sessions; existing
 sessions keep their configuration.
 
 The first connection starts the real local MCP server and learns its initialization
@@ -770,7 +1133,7 @@ forwarding the operation. Each client keeps its own stable discovery view, even
 when clients share one running backend. Tool results are never cached, and tool
 calls are not replayed after an uncertain failure.
 
-Use **Refresh MCP Tools > Refresh catalogs** in the same settings group to clear
+Use **Refresh Connector Tools > Refresh catalogs** in the same settings group to clear
 stored catalog snapshots and mark current chats for safe reconnect on their next
 turn, preserving their session history and preferences. Active work finishes
 normally: refresh does not force an interruption or kill a busy backend.
@@ -815,13 +1178,73 @@ The proxy rejects the newer `server/discover` request with method-not-found with
 starting or binding a backend, so Copilot can fall back to the supported
 `initialize` handshake with its actual client profile.
 Servers requiring bidirectional client callbacks still need direct Copilot
-connections (turn off Fast MCP Initialization); lazy mode does not add live
+connections (turn off Fast Connector Initialization); lazy mode does not add live
 callback forwarding.
 
 Package-launcher text on stdout (for example, NuGet credential-provider startup
 messages) is logged and retained as redacted diagnostics rather than failing the
 MCP connection. Malformed JSON-RPC, process exits, and initialization timeouts still
 fail explicitly; startup failures include the recent captured output.
+
+## Tool approvals
+
+How much Lumi does on its own is one choice, enforced by GitHub Copilot's native permission
+controls (GitHub.Copilot.SDK **1.0.23-preview.5**, runtime **1.0.100-1**), never by asking the
+model to check first. Lumi only chooses them and installs them again on every session create and
+resume, because the runtime keeps neither rules nor session approvals across a resume.
+
+| Mode | Native control | What happens |
+|---|---|---|
+| **Full access** (default) | `allow-all` mode | How Lumi has always worked: commands, file edits, connectors and Lumi's abilities run without asking. Never and Always-ask rules still apply. |
+| **Auto-review** (Preview) | `assisted` mode | GitHub Copilot's reviewer checks each request against what you asked; Lumi runs what it approves (with a receipt) and asks you about the rest, showing the reviewer's reason. Each check is an AI request on your account. The runtime ships the reviewer as an experimental feature, so Lumi turns on its `AUTO_APPROVAL` flag (`COPILOT_CLI_ENABLED_FEATURE_FLAGS`, keeping any flags you set); it only unlocks this mode, so chats in other modes never call the reviewer. With **Use only your own accounts** on, or when the reviewer is unavailable, the chat asks like Ask first. |
+| **Ask first** | `manual` mode | Lumi asks before commands, file edits, connectors and its own abilities. Reading files in the chat's folder doesn't ask, as in Copilot's own apps. |
+
+**Where it's set:** the welcome tour explains the modes with a live demo and preselects Full
+access; **Settings → Permissions** sets the default; **Customize → Projects → Approvals** sets a
+project's mode and rules; the shield beside the model picker sets one chat's mode (**Follow
+default** returns it to its project or the default). A chat's own choice wins over its project's,
+which wins over the default. Existing chats, projects and jobs have no choice of their own, so they
+keep Full access until the user changes something.
+
+**Rules** (Settings → Permissions, everywhere or for one project): **Always allow** and **Never**
+become native session rules for a command prefix, file edits or reads (optionally a path), a
+connector or one of its tools, or a Lumi ability (browser, desktop apps, web pages, Lumi's settings
+and data, other chats). Never wins even in Full access. **Always ask** becomes the native
+managed-settings Ask layer, which requires a person even in Full access; it is fixed when a session
+starts, so changing one rebuilds that chat's session before its next turn.
+
+**Approval cards** appear in the chat that owns the request: the exact command, the file and its
+diff, the connector with its arguments, or the Lumi ability. **Allow**, **Allow for this chat**,
+**Always in _project_**, **Deny**, or Deny with a note that reaches Lumi as feedback. Remembering
+uses Copilot's native session approval and saves an Allow rule only after the runtime accepts the
+answer; every open chat takes it on at once. **Settings → Permissions → Remembered** lists and
+forgets them: each time Lumi applies a chat's policy it clears the session's own approvals and
+installs the saved rules again, so a forgotten approval stops applying even in an open chat.
+Always-ask, sandbox-escape
+and unrecognized requests offer only a one-time answer (unrecognized ones can only be denied). A bar
+above the composer and an amber shield on the chat row show what is waiting; answered cards fold
+into receipts. Stop, session release, disconnect and closing the chat retire waiting requests
+without answering them.
+
+**When nobody is there:** turns driven by jobs or other chats are unattended until they settle.
+**Wait for me** (default) pauses and notifies; **Skip that action** answers the runtime's native
+"user not available" and leaves a receipt. Turns sent from the composer or the phone app, and
+Regenerate or Edit, wait for you.
+
+**Boundaries:** approval decides *whether* an action runs, not what it can reach: this is not a
+sandbox. Once allowed, a command, browser or desktop action, or in-process Lumi tool runs with your
+account's access, and a connector acts on its own service. Existing foreground-consent and
+platform-capability checks are unchanged. Lumi tools that only look or talk to you (for example
+`ask_question`, `announce_file`, `lumi_browser_look`, `ui_inspect`) carry the native
+`skip_permission` flag and never ask, though a Never rule still blocks them; connector tools that
+declare themselves read-only don't ask in Ask first. Website and memory rules aren't offered,
+because the runtime's URL rules don't cover Lumi's own browser and fetch tools. Local or cloud
+sandboxing and the Interactive/Plan/Autopilot agent modes are separate runtime features these
+controls don't configure. Application helper sessions (titles, suggestions, memory and onboarding)
+keep their own restricted tools. GHCP and external-account routing are unchanged.
+
+In an isolated Debug profile, `StartDebugPermissionProbeCommand` (on a fresh chat) raises three
+real native requests — a command, a new file and a Lumi tool — without sending a model message.
 
 ## Tech Stack
 
@@ -855,7 +1278,7 @@ git submodule update --init --recursive
 ### Build & Run
 
 The Copilot SDK is an official NuGet dependency: `GitHub.Copilot.SDK`
-`1.0.17-preview.7`, restored from NuGet.org. This is a prerelease; its native
+`1.0.23-preview.5`, restored from NuGet.org. This is a prerelease; its native
 skill-provider API is experimental. Avalonia is also restored from NuGet.org;
 no vendored package feed is needed. No SDK submodule, source build, patch step,
 feed credentials, or Node.js installation
@@ -867,6 +1290,13 @@ skills, including reloads, resumed sessions and delegated agents. Lumi's skill
 storage, editing and existing app-data Markdown mirrors are unchanged. Native
 activation does not depend on those mirrors; no workspace `SKILL.md` stubs or
 replacement loader tool are generated.
+
+The selected agent's authored prompt is supplied once by the Copilot runtime,
+not pasted into Lumi's system prompt a second time. Lumi preloads each linked
+or chat-selected skill once by its ID, including when the same skill is selected
+through both paths. Different skills with identical text remain distinct.
+This applies to new and resumed sessions; agent tool restrictions and delegated
+agents' native skill preloads are unchanged.
 
 Official [Avalonia 12.1.4](https://github.com/AvaloniaUI/Avalonia/releases/tag/12.1.4)
 includes both accepted text fixes: batched input-method selection notifications
@@ -948,7 +1378,9 @@ Windows; the engines keep independent initialization, tab, and disposal code.
 The same browser tools provide navigation, safe element targeting, forms, JavaScript,
 uploads, tabs, and actual page screenshots on all three platforms.
 Windows also provides browser phase-timing diagnostics and JavaScript promise
-awaiting with a bounded timeout. Native browser tools keep synchronous JavaScript
+awaiting with a bounded timeout. Each Windows tab retains its own native window
+and rounded clipping region, including after resizing or moving its chat to another window.
+Native browser tools keep synchronous JavaScript
 and do not expose those Windows-only options.
 
 Coding Lumi includes all seven browser tools by default. Existing built-in Coding

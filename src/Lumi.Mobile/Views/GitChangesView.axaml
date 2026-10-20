@@ -29,7 +29,7 @@
           <Button x:Name="GitBackButton" Classes="subtle git-touch"
                   Command="{Binding NavigateGitBackCommand}"
                   AutomationProperties.Name="{Binding GitBackLabel}" ToolTip.Tip="{Binding GitBackLabel}">
-            <PathIcon Width="20" Height="20" Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20v-2z" />
+            <PathIcon Width="22" Height="22" Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20v-2z" />
           </Button>
           <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0">
             <TextBlock Text="{Binding GitHeaderTitle}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
@@ -40,23 +40,23 @@
           <Button x:Name="GitCompactPreviousFileButton" Grid.Column="2" Classes="subtle git-touch"
                   IsVisible="{Binding ShowGitCompactFileNavigation}" Command="{Binding PreviousGitFileCommand}"
                   ToolTip.Tip="Previous file" AutomationProperties.Name="Previous file">
-            <PathIcon Width="18" Height="18" Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+            <PathIcon Width="20" Height="20" Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
           </Button>
           <Button x:Name="GitCompactNextFileButton" Grid.Column="3" Classes="subtle git-touch"
                   IsVisible="{Binding ShowGitCompactFileNavigation}" Command="{Binding NextGitFileCommand}"
                   ToolTip.Tip="Next file" AutomationProperties.Name="Next file">
-            <PathIcon Width="18" Height="18" Data="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z" />
+            <PathIcon Width="20" Height="20" Data="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z" />
           </Button>
           <Button x:Name="GitRefreshButton" Grid.Column="4" Classes="subtle git-touch"
                   Command="{Binding RefreshGitChangesCommand}" ToolTip.Tip="Refresh changed files"
                   AutomationProperties.Name="Refresh changed files">
-            <PathIcon Width="20" Height="20"
+            <PathIcon Width="22" Height="22"
                       Data="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.93 9h-2.02A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
           </Button>
           <Button x:Name="GitCloseButton" Grid.Column="5" Classes="subtle git-touch"
                   Command="{Binding CloseGitChangesCommand}" ToolTip.Tip="Close Git changes"
                   AutomationProperties.Name="Close Git changes">
-            <PathIcon Width="20" Height="20" Data="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.41 4.3 19.71l-1.42-1.42L9.17 12 2.88 5.71 4.3 4.29l6.29 6.3 6.29-6.3z" />
+            <PathIcon Width="22" Height="22" Data="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.41 4.3 19.71l-1.42-1.42L9.17 12 2.88 5.71 4.3 4.29l6.29 6.3 6.29-6.3z" />
           </Button>
         </Grid>
         <StackPanel Margin="12,0" Spacing="2" IsVisible="{Binding ShowGitExpandedScope}">
@@ -186,14 +186,14 @@
               <Button x:Name="GitPreviousFileButton" Grid.Column="1" Classes="subtle git-touch"
                       Command="{Binding PreviousGitFileCommand}" ToolTip.Tip="Previous file"
                       AutomationProperties.Name="Previous file">
-                <PathIcon Width="18" Height="18" Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                <PathIcon Width="20" Height="20" Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
               </Button>
               <TextBlock Grid.Column="2" Text="{Binding GitFilePositionText}" VerticalAlignment="Center"
                          FontSize="{DynamicResource Font.SizeCaption}" Margin="4,0" />
               <Button x:Name="GitNextFileButton" Grid.Column="3" Classes="subtle git-touch"
                       Command="{Binding NextGitFileCommand}" ToolTip.Tip="Next file"
                       AutomationProperties.Name="Next file">
-                <PathIcon Width="18" Height="18" Data="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z" />
+                <PathIcon Width="20" Height="20" Data="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z" />
               </Button>
             </Grid>
           </StackPanel>

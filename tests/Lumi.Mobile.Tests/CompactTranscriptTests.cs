@@ -323,7 +323,7 @@ public sealed class CompactTranscriptTests
 
         Assert.True(answer.HasSources);
         Assert.Equal("1 source", answer.SourceCountText);
-        Assert.Equal("example.com", answer.SourceSummary);
+        Assert.Equal("example.com", answer.SourceDomains);
         answer.OpenSourcesCommand.Execute(null);
 
         Assert.True(chat.IsSourcesSheetOpen);
@@ -338,7 +338,7 @@ public sealed class CompactTranscriptTests
         Assert.True(chat.IsSourcesSheetOpen);
         Assert.NotSame(answer, chat.SelectedSourceAnswer);
         Assert.Equal("Updated source", Assert.Single(chat.SelectedSourceAnswer!.Sources).Title);
-        Assert.Equal("docs.example.net", chat.SelectedSourceAnswer.SourceSummary);
+        Assert.Equal("docs.example.net", chat.SelectedSourceAnswer.SourceDomains);
 
         Assert.True(chat.DismissTopmostSheet());
         Assert.False(chat.IsSourcesSheetOpen);

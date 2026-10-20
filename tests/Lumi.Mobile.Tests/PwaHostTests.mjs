@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 
 const source = name => readFileSync(
     new URL(`../../src/Lumi.Mobile.Browser/wwwroot/${name}`, import.meta.url), 'utf8');
@@ -13,7 +14,8 @@ function eventTarget(properties = {}) {
     return Object.assign(properties, {
         addEventListener(name, callback) {
             const callbacks = listeners.get(name) ?? [];
-            callbacks.push(callback);
+            if (!callbacks.includes(callback))
+                callbacks.push(callback);
             listeners.set(name, callbacks);
         },
         removeEventListener(name, callback) {
@@ -22,6 +24,10 @@ function eventTarget(properties = {}) {
         dispatch(name, event = {}) {
             for (const callback of listeners.get(name) ?? [])
                 callback(event);
+        },
+        dispatchEvent(event) {
+            this.dispatch(event.type, event);
+            return true;
         }
     });
 }
@@ -46,6 +52,7 @@ function host({
     let updates = 0;
     let reloads = 0;
     registration ??= eventTarget({
+        active: {},
         waiting: null,
         installing: null,
         async update() {
@@ -156,7 +163,7 @@ function viewportHost({
         }
     });
     const context = vm.createContext({
-        document, window, navigator: { standalone }, queueMicrotask,
+        document, window, navigator: { standalone }, queueMicrotask, Event,
         getComputedStyle: () => ({
             paddingTop: `${top}px`, paddingRight: `${right}px`,
             paddingBottom: `${bottom}px`, paddingLeft: `${left}px`
@@ -273,6 +280,15 @@ test('viewport updates coalesce after layout and cover focus, rotation, host res
     assert.equal(app.insets.at(-1)[4], 0);
 });
 
+test('Android browsers resize the app above the keyboard instead of panning it', () => {
+    const viewport = source('index.html').match(/<meta name="viewport" content="([^"]+)"/)[1];
+    assert.match(viewport, /interactive-widget=resizes-content/);
+
+    const app = viewportHost({ height: 544, active: { tagName: 'TEXTAREA' } });
+    app.publish();
+    assert.deepEqual(app.insets[0], [59, 0, 34, 0, 0, 544]);
+});
+
 test('browsers without visualViewport keep only their safe area', () => {
     const app = viewportHost({ active: { tagName: 'TEXTAREA' } });
     app.window.visualViewport = undefined;
@@ -293,18 +309,93 @@ test('native editors prevent Safari focus zoom while preserving larger typograph
     assert.ok(!/user-scalable\s*=\s*no|maximum-scale\s*=\s*1/i.test(source('index.html')));
 });
 
-function startup(failedModule) {
+test('canceling the native file picker resolves its wait and allows another selection', async () => {
+    const app = viewportHost();
+    const inputs = [];
+    const removed = [];
+    const storage = {
+        StorageProvider: {
+            openFileDialog(...args) {
+                assert.equal(this, storage.StorageProvider);
+                assert.deepEqual(args, ['start', true, null, false, true]);
+                const input = eventTarget({
+                    tagName: 'INPUT', type: 'file', files: [],
+                    remove() { removed.push(this); }
+                });
+                inputs.push(input);
+                return new Promise(resolve => {
+                    input.addEventListener('change', () => resolve({ files: input.files }));
+                    app.document.dispatch('click', { target: input });
+                });
+            }
+        }
+    };
+    app.context.configureFilePickerCancellation(storage);
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const pending = storage.StorageProvider.openFileDialog('start', true, null, false, true);
+        inputs[attempt].dispatch('cancel');
+        assert.deepEqual((await pending).files, []);
+        assert.equal(removed.at(-1), inputs[attempt]);
+    }
+    const selected = storage.StorageProvider.openFileDialog('start', true, null, false, true);
+    inputs[2].files = [{ name: 'chosen.png' }];
+    inputs[2].dispatch('change');
+    assert.deepEqual((await selected).files, [{ name: 'chosen.png' }]);
+    assert.equal(removed.length, 3);
+});
+
+test('native picker errors still reach the caller without retaining its input or listeners', async () => {
+    const app = viewportHost();
+    let removed = false;
+    const input = eventTarget({
+        tagName: 'INPUT', type: 'file', files: [],
+        remove() { removed = true; }
+    });
+    const storage = { StorageProvider: { openFileDialog() {
+        app.document.dispatch('click', { target: input });
+        throw new Error('Picker unavailable');
+    } } };
+    app.context.configureFilePickerCancellation(storage);
+    await assert.rejects(storage.StorageProvider.openFileDialog(), /Picker unavailable/);
+    assert.equal(removed, true);
+    let changes = 0;
+    input.addEventListener('change', () => changes++);
+    input.dispatch('cancel');
+    assert.equal(changes, 0, 'The canceled handler is removed after failure');
+});
+
+function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '' } = {}) {
     const retry = eventTarget({ hidden: true });
     const label = { textContent: 'Opening Lumi...' };
     const errors = [];
     const modules = [];
+    const lifecycle = [];
+    const warnings = [];
+    const installed = [];
     let reloads = 0;
     let recoveries = 0;
+    let started = false;
     const window = eventTarget({
-        location: { href: 'https://lumi.test/app/', reload: () => reloads++ }
+        location: { href: `https://lumi.test/app/${search}`, search, reload: () => reloads++ }
     });
+    const interop = {
+        SetNativeTextInputText() {}, HandleNativeTextInputKey() {}, SetNativeTextInputFocus() {},
+        SetApplicationActive() {}, CanApplyAppUpdate() {}, SetAppUpdateState() {}, SetNetworkAvailable() {}
+    };
+    const runtime = {
+        getConfig: () => ({ mainAssemblyName: 'Lumi.Mobile.Browser' }),
+        getAssemblyExports: async () => ({ Lumi: { Mobile: { Browser: { BrowserInterop: interop } } } }),
+        runMain: async () => { lifecycle.push('app-start'); started = true; }
+    };
+    const dotnet = {
+        withDiagnosticTracing() { return this; },
+        withEnvironmentVariable() { return this; },
+        withApplicationArgumentsFromQuery() { return this; },
+        create: async () => { lifecycle.push('runtime-created'); return runtime; }
+    };
     const context = vm.createContext({
-        window, location: window.location, navigator: { onLine: true },
+        window, location: window.location, URLSearchParams, navigator: { onLine: true, userAgent },
+        getDotnetRuntime: () => ({ runtimeBuildInfo: { wasmEnableThreads: false } }),
         document: {
             getElementById: () => retry,
             querySelector: () => ({
@@ -312,15 +403,27 @@ function startup(failedModule) {
                 querySelector: () => label
             })
         },
-        console: { error: error => errors.push(error) },
+        console: { error: error => errors.push(error), warn: (...args) => warnings.push(args) },
         async loadModule(name) {
             modules.push(name);
             if (name === failedModule)
                 throw new Error(`HTTP 503 loading ${name}`);
             if (name === './browserHost.js')
-                return {};
+                return { configureNativeTextInputs() {}, configureViewportInsets() {},
+                    configureFilePickerCancellation() { lifecycle.push('picker-prepared'); } };
+            if (name === './_framework/storage.js') {
+                lifecycle.push('storage-loaded');
+                return { StorageProvider: {} };
+            }
             if (name === './pwaHost.js')
-                return { checkAppUpdate() {}, reloadWebApp: () => recoveries++ };
+                return {
+                    checkAppUpdate() {}, reloadWebApp: () => recoveries++,
+                    configureAppLifecycle() {}, configureAppUpdates() {}
+                };
+            if (name === './_framework/dotnet.js')
+                return { dotnet };
+            if (name === './workerFrames.js')
+                return { installWorkerFrames: options => installed.push(options) };
             throw new Error(`Unexpected fixture module ${name}`);
         }
     });
@@ -331,7 +434,8 @@ function startup(failedModule) {
     const ready = vm.runInContext(`(async () => { ${main} })()`, context)
         .catch(error => errors.push(error));
     return {
-        retry, label, errors, modules, ready,
+        retry, label, errors, modules, ready, installed, warnings, lifecycle,
+        get started() { return started; },
         get reloads() { return reloads; },
         get recoveries() { return recoveries; }
     };
@@ -356,6 +460,49 @@ test('a runtime import failure retains explicit PWA recovery once the host modul
     app.retry.dispatch('click');
     assert.equal(app.recoveries, 1);
     assert.equal(app.reloads, 0);
+});
+
+test('picker preparation requires the runtime, precedes app startup, and fails without preventing chatting', async () => {
+    const ready = startup(null);
+    await ready.ready;
+    assert.deepEqual(ready.lifecycle, ['runtime-created', 'storage-loaded', 'picker-prepared', 'app-start']);
+    assert.equal(ready.errors.length, 0);
+    assert.equal(ready.warnings.length, 0);
+    const failed = startup('./_framework/storage.js');
+    await failed.ready;
+    assert.equal(failed.started, true);
+    assert.equal(failed.errors.length, 0);
+    assert.match(failed.warnings[0][0], /attachment picker could not be prepared/);
+});
+
+test('Android Chromium enables worker rendering without diagnostic UI; other browsers keep their renderer', async () => {
+    for (const [userAgent, search, expected] of [
+        ['Android 15 Chrome/143.0.0.0', '', true],
+        ['Android 15 SamsungBrowser/30 Chrome/143.0.0.0', '', true],
+        ['Android 15 Firefox/143.0', '', false],
+        ['Windows Chrome/143.0.0.0', '', false],
+        ['iPhone Safari/605.1', '', false],
+        ['Android 15 Chrome/143.0.0.0', '?workerframes=0', false],
+        ['Windows Chrome/143.0.0.0', '?workerframes=1', true]
+    ]) {
+        const app = startup(null, { userAgent, search });
+        await app.ready;
+        assert.equal(app.installed.length, expected ? 1 : 0, `${userAgent} ${search}`);
+        if (expected)
+            assert.equal(app.installed[0].showStatus, search === '?workerframes=1');
+        assert.equal(app.started, true);
+        assert.equal(app.errors.length, 0);
+        assert.ok(!app.modules.includes('./pwaDiagnostics.js'));
+    }
+});
+
+test('a worker module download failure still starts the normal app and reports the fallback', async () => {
+    const app = startup('./workerFrames.js', { userAgent: 'Android Chrome/143.0.0.0' });
+    await app.ready;
+    assert.equal(app.started, true);
+    assert.equal(app.warnings.length, 1);
+    assert.equal(app.errors.length, 0);
+    assert.equal(app.retry.hidden, true);
 });
 
 function waitingWorker() {
@@ -432,13 +579,25 @@ test('automatic gateway recovery crosses the network once until Lumi confirms a 
     const origin = 'https://private-47654.uks1.devtunnels.ms';
     const app = host({ origin });
     assert.equal(app.context.recoverGatewaySignIn(), true);
-    assert.deepEqual(app.navigations, [`${origin}/app/?lumi-refresh=1`]);
+    assert.deepEqual(app.navigations, [`${origin}/app/?lumi-signin=1`]);
     assert.equal(app.context.recoverGatewaySignIn(), false);
     const reopened = host({ origin, storage: app.storage });
     assert.equal(reopened.context.recoverGatewaySignIn(), false);
     reopened.context.confirmGatewaySignIn();
     assert.equal(reopened.context.recoverGatewaySignIn(), true);
-    assert.deepEqual(reopened.navigations, [`${origin}/app/?lumi-refresh=1`]);
+    assert.deepEqual(reopened.navigations, [`${origin}/app/?lumi-signin=1`]);
+    assert.equal(app.registrations.length, 0, 'Sign-in must not rebuild the app cache');
+});
+
+test('gateway sign-in strips stale recovery markers without carrying unrelated query values', () => {
+    const origin = 'https://private-47654.uks1.devtunnels.ms';
+    const app = host({ origin });
+    app.window.location.href = `${origin}/app/?lumi-refresh=1&workerframes=0&token=SECRET`;
+    app.context.recoverGatewaySignIn();
+    assert.deepEqual(app.navigations, [`${origin}/app/?lumi-signin=1&workerframes=0`]);
+    app.window.location.href = `${origin}/app/?lumi-signin=1&lumi-refresh=1&other=kept`;
+    app.context.configureAppLifecycle(() => {});
+    assert.equal(app.window.location.href, `${origin}/app/?other=kept`);
 });
 
 test('automatic Microsoft sign-in recovery is restricted to an HTTPS Dev Tunnel origin', () => {
@@ -458,7 +617,8 @@ test('manual recovery remains available after an unsuccessful automatic attempt'
     assert.equal(app.context.recoverGatewaySignIn(), false);
     app.context.reloadWebApp();
     assert.equal(app.navigations.length, 2);
-    assert.equal(app.navigations[0], app.navigations[1]);
+    assert.equal(new URL(app.navigations[0]).search, '?lumi-signin=1');
+    assert.equal(new URL(app.navigations[1]).search, '?lumi-refresh=1');
 });
 
 test('storage failure leaves explicit sign-in recovery available instead of entering a reload loop', () => {
@@ -686,6 +846,52 @@ test('a failed initial registration can be retried without clearing pairing or o
     assert.equal(app.reloads, 0);
 });
 
+test('retry replaces a workerless registration instead of updating it forever', async () => {
+    const app = host({ storage: new Map([['pairing-test', 'kept']]) });
+    const states = [];
+    app.context.configureAppUpdates(() => false, state => states.push(state));
+    await app.context.registerAppCache();
+    const failed = app.registration;
+    failed.active = null;
+    failed.update = async () => { throw new Error('The abandoned registration must not be updated'); };
+    const worker = eventTarget({ state: 'installing' });
+    const replacement = eventTarget({
+        active: null, waiting: null, installing: worker, async update() {}
+    });
+    let registrations = 0;
+    app.serviceWorker.register = async () => { registrations++; return replacement; };
+    const checks = [app.context.checkAppUpdate(), app.context.checkAppUpdate()];
+    await Promise.all(checks);
+    assert.equal(registrations, 1);
+    worker.state = 'redundant';
+    replacement.installing = null;
+    worker.dispatch('statechange');
+    assert.equal(states.at(-1), 'failed');
+    replacement.active = {};
+    app.serviceWorker.controller = replacement.active;
+    app.serviceWorker.dispatch('controllerchange');
+    assert.equal(states.at(-1), 'current', 'A successful first controller clears the prior failure');
+    assert.equal(app.storage.get('pairing-test'), 'kept');
+    assert.equal(app.reloads, 0);
+});
+
+test('an update without an active or installing worker does not report a failed cache as current', async () => {
+    const app = host();
+    const states = [];
+    app.context.configureAppUpdates(() => true, state => states.push(state));
+    await app.context.registerAppCache();
+    const worker = eventTarget({ state: 'installing' });
+    app.registration.installing = worker;
+    app.registration.dispatch('updatefound');
+    app.registration.active = null;
+    app.registration.installing = null;
+    worker.state = 'redundant';
+    worker.dispatch('statechange');
+    await app.context.checkAppUpdate();
+    assert.equal(states.at(-1), 'failed');
+    assert.equal(app.reloads, 0);
+});
+
 test('activation timeout or post failure is visible and does not reload an unactivated worker', async () => {
     for (const throwOnPost of [false, true]) {
         const app = host({ controller: {} });
@@ -708,7 +914,10 @@ test('activation timeout or post failure is visible and does not reload an unact
     }
 });
 
-async function recovery({ scope = 'https://lumi.test/app/', failure, serviceWorker = true } = {}) {
+async function recovery({
+    scope = 'https://lumi.test/app/', failure, registrationFailure, updateFailure,
+    serviceWorker = true, query = '?lumi-refresh=1'
+} = {}) {
     const status = { textContent: '' };
     const retry = eventTarget({ hidden: true });
     const navigations = [];
@@ -727,7 +936,10 @@ async function recovery({ scope = 'https://lumi.test/app/', failure, serviceWork
     const context = {
         document: { getElementById: id => id === 'cache-recovery-status' ? status : retry },
         window: {
-            location: { origin: 'https://lumi.test', replace: url => navigations.push(url) },
+            location: {
+                origin: 'https://lumi.test', href: `https://lumi.test/app/${query}`,
+                replace: url => navigations.push(url)
+            },
             get localStorage() { throw new Error('Pairing storage must not be touched'); },
             get sessionStorage() { throw new Error('App session state must not be touched'); }
         },
@@ -745,7 +957,13 @@ async function recovery({ scope = 'https://lumi.test/app/', failure, serviceWork
                 assert.equal(url, 'https://lumi.test/app/service-worker.js');
                 assert.equal(options.scope, 'https://lumi.test/app/');
                 assert.equal(options.updateViaCache, 'none');
-                return { waiting: worker, async update() { updates++; } };
+                if (registrationFailure)
+                    throw registrationFailure;
+                return { waiting: worker, async update() {
+                    updates++;
+                    if (updateFailure)
+                        throw updateFailure;
+                } };
             }
         } } : {},
         URL, setTimeout, clearTimeout,
@@ -778,12 +996,60 @@ test('fresh recovery exposes an unregister failure instead of looping or silentl
     assert.equal(app.errors.length, 1);
     assert.equal(app.retry.hidden, false);
     assert.match(app.status.textContent, /pairing is kept/);
+    assert.match(app.status.textContent, /Replacing the app registration/);
+    assert.match(app.status.textContent, /Controller could not be removed/);
+});
+
+test('recovery reports the failing browser step instead of only a generic refresh error', async () => {
+    for (const [options, stage, reason] of [
+        [{ registrationFailure: new Error('Script fetch was redirected') },
+            'Registering the current app', 'Script fetch was redirected'],
+        [{ updateFailure: new Error('Storage is unavailable') },
+            'Checking for the current build', 'Storage is unavailable']
+    ]) {
+        const app = await recovery(options);
+        assert.equal(app.retry.hidden, false);
+        assert.equal(app.navigations.length, 0);
+        assert.equal(app.errors.length, 1);
+        assert.ok(app.status.textContent.includes(stage));
+        assert.ok(app.status.textContent.includes(reason));
+        assert.match(app.status.textContent, /pairing is kept/);
+    }
+});
+
+test('fresh recovery drops profiling and unrelated query values without touching pairing', async () => {
+    const app = await recovery({ query: '?lumi-refresh=1&profile=1&token=private&returnTo=https://other.test/' });
+    assert.deepEqual(app.navigations, ['https://lumi.test/app/']);
+    const refresh = await recovery({ query: '?lumi-refresh=1&profile=refresh&token=SECRET' });
+    assert.deepEqual(refresh.navigations, ['https://lumi.test/app/']);
+    const normal = await recovery({ query: '?lumi-refresh=1&profile=0' });
+    assert.deepEqual(normal.navigations, ['https://lumi.test/app/']);
+});
+
+test('exact worker-renderer overrides survive cache recovery and app reload without retaining other queries', async () => {
+    const recovered = await recovery({
+        query: '?lumi-refresh=1&workerframes=1&token=SECRET&returnTo=https://other.test/'
+    });
+    assert.deepEqual(recovered.navigations, ['https://lumi.test/app/?workerframes=1']);
+    const combined = await recovery({ query: '?workerframes=1&profile=refresh' });
+    assert.deepEqual(combined.navigations, ['https://lumi.test/app/?workerframes=1']);
+    const disabled = await recovery({ query: '?workerframes=0' });
+    assert.deepEqual(disabled.navigations, ['https://lumi.test/app/?workerframes=0']);
+    const invalid = await recovery({ query: '?workerframes=true' });
+    assert.deepEqual(invalid.navigations, ['https://lumi.test/app/']);
+    const app = host();
+    app.window.location.href = 'https://lumi.test/app/?workerframes=1&secret=private';
+    app.context.reloadWebApp();
+    assert.deepEqual(app.navigations, ['https://lumi.test/app/?lumi-refresh=1&workerframes=1']);
+    app.window.location.href = 'https://lumi.test/app/?workerframes=0';
+    app.context.reloadWebApp();
+    assert.equal(app.navigations.at(-1), 'https://lumi.test/app/?lumi-refresh=1&workerframes=0');
 });
 
 function worker({
     installError, missingCache = false,
     scope = 'https://lumi.test/app/', networkError, networkStatus = 200, networkType = 'basic',
-    appClients = [], legacyFramework
+    appClients = [], legacyFramework, assets, cacheAsset
 } = {}) {
     const handlers = new Map();
     const requests = [];
@@ -794,10 +1060,11 @@ function worker({
     let claims = 0;
     let skips = 0;
     const cache = {
-        async addAll(values) {
-            requests.push(...values);
+        async add(request) {
+            requests.push(request);
             if (installError)
                 throw installError;
+            await cacheAsset?.(request);
         },
         async match(url) {
             return missingCache ? undefined : { cached: url };
@@ -806,7 +1073,7 @@ function worker({
     const self = {
         registration: { scope },
         lumiAssetVersion: 'build2',
-        lumiAssets: [
+        lumiAssets: assets ?? [
             { url: 'index.html', hash: 'sha256-shell' },
             { url: 'main.js', hash: 'sha256-main' },
             { url: '_framework/runtime.wasm', hash: 'sha256-wasm' }
@@ -886,6 +1153,63 @@ test('a rejected asset prevents installation instead of accepting a partial app 
     await assert.rejects(app.lifecycle('install'), /Integrity mismatch/);
     assert.equal(app.claims, 0);
     assert.equal(app.skips, 0);
+    assert.equal(app.warnings.length, 3);
+    assert.equal(app.deleted.length, 0, 'A failed update must not clear an existing cache');
+});
+
+test('Safari cache installation uses single-asset adds with at most four in flight', async () => {
+    const assets = Array.from({ length: 9 }, (_, i) => ({
+        url: `asset-${i}.js`, hash: `sha256-test${i}`
+    }));
+    const pending = [];
+    let inFlight = 0;
+    let peak = 0;
+    const app = worker({
+        assets,
+        cacheAsset: () => new Promise(resolve => {
+            inFlight++;
+            peak = Math.max(peak, inFlight);
+            pending.push(() => { inFlight--; resolve(); });
+        })
+    });
+    const install = app.lifecycle('install');
+    await settle();
+    assert.equal(app.requests.length, 4);
+    pending.shift()();
+    await settle();
+    assert.equal(app.requests.length, 4, 'Finish the current batch before starting the next');
+    pending.splice(0).forEach(resolve => resolve());
+    await settle();
+    assert.equal(app.requests.length, 8);
+    pending.splice(0).forEach(resolve => resolve());
+    await settle();
+    assert.equal(app.requests.length, 9);
+    pending.splice(0).forEach(resolve => resolve());
+    await install;
+    assert.equal(peak, 4);
+    assert.equal(inFlight, 0);
+    assert.equal(app.claims, 0);
+    assert.equal(app.skips, 0);
+});
+
+test('a later asset failure stops installation before any further batch or activation', async () => {
+    const assets = Array.from({ length: 9 }, (_, i) => ({
+        url: `asset-${i}.js`, hash: `sha256-test${i}`
+    }));
+    const app = worker({
+        assets,
+        cacheAsset: async request => {
+            if (request.url.endsWith('/asset-4.js'))
+                throw new Error('Integrity mismatch');
+        }
+    });
+    await assert.rejects(app.lifecycle('install'), /Integrity mismatch/);
+    assert.equal(app.requests.length, 8);
+    assert.equal(app.claims, 0);
+    assert.equal(app.skips, 0);
+    assert.equal(app.deleted.length, 0);
+    assert.equal(app.warnings.length, 1);
+    assert.match(app.warnings[0][0], /asset-4\.js/);
 });
 
 test('activation removes only obsolete Lumi app caches', async () => {
@@ -1002,6 +1326,14 @@ test('fresh recovery documents and scripts always escape the static app cache', 
     assert.equal(app.requests.length, 0);
 });
 
+test('Microsoft sign-in navigation reaches the gateway without intercepting or rebuilding the app', async () => {
+    const origin = 'https://private-47654.uks1.devtunnels.ms';
+    const app = worker({ scope: origin + '/app/' });
+    assert.equal(await app.fetch(origin + '/app/?lumi-signin=1', { mode: 'navigate' }), undefined);
+    assert.equal(app.network.length, 0);
+    assert.equal(app.requests.length, 0);
+});
+
 test('APIs, files, foreign origins, commands and unknown assets are never intercepted or cached', async () => {
     const app = worker();
     for (const url of [
@@ -1033,7 +1365,8 @@ test('published inventory covers final app/WASM bytes with stable content hashes
     const assets = self.lumiAssets;
     assert.ok(assets.length > 5);
     for (const name of ['index.html', 'main.js', 'browserHost.js', 'pwaHost.js',
-        'manifest.webmanifest', 'service-worker.js', '_framework/dotnet.js']) {
+        'manifest.webmanifest', 'service-worker.js', '_framework/dotnet.js',
+        'workerFrames.js', 'workerFramePresenter.js']) {
         assert.ok(assets.some(asset => asset.url === name), `Missing ${name}`);
     }
     assert.ok(!assets.some(asset => asset.url.startsWith('cache-recovery.')));
@@ -1045,6 +1378,13 @@ test('published inventory covers final app/WASM bytes with stable content hashes
         assert.notEqual(asset.url, 'service-worker-assets.js');
         const bytes = readFileSync(path.join(publishRoot, ...asset.url.split('/')));
         assert.equal(asset.hash, 'sha256-' + createHash('sha256').update(bytes).digest('base64'), asset.url);
+    }
+    for (const name of [...assets.map(asset => asset.url), 'service-worker-assets.js']) {
+        const file = path.join(publishRoot, ...name.split('/'));
+        for (const [extension, decompress] of [['.br', brotliDecompressSync], ['.gz', gunzipSync]]) {
+            if (existsSync(file + extension))
+                assert.deepEqual(decompress(readFileSync(file + extension)), readFileSync(file), name + extension);
+        }
     }
     const inventoryBytes = content.slice(0, content.indexOf('self.lumiAssetVersion'));
     assert.equal(self.lumiAssetVersion, createHash('sha256').update(inventoryBytes).digest('hex').toUpperCase());

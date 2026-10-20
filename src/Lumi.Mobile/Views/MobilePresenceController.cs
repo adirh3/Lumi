@@ -91,7 +91,8 @@ internal sealed class MobilePresenceController : IDisposable
     private void ApplyThemeIntensity()
     {
         var isLight = _presence.ActualThemeVariant == ThemeVariant.Light;
-        _presence.Intensity = isLight ? 0.20 : 0.56;
+        // A hint of Lumi behind the conversation, as on the desktop: the surfaces stay graphite.
+        _presence.Intensity = isLight ? 0.18 : 0.48;
     }
 
     public StrataPresence Visual => _presence;

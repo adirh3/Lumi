@@ -19,7 +19,40 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains($"personal {computerName} assistant", prompt);
         Assert.Contains($"## Your {computerName} Environment", prompt);
         if (platform != SystemPromptBuilder.PromptPlatform.Windows)
-            Assert.DoesNotMatch(@"\bPC\b", prompt);
+            Assert.DoesNotMatch(@"\bPC\b", WithoutEnvironmentMetadata(prompt));
+    }
+
+    [Theory]
+    [InlineData("- Machine: DEV-PC")]
+    [InlineData(@"- User profile: C:\Users\PC")]
+    [InlineData(@"- Common folders: C:\Users\PC\Documents")]
+    public void HostWordingAssertion_ExcludesOnlyEnvironmentMetadata(string metadata)
+    {
+        Assert.Equal("Generated wording", WithoutEnvironmentMetadata($"Generated wording\n{metadata}"));
+        Assert.Equal("Use your PC", WithoutEnvironmentMetadata($"Use your PC\n{metadata}"));
+    }
+
+    private static string WithoutEnvironmentMetadata(string prompt)
+        => string.Join('\n', prompt.Split('\n').Where(line =>
+            !line.StartsWith("- Machine:", StringComparison.Ordinal)
+            && !line.StartsWith("- User profile:", StringComparison.Ordinal)
+            && !line.StartsWith("- Common folders:", StringComparison.Ordinal)));
+
+    [Theory]
+    [InlineData("Windows")]
+    [InlineData("MacOS")]
+    [InlineData("Linux")]
+    public void EmailAndCalendarUseAConnectorFirstWithoutBypassingPolicyOrSendReview(string platformName)
+    {
+        var platform = System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName);
+        var prompt = SystemPromptBuilder.Build(new UserSettings { Language = "en" },
+            agent: null, project: null, allSkills: [], activeSkills: [], memories: [], platform: platform);
+
+        Assert.Contains("f an email connector such as Microsoft Work IQ is available, use it and its skill first", prompt);
+        Assert.Contains("never work around its policy denials", prompt);
+        Assert.Contains("review-before-send still applies", prompt);
+        Assert.Contains("**Calendar works the same way** — a connector first", prompt);
+        Assert.Contains("webmail", prompt);
     }
 
     [Fact]
@@ -66,6 +99,50 @@ public sealed class SystemPromptBuilderTests
         Assert.DoesNotContain(lazy.Content, prompt);
         Assert.DoesNotContain("--- Available Skills ---", prompt);
         Assert.DoesNotContain("fetch_skill", prompt);
+    }
+
+    [Fact]
+    public void Skills_PreloadEachLinkedAndSelectedSkillOnlyOnce()
+    {
+        var shared = new Skill { Name = "Shared", Content = "SHARED_SKILL_BODY" };
+        var linked = new Skill { Name = "Linked", Content = "LINKED_SKILL_BODY" };
+        var selected = new Skill { Name = "Selected", Content = "SELECTED_SKILL_BODY" };
+        var agent = new LumiAgent { Name = "Agent", SkillIds = [shared.Id, linked.Id, shared.Id] };
+
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" }, agent, project: null,
+            allSkills: [shared, linked, selected],
+            activeSkills: [shared, selected, shared, selected], memories: []);
+
+        foreach (var skill in new[] { shared, linked, selected })
+            Assert.Equal(1, prompt.Split(skill.Content, StringSplitOptions.None).Length - 1);
+        Assert.Contains("--- Agent Skills ---", prompt);
+        Assert.Contains("--- Active Skills (use these to help the user) ---", prompt);
+    }
+
+    [Fact]
+    public void Skills_DeduplicateRepeatedSelectionsWithoutAnAgent()
+    {
+        var skill = new Skill { Name = "Selected", Content = "SELECTED_SKILL_BODY" };
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" }, agent: null, project: null,
+            allSkills: [skill], activeSkills: [skill, skill], memories: []);
+
+        Assert.Equal(1, prompt.Split(skill.Content, StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void Skills_KeepDistinctSkillsWithTheSameContent()
+    {
+        var first = new Skill { Name = "First", Content = "SHARED_AUTHORED_CONTENT" };
+        var second = new Skill { Name = "Second", Content = first.Content };
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" }, agent: null, project: null,
+            allSkills: [first, second], activeSkills: [first, second], memories: []);
+
+        Assert.Contains("### First", prompt);
+        Assert.Contains("### Second", prompt);
+        Assert.Equal(2, prompt.Split(first.Content, StringSplitOptions.None).Length - 1);
     }
 
     [Theory]
@@ -239,6 +316,8 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("## Writing Style", prompt);
         Assert.Contains("Write like a knowledgeable friend", prompt);
         Assert.Contains("Lead with the answer, not the preamble", prompt);
+        Assert.Contains("Lumi folds them away with your tool calls once your final reply arrives", prompt);
+        Assert.Contains("Make that final reply stand on its own", prompt);
         Assert.Contains("Emoji are welcome when they fit the moment naturally", prompt);
         Assert.Contains("respond as a person first", prompt);
         Assert.Contains("show genuine curiosity about what they built or achieved", prompt);
@@ -597,8 +676,7 @@ public sealed class SystemPromptBuilderTests
     [Fact]
     public void WindowsCapabilitiesSection_MatchesBaselineWhitespace()
     {
-        // Locks the "## What You Can Do" section to the prior release's EXACT (intentionally ragged)
-        // leading whitespace so the Windows prompt cannot silently drift if the literal is reformatted.
+        // Locks the intentionally ragged leading whitespace alongside the connector-first wording.
         var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Windows).ReplaceLineEndings("\n");
         const string expected =
             "  ## What You Can Do\n" +
@@ -608,7 +686,7 @@ public sealed class SystemPromptBuilderTests
             " - **Automate the browser** (navigate, click, type, screenshot)\n" +
             "- **Automate any desktop window** via UI Automation — click buttons, type text, read values in any app\n" +
             "- **Query app databases** — most apps store data locally in SQLite, JSON, or XML files\n" +
-            " - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, use webmail in the browser — see **Email** under Quick Reference)\n" +
+            " - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, see **Email** under Quick Reference)\n" +
             " - **Manage the system** — processes, disk space, installed apps, network, clipboard, and more\n";
         Assert.Contains(expected, prompt);
     }

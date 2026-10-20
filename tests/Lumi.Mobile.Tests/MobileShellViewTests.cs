@@ -113,6 +113,15 @@ public sealed class MobileShellViewTests
     private static Control Named(Window window, string name) =>
         window.GetVisualDescendants().OfType<Control>().Single(c => c.Name == name);
 
+    /// <summary>A real tap at the control's centre, so hit testing decides what receives it.</summary>
+    private static void Tap(Window window, Control control)
+    {
+        var centre = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;
+        window.MouseDown(centre, MouseButton.Left);
+        window.MouseUp(centre, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
     private sealed class RecordingNativeTextInputOverlayPresenter : INativeTextInputOverlayPresenter
     {
         public List<Session> Sessions { get; } = [];
@@ -137,6 +146,10 @@ public sealed class MobileShellViewTests
         {
             public bool IsShown { get; private set; }
 
+            public int ShowCount { get; private set; }
+
+            public int HideCount { get; private set; }
+
             public bool FocusRequested { get; private set; }
 
             public int FocusRequestCount { get; private set; }
@@ -158,13 +171,18 @@ public sealed class MobileShellViewTests
                 NativeTextInputOverlayOptions options)
             {
                 IsShown = true;
+                ShowCount++;
                 Bounds = bounds;
                 ClipBounds = clipBounds;
                 Value = value;
                 Options = options;
             }
 
-            public void Hide() => IsShown = false;
+            public void Hide()
+            {
+                IsShown = false;
+                HideCount++;
+            }
 
             public void FocusAt(int caretIndex)
             {
@@ -405,6 +423,7 @@ public sealed class MobileShellViewTests
 
             Pair(shell);
             shell.ShowPageCommand.Execute("Settings");
+            shell.OpenSettingsSectionCommand.Execute("Connection");
             Pump(window);
             var settingsText = string.Join("\n", Named(window, "SettingsPage").GetVisualDescendants()
                 .OfType<TextBlock>().Select(block => block.Text));
@@ -565,7 +584,16 @@ public sealed class MobileShellViewTests
                 Assert.True(searchBox.Focusable);
                 Assert.True(searchSession.FocusRequested);
                 Assert.Equal("search", searchSession.Options.InputMode);
-                Assert.Equal(searchBox.Padding, searchSession.Options.Padding);
+                // The native editor spans the whole capsule, so its text must clear the magnifier and
+                // start where Avalonia's own text does (the 1dp glass border is the only difference).
+                var searchText = searchBox.GetVisualDescendants().OfType<TextPresenter>().Single();
+                var searchTextLeft = searchText.TranslatePoint(default, searchBox)!.Value.X;
+                Assert.True(searchTextLeft > searchBox.Padding.Left + 20,
+                    "the search capsule must lead with its magnifier");
+                Assert.InRange(searchSession.Options.Padding.Left, searchTextLeft - 1.5, searchTextLeft + 0.5);
+                Assert.Equal(searchBox.Padding.Top, searchSession.Options.Padding.Top);
+                Assert.Equal(searchBox.Padding.Right, searchSession.Options.Padding.Right);
+                Assert.Equal(searchBox.Padding.Bottom, searchSession.Options.Padding.Bottom);
                 Assert.Equal(searchBox.FontSize, searchSession.Options.FontSize);
                 Assert.Equal((int)searchBox.FontWeight, searchSession.Options.FontWeight);
                 Assert.Equal(searchBox.TextAlignment.ToString().ToLowerInvariant(),
@@ -580,7 +608,10 @@ public sealed class MobileShellViewTests
 
                 var librarySearch = Assert.Single(
                     presenter.Sessions,
-                    session => session.IsShown && session.Options.Placeholder == "Search");
+                    session => session.IsShown && session.Options.Placeholder == shell.Library.SearchPlaceholder);
+                Assert.Equal($"Search {shell.Library.SectionTitle.ToLowerInvariant()}", shell.Library.SearchPlaceholder);
+                // Its native text also clears the capsule's magnifier.
+                Assert.True(librarySearch.Options.Padding.Left > 30);
                 librarySearch.SimulateText("agent");
                 Pump(window);
                 Assert.Equal("agent", shell.Library.SearchText);
@@ -684,7 +715,8 @@ public sealed class MobileShellViewTests
 
                 shell.Page = MobilePage.Library;
                 shell.Library.IsEditing = true;
-                Layout(window, shell, 412, 500);
+                shell.Library.EditBody = string.Join("\n", Enumerable.Repeat("A long line of project instructions.", 24));
+                Layout(window, shell, 412, 460);
                 var editorScroll = Named(window, "EditNameBox")
                     .GetVisualAncestors()
                     .OfType<ScrollViewer>()
@@ -696,7 +728,9 @@ public sealed class MobileShellViewTests
 
                 Assert.False(
                     nameSession.IsShown,
-                    "A scrolled-off TextBox must not leave a fixed browser input over the page.");
+                    "A scrolled-off TextBox must not leave a fixed browser input over the page. "
+                    + $"Scroll {editorScroll.Offset} of {editorScroll.Extent} in {editorScroll.Viewport}; "
+                    + $"session {nameSession.Bounds} clip {nameSession.ClipBounds}.");
                 Assert.All(
                     presenter.Sessions.Where(session => session.IsShown),
                     session =>
@@ -706,6 +740,60 @@ public sealed class MobileShellViewTests
                         Assert.InRange(session.ClipBounds.Right, 0, window.ClientSize.Width);
                         Assert.InRange(session.ClipBounds.Bottom, 0, window.ClientSize.Height);
                     });
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.ResetTextInputOverlayPresenter(presenter);
+        }
+    }
+
+    [Fact]
+    public async Task BrowserTextInputOverlayOnlyCallsTheBrowserWhenTheInputChanges()
+    {
+        var presenter = new RecordingNativeTextInputOverlayPresenter();
+        MobilePlatformServices.TextInputOverlayPresenter = presenter;
+        try
+        {
+            await RunAsync(async (shell, window) =>
+            {
+                Pair(shell);
+                OpenChat(shell);
+                Layout(window, shell, 412, 892);
+                await Task.Delay(360);
+                Pump(window);
+
+                var composerBox = window.GetVisualDescendants()
+                    .OfType<TextBox>()
+                    .Single(textBox => textBox.Name == "PART_Input");
+                var composer = Assert.Single(
+                    presenter.Sessions,
+                    session => session.IsShown
+                               && session.Options.Placeholder == composerBox.PlaceholderText);
+                composer.FocusAt(0);
+                composer.SimulateText("Hello");
+                await Task.Delay(400);
+                Pump(window);
+
+                // Every layout pass in the app reaches the overlay; unchanged inputs must stay silent.
+                var shows = composer.ShowCount;
+                var hides = presenter.Sessions.Sum(session => session.HideCount);
+                for (var pass = 0; pass < 5; pass++)
+                    Pump(window);
+                Assert.Equal(shows, composer.ShowCount);
+                Assert.Equal(hides, presenter.Sessions.Sum(session => session.HideCount));
+
+                // Text typed in the browser is already displayed there.
+                composer.SimulateText("Hello there");
+                Pump(window);
+                Assert.Equal("Hello there", composerBox.Text);
+                Assert.Equal(shows, composer.ShowCount);
+
+                // A change made by Lumi still reaches the browser.
+                shell.Chat.PromptText = "Replaced by Lumi";
+                Pump(window);
+                Assert.True(composer.ShowCount > shows);
+                Assert.Equal("Replaced by Lumi", composer.Value);
             });
         }
         finally
@@ -808,11 +896,12 @@ public sealed class MobileShellViewTests
     }
 
     [Fact]
-    public async Task RotatingBackToCompact_UndocksTheDrawer()
+    public async Task RotatingBackToCompact_UndocksTheListAndKeepsTheOpenChatInView()
     {
         await Run((shell, window) =>
         {
             Pair(shell);
+            OpenChat(shell);
             Layout(window, shell, 1112, 834);
             Assert.True(DrawerOpen(window));
 
@@ -822,6 +911,26 @@ public sealed class MobileShellViewTests
             Assert.False(DrawerOpen(window));
             Assert.Equal(0, Drawer(window).Progress);
             Assert.True(shell.ShowMenuButton);
+            Assert.True(shell.ShowBackToChats);
+            Assert.True(shell.CanGoBack, "back from the chat returns to the chat list");
+        });
+    }
+
+    /// <summary>With nothing open, one pane lands where the app starts: the chat list.</summary>
+    [Fact]
+    public async Task FoldingWithNothingOpen_LandsOnTheChatList()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, 1112, 834);
+            Assert.True(shell.IsDrawerDocked);
+
+            Layout(window, shell, 412, 892);
+
+            Assert.False(shell.IsDrawerDocked);
+            Assert.True(shell.IsDrawerOpen);
+            Assert.False(shell.CanGoBack, "the list is home, so back leaves the app");
         });
     }
 
@@ -910,7 +1019,7 @@ public sealed class MobileShellViewTests
     }
 
     [Fact]
-    public async Task LibrarySectionSelection_IsOneRoundedSurface()
+    public async Task LibrarySectionSelection_IsOneRowOnARoundedCard()
     {
         await Run((shell, window) =>
         {
@@ -933,7 +1042,11 @@ public sealed class MobileShellViewTests
                 .OfType<Border>()
                 .Single(border => border.Name == "PART_SelectedPipe");
 
-            Assert.Equal(new CornerRadius(16), outer.CornerRadius);
+            // The sections are rows on one rounded card that clips them, as on the desktop's Customize.
+            var card = picker.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("group-card"));
+            Assert.Equal(new CornerRadius(14), card.CornerRadius);
+            Assert.True(card.ClipToBounds);
+            Assert.Equal(default, outer.CornerRadius);
             Assert.Equal(default, content.CornerRadius);
             Assert.True(
                 content.Background is null
@@ -1020,33 +1133,40 @@ public sealed class MobileShellViewTests
         });
     }
 
-    /// <summary>Pages stack over the chat; back peels them off one layer at a time.</summary>
+    /// <summary>
+    /// The chat list is home: back from another place lands on it, back from a chat returns to
+    /// it, and back from the list itself leaves the app.
+    /// </summary>
     [Fact]
-    public async Task BackDismissesTheDrawerThenThePageThenStops()
+    public async Task BackReturnsToTheChatListThenStops()
     {
         await RunAsync(async (shell, window) =>
         {
             Pair(shell);
+            OpenChat(shell);
             Layout(window, shell, 412, 892);
 
             shell.ShowPageCommand.Execute("Settings");
-            shell.ToggleDrawerCommand.Execute(null);
             await Task.Delay(80);
             Pump(window);
-            Assert.True(shell.IsDrawerPresented);
-
-            // Drawer first: it is the topmost thing on screen.
-            Assert.True(shell.CanGoBack);
-            shell.GoBackCommand.Execute(null);
-            Pump(window);
-            Assert.False(DrawerOpen(window));
             Assert.True(Named(window, "SettingsPage").IsVisible);
 
-            // Then the page.
+            Assert.True(shell.CanGoBack);
+            shell.GoBackCommand.Execute(null);
+            await Task.Delay(260);
+            Pump(window);
+            Assert.True(shell.IsChatPage);
+            Assert.True(DrawerOpen(window));
+            Assert.False(shell.CanGoBack);
+
+            // Reading the chat again, back returns to the list rather than leaving the app.
+            shell.IsDrawerOpen = false;
+            await Task.Delay(260);
+            Pump(window);
             Assert.True(shell.CanGoBack);
             shell.GoBackCommand.Execute(null);
             Pump(window);
-            Assert.True(shell.IsChatPage);
+            Assert.True(DrawerOpen(window));
 
             // Nothing left of ours: the system back must fall through and leave the app.
             Assert.False(shell.CanGoBack);
@@ -1648,7 +1768,7 @@ public sealed class MobileShellViewTests
                          "NewChatButton",
                          "ComposerAttachButton",
                          "PART_SendButton",
-                         "ComposerRunSettingsButton"
+                         "ComposerModelButton"
                      })
             {
                 var control = Named(window, name);
@@ -1684,11 +1804,13 @@ public sealed class MobileShellViewTests
             OpenChat(shell);
             Layout(window, shell, 412, 892);
 
+            // Inter's lowercase stands as tall as Roboto's: 16 is Android's 16sp body.
             Assert.Equal(16d, window.FindResource("Font.SizeBody"));
 
-            // Nothing anywhere in the shell may render below the meta rung.
+            // Nothing anywhere in the shell may render below the caption rung.
+            var caption = (double)window.FindResource("Font.SizeCaption")!;
             var tooSmall = window.GetVisualDescendants().OfType<TextBlock>()
-                .Where(t => t.IsVisible && !string.IsNullOrWhiteSpace(t.Text) && t.FontSize < 13)
+                .Where(t => t.IsVisible && !string.IsNullOrWhiteSpace(t.Text) && t.FontSize < caption)
                 .Select(t => $"{t.Name ?? t.Text} @ {t.FontSize}px")
                 .ToList();
 
@@ -2201,21 +2323,19 @@ public sealed class MobileShellViewTests
             var scrollers = drawer.GetVisualDescendants().OfType<ScrollViewer>().ToList();
             Assert.Single(scrollers);
 
-            // Library and history share the scrolling surface; the project selector stays in the footer.
+            // The whole history is the scrolling surface.
             var scroller = scrollers[0];
-            foreach (var name in new[] { "DrawerLibraryButton", "DrawerChatGroups" })
-            {
-                var row = drawer.GetVisualDescendants().OfType<Control>().Single(c => c.Name == name);
-                Assert.True(
-                    row.GetVisualAncestors().Contains(scroller),
-                    $"{name} is outside the drawer's scroll surface");
-            }
+            var history = drawer.GetVisualDescendants().OfType<Control>().Single(c => c.Name == "DrawerChatGroups");
+            Assert.True(
+                history.GetVisualAncestors().Contains(scroller),
+                "the history is outside the list's scroll surface");
 
-            // Search and the account row stay pinned, exactly like ChatGPT's drawer.
-            var search = drawer.GetVisualDescendants().OfType<Control>().Single(c => c.Name == "DrawerSearchButton");
-            Assert.DoesNotContain(scroller, search.GetVisualAncestors());
-            var projects = drawer.GetVisualDescendants().OfType<Control>().Single(c => c.Name == "DrawerProjectButton");
-            Assert.DoesNotContain(scroller, projects.GetVisualAncestors());
+            // Search, the project lens and the places stay pinned while it scrolls beneath them.
+            foreach (var name in new[] { "DrawerSearchButton", "DrawerProjectButton", "DrawerPlaces" })
+            {
+                var pinned = drawer.GetVisualDescendants().OfType<Control>().Single(c => c.Name == name);
+                Assert.DoesNotContain(scroller, pinned.GetVisualAncestors());
+            }
         });
     }
 
@@ -2388,11 +2508,11 @@ public sealed class MobileShellViewTests
     }
 
     /// <summary>
-    /// Model, effort and context are one run-settings affordance. Three permanent controls recreated
-    /// a desktop toolbar and duplicated the model in the header.
+    /// The model sits beside send, as on the desktop, and opens one picker holding the model, its
+    /// effort and its context window. The chat's own settings stay behind its title.
     /// </summary>
     [Fact]
-    public async Task Composer_ShowsRunSettingsAndOpensTheSheet()
+    public async Task Composer_ShowsTheModelAndOpensItsPicker()
     {
         await RunAsync(async (shell, window) =>
         {
@@ -2421,17 +2541,41 @@ public sealed class MobileShellViewTests
             Named(window, "PART_Input").Focus();
             await Task.Delay(280);
             Pump(window);
-            var pill = Assert.IsType<Button>(Named(window, "ComposerRunSettingsButton"));
-            Assert.True(pill.IsVisible);
-            Assert.True(pill.Bounds.Height >= 48, $"pill was {pill.Bounds.Height}px tall");
+            var model = Assert.IsType<Button>(Named(window, "ComposerModelButton"));
+            Assert.True(model.IsVisible);
+            Assert.True(model.Bounds.Height >= 48, $"the model button was {model.Bounds.Height}px tall");
+            Assert.Contains(model.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Claude Opus 5");
+            // Beside send, as on the desktop, not at the far side of the composer from it.
+            var send = Named(window, "PART_SendButton");
+            var gap = send.TranslatePoint(default, window)!.Value.X
+                      - model.TranslatePoint(new Point(model.Bounds.Width, 0), window)!.Value.X;
+            Assert.InRange(gap, 0, 16);
 
             var sheet = window.GetVisualDescendants().OfType<StrataBottomSheet>()
-                .Single(s => s.Name == "RunSettingsSheet");
+                .Single(s => s.Name == "ModelSheet");
             Assert.False(sheet.IsOpen);
 
-            pill.Command!.Execute(pill.CommandParameter);
+            Tap(window, model);
             Pump(window);
             Assert.True(sheet.IsOpen);
+            // The picker carries the model's effort as the desktop's segments, named as it names them.
+            Assert.True(Named(window, "ModelSheetEffort").IsEffectivelyVisible);
+            Assert.Equal(["Low", "Medium", "High"], shell.Chat.QualityOptions.Select(option => option.Label));
+            Assert.Equal("high", Assert.Single(shell.Chat.QualityOptions, option => option.IsSelected).Name);
+            shell.Chat.PickQualityCommand.Execute("low");
+            Pump(window);
+            Assert.Equal("low", shell.Chat.Quality);
+            Assert.True(sheet.IsOpen, "an effort is a setting of the open picker, not a choice that dismisses it");
+            Assert.Equal("low", Assert.Single(shell.Chat.QualityOptions, option => option.IsSelected).Name);
+            shell.Chat.IsModelSheetOpen = false;
+            Pump(window);
+
+            // The chat's own settings remain one tap away behind its title.
+            var details = window.GetVisualDescendants().OfType<StrataBottomSheet>()
+                .Single(s => s.Name == "RunSettingsSheet");
+            Tap(window, Assert.IsType<Button>(Named(window, "HeaderDetailsButton")));
+            Pump(window);
+            Assert.True(details.IsOpen);
 
             // A model with no effort/context choice still leaves the stable settings entry point.
             shell.Chat.ApplyStatus(new RemoteChatStatus
@@ -2440,9 +2584,11 @@ public sealed class MobileShellViewTests
                 Model = "auto",
                 QualityLevels = []
             });
+            Pump(window);
             Assert.Equal("Auto", shell.Chat.RunSettingsSummary);
             Assert.False(Named(window, "RunSettingsEffortButton").IsEnabled);
             Assert.False(Named(window, "RunSettingsContextButton").IsEnabled);
+            Assert.False(Named(window, "ModelSheetEffort").IsVisible);
         });
     }
 
@@ -2585,7 +2731,7 @@ public sealed class MobileShellViewTests
             await Task.Delay(280);
             Pump(window);
             var attach = Named(window, "ComposerAttachButton");
-            var settings = Named(window, "ComposerRunSettingsButton");
+            var settings = Named(window, "ComposerModelButton");
             var send = Named(window, "PART_SendButton");
 
             Assert.True(composer.Bounds.Height <= 144, $"expanded composer was {composer.Bounds.Height:0.#}dp tall");
@@ -2885,6 +3031,7 @@ public sealed class MobileShellViewTests
             Layout(window, shell, 412, 892);
 
             shell.ShowPageCommand.Execute("Settings");
+            shell.OpenSettingsSectionCommand.Execute("Appearance");
             Pump(window);
 
             var options = Named(window, "ThemeOptions");

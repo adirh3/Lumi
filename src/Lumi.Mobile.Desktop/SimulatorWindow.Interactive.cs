@@ -14,6 +14,16 @@ namespace Lumi.Mobile.Desktop;
 
 public partial class SimulatorWindow
 {
+    /// <summary>A paired, populated app on local fixture data; see <see cref="DesignPreview"/>.</summary>
+    internal void OpenDesignPreview()
+    {
+        if (DataContext is not MobileShellViewModel shell || _shell is null)
+            throw new InvalidOperationException("The mobile shell must be mounted before opening the design preview.");
+
+        Title = "Lumi Mobile - design preview";
+        DesignPreview.Apply(shell);
+    }
+
     internal void OpenPopupPreview()
     {
         if (DataContext is not MobileShellViewModel shell || _shell is null)

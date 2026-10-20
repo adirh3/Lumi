@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Interactivity;
 #if !WINDOWS
 using Avalonia.LogicalTree;
@@ -31,8 +32,14 @@ public partial class BrowserView : UserControl
     private TextBlock? _importStatusText;
     private StackPanel? _onboardingActions;
     private TextBlock? _urlText;
+    private Run? _urlHostRun;
+    private Run? _urlRestRun;
+    private PathIcon? _urlIcon;
     private Border? _urlBar;
     private StackPanel? _tabsPanel;
+    private ScrollViewer? _tabsScroller;
+    private Grid? _tabStripRow;
+    private Button? _newTabButton;
     private TextBlock? _browserErrorText;
     private BrowserService? _browserService;
     private DataStore? _dataStore;
@@ -56,9 +63,26 @@ public partial class BrowserView : UserControl
         _importStatusText = this.FindControl<TextBlock>("ImportStatusText");
         _onboardingActions = this.FindControl<StackPanel>("OnboardingActions");
         _urlText = this.FindControl<TextBlock>("UrlText");
+        _urlHostRun = _urlText?.Inlines?.ElementAtOrDefault(0) as Run;
+        _urlRestRun = _urlText?.Inlines?.ElementAtOrDefault(1) as Run;
+        _urlIcon = this.FindControl<PathIcon>("UrlIcon");
         _urlBar = this.FindControl<Border>("UrlBar");
         _tabsPanel = this.FindControl<StackPanel>("BrowserTabs");
+        _tabsScroller = this.FindControl<ScrollViewer>("BrowserTabsScroller");
+        _tabStripRow = this.FindControl<Grid>("TabStripRow");
+        _newTabButton = this.FindControl<Button>("NewBrowserTab");
         _browserErrorText = this.FindControl<TextBlock>("BrowserErrorText");
+        _tabHitTheme = this.TryFindResource("BrowserTabHitTheme", out var theme) ? theme as Avalonia.Styling.ControlTheme : null;
+
+        if (_tabStripRow is not null)
+            _tabStripRow.SizeChanged += (_, e) =>
+            {
+                if (e.WidthChanged)
+                    UpdateTabWidths();
+            };
+        _tabsScroller?.AddHandler(PointerWheelChangedEvent, OnTabStripWheel, RoutingStrategies.Tunnel);
+        if (_tabsScroller is not null)
+            _tabsScroller.ScrollChanged += (_, _) => UpdateTabStripFades();
 
 #if !WINDOWS
         if (OperatingSystem.IsLinux() && _cookieOnboardingOverlay is not null)
@@ -75,13 +99,16 @@ public partial class BrowserView : UserControl
     /// <summary>Binds a BrowserService and DataStore to this view. Can be called multiple times to switch between per-chat services.</summary>
     public void SetBrowserService(BrowserService browserService, DataStore dataStore)
     {
-        ClearBrowserService();
+        // Each agent browser action shows the browser again; for the same browser the tabs then
+        // update in place rather than being rebuilt under the pointer.
+        ReleaseBrowserService(clearTabs: !ReferenceEquals(browserService, _browserService));
         _browserService = browserService;
 #if !WINDOWS
         _browserService.UseHostLayerFor(this);
 #endif
         _dataStore = dataStore;
         _isInitialized = false;
+        _urlBar?.Classes.Set("motion-disabled", !AnimationsEnabled);
         _browserService.BrowserReady += OnBrowserReady;
         _browserService.TabsChanged += OnTabsChanged;
         _browserService.BrowserError += OnBrowserError;
@@ -114,13 +141,14 @@ public partial class BrowserView : UserControl
             // Show loading overlay while initializing
             if (_loadingOverlay is not null)
                 _loadingOverlay.IsVisible = true;
-            if (_urlText is not null)
-                _urlText.Text = "about:blank";
+            ShowLocation("about:blank");
             TryInitialize();
         }
     }
 
-    public void ClearBrowserService()
+    public void ClearBrowserService() => ReleaseBrowserService(clearTabs: true);
+
+    private void ReleaseBrowserService(bool clearTabs)
     {
         if (_browserService is not null)
         {
@@ -136,7 +164,8 @@ public partial class BrowserView : UserControl
         _browserService = null;
         _dataStore = null;
         _isInitialized = false;
-        _tabsPanel?.Children.Clear();
+        if (clearTabs)
+            ClearTabChips();
     }
 
     /// <summary>Hides the current browser service's controller overlay.</summary>
@@ -282,46 +311,6 @@ public partial class BrowserView : UserControl
         });
     }
 
-    private void UpdateTabs()
-    {
-        if (_tabsPanel is null || _browserService is null)
-            return;
-        _tabsPanel.Children.Clear();
-        foreach (var tab in _browserService.Tabs)
-        {
-            var row = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
-            var select = new Button
-            {
-                Name = "BrowserTab_" + tab.Id,
-                Content = new TextBlock
-                {
-                    Text = string.IsNullOrWhiteSpace(tab.Title) ? "New tab" : tab.Title,
-                    MaxWidth = 150,
-                    TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
-                },
-                Padding = new Thickness(8, 3),
-                MinHeight = 28,
-            };
-            select.Classes.Add(tab.IsActive ? "accent" : "subtle");
-            ToolTip.SetTip(select, $"{tab.Title}\n{tab.Url}\n{tab.Id}");
-            select.Click += async (_, _) => await RunTabActionAsync("switch", tab.Id);
-            var close = new Button
-            {
-                Name = "BrowserTabClose_" + tab.Id,
-                Content = "x",
-                Padding = new Thickness(5, 3),
-                MinWidth = 22,
-                MinHeight = 28,
-            };
-            close.Classes.Add("subtle");
-            ToolTip.SetTip(close, "Close tab");
-            close.Click += async (_, _) => await RunTabActionAsync("close", tab.Id);
-            row.Children.Add(select);
-            row.Children.Add(close);
-            _tabsPanel.Children.Add(row);
-        }
-    }
-
     private async void OnNewTabClick(object? sender, RoutedEventArgs e)
         => await RunTabActionAsync("new");
 
@@ -363,8 +352,8 @@ public partial class BrowserView : UserControl
 
     private void UpdateUrl()
     {
-        if (_urlText is not null && _browserService is not null)
-            _urlText.Text = _browserService.CurrentUrl;
+        if (_browserService is not null)
+            ShowLocation(_browserService.CurrentUrl);
     }
 
     /// <summary>Public method to force a bounds refresh from outside (e.g. after layout changes).</summary>

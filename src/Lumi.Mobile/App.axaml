@@ -15,6 +15,7 @@
       <ResourceDictionary.MergedDictionaries>
         <!-- Metrics only. Layered after StrataTheme so touch sizing wins over the desktop density. -->
         <ResourceInclude Source="avares://Lumi.Mobile/Styles/Density.Touch.axaml" />
+        <ResourceInclude Source="avares://Lumi.Mobile/Styles/Icons.Mobile.axaml" />
 
         <!--
           Colours must be keyed BY VARIANT, not merged flat: a flat merge at application level

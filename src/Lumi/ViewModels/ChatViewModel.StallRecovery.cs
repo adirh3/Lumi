@@ -103,6 +103,8 @@ public partial class ChatViewModel
                 Author = author,
                 Content = content,
                 IsStreaming = false,
+                IsProgress = assistantMessage.IsProgress,
+                ApiCallId = assistantMessage.ApiCallId,
                 Model = ResolveSelectedModelForChat(chat)
             };
             chat.Messages.Add(recoveredMessage);

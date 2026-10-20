@@ -1,0 +1,95 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:controls="using:Lumi.Views.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.Management.ExternalCapabilitySections"
+             x:DataType="vm:ExternalCapabilitiesViewModel"
+             x:CompileBindings="True">
+
+  <!-- Skills, Lumis or MCP servers Lumi uses but does not own, one section per plugin or Copilot
+       location. The page around this supplies the management styles and its hue. -->
+  <StackPanel Spacing="22" IsVisible="{Binding HasGroups}">
+    <TextBlock Classes="mg-eyebrow" Text="{loc:Str External_SectionOthers}" Margin="0,6,0,-8" />
+
+    <ItemsControl x:Name="ExternalGroups" ItemsSource="{Binding Groups}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <StackPanel Spacing="26" />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:ExternalCapabilityGroup">
+          <StackPanel Spacing="12">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="subtle mg-text-button" VerticalAlignment="Center"
+                      IsVisible="{Binding IsPlugin}" Command="{Binding ManageCommand}"
+                      AutomationProperties.Name="{loc:Str External_ManageInDiscover}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="{loc:Str External_ManageInDiscover}" />
+                  <PathIcon Data="{StaticResource Icon.ChevronRight}" Width="9" Height="9" />
+                </StackPanel>
+              </Button>
+              <Border DockPanel.Dock="Left" Classes="mg-tile sm" Margin="0,0,12,0" VerticalAlignment="Center">
+                <TextBlock Classes="mg-glyph" Text="{Binding Glyph}" />
+              </Border>
+              <StackPanel Spacing="1" VerticalAlignment="Center">
+                <TextBlock Classes="mg-section-title" Text="{Binding Title}" />
+                <TextBlock Classes="mg-section-caption" Text="{Binding Caption}" />
+              </StackPanel>
+            </DockPanel>
+
+            <ItemsControl ItemsSource="{Binding Cards}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <controls:AdaptiveGridPanel MinItemWidth="240" ColumnSpacing="14" RowSpacing="14" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ExternalCapabilityItem">
+                  <Button Classes="mg-card" Classes.muted="{Binding !IsEnabled}"
+                          Command="{Binding OpenCommand}" AutomationProperties.Name="{Binding Name}">
+                    <Border Classes="mg-card-frame">
+                      <DockPanel>
+                        <StackPanel DockPanel.Dock="Bottom">
+                          <Border Classes="mg-card-divider" />
+                          <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Text="{loc:Str External_Off}"
+                                       IsVisible="{Binding !IsEnabled}" Margin="10,0,0,0" />
+                            <DockPanel>
+                              <PathIcon DockPanel.Dock="Left" Margin="0,0,6,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Lock}" />
+                              <TextBlock Classes="mg-meta" Text="{Binding SourceLabel}" TextTrimming="CharacterEllipsis" />
+                            </DockPanel>
+                          </DockPanel>
+                        </StackPanel>
+                        <DockPanel DockPanel.Dock="Top">
+                          <PathIcon DockPanel.Dock="Right" Classes="mg-card-arrow" Data="{StaticResource Icon.ChevronRight}" VerticalAlignment="Top" Margin="0,4,0,0" />
+                          <Border Classes="mg-tile">
+                            <TextBlock Classes="mg-glyph" Text="{Binding Glyph}" />
+                          </Border>
+                        </DockPanel>
+                        <StackPanel Spacing="5" Margin="0,12,0,0">
+                          <TextBlock Classes="mg-card-title" Text="{Binding Name}" />
+                          <TextBlock Classes="mg-card-text" Text="{Binding Description}" IsVisible="{Binding HasDescription}" />
+                          <TextBlock Classes="mg-card-text placeholder" Text="{loc:Str Mg_NoDescription}" IsVisible="{Binding !HasDescription}" />
+                        </StackPanel>
+                      </DockPanel>
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Button Classes="subtle mg-text-button" HorizontalAlignment="Center" IsVisible="{Binding HasMore}"
+                    Command="{Binding ToggleShowAllCommand}" AutomationProperties.Name="{Binding ShowAllText}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="{Binding ShowAllText}" />
+                <PathIcon Classes="mg-chevron" Classes.flipped="{Binding IsShowingAll}" Data="{StaticResource Icon.ChevronDown}" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel>
+</UserControl>

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using GitHub.Copilot;
 using GitHub.Copilot.Rpc;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
@@ -742,6 +743,30 @@ public sealed class DeferredSendQueueTests
         Assert.True(host.ViewModel.HasBackgroundActivityNotice);
     }
 
+    [Fact]
+    public async Task BackgroundActivityRefresh_ShowsWhatACommandIsDoingFromItsLiveOutput()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        rpc.RunningShells.Add("preview");
+        rpc.ShellOutputs["preview"] = "Building...\nNow listening on: http://localhost:5000\n";
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+
+        await host.ViewModel.RefreshBackgroundActivityAsync();
+
+        var item = Assert.Single(host.ViewModel.RunningSessionActivities);
+        Assert.Equal("Now listening on: http://localhost:5000", item.Activity);
+        Assert.Equal("Building...\nNow listening on: http://localhost:5000", item.Output);
+        Assert.True(item.CanExpand);
+
+        // A later read that reports nothing keeps the row's last known output.
+        rpc.ShellOutputs.Clear();
+        await host.ViewModel.RefreshBackgroundActivityAsync();
+        Assert.Same(item, Assert.Single(host.ViewModel.RunningSessionActivities));
+        Assert.Equal("Now listening on: http://localhost:5000", item.Activity);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -788,12 +813,12 @@ public sealed class DeferredSendQueueTests
         host.AttachSession(rpc);
         host.MarkTurnEndedWithBackgroundWorkPending();
         await host.ViewModel.RefreshBackgroundActivityAsync();
-        var items = host.ViewModel.RunningSessionActivities;
+        var item = Assert.Single(host.ViewModel.RunningSessionActivities);
 
         rpc.Disconnect();
         await host.ViewModel.RefreshBackgroundActivityAsync();
 
-        Assert.Same(items, host.ViewModel.RunningSessionActivities);
+        Assert.Same(item, Assert.Single(host.ViewModel.RunningSessionActivities));
         Assert.True(host.ViewModel.HasBackgroundActivityNotice);
         Assert.Equal(Lumi.Localization.Loc.Get("Chat_BackgroundActivityUnavailable"), host.ViewModel.BackgroundActivityNotice);
         Assert.True(host.ViewModel.IsSessionActive);
@@ -1450,6 +1475,52 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task AJobsTurn_IsUnattendedOnlyUntilTheSessionSettles()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            host.DataStore.Data.Settings.AwayApprovalBehavior = AwayApprovalBehavior.Skip;
+            host.Chat.ApprovalMode = ApprovalMode.AskFirst;
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.ViewModel.MarkTurnUnattended(host.Chat.Id);
+            var answered = new List<string>();
+            PermissionRequestViewModel? Ask(string requestId) => host.ViewModel.PresentPermissionRequest(
+                host.Chat, "session", requestId,
+                new PermissionPromptRequestCommands
+                {
+                    FullCommandText = "git push",
+                    Intention = "Publish the branch",
+                    CommandIdentifiers = ["git push"],
+                    CanOfferSessionApproval = true
+                },
+                managed: false,
+                (_, _, _) =>
+                {
+                    answered.Add(requestId);
+                    return Task.FromResult(true);
+                });
+
+            // While the job's turn runs, nobody is there, so the user's Skip choice answers for them.
+            Assert.Null(Ask("during-job"));
+            Assert.Equal(["during-job"], answered);
+
+            rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData() });
+            Dispatcher.UIThread.RunJobs();
+
+            // Once it settled, what comes next (Regenerate, Edit, a retry) waits for the user.
+            Assert.NotNull(Ask("after-job"));
+            Assert.Equal(["during-job"], answered);
+            Assert.True(host.Chat.IsAwaitingApproval);
+            return Task.CompletedTask;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ChildActivity_AfterAssistantIdle_DoesNotRestartTheAssistantSpinner()
     {
         using var ui = HeadlessTestSession.Start();
@@ -1487,6 +1558,123 @@ public sealed class DeferredSendQueueTests
             Assert.True(host.IsChatRuntimeActive());
             Assert.Equal(1, host.Runtime.ActiveSubagentExecutionDepth);
             Assert.Equal("InProgress", host.Chat.Messages.Single(message => message.ToolCallId == "child-tool").ToolStatus);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("Removed 1 image from the model request to stay within the 50-image request limit. User-provided images were prioritized over tool-generated images, with newer messages kept first.", null)]
+    [InlineData("Removed 12 images from the model request to stay within the 100-image request limit.", "")]
+    [InlineData("Image context was automatically adjusted.", "   ")]
+    public async Task SessionWarning_AutomaticImageLimit_DoesNotChangeTranscriptOrActivity(string message, string? url)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.MarkRuntimeBusy();
+            host.Runtime.IsStreaming = true;
+            host.Runtime.StatusText = "Generating reply";
+            host.ViewModel.IsBusy = true;
+            host.ViewModel.IsStreaming = true;
+            host.ViewModel.StatusText = host.Runtime.StatusText;
+            var scrollRequests = 0;
+            host.ViewModel.ScrollToEndRequested += () => scrollRequests++;
+
+            rpc.Emit(new SessionWarningEvent
+            {
+                Data = new SessionWarningData
+                {
+                    WarningType = "image_limit",
+                    Message = message,
+                    Url = url
+                }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Empty(host.Chat.Messages);
+            Assert.Empty(host.ViewModel.Messages);
+            Assert.Equal("Generating reply", host.Runtime.StatusText);
+            Assert.Equal("Generating reply", host.ViewModel.StatusText);
+            Assert.True(host.Runtime.IsBusy);
+            Assert.True(host.Runtime.IsStreaming);
+            Assert.True(host.ViewModel.IsBusy);
+            Assert.True(host.ViewModel.IsStreaming);
+            Assert.Equal(0, scrollRequests);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("image_limit", "sign_in", null)]
+    [InlineData("image_limit", "future_remediation", null)]
+    [InlineData("image_limit", null, "https://github.com/settings/copilot")]
+    [InlineData("subscription", null, null)]
+    [InlineData("policy", null, null)]
+    [InlineData("mcp", null, null)]
+    [InlineData("future_warning", null, null)]
+    public async Task SessionWarning_ActionableImageLimitAndOtherCategories_RemainVisible(
+        string warningType, string? remediation, string? url)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            const string message = "Removed 1 image from the model request to stay within the 50-image request limit.";
+
+            rpc.Emit(new SessionWarningEvent
+            {
+                Data = new SessionWarningData
+                {
+                    WarningType = warningType,
+                    Message = message,
+                    Remediation = remediation is null ? null : new RemediationAction(remediation),
+                    Url = url
+                }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            var warning = Assert.Single(host.Chat.Messages);
+            Assert.Equal("system", warning.Role);
+            Assert.Equal(message, warning.Content);
+            Assert.Same(warning, Assert.Single(host.ViewModel.Messages).Message);
+            Assert.Equal(string.Format(Loc.Status_Warning, warningType), host.Runtime.StatusText);
+            Assert.Equal(host.Runtime.StatusText, host.ViewModel.StatusText);
+        }, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// An MCP server's sampling request (Azure MCP asks the client's model to pick a command) blocks the
+    /// server's tool call until the host answers. Lumi can't run the inference, so it must decline at once;
+    /// leaving the request pending hung the plugin tool call and the whole turn forever.
+    /// </summary>
+    [Fact]
+    public async Task McpSamplingRequest_IsDeclinedInsteadOfLeftPending()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+
+            rpc.Emit(new SamplingRequestedEvent
+            {
+                Data = new SamplingRequestedData
+                {
+                    RequestId = "sampling-request",
+                    ServerName = "azure",
+                    McpRequestId = JsonSerializer.SerializeToElement(1)
+                }
+            });
+
+            await rpc.SamplingDecided.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var decision = Assert.Single(rpc.SamplingDecisions);
+            Assert.Equal("sampling-request", decision.GetProperty("requestId").GetString());
+            Assert.True(!decision.TryGetProperty("response", out var response)
+                || response.ValueKind == JsonValueKind.Null);
         }, CancellationToken.None);
     }
 
@@ -2148,6 +2336,46 @@ public sealed class DeferredSendQueueTests
         }
     }
 
+    [Theory]
+    [InlineData("Yes")]
+    [InlineData("An answer typed on the phone")]
+    public async Task RemoteQuestionAnswer_UpdatesTheExistingDesktopCard(string answer)
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                var presented = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                host.ViewModel.QuestionAsked += (id, _, _, _) => presented.TrySetResult(id);
+                var invocation = host.AskQuestionAsync("Choose on the phone");
+                var questionId = await presented.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var card = host.QuestionCard(questionId);
+                var changed = new List<string?>();
+                card.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+                host.ViewModel.SubmitQuestionAnswer(questionId, answer);
+                var result = await invocation.WaitAsync(TimeSpan.FromSeconds(5));
+                Dispatcher.UIThread.RunJobs();
+
+                Assert.Same(card, host.QuestionCard(questionId));
+                Assert.True(card.IsAnswered);
+                Assert.False(card.IsExpired);
+                Assert.Equal(answer, card.SelectedAnswer);
+                Assert.Contains(nameof(QuestionItem.SelectedAnswer), changed);
+                Assert.Contains(nameof(QuestionItem.IsAnswered), changed);
+                Assert.Contains($"User answered: {answer}", result?.ToString());
+                Assert.Equal($"User answered: {answer}", host.Chat.Messages.Last().ToolOutput);
+                Assert.False(host.IsChatRuntimeActive());
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
     /// <summary>
     /// "Send now" is offered for exactly the two pending states. A delivered or failed message has
     /// nothing left to expedite.
@@ -2612,6 +2840,18 @@ public sealed class DeferredSendQueueTests
             return new TasksCancelResult { Cancelled = true };
         }
 
+        /// <summary>Newest output per running shell, as the Tasks API's progress read reports it.</summary>
+        public Dictionary<string, string> ShellOutputs { get; } = [];
+
+        [JsonRpcMethod("session.tasks.getProgress", UseSingleObjectParameterDeserialization = true)]
+        public object GetTaskProgress(Dictionary<string, object> request)
+        {
+            var id = Assert.IsType<string>(request["id"]);
+            return ShellOutputs.TryGetValue(id, out var output)
+                ? new { progress = new { type = "shell", recentOutput = output } }
+                : new { progress = (object?)null };
+        }
+
         [JsonRpcMethod("session.send", UseSingleObjectParameterDeserialization = true)]
         public SendResult Send(Dictionary<string, object> request)
         {
@@ -2639,6 +2879,18 @@ public sealed class DeferredSendQueueTests
             return new { };
         }
 
+        public List<JsonElement> SamplingDecisions { get; } = [];
+        public TaskCompletionSource SamplingDecided { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        [JsonRpcMethod("session.ui.handlePendingSampling", UseSingleObjectParameterDeserialization = true)]
+        public object HandlePendingSampling(Dictionary<string, object> request)
+        {
+            SamplingDecisions.Add(JsonSerializer.Deserialize<JsonElement>(
+                Newtonsoft.Json.JsonConvert.SerializeObject(request)));
+            SamplingDecided.TrySetResult();
+            return new { success = true };
+        }
+
         public void RegisterTool(AIFunction tool)
             => typeof(CopilotSession).GetMethod("RegisterTools", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(Session, [new AIFunctionDeclaration[] { tool }]);
@@ -2658,9 +2910,12 @@ public sealed class DeferredSendQueueTests
                 .GetValue(Session)!;
             foreach (var subscription in subscriptions)
             {
-                var handler = (Action<SessionEvent>)subscription.GetType()
-                    .GetProperty("Handler")!.GetValue(subscription)!;
-                handler(evt);
+                // Each subscription's own Invoke applies the SDK's event-type and root-agent filtering.
+                var invoke = (Action<SessionEvent>)Delegate.CreateDelegate(
+                    typeof(Action<SessionEvent>),
+                    subscription,
+                    subscription.GetType().GetMethod("Invoke", BindingFlags.Instance | BindingFlags.Public)!);
+                invoke(evt);
             }
         }
 

@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Text;
 using GitHub.Copilot;
+using Lumi.Services;
 using Lumi.ViewModels;
 using Xunit;
 
@@ -10,19 +11,23 @@ namespace Lumi.Tests;
 public sealed class McpStatusDiagnosticsTests
 {
     [Theory]
-    [InlineData(401, "Authentication is required")]
-    [InlineData(404, "Endpoint was not found")]
-    public async Task BuildMcpStatusErrorMessageAsync_ProbesHttpEndpoint(int statusCode, string expectedHint)
+    [InlineData(401, McpConnectorIssueKind.AccessDenied, "(401)")]
+    [InlineData(404, McpConnectorIssueKind.NotFound, "(404)")]
+    public async Task DescribeMcpStatusAsync_ProbesLoopbackEndpointAndKeepsTheFullError(
+        int statusCode,
+        McpConnectorIssueKind expectedKind,
+        string expectedSummaryCode)
     {
         using var listener = new HttpListener();
         var url = $"http://127.0.0.1:{GetFreeLoopbackPort()}/mcp/";
         listener.Prefixes.Add(url);
         listener.Start();
 
+        var longBody = new string('x', 512);
         var serverTask = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
-            var body = Encoding.UTF8.GetBytes("diagnostic response token=super-secret-token");
+            var body = Encoding.UTF8.GetBytes($"diagnostic response token=super-secret-token\n{longBody}\nFinal response line");
             context.Response.ContentType = "text/plain";
             context.Response.StatusCode = statusCode;
             context.Response.ContentLength64 = body.Length;
@@ -30,50 +35,95 @@ public sealed class McpStatusDiagnosticsTests
             context.Response.Close();
         });
 
-        var message = await ChatViewModel.BuildMcpStatusErrorMessageAsync(
-            "remote-test",
+        var issue = await ChatViewModel.DescribeMcpStatusAsync(
             McpServerStatus.Failed,
             "Streamable HTTP error: Error POSTing to endpoint.",
             new McpHttpServerConfig { Url = url },
+            definition: null,
+            transport: null,
             CancellationToken.None);
 
         await serverTask;
 
-        Assert.Contains($"POST {url} returned {statusCode}", message, StringComparison.Ordinal);
-        Assert.Contains(expectedHint, message, StringComparison.Ordinal);
-        Assert.Contains("diagnostic response", message, StringComparison.Ordinal);
-        Assert.Contains("token=[redacted]", message, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("super-secret-token", message, StringComparison.Ordinal);
+        Assert.Equal(expectedKind, issue.Kind);
+        Assert.True(issue.IsProblem);
+        Assert.Contains(expectedSummaryCode, issue.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain(url, issue.Summary, StringComparison.Ordinal);
+        Assert.Contains("Streamable HTTP error: Error POSTing to endpoint.", issue.Details, StringComparison.Ordinal);
+        Assert.Contains($"POST {url} returned {statusCode}", issue.Details, StringComparison.Ordinal);
+        Assert.Contains(longBody + "\nFinal response line", issue.Details, StringComparison.Ordinal);
+        Assert.DoesNotContain("super-secret-token", issue.Details, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task BuildMcpStatusErrorMessageAsync_ReportsNeedsAuthWithoutProbe()
+    public async Task DescribeMcpStatusAsync_NeedsSignInIsNeutralAndKeepsCredentialsOut()
     {
-        var message = await ChatViewModel.BuildMcpStatusErrorMessageAsync(
-            "icm",
+        var issue = await ChatViewModel.DescribeMcpStatusAsync(
             McpServerStatus.NeedsAuth,
             "",
-            new McpHttpServerConfig { Url = "https://user:password@example.com/mcp?token=super-secret-token" },
+            new McpHttpServerConfig { Url = "https://fixture-user:fixture-password@example.com/mcp?token=super-secret-token" },
+            definition: null,
+            transport: null,
             CancellationToken.None);
 
-        Assert.Contains("Sign-in required", message, StringComparison.Ordinal);
-        Assert.Contains("https://example.com/mcp", message, StringComparison.Ordinal);
-        Assert.DoesNotContain("super-secret-token", message, StringComparison.Ordinal);
-        Assert.DoesNotContain("user:password", message, StringComparison.Ordinal);
+        Assert.Equal(McpConnectorIssueKind.NeedsSignIn, issue.Kind);
+        Assert.False(issue.IsProblem);
+        Assert.Contains("example.com/mcp", issue.Details, StringComparison.Ordinal);
+        Assert.DoesNotContain("super-secret-token", issue.Details, StringComparison.Ordinal);
+        Assert.DoesNotContain("fixture-password", issue.Details, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DescribeMcpStatusAsync_DoesNotProbeAProxiedLocalConnector()
+    {
+        using var listener = new HttpListener();
+        var url = $"http://127.0.0.1:{GetFreeLoopbackPort()}/mcp/route/";
+        listener.Prefixes.Add(url);
+        listener.Start();
+        var probed = listener.GetContextAsync();
+
+        var issue = await ChatViewModel.DescribeMcpStatusAsync(
+            McpServerStatus.Failed,
+            "failed to initialize MCP client: JSON-RPC error: -32000: Failed to start MCP server 'Tools'. Command 'uvx' was not found from working directory 'C:\\work'.",
+            new McpHttpServerConfig { Url = url },
+            new Lumi.Models.McpServer { Name = "Tools", ServerType = "local", Command = "uvx", Args = ["tools-server"] },
+            transport: null,
+            CancellationToken.None);
+
+        Assert.Equal(McpConnectorIssueKind.CommandNotFound, issue.Kind);
+        Assert.Contains("uvx", issue.Summary, StringComparison.Ordinal);
+        Assert.Contains("Command: uvx tools-server", issue.Details, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lumi's check", issue.Details, StringComparison.Ordinal);
+        Assert.False(probed.IsCompleted);
     }
 
     [Fact]
     public void McpOAuthMessagesUseOriginalDisplayName()
     {
         var opened = ChatViewModel.BuildMcpOAuthOpenedMessage("Azure ARM MCP");
+        var windowOpened = ChatViewModel.BuildMcpOAuthWindowOpenedMessage("Azure ARM MCP");
         var failed = ChatViewModel.BuildMcpOAuthFailureMessage(
             "Azure ARM MCP",
             "dynamic registration unavailable");
 
         Assert.Contains("'Azure ARM MCP'", opened, StringComparison.Ordinal);
+        Assert.Contains("'Azure ARM MCP'", windowOpened, StringComparison.Ordinal);
         Assert.Contains("'Azure ARM MCP'", failed, StringComparison.Ordinal);
         Assert.DoesNotContain("Azure_ARM_MCP", opened, StringComparison.Ordinal);
         Assert.DoesNotContain("Azure_ARM_MCP", failed, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Microsoft.AAD.BrokerPlugin_cw5n1h2txyewy!App", true)]
+    [InlineData("microsoft.aad.brokerplugin_cw5n1h2txyewy!app", true)]
+    [InlineData("windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel", false)]
+    [InlineData(null, false)]
+    public void OnlyTheAccountBrokersWindowCountsAsTheSignInPrompt(string? appUserModelId, bool expected)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        Assert.Equal(expected, AccountBrokerPrompt.IsBrokerApp(appUserModelId));
     }
 
     private static int GetFreeLoopbackPort()

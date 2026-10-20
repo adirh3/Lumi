@@ -1,6 +1,7 @@
 #if WINDOWS
 using System.Diagnostics;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Avalonia;
@@ -66,6 +67,8 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 Assert.Contains("Readiness: DOM available", opened);
                 browser.WebView!.Profile.DefaultDownloadFolderPath = root;
 
+                await VerifyRoundedClipping(browser, window, root);
+                output.WriteLine("PASS: each tab/chat owns its rounded native region, full radius, resize/scale, square reset, and window transfer.");
                 await VerifyRoutineActionEfficiency(browser);
                 output.WriteLine("PASS: ready/continuously updating four-step batches and quiet clicks stay within the regression budget.");
                 await VerifyLegacyDropdownCompatibility(browser);
@@ -122,6 +125,135 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
         Assert.True(completed, "Native test body did not complete.");
     }
+
+    private static async Task VerifyRoundedClipping(BrowserService browser, Window window, string root)
+    {
+        var parent = window.TryGetPlatformHandle()!.Handle;
+        var detached = new Window { Title = "Lumi isolated rounded browser transfer", Width = 800, Height = 600 };
+        try
+        {
+            browser.SetBounds(10, 20, 420, 320, cornerRadiusPx: 24);
+            var first = Assert.Single(GetBrowserWindows(parent));
+            var initialTab = browser.ActiveTabId;
+
+            await browser.ManageTabsAsync("new");
+            var secondTab = browser.ActiveTabId;
+            var second = Assert.Single(GetBrowserWindows(parent).Except([first]));
+            AssertRoundedRegion(second, 420, 320, 24);
+            AssertRoundedRegion(first, 420, 320, 24);
+            await browser.ManageTabsAsync("switch", initialTab);
+            AssertRoundedRegion(first, 420, 320, 24);
+
+            await using var otherChat = new BrowserService(Path.Combine(root, "profile"));
+            otherChat.SetBounds(450, 20, 300, 240, cornerRadiusPx: 16);
+            await otherChat.InitializeAsync(parent);
+            var third = Assert.Single(GetBrowserWindows(parent).Except([first, second]));
+            AssertRoundedRegion(third, 300, 240, 16);
+            AssertRoundedRegion(first, 420, 320, 24);
+            AssertRoundedRegion(second, 420, 320, 24);
+
+            var existingWindows = GetBrowserWindows(parent);
+            var existingTabs = browser.Tabs.Select(tab => tab.Id).ToHashSet();
+            await Task.WhenAll(browser.ManageTabsAsync("new"), browser.ManageTabsAsync("new"));
+            var concurrentWindows = GetBrowserWindows(parent).Except(existingWindows).ToArray();
+            Assert.Equal(2, concurrentWindows.Length);
+            foreach (var child in concurrentWindows)
+                AssertRoundedRegion(child, 420, 320, 24);
+            foreach (var tab in browser.Tabs.Where(tab => !existingTabs.Contains(tab.Id)))
+                await browser.ManageTabsAsync("close", tab.Id);
+            await browser.ManageTabsAsync("switch", initialTab);
+
+            browser.SyncRasterizationScale(1.25);
+            browser.SetBounds(20, 30, 500, 360, cornerRadiusPx: 30);
+            AssertRoundedRegion(first, 500, 360, 30);
+            AssertRoundedRegion(second, 500, 360, 30);
+            AssertRoundedRegion(third, 300, 240, 16);
+
+            browser.SetBounds(20, 30, 500, 360);
+            AssertNoWindowRegion(first);
+            AssertNoWindowRegion(second);
+            AssertRoundedRegion(third, 300, 240, 16);
+
+            detached.Show();
+            var detachedParent = detached.TryGetPlatformHandle()!.Handle;
+            browser.SetParentHwnd(detachedParent);
+            browser.SetBounds(10, 20, 440, 300, cornerRadiusPx: 20);
+            Assert.Equal(2, GetBrowserWindows(detachedParent).Count);
+            AssertRoundedRegion(first, 440, 300, 20);
+            AssertRoundedRegion(second, 440, 300, 20);
+            AssertRoundedRegion(third, 300, 240, 16);
+
+            browser.SetParentHwnd(parent);
+            browser.SetBounds(10, 20, 420, 320, cornerRadiusPx: 24);
+            AssertRoundedRegion(first, 420, 320, 24);
+            AssertRoundedRegion(second, 420, 320, 24);
+            await browser.ManageTabsAsync("close", secondTab);
+        }
+        finally
+        {
+            browser.SetParentHwnd(parent);
+            browser.SyncRasterizationScale(1);
+            browser.SetBounds(0, 0, 940, 700);
+            detached.Close();
+        }
+    }
+
+    private static HashSet<IntPtr> GetBrowserWindows(IntPtr parent)
+    {
+        var windows = new HashSet<IntPtr>();
+        foreach (var className in new[] { "Chrome_WidgetWin_0", "Chrome_WidgetWin_1" })
+        {
+            var child = IntPtr.Zero;
+            while ((child = FindWindowEx(parent, child, className, null)) != IntPtr.Zero)
+                windows.Add(child);
+        }
+        return windows;
+    }
+
+    private static void AssertRoundedRegion(IntPtr window, int width, int height, int radius)
+    {
+        var region = CreateRectRgn(0, 0, 0, 0);
+        Assert.NotEqual(IntPtr.Zero, region);
+        try
+        {
+            Assert.True(GetWindowRgn(window, region) == 3, $"WebView HWND {window} has no rounded native region.");
+            Assert.True(PtInRegion(region, 0, 0));
+            Assert.True(PtInRegion(region, width - 1, 0));
+            Assert.True(PtInRegion(region, width / 2, height - 1));
+            Assert.False(PtInRegion(region, 0, height - 1));
+            Assert.False(PtInRegion(region, width - 1, height - 1));
+            Assert.False(PtInRegion(region, radius / 4, height - radius / 4));
+            Assert.False(PtInRegion(region, width - radius / 4 - 1, height - radius / 4));
+            Assert.True(PtInRegion(region, radius / 2, height - radius / 2));
+        }
+        finally
+        {
+            DeleteObject(region);
+        }
+    }
+
+    private static void AssertNoWindowRegion(IntPtr window)
+    {
+        var region = CreateRectRgn(0, 0, 0, 0);
+        Assert.NotEqual(IntPtr.Zero, region);
+        try { Assert.Equal(0, GetWindowRgn(window, region)); }
+        finally { DeleteObject(region); }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string? title);
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowRgn(IntPtr window, IntPtr region);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool PtInRegion(IntPtr region, int x, int y);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr handle);
 
     private static Task RunOnNativeStaAsync(Func<Task> body, CancellationToken cancellationToken)
     {

@@ -132,7 +132,7 @@ public sealed class BrowserPlatformWiringTests
                         Assert.Equal(available, settings.IsEmbeddedBrowserAvailable);
                         Assert.Equal(OperatingSystem.IsWindows(), settings.IsGlobalHotkeyAvailable);
                         Assert.Equal(OperatingSystem.IsWindows(), chat.IsVoiceAvailable);
-                        var privacy = view.FindControl<StackPanel>("PagePrivacy");
+                        var privacy = view.FindSettingsControl<StackPanel>("PagePrivacy");
                         Assert.NotNull(privacy);
                         var browserGroup = Assert.Single(privacy.GetLogicalDescendants()
                             .OfType<StrataSettingGroup>(), group => group.Header?.ToString() == "Browser");

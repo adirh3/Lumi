@@ -19,6 +19,7 @@
 
   <UserControl.Styles>
     <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
+    <StyleInclude Source="avares://Lumi/Views/Controls/ChatGptStyles.axaml" />
     <Style Selector="TextBlock.acct-title">
       <Setter Property="FontSize" Value="14" />
       <Setter Property="FontWeight" Value="SemiBold" />
@@ -190,6 +191,27 @@
     </Border>
     <TextBlock Classes="acct-caption" Text="{Binding GitHubError}" IsVisible="{Binding HasGitHubError}"
                Foreground="{DynamicResource Brush.DangerDefault}" Margin="10,0,10,8" />
+
+    <!-- ═══ ChatGPT — offered here until it is connected, then listed with the other accounts ═══ -->
+    <StackPanel x:Name="ChatGptOffer" IsVisible="{Binding ShowChatGptOffer}">
+      <Border Classes="acct-divider" />
+      <Border x:Name="ChatGptOfferRow" Padding="10,10">
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <ctrl:ProviderTile DataContext="{Binding ChatGptBadge}" />
+          <StackPanel Grid.Column="1" Margin="12,0,10,0" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Classes="acct-title" Text="ChatGPT" />
+            <TextBlock Classes="acct-caption" Text="{loc:Str ChatGpt_OfferCaption}" />
+          </StackPanel>
+          <Button x:Name="ChatGptConnectButton" Grid.Column="2" Classes="ec-chatgpt mg-button" VerticalAlignment="Center"
+                  Command="{Binding ConnectChatGptCommand}" AutomationProperties.Name="{loc:Str ChatGpt_Continue}">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <PathIcon Data="{StaticResource Ec.ChatGpt}" Width="14" Height="14" />
+              <TextBlock Text="{loc:Str ChatGpt_Continue}" />
+            </StackPanel>
+          </Button>
+        </Grid>
+      </Border>
+    </StackPanel>
 
     <!-- ═══ Connected accounts ═══ -->
     <ItemsControl x:Name="ConnectedAccounts" ItemsSource="{Binding Connections}">

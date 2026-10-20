@@ -31,19 +31,11 @@ namespace Lumi.ViewModels;
 
 public partial class ChatViewModel : ObservableObject, IDisposable
 {
-    private const int SuggestionHistoryScanLimit = 1000;
     private const int SuggestionFrequentRequestMaxItems = 8;
-    /// <summary>How long a computed user-prompt-history snapshot stays usable before a background refresh.
-    /// The frequent-requests block is a slowly-changing, low-priority aggregate, so serving a slightly
-    /// stale snapshot keeps suggestion latency to just the model call instead of a full cross-chat scan.</summary>
-    private static readonly TimeSpan SuggestionHistoryCacheTtl = TimeSpan.FromMinutes(2);
     private static readonly HttpClient McpDiagnosticsHttp = new()
     {
         Timeout = TimeSpan.FromSeconds(5)
     };
-    private static readonly Regex SensitiveHttpDiagnosticPattern = new(
-        @"(?i)(authorization|token|api[_-]?key|secret|password)(\s*[=:]\s*)([^\s,;]+)",
-        RegexOptions.Compiled);
 
     private static readonly bool TranscriptDiagnosticsEnabled = Debugger.IsAttached
         || string.Equals(Environment.GetEnvironmentVariable("LUMI_TRANSCRIPT_DEBUG"), "1", StringComparison.Ordinal);
@@ -51,9 +43,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>
     /// Tracks <c>sessionId|serverName</c> pairs we've already started an interactive OAuth login for,
     /// so the startup status poll and repeated live status events don't relaunch the browser for the
-    /// same server. Removed when the server connects, or when an attempt is cancelled by navigate-away,
-    /// so a later status change can retry; kept on a genuine sign-in failure to avoid hammering a
-    /// failing endpoint. Purged on session teardown so dead sessions don't accumulate entries.
+    /// same server. Removed when the server connects, so a later status change can retry; kept while a
+    /// sign-in runs and after a genuine sign-in failure, to avoid hammering a failing endpoint. Purged on
+    /// session teardown so dead sessions don't accumulate entries.
     /// </summary>
     private readonly HashSet<string> _mcpOAuthLoginAttempts = new(StringComparer.Ordinal);
     private readonly object _mcpOAuthLoginLock = new();
@@ -63,12 +55,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<(Guid ChatId, string EventType), long> _publishedTerminalChatEventTurns = [];
 
     /// <summary>
-    /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
-    /// an outcome (browser opened, or sign-in couldn't start). Repeated <c>NeedsAuth</c> status events
-    /// re-assert this instead of downgrading the chip back to the generic "signing you in" text.
+    /// The resolved OAuth issue per <c>sessionId|serverName</c> once a login attempt has produced an
+    /// outcome (browser or Microsoft sign-in window opened, or sign-in couldn't start). Repeated
+    /// <c>NeedsAuth</c> status events re-assert this instead of downgrading the chip back to the
+    /// generic "needs sign-in" reason.
     /// Guarded by <see cref="_mcpOAuthLoginLock"/>; cleared when the server connects.
     /// </summary>
-    private readonly Dictionary<string, string> _mcpOAuthResolvedMessages = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, McpConnectorIssue> _mcpOAuthResolvedMessages = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Configured MCP servers for the active session of each chat, captured so live
@@ -76,10 +69,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// server's transport apart (stdio servers never use OAuth).
     /// </summary>
     private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, McpServerConfig>> _activeMcpConfigs = new();
+    /// <summary>
+    /// The connector each runtime namespace was built from, captured with the session. A local connector
+    /// reaches the runtime as HTTP when Fast Connector Initialization proxies it, so its failures are
+    /// explained from this definition rather than from the transport.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, Lumi.Models.McpServer>> _activeMcpDefinitions = new();
     /// <summary>Latest runtime status reported for each MCP server in each chat.</summary>
     private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, McpServerStatus>> _activeMcpStatuses = new();
     /// <summary>Maps CAPI-safe runtime namespaces back to user-visible MCP server names.</summary>
     private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, string>> _activeMcpDisplayNames = new();
+    /// <summary>
+    /// How each connector Copilot loads itself connects (stdio, http or sse), captured with the session:
+    /// Lumi has neither a definition nor a config for those, so this is how their failures are explained.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, string>> _activeMcpTransports = new();
 
     /// <summary>
     /// How long the first prompt waits for remote MCP servers to connect. Without it the first turn is
@@ -90,6 +94,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private static readonly TimeSpan NativeMcpSettleBudget = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ProxyMcpSettleBudget = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan McpSettlePollInterval = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// How long a message waits for the user to finish a connector sign-in that opened for it — the five
+    /// minutes the runtime itself gives a Microsoft sign-in window. The typing indicator offers to send
+    /// without it sooner.
+    /// </summary>
+    internal static readonly TimeSpan McpSignInWaitLimit = TimeSpan.FromMinutes(5);
+
+    /// <summary>The connector sign-in each chat's message is waiting for, while the user finishes it.</summary>
+    private readonly ConcurrentDictionary<Guid, McpSignInWait> _mcpSignInWaits = new();
+
+    /// <summary>A message held while the user signs in to a connector. Skipping it sends the message now.</summary>
+    private sealed class McpSignInWait
+    {
+        private int _skipped;
+
+        public bool IsSkipped => Volatile.Read(ref _skipped) != 0;
+
+        public void Skip() => Interlocked.Exchange(ref _skipped, 1);
+
+        /// <summary>UI thread only: the status shown while waiting, and the one it replaced.</summary>
+        public string? StatusText { get; set; }
+        public string? PreviousStatus { get; set; }
+    }
 
     /// <summary>
     /// How long an MCP-backed session create/resume may run before Lumi requests cancellation.
@@ -199,6 +227,23 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// The handed-off connectors whose sign-in is open in front of the user, in the browser or a Microsoft
+    /// sign-in window. A message can wait for them: unlike a sign-in that couldn't start, the user is about
+    /// to finish it. One that has just signed in still counts while it reconnects, so its tools are there.
+    /// </summary>
+    /// <param name="resolvedSignIn">The outcome recorded for a connector's sign-in, if any.</param>
+    internal static IReadOnlyList<string> SelectMcpSignInsAwaitingUser(
+        IEnumerable<RpcMcpServer> servers,
+        IReadOnlySet<string> handedOff,
+        Func<string, McpConnectorIssueKind?> resolvedSignIn)
+        => servers
+            .Where(server => handedOff.Contains(server.Name)
+                             && (server.Status == McpServerStatus.NeedsAuth || IsMcpStatusSettling(server.Status))
+                             && resolvedSignIn(server.Name) == McpConnectorIssueKind.SignInOpened)
+            .Select(server => server.Name)
+            .ToList();
+
+    /// <summary>
     /// Starts the post-creation MCP status check. Sessions with remote servers await it so the first
     /// prompt is dispatched only once those servers have signed in and registered their tools; stdio-only
     /// sessions keep the previous fire-and-forget behaviour.
@@ -208,9 +253,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Guid chatId,
         IReadOnlyDictionary<string, McpServerConfig> configuredServers,
         bool usesProxy,
+        bool holdForSignIn,
         CancellationToken ct)
     {
-        var check = CheckMcpServerStatusAsync(session, chatId, configuredServers, usesProxy, ct);
+        var check = CheckMcpServerStatusAsync(session, chatId, configuredServers, usesProxy, holdForSignIn, ct);
         return HasRemoteMcpServers(configuredServers) ? check : Task.CompletedTask;
     }
 
@@ -227,6 +273,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Guid chatId,
         IReadOnlyDictionary<string, McpServerConfig> configuredServers,
         bool usesProxy,
+        bool holdForSignIn,
         CancellationToken ct)
     {
         var observedStatuses = _activeMcpStatuses.GetOrAdd(
@@ -234,6 +281,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
         var handledStatuses = new Dictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase);
         var handedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // A message waits for the user to sign in only where they can see its typing indicator, which
+        // offers to send without it.
+        holdForSignIn = holdForSignIn
+            && Dispatcher.UIThread.CheckAccess()
+            && IsChatOnScreen(chatId);
+        McpSignInWait? signInWait = null;
+        var signInWaitStatus = "";
 
         // The budget has to cap the whole check, not just the sleeps: a status handler can probe a failed
         // HTTP endpoint and ListAsync can stall, and this now runs before the user's first message.
@@ -273,8 +328,46 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 if (servers is not null && evaluation.ToHandle.Count > 0)
                     evaluation = EvaluateMcpSettle(servers, handledStatuses, handedOff);
 
-                if (!evaluation.KeepWaiting)
+                var awaitingSignIn = holdForSignIn && servers is not null
+                    ? SelectMcpSignInsAwaitingUser(servers, handedOff, name => ResolveMcpOAuthIssueKind(session, name))
+                    : [];
+                if (awaitingSignIn.Count > 0 && signInWait is null)
+                {
+                    // The sign-in is in front of the user, so give them the time to finish it.
+                    signInWait = new McpSignInWait();
+                    _mcpSignInWaits[chatId] = signInWait;
+                    signInWaitStatus = "";
+                    settleCts.CancelAfter(McpSignInWaitLimit);
+                }
+
+                if (signInWait is not null && (awaitingSignIn.Count == 0 || signInWait.IsSkipped))
+                {
+                    // Signed in, the sign-in ended without it, or the user chose to send without it.
+                    // Whatever is still starting gets the usual budget rather than the user's time, and a
+                    // skipped sign-in doesn't hold the message again.
+                    if (signInWait.IsSkipped)
+                        holdForSignIn = false;
+                    EndMcpSignInWait(chatId, signInWait);
+                    signInWait = null;
+                    settleCts.CancelAfter(settleBudget);
+                }
+
+                if (signInWait is not null)
+                {
+                    var status = string.Format(
+                        Loc.Status_WaitingForConnectorSignIn,
+                        string.Join(", ", awaitingSignIn.Select(name => ResolveMcpDisplayName(chatId, name))));
+                    if (!string.Equals(status, signInWaitStatus, StringComparison.Ordinal))
+                    {
+                        signInWaitStatus = status;
+                        var wait = signInWait;
+                        Dispatcher.UIThread.Post(() => ShowMcpSignInWait(chatId, wait, status));
+                    }
+                }
+                else if (!evaluation.KeepWaiting)
+                {
                     return;
+                }
 
                 await Task.Delay(McpSettlePollInterval, settleCt).ConfigureAwait(false);
             }
@@ -304,7 +397,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     SetMcpChipError(
                         chatId,
                         serverName,
-                        $"MCP server '{displayName}' did not finish connecting within {settleBudget.TotalSeconds:0} seconds. Its tools may appear after startup completes.");
+                        McpConnectorIssues.StillStarting(
+                            displayName,
+                            settleBudget,
+                            ResolveMcpConfig(chatId, serverName),
+                            ResolveMcpDefinition(chatId, serverName)));
                 }
             });
         }
@@ -322,6 +419,72 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             Debug.WriteLine($"[MCP] Startup status RPC failed for chat {chatId}: {ex.Message}");
         }
+        finally
+        {
+            if (signInWait is not null)
+                EndMcpSignInWait(chatId, signInWait);
+        }
+    }
+
+    /// <summary>Shows that the chat's message is waiting for the user to sign in, with the way to skip it.</summary>
+    private void ShowMcpSignInWait(Guid chatId, McpSignInWait wait, string status)
+    {
+        // The wait may have ended, or been skipped, before this ran.
+        if (!_mcpSignInWaits.TryGetValue(chatId, out var current)
+            || !ReferenceEquals(current, wait)
+            || wait.IsSkipped
+            || !_runtimeStates.TryGetValue(chatId, out var runtime))
+        {
+            return;
+        }
+
+        wait.PreviousStatus ??= runtime.StatusText;
+        wait.StatusText = status;
+        runtime.StatusText = status;
+        if (CurrentChat?.Id == chatId)
+            StatusText = status;
+        ApplyMcpSignInWaitAction();
+    }
+
+    /// <summary>Ends a sign-in wait, putting back the status it replaced unless something newer took over.</summary>
+    private void EndMcpSignInWait(Guid chatId, McpSignInWait wait)
+    {
+        _mcpSignInWaits.TryRemove(new KeyValuePair<Guid, McpSignInWait>(chatId, wait));
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (wait.StatusText is { } shown
+                && wait.PreviousStatus is { } previous
+                && _runtimeStates.TryGetValue(chatId, out var runtime)
+                && string.Equals(runtime.StatusText, shown, StringComparison.Ordinal))
+            {
+                runtime.StatusText = previous;
+                if (CurrentChat?.Id == chatId)
+                    StatusText = previous;
+            }
+
+            ApplyMcpSignInWaitAction();
+        });
+    }
+
+    /// <summary>Offers "Send without signing in" beside the typing indicator while the shown chat waits.</summary>
+    private void ApplyMcpSignInWaitAction()
+    {
+        var offer = CurrentChat is { } chat
+            && _mcpSignInWaits.TryGetValue(chat.Id, out var wait)
+            && wait.StatusText is not null
+            && !wait.IsSkipped;
+        _transcriptBuilder.SetTypingIndicatorAction(
+            offer ? Loc.Chat_SendWithoutSignIn : null,
+            offer ? SendWithoutSignInCommand : null);
+    }
+
+    /// <summary>Sends the waiting message now, without the connector the user hasn't signed in to.</summary>
+    [RelayCommand]
+    private void SendWithoutSignIn()
+    {
+        if (CurrentChat is { } chat && _mcpSignInWaits.TryGetValue(chat.Id, out var wait))
+            wait.Skip();
+        ApplyMcpSignInWaitAction();
     }
 
     /// <summary>
@@ -346,9 +509,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
         observedStatuses[serverName] = status;
 
-        McpServerConfig? config = null;
-        if (_activeMcpConfigs.TryGetValue(chatId, out var configured))
-            configured.TryGetValue(serverName, out config);
+        McpServerConfig? config = ResolveMcpConfig(chatId, serverName);
+        var definition = ResolveMcpDefinition(chatId, serverName);
         var displayName = ResolveMcpDisplayName(chatId, serverName);
 
         if (status == McpServerStatus.Connected)
@@ -368,24 +530,24 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (status != McpServerStatus.NeedsAuth && status != McpServerStatus.Failed)
             return false;
 
-        var errorMessage = await BuildMcpStatusErrorMessageAsync(
-            displayName, status, error ?? "", config, ct).ConfigureAwait(false);
+        var issue = await DescribeMcpStatusAsync(
+            status, error ?? "", config, definition, ResolveMcpTransport(chatId, serverName), ct).ConfigureAwait(false);
 
         if (status == McpServerStatus.NeedsAuth)
         {
-            // Don't let a repeated NeedsAuth event downgrade a richer, already-resolved message
-            // (e.g. revert "Lumi opened your browser…" back to the generic "signing you in…").
+            // Don't let a repeated NeedsAuth event downgrade a richer, already-resolved issue
+            // (e.g. revert "finish signing in in your browser" back to the generic "needs sign-in").
             lock (_mcpOAuthLoginLock)
             {
                 if (_mcpOAuthResolvedMessages.TryGetValue(McpOAuthKey(session, serverName), out var resolved))
-                    errorMessage = resolved;
+                    issue = resolved;
             }
         }
 
-        Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, errorMessage));
+        Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, issue));
 
         if (status == McpServerStatus.NeedsAuth)
-            return await TryInitiateMcpOAuthLoginAsync(session, chatId, serverName, config, ct).ConfigureAwait(false);
+            return await TryInitiateMcpOAuthLoginAsync(session, chatId, serverName, config, issue, ct).ConfigureAwait(false);
 
         return false;
     }
@@ -396,16 +558,23 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// cached token already authenticates the server the runtime reconnects silently and reports
     /// completion via a later status event that clears the chip.
     /// </summary>
+    /// <remarks>
+    /// The sign-in runs to its end whoever stops waiting for it. A Microsoft Entra connector signs in in a
+    /// Windows sign-in window and the runtime answers only once the user is done there; cancelling the
+    /// request would make the runtime discard a sign-in the user may still be finishing. Stop or the settle
+    /// budget only ends this caller's wait, and the login reports its own outcome.
+    /// </remarks>
     /// <returns>
     /// <c>true</c> when this server will not reach <c>Connected</c> on its own — interactive consent is
-    /// pending in the browser, or sign-in couldn't be started — so the settle loop must stop waiting for
-    /// it. <c>false</c> only when a silent reconnect is genuinely still expected.
+    /// pending in the browser or the Microsoft sign-in window, or sign-in couldn't be started — so the
+    /// settle loop must stop waiting for it. <c>false</c> only when a silent reconnect is genuinely still expected.
     /// </returns>
     private async Task<bool> TryInitiateMcpOAuthLoginAsync(
         CopilotSession session,
         Guid chatId,
         string serverName,
         McpServerConfig? config,
+        McpConnectorIssue pending,
         CancellationToken ct)
     {
         // stdio servers don't authenticate over OAuth; only remote (and unknown) servers can. Nothing
@@ -425,75 +594,123 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (!_mcpOAuthLoginAttempts.Add(key))
             {
                 // The live status event beat us to this server — the two paths fire within milliseconds
-                // of each other. Report *its* outcome: a resolved chip means the browser is up or sign-in
-                // failed, and anything else means the attempt is still in flight and worth waiting for.
+                // of each other. Report *its* outcome: a resolved chip means the browser or sign-in window
+                // is up or sign-in failed, and anything else means the attempt is still in flight and worth
+                // waiting for.
                 return _mcpOAuthResolvedMessages.ContainsKey(key);
             }
         }
 
+        var windowShown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var login = RunMcpOAuthLoginAsync(session, chatId, serverName, key, pending, displayName, windowShown);
         try
         {
-            var authorizationUrl = await _copilotService
-                .StartMcpOAuthLoginAsync(session, serverName, forceReauth: false, ct)
-                .ConfigureAwait(false);
-
-            // A non-empty URL means the runtime opened the browser for interactive consent.
-            // An empty URL means a cached token is being reused; a later Connected event clears the chip.
-            if (!string.IsNullOrWhiteSpace(authorizationUrl))
-            {
-                var openedMessage = BuildMcpOAuthOpenedMessage(displayName);
-                ResolveMcpOAuthChip(chatId, serverName, key, openedMessage);
-                return true;
-            }
+            var first = await Task.WhenAny(login, windowShown.Task).WaitAsync(ct).ConfigureAwait(false);
+            return first != login || await login.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // The chat was navigated away from (or its load was superseded) while sign-in was starting.
-            // That isn't a real failure: forget the attempt so a later status event can retry cleanly,
-            // and don't poison the chip with a bogus "couldn't start sign-in (The operation was canceled)".
-            // Note the guard: an *internal* timeout (TaskCanceledException with ct NOT cancelled) is a real
-            // sign-in failure and must fall through to the honest-failure branch below, not be retried.
-            lock (_mcpOAuthLoginLock)
-                _mcpOAuthLoginAttempts.Remove(key);
+            // Stopped, or the settle budget ran out, while sign-in was starting. The login carries on and
+            // shows its own outcome; only this wait ends.
             return true;
+        }
+    }
+
+    /// <summary>Runs one MCP OAuth login to its end and shows how it went on the connector's chip.</summary>
+    /// <returns><c>false</c> when the server is expected to reconnect on its own; otherwise <c>true</c>.</returns>
+    private async Task<bool> RunMcpOAuthLoginAsync(
+        CopilotSession session,
+        Guid chatId,
+        string serverName,
+        string key,
+        McpConnectorIssue pending,
+        string displayName,
+        TaskCompletionSource windowShown)
+    {
+        try
+        {
+            var authorizationUrl = await _copilotService
+                .StartMcpOAuthLoginAsync(
+                    session,
+                    serverName,
+                    forceReauth: false,
+                    signInWindowShown: () =>
+                    {
+                        var opened = McpConnectorIssues.SignInWindowOpened(pending, BuildMcpOAuthWindowOpenedMessage(displayName));
+                        ResolveMcpOAuthChip(chatId, serverName, key, opened);
+                        windowShown.TrySetResult();
+                    })
+                .ConfigureAwait(false);
+
+            // A non-empty URL means the runtime opened the browser for interactive consent. An empty URL
+            // means no browser was needed — a cached token was reused, or the Microsoft sign-in window
+            // finished — and a later Connected event clears the chip.
+            if (!string.IsNullOrWhiteSpace(authorizationUrl))
+            {
+                var opened = McpConnectorIssues.SignInOpened(pending, BuildMcpOAuthOpenedMessage(displayName));
+                ResolveMcpOAuthChip(chatId, serverName, key, opened);
+                return true;
+            }
+
+            return false;
         }
         catch (Exception ex)
         {
-            // Sign-in couldn't be started — e.g. the server's identity provider doesn't support
-            // dynamic client registration. Report it honestly and keep the attempt recorded so we
-            // don't hammer a failing endpoint on every status event; a later session retries cleanly.
-            var failedMessage = BuildMcpOAuthFailureMessage(
-                displayName,
-                DescribeMcpOAuthLoginFailure(ex));
-            ResolveMcpOAuthChip(chatId, serverName, key, failedMessage);
+            // Sign-in couldn't be started or finished — e.g. the server's identity provider doesn't support
+            // dynamic client registration, or the Microsoft sign-in was cancelled. Report it honestly and keep
+            // the attempt recorded so we don't hammer a failing endpoint on every status event; a later
+            // session retries cleanly.
+            var failed = McpConnectorIssues.SignInFailed(
+                pending,
+                BuildMcpOAuthFailureMessage(displayName, DescribeMcpOAuthLoginFailure(ex)),
+                ex);
+            ResolveMcpOAuthChip(chatId, serverName, key, failed);
             return true;
         }
-
-        // Empty URL: a cached token is being reused and the server reconnects shortly on its own.
-        return false;
     }
 
     internal static string BuildMcpOAuthOpenedMessage(string displayName)
-        => $"Lumi opened your browser to sign in to MCP server '{displayName}'. " +
+        => $"Lumi opened your browser to sign in to connector '{displayName}'. " +
            "Finish signing in and it reconnects automatically.";
 
+    internal static string BuildMcpOAuthWindowOpenedMessage(string displayName)
+        => $"A Microsoft sign-in window opened for connector '{displayName}'. " +
+           "Finish signing in there and it reconnects automatically.";
+
     internal static string BuildMcpOAuthFailureMessage(string displayName, string failure)
-        => $"Lumi couldn't start sign-in for MCP server '{displayName}' automatically " +
-           $"({failure}). Open it from the MCP servers page to sign in.";
+        => $"Lumi couldn't sign in to connector '{displayName}' automatically " +
+           $"({failure}). Open it in Customize → Connectors to sign in.";
 
     /// <summary>
-    /// Records the final OAuth chip message for a session+server and shows it, so later repeated
-    /// <c>NeedsAuth</c> status events re-assert it rather than reverting to the generic pending text.
+    /// Records the final OAuth issue for a session+server and shows it, so later repeated
+    /// <c>NeedsAuth</c> status events re-assert it rather than reverting to the generic pending reason.
+    /// A sign-in can end minutes after it started; once the server connected or its session was torn
+    /// down, the attempt is forgotten and its outcome is stale, so it is dropped.
     /// </summary>
-    private void ResolveMcpOAuthChip(Guid chatId, string serverName, string key, string message)
+    private void ResolveMcpOAuthChip(Guid chatId, string serverName, string key, McpConnectorIssue issue)
     {
         lock (_mcpOAuthLoginLock)
-            _mcpOAuthResolvedMessages[key] = message;
-        Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, message));
+        {
+            if (!_mcpOAuthLoginAttempts.Contains(key))
+                return;
+            _mcpOAuthResolvedMessages[key] = issue;
+        }
+        Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, issue));
     }
 
     private static string McpOAuthKey(CopilotSession session, string serverName)
         => $"{session.SessionId}|{serverName}";
+
+    /// <summary>How the session's sign-in to a connector went, once an attempt has an outcome.</summary>
+    private McpConnectorIssueKind? ResolveMcpOAuthIssueKind(CopilotSession session, string serverName)
+    {
+        lock (_mcpOAuthLoginLock)
+        {
+            return _mcpOAuthResolvedMessages.TryGetValue(McpOAuthKey(session, serverName), out var issue)
+                ? issue.Kind
+                : null;
+        }
+    }
 
     /// <summary>
     /// Releases the per-session OAuth chip/login bookkeeping for a chat's current session when that
@@ -532,113 +749,74 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return string.IsNullOrEmpty(message) ? ex.GetType().Name : message;
     }
 
-    /// <summary>Puts the named MCP composer chip into an error state (tooltip = <paramref name="errorMessage"/>).</summary>
-    private void SetMcpChipError(Guid chatId, string serverName, string errorMessage)
-    {
-        if (CurrentChat?.Id != chatId)
-            return;
-
-        var displayName = ResolveMcpDisplayName(chatId, serverName);
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
-            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
-        if (existingChip is null)
-            return;
-
-        ActiveMcpChips[ActiveMcpChips.IndexOf(existingChip)] = existingChip with { ErrorMessage = errorMessage };
-    }
-
-    /// <summary>Clears the error state from the named MCP composer chip, if present.</summary>
-    private void ClearMcpChipError(Guid chatId, string serverName)
-    {
-        if (CurrentChat?.Id != chatId)
-            return;
-
-        var displayName = ResolveMcpDisplayName(chatId, serverName);
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
-            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
-        if (existingChip is null || !existingChip.HasError)
-            return;
-
-        ActiveMcpChips[ActiveMcpChips.IndexOf(existingChip)] = existingChip with { ErrorMessage = null };
-    }
-
     private string ResolveMcpDisplayName(Guid chatId, string serverName)
         => _activeMcpDisplayNames.TryGetValue(chatId, out var displayNames)
            && displayNames.TryGetValue(serverName, out var displayName)
             ? displayName
             : serverName;
 
-    internal static async Task<string> BuildMcpStatusErrorMessageAsync(
-        string serverName,
+    private McpServerConfig? ResolveMcpConfig(Guid chatId, string serverName)
+        => _activeMcpConfigs.TryGetValue(chatId, out var configured)
+           && configured.TryGetValue(serverName, out var config)
+            ? config
+            : null;
+
+    private Lumi.Models.McpServer? ResolveMcpDefinition(Guid chatId, string serverName)
+        => _activeMcpDefinitions.TryGetValue(chatId, out var definitions)
+           && definitions.TryGetValue(serverName, out var definition)
+            ? definition
+            : null;
+
+    private string? ResolveMcpTransport(Guid chatId, string serverName)
+        => _activeMcpTransports.TryGetValue(chatId, out var transports)
+           && transports.TryGetValue(serverName, out var transport)
+            ? transport
+            : null;
+
+    /// <summary>
+    /// The connectors a session plan supplies, keyed by runtime namespace. Lumi's own connectors win over
+    /// discovered ones of the same name, exactly as they do when the plan is built.
+    /// </summary>
+    private Dictionary<string, Lumi.Models.McpServer> ResolveMcpDefinitions(McpSessionPlan plan, CapabilitySnapshot capabilities)
+    {
+        var definitions = new Dictionary<string, Lumi.Models.McpServer>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (displayName, runtimeKey) in plan.RuntimeKeysByName ?? new Dictionary<string, string>())
+        {
+            var definition = _dataStore.Data.McpServers.LastOrDefault(
+                                 server => server.IsEnabled && NameComparer.Equals(server.Name, displayName))
+                             ?? capabilities.FindMcpServer(displayName)?.McpDefinition;
+            if (definition is not null)
+                definitions[runtimeKey] = definition;
+        }
+
+        return definitions;
+    }
+
+    /// <summary>
+    /// Explains a connector's status in plain words, keeping the complete technical error as details.
+    /// A failing loopback HTTP connector is asked directly, which is often the only way to learn its status code.
+    /// </summary>
+    internal static async Task<McpConnectorIssue> DescribeMcpStatusAsync(
         McpServerStatus status,
         string rawError,
         McpServerConfig? config,
+        Lumi.Models.McpServer? definition,
+        string? transport,
         CancellationToken ct)
     {
-        if (status == McpServerStatus.NeedsAuth)
+        McpEndpointProbe? probe = null;
+        if (status != McpServerStatus.NeedsAuth
+            && config is McpHttpServerConfig remote
+            && McpConnectorIssues.IsRemote(config, definition) == true
+            && ShouldProbeHttpMcpEndpoint(remote.Url))
         {
-            return config is McpHttpServerConfig authRemote
-                ? $"Sign-in required for MCP server '{serverName}' at {SanitizeMcpDiagnosticUrl(authRemote.Url)}. Lumi is signing you in…"
-                : $"Sign-in required for MCP server '{serverName}'. If it supports OAuth, Lumi will sign you in and reconnect automatically.";
+            probe = await ProbeHttpMcpEndpointAsync(remote, ct).ConfigureAwait(false);
         }
 
-        if (config is McpHttpServerConfig remote)
-            return await BuildHttpMcpStatusErrorMessageAsync(serverName, rawError, remote, ct).ConfigureAwait(false);
-
-        if (config is McpStdioServerConfig local)
-            return BuildStdioMcpStatusErrorMessage(serverName, rawError, local);
-
-        return BuildGenericMcpStatusErrorMessage(rawError);
+        return McpConnectorIssues.Describe(status, rawError, config, definition, probe, transport);
     }
 
-    private static async Task<string> BuildHttpMcpStatusErrorMessageAsync(
-        string serverName,
-        string rawError,
-        McpHttpServerConfig remote,
-        CancellationToken ct)
-    {
-        if (ShouldProbeHttpMcpEndpoint(remote.Url))
-        {
-            var diagnostic = await ProbeHttpMcpEndpointAsync(remote, ct).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(diagnostic))
-                return $"HTTP MCP server '{serverName}' failed. {diagnostic}";
-        }
-
-        var safeUrl = SanitizeMcpDiagnosticUrl(remote.Url);
-        return string.IsNullOrWhiteSpace(rawError)
-            ? $"HTTP MCP server '{serverName}' failed to connect to {safeUrl}."
-            : $"HTTP MCP server '{serverName}' failed for {safeUrl}: {rawError}";
-    }
-
-    private static string BuildStdioMcpStatusErrorMessage(
-        string serverName,
-        string rawError,
-        McpStdioServerConfig local)
-    {
-        if (rawError.Contains("system cannot find the file specified", StringComparison.OrdinalIgnoreCase)
-            || rawError.Contains("command not found", StringComparison.OrdinalIgnoreCase)
-            || rawError.Contains("ENOENT", StringComparison.OrdinalIgnoreCase))
-        {
-            var cwd = string.IsNullOrWhiteSpace(local.WorkingDirectory) ? Environment.CurrentDirectory : local.WorkingDirectory;
-            return $"Command not found for MCP server '{serverName}': '{local.Command}'. Working directory: '{cwd}'. Install '{local.Command}' or add it to the PATH used by Lumi.";
-        }
-
-        return BuildGenericMcpStatusErrorMessage(rawError);
-    }
-
-    private static string BuildGenericMcpStatusErrorMessage(string rawError)
-    {
-        return rawError switch
-        {
-            _ when rawError.Contains("Connection closed", StringComparison.OrdinalIgnoreCase)
-                => "Server process exited immediately. Verify the command is installed and runnable.",
-            _ when string.IsNullOrWhiteSpace(rawError)
-                => "Failed to connect to MCP server.",
-            _ => rawError
-        };
-    }
-
-    private static async Task<string?> ProbeHttpMcpEndpointAsync(McpHttpServerConfig remote, CancellationToken ct)
+    private static async Task<McpEndpointProbe?> ProbeHttpMcpEndpointAsync(McpHttpServerConfig remote, CancellationToken ct)
     {
         if (!Uri.TryCreate(remote.Url, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
@@ -664,45 +842,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             using var response = await McpDiagnosticsHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             var body = await ReadHttpDiagnosticBodyAsync(response, ct).ConfigureAwait(false);
-            var status = $"{(int)response.StatusCode} {response.ReasonPhrase}".Trim();
-            var hint = response.StatusCode switch
-            {
-                HttpStatusCode.Unauthorized => " Authentication is required; configure headers/token for this MCP server.",
-                HttpStatusCode.Forbidden => " Authentication or permission is required for this MCP server.",
-                HttpStatusCode.NotFound => " Endpoint was not found; check the MCP URL and protocol for this server.",
-                HttpStatusCode.MethodNotAllowed => " Endpoint rejected POST; check whether this server uses a different MCP transport or URL.",
-                _ => ""
-            };
-            var summary = string.IsNullOrWhiteSpace(body) ? "" : $" Response: {body}";
-            return $"POST {SanitizeMcpDiagnosticUrl(remote.Url)} returned {status}.{hint}{summary}";
+            return new McpEndpointProbe(remote.Url, (int)response.StatusCode, response.ReasonPhrase, body, Failure: null);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested
             && ex is HttpRequestException or TaskCanceledException or IOException)
         {
-            return $"POST {SanitizeMcpDiagnosticUrl(remote.Url)} failed: {ex.Message}";
-        }
-    }
-
-    private static string SanitizeMcpDiagnosticUrl(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            return url;
-
-        try
-        {
-            var builder = new UriBuilder(uri)
-            {
-                UserName = "",
-                Password = "",
-                Query = "",
-                Fragment = ""
-            };
-
-            return builder.Uri.GetLeftPart(UriPartial.Path);
-        }
-        catch (UriFormatException)
-        {
-            return uri.GetLeftPart(UriPartial.Path);
+            return new McpEndpointProbe(remote.Url, StatusCode: null, ReasonPhrase: null, Body: null, Failure: ex.Message);
         }
     }
 
@@ -713,7 +858,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             && uri.IsLoopback;
     }
 
-    private static async Task<string> ReadHttpDiagnosticBodyAsync(HttpResponseMessage response, CancellationToken ct)
+    private static async Task<string?> ReadHttpDiagnosticBodyAsync(HttpResponseMessage response, CancellationToken ct)
     {
         try
         {
@@ -723,17 +868,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 && !mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
                 && !mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase))
             {
-                return "";
+                return null;
             }
 
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            body = body.Replace('\r', ' ').Replace('\n', ' ').Trim();
-            body = SensitiveHttpDiagnosticPattern.Replace(body, "$1$2[redacted]");
-            return body.Length <= 300 ? body : body[..300] + "...";
+            return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidOperationException)
         {
-            return "";
+            return null;
         }
     }
 
@@ -860,17 +1002,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly HashSet<Guid> _pendingWorktreeCreations = [];
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
-    /// <summary>Cached cross-chat user-prompt history for the suggestion "frequent requests" block.
-    /// Reused across turns and refreshed in the background so suggestion generation rarely pays the
-    /// cross-chat disk scan. Reference assignment is atomic; staleness is bounded by <see cref="SuggestionHistoryCacheTtl"/>.</summary>
-    private volatile IReadOnlyList<UserPromptHistoryItem>? _cachedUserPromptHistory;
-    /// <summary>UTC ticks of the last history snapshot. Stored as a <see cref="long"/> accessed via
-    /// <see cref="Interlocked"/> so the suggestion thread and background-refresh thread read/write it
-    /// atomically (a 16-byte <see cref="DateTimeOffset"/> struct can tear across threads).</summary>
-    private long _cachedUserPromptHistoryAtTicks = DateTimeOffset.MinValue.UtcTicks;
-    /// <summary>0/1 guard ensuring at most one background history refresh runs at a time.</summary>
-    private int _userPromptHistoryRefreshing;
-
     private sealed record ComposerEditSnapshot(
         string PromptText,
         List<string> PendingAttachments,
@@ -887,7 +1018,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? ChatLastContextWindowTierUsed,
         List<Guid> PendingSkillInjections,
         List<string> PendingExternalSkillInjections,
-        MessageReply? PendingReply);
+        MessageReply? PendingReply,
+        List<ChatReference>? ReferencedChats);
 
     private ComposerEditSnapshot? _preEditComposerSnapshot;
     private ChatMessage? _editingUserMessage;
@@ -954,9 +1086,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ShowInfoStrip))]
     private bool _isSessionActive;
     [ObservableProperty] private string _backgroundActivityText = Loc.Get("Chat_BackgroundActivity");
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasRunningSessionActivities))]
-    private IReadOnlyList<SessionActivityItem> _runningSessionActivities = [];
+
+    /// <summary>Tasks still running in the session, patched in place so an open row keeps its state.</summary>
+    public ObservableCollection<SessionActivityItem> RunningSessionActivities { get; } = [];
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivityNotice))]
     private string? _backgroundActivityNotice = Loc.Get("Chat_BackgroundActivityLoading");
@@ -1544,6 +1676,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ? ResolveWorkspaceFileChangedPath(chat, path)
                 : path,
             openReplySourceAction: RequestReplySourceJump);
+        _transcriptBuilder.LiveActivityChanged += OnTranscriptLiveActivityChanged;
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -1671,6 +1804,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnIsBusyChanged(bool value)
     {
+        NotifyPermissionPropertiesChanged();
         OnPropertyChanged(nameof(CanSubmitInteractions));
         OnPropertyChanged(nameof(CanPauseChat));
         OnPropertyChanged(nameof(IsComposerBusy));
@@ -1693,6 +1827,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnIsSessionActiveChanged(bool value)
     {
+        NotifyPermissionPropertiesChanged();
         OnPropertyChanged(nameof(CanPauseChat));
         if (CurrentChat is { } chat && _runtimeStates.TryGetValue(chat.Id, out var runtime))
             RefreshChatPauseState(runtime);
@@ -1714,6 +1849,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         if (IsBusy && !IsPaused)
             _transcriptBuilder.UpdateTypingIndicatorLabel(value);
+        OnPropertyChanged(nameof(HeaderActivityText));
     }
 
     internal void RebuildTranscript()
@@ -1746,7 +1882,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
         }
 
-        TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin());
+        TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin(), isWorking: IsBusy);
         UpdateUserMessageEditState();
         UpdateReplySourceHighlight();
         _transcriptWindow.BindTranscript(TranscriptTurns, "rebuild");
@@ -1756,6 +1892,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Re-show it if this chat is still busy (e.g. switching to a streaming chat).
         if (IsBusy && !IsPaused)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
+
+        // Approval cards are live runtime requests, not saved messages: put the chat's back.
+        RestoreApprovalCardsToTranscript();
 
         // Re-arm the background-shell monitor when switching to a chat that left an async shell
         // running; it rediscovers the shell (by command) and re-marks the freshly-rebuilt card.
@@ -2197,10 +2336,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return true;
     }
 
+    /// <param name="holdForConnectorSignIn">
+    /// The user's own send from this chat: its message waits while they finish a connector sign-in, and
+    /// its typing indicator offers to send without it. Every other setup hands sign-ins off at once.
+    /// </param>
     private async Task<bool> EnsureSessionAsync(
         Chat chat,
         CancellationToken ct,
-        bool allowCreateFallback = true)
+        bool allowCreateFallback = true,
+        bool holdForConnectorSignIn = false)
     {
         var allSkills = _dataStore.Data.Skills;
         var activeSkills = ResolveSkillsByIds(chat.ActiveSkillIds);
@@ -2234,9 +2378,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         using var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
         using var pendingMcpProxyPlan = TrackPendingMcpProxyPlan(chat.Id, mcpPlan);
         _sessionMcpPlans[chat.Id] = mcpPlan;
+        ResetMcpIssues(chat.Id);
+        var transports = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var server in capabilities.McpServers)
+        {
+            if (server.McpTransport is { Length: > 0 } transport)
+                transports.TryAdd(server.Name, transport);
+        }
+        _activeMcpTransports[chat.Id] = transports;
         if (mcpPlan.Servers.Count > 0)
         {
             _activeMcpConfigs[chat.Id] = mcpPlan.Servers;
+            _activeMcpDefinitions[chat.Id] = ResolveMcpDefinitions(mcpPlan, capabilities);
             _activeMcpStatuses[chat.Id] = new ConcurrentDictionary<string, McpServerStatus>(
                 StringComparer.OrdinalIgnoreCase);
             _activeMcpDisplayNames[chat.Id] = mcpPlan.RuntimeKeysByName?
@@ -2382,20 +2535,31 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var byokModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
             modelRoute.ByokModel,
             contextTier);
+        var permissionHandler = BuildApprovalHandler(chat);
+        var askLayer = BuildApprovalAskLayer(chat, mcpPlan);
 
-        SessionConfig buildSessionConfig() =>
-            SessionConfigBuilder.Build(
+        SessionConfig buildSessionConfig()
+        {
+            var config = SessionConfigBuilder.Build(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
-                effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
+                effort, userInputHandler, permissionHandler, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
-                modelCapabilities: byokModelCapabilities);
+                modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
+            config.ManagedSettings = askLayer;
+            return config;
+        }
 
-        ResumeSessionConfig buildResumeConfig() =>
-            SessionConfigBuilder.BuildForResume(
+        ResumeSessionConfig buildResumeConfig()
+        {
+            // The Ask layer is startup-only: a resume must supply it again or it is dropped.
+            var config = SessionConfigBuilder.BuildForResume(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
-                effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
+                effort, userInputHandler, permissionHandler, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
-                modelCapabilities: byokModelCapabilities);
+                modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
+            config.ManagedSettings = askLayer;
+            return config;
+        }
 
         if (chat.CopilotSessionId is not null)
             await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);
@@ -2409,6 +2573,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 var createConfig = buildSessionConfig();
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
+                await PrepareSessionPermissionsAsync(createdSession, chat, askLayer, sessionCt);
                 if (!TryPublishSession(
                         createdSession,
                         chat,
@@ -2423,12 +2588,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         }))
                     return false;
 
+                await RestorePendingPermissionsAsync(createdSession, chat, sessionCt);
                 // Check MCP server status after session creation and surface errors. Sessions with
                 // remote servers wait for them so the first prompt carries their tools.
                 if (mcpPlan.Servers is { Count: > 0 })
                 {
                     await BeginMcpServerStatusCheckAsync(
-                        createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+                        createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, holdForConnectorSignIn, ct);
                 }
 
                 _staleBackgroundJobPromptChats.Remove(chat.Id);
@@ -2452,6 +2618,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var resumeConfig = buildResumeConfig();
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
+                await PrepareSessionPermissionsAsync(session, chat, askLayer, sessionCt);
                 if (!TryPublishSession(
                         session,
                         chat,
@@ -2465,19 +2632,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         }))
                     return false;
 
-                if (mcpPlan.Servers is { Count: > 0 })
-                {
-                    if (HasRemoteMcpServers(mcpPlan.Servers))
-                        SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
-                    await BeginMcpServerStatusCheckAsync(
-                        session, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
-                }
-
+                await RestorePendingPermissionsAsync(session, chat, sessionCt);
                 // The SDK does not automatically change the session model on resume —
                 // ResumeSessionConfig.Model only sets a preference for the CLI process,
                 // but the session's internal model stays at whatever it was created with.
                 // Explicitly call SetModelAsync so context-window limits match the
                 // user's current selection (e.g. switching from gpt-5.4 to opus-4.6-1m).
+                // It runs before the connector wait: a message held for a connector sign-in can
+                // outlast the setup timeout, which would silently drop the user's model choice.
                 if (!string.IsNullOrWhiteSpace(selectedModel))
                 {
                     try
@@ -2494,6 +2656,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                             sessionCt);
                     }
                     catch { /* best-effort — session works with original model if this fails */ }
+                }
+
+                if (mcpPlan.Servers is { Count: > 0 })
+                {
+                    if (HasRemoteMcpServers(mcpPlan.Servers))
+                        SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
+                    await BeginMcpServerStatusCheckAsync(
+                        session, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, holdForConnectorSignIn, ct);
                 }
 
                 _staleBackgroundJobPromptChats.Remove(chat.Id);
@@ -2537,6 +2707,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
             var createConfig = buildSessionConfig();
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
+            await PrepareSessionPermissionsAsync(createdSession, chat, askLayer, sessionCt);
             if (!TryPublishSession(
                     createdSession,
                     chat,
@@ -2545,9 +2716,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     pendingMcpProxyPlan,
                     beforeAttach: () => chat.CopilotSessionId = createdSession.SessionId))
                 return false;
+            await RestorePendingPermissionsAsync(createdSession, chat, sessionCt);
             if (mcpPlan.Servers is { Count: > 0 })
                 await BeginMcpServerStatusCheckAsync(
-                    createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+                    createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, holdForConnectorSignIn, ct);
             RecordSessionProviderSignature(chat, currentByokSignature);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
@@ -2754,7 +2926,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     return;
 
                 ActiveMcpServerNames.Add(name);
-                ActiveMcpChips.Add(ToMcpChip(name, server));
+                ActiveMcpChips.Add(WithMcpIssue(ToMcpChip(name, server)));
             }
 
             if (chat.HasExplicitMcpServerSelection || chat.ActiveMcpServerNames.Count > 0)
@@ -3006,6 +3178,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat is null)
             return;
 
+        // The session is rebuilt with the new connector setup, so every connector is tried again.
+        MarkMcpIssuesRetrying(CurrentChat.Id);
         InvalidateSessionConfiguration();
         _pendingSkillInjections.Clear();
     }
@@ -3073,6 +3247,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // session with the new project context; an idle session is released immediately for that
         // same-ID resume. No-session chats simply build from the new project on first send.
         InvalidateProjectSession();
+        // The project's approval mode and rules apply at once, as a mode chosen in the picker does.
+        _ = ApplyApprovalPolicyAsync(CurrentChat);
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
@@ -3190,6 +3366,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
            || IsAssistantBusy(chatId)
            || (_runtimeStates.TryGetValue(chatId, out var runtime) && runtime.IsStopping)
            || HasPendingQuestion(chatId)
+           || HasPendingPermissionRequest(chatId)
            || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0);
 
     internal sealed class ExternalSendReservation : IDisposable
@@ -3512,6 +3689,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             throw new InvalidOperationException("The chat project changed while its turn was starting.");
 
         validateBeforeSend?.Invoke();
+        // Jobs and other chats drive this turn; a message from the phone is still the user.
+        if (remoteDeviceId is null)
+            MarkTurnUnattended(targetChat.Id);
+        else
+            MarkTurnAttended(targetChat.Id);
         var userMsg = new ChatMessage
         {
             Role = "user",
@@ -3910,6 +4092,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PromptText = userMessage.Content;
         // A reply being edited shows its quote in the composer, where it can be kept or dismissed.
         PendingReply = userMessage.ReplyTo?.Clone();
+        // So do the chats it brought in.
+        ReplaceReferencedChats(userMessage.ReferencedChats);
         ReplacePendingAttachments(userMessage.Attachments);
         ReplaceActiveSkillsFromMessage(userMessage, syncToChat: false);
         ApplyMessageAgentSelection(userMessage, syncToChatAndSession: false);
@@ -3947,7 +4131,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             CurrentChat?.LastContextWindowTierUsed,
             _pendingSkillInjections.ToList(),
             _pendingExternalSkillInjections.ToList(),
-            PendingReply);
+            PendingReply,
+            PeekReferencedChats());
 
     /// <summary>
     /// True when the composer's CURRENT selection (agent, MCP servers, or active skills) differs from
@@ -3995,6 +4180,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         PromptText = snapshot.PromptText;
         PendingReply = snapshot.PendingReply;
+        ReplaceReferencedChats(snapshot.ReferencedChats);
         ReplacePendingAttachments(snapshot.PendingAttachments);
         ReplaceActiveSkills(snapshot.ActiveSkillIds, snapshot.ActiveExternalSkillNames, syncToChat: true);
         // Restore the visible/persisted selection without treating the draft agent as live routing.
@@ -4097,6 +4283,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             .ToList();
         // The composer's reply (kept, changed, or dismissed while editing) becomes the edited turn's reply.
         userMessage.ReplyTo = PendingReply;
+        // Likewise the chats it brings in.
+        userMessage.ReferencedChats = TakeReferencedChats();
         ApplyCurrentComposerSelectionsToMessage(userMessage, selectedReasoningEffort);
         ApplyCurrentComposerSelectionsToChat(CurrentChat, selectedReasoningEffort);
 
@@ -4303,7 +4491,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             foreach (var name in serverNames.Where(static n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 ActiveMcpServerNames.Add(name);
-                ActiveMcpChips.Add(CreateMcpChip(name));
+                // The session still runs these connectors: a restored chip keeps what it last reported.
+                ActiveMcpChips.Add(WithMcpIssue(CreateMcpChip(name)));
             }
         }
         finally
@@ -4563,6 +4752,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             CancelPendingQuestions(CurrentChat);
 
         var attachments = ResolveSendAttachments(queuedMessage);
+        var isSilentRetry = _silentRetryPrompt is not null && prompt == _silentRetryPrompt;
+        // Taken before a new chat is created: becoming that chat would otherwise stash them as the
+        // draft's. A queued message already carries its own, and a silent retry adds no message to carry them.
+        var referencedChats = consumeComposerPrompt && queuedMessage is null && !isSilentRetry
+            ? TakeReferencedChats()
+            : null;
         var createdChat = false;
 
         // Create chat if needed
@@ -4575,7 +4770,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     || _dataStore.IsWorktreeCleanupReserved(selectedWorktreePath)))
             {
                 if (consumeComposerPrompt)
+                {
                     PromptText = prompt;
+                    ReplaceReferencedChats(referencedChats);
+                }
                 StatusText = "That worktree is no longer available. Choose a workspace and try again.";
                 return;
             }
@@ -4592,6 +4790,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // was only auto-populated must keep receiving newly discovered servers, while one
                 // the user actually edited must not have their removals added back.
                 HasExplicitMcpServerSelection = _draftMcpSelectionCurated,
+                // Only a mode picked on this draft becomes the chat's own; otherwise it follows its project.
+                ApprovalMode = _draftApprovalMode,
                 SdkAgentName = SelectedSdkAgentName,
                 LastModelUsed = SelectedModel,
                 LastReasoningEffortUsed = selectedReasoningEffort,
@@ -4600,7 +4800,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (!_dataStore.TrySetChatWorktreePath(chat, selectedWorktreePath))
             {
                 if (consumeComposerPrompt)
+                {
                     PromptText = prompt;
+                    ReplaceReferencedChats(referencedChats);
+                }
                 StatusText = "That worktree is being cleaned up. Choose a workspace and try again.";
                 return;
             }
@@ -4615,12 +4818,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         // Capture before any async operations — CurrentChat may change if the user switches chats
         var targetChat = CurrentChat!;
+        MarkTurnAttended(targetChat.Id);
         ClearPersistedSuggestions(targetChat);
         targetChat.LastModelUsed = SelectedModel;
         ApplyResolvedModelSelectionToChat(targetChat, selectedReasoningEffort, selectedContextTier);
 
         // Add user message immediately so it appears before async worktree creation
-        var isSilentRetry = _silentRetryPrompt is not null && prompt == _silentRetryPrompt;
         _silentRetryPrompt = null;
 
         ChatMessage? userMsg = null;
@@ -4667,7 +4870,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 HasMcpSelection = true,
                 Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
                 ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
-                ReplyTo = consumeComposerPrompt ? TakePendingReply(targetChat.Id) : null
+                ReplyTo = consumeComposerPrompt ? TakePendingReply(targetChat.Id) : null,
+                ReferencedChats = referencedChats
             };
             targetChat.Messages.Add(userMsg);
             Messages.Add(new ChatMessageViewModel(userMsg));
@@ -4789,7 +4993,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (needsSessionSetup)
             {
                 var previousSessionId = targetChat.CopilotSessionId;
-                var ok = await EnsureSessionAsync(targetChat, cts.Token, allowCreateFallback: true);
+                var ok = await EnsureSessionAsync(
+                    targetChat, cts.Token, allowCreateFallback: true, holdForConnectorSignIn: true);
+                // Stop while the message waited for a connector sign-in ends that wait quietly and disposes
+                // this turn's cancellation, so report the stop before anything reads cts.Token.
+                turnToken.ThrowIfCancellationRequested();
                 if (!ok)
                 {
                     HandleSendError(
@@ -4835,6 +5043,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 targetChat,
                 sessionLostSkillLoads,
                 cts.Token);
+            // The chats this message brings in travel with it, so a recovery replay keeps them too.
+            modelPrompt += await BuildReferencedChatsContextAsync(userMsg, cts.Token);
             var basePrompt = needsReplayPrompt
                 ? BuildSessionRecoveryReplayPrompt(retainedContext, modelPrompt)
                 : modelPrompt;
@@ -4870,7 +5080,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 StatusText = Loc.Status_Reconnecting;
                 DetachPersistedSession(targetChat);
-                var ok = await EnsureSessionAsync(targetChat, cts.Token, allowCreateFallback: true);
+                var ok = await EnsureSessionAsync(
+                    targetChat, cts.Token, allowCreateFallback: true, holdForConnectorSignIn: true);
+                if (cts.IsCancellationRequested)
+                    throw new OperationCanceledException();
                 if (!ok)
                 {
                     ClearPendingTurnTracking(targetChat.Id);
@@ -4944,14 +5157,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException) when (cts is not null && !cts.IsCancellationRequested)
         {
             // SDK cancelled internally (e.g. MCP server failure) — surface as error
-            var errorText = string.Format(Loc.Status_Error, "Session cancelled unexpectedly. MCP servers may have failed to connect.");
+            var errorText = string.Format(Loc.Status_Error, "Session cancelled unexpectedly. A connector may have failed to connect.");
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
             PublishTerminalChatLifecycleEventOnce(
                 targetChat,
                 ChatLifecycleEventTypes.Error,
-                "Session cancelled unexpectedly. MCP servers may have failed to connect.");
+                "Session cancelled unexpectedly. A connector may have failed to connect.");
             // Terminal failure with no further session events to release the queue.
             FailQueuedBusySends(targetChat.Id);
             ClearPendingTurnTracking(targetChat.Id);
@@ -5873,7 +6086,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 // The store must reevaluate ownership after the stop guard, not only after SDK idle.
                 if (!_isDisposed)
+                {
                     OnPropertyChanged(nameof(IsSessionActive));
+                    NotifyPermissionPropertiesChanged();
+                }
             }),
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
@@ -5909,6 +6125,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // question remains in _pendingQuestions, HasPendingQuestion keeps the chat "active" forever,
         // and "Send now" plus every later message stays queued until the app restarts.
         var canceledQuestions = CancelPendingQuestions(chat);
+        CancelPermissionRequests(chatId);
 
         // A plain Stop fails pending steers before any abort event can resolve them as delivered.
         // Send now reclaims its selected message into Lumi's queue before entering this path.
@@ -6237,7 +6454,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void QueueSuggestionGenerationForLatestAssistant(Chat chat)
     {
-        if (_suggestionGenerationInFlightChats.Contains(chat.Id))
+        if (!_dataStore.Data.Settings.SuggestFollowUps
+            || _suggestionGenerationInFlightChats.Contains(chat.Id))
             return;
 
         var lastAssistant = GetLatestSuggestionEligibleAssistantMessage(chat);
@@ -6351,7 +6569,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Guid? latestUserMessageId,
         IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
     {
-        var userPromptHistory = await GetUserPromptHistoryCachedAsync(loadedMessageSnapshots);
+        var userPromptHistory = await _dataStore.GetSuggestionHistoryAsync(loadedMessageSnapshots);
 
         var historyItems = userPromptHistory
             .Where(item => item.MessageId != latestUserMessageId);
@@ -6360,59 +6578,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return SuggestionHistoryRanker.BuildFrequentRequestsBlock(
             historyItems,
             SuggestionFrequentRequestMaxItems);
-    }
-
-    /// <summary>Returns the cross-chat user-prompt history, served from cache when fresh. A stale
-    /// snapshot is returned immediately while a single background refresh updates it, so suggestion
-    /// generation only pays the disk scan on the very first call (cold cache).</summary>
-    private async Task<IReadOnlyList<UserPromptHistoryItem>> GetUserPromptHistoryCachedAsync(
-        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
-    {
-        var cached = _cachedUserPromptHistory;
-        if (cached is not null)
-        {
-            var ageTicks = DateTimeOffset.UtcNow.UtcTicks - Interlocked.Read(ref _cachedUserPromptHistoryAtTicks);
-            if (ageTicks >= SuggestionHistoryCacheTtl.Ticks)
-                QueueUserPromptHistoryRefresh(loadedMessageSnapshots);
-
-            return cached;
-        }
-
-        var history = await _dataStore.GetUserPromptHistoryAsync(
-            SuggestionHistoryScanLimit,
-            loadedMessageSnapshots);
-
-        _cachedUserPromptHistory = history;
-        Interlocked.Exchange(ref _cachedUserPromptHistoryAtTicks, DateTimeOffset.UtcNow.UtcTicks);
-        return history;
-    }
-
-    private void QueueUserPromptHistoryRefresh(
-        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
-    {
-        if (Interlocked.CompareExchange(ref _userPromptHistoryRefreshing, 1, 0) != 0)
-            return;
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var fresh = await _dataStore.GetUserPromptHistoryAsync(
-                    SuggestionHistoryScanLimit,
-                    loadedMessageSnapshots);
-
-                _cachedUserPromptHistory = fresh;
-                Interlocked.Exchange(ref _cachedUserPromptHistoryAtTicks, DateTimeOffset.UtcNow.UtcTicks);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[Lumi] Suggestion history refresh failed: {ex.Message}");
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _userPromptHistoryRefreshing, 0);
-            }
-        });
     }
 
     private sealed record SuggestionGenerationContext(
@@ -6456,14 +6621,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void TryApplyDisplayedSuggestions(Chat chat, IReadOnlyList<string> suggestions)
     {
-        if (CanUpdateDisplayedSuggestions(chat))
+        if (CanUpdateDisplayedSuggestions(chat) && _dataStore.Data.Settings.SuggestFollowUps)
             ApplyDisplayedSuggestions(suggestions);
+    }
+
+    /// <summary>Shows or hides follow-up suggestions after Settings → Chat → Suggest follow-ups changes.</summary>
+    internal void ApplySuggestFollowUpsSetting()
+    {
+        if (CurrentChat is { } chat)
+            RestoreSuggestionsForChat(chat);
+        else
+            ClearSuggestions();
     }
 
     private void RestoreSuggestionsForChat(Chat chat)
     {
         _suggestionDisplayChatId = chat.Id;
         ApplyDisplayedSuggestions([]);
+
+        if (!_dataStore.Data.Settings.SuggestFollowUps)
+        {
+            IsSuggestionsGenerating = false;
+            return;
+        }
 
         if (_suggestionGenerationInFlightChats.Contains(chat.Id))
         {
@@ -6716,6 +6896,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var idx = CurrentChat.Messages.IndexOf(userMessage);
         if (idx < 0) return;
+        // Regenerate and Edit come from the person in the chat, even after a job's turn.
+        MarkTurnAttended(CurrentChat.Id);
 
         var prompt = userMessage.Content;
         // The resent turn keeps its reply: the model gets the same quoted framing as the original send.
@@ -6785,7 +6967,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     Description = skill.Description
                 })
                 .ToList(),
-            ReplyTo = userMessage.ReplyTo?.Clone()
+            ReplyTo = userMessage.ReplyTo?.Clone(),
+            ReferencedChats = userMessage.ReferencedChats?.Select(static reference => reference.Clone()).ToList()
         };
         CurrentChat.Messages.Add(newUserMsg);
         BeginChatLifecycleTurn(CurrentChat);
@@ -6981,6 +7164,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     sessionLostHistory: false,
                     cts.Token);
 
+            // The resent turn reads the chats it brings in again, as they are now.
+            modelPrompt += await BuildReferencedChatsContextAsync(newUserMsg, cts.Token);
             var resendPrompt = BuildResendPrompt(
                 retainedContext,
                 modelPrompt,
@@ -7245,6 +7430,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 var replyMarker = msg.Role == "user"
                     ? MessageReplyFormatter.DescribeForTranscript(msg.ReplyTo)
+                        + ChatReferenceFormatter.DescribeForTranscript(msg.ReferencedChats)
                     : "";
                 lines.Add($"{role}: {replyMarker}{msg.Content.Trim()}");
             }

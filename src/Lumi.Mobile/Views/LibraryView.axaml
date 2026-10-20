@@ -4,65 +4,133 @@
              xmlns:views="using:Lumi.Mobile.Views"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:textInput="using:Avalonia.Input.TextInput"
+             xmlns:layout="using:Lumi.Mobile.Layout"
+             xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              x:Class="Lumi.Mobile.Views.LibraryView"
              x:DataType="vm:LibraryViewModel"
              Background="{DynamicResource Brush.Surface0}">
 
   <UserControl.Styles>
-    <!-- Only the selected section needs a surface; the other labels stay on the canvas. -->
+    <!-- Customize's sections are rows on one card; the listed section wears the open-row tint. -->
     <Style Selector="ListBox#SectionPicker ListBoxItem">
       <Setter Property="Padding" Value="0" />
       <Setter Property="Margin" Value="0" />
-      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
-      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="MinHeight" Value="52" />
+      <Setter Property="CornerRadius" Value="0" />
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <!-- Selection belongs to the ONE outer pill. Painting the ContentPresenter too produced a
-         second accent rectangle behind the chip with a different visible radius. -->
     <Style Selector="ListBox#SectionPicker ListBoxItem /template/ Border#LayoutRoot">
-      <Setter Property="CornerRadius" Value="16" />
-      <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="CornerRadius" Value="0" />
+    </Style>
+    <Style Selector="ListBox#SectionPicker ListBoxItem:pointerover /template/ Border#LayoutRoot">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="RenderTransform" Value="none" />
     </Style>
     <Style Selector="ListBox#SectionPicker ListBoxItem:selected /template/ Border#LayoutRoot">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{DynamicResource Brush.NavigationSelected}" />
     </Style>
-    <Style Selector="ListBox#SectionPicker ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="CornerRadius" Value="0" />
-      <Setter Property="TextElement.Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <Style Selector="ListBox#SectionPicker ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
+      <Setter Property="Background" Value="{DynamicResource Brush.NavigationSelected}" />
     </Style>
     <Style Selector="ListBox#SectionPicker ListBoxItem /template/ Border#PART_SelectedPipe">
       <Setter Property="IsVisible" Value="False" />
     </Style>
+
+    <!-- Each section's hue on its tile lives in the shared styles (Border.row-tile.agent and the rest). -->
+
+    <!-- A switch on the row keeps the row's text clear of it, on one line as a setting reads. -->
+    <Style Selector="Button.list-row.with-switch">
+      <Setter Property="Padding" Value="14,10,68,10" />
+    </Style>
+    <Style Selector="TextBlock.entry-subtitle">
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="MaxLines" Value="2" />
+      <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
+    </Style>
+    <Style Selector="Button.list-row.with-switch TextBlock.entry-subtitle">
+      <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+
+    <!--
+      Rows that switch (jobs, connectors) join into one card per group, as settings do: the
+      group's first row rounds the top, its last the bottom, and hairlines divide the rest.
+    -->
+    <Style Selector="Border.row-segment">
+      <Setter Property="Margin" Value="0,0,0,2" />
+    </Style>
+    <Style Selector="Border.row-segment Border#LibraryRowDivider">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Border.row-segment.card">
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GroupSurface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GroupBorder}" />
+      <Setter Property="BorderThickness" Value="1,0,1,0" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.row-segment.card Border#LibraryRowDivider">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Border.row-segment.card.start">
+      <Setter Property="BorderThickness" Value="1,1,1,0" />
+      <Setter Property="CornerRadius" Value="14,14,0,0" />
+    </Style>
+    <Style Selector="Border.row-segment.card.start Border#LibraryRowDivider">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Border.row-segment.card.end">
+      <Setter Property="BorderThickness" Value="1,0,1,1" />
+      <Setter Property="CornerRadius" Value="0,0,14,14" />
+    </Style>
+    <Style Selector="Border.row-segment.card.start.end">
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+    </Style>
+
+    <!-- Editor fields sit on the card's surface as quiet wells. -->
+    <Style Selector="Border.group-card TextBox.mobile">
+      <Setter Property="Background" Value="{DynamicResource Brush.QuietField}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.QuietFieldBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+    </Style>
   </UserControl.Styles>
 
   <UserControl.Resources>
+    <!-- An item's icon: agents and skills wear their own emoji, the rest their section's line icon. -->
+    <DataTemplate x:Key="LibraryEntryTile" x:DataType="vm:LibraryEntryViewModel">
+      <Border Classes="row-tile"
+              Classes.project="{Binding IsProject}" Classes.memory="{Binding IsMemory}"
+              Classes.connector="{Binding IsConnector}" Classes.job="{Binding IsJob}">
+        <Panel>
+          <TextBlock Text="{Binding Glyph}" IsVisible="{Binding UsesGlyph}" />
+          <PathIcon IsVisible="{Binding IsProject}" Data="{DynamicResource Mobile.Icon.Folder}" />
+          <PathIcon IsVisible="{Binding IsMemory}" Data="{DynamicResource Mobile.Icon.Memory}" />
+          <PathIcon IsVisible="{Binding IsConnector}" Data="{DynamicResource Mobile.Icon.Plug}" />
+          <PathIcon IsVisible="{Binding IsJob}" Data="{DynamicResource Mobile.Icon.Clock}" />
+        </Panel>
+      </Border>
+    </DataTemplate>
+
     <DataTemplate x:Key="LibraryRowContent" x:DataType="vm:LibraryEntryViewModel">
-      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-        <Border Width="32" Height="32" VerticalAlignment="Top">
-          <TextBlock Text="{Binding Glyph}" FontSize="{DynamicResource Font.SizeSubtitle}"
-                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-        <StackPanel Grid.Column="1" Spacing="3">
-          <TextBlock x:Name="LibraryEntryName" Text="{Binding Name}"
-                     FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeBody}"
-                     TextTrimming="CharacterEllipsis" />
-          <TextBlock Text="{Binding Description}" Classes="muted" MaxLines="2"
-                     Foreground="{DynamicResource Brush.TextSecondary}"
-                     TextTrimming="CharacterEllipsis" TextWrapping="Wrap"
-                     IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <TextBlock Text="{Binding Badge}" Classes="muted" TextWrapping="Wrap"
-                     IsVisible="{Binding HasBadge}" />
-          <TextBlock Text="{Binding EnabledStateText}" Classes="muted"
-                     IsVisible="{Binding HasEnabledState}" />
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource LibraryEntryTile}"
+                        VerticalAlignment="Center" />
+        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+          <TextBlock x:Name="LibraryEntryName" Text="{Binding Name}" Classes="row-title" />
+          <TextBlock Text="{Binding Subtitle}" Classes="row-meta entry-subtitle"
+                     IsVisible="{Binding HasSubtitle}" />
         </StackPanel>
+        <TextBlock Grid.Column="2" Text="{Binding Badge}" Classes="row-value" MaxWidth="84"
+                   IsVisible="{Binding ShowBadge}" />
       </Grid>
     </DataTemplate>
   </UserControl.Resources>
 
-  <Grid RowDefinitions="Auto,Auto,Auto,*">
+  <Panel x:Name="LibraryRoot">
 
     <!--
       Library owns a LibraryViewModel DataContext, unlike the other overlays. These zero-size
@@ -90,120 +158,119 @@
             x:DataType="vm:MobileShellViewModel"
             DataContext="{Binding $parent[views:MobileShellView].DataContext}"
             Padding="{Binding SafeAreaSides}" />
-    <Border x:Name="LibraryTopInset" Grid.Row="0"
-            Padding="{Binding #LibrarySafeAreaTopProxy.Padding}">
-      <Border x:Name="LibraryHeaderSideInset"
-              Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
-        <Grid x:Name="LibraryHeaderLayout"
-              RowDefinitions="Auto,Auto,Auto,Auto"
-              ColumnDefinitions="Auto,*,Auto"
-              ColumnSpacing="4"
-              MaxWidth="720"
-              HorizontalAlignment="Stretch"
-              Margin="{DynamicResource Mobile.Page.HeaderMargin}">
-          <Button x:Name="LibraryBackButton" Grid.Column="0" Classes="page-back"
-                  AutomationProperties.Name="Back"
-                  Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).CloseCommand}">
-            <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
-                      Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-          </Button>
-          <TextBlock x:Name="LibraryTitle" Grid.Column="1" Text="{Binding PageTitle}"
-                     Classes="section-title" VerticalAlignment="Center" TextWrapping="Wrap" />
-          <Button x:Name="LibraryNewButton" Grid.Column="2" Classes="touch open-action"
-                  CornerRadius="16" Padding="16,10"
-                  IsVisible="{Binding ShowCreateButton}"
-                  Command="{Binding BeginCreateCommand}">
-            <TextBlock Text="New" Foreground="{Binding $parent[Button].Foreground}" />
-          </Button>
 
-          <!-- A dedicated, pinned action row keeps the title readable and Save above the IME. -->
-          <Grid x:Name="LibraryEditorActions" Grid.Row="1" Grid.ColumnSpan="3"
-                ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,0"
-                IsVisible="{Binding IsEditing}">
-            <Button x:Name="EditCancelButton" Grid.Column="0" Classes="touch subtle"
-                    Content="Cancel" Command="{Binding CancelEditCommand}" />
-            <Button x:Name="EditSaveButton" Grid.Column="2" Classes="touch open-action"
-                    Command="{Binding SaveCommand}">
-              <TextBlock Text="{Binding SaveButtonText}" Foreground="{Binding $parent[Button].Foreground}" />
-            </Button>
-          </Grid>
-          <TextBlock x:Name="LibraryEditorStatus" Grid.Row="2" Grid.ColumnSpan="3"
-                     Text="{Binding StatusMessage}" Classes="muted" TextWrapping="Wrap"
-                     Foreground="{DynamicResource Brush.TextSecondary}" Margin="0,8,0,0">
-            <TextBlock.IsVisible>
-              <MultiBinding Converter="{x:Static BoolConverters.And}">
-                <Binding Path="IsEditing" />
-                <Binding Path="StatusMessage" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
-              </MultiBinding>
-            </TextBlock.IsVisible>
-          </TextBlock>
-          <views:WebAppUpdateBannerView x:Name="LibraryUpdateBanner"
-                                        Grid.Row="3" Grid.ColumnSpan="3"
-                                        DataContext="{Binding $parent[views:MobileShellView].DataContext}" />
-        </Grid>
-      </Border>
-    </Border>
+    <!--
+      The place's list and its open item: side by side when there is room, one at a time on a
+      phone. The view sets the pane geometry from the shell's layout.
+    -->
+    <layout:ListDetailPanel x:Name="LibraryPanes" IsDetailOpen="{Binding IsDetailOpen}">
 
-    <!-- Section picker: horizontally scrollable so it survives a 320 dp cover display -->
-    <Border x:Name="LibrarySectionsSideInset" Grid.Row="1"
-            IsVisible="{Binding !IsEditing}"
-            Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
-      <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
-                    MaxWidth="720"
-                    HorizontalAlignment="Stretch"
-                    Margin="{DynamicResource Mobile.Page.ControlMargin}">
-        <ListBox x:Name="SectionPicker" SelectedIndex="{Binding SectionIndex}"
-                 ItemsSource="{Binding SectionNames}"
-                 Background="Transparent" BorderThickness="0" Padding="0">
-          <ListBox.ItemsPanel>
-            <ItemsPanelTemplate>
-              <StackPanel Orientation="Horizontal" Spacing="6" />
-            </ItemsPanelTemplate>
-          </ListBox.ItemsPanel>
-          <ListBox.ItemTemplate>
-            <DataTemplate>
-              <TextBlock Text="{Binding}" Margin="14,9" FontSize="{DynamicResource Font.SizeBody}" FontWeight="Medium" />
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
-      </ScrollViewer>
-    </Border>
+      <!-- ═══ The list ═══ -->
+      <Grid x:Name="LibraryListPane" RowDefinitions="Auto,*,Auto"
+            Background="{DynamicResource Brush.NavigationSurface}">
+        <!-- The title floats over the list, frosting it only while rows pass beneath, as on Chats. -->
+        <Panel x:Name="LibraryHeaderChrome" Grid.Row="0" ZIndex="1" Background="Transparent">
+        <Panel Classes="chrome-edge" Margin="{DynamicResource Mobile.Chat.TopEdgeMargin}">
+          <sc:StrataBackdropBlur Classes="chrome-frost" Fade="Bottom"
+                                 FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
+          <Border Background="{DynamicResource Brush.PageEdgeTop}" />
+        </Panel>
+        <Border x:Name="LibraryTopInset"
+                Padding="{Binding #LibrarySafeAreaTopProxy.Padding}">
+          <Border x:Name="LibraryHeaderSideInset"
+                  Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+            <Grid x:Name="LibraryHeaderLayout"
+                  RowDefinitions="Auto,Auto"
+                  ColumnDefinitions="Auto,*,Auto"
+                  MinHeight="{DynamicResource Touch.MinTarget}"
+                  MaxWidth="720"
+                  HorizontalAlignment="Stretch"
+                  Margin="16,8,16,4">
+              <Button x:Name="LibraryBackButton" Grid.Column="0" Classes="chat-header-action floating-action" Margin="-4,0,8,0"
+                      IsVisible="{Binding ShowBackButton}"
+                      AutomationProperties.Name="Back"
+                      Command="{Binding CloseCommand}">
+                <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+                          Data="{DynamicResource Mobile.Icon.Back}" />
+              </Button>
+              <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                <TextBlock x:Name="LibraryListTitle" Text="{Binding ScopeTitle}"
+                           Classes="place-title" />
+                <TextBlock x:Name="LibraryListSummary" Text="{Binding ScopeSummary}" Classes="row-meta"
+                           IsVisible="{Binding ScopeSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
+              <!-- A place's own action, the title bar's glass button as New chat is beside the chat list's search. -->
+              <Button x:Name="LibraryNewButton" Grid.Column="2" Classes="chat-header-action new-conversation floating-action"
+                      IsVisible="{Binding ShowCreateButton}"
+                      AutomationProperties.Name="{Binding SectionTitle, StringFormat='New in {0}'}"
+                      Command="{Binding BeginCreateCommand}">
+                <sc:StrataLineIcon Classes="header-glyph accent" Data="{x:Static sc:StrataIcons.Plus}" />
+              </Button>
+              <views:WebAppUpdateBannerView x:Name="LibraryUpdateBanner"
+                                            Grid.Row="1" Grid.ColumnSpan="3"
+                                            DataContext="{Binding $parent[views:MobileShellView].DataContext}" />
+            </Grid>
+          </Border>
+        </Border>
+        </Panel>
 
-    <Border x:Name="LibrarySearchSideInset" Grid.Row="2"
-            IsVisible="{Binding !IsEditing}"
-            Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
-      <TextBox x:Name="LibrarySearchBox"
-               Classes="mobile"
-               AutomationProperties.Name="Search this Library category"
-               MaxWidth="720"
-               HorizontalAlignment="Stretch"
-               Margin="{DynamicResource Mobile.Page.ControlMargin}"
-               textInput:TextInputOptions.ContentType="Search"
-               textInput:TextInputOptions.ReturnKeyType="Search"
-               PlaceholderText="Search" Text="{Binding SearchText}" />
-    </Border>
-
-    <Panel Grid.Row="3">
-
-      <!-- List -->
-      <Border x:Name="LibraryListBottomInset"
-              Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}"
-              IsVisible="{Binding !IsEditing}">
-        <Border x:Name="LibraryListSideInset"
+        <!-- The list runs under the floating title and places; ScrollEdgeChrome keeps it clear of both at rest. -->
+        <Border x:Name="LibraryListSideInset" Grid.Row="0" Grid.RowSpan="3"
                 Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
-          <ScrollViewer Classes="mobile-scroll">
+          <ScrollViewer x:Name="LibraryListScroll" Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled"
+                        behaviors:ScrollEdgeChrome.Header="{Binding #LibraryHeaderChrome}"
+                        behaviors:ScrollEdgeChrome.Footer="{Binding #LibraryFooterChrome}">
+            <Border x:Name="LibraryScrollInset">
             <StackPanel x:Name="LibraryListContent"
-                        Spacing="12"
                         MaxWidth="720"
                         HorizontalAlignment="Stretch"
-                        Margin="{DynamicResource Mobile.Page.ContentMargin}">
-              <TextBlock x:Name="LibrarySectionDescription" Text="{Binding SectionDescription}"
-                         Classes="supporting" />
+                        Margin="16,4,16,16">
 
-              <Border Classes="mobile-card" IsVisible="{Binding IsEmpty}">
-                <StackPanel x:Name="LibraryEmpty" Spacing="12" IsVisible="{Binding IsEmpty}">
+              <!-- Customize's sections, each with how many it holds, on one card. -->
+              <Border x:Name="LibrarySectionsSideInset" Classes="group-card" Margin="0,4,0,12"
+                      IsVisible="{Binding ShowSectionChips}">
+                <ListBox x:Name="SectionPicker" SelectedIndex="{Binding ScopeSectionIndex}"
+                         ItemsSource="{Binding ScopeSections}"
+                         Background="Transparent" BorderThickness="0" Padding="0">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:LibrarySectionOption">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="14,9,16,9">
+                        <Border Classes="row-tile"
+                                Classes.agent="{Binding IsAgents}" Classes.skill="{Binding IsSkills}"
+                                Classes.connector="{Binding IsConnectors}" Classes.project="{Binding IsProjects}">
+                          <Panel>
+                            <PathIcon IsVisible="{Binding IsAgents}" Data="{DynamicResource Mobile.Icon.Sparkle}" />
+                            <PathIcon IsVisible="{Binding IsSkills}" Data="{DynamicResource Mobile.Icon.Bolt}" />
+                            <PathIcon IsVisible="{Binding IsConnectors}" Data="{DynamicResource Mobile.Icon.Plug}" />
+                            <PathIcon IsVisible="{Binding IsProjects}" Data="{DynamicResource Mobile.Icon.Folder}" />
+                          </Panel>
+                        </Border>
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" Classes="row-title" />
+                        <TextBlock Grid.Column="2" Text="{Binding Count}" Classes="row-value" />
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Border>
+
+              <Border x:Name="LibrarySearchSideInset" Margin="0,0,0,4">
+                <TextBox x:Name="LibrarySearchBox"
+                         Classes="mobile list-filter"
+                         AutomationProperties.Name="{Binding SearchPlaceholder}"
+                         HorizontalAlignment="Stretch"
+                         textInput:TextInputOptions.ContentType="Search"
+                         textInput:TextInputOptions.ReturnKeyType="Search"
+                         PlaceholderText="{Binding SearchPlaceholder}" Text="{Binding SearchText}">
+                  <TextBox.InnerLeftContent>
+                    <sc:StrataLineIcon Classes="list-filter-icon" Data="{x:Static sc:StrataIcons.Search}" />
+                  </TextBox.InnerLeftContent>
+                </TextBox>
+              </Border>
+
+              <Border Classes="mobile-card" Margin="0,12,0,0" IsVisible="{Binding IsEmpty}">
+                <StackPanel x:Name="LibraryEmpty" Spacing="10" Margin="6,0" IsVisible="{Binding IsEmpty}">
                   <TextBlock x:Name="LibraryEmptyTitle" Text="{Binding EmptyTitle}"
-                             FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
+                             FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeBody}"
                              TextWrapping="Wrap" />
                   <TextBlock x:Name="LibraryEmptyDescription" Text="{Binding EmptyDescription}"
                              Classes="supporting" />
@@ -214,10 +281,10 @@
               </Border>
 
               <TextBlock x:Name="LibraryStatus" Text="{Binding StatusMessage}" Classes="muted"
-                         TextWrapping="Wrap" Margin="0,4"
+                         TextWrapping="Wrap" Margin="6,10,6,0"
                          IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-              <ItemsControl x:Name="LibraryEntries" ItemsSource="{Binding Entries}">
+              <ItemsControl x:Name="LibraryEntries" ItemsSource="{Binding Entries}" Margin="0,4,0,0">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
                     <VirtualizingStackPanel />
@@ -225,105 +292,309 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:LibraryEntryViewModel">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4" Margin="0,0,0,6">
-                      <Button x:Name="LibraryEntryButton" Classes="chat-row"
-                              IsVisible="{Binding CanEdit}"
-                              Holding="OnLibraryRowHolding"
-                              AutomationProperties.Name="{Binding Name}"
-                              Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).BeginEditCommand}"
-                              CommandParameter="{Binding}"
-                              Content="{Binding}" ContentTemplate="{StaticResource LibraryRowContent}" />
-                      <ContentControl x:Name="LibraryReadOnlyRow"
-                                      IsVisible="{Binding !CanEdit}" Padding="14,12"
-                                      MinHeight="64" HorizontalContentAlignment="Stretch"
-                                      Holding="OnLibraryRowHolding"
-                                      Content="{Binding}" ContentTemplate="{StaticResource LibraryRowContent}" />
-                      <Button x:Name="LibraryRowActionsButton" Grid.Column="1" Classes="touch icon subtle"
-                              VerticalAlignment="Center" IsVisible="{Binding HasActions}"
-                              AutomationProperties.Name="{Binding ActionsLabel}"
-                              Holding="OnLibraryRowHolding"
-                              Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenRowActionsCommand}"
-                              CommandParameter="{Binding}">
-                        <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
-                                  Data="M5,10 A2,2 0 1 1 5,14 A2,2 0 1 1 5,10 Z M12,10 A2,2 0 1 1 12,14 A2,2 0 1 1 12,10 Z M19,10 A2,2 0 1 1 19,14 A2,2 0 1 1 19,10 Z" />
-                      </Button>
-                    </Grid>
+                    <StackPanel>
+                      <TextBlock Classes="section-label" Text="{Binding GroupLabel}"
+                                 IsVisible="{Binding HasGroupLabel}" />
+                      <!-- What is switched on and off (jobs, connectors) sits on a card like settings; what is opened is a plain row. -->
+                      <Border x:Name="LibraryRowSegment" Classes="row-segment"
+                              Classes.card="{Binding HasSwitch}"
+                              Classes.start="{Binding IsGroupStart}"
+                              Classes.end="{Binding IsGroupEnd}">
+                        <Grid ColumnDefinitions="*,Auto">
+                          <!-- Every row opens: the editor for what can be edited here, its page otherwise. -->
+                          <Button x:Name="LibraryEntryButton" Grid.ColumnSpan="2" Classes="list-row"
+                                  Classes.free="{Binding !HasSwitch}"
+                                  Classes.selected="{Binding IsOpen}"
+                                  Classes.with-switch="{Binding HasSwitch}"
+                                  Holding="OnLibraryRowHolding"
+                                  ContextRequested="OnLibraryRowContextRequested"
+                                  AutomationProperties.Name="{Binding Name}"
+                                  Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenEntryCommand}"
+                                  CommandParameter="{Binding}"
+                                  Content="{Binding}" ContentTemplate="{StaticResource LibraryRowContent}" />
+                          <Border x:Name="LibraryRowDivider" Grid.ColumnSpan="2" Classes="row-divider" />
+                          <Border x:Name="LibraryRowMarker" Classes="row-marker" Margin="3,14"
+                                  IsVisible="{Binding IsOpen}" />
+                          <ToggleSwitch x:Name="LibraryEntrySwitch" Grid.Column="1"
+                                        IsVisible="{Binding HasSwitch}"
+                                        IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                        IsEnabled="{Binding !IsSwitchBusy}"
+                                        AutomationProperties.Name="{Binding SwitchLabel}"
+                                        Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ToggleEntryCommand}"
+                                        CommandParameter="{Binding}"
+                                        VerticalAlignment="Center" Margin="0,0,4,0" />
+                        </Grid>
+                      </Border>
+                    </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </StackPanel>
+            </Border>
           </ScrollViewer>
         </Border>
-      </Border>
 
-      <!-- Editor -->
-      <Border x:Name="LibraryEditorBottomInset"
-              Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}"
-              IsVisible="{Binding IsEditing}">
-        <Border x:Name="LibraryEditorSideInset"
-                Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
-          <ScrollViewer x:Name="LibraryEditorScrollViewer" Classes="mobile-scroll">
-            <StackPanel Spacing="16" x:Name="LibraryEditor" MaxWidth="720"
-                        HorizontalAlignment="Stretch"
-                        Margin="{DynamicResource Mobile.Page.FormContentMargin}">
-              <TextBlock Text="Changes are saved to your shared Library on your computer."
-                         Classes="supporting" />
-              <Button x:Name="LibraryRetryEditorButton" Classes="touch subtle"
-                      IsVisible="{Binding HasEditorLoadFailed}" HorizontalAlignment="Left"
-                      Command="{Binding RetryEditorCommand}" Content="Try loading again" />
-              <Border Classes="mobile-card">
-                <StackPanel Spacing="16" IsEnabled="{Binding CanEditFields}">
-                  <StackPanel Spacing="6">
-                    <TextBlock x:Name="EditNameLabel" Text="Name" Classes="field-label" />
-                    <TextBox x:Name="EditNameBox" Classes="mobile" PlaceholderText="Name"
-                             AutomationProperties.Name="Name" Text="{Binding EditName}" />
-                    <TextBlock Text="Required. Choose a name you will recognize."
-                               Classes="muted" TextWrapping="Wrap" />
-                  </StackPanel>
+        <!-- The places, centred in the thumb zone with the list scrolling under them, as on the chat list.
+             Memories is a Settings page and steps back instead. -->
+        <Panel x:Name="LibraryFooterChrome" Grid.Row="0" Grid.RowSpan="3" VerticalAlignment="Bottom"
+               ZIndex="1" Background="Transparent" IsVisible="{Binding ShowPlaces}">
+          <Border x:Name="LibraryListBottomInset"
+                  Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}">
+            <Border x:Name="LibraryPlacesSideInset"
+                    Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+              <views:PlacesBarView x:Name="LibraryPlaces"
+                                   x:DataType="vm:MobileShellViewModel"
+                                   DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+                                   IsVisible="{Binding !IsKeyboardOpen}"
+                                   Margin="12,8,12,12" />
+            </Border>
+          </Border>
+        </Panel>
+      </Grid>
 
-                  <StackPanel Spacing="6" IsVisible="{Binding ShowDescriptionEditor}">
-                    <TextBlock x:Name="EditDescriptionLabel" Text="Description" Classes="field-label" />
-                    <TextBox x:Name="EditDescriptionBox" Classes="mobile" PlaceholderText="Description"
-                             AutomationProperties.Name="Description" Text="{Binding EditDescription}"
-                             TextWrapping="Wrap" />
-                    <TextBlock Text="Optional. A short summary to help you find this item."
-                               Classes="muted" TextWrapping="Wrap" />
-                  </StackPanel>
+      <!-- ═══ The open item ═══ -->
+      <Grid x:Name="LibraryDetailPane" RowDefinitions="Auto,*"
+            Background="{DynamicResource Brush.ChatCanvas}">
 
-                  <StackPanel Spacing="6" IsVisible="{Binding ShowGlyphEditor}">
-                    <TextBlock x:Name="EditGlyphLabel" Text="Icon" Classes="field-label" />
-                    <TextBox x:Name="EditGlyphBox" Classes="mobile" PlaceholderText="Icon"
-                             AutomationProperties.Name="Icon" Text="{Binding EditGlyph}" MaxLength="4" />
-                    <TextBlock Text="Use a single emoji or symbol."
-                               Classes="muted" TextWrapping="Wrap" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="6" IsVisible="{Binding ShowProjectWorkingDirectory}">
-                    <TextBlock x:Name="EditWorkingDirectoryLabel" Text="Computer workspace" Classes="field-label" />
-                    <TextBox x:Name="EditWorkingDirectoryBox" Classes="mobile" PlaceholderText="Working directory"
-                             AutomationProperties.Name="Computer workspace" Text="{Binding EditWorkingDirectory}"
-                             textInput:TextInputOptions.ShowSuggestions="False" />
-                    <TextBlock Text="Optional. A folder path on your computer, not this phone."
-                               Classes="muted" TextWrapping="Wrap" />
-                  </StackPanel>
-
-                  <StackPanel Spacing="6">
-                    <TextBlock x:Name="EditBodyLabel" Text="{Binding BodyLabel}" Classes="field-label" />
-                    <TextBox x:Name="EditBodyBox" Classes="mobile" AcceptsReturn="True" TextWrapping="Wrap"
-                             AutomationProperties.Name="{Binding BodyLabel}"
-                             MinHeight="180" Text="{Binding EditBody}" />
-                  </StackPanel>
-                </StackPanel>
-              </Border>
-            </StackPanel>
-          </ScrollViewer>
+        <!-- The editor's pinned header keeps the title readable and Save above the IME. -->
+        <Border x:Name="LibraryEditorTopInset" Grid.Row="0"
+                IsVisible="{Binding IsEditing}"
+                Padding="{Binding #LibrarySafeAreaTopProxy.Padding}">
+          <Border x:Name="LibraryEditorHeaderSideInset"
+                  Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+            <Grid x:Name="LibraryEditorHeader"
+                  RowDefinitions="Auto,Auto"
+                  ColumnDefinitions="Auto,*,Auto"
+                  ColumnSpacing="8"
+                  MaxWidth="720"
+                  HorizontalAlignment="Stretch"
+                  Margin="8,8,12,4">
+              <Button x:Name="EditCancelButton" Grid.Column="0" Classes="header-action"
+                      Foreground="{DynamicResource Brush.TextSecondary}"
+                      Content="Cancel" Command="{Binding CancelEditCommand}" />
+              <TextBlock x:Name="LibraryTitle" Grid.Column="1" Text="{Binding PageTitle}"
+                         FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" />
+              <Button x:Name="EditSaveButton" Grid.Column="2" Classes="header-action primary"
+                      Command="{Binding SaveCommand}">
+                <TextBlock Text="{Binding SaveButtonText}" Foreground="{Binding $parent[Button].Foreground}" />
+              </Button>
+              <TextBlock x:Name="LibraryEditorStatus" Grid.Row="1" Grid.ColumnSpan="3"
+                         Text="{Binding StatusMessage}" Classes="muted" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Brush.TextSecondary}" Margin="8,8,8,0"
+                         IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </Grid>
+          </Border>
         </Border>
-      </Border>
-    </Panel>
+
+        <!-- Editor -->
+        <Border x:Name="LibraryEditorBottomInset" Grid.Row="1"
+                Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}"
+                IsVisible="{Binding IsEditing}">
+          <Border x:Name="LibraryEditorSideInset"
+                  Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+            <ScrollViewer x:Name="LibraryEditorScrollViewer" Classes="mobile-scroll">
+              <StackPanel Spacing="12" x:Name="LibraryEditor" MaxWidth="720"
+                          HorizontalAlignment="Stretch"
+                          Margin="{DynamicResource Mobile.Page.FormContentMargin}">
+                <Button x:Name="LibraryRetryEditorButton" Classes="touch subtle"
+                        IsVisible="{Binding HasEditorLoadFailed}" HorizontalAlignment="Left"
+                        Command="{Binding RetryEditorCommand}" Content="Try loading again" />
+                <Border Classes="group-card" Padding="16">
+                  <StackPanel Spacing="16" IsEnabled="{Binding CanEditFields}">
+                    <StackPanel Spacing="6">
+                      <TextBlock x:Name="EditNameLabel" Text="Name" Classes="field-label" />
+                      <TextBox x:Name="EditNameBox" Classes="mobile" PlaceholderText="Name"
+                               AutomationProperties.Name="Name" Text="{Binding EditName}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6" IsVisible="{Binding ShowDescriptionEditor}">
+                      <TextBlock x:Name="EditDescriptionLabel" Text="Description" Classes="field-label" />
+                      <TextBox x:Name="EditDescriptionBox" Classes="mobile" PlaceholderText="A short summary"
+                               AutomationProperties.Name="Description" Text="{Binding EditDescription}"
+                               TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6" IsVisible="{Binding ShowGlyphEditor}">
+                      <TextBlock x:Name="EditGlyphLabel" Text="Icon" Classes="field-label" />
+                      <TextBox x:Name="EditGlyphBox" Classes="mobile" PlaceholderText="One emoji or symbol"
+                               AutomationProperties.Name="Icon" Text="{Binding EditGlyph}" MaxLength="4" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6" IsVisible="{Binding ShowProjectWorkingDirectory}">
+                      <TextBlock x:Name="EditWorkingDirectoryLabel" Text="Computer workspace" Classes="field-label" />
+                      <TextBox x:Name="EditWorkingDirectoryBox" Classes="mobile" PlaceholderText="A folder on your computer"
+                               AutomationProperties.Name="Computer workspace" Text="{Binding EditWorkingDirectory}"
+                               textInput:TextInputOptions.ShowSuggestions="False" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                      <TextBlock x:Name="EditBodyLabel" Text="{Binding BodyLabel}" Classes="field-label" />
+                      <TextBox x:Name="EditBodyBox" Classes="mobile" AcceptsReturn="True" TextWrapping="Wrap"
+                               AutomationProperties.Name="{Binding BodyLabel}"
+                               MinHeight="180" Text="{Binding EditBody}" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+                <TextBlock Text="Changes are saved to your shared Library on your computer."
+                           Classes="muted" Margin="6,0" TextWrapping="Wrap" />
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+        </Border>
+
+        <!-- An item's own page: built-in agents and skills, connectors and jobs open read-only. -->
+        <Border x:Name="LibraryViewerTopInset" Grid.Row="0"
+                IsVisible="{Binding IsViewing}"
+                Padding="{Binding #LibrarySafeAreaTopProxy.Padding}">
+          <Border Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+            <ContentControl x:Name="LibraryViewerHeaderHost" Content="{Binding ViewedEntry}"
+                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="vm:LibraryEntryViewModel">
+                  <Grid x:Name="LibraryViewerHeader" ColumnDefinitions="Auto,Auto,*,Auto"
+                        MaxWidth="720" HorizontalAlignment="Stretch" Margin="8,8,12,8">
+                    <Button x:Name="LibraryViewerBackButton" Classes="chat-header-action floating-action" Margin="0,0,4,0"
+                            IsVisible="{Binding !$parent[layout:ListDetailPanel].IsTwoPane}"
+                            AutomationProperties.Name="Back"
+                            Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).CloseViewCommand}">
+                      <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+                                Data="{DynamicResource Mobile.Icon.Back}" />
+                    </Button>
+                    <ContentControl Grid.Column="1" Content="{Binding}"
+                                    ContentTemplate="{StaticResource LibraryEntryTile}"
+                                    VerticalAlignment="Center" Margin="8,0,12,0" />
+                    <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
+                      <TextBlock x:Name="LibraryViewerTitle" Text="{Binding Name}"
+                                 FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding Kind}" Classes="row-meta" />
+                    </StackPanel>
+                    <Button x:Name="LibraryViewerActionsButton" Grid.Column="3"
+                            Classes="navigation-icon-button floating-action"
+                            IsVisible="{Binding HasActions}"
+                            AutomationProperties.Name="{Binding ActionsLabel}"
+                            Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenRowActionsCommand}" CommandParameter="{Binding}">
+                      <PathIcon Width="20" Height="20" Foreground="{DynamicResource Brush.TextSecondary}"
+                                Data="{DynamicResource Mobile.Icon.More}" />
+                    </Button>
+                  </Grid>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
+          </Border>
+        </Border>
+
+        <Border x:Name="LibraryViewerBottomInset" Grid.Row="1"
+                IsVisible="{Binding IsViewing}"
+                Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}">
+          <Border Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+            <ContentControl x:Name="LibraryViewerContentHost" Content="{Binding ViewedEntry}"
+                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="vm:LibraryEntryViewModel">
+                  <ScrollViewer x:Name="LibraryViewerScroll" Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="LibraryViewer" Spacing="12" MaxWidth="720"
+                                HorizontalAlignment="Stretch" Margin="16,4,16,24">
+                      <TextBlock Text="{Binding Description}" Classes="supporting"
+                                 IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                      <!-- On or off, right where the item is described. -->
+                      <Border Classes="group-card" IsVisible="{Binding HasSwitch}">
+                        <Grid ColumnDefinitions="*,Auto" Margin="16,8,8,8" MinHeight="44">
+                          <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding EnabledStateText}" Classes="row-title" />
+                            <TextBlock Text="Applies on your computer right away" Classes="row-meta" />
+                          </StackPanel>
+                          <ToggleSwitch x:Name="LibraryViewerSwitch" Grid.Column="1"
+                                        IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                        IsEnabled="{Binding !IsSwitchBusy}"
+                                        AutomationProperties.Name="{Binding SwitchLabel}"
+                                        Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ToggleEntryCommand}" CommandParameter="{Binding}"
+                                        VerticalAlignment="Center" />
+                        </Grid>
+                      </Border>
+
+                      <Border Classes="group-card" IsVisible="{Binding CanOpenChat}">
+                        <Button x:Name="LibraryViewerOpenChatButton" Classes="list-row"
+                                Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).OpenViewedChatCommand}">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                            <Border Classes="row-tile">
+                              <PathIcon Data="{DynamicResource Mobile.Icon.Chat}" Foreground="{DynamicResource Brush.AccentText}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                              <TextBlock Text="Open its chat" Classes="row-title" />
+                              <TextBlock Text="See what it found, or ask it something" Classes="row-meta" />
+                            </StackPanel>
+                            <PathIcon Grid.Column="2" Classes="row-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
+                          </Grid>
+                        </Button>
+                      </Border>
+
+                      <Border Classes="group-card" IsVisible="{Binding HasFacts}">
+                        <ItemsControl x:Name="LibraryViewerFacts" ItemsSource="{Binding Facts}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LibraryFact">
+                              <Panel>
+                                <Border Classes="row-divider" IsVisible="{Binding !IsFirst}" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" Margin="16,13">
+                                  <TextBlock Text="{Binding Label}" FontSize="{DynamicResource Font.SizeBody}"
+                                             Foreground="{DynamicResource Brush.TextPrimary}" VerticalAlignment="Center" />
+                                  <TextBlock Grid.Column="1" Text="{Binding Value}" Classes="row-value"
+                                             HorizontalAlignment="Right" TextAlignment="Right"
+                                             TextWrapping="Wrap" TextTrimming="None" />
+                                </Grid>
+                              </Panel>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </Border>
+
+                      <TextBlock Text="{Binding BodyLabel}" Classes="section-label" Margin="6,8,6,0"
+                                 IsVisible="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).HasViewBody}" />
+                      <Border Classes="group-card" Padding="16,14"
+                              IsVisible="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).HasViewBody}">
+                        <SelectableTextBlock x:Name="LibraryViewerBody" Classes="detail-body"
+                                             Text="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ViewBody}" />
+                      </Border>
+                      <TextBlock Text="Loading details…" Classes="muted"
+                                 IsVisible="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).IsViewLoading}" />
+                      <TextBlock Text="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ViewStatus}"
+                                 Classes="muted" TextWrapping="Wrap"
+                                 IsVisible="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ViewStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                      <TextBlock Text="{Binding ReadOnlyNote}" Classes="muted" Margin="0,4,0,0" TextWrapping="Wrap"
+                                 IsVisible="{Binding ReadOnlyNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                  </ScrollViewer>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
+          </Border>
+        </Border>
+
+        <!-- Beside the list, before anything is open. -->
+        <StackPanel x:Name="LibraryDetailPlaceholder" Grid.RowSpan="2"
+                    Classes="detail-placeholder"
+                    IsVisible="{Binding !IsDetailOpen}"
+                    Spacing="8" MaxWidth="340" Margin="24"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+          <TextBlock Text="{Binding SectionTitle}" FontWeight="SemiBold"
+                     FontSize="{DynamicResource Font.SizeSubtitle}" HorizontalAlignment="Center" />
+          <TextBlock Text="{Binding DetailPlaceholder}" Classes="supporting" TextAlignment="Center" />
+        </StackPanel>
+
+        <!-- The same quiet edge the chat keeps beside its list. -->
+        <Border x:Name="LibraryPaneSeparation" Grid.RowSpan="2"
+                Width="1" HorizontalAlignment="Left" IsHitTestVisible="False"
+                IsVisible="{Binding #LibraryPanes.IsTwoPane}"
+                Background="{DynamicResource Brush.ChatPaneSeparation}"
+                BoxShadow="{DynamicResource Shadow.ChatPaneSeparation}" />
+      </Grid>
+    </layout:ListDetailPanel>
 
     <!-- Row actions cover the whole page so the header/search cannot be used through the scrim. -->
     <sc:StrataBottomSheet x:Name="LibraryActionsSheet"
-                          Grid.RowSpan="4"
                           Classes="safe-area"
                           IsOpen="{Binding IsRowActionsOpen, Mode=TwoWay}"
                           IsDismissable="{Binding !IsActionBusy}"
@@ -376,7 +647,7 @@
       </Border>
     </sc:StrataBottomSheet>
 
-    <sc:StrataBottomSheet x:Name="LibraryDiscardSheet" Grid.RowSpan="4" Classes="safe-area"
+    <sc:StrataBottomSheet x:Name="LibraryDiscardSheet" Classes="safe-area"
                           IsOpen="{Binding IsDiscardConfirmationOpen, Mode=TwoWay}"
                           Title="Discard changes?"
                           Description="{Binding DiscardDescription}">
@@ -389,5 +660,5 @@
         </Grid>
       </Border>
     </sc:StrataBottomSheet>
-  </Grid>
+  </Panel>
 </UserControl>

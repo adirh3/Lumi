@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
              xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:sa="using:StrataTheme.Animation"
              xmlns:sc="using:StrataTheme.Controls"
@@ -11,82 +12,118 @@
              Background="{DynamicResource Brush.NavigationSurface}">
 
   <!--
-    Search and the project scope stay reachable while the conversation list scrolls underneath them.
-    Everything editable is behind one Library row.
+    The chat list: home on a phone, the sidebar beside the chat when there is room for both. Its title
+    bar's glass buttons and the project lens float above it and the glass places pill sits centred in the
+    thumb zone, while the conversations scroll underneath them as one surface.
   -->
   <Panel x:Name="DrawerLayout">
 
     <!--
-      Safe-area insets are applied here, not on the shell: the drawer's surface has to run edge to
-      edge (under the status bar and the gesture bar) the way every native drawer does, while its
-      rows stay clear of both.
+      Safe-area insets are applied here, not on the shell: the list's surface runs edge to edge
+      (under the status bar and the gesture bar) while its rows stay clear of both.
     -->
-
-    <!-- A compact identity bar keeps search and pane navigation reachable while the list scrolls. -->
     <Panel x:Name="DrawerHeaderChrome" VerticalAlignment="Top" ZIndex="1" Background="Transparent">
-    <!-- Only the system bar needs a full-width scrim; the controls frost the list themselves. -->
-    <Panel x:Name="DrawerTopEdgeMaterial" Classes="chrome-edge" VerticalAlignment="Top">
-      <sc:StrataBackdropBlur x:Name="DrawerTopEdgeFrost" Classes="chrome-frost" Fade="Bottom" FadeLength="0" />
+    <!-- As in the chat, rows passing under the floating header dissolve into a veil that covers it and
+         fades out just below; the controls are glass of their own. -->
+    <Panel x:Name="DrawerTopEdgeMaterial" Classes="chrome-edge" Margin="{DynamicResource Mobile.Chat.TopEdgeMargin}">
+      <sc:StrataBackdropBlur x:Name="DrawerTopEdgeFrost" Classes="chrome-frost" Fade="Bottom"
+                             FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
       <Border Background="{DynamicResource Brush.NavigationEdgeTop}" />
-      <Border Padding="{Binding SafeAreaTop}">
-        <Panel Height="{DynamicResource Mobile.Chat.EdgeScrimExtent}" />
-      </Border>
     </Panel>
     <Border Padding="{Binding SafeAreaTop}">
       <Border x:Name="DrawerHeaderSideInset" Padding="{Binding SafeAreaSides}">
-        <Grid x:Name="DrawerBrandHeader" ColumnDefinitions="*,Auto,Auto"
-              ColumnSpacing="8" MinHeight="{DynamicResource Touch.MinTarget}"
+        <Grid x:Name="DrawerBrandHeader" RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto,Auto"
+              RowSpacing="8"
               Margin="{DynamicResource Mobile.Navigation.HeaderMargin}">
-          <Panel x:Name="DrawerBrandSurface" HorizontalAlignment="Left" VerticalAlignment="Center"
-                 IsHitTestVisible="False">
-            <TextBlock x:Name="DrawerBrandTitle" Text="Lumi" FontSize="{DynamicResource Font.SizeTitle}"
-                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,6" />
-          </Panel>
-          <Button x:Name="DrawerSearchButton" Grid.Column="1" Classes="navigation-icon-button floating-action"
+          <!-- Home is Lumi's, titled as every place is, with the title bar's glass buttons beside it. -->
+          <TextBlock x:Name="DrawerTitle" Text="Lumi" Classes="place-title" />
+          <!-- Search opens full screen, where the keyboard has room. -->
+          <Button x:Name="DrawerSearchButton" Grid.Column="1" Classes="chat-header-action floating-action"
                   AutomationProperties.Name="Search chats" Command="{Binding OpenSearchCommand}">
-            <PathIcon Width="20" Height="20"
-                      Data="M15.5 14h-.79l-.28-.27a6.5 6.5 0 0 0 1.48-5.34c-.47-2.78-2.79-5-5.59-5.34a6.505 6.505 0 0 0-7.27 7.27c.34 2.8 2.56 5.12 5.34 5.59a6.5 6.5 0 0 0 5.34-1.48l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0 .41-.41.41-1.08 0-1.49L15.5 14zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+            <sc:StrataLineIcon Classes="header-glyph" Data="{x:Static sc:StrataIcons.Search}" />
           </Button>
-          <Button x:Name="DrawerCloseButton" Grid.Column="2" Classes="navigation-icon-button floating-action"
-                  IsVisible="{Binding !CanDockDrawer}" AutomationProperties.Name="Close navigation"
-                  Command="{Binding CloseDrawerCommand}">
-            <PathIcon Width="18" Height="18"
-                      Data="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          <!-- New chat in the accent, at the top right of the screen: here when the list is a screen of its
+               own, in the chat's title bar when the list is docked beside it. -->
+          <Button x:Name="DrawerNewChatButton" Grid.Column="2" Classes="chat-header-action new-conversation floating-action"
+                  Margin="6,0,0,0"
+                  IsVisible="{Binding ShowListNewChat}"
+                  AutomationProperties.Name="Start a new chat"
+                  Command="{Binding ChatList.NewChatCommand}">
+            <sc:StrataLineIcon Classes="header-glyph accent" Data="{x:Static sc:StrataIcons.Pencil}" />
           </Button>
+
+          <!-- The project lens: the desktop's switcher in the title bar's glass, built as the chat's title
+               pill is: the project's mark, its name, how many projects there are and the chevron that
+               opens them. -->
+          <Button x:Name="DrawerProjectButton" Grid.Row="1" Grid.ColumnSpan="3"
+                  Classes="project-switcher floating-action"
+                  AutomationProperties.Name="{Binding ProjectSwitcherTitle, StringFormat='Select project: {0}'}"
+                  Command="{Binding OpenProjectPickerCommand}">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+              <Panel VerticalAlignment="Center" Margin="0,0,10,0">
+                <Border x:Name="DrawerAllChatsBadge" Classes="chat-mark project-switcher-all"
+                        IsVisible="{Binding !HasActiveProject}">
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Chats}" />
+                </Border>
+                <Border x:Name="DrawerProjectBadge" Classes="chat-mark"
+                        IsVisible="{Binding HasActiveProject}"
+                        Background="{Binding ProjectSwitcherMark.Background}">
+                  <TextBlock Text="{Binding ProjectSwitcherMark.Glyph}"
+                             Foreground="{Binding ProjectSwitcherMark.Foreground}" />
+                </Border>
+              </Panel>
+              <TextBlock x:Name="DrawerProjectLabel" Grid.Column="1" Classes="project-switcher-title"
+                         Text="{Binding ProjectSwitcherTitle}" />
+              <TextBlock x:Name="DrawerProjectMeta" Grid.Column="2" Classes="project-switcher-meta"
+                         Text="{Binding ProjectSwitcherMeta}"
+                         IsVisible="{Binding ProjectSwitcherMeta, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <PathIcon x:Name="DrawerProjectChevron" Grid.Column="3" Classes="chat-header-chevron"
+                        Data="{DynamicResource Mobile.Icon.ChevronDown}" />
+            </Grid>
+          </Button>
+
+          <!-- Home must say when the PC can't be reached, as the chat's own status strip does;
+               beside a docked list the chat's strip already says it. -->
+          <Border x:Name="DrawerConnectionBanner" Grid.Row="2" Grid.ColumnSpan="3"
+                  Background="{DynamicResource Brush.Surface2}"
+                  CornerRadius="14" Padding="12,8">
+            <Border.IsVisible>
+              <MultiBinding Converter="{x:Static BoolConverters.And}">
+                <Binding Path="ShowConnectionBanner" />
+                <Binding Path="!CanDockDrawer" />
+              </MultiBinding>
+            </Border.IsVisible>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+              <sc:StrataPulse IsVisible="{Binding !IsGatewaySignInRequired}"
+                              IsLive="False" Width="10" Height="10"
+                              VerticalAlignment="Top" Margin="0,4,0,0" />
+              <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
+                <TextBlock Text="{Binding ConnectionBannerText}" TextWrapping="Wrap"
+                           FontSize="{DynamicResource Font.SizeMeta}"
+                           Foreground="{DynamicResource Brush.TextSecondary}" />
+                <Button x:Name="DrawerRetryConnectionButton"
+                        IsVisible="{Binding ShowRetryConnectionAction}"
+                        Content="Retry" Classes="accent touch" HorizontalAlignment="Left"
+                        Command="{Binding RetryConnectionCommand}" />
+                <Button x:Name="DrawerGatewaySignInButton"
+                        IsVisible="{Binding ShowGatewaySignInAction}"
+                        Content="Sign in again" Classes="accent touch" HorizontalAlignment="Left"
+                        Command="{Binding ReloadWebAppCommand}" />
+              </StackPanel>
+            </Grid>
+          </Border>
         </Grid>
       </Border>
     </Border>
     </Panel>
 
-    <!--
-      ═══ Everything else scrolls as ONE surface ═══
-
-      Library and history share the scrolling surface, which runs underneath the floating header and
-      footer. Project selection lives in the footer rather than consuming conversation rows.
-    -->
+    <!-- ═══ The conversations, as ONE surface under the floating header and footer ═══ -->
     <Border x:Name="DrawerContentSideInset" Padding="{Binding SafeAreaSides}">
       <ScrollViewer x:Name="DrawerScroll" Classes="mobile-scroll" Padding="0,0,0,8"
                     HorizontalScrollBarVisibility="Disabled"
                     behaviors:ScrollEdgeChrome.Header="{Binding #DrawerHeaderChrome}"
                     behaviors:ScrollEdgeChrome.Footer="{Binding #DrawerFooterChrome}">
-        <StackPanel Spacing="2">
-
-    <!-- ═══ Library: everything editable behind one row ═══ -->
-    <Button x:Name="DrawerLibraryButton" Classes="drawer-row"
-            Classes.selected="{Binding IsLibraryPage}"
-            Command="{Binding ShowPageCommand}" CommandParameter="Library">
-      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-        <Border Classes="navigation-icon-tile">
-        <PathIcon Width="18" Height="18"
-                  Foreground="{DynamicResource Brush.TextSecondary}"
-                  Data="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z" />
-        </Border>
-        <TextBlock Grid.Column="1" Text="Library" FontWeight="SemiBold" VerticalAlignment="Center" />
-      </Grid>
-    </Button>
-
-    <!-- ═══ History ═══ -->
-    <StackPanel>
+        <StackPanel x:Name="DrawerHistory">
         <ProgressBar IsIndeterminate="True" Height="2" Margin="14,4"
                      IsVisible="{Binding ChatList.IsRefreshing}" />
         <Border Classes="mobile-card" Margin="12,8"
@@ -105,102 +142,78 @@
                      HorizontalAlignment="Center" TextAlignment="Center" />
         </StackPanel>
 
-        <ItemsControl x:Name="DrawerChatGroups" ItemsSource="{Binding ChatList.Groups}">
-          <ItemsControl.ItemTemplate>
+        <!-- One virtualizing list of headers and rows, so row controls are recycled across date groups. -->
+        <ItemsControl x:Name="DrawerChatGroups" ItemsSource="{Binding ChatList.Rows}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.DataTemplates>
             <DataTemplate x:DataType="vm:ChatGroupViewModel">
-              <StackPanel>
-                <TextBlock Text="{Binding Label}" Classes="group-label drawer-group-label" />
-                <ItemsControl ItemsSource="{Binding Chats}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <VirtualizingStackPanel />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:ChatListItemViewModel">
-                      <Button Classes="drawer-chat drawer-conversation" Classes.selected="{Binding IsSelected}"
-                              Classes.unread="{Binding HasUnreadMessages}" Classes.running="{Binding IsRunning}"
-                              AutomationProperties.Name="{Binding AccessibilityName}"
-                              AutomationProperties.HelpText="Long press for chat actions"
-                              input:InputElement.IsHoldingEnabled="True"
-                              input:InputElement.IsHoldWithMouseEnabled="True"
-                              Holding="OnChatRowHolding"
-                              KeyDown="OnChatRowKeyDown"
-                              Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).ChatList.OpenChatCommand}"
-                              CommandParameter="{Binding}">
-                        <Grid ColumnDefinitions="Auto,*">
-                          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <Border Classes="chat-list-status" IsHitTestVisible="False"
-                                    sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
-                              <Border.IsVisible>
-                                <MultiBinding Converter="{x:Static BoolConverters.Or}">
-                                  <Binding Path="IsRunning" />
-                                  <Binding Path="HasUnreadMessages" />
-                                </MultiBinding>
-                              </Border.IsVisible>
-                            </Border>
-                            <PathIcon x:Name="BackgroundActivityIndicator" Classes="chat-list-background"
-                                      IsVisible="{Binding HasBackgroundActivity}"
-                                      ToolTip.Tip="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
-                                      AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
-                          </StackPanel>
-                          <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
-                                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        </Grid>
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
+              <TextBlock Text="{Binding Label}" Classes="group-label drawer-group-label" />
             </DataTemplate>
-          </ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ChatListItemViewModel">
+              <Button Classes="drawer-chat drawer-conversation" Classes.selected="{Binding IsSelected}"
+                      Classes.unread="{Binding HasUnreadMessages}" Classes.running="{Binding IsRunning}"
+                      AutomationProperties.Name="{Binding AccessibilityName}"
+                      AutomationProperties.HelpText="Long press for chat actions"
+                      input:InputElement.IsHoldingEnabled="True"
+                      input:InputElement.IsHoldWithMouseEnabled="True"
+                      Holding="OnChatRowHolding"
+                      ContextRequested="OnChatRowContextRequested"
+                      KeyDown="OnChatRowKeyDown"
+                      Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).ChatList.OpenChatCommand}"
+                      CommandParameter="{Binding}">
+                <!-- The desktop's row: a dot while Lumi works (pulsing) or a reply waits, the title, and a
+                     quiet pin. When a chat last moved is the date group's job, not the row's. -->
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                  <!-- The open chat: the desktop's slim accent pipe at the row's leading edge. -->
+                  <Border x:Name="ChatRowMarker" Grid.ColumnSpan="3" Classes="row-marker chat-pipe" Margin="-11,0,0,0"
+                          IsVisible="{Binding IsSelected}" />
+                  <Border x:Name="ChatRowDot" Classes="chat-row-dot" IsHitTestVisible="False"
+                          sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
+                    <Border.IsVisible>
+                      <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                        <Binding Path="IsRunning" />
+                        <Binding Path="HasUnreadMessages" />
+                      </MultiBinding>
+                    </Border.IsVisible>
+                  </Border>
+                  <TextBlock x:Name="ChatRowTitle" Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
+                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                  <StackPanel x:Name="ChatRowState" Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                              Margin="10,0,0,0" VerticalAlignment="Center">
+                    <Border x:Name="BackgroundActivityIndicator" Classes="chat-row-background"
+                            IsVisible="{Binding HasBackgroundActivity}"
+                            AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
+                    <PathIcon x:Name="ChatRowPin" Classes="chat-row-pin"
+                              IsVisible="{Binding IsPinned}"
+                              Data="{DynamicResource Mobile.Icon.Pin}" />
+                  </StackPanel>
+                </Grid>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.DataTemplates>
         </ItemsControl>
 
         <Button x:Name="DrawerLoadMoreButton" Classes="drawer-row"
-                Margin="12,8,12,10"
+                Margin="10,8,10,10"
                 IsVisible="{Binding ChatList.HasMoreChats}"
                 Command="{Binding ChatList.LoadMoreChatsCommand}">
           <TextBlock Text="Load more chats" Foreground="{DynamicResource Brush.TextSecondary}" />
         </Button>
-      </StackPanel>
         </StackPanel>
       </ScrollViewer>
     </Border>
 
-    <!-- Project scope and settings remain available while history scrolls underneath. -->
+    <!-- The places stay centred in the thumb zone while history scrolls underneath. -->
     <Panel x:Name="DrawerFooterChrome" VerticalAlignment="Bottom" ZIndex="1" Background="Transparent">
-    <Panel x:Name="DrawerBottomEdgeMaterial" Classes="chrome-edge" VerticalAlignment="Bottom">
-      <sc:StrataBackdropBlur x:Name="DrawerBottomEdgeFrost" Classes="chrome-frost" Fade="Top" FadeLength="0" />
-      <Border Background="{DynamicResource Brush.NavigationEdgeBottom}" />
-      <StackPanel>
-        <Panel Height="{DynamicResource Mobile.Chat.EdgeScrimExtent}" />
-        <Border Padding="{Binding SafeAreaBottom}" IsVisible="{Binding !IsKeyboardOpen}" />
-      </StackPanel>
-    </Panel>
     <Border Padding="{Binding SafeAreaBottom}">
       <Border x:Name="DrawerAccountSideInset" Padding="{Binding SafeAreaSides}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="16,12,12,12">
-            <Button x:Name="DrawerProjectButton" Classes="floating-action"
-                    Height="48" MaxWidth="240" Padding="14,0"
-                    HorizontalAlignment="Left" HorizontalContentAlignment="Stretch"
-                    AutomationProperties.Name="{Binding ProjectScopeLabel, StringFormat='Select project: {0}'}"
-                    Command="{Binding OpenProjectPickerCommand}">
-              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                <PathIcon Width="18" Height="18" VerticalAlignment="Center"
-                          Foreground="{DynamicResource Brush.TextSecondary}"
-                          Data="M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
-                <TextBlock x:Name="DrawerProjectLabel" Grid.Column="1" Text="{Binding ProjectScopeLabel}"
-                           FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium"
-                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-              </Grid>
-            </Button>
-
-            <Button x:Name="DrawerAccountButton" Grid.Column="1" Classes="navigation-icon-button floating-action"
-                    AutomationProperties.Name="Settings" Command="{Binding ShowPageCommand}" CommandParameter="Settings">
-            <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
-                      Data="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.488.488 0 0 0 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.65.07.97l-2.11 1.66c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1.01c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z" />
-            </Button>
-          </Grid>
+          <Panel x:Name="DrawerFooterLayout" Margin="12,8,12,12">
+            <views:PlacesBarView x:Name="DrawerPlaces" />
+          </Panel>
       </Border>
     </Border>
     </Panel>
