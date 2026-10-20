@@ -71,6 +71,27 @@ text alive by itself. Every capture still reads the file, so external edits (eve
 size/timestamp) and historical revisions stay correct. `TranscriptBuilderToolGroupTests` includes
 the focused `FileSnapshots` checks.
 
+### Git status work on evicted chat surfaces
+
+Native Git invocations are serialized process-wide to avoid redirected-pipe handle inheritance
+on Windows. A coding-strip refresh queued behind other invocations must still observe its
+surface's lifetime. `ChatViewModel` cancels that read-only work on disposal; branch, file/status,
+submodule and worktree queries pass the token through to the existing Git runner and its queue.
+Version checks still protect newer results, and cached/live chat ownership is unchanged.
+Status, diff-stat and submodule queries (including the detached-branch fallback) use
+`--no-optional-locks`: otherwise these read-only queries can refresh and write the index,
+and killing that optional write on disposal could leave an index lock behind.
+The working-tree diff also sets `diff.autoRefreshIndex=false` for that invocation: Git
+2.45 can still refresh the stat cache through `diff --numstat` despite `--no-optional-locks`.
+
+`GitServiceTests.PendingSurfaceRefreshStopsBeforeTheGitQueueIsReleased` holds the real queue
+closed and verifies that all pending refreshes finish after surface disposal without waiting
+for that queue to reopen. `CachedSurfaceCanFinishAndRepeatItsGitRefresh` verifies that an
+idle-cached surface still finishes its queued refresh and refreshes again after reacquisition.
+The cancellable index-preservation tests in `GitChangesTests` check status line statistics
+and detached branch labels without rewriting the index. Run them with `GIT_OPTIONAL_LOCKS=1`
+as well: coding tools can inherit `GIT_OPTIONAL_LOCKS=0`, which otherwise masks optional writes.
+
 ### Settings UI lifetime
 
 Settings creates only the selected page from a deferred control template. Switching pages

@@ -125,6 +125,8 @@ public partial class ChatViewModel
     private int _gitRefreshVersion;
     private string? _gitStatusDirectory;
     private CancellationTokenSource? _gitRefreshThrottleCts;
+    // Queued native Git work must not keep an evicted surface's transcript alive.
+    private readonly CancellationTokenSource _gitRefreshCts = new();
     private DateTime _lastLiveGitRefreshUtc = DateTime.MinValue;
     /// <summary>Minimum interval between live git status refreshes triggered by agent
     /// file edits, so the coding strip updates promptly without thrashing during bursts.</summary>
@@ -1768,8 +1770,11 @@ public partial class ChatViewModel
     /// <summary>Detects whether the current project is a coding project and refreshes git state.</summary>
     public async Task RefreshCodingProjectState()
     {
+        if (_isDisposed)
+            return;
         // Increment version so any in-flight async refresh is discarded on completion.
         var version = Interlocked.Increment(ref _gitRefreshVersion);
+        var cancellationToken = _gitRefreshCts.Token;
 
         try
         {
@@ -1827,9 +1832,9 @@ public partial class ChatViewModel
             GitChangedFileCount = 0;
             GitChangedFiles.Clear();
 
-            var branchTask = GitService.GetCurrentBranchAsync(workDir);
-            var changesTask = GitService.GetChangedFilesAsync(workDir);
-            var worktreesTask = GitService.ListWorktreeInfoAsync(projectDir);
+            var branchTask = GitService.GetCurrentBranchAsync(workDir, cancellationToken);
+            var changesTask = GitService.GetChangedFilesAsync(workDir, cancellationToken);
+            var worktreesTask = GitService.ListWorktreeInfoAsync(projectDir, cancellationToken);
 
             await Task.WhenAll(branchTask, changesTask, worktreesTask).ConfigureAwait(false);
 
@@ -1854,13 +1859,13 @@ public partial class ChatViewModel
             });
 
             // A newer refresh was started while we were awaiting — discard these stale results.
-            if (version != Volatile.Read(ref _gitRefreshVersion))
+            if (_isDisposed || cancellationToken.IsCancellationRequested || version != Volatile.Read(ref _gitRefreshVersion))
                 return;
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 // Double-check inside the UI dispatch in case another refresh snuck in.
-                if (version != Volatile.Read(ref _gitRefreshVersion))
+                if (_isDisposed || cancellationToken.IsCancellationRequested || version != Volatile.Read(ref _gitRefreshVersion))
                     return;
 
                 GitBranch = branch;
@@ -1875,13 +1880,16 @@ public partial class ChatViewModel
                 OnPropertyChanged(nameof(HasAvailableWorktrees));
             });
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
         finally
         {
-            if (version == Volatile.Read(ref _gitRefreshVersion))
+            if (!_isDisposed && version == Volatile.Read(ref _gitRefreshVersion))
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (version == Volatile.Read(ref _gitRefreshVersion))
+                    if (!_isDisposed && version == Volatile.Read(ref _gitRefreshVersion))
                         IsRefreshingGitStatus = false;
                 });
             }

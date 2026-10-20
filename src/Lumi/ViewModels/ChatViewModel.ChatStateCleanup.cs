@@ -146,6 +146,8 @@ public partial class ChatViewModel
             return;
 
         _isDisposed = true;
+        _gitRefreshCts.Cancel();
+        _gitRefreshCts.Dispose();
         ResetDesktopPreview();
         _uiAutomation.Dispose();
         if (_ownsCapabilityCatalog)
