@@ -409,7 +409,7 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '' } =
             if (name === failedModule)
                 throw new Error(`HTTP 503 loading ${name}`);
             if (name === './browserHost.js')
-                return { configureNativeTextInputs() {}, configureViewportInsets() {},
+                return { configureBrowserRecovery() {}, configureNativeTextInputs() {}, configureViewportInsets() {},
                     configureFilePickerCancellation() { lifecycle.push('picker-prepared'); } };
             if (name === './_framework/storage.js') {
                 lifecycle.push('storage-loaded');

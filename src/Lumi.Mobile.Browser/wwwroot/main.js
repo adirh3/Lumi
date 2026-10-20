@@ -1,10 +1,12 @@
 import {
+    configureBrowserRecovery,
     configureFilePickerCancellation,
     configureNativeTextInputs,
     configureViewportInsets
 } from './browserHost.js';
 
 let retryStartup = () => window.location.reload();
+configureBrowserRecovery(() => retryStartup());
 document.getElementById('startup-retry').addEventListener('click', () => retryStartup());
 
 const showFatalError = error => {

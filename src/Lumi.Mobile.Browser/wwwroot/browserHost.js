@@ -5,6 +5,38 @@ document.documentElement.appendChild(safeAreaProbe);
 if (navigator.standalone === true)
     document.documentElement.dataset.lumiStandalone = 'true';
 
+let browserRecoveryActive = false;
+
+export function showBrowserRecovery(message) {
+    browserRecoveryActive = true;
+    dismissTextSelection();
+    for (const input of nativeTextInputs.values()) {
+        input.blur();
+        input.disabled = true;
+    }
+    activeNativeTextInputId = undefined;
+    document.getElementById('lumi-recovery-message').textContent = message;
+    const recovery = document.getElementById('lumi-recovery');
+    recovery.hidden = false;
+    if (!recovery.open)
+        recovery.showModal();
+    document.getElementById('lumi-reload').focus();
+}
+
+export function configureBrowserRecovery(reload = () => globalThis.location.reload()) {
+    document.getElementById('lumi-reload').addEventListener('click', reload);
+    document.getElementById('lumi-recovery').addEventListener('cancel', event => event.preventDefault());
+    // Context-loss events do not bubble. Listen on the host before Avalonia creates its canvas.
+    document.getElementById('out').addEventListener('webglcontextlost', event => {
+        if (event.target.tagName !== 'CANVAS'
+            || !event.target.classList.contains('avalonia-canvas'))
+            return;
+
+        console.error('[Lumi] The browser graphics context was lost.');
+        showBrowserRecovery('Your browser stopped displaying Lumi. Reload to reconnect.');
+    }, true);
+}
+
 export function getOrigin() {
     return globalThis.location.origin;
 }
@@ -73,6 +105,8 @@ const nativeTextInputs = new Map();
 const composingNativeTextInputs = new Set();
 
 function publishNativeTextInput(id, input) {
+    if (browserRecoveryActive)
+        return;
     nativeTextInputChanged?.(
         id,
         input.value,
@@ -103,6 +137,8 @@ document.addEventListener('pointerdown', event => {
 }, true);
 
 export function showTextSelection(text) {
+    if (browserRecoveryActive)
+        return;
     dismissTextSelection();
     selectionDialog = document.createElement('dialog');
     selectionDialog.className = 'lumi-selection-dialog';
@@ -171,6 +207,10 @@ function createNativeTextInput(id, multiline) {
         publishNativeTextInput(id, input);
     });
     input.addEventListener('keydown', event => {
+        if (browserRecoveryActive) {
+            event.preventDefault();
+            return;
+        }
         if (event.isComposing
             || event.keyCode === 229
             || event.key !== 'Enter' && event.key !== 'Escape')
@@ -187,6 +227,8 @@ function createNativeTextInput(id, multiline) {
         }
     });
     input.addEventListener('focus', () => {
+        if (browserRecoveryActive)
+            return;
         activeNativeTextInputId = id;
         input.classList.add('focused');
         nativeTextInputFocusChanged?.(id, true);
@@ -197,7 +239,8 @@ function createNativeTextInput(id, multiline) {
         if (activeNativeTextInputId === id)
             activeNativeTextInputId = undefined;
         input.classList.remove('focused');
-        nativeTextInputFocusChanged?.(id, false);
+        if (!browserRecoveryActive)
+            nativeTextInputFocusChanged?.(id, false);
     });
     document.body.appendChild(input);
     nativeTextInputs.set(id, input);
@@ -237,6 +280,8 @@ export function showNativeTextInput(
     textAlignment,
     direction,
     dark) {
+    if (browserRecoveryActive)
+        return;
     let input = nativeTextInputs.get(id);
     if (input && (input.tagName === 'TEXTAREA') !== multiline) {
         destroyNativeTextInput(id);
@@ -321,6 +366,8 @@ export function getNativeTextInputCaretIndex(id) {
 }
 
 export function focusNativeTextInput(id, caretIndex) {
+    if (browserRecoveryActive)
+        return;
     const input = nativeTextInputs.get(id);
     if (!input
         || input.disabled

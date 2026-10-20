@@ -1116,6 +1116,13 @@ explicit local-network connections are unchanged and remain available separately
 Developer builds need the browser assets published to the desktop executable's
 `remote-web` directory (or `LUMI_REMOTE_WEB_ROOT`); release packages include them.
 
+If the phone browser loses its graphics context, Lumi shows an explicit **Reload Lumi**
+dialog rather than silently discarding an unsent draft. Recovery dismisses message text
+selection, owns keyboard focus and suspends native text editors until reload. The existing
+service-worker cache, private-tunnel identity and browser sign-in recovery remain unchanged.
+This does not establish the cause of delays or repeated Microsoft sign-in on an installed
+iPhone PWA; a controlled same-phone, same-URL before/after network trace is still pending.
+
 ### Lazy MCP initialization
 
 In **Settings > AI & Models > Connectors**, enable **Fast Connector Initialization**, then
