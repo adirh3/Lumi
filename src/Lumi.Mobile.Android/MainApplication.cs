@@ -36,7 +36,9 @@ public class MainApplication : AvaloniaAndroidApplication<App>
     }
 
     protected override AppBuilder CustomizeAppBuilder(AppBuilder builder) =>
-        base.CustomizeAppBuilder(builder).WithInterFont();
+        base.CustomizeAppBuilder(builder)
+            .WithInterFont()
+            .With(new SkiaOptions { MaxGpuResourceSizeBytes = 64 * 1024 * 1024 });
 
     private static string ResolveDeviceName()
     {

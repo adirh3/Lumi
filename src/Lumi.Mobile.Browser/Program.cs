@@ -68,6 +68,11 @@ internal static class Program
 
         await AppBuilder.Configure<App>()
             .WithInterFont()
+            .With(new SkiaOptions
+            {
+                // Keep high-DPI glass intermediates reusable instead of recreating GPU textures each frame.
+                MaxGpuResourceSizeBytes = 64 * 1024 * 1024
+            })
             .With(new FontManagerOptions
             {
                 FontFallbacks =

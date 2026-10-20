@@ -544,6 +544,7 @@ class Program
     {
         var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            .With(new SkiaOptions { MaxGpuResourceSizeBytes = 64 * 1024 * 1024 })
             .LogToTrace();
 
         if (OperatingSystem.IsWindows())
