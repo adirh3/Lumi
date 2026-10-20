@@ -771,6 +771,32 @@ public static class DebugAgentHarness
             JsonProperty("pattern", JsonString("ActivityPreview")),
             JsonProperty("glob", JsonString("*.cs"))), "InProgress"));
 
+        chat.Messages.Add(Message("user", "Show how Text, Markdown and source-code blocks handle long lines."));
+        chat.Messages.Add(Message("assistant", """
+            ### Code block wrapping
+
+            Text and Markdown wrap to fit. Other languages keep their original layout with horizontal scrolling. There is no wrap button, and **Copy** always preserves the original source.
+
+            C# stays on its original lines:
+
+            ```csharp
+            var message = "This deliberately long source line should scroll horizontally, remain syntax highlighted, and preserve its original line breaks when selected or copied.";
+            Console.WriteLine(message);
+            ```
+
+            A long value with no spaces wraps too:
+
+            ```text
+            https://example.invalid/abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789
+            ```
+
+            Markdown source wraps without rendering its formatting:
+
+            ```markdown
+            This **Markdown source** contains a deliberately long paragraph that should wrap to the chat width without adding line breaks to the original source when it is copied.
+            ```
+            """));
+
         foreach (var message in chat.Messages.Where(message => message.Role == "assistant"
                      && message.ParentToolCallId is null && !string.IsNullOrWhiteSpace(message.Content)))
             message.Model ??= "gpt-5.5";
