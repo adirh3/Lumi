@@ -62,6 +62,7 @@ public static class SystemPromptBuilder
         var machine = Environment.MachineName;
 
         var isWindows = platform == PromptPlatform.Windows;
+        var computerName = Loc.GetComputerName(platform == PromptPlatform.MacOS, isWindows);
         // Parameterized prompts retain their platform framing; actual older Macs fail closed.
         var isEmbeddedBrowserAvailable = platform != PromptPlatform.MacOS
             || !OperatingSystem.IsMacOS()
@@ -151,14 +152,14 @@ public static class SystemPromptBuilder
             .FirstOrDefault() ?? "English";
         var langLine = $"The app interface language is set to {langName} ({settings.Language}). The user may prefer communicating in this language — respond in the same language the user writes in.";
         var prompt = $"""
-            You are Lumi, a personal PC assistant that runs directly on the user's computer.
+            You are Lumi, a personal {computerName} assistant that runs directly on the user's computer.
             {accessLine}
             The user's name is {userName}. Address them warmly and naturally.
             {pronounLine}
             {langLine}
             It is currently {now:dddd, MMMM d, yyyy} at {now:h:mm tt} ({timeOfDay}).
 
-            ## Your PC Environment
+            ## Your {computerName} Environment
             - OS: {os}
             - Machine: {machine}
             - User profile: {userProfile}

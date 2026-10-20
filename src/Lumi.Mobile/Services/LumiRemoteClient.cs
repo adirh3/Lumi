@@ -1956,7 +1956,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     private static string Describe(Exception ex) => ex switch
     {
         RemoteGatewaySignInException => ex.Message,
-        HttpRequestException => "Can't reach Lumi. Check that your PC is awake and on the same Wi-Fi.",
+        HttpRequestException => "Can't reach Lumi. Check that your computer is awake and on the same Wi-Fi.",
         TaskCanceledException => RequestTimeoutMessage,
         _ => ex.Message
     };

@@ -18,6 +18,16 @@ public static partial class Loc
     /// <summary>Whether the current language is right-to-left.</summary>
     public static bool IsRightToLeft => Culture.TextInfo.IsRightToLeft;
 
+    /// <summary>The host computer's English name for agent and service messages.</summary>
+    public static string ComputerName => GetComputerName(OperatingSystem.IsMacOS(), OperatingSystem.IsWindows());
+
+    internal static string GetComputerName(bool isMac, bool isWindows)
+        => isMac ? "Mac" : isWindows ? "PC" : "Linux computer";
+
+    /// <summary>Expands opt-in device wording once when generated strings are initialized or loaded.</summary>
+    internal static string AdaptComputerName(string value)
+        => value.Replace("{computer}", ComputerName, StringComparison.Ordinal);
+
     /// <summary>
     /// Activates the given language. English is used as fallback for missing keys.
     /// </summary>

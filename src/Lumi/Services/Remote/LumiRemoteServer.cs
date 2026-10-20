@@ -570,7 +570,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         {
             return RemoteHttpPreflightResult.Reject(
                 403,
-                "Use this PC's Lumi address instead of another hostname.");
+                $"Use this {Loc.ComputerName}'s Lumi address instead of another hostname.");
         }
 
         if (!IsAllowedCaller(
@@ -638,7 +638,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 await WriteErrorAsync(
                         context,
                         403,
-                        "Use this PC's Lumi address instead of another hostname.",
+                        $"Use this {Loc.ComputerName}'s Lumi address instead of another hostname.",
                         cancellationToken)
                     .ConfigureAwait(false);
                 return;
@@ -904,13 +904,13 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             {
                 case PairingCodeResult.NoActiveCode:
                     response.Error =
-                        "No pairing code is active. Open Settings → Phone on your PC and tap Pair a device.";
+                        $"No pairing code is active. Open Settings → Mobile on your {Loc.ComputerName} and tap Pair a device.";
                     break;
                 case PairingCodeResult.Incorrect:
                     response.Error = "That pairing code is not correct.";
                     break;
                 case PairingCodeResult.AttemptsExhausted:
-                    response.Error = "Too many incorrect pairing attempts. Generate a new code on your PC.";
+                    response.Error = $"Too many incorrect pairing attempts. Generate a new code on your {Loc.ComputerName}.";
                     status = 429;
                     pairingStateChanged = true;
                     break;

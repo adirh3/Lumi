@@ -20,7 +20,7 @@ internal sealed class BrowserSameOriginHandler(Uri origin, HttpMessageHandler in
             || !string.Equals(destination.IdnHost, origin.IdnHost, StringComparison.OrdinalIgnoreCase)
             || destination.Port != origin.Port)
         {
-            throw new HttpRequestException("Lumi Web can only connect to the PC that served this app.");
+            throw new HttpRequestException("Lumi Web can only connect to the computer that served this app.");
         }
 
         request.Options.TryGetValue(FetchOptions, out var configuredOptions);

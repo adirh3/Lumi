@@ -7,6 +7,38 @@ namespace Lumi.Tests;
 public sealed class SystemPromptBuilderTests
 {
     [Theory]
+    [InlineData("Windows", "PC")]
+    [InlineData("MacOS", "Mac")]
+    [InlineData("Linux", "Linux computer")]
+    public void Build_UsesTheHostComputerName(string platformName, string computerName)
+    {
+        var platform = System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName);
+        var prompt = SystemPromptBuilder.Build(new UserSettings { Language = "en" },
+            agent: null, project: null, allSkills: [], activeSkills: [], memories: [], platform: platform);
+
+        Assert.Contains($"personal {computerName} assistant", prompt);
+        Assert.Contains($"## Your {computerName} Environment", prompt);
+        if (platform != SystemPromptBuilder.PromptPlatform.Windows)
+            Assert.DoesNotMatch(@"\bPC\b", WithoutEnvironmentMetadata(prompt));
+    }
+
+    [Theory]
+    [InlineData("- Machine: DEV-PC")]
+    [InlineData(@"- User profile: C:\Users\PC")]
+    [InlineData(@"- Common folders: C:\Users\PC\Documents")]
+    public void HostWordingAssertion_ExcludesOnlyEnvironmentMetadata(string metadata)
+    {
+        Assert.Equal("Generated wording", WithoutEnvironmentMetadata($"Generated wording\n{metadata}"));
+        Assert.Equal("Use your PC", WithoutEnvironmentMetadata($"Use your PC\n{metadata}"));
+    }
+
+    private static string WithoutEnvironmentMetadata(string prompt)
+        => string.Join('\n', prompt.Split('\n').Where(line =>
+            !line.StartsWith("- Machine:", StringComparison.Ordinal)
+            && !line.StartsWith("- User profile:", StringComparison.Ordinal)
+            && !line.StartsWith("- Common folders:", StringComparison.Ordinal)));
+
+    [Theory]
     [InlineData("Windows")]
     [InlineData("MacOS")]
     [InlineData("Linux")]

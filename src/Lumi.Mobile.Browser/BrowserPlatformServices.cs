@@ -19,7 +19,7 @@ internal sealed class BrowserHostEnvironment(string origin) : IMobileHostEnviron
 
     public string? FixedBaseUrl { get; } = origin.TrimEnd('/');
 
-    public string FixedEndpointName => "This Lumi PC";
+    public string FixedEndpointName => "This Lumi computer";
 
     public Action? ReloadWebApp => BrowserInterop.ReloadWebApp;
 

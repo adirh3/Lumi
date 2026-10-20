@@ -423,9 +423,9 @@
                     </StackPanel>
 
                     <StackPanel Spacing="6" IsVisible="{Binding ShowProjectWorkingDirectory}">
-                      <TextBlock x:Name="EditWorkingDirectoryLabel" Text="PC workspace" Classes="field-label" />
-                      <TextBox x:Name="EditWorkingDirectoryBox" Classes="mobile" PlaceholderText="A folder on your PC"
-                               AutomationProperties.Name="PC workspace" Text="{Binding EditWorkingDirectory}"
+                      <TextBlock x:Name="EditWorkingDirectoryLabel" Text="Computer workspace" Classes="field-label" />
+                      <TextBox x:Name="EditWorkingDirectoryBox" Classes="mobile" PlaceholderText="A folder on your computer"
+                               AutomationProperties.Name="Computer workspace" Text="{Binding EditWorkingDirectory}"
                                textInput:TextInputOptions.ShowSuggestions="False" />
                     </StackPanel>
 
@@ -437,7 +437,7 @@
                     </StackPanel>
                   </StackPanel>
                 </Border>
-                <TextBlock Text="Changes are saved to your shared Library on your PC."
+                <TextBlock Text="Changes are saved to your shared Library on your computer."
                            Classes="muted" Margin="6,0" TextWrapping="Wrap" />
               </StackPanel>
             </ScrollViewer>
@@ -505,7 +505,7 @@
                         <Grid ColumnDefinitions="*,Auto" Margin="16,8,8,8" MinHeight="44">
                           <StackPanel Spacing="2" VerticalAlignment="Center">
                             <TextBlock Text="{Binding EnabledStateText}" Classes="row-title" />
-                            <TextBlock Text="Applies on your PC right away" Classes="row-meta" />
+                            <TextBlock Text="Applies on your computer right away" Classes="row-meta" />
                           </StackPanel>
                           <ToggleSwitch x:Name="LibraryViewerSwitch" Grid.Column="1"
                                         IsChecked="{Binding IsEnabled, Mode=OneWay}"
@@ -604,7 +604,7 @@
           <TextBlock x:Name="LibraryActionStatus" Text="{Binding StatusMessage}"
                      Classes="sheet-body" Margin="24,0,24,8"
                      IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <TextBlock Text="Working on your PC…" Classes="sheet-body" Margin="24,0,24,8"
+          <TextBlock Text="Working on your computer…" Classes="sheet-body" Margin="24,0,24,8"
                      IsVisible="{Binding IsActionBusy}" />
           <StackPanel x:Name="LibraryActionOptions" IsVisible="{Binding !IsConfirmingDelete}"
                       IsEnabled="{Binding !IsActionBusy}">

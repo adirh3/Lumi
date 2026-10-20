@@ -224,7 +224,7 @@
           </StackPanel>
 
           <StackPanel IsVisible="{Binding IsConfirmingChatDelete}" Margin="16,0,16,8" Spacing="18">
-            <TextBlock Text="This conversation will be deleted from your phone and PC. This can't be undone."
+            <TextBlock Text="This conversation will be deleted from your phone and computer. This can't be undone."
                        Classes="sheet-body" Margin="8,0" />
             <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
               <Button x:Name="CancelChatDeleteButton" Classes="sheet-action" Content="Cancel"

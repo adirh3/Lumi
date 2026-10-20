@@ -19,6 +19,7 @@ namespace Lumi.Generators;
 ///   <item>A <c>FrozenDictionary&lt;string, int&gt;</c> for dynamic XAML key lookup.</item>
 /// </list>
 /// Properties are direct field reads — zero indirection at the call site.
+/// Strings containing <c>{computer}</c> opt into host naming at initialization and language load.
 /// </summary>
 [Generator]
 public sealed class LocalizationGenerator : IIncrementalGenerator
@@ -130,7 +131,10 @@ public sealed class LocalizationGenerator : IIncrementalGenerator
             var key = keys[i];
             if (!IsValidCSharpIdentifier(key)) continue;
             var englishValue = fallbackDict[key];
-            sb.Append("    public static string ").Append(key).Append(" { get; private set; } = \"").Append(EscapeCSharp(englishValue)).AppendLine("\";");
+            var initializer = "\"" + EscapeCSharp(englishValue) + "\"";
+            if (englishValue.Contains("{computer}"))
+                initializer = "AdaptComputerName(" + initializer + ")";
+            sb.Append("    public static string ").Append(key).Append(" { get; private set; } = ").Append(initializer).AppendLine(";");
         }
         sb.AppendLine();
 
@@ -161,7 +165,12 @@ public sealed class LocalizationGenerator : IIncrementalGenerator
         {
             var key = keys[i];
             if (IsValidCSharpIdentifier(key))
-                sb.Append("        ").Append(key).Append(" = src[").Append(i).AppendLine("];");
+            {
+                var value = "src[" + i + "]";
+                if (fallbackDict[key].Contains("{computer}"))
+                    value = "AdaptComputerName(" + value + ")";
+                sb.Append("        ").Append(key).Append(" = ").Append(value).AppendLine(";");
+            }
         }
         sb.AppendLine("    }");
 

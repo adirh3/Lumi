@@ -241,7 +241,7 @@
             <StackPanel x:Name="ConnectionSettings" Spacing="16"
                         IsVisible="{Binding IsConnectionSectionVisible}">
               <sc:StrataSettingGroup Header="This connection" Classes="mobile">
-                <sc:StrataSetting Header="PC" Classes="mobile" Description="{Binding HostName}" />
+                <sc:StrataSetting Header="Computer" Classes="mobile" Description="{Binding HostName}" />
                 <sc:StrataSetting Header="Status" Classes="mobile" Description="{Binding ConnectionStateLabel}" />
                 <sc:StrataSetting Header="This device" Classes="mobile" Description="{Binding DeviceName}" />
                 <sc:StrataSetting Header="Refresh connection" Classes="mobile stacked"
@@ -271,10 +271,10 @@
               <StackPanel Spacing="8">
                 <Button x:Name="ForgetButton" Classes="touch subtle"
                         Foreground="{DynamicResource Brush.DangerDefault}"
-                        Content="Disconnect from this PC"
+                        Content="Disconnect from this computer"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                         Command="{Binding OpenDisconnectConfirmationCommand}" />
-                <TextBlock Text="Your chats and files stay on your PC." Classes="muted"
+                <TextBlock Text="Your chats and files stay on your computer." Classes="muted"
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
               </StackPanel>
             </StackPanel>
@@ -283,7 +283,7 @@
                                    IsVisible="{Binding IsAboutSectionVisible}">
               <sc:StrataSetting Header="App version" Classes="mobile" Description="{Binding AppVersion}" />
               <sc:StrataSetting Header="Your assistant" Classes="mobile"
-                                Description="Lumi on your phone works with Lumi on your PC: your chats, files and tools stay there." />
+                                Description="Lumi on your phone works with Lumi on your computer: your chats, files and tools stay there." />
             </sc:StrataSettingGroup>
           </StackPanel>
           </Border>
@@ -302,8 +302,8 @@
 
   <sc:StrataBottomSheet x:Name="DisconnectSheet" Classes="safe-area"
                         IsOpen="{Binding IsDisconnectConfirmationOpen, Mode=TwoWay}"
-                        Title="Disconnect from this PC?"
-                        Description="This phone loses access and returns to setup. Your chats and files stay on the PC.">
+                        Title="Disconnect from this computer?"
+                        Description="This phone loses access and returns to setup. Your chats and files stay on the computer.">
     <Border>
       <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="16,0,16,8" Spacing="10">
@@ -324,8 +324,8 @@
                      IsVisible="{Binding ConnectionMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           <StackPanel Spacing="10" Margin="0,12,0,0">
             <StackPanel Spacing="2" Margin="8,0">
-              <TextBlock Text="Can't reach your PC?" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeMeta}" />
-              <TextBlock Text="Remove the saved connection from this phone only. Its access on the PC stays active."
+              <TextBlock Text="Can't reach your computer?" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeMeta}" />
+              <TextBlock Text="Remove the saved connection from this phone only. Its access on the computer stays active."
                          Classes="sheet-body" FontSize="{DynamicResource Font.SizeMeta}" LineHeight="{DynamicResource Font.LineHeightMeta}" />
             </StackPanel>
             <Button x:Name="ForgetLocalButton" Classes="sheet-action" Content="Remove from this phone only"
