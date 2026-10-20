@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -71,6 +72,12 @@ public sealed partial class ProjectPickViewModel : ObservableObject
 
 public sealed partial class ChatStartSetup(RemoteChatSetup setup) : ObservableObject
 {
+    // The desktop's tile: the project's initial on a tint of its hue (the hue the chat's mark will
+    // wear once it starts), otherwise the agent's glyph or a sparkle on a quiet tile.
+    private readonly ChatIdentityMark? _projectMark = setup.ProjectId is { } projectId
+        ? new ChatIdentityMark(setup.Glyph, ChatIdentityMark.HueFor(projectId))
+        : null;
+
     internal RemoteChatSetup Source { get; } = setup;
     public string Id => Source.Id;
     public Guid? ProjectId => Source.ProjectId;
@@ -78,8 +85,30 @@ public sealed partial class ChatStartSetup(RemoteChatSetup setup) : ObservableOb
     public string? Model => Source.Model;
     public string Title => Source.Title;
     public string Description => Source.Description;
-    public string Glyph => Source.Glyph;
+    public string MarkGlyph => string.IsNullOrWhiteSpace(Source.Glyph) ? "✦" : Source.Glyph;
+    public bool HasProjectMark => _projectMark is not null;
+    public IBrush? MarkBackground => _projectMark?.Background;
+    public IBrush? MarkForeground => _projectMark?.Foreground;
+    public bool HasDescription => !string.IsNullOrWhiteSpace(Source.Description);
     [ObservableProperty] private bool _isSelected;
+}
+
+/// <summary>
+/// The new-chat greeting split around the user's name, so the name can wear the accent as it does on
+/// the desktop's launchpad. A greeting that does not contain the name stays whole in <see cref="Lead"/>.
+/// </summary>
+public sealed record WelcomeGreeting(string Lead, string Name, string Trail)
+{
+    public static WelcomeGreeting Split(string greeting, string? userName)
+    {
+        var name = userName?.Trim() ?? "";
+        // The desktop inserts the name verbatim after the words of the greeting, so the last exact
+        // match is the name rather than letters inside a word ("Ning" in "Good morning, Ning").
+        var index = name.Length == 0 ? -1 : greeting.LastIndexOf(name, StringComparison.Ordinal);
+        return index < 0
+            ? new WelcomeGreeting(greeting, "", "")
+            : new WelcomeGreeting(greeting[..index], name, greeting[(index + name.Length)..]);
+    }
 }
 
 
@@ -520,6 +549,7 @@ public sealed partial class MobileShellViewModel :
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Greeting))]
+    [NotifyPropertyChangedFor(nameof(GreetingParts))]
     private bool _hasDesktopNewChat;
     [ObservableProperty] private string _newChatBrief = "Ask a question or get something done on your PC.";
     [ObservableProperty] private string _startSetupsTitle = "Your usual setups";
@@ -535,6 +565,7 @@ public sealed partial class MobileShellViewModel :
         Chat.ApplyNewChatStarters(experience?.Starters);
         RefreshSetupSelection();
         OnPropertyChanged(nameof(Greeting));
+        OnPropertyChanged(nameof(GreetingParts));
     }
 
     private void RefreshSetupSelection()
@@ -1064,6 +1095,9 @@ public sealed partial class MobileShellViewModel :
         }
     }
 
+    /// <summary>The greeting split around the user's name, so the welcome can accent it as the desktop does.</summary>
+    public WelcomeGreeting GreetingParts => WelcomeGreeting.Split(Greeting, UserName);
+
     /// <summary>
     /// Chat identity above the labelled project or assistant settings affordance.
     /// </summary>
@@ -1145,6 +1179,7 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(AccountName));
         OnPropertyChanged(nameof(UserInitial));
         OnPropertyChanged(nameof(Greeting));
+        OnPropertyChanged(nameof(GreetingParts));
     }
 
     /// <summary>

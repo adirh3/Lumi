@@ -31,6 +31,8 @@ public static class DesignPreview
         foreach (var project in projects)
             shell.Projects.Add(new ProjectPickViewModel { Id = project.Id, Name = project.Name });
 
+        var codingLumi = new RemoteLumi { Id = Guid.NewGuid(), Name = "Coding Lumi", Description = "Writes, reviews, debugs and tests software", IconGlyph = "⚡", IsBuiltIn = true, SkillCount = 3, ToolCount = 16 };
+        var dailyPlanner = new RemoteLumi { Id = Guid.NewGuid(), Name = "Daily Planner", Description = "Plans your day and keeps you on track", IconGlyph = "📋", IsBuiltIn = true };
         var library = new RemoteLibrary
         {
             Projects = projects,
@@ -39,8 +41,8 @@ public static class DesignPreview
             Lumis =
             [
                 new() { Id = Guid.NewGuid(), Name = "Release manager", Description = "Ships Lumi builds and checks the store listing", IconGlyph = "🚀", SkillCount = 2, ToolCount = 6 },
-                new() { Id = Guid.NewGuid(), Name = "Coding Lumi", Description = "Writes, reviews, debugs and tests software", IconGlyph = "⚡", IsBuiltIn = true, SkillCount = 3, ToolCount = 16 },
-                new() { Id = Guid.NewGuid(), Name = "Daily Planner", Description = "Plans your day and keeps you on track", IconGlyph = "📋", IsBuiltIn = true },
+                codingLumi,
+                dailyPlanner,
                 new() { Id = Guid.NewGuid(), Name = "Creative Writer", Description = "Writing, storytelling and creative content", IconGlyph = "✍", IsBuiltIn = true }
             ],
             Skills =
@@ -135,6 +137,47 @@ public static class DesignPreview
             ModelDisplayNames = ["auto=Auto", "gpt-6.1-sol=GPT-6.1 Sol", "claude-opus-5.5=Claude Opus 5.5", "gemini-3.8-flash=Gemini 3.8 Flash"],
             ModelReasoningEfforts = ["gpt-6.1-sol=low,medium,high,xhigh"],
             ModelDefaults = [new() { Model = "gpt-6.1-sol", Quality = "high" }]
+        });
+        // A new chat as a paired PC describes it: its greeting and brief, the setups the user keeps
+        // starting chats with, and starters for the hour.
+        shell.ApplyNewChatExperience(new RemoteNewChatExperience
+        {
+            Greeting = DateTime.Now.Hour switch
+            {
+                >= 5 and < 12 => "Good morning, Adir",
+                >= 12 and < 17 => "Good afternoon, Adir",
+                >= 17 and < 22 => "Good evening, Adir",
+                _ => "Working late, Adir?"
+            },
+            Brief = "1 chat needs your answer · 1 new reply",
+            SetupsTitle = "Start with",
+            Setups =
+            [
+                new()
+                {
+                    Id = "lumi", Title = lumi.Name, Description = "Coding Lumi · Worktree · GPT-6.1 Sol · High",
+                    Glyph = "L", ProjectId = lumi.Id, ProjectName = lumi.Name, AgentId = codingLumi.Id,
+                    AgentName = codingLumi.Name, AgentGlyph = codingLumi.IconGlyph, UseWorktree = true,
+                    Model = "gpt-6.1-sol", Quality = "High"
+                },
+                new()
+                {
+                    Id = "fluent", Title = fluent.Name, Description = "Claude Opus 5.5",
+                    Glyph = "F", ProjectId = fluent.Id, ProjectName = fluent.Name, Model = "claude-opus-5.5"
+                },
+                new()
+                {
+                    Id = "planner", Title = dailyPlanner.Name, Description = "No project",
+                    Glyph = dailyPlanner.IconGlyph, AgentId = dailyPlanner.Id, AgentName = dailyPlanner.Name,
+                    AgentGlyph = dailyPlanner.IconGlyph
+                }
+            ],
+            Starters =
+            [
+                new() { Glyph = "🌙", Label = "Recap my day", Prompt = "Recap my day: what did I work on today across my Lumi chats, what got done, and what's still open?" },
+                new() { Glyph = "🗓️", Label = "Plan tomorrow", Prompt = "Help me plan tomorrow: what should I focus on, and in what order?" },
+                new() { Glyph = "🔍", Label = "Research a topic", Prompt = "Research a topic" }
+            ]
         });
         shell.Chat.Reset(open.Id, open.Title, "gpt-6.1-sol");
         shell.Chat.ProjectValue = lumi.Id.ToString();

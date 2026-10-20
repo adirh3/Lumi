@@ -825,6 +825,15 @@ so tool-heavy chats still open with several recent prompts and replies. Expandin
 the original steps available; older history and retained source text remain bounded and paged.
 Large history pages shrink at whole-turn boundaries to stay within the response limit.
 
+A new mobile chat opens on the desktop's launchpad at phone scale. Lumi's mark sits in the presence
+over the greeting, the user's name in the accent, with the PC's brief of what needs them beneath;
+the starters for the hour follow as calm glass pills that put their words in the composer, to send
+or finish first. The user's usual setups sit on the composer they configure, within the thumb's
+reach: a row of glass cards running to the screen's edges, each marked as the desktop marks it (its
+project's initial on the project's own hue, otherwise its agent's glyph). Applying one checks its card
+and shows its project and agent on the composer. The welcome gives way to the keyboard, and on short
+screens drops the mark so the greeting, starters and setups stay in view.
+
 Mobile popups are floating glass sheets. Only the popup is frosted: it blurs the content
 beneath its own surface and slides with it, while the page around it stays sharp behind a
 light dim. Headers are a title, an optional one-line explanation and a 48-DIP close button,

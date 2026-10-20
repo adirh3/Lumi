@@ -1,3 +1,4 @@
+using Avalonia.Media;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Remote.Protocol;
@@ -337,6 +338,76 @@ public sealed class MobileDesktopParityTests
             Assert.Equal("High", send.Get("quality"));
             Assert.True(send.GetBool("worktree"));
         }
+    }
+
+    /// <summary>
+    /// The welcome accents the user's name, as the desktop's launchpad does. The desktop sends the
+    /// greeting whole, so the phone finds the name in it: exactly, and the last occurrence, so the
+    /// letters of a greeting word are never mistaken for it.
+    /// </summary>
+    [Theory]
+    [InlineData("Good evening, Adir", "Adir", "Good evening, ", "Adir", "")]
+    [InlineData("Working late, Adir?", "Adir", "Working late, ", "Adir", "?")]
+    [InlineData("Good evening, Adir.", " Adir ", "Good evening, ", "Adir", ".")]
+    [InlineData("ערב טוב, אדיר", "אדיר", "ערב טוב, ", "אדיר", "")]
+    [InlineData("Good evening, Good", "Good", "Good evening, ", "Good", "")]
+    [InlineData("Good morning, ning", "ning", "Good morning, ", "ning", "")]
+    [InlineData("Good evening.", "", "Good evening.", "", "")]
+    [InlineData("Good evening, Adir", "Noy", "Good evening, Adir", "", "")]
+    public void WelcomeGreetingAccentsOnlyTheUsersName(
+        string greeting, string userName, string lead, string name, string trail) =>
+        Assert.Equal(new WelcomeGreeting(lead, name, trail), WelcomeGreeting.Split(greeting, userName));
+
+    [Fact]
+    public async Task WelcomeGreetingFollowsTheDesktopGreetingAndTheUsersName()
+    {
+        await using var shell = new MobileShellViewModel(
+            store: new MobileSettingsStore(Path.Combine(Path.GetTempPath(), "lumi-mobile-tests", Guid.NewGuid().ToString("N"))),
+            post: action => action());
+        var changed = new List<string?>();
+        shell.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        shell.UserName = "Adir";
+        Assert.Contains(nameof(MobileShellViewModel.GreetingParts), changed);
+        Assert.Equal("Adir", shell.GreetingParts.Name);
+
+        changed.Clear();
+        shell.ApplyNewChatExperience(new RemoteNewChatExperience { Greeting = "Working late, Adir?" });
+        Assert.Contains(nameof(MobileShellViewModel.GreetingParts), changed);
+        Assert.Equal(new WelcomeGreeting("Working late, ", "Adir", "?"), shell.GreetingParts);
+    }
+
+    /// <summary>
+    /// A setup wears the desktop tile's identity: its project's initial on that project's hue (the hue
+    /// the chat's own mark takes once it starts), otherwise the agent's glyph or a sparkle.
+    /// </summary>
+    [Fact]
+    public void SetupMarksWearTheDesktopTilesIdentity()
+    {
+        var projectId = Guid.NewGuid();
+        var project = new ChatStartSetup(new RemoteChatSetup
+        {
+            Title = "Lumi", Description = "Coding Lumi · Worktree", Glyph = "L", ProjectId = projectId,
+            ProjectName = "Lumi", AgentName = "Coding Lumi", AgentGlyph = "⚡"
+        });
+        Assert.True(project.HasProjectMark);
+        Assert.Equal("L", project.MarkGlyph);
+        Assert.Equal(ChatIdentityMark.HueFor(projectId),
+            Assert.IsAssignableFrom<ISolidColorBrush>(project.MarkForeground).Color);
+        Assert.True(project.HasDescription);
+
+        var agent = new ChatStartSetup(new RemoteChatSetup
+        {
+            Title = "Daily Planner", Description = "No project", Glyph = "📋",
+            AgentName = "Daily Planner", AgentGlyph = "📋"
+        });
+        Assert.False(agent.HasProjectMark);
+        Assert.Null(agent.MarkBackground);
+        Assert.Equal("📋", agent.MarkGlyph);
+
+        var model = new ChatStartSetup(new RemoteChatSetup { Title = "GPT-6.1 Sol" });
+        Assert.Equal("✦", model.MarkGlyph);
+        Assert.False(model.HasDescription);
     }
 
     private sealed class RecordingSink : IRemoteCommandSink

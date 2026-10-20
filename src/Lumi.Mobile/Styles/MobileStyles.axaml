@@ -1209,15 +1209,6 @@
     <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
   </Style>
 
-  <!-- Suggestions and headings belong to the canvas rather than another stack of cards. -->
-  <Style Selector="Button.starter">
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
-  </Style>
-  <Style Selector="Button.starter /template/ Border#PART_Surface">
-    <Setter Property="BoxShadow" Value="none" />
-  </Style>
-
   <Style Selector="Border#TopBarInset">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />

@@ -2817,6 +2817,174 @@ public sealed class MobileShellViewTests
         });
     }
 
+    private static void ApplyDesktopWelcome(MobileShellViewModel shell)
+    {
+        RemoteChatSetup Setup(int index) => new()
+        {
+            Id = $"setup-{index}", Title = $"Project {index}", Description = "Coding Lumi · Worktree · Model A · High",
+            Glyph = "P", ProjectId = Guid.NewGuid(), ProjectName = $"Project {index}"
+        };
+
+        shell.ApplyNewChatExperience(new RemoteNewChatExperience
+        {
+            Greeting = "Good evening, Adir",
+            Brief = "1 chat needs your answer · 1 new reply",
+            SetupsTitle = "Start with",
+            Setups = [.. Enumerable.Range(1, 3).Select(Setup)],
+            Starters =
+            [
+                new RemoteChatStarter { Glyph = "🌙", Label = "Recap my day", Prompt = "Recap my day." },
+                new RemoteChatStarter { Glyph = "🗓️", Label = "Plan tomorrow", Prompt = "Help me plan tomorrow." },
+                new RemoteChatStarter { Glyph = "🔍", Label = "Research a topic", Prompt = "Research a topic" }
+            ]
+        });
+    }
+
+    private static Rect BoundsIn(Control control, Visual root) =>
+        new(control.TranslatePoint(default, root)!.Value, control.Bounds.Size);
+
+    /// <summary>
+    /// The new chat is laid out for a thumb, as the desktop's launchpad is for a pointer: the greeting
+    /// and the starters gather in the presence, and the user's usual setups sit on the composer they
+    /// configure, a short reach from the input. Every action is a full touch target that a finger at
+    /// its centre actually reaches, and the setups start on the composer's own edge.
+    /// </summary>
+    [Theory]
+    [InlineData(360, 780)]
+    [InlineData(412, 892)]
+    [InlineData(984, 1092)]
+    public async Task NewChatWelcome_PutsTheSetupsOnTheComposerWithinTheThumbsReach(double width, double height)
+    {
+        await RunAsync(async (shell, window) =>
+        {
+            Pair(shell);
+            shell.UserName = "Adir";
+            shell.IsSidebarCollapsed = true;
+            Layout(window, shell, width, height);
+            ApplyDesktopWelcome(shell);
+            Pump(window);
+            await Task.Delay(400);
+            Pump(window);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+            var composer = BoundsIn(Named(window, "Composer"), window);
+            var header = BoundsIn(Named(window, "ChatHeaderSideInset"), window);
+            var welcome = BoundsIn(Named(window, "WelcomeSideInset"), window);
+            var hero = BoundsIn(Named(window, "WelcomeHero"), window);
+            var startersControl = Named(window, "WelcomeStarters");
+            var starters = BoundsIn(startersControl, window);
+            var setupsControl = Named(window, "WelcomeSetups");
+            var setups = BoundsIn(Named(window, "WelcomeSetupsScroll"), window);
+
+            // The welcome scrolls as one surface, so its box stays between the floating bars.
+            Assert.True(welcome.Top >= header.Bottom - 0.5, $"welcome {welcome} reaches under the header {header}");
+            Assert.True(welcome.Bottom <= composer.Top, $"welcome {welcome} reaches under the composer {composer}");
+            Assert.True(hero.Bottom <= starters.Top, $"hero {hero} must lead the starters {starters}");
+            Assert.True(starters.Bottom < setups.Top, $"starters {starters} must sit above the setups {setups}");
+            Assert.InRange(composer.Top - setups.Bottom, 0, 24);
+
+            var cards = setupsControl.GetVisualDescendants().OfType<Button>().ToList();
+            Assert.Equal(3, cards.Count);
+            Assert.InRange(Math.Abs(BoundsIn(cards[0], window).Left - composer.Left), 0, 1);
+
+            var pills = startersControl.GetVisualDescendants().OfType<Button>().ToList();
+            Assert.Equal(3, pills.Count);
+            // Three starters pair up rather than standing one to a line, even on a compact phone.
+            Assert.True(pills.Select(pill => Math.Round(BoundsIn(pill, window).Top)).Distinct().Count() <= 2);
+
+            foreach (var target in pills.Append(cards[0]))
+            {
+                Assert.True(target.Bounds.Height >= 48, $"{target.Bounds.Height} dp is under a fingertip");
+                // The whole target takes the tap, including the strips beside a pill drawn inside it.
+                foreach (var y in new[] { 1, target.Bounds.Height / 2, target.Bounds.Height - 1 })
+                {
+                    var point = target.TranslatePoint(new Point(target.Bounds.Width / 2, y), window)!.Value;
+                    var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(point));
+                    Assert.True(ReferenceEquals(hit, target) || hit.GetVisualAncestors().Contains(target),
+                        $"a tap at {point} landed on {hit.GetType().Name}");
+                }
+            }
+        });
+    }
+
+    /// <summary>The greeting keeps the desktop's accent on the user's name.</summary>
+    [Fact]
+    public async Task NewChatWelcome_AccentsTheUsersName()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            shell.UserName = "Adir";
+            Layout(window, shell, 412, 892);
+            shell.ApplyNewChatExperience(new RemoteNewChatExperience { Greeting = "Working late, Adir?" });
+            Pump(window);
+
+            var greeting = Assert.IsType<TextBlock>(Named(window, "GreetingText"));
+            var runs = greeting.Inlines!.OfType<Avalonia.Controls.Documents.Run>().ToList();
+            Assert.Equal("Working late, |Adir|?", string.Join("|", runs.Select(run => run.Text)));
+            Assert.True(window.TryFindResource("Brush.AccentText", window.ActualThemeVariant, out var accent));
+            Assert.Equal(
+                Assert.IsAssignableFrom<ISolidColorBrush>(accent).Color,
+                Assert.IsAssignableFrom<ISolidColorBrush>(runs[1].Foreground).Color);
+            Assert.False(runs[0].IsSet(Avalonia.Controls.Documents.TextElement.ForegroundProperty));
+            Assert.False(runs[2].IsSet(Avalonia.Controls.Documents.TextElement.ForegroundProperty));
+        });
+    }
+
+    /// <summary>
+    /// A short screen keeps what the user acts on: the greeting, the starters and the setups stay, and
+    /// Lumi's mark gives up its room. A tall one shows the mark.
+    /// </summary>
+    [Fact]
+    public async Task NewChatWelcome_LetsTheMarkGoOnAShortScreen()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, 412, 892);
+            ApplyDesktopWelcome(shell);
+            Pump(window);
+            Pump(window);
+            var mark = Named(window, "WelcomeMark");
+            Assert.True(mark.IsEffectivelyVisible);
+
+            Layout(window, shell, 412, 540);
+            Pump(window);
+            Pump(window);
+            Assert.True(shell.IsWelcomeVisible);
+            Assert.False(mark.IsEffectivelyVisible);
+            Assert.True(Named(window, "GreetingText").IsEffectivelyVisible);
+            Assert.True(Named(window, "WelcomeStarters").IsEffectivelyVisible);
+            Assert.True(Named(window, "WelcomeSetups").IsEffectivelyVisible);
+
+            Layout(window, shell, 412, 892);
+            Pump(window);
+            Pump(window);
+            Assert.True(mark.IsEffectivelyVisible);
+        });
+    }
+
+    /// <summary>On the welcome, Lumi's presence gathers behind its mark and the greeting.</summary>
+    [Fact]
+    public async Task NewChatWelcome_GathersThePresenceBehindTheGreeting()
+    {
+        await RunAsync(async (shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, 412, 892);
+            ApplyDesktopWelcome(shell);
+            Pump(window);
+            await Task.Delay(500);
+            Pump(window);
+
+            var presence = window.GetVisualDescendants().OfType<StrataPresence>().Single();
+            var hero = Named(window, "WelcomeHero");
+            var anchor = hero.TranslatePoint(new Point(hero.Bounds.Width / 2, hero.Bounds.Height / 2), presence)!.Value;
+            Assert.InRange(Math.Abs(presence.FocusPoint.Y - anchor.Y / presence.Bounds.Height), 0, 0.03);
+            Assert.InRange(Math.Abs(presence.FocusPoint.X - anchor.X / presence.Bounds.Width), 0, 0.03);
+        });
+    }
+
     /// <summary>
     /// Effort is an ordered scale, so it gets a slider. Its bounds come from what the model actually
     /// supports, which on a not-yet-created chat has to come from the catalog rather than a status.

@@ -366,7 +366,11 @@ internal sealed class MobilePresenceController : IDisposable
         Point target;
         if (!chat.HasChat)
         {
-            target = GreetingFocus;
+            // On the welcome the field gathers behind Lumi's mark and the greeting, wherever the
+            // room between the bars puts them.
+            target = (_shell?.IsWelcomeVisible == true
+                ? TryGetControlFocus("WelcomeHero", 0.5, 0.30, 0.62)
+                : null) ?? GreetingFocus;
         }
         else if (working)
         {

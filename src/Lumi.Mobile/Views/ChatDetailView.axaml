@@ -103,35 +103,204 @@
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
     </Style>
 
-    <Style Selector="Button.start-setup">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="16" />
-      <Setter Property="Padding" Value="14,12" />
-      <Setter Property="MinHeight" Value="72" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <!--
+      ══ The new chat ══
+      The desktop's launchpad at phone scale. Lumi's mark sits in its presence over the greeting, the
+      user's name in the accent; the starters for the hour follow as calm glass pills; and the user's
+      usual setups sit on the composer they configure, where the thumb already is. The actions are the
+      composer's own glass, so everything that can be tapped reads as one material.
+    -->
+    <Style Selector="Border.welcome-mark">
+      <Setter Property="Width" Value="56" />
+      <Setter Property="Height" Value="56" />
+      <!-- The icon's own rounded square, so the soft pool of its colour beneath follows its shape. -->
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,0,18" />
+      <Setter Property="BoxShadow" Value="0 12 30 -12 #B36C5CE7" />
     </Style>
-    <Style Selector="Button.start-setup.selected">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    <Style Selector="TextBlock.welcome-greeting">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeHeadline}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="-0.5" />
+      <Setter Property="TextAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.start-setup:pressed /template/ Border#PART_Surface">
-      <Setter Property="RenderTransform" Value="scale(0.99)" />
+    <Style Selector="TextBlock.welcome-brief">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
+      <Setter Property="TextAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="MaxLines" Value="2" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,8,0,0" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel#WelcomeLaunch">
+      <Setter Property="Margin" Value="16,24" />
+    </Style>
+    <!-- Short screens keep the greeting, the starters and the setups in view, and let the mark go. -->
+    <Style Selector="Grid#NoChatPlaceholder.compact Border.welcome-mark">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Grid#NoChatPlaceholder.compact StackPanel#WelcomeLaunch">
+      <Setter Property="Margin" Value="16,8" />
     </Style>
 
-    <Style Selector="Button.starter">
+    <!-- A starter: a calm glass pill, 42 dp drawn inside its 48 dp target, that fills the composer. -->
+    <Style Selector="Button.welcome-starter">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="21" />
+      <Setter Property="Padding" Value="12,8,14,8" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.welcome-starter /template/ Panel">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="Padding" Value="12,10" />
-      <Setter Property="MinHeight" Value="48" />
     </Style>
-    <Style Selector="Button.starter:pressed">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface3}" />
+    <Style Selector="Button.welcome-starter /template/ Border#PART_Surface,
+                     Button.welcome-starter:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Margin" Value="0,3" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.starter:pressed /template/ Border#PART_Surface">
-      <Setter Property="RenderTransform" Value="scale(0.98)" />
+    <Style Selector="Button.welcome-starter /template/ Border#PART_FocusRing">
+      <Setter Property="Margin" Value="-2,1" />
+    </Style>
+    <Style Selector="Button.welcome-starter:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+      <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="Button.welcome-starter /template/ Border#PART_Aurora,
+                     Button.welcome-setup /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.welcome-starter TextBlock.welcome-starter-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="MaxLines" Value="2" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="Button.welcome-starter TextBlock.welcome-starter-glyph">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.welcome-starter sc|StrataLineIcon">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    </Style>
+
+    <!-- The setups' heading, as the desktop words it ("Start with"). The row beneath runs to the screen's
+         edges, so a card scrolls in from beyond them. -->
+    <Style Selector="TextBlock.welcome-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="18,0,18,8" />
+    </Style>
+    <!-- A setup: a glass card on the composer with the desktop tile's mark, its place and how it runs. -->
+    <Style Selector="Button.welcome-setup">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="Padding" Value="10,8,14,8" />
+      <Setter Property="MinHeight" Value="64" />
+      <Setter Property="MinWidth" Value="172" />
+      <Setter Property="MaxWidth" Value="248" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.welcome-setup /template/ Border#PART_Surface,
+                     Button.welcome-setup:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+      <Setter Property="ClipToBounds" Value="False" />
+    </Style>
+    <Style Selector="Button.welcome-setup:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
+      <Setter Property="RenderTransform" Value="scale(0.97)" />
+    </Style>
+    <Style Selector="Button.welcome-setup.selected /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSelection}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border.welcome-setup-mark">
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
+    </Style>
+    <Style Selector="Border.welcome-setup-mark TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <!-- Applied: a small accent check settles on the mark, cut out of the card by a ring of its fill. -->
+    <Style Selector="Border.welcome-setup-check">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Margin" Value="0,-5,-5,0" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatCanvas}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="scale(0.4)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.welcome-setup.selected Border.welcome-setup-check">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+    </Style>
+    <Style Selector="Border.welcome-setup-check sc|StrataLineIcon">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="StrokeThickness" Value="3" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="TextBlock.welcome-setup-title">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+    </Style>
+    <Style Selector="TextBlock.welcome-setup-meta">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
+    </Style>
+    <Style Selector="Button.welcome-setup.selected TextBlock.welcome-setup-meta">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
     </Style>
 
     <Style Selector="Button.transcript-nav">
@@ -1317,62 +1486,53 @@
       </sc:StrataChatShell.Composer>
     </sc:StrataChatShell>
 
-    <!-- A blank chat stays local until the first send. The welcome yields to the keyboard. -->
+    <!-- A blank chat stays local until the first send. The welcome yields to the keyboard.
+         Lumi's mark, the greeting and the starters gather in the presence; the user's usual setups sit
+         on the composer, in the thumb's reach. Its margin tracks the bars (code-behind), and it scrolls
+         as one surface when a short screen cannot hold it. -->
     <Border x:Name="WelcomeSideInset"
             Padding="{Binding SafeAreaSides}"
             Margin="0,0,0,110"
             ClipToBounds="True"
             IsVisible="{Binding IsWelcomeVisible}">
-      <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Hidden"
-                    VerticalAlignment="Center">
-      <StackPanel x:Name="NoChatPlaceholder" IsVisible="{Binding IsWelcomeVisible}"
-                  VerticalAlignment="Center" HorizontalAlignment="Center"
-                  Spacing="20" Margin="20,24" MaxWidth="420">
-        <StackPanel Spacing="10" Margin="2,0">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <PathIcon Width="17" Height="17" VerticalAlignment="Center"
-                      Foreground="{DynamicResource Brush.AccentDefault}"
-                      Data="M12 2l2.5 7.5L22 12l-7.5 2.5L12 22l-2.5-7.5L2 12l7.5-2.5L12 2z" />
-            <TextBlock Text="New conversation" FontSize="{DynamicResource Font.SizeMeta}"
-                       Foreground="{DynamicResource Brush.TextSecondary}" VerticalAlignment="Center" />
+      <ScrollViewer x:Name="WelcomeScroll" Classes="mobile-scroll"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Hidden">
+      <Grid x:Name="NoChatPlaceholder" IsVisible="{Binding IsWelcomeVisible}"
+            RowDefinitions="*,Auto"
+            MinHeight="{Binding #WelcomeScroll.Bounds.Height}">
+        <StackPanel x:Name="WelcomeLaunch" Grid.Row="0"
+                    VerticalAlignment="Center" MaxWidth="460">
+          <StackPanel x:Name="WelcomeHero">
+            <!-- Lumi's own app icon, as the desktop's launchpad and the pairing screen show it. -->
+            <Border x:Name="WelcomeMark" Classes="welcome-mark" IsHitTestVisible="False">
+              <Image Source="avares://Lumi.Mobile/Assets/lumi-icon.png"
+                     Stretch="Uniform"
+                     RenderOptions.BitmapInterpolationMode="HighQuality" />
+            </Border>
+            <TextBlock x:Name="GreetingText" Classes="welcome-greeting"><Run Text="{Binding GreetingParts.Lead}" /><Run Text="{Binding GreetingParts.Name}" Foreground="{DynamicResource Brush.AccentText}" /><Run Text="{Binding GreetingParts.Trail}" /></TextBlock>
+            <TextBlock x:Name="WelcomeBrief" Classes="welcome-brief" Text="{Binding NewChatBrief}" />
           </StackPanel>
-          <TextBlock x:Name="GreetingText" Text="{Binding Greeting}"
-                     FontSize="{DynamicResource Font.SizeHeadline}" FontWeight="SemiBold"
-                     TextWrapping="Wrap" />
-          <TextBlock x:Name="WelcomeBrief" Text="{Binding NewChatBrief}" Classes="supporting"
-                     TextWrapping="Wrap" />
-        </StackPanel>
 
-        <StackPanel Spacing="10" IsVisible="{Binding HasStartSetups}">
-          <TextBlock Text="{Binding StartSetupsTitle}" Classes="group-label" Margin="2,0" />
-          <ItemsControl x:Name="WelcomeSetups" ItemsSource="{Binding StartSetups}">
+          <!-- Starters for the hour: a tap puts the words in the composer, to send or finish first. -->
+          <ItemsControl x:Name="WelcomeStarters" ItemsSource="{Binding Chat.Starters}" Margin="0,22,0,0">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel ItemsAlignment="Center" ItemSpacing="8" LineSpacing="2" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:ChatStartSetup">
-                <Button x:Name="StartSetupCard" Classes="start-setup"
-                        Classes.selected="{Binding IsSelected}" Margin="0,0,0,8"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                        Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).UseStartSetupCommand}"
-                        CommandParameter="{Binding}"
-                        AutomationProperties.Name="{Binding Title, StringFormat='Start with {0}'}">
-                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Width="32" Height="32" CornerRadius="10"
-                            Background="{DynamicResource Brush.AccentSubtle}" VerticalAlignment="Center">
-                      <TextBlock Text="{Binding Glyph}" FontSize="{DynamicResource Font.SizeBody}"
-                                 Foreground="{DynamicResource Brush.AccentDefault}" FontWeight="SemiBold"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
-                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
-                                 TextWrapping="Wrap" MaxLines="1" TextTrimming="CharacterEllipsis" />
-                      <TextBlock Text="{Binding Description}"
-                                 FontSize="{DynamicResource Font.SizeMeta}"
-                                 Foreground="{DynamicResource Brush.TextSecondary}"
-                                 TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                    <PathIcon Grid.Column="2" Width="18" Height="18" IsVisible="{Binding IsSelected}"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.AccentDefault}"
-                              Data="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+              <DataTemplate x:DataType="vm:ChatStarter">
+                <Button Classes="welcome-starter"
+                        Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.UseSuggestionCommand}"
+                        CommandParameter="{Binding EffectivePrompt}"
+                        AutomationProperties.Name="{Binding Text}"
+                        AutomationProperties.HelpText="Adds this to your message">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                    <sc:StrataLineIcon IsVisible="{Binding !HasGlyph}"
+                                       Data="{Binding IconKey, Converter={x:Static views:TranscriptIconConverter.Instance}}" />
+                    <TextBlock Classes="welcome-starter-glyph" Text="{Binding Glyph}" IsVisible="{Binding HasGlyph}" />
+                    <TextBlock Grid.Column="1" Classes="welcome-starter-label" Text="{Binding Text}" />
                   </Grid>
                 </Button>
               </DataTemplate>
@@ -1380,35 +1540,60 @@
           </ItemsControl>
         </StackPanel>
 
-        <StackPanel Spacing="6">
-        <TextBlock Text="Start with an idea" Classes="group-label" Margin="2,0" />
-        <ItemsControl x:Name="WelcomeStarters" ItemsSource="{Binding Chat.Starters}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:ChatStarter">
-              <Button Classes="starter" Margin="0,0,0,2"
-                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                      Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.UseSuggestionCommand}"
-                      CommandParameter="{Binding EffectivePrompt}">
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                  <sc:StrataLineIcon Grid.Column="0" Width="22" Height="22" StrokeThickness="1.9"
-                                     VerticalAlignment="Center" IsVisible="{Binding !HasGlyph}"
-                                     Data="{Binding IconKey, Converter={x:Static views:TranscriptIconConverter.Instance}}"
-                                     Foreground="{DynamicResource Brush.AccentDefault}" />
-                  <TextBlock Grid.Column="0" Text="{Binding Glyph}" IsVisible="{Binding HasGlyph}"
-                             FontSize="{DynamicResource Font.SizeBody}" Width="20" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Text="{Binding Text}"
-                             FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center"
-                             TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxLines="2" />
-                </Grid>
-              </Button>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <!-- On the composer, as the desktop's setups are, and as wide as its column (760 plus the
+             composer host's 12 dp sides), so the first card lines up with the composer's edge. -->
+        <StackPanel x:Name="WelcomeDock" Grid.Row="1" MaxWidth="784">
+          <StackPanel x:Name="WelcomeSetupsGroup" IsVisible="{Binding HasStartSetups}">
+            <TextBlock Classes="welcome-label" Text="{Binding StartSetupsTitle}" />
+            <ScrollViewer x:Name="WelcomeSetupsScroll"
+                          HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollBarVisibility="Disabled">
+              <!-- The bottom margin keeps each card's shadow inside the scroller's clip. -->
+              <ItemsControl x:Name="WelcomeSetups" ItemsSource="{Binding StartSetups}" Margin="12,0,12,10">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="8" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ChatStartSetup">
+                    <Button x:Name="StartSetupCard" Classes="welcome-setup"
+                            Classes.selected="{Binding IsSelected}"
+                            Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).UseStartSetupCommand}"
+                            CommandParameter="{Binding}"
+                            AutomationProperties.Name="{Binding Title, StringFormat='Start with {0}'}"
+                            AutomationProperties.HelpText="{Binding Description}">
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
+                        <Panel Width="36" Height="36" VerticalAlignment="Center">
+                          <Border Classes="welcome-setup-mark" IsVisible="{Binding !HasProjectMark}">
+                            <TextBlock Text="{Binding MarkGlyph}" />
+                          </Border>
+                          <Border Classes="welcome-setup-mark" IsVisible="{Binding HasProjectMark}"
+                                  Background="{Binding MarkBackground}">
+                            <TextBlock Text="{Binding MarkGlyph}" Foreground="{Binding MarkForeground}" />
+                          </Border>
+                          <Border Classes="welcome-setup-check" RenderTransformOrigin="0.5,0.5">
+                            <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Check}" />
+                          </Border>
+                        </Panel>
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                          <TextBlock Classes="welcome-setup-title" Text="{Binding Title}" />
+                          <TextBlock Classes="welcome-setup-meta" Text="{Binding Description}"
+                                     IsVisible="{Binding HasDescription}" />
+                        </StackPanel>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+          <TextBlock x:Name="WelcomeUpdateNote"
+                     Text="Update Lumi on your PC to see your usual setups here."
+                     IsVisible="{Binding !HasDesktopNewChat}" Classes="muted"
+                     TextAlignment="Center" TextWrapping="Wrap" Margin="24,0,24,12" />
         </StackPanel>
-        <TextBlock Text="Update Lumi on your PC to sync its chat setups here."
-                   IsVisible="{Binding !HasDesktopNewChat}" Classes="muted"
-                   TextWrapping="Wrap" Margin="2,0" />
-      </StackPanel>
+      </Grid>
       </ScrollViewer>
     </Border>
 

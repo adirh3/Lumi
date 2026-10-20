@@ -55,7 +55,7 @@ public partial class ChatDetailView : UserControl
     private bool _followQueued;
     private bool _transcriptContentChanged;
     private MobileEntrance? _transcriptEntrance;
-    private MobileEntrance? _welcomeEntrance;
+    private MobileEntrance[]? _welcomeEntrances;
     private MobileEntrance? _workingEntrance;
     private bool _wasWorking;
     private int _chatEntranceVersion;
@@ -80,6 +80,7 @@ public partial class ChatDetailView : UserControl
         {
             if (_awaitingChatEntrance)
                 QueueChatEntrance();
+            UpdateWelcomeInsets();
         };
 
         // The ambient field is created in code rather than XAML because the controller owns it: it
@@ -108,8 +109,7 @@ public partial class ChatDetailView : UserControl
         _chatEntranceVersion++;
         _transcriptEntrance?.Dispose();
         _transcriptEntrance = null;
-        _welcomeEntrance?.Dispose();
-        _welcomeEntrance = null;
+        DisposeWelcomeEntrances();
         _workingEntrance?.Dispose();
         _workingEntrance = null;
         _awaitingChatEntrance = false;
@@ -195,7 +195,6 @@ public partial class ChatDetailView : UserControl
         composer.SendRequested += OnComposerActionRequested;
         composer.StopRequested += OnComposerActionRequested;
         composer.StopAndSendRequested += OnComposerActionRequested;
-        composer.LayoutUpdated += OnComposerLayoutUpdated;
         if (!MobilePlatformServices.NativeComposerEditorFactory.IsAvailable)
         {
             _sharedComposerInput = composer.GetVisualDescendants().OfType<TextBox>()
@@ -231,7 +230,6 @@ public partial class ChatDetailView : UserControl
             _composer.SendRequested -= OnComposerActionRequested;
             _composer.StopRequested -= OnComposerActionRequested;
             _composer.StopAndSendRequested -= OnComposerActionRequested;
-            _composer.LayoutUpdated -= OnComposerLayoutUpdated;
         }
         if (_sharedComposerInput is not null)
             _sharedComposerInput.Classes.CollectionChanged -= OnSharedEditorClassesChanged;
@@ -318,18 +316,34 @@ public partial class ChatDetailView : UserControl
         UpdateComposerFocus();
     }
 
-    private void OnComposerLayoutUpdated(object? sender, EventArgs e)
+    /// <summary>
+    /// Keeps the welcome between the floating bars, and drops Lumi's mark when that room is short. The
+    /// welcome scrolls as one surface across its whole box, so the box must never reach under the bars:
+    /// this runs after every layout pass, from the first, not only once the composer is wired up.
+    /// </summary>
+    private void UpdateWelcomeInsets()
     {
         if (_shell?.IsWelcomeVisible == true
-            && _composer?.TranslatePoint(default, this) is { } origin
+            && this.FindControl<StrataChatComposer>("Composer") is { } composer
+            && composer.TranslatePoint(default, this) is { } origin
             && this.FindControl<Border>("WelcomeSideInset") is { } welcome)
         {
             var header = this.FindControl<Border>("ChatHeaderSideInset");
             var headerBottom = header?.TranslatePoint(new Point(0, header.Bounds.Height), this)?.Y ?? 0;
-            welcome.Margin = new Thickness(
-                0, Math.Max(0, headerBottom), 0, Math.Max(0, Bounds.Height - origin.Y + 8));
+            var top = Math.Max(0, headerBottom);
+            var bottom = Math.Max(0, Bounds.Height - origin.Y + 8);
+            var margin = new Thickness(0, top, 0, bottom);
+            if (welcome.Margin != margin)
+                welcome.Margin = margin;
+
+            // A short screen keeps the greeting, starters and setups in view and lets the mark go.
+            this.FindControl<Grid>("NoChatPlaceholder")?.Classes.Set(
+                "compact", Bounds.Height - top - bottom < WelcomeCompactHeight);
         }
     }
+
+    /// <summary>Below this much room between the bars the welcome drops Lumi's mark.</summary>
+    private const double WelcomeCompactHeight = 460;
 
     private void OnNativeComposerEditorPropertyChanged(
         object? sender,
@@ -686,8 +700,7 @@ public partial class ChatDetailView : UserControl
         _transcriptContentChanged = false;
         _transcriptEntrance?.Dispose();
         _transcriptEntrance = null;
-        _welcomeEntrance?.Dispose();
-        _welcomeEntrance = null;
+        DisposeWelcomeEntrances();
         _workingEntrance?.Dispose();
         _workingEntrance = null;
 
@@ -704,7 +717,7 @@ public partial class ChatDetailView : UserControl
             if (_shell?.HasPageOverlay == true)
             {
                 _transcriptEntrance?.Stop();
-                _welcomeEntrance?.Stop();
+                StopWelcomeEntrances();
                 _workingEntrance?.Stop();
             }
             else
@@ -716,7 +729,7 @@ public partial class ChatDetailView : UserControl
             if (_shell?.IsWelcomeVisible == true && !_awaitingChatEntrance)
                 PlayWelcomeEntrance();
             else if (_shell?.IsWelcomeVisible != true)
-                _welcomeEntrance?.Stop();
+                StopWelcomeEntrances();
         }
 
         if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
@@ -978,14 +991,49 @@ public partial class ChatDetailView : UserControl
             .All(turn => turn.IsReadyForEntrance);
     }
 
+    /// <summary>
+    /// The welcome composes in as the desktop's launchpad does: the greeting rises first, the starters
+    /// follow, and the setups settle onto the composer last.
+    /// </summary>
     private void PlayWelcomeEntrance()
     {
-        if (_shell?.IsWelcomeVisible == true && _shell.HasPageOverlay == false
-            && this.FindControl<StackPanel>("NoChatPlaceholder") is { } welcome)
+        if (_shell?.IsWelcomeVisible != true || _shell.HasPageOverlay)
+            return;
+
+        if (_welcomeEntrances is null)
         {
-            _welcomeEntrance ??= new MobileEntrance(welcome);
-            _welcomeEntrance.Play();
+            if (this.FindControl<StackPanel>("WelcomeHero") is not { } hero
+                || this.FindControl<ItemsControl>("WelcomeStarters") is not { } starters
+                || this.FindControl<StackPanel>("WelcomeDock") is not { } dock)
+                return;
+
+            _welcomeEntrances =
+            [
+                new MobileEntrance(hero),
+                new MobileEntrance(starters, offsetY: 14, delay: TimeSpan.FromMilliseconds(70)),
+                new MobileEntrance(dock, offsetY: 10, delay: TimeSpan.FromMilliseconds(140))
+            ];
         }
+
+        foreach (var entrance in _welcomeEntrances)
+            entrance.Play();
+    }
+
+    private void StopWelcomeEntrances()
+    {
+        if (_welcomeEntrances is null)
+            return;
+        foreach (var entrance in _welcomeEntrances)
+            entrance.Stop();
+    }
+
+    private void DisposeWelcomeEntrances()
+    {
+        if (_welcomeEntrances is null)
+            return;
+        foreach (var entrance in _welcomeEntrances)
+            entrance.Dispose();
+        _welcomeEntrances = null;
     }
 
     private void PlayMountedChatEntrance()

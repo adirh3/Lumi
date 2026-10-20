@@ -14,15 +14,18 @@ public sealed class MobileEntrance : IDisposable
     private readonly TransformOperations _hiddenTransform;
     private readonly double _offsetY;
     private readonly TimeSpan _duration;
+    private readonly TimeSpan _delay;
     private int _version;
     private bool _disposed;
     private bool _revealPending;
 
-    public MobileEntrance(Control target, double offsetY = 16, TimeSpan? duration = null)
+    /// <param name="delay">Holds the target hidden first, so a group of surfaces can cascade in.</param>
+    public MobileEntrance(Control target, double offsetY = 16, TimeSpan? duration = null, TimeSpan? delay = null)
     {
         _target = target;
         _offsetY = offsetY;
         _duration = duration ?? TimeSpan.FromMilliseconds(320);
+        _delay = delay ?? TimeSpan.Zero;
         _hiddenTransform = TransformOperations.Parse(
             FormattableString.Invariant($"translateY({offsetY}px)"));
         _target.AttachedToVisualTree += OnAttached;
@@ -67,7 +70,7 @@ public sealed class MobileEntrance : IDisposable
                 return;
             }
 
-            SlideFadeEntrance.PlayComposited(_target, _offsetY, _duration);
+            SlideFadeEntrance.PlayComposited(_target, _offsetY, _duration, _delay);
         }
 
         // Visibility bindings and the initial viewport must settle before motion starts.
