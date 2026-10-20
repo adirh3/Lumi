@@ -128,7 +128,7 @@
   </Style>
   <Style Selector="TextBox.list-filter:focus-within /template/ Border#PART_Border,
                    TextBox.list-filter.native-input-focused /template/ Border#PART_Border">
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorderStrong}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRimStrong}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
   </Style>
@@ -160,6 +160,34 @@
 
   <Style Selector="TextBox.native-input-overlay.native-input-focused /template/ TextBlock#PART_FloatingWatermark">
     <Setter Property="Opacity" Value="0" />
+  </Style>
+
+  <!--
+    The search page's field floats in its header over the results, so it is the floating glass: a pill
+    drawn 44 dp tall inside its 48 dp target, as the glass buttons beside it are, on a floating-frost
+    sibling of the same geometry, while the whole target still takes the tap. Only its height is inset:
+    the browser's native editor spans the whole field and places its text by the field's padding. Focus
+    brightens its rim, as it does the composer's.
+  -->
+  <Style Selector="TextBox.mobile.list-filter.floating-field">
+    <Setter Property="CornerRadius" Value="22" />
+    <Setter Property="Padding" Value="10,10,16,10" />
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+  </Style>
+  <Style Selector="TextBox.floating-field /template/ Panel">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="TextBox.floating-field /template/ Border#PART_Border">
+    <Setter Property="Margin" Value="0,2" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+  </Style>
+  <Style Selector="TextBox.floating-field:focus-within /template/ Border#PART_Border,
+                   TextBox.floating-field.native-input-focused /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRimStrong}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
 
   <Style Selector="TextBox.pairing-code">
@@ -503,28 +531,29 @@
     <Setter Property="ClipToBounds" Value="False" />
   </Style>
 
+  <!-- The composer is the floating glass every other floating surface wears. -->
   <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_Root">
-    <Setter Property="Background" Value="{DynamicResource Brush.ComposerGlass}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Composer}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
   <Style Selector="sc|StrataChatComposer.mobile /template/ sc|StrataBackdropBlur#PART_Backdrop">
     <Setter Property="IsVisible" Value="True" />
-    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ComposerBlurRadius}" />
-    <Setter Property="Saturation" Value="{DynamicResource Glass.ComposerSaturation}" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.FloatingBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.FloatingSaturation}" />
   </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_Root:pointerover">
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorderStrong}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Composer}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRimStrong}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile:focus-within /template/ Border#PART_Root,
                    sc|StrataChatComposer.mobile /template/ Border#PART_Root:focus-within,
                    sc|StrataChatComposer.mobile:editing /template/ Border#PART_Root">
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorderStrong}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Composer}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRimStrong}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile /template/ TextBox#PART_Input">
@@ -612,6 +641,18 @@
   <Style Selector="sc|StrataTypingIndicator.mobile-working /template/ TextBlock">
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
     <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <!-- What Lumi is doing floats above the composer over the moving conversation, so it is a pill of the
+       same floating glass, frosting what passes beneath it. -->
+  <Style Selector="sc|StrataTypingIndicator.mobile-working /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Setter Property="IsVisible" Value="True" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.FloatingBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.FloatingSaturation}" />
+  </Style>
+  <Style Selector="sc|StrataTypingIndicator.mobile-working /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
 
   <!--
@@ -1204,9 +1245,24 @@
     <Setter Property="BlurRadius" Value="{DynamicResource Glass.BlurRadius}" />
     <Setter Property="Saturation" Value="{DynamicResource Glass.Saturation}" />
   </Style>
-  <Style Selector="sc|StrataBackdropBlur.control-frost">
-    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
-    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+
+  <!--
+    ══ Floating glass ══
+    Everything that floats over moving content is one material, the composer's: the same frost, tint,
+    rim and quiet elevation (Glass.Floating*, Brush.FloatingGlass*, Shadow.FloatingGlass*). A surface
+    whose template has no frost of its own sits on a floating-frost sibling with its geometry.
+  -->
+  <Style Selector="sc|StrataBackdropBlur.floating-frost">
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.FloatingBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.FloatingSaturation}" />
+  </Style>
+  <!-- A notice in a floating header, such as the PC being unreachable or an update to the web app. -->
+  <Style Selector="Border.floating-banner">
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Overlay}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
 
   <!-- Attachment chips: a file staged for the next message, with its own removal target. -->
@@ -1273,20 +1329,21 @@
     <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
   </Style>
 
-  <!-- Floating controls are glass: each frosts the content moving beneath it inside its own surface. -->
+  <!-- Floating controls are the floating glass: each frosts the content moving beneath it inside its own
+       surface, and a press lowers it. -->
   <Style Selector="Button.floating-action">
     <Setter Property="Theme" Value="{DynamicResource StrataGlassButton}" />
     <Setter Property="ClipToBounds" Value="False" />
-    <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="22" />
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
   </Style>
   <Style Selector="Button.floating-action /template/ sc|StrataBackdropBlur#PART_Backdrop">
-    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
-    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.FloatingBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.FloatingSaturation}" />
   </Style>
   <Style Selector="Button.floating-action /template/ Panel">
     <Setter Property="Background" Value="Transparent" />
@@ -1298,15 +1355,15 @@
   <Style Selector="Button.floating-action /template/ Border#PART_Surface">
     <Setter Property="Margin" Value="2" />
     <Setter Property="ClipToBounds" Value="False" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControl}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
   <Style Selector="Button.floating-action:pointerover /template/ Border#PART_Surface">
-    <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControl}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
   <Style Selector="Button.floating-action:pressed /template/ Border#PART_Surface">
-    <Setter Property="Background" Value="{DynamicResource Brush.FloatingControlPressed}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControlPressed}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
   </Style>
   <Style Selector="Button.floating-action:pointerover /template/ Border#PART_Aurora">
     <Setter Property="Opacity" Value="0" />
@@ -1373,29 +1430,28 @@
 
   <!--
     ══ Places ═══════════════════════════════════════════════════════════════════════════════════════════
-    The desktop's navigation pill (MainWindow's nav-pill) at touch size, in its own materials: the
-    surface at 40% and a hairline of text at 6% all round and a small shadow, over a frost of its own
-    (places-frost) as the floating controls have, so only what passes beneath the pill softens and the
-    list stays sharp all around it. The pill's 4 dp inset
-    keeps the open place's highlight concentric with it, as on the desktop. The desktop's accent glow
-    marks the open place and glides between places (PlacesBarView). Four 48 dp places and the longest
-    name fit a 320 dp column.
+    The desktop's navigation pill (MainWindow's nav-pill) at touch size, in the floating glass the
+    composer and the title bar wear: the same tint, rim and elevation over a frost of its own
+    (places-frost), so only what passes beneath the pill softens and the list stays sharp all around
+    it. The pill's 4 dp inset keeps the open place's highlight concentric with it, as on the desktop.
+    The desktop's accent glow marks the open place and glides between places (PlacesBarView). Four
+    48 dp places and the longest name fit a 320 dp column.
   -->
   <Style Selector="Border.places-surface">
     <Setter Property="CornerRadius" Value="31" />
     <Setter Property="Padding" Value="4" />
-    <Setter Property="Background" Value="{DynamicResource Brush.PlacesFill}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.PlacesBorder}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Places}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
   </Style>
-  <!-- The floating controls' glass, clipped to the pill. It takes in what lies just around the pill too, as
+  <!-- The floating glass's frost, clipped to the pill. It takes in what lies just around the pill too, as
        glass does, so rows crossing its rim blur into it smoothly instead of lighting the rim up. -->
   <Style Selector="sc|StrataBackdropBlur.places-frost">
     <Setter Property="CornerRadius" Value="31" />
     <Setter Property="SamplesBeyondEdges" Value="True" />
-    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
-    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.FloatingBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.FloatingSaturation}" />
   </Style>
   <!-- The open place, as the desktop marks it: the accent's soft glow inside a brighter rim. -->
   <Style Selector="Border.places-selection">

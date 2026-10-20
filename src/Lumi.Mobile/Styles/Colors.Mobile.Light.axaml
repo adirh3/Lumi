@@ -117,24 +117,33 @@
   <SolidColorBrush x:Key="Brush.Hue.About" Color="#8F6A22" />
   <SolidColorBrush x:Key="Brush.Status.Ok" Color="#0F9F6E" />
 
-  <!-- Glass, as the desktop's header pills: white at two-thirds over a frost of whatever moves
-       beneath, with a hairline rim and a soft shadow. -->
-  <SolidColorBrush x:Key="Brush.FloatingControl" Color="#A8FFFFFF" />
-  <SolidColorBrush x:Key="Brush.FloatingControlPressed" Color="#E6EFEFF3" />
-  <SolidColorBrush x:Key="Brush.GlassBorder" Color="#1A18181C" />
-  <SolidColorBrush x:Key="Brush.GlassBorderStrong" Color="#2118181C" />
-  <LinearGradientBrush x:Key="Brush.ComposerGlass" StartPoint="0%,0%" EndPoint="0%,100%">
+  <!--
+    Floating glass: ONE material for everything that floats over moving content (see the dark set). It
+    is the composer's: white at about two-thirds over the frost, a shade denser at the top. On a light
+    canvas the rim does the opposite of the dark one, a hairline that deepens toward the bottom where
+    the surface turns from the light, under a white highlight inside the top edge.
+
+    Elevation is the same quiet stack as the dark set, in the desktop's cool ink: a tight contact
+    shadow, a soft pool just below, and the highlight. A press lowers the surface and greys its tint.
+  -->
+  <LinearGradientBrush x:Key="Brush.FloatingGlass" StartPoint="0%,0%" EndPoint="0%,100%">
     <GradientStop Offset="0" Color="#A6FFFFFF" />
     <GradientStop Offset="1" Color="#99FFFFFF" />
   </LinearGradientBrush>
-  <BoxShadows x:Key="Shadow.FloatingControl">0 6 18 -6 #2E1E1E3C</BoxShadows>
-  <BoxShadows x:Key="Shadow.FloatingControlPressed">0 2 6 -3 #261E1E3C</BoxShadows>
-  <BoxShadows x:Key="Shadow.Composer">0 8 22 -12 #4D1E1E3C</BoxShadows>
-  <!-- The places pill in the desktop's materials (Navigation.PillFill and PillBorder): Surface1 at 40%,
-       a hairline of TextPrimary at 6% all round, and the nav pill's small shadow. -->
-  <SolidColorBrush x:Key="Brush.PlacesFill" Color="#66FFFFFF" />
-  <SolidColorBrush x:Key="Brush.PlacesBorder" Color="#0F18181C" />
-  <BoxShadows x:Key="Shadow.Places">0 1 6 0 #16000000</BoxShadows>
+  <LinearGradientBrush x:Key="Brush.FloatingGlassPressed" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#D9F3F3F6" />
+    <GradientStop Offset="1" Color="#D1EEEEF2" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.FloatingGlassRim" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#0F18181C" />
+    <GradientStop Offset="1" Color="#2418181C" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.FloatingGlassRimStrong" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#1F18181C" />
+    <GradientStop Offset="1" Color="#3818181C" />
+  </LinearGradientBrush>
+  <BoxShadows x:Key="Shadow.FloatingGlass">0 1 2 0 #0F101828, 0 8 20 -8 #2E101828, inset 0 1 0 0 #FFFFFFFF</BoxShadows>
+  <BoxShadows x:Key="Shadow.FloatingGlassPressed">0 1 1 0 #0F101828, 0 3 8 -4 #24101828, inset 0 1 0 0 #B3FFFFFF</BoxShadows>
   <!-- Stop, while Lumi works: the composer's quiet disc a shade deeper, its square in this theme's ink. -->
   <SolidColorBrush x:Key="Brush.ComposerOrbStop" Color="#1A18181C" />
 

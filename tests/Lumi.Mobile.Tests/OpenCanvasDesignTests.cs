@@ -454,9 +454,14 @@ public sealed class OpenCanvasDesignTests
                 $"Glass is graphite, not tinted: {tint}."));
         Assert.Equal(new CornerRadius(22), button.CornerRadius);
         Assert.Equal(new Thickness(1), button.BorderThickness);
-        Assert.IsAssignableFrom<ISolidColorBrush>(button.BorderBrush);
+        // The rim is lit from above yet runs unbroken all round.
+        AssertTranslucent(button.BorderBrush);
         var surface = Required<Border>(button, "PART_Surface");
-        Assert.Equal(1, surface.BoxShadow.Count);
+        // Every floating surface shares the floating glass's quiet elevation.
+        Assert.True(button.TryFindResource("Shadow.FloatingGlass", button.ActualThemeVariant, out var elevation));
+        Assert.Equal(Assert.IsType<BoxShadows>(elevation), surface.BoxShadow);
+        Assert.True(Enumerable.Range(0, surface.BoxShadow.Count).Any(index => !surface.BoxShadow[index].IsInset),
+            "a floating surface casts a shadow");
         var frost = Assert.Single(button.GetVisualDescendants().OfType<StrataBackdropBlur>());
         Assert.Equal(surface.Bounds, frost.Bounds);
         Assert.Equal(surface.CornerRadius, frost.CornerRadius);

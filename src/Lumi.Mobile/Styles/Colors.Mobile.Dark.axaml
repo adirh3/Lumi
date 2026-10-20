@@ -128,24 +128,35 @@
   <SolidColorBrush x:Key="Brush.Hue.About" Color="#CDAE70" />
   <SolidColorBrush x:Key="Brush.Status.Ok" Color="#3CC98A" />
 
-  <!-- Glass, as the desktop's header pills: the overlay surface at two-thirds over a frost of whatever
-       moves beneath, with a hairline rim and a soft shadow. -->
-  <SolidColorBrush x:Key="Brush.FloatingControl" Color="#A8212126" />
-  <SolidColorBrush x:Key="Brush.FloatingControlPressed" Color="#E0292930" />
-  <SolidColorBrush x:Key="Brush.GlassBorder" Color="#1AECECF0" />
-  <SolidColorBrush x:Key="Brush.GlassBorderStrong" Color="#29FFFFFF" />
-  <LinearGradientBrush x:Key="Brush.ComposerGlass" StartPoint="0%,0%" EndPoint="0%,100%">
+  <!--
+    Floating glass: ONE material for everything that floats over moving content (the composer, the top
+    bar's buttons and title pill, the project lens, the places, jump-to-latest, the working and
+    background-work pills, banners and the search field). It is the composer's: graphite at a little
+    under half over the frost (Glass.Floating*), lit from above, so the tint is a shade denser at the
+    top and the rim catches the light along the top edge and fades toward the bottom.
+
+    Elevation is quiet and the same for every surface: a tight contact shadow that sets the edge off
+    what passes beneath, a soft pool that falls just below it, and a one-pixel highlight inside the top
+    edge. A press lowers the surface (a shorter shadow) and lifts its tint a step.
+  -->
+  <LinearGradientBrush x:Key="Brush.FloatingGlass" StartPoint="0%,0%" EndPoint="0%,100%">
     <GradientStop Offset="0" Color="#7A1C1C21" />
     <GradientStop Offset="1" Color="#70161619" />
   </LinearGradientBrush>
-  <BoxShadows x:Key="Shadow.FloatingControl">0 6 18 -6 #4D000000</BoxShadows>
-  <BoxShadows x:Key="Shadow.FloatingControlPressed">0 2 6 -2 #40000000</BoxShadows>
-  <BoxShadows x:Key="Shadow.Composer">0 8 22 -10 #CC000000</BoxShadows>
-  <!-- The places pill in the desktop's materials (Navigation.PillFill and PillBorder): Surface1 at 40%,
-       a hairline of TextPrimary at 6% all round, and the nav pill's small shadow. -->
-  <SolidColorBrush x:Key="Brush.PlacesFill" Color="#66131316" />
-  <SolidColorBrush x:Key="Brush.PlacesBorder" Color="#0FECECF0" />
-  <BoxShadows x:Key="Shadow.Places">0 1 6 0 #16000000</BoxShadows>
+  <LinearGradientBrush x:Key="Brush.FloatingGlassPressed" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#A62A2A31" />
+    <GradientStop Offset="1" Color="#9E25252B" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.FloatingGlassRim" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#26FFFFFF" />
+    <GradientStop Offset="1" Color="#0DFFFFFF" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="Brush.FloatingGlassRimStrong" StartPoint="0%,0%" EndPoint="0%,100%">
+    <GradientStop Offset="0" Color="#3DFFFFFF" />
+    <GradientStop Offset="1" Color="#17FFFFFF" />
+  </LinearGradientBrush>
+  <BoxShadows x:Key="Shadow.FloatingGlass">0 1 2 0 #40000000, 0 8 20 -8 #99000000, inset 0 1 0 0 #12FFFFFF</BoxShadows>
+  <BoxShadows x:Key="Shadow.FloatingGlassPressed">0 1 1 0 #33000000, 0 3 8 -4 #73000000, inset 0 1 0 0 #0AFFFFFF</BoxShadows>
   <!-- Stop, while Lumi works: the composer's quiet disc a shade lifted, its square in this theme's ink. -->
   <SolidColorBrush x:Key="Brush.ComposerOrbStop" Color="#29FFFFFF" />
 

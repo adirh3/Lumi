@@ -83,35 +83,37 @@
           </Button>
 
           <!-- Home must say when the PC can't be reached, as the chat's own status strip does;
-               beside a docked list the chat's strip already says it. -->
-          <Border x:Name="DrawerConnectionBanner" Grid.Row="2" Grid.ColumnSpan="3"
-                  Background="{DynamicResource Brush.Surface2}"
-                  CornerRadius="14" Padding="12,8">
-            <Border.IsVisible>
+               beside a docked list the chat's strip already says it. It floats in the header, so it
+               is glass. -->
+          <Panel x:Name="DrawerConnectionBannerHost" Grid.Row="2" Grid.ColumnSpan="3">
+            <Panel.IsVisible>
               <MultiBinding Converter="{x:Static BoolConverters.And}">
                 <Binding Path="ShowConnectionBanner" />
                 <Binding Path="!CanDockDrawer" />
               </MultiBinding>
-            </Border.IsVisible>
-            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-              <sc:StrataPulse IsVisible="{Binding !IsGatewaySignInRequired}"
-                              IsLive="False" Width="10" Height="10"
-                              VerticalAlignment="Top" Margin="0,4,0,0" />
-              <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
-                <TextBlock Text="{Binding ConnectionBannerText}" TextWrapping="Wrap"
-                           FontSize="{DynamicResource Font.SizeMeta}"
-                           Foreground="{DynamicResource Brush.TextSecondary}" />
-                <Button x:Name="DrawerRetryConnectionButton"
-                        IsVisible="{Binding ShowRetryConnectionAction}"
-                        Content="Retry" Classes="accent touch" HorizontalAlignment="Left"
-                        Command="{Binding RetryConnectionCommand}" />
-                <Button x:Name="DrawerGatewaySignInButton"
-                        IsVisible="{Binding ShowGatewaySignInAction}"
-                        Content="Sign in again" Classes="accent touch" HorizontalAlignment="Left"
-                        Command="{Binding ReloadWebAppCommand}" />
-              </StackPanel>
-            </Grid>
-          </Border>
+            </Panel.IsVisible>
+            <sc:StrataBackdropBlur Classes="floating-frost" CornerRadius="{Binding #DrawerConnectionBanner.CornerRadius}" />
+            <Border x:Name="DrawerConnectionBanner" Classes="floating-banner" Padding="14,10">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <sc:StrataPulse IsVisible="{Binding !IsGatewaySignInRequired}"
+                                IsLive="False" Width="10" Height="10"
+                                VerticalAlignment="Top" Margin="0,4,0,0" />
+                <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding ConnectionBannerText}" TextWrapping="Wrap"
+                             FontSize="{DynamicResource Font.SizeMeta}"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <Button x:Name="DrawerRetryConnectionButton"
+                          IsVisible="{Binding ShowRetryConnectionAction}"
+                          Content="Retry" Classes="accent touch" HorizontalAlignment="Left"
+                          Command="{Binding RetryConnectionCommand}" />
+                  <Button x:Name="DrawerGatewaySignInButton"
+                          IsVisible="{Binding ShowGatewaySignInAction}"
+                          Content="Sign in again" Classes="accent touch" HorizontalAlignment="Left"
+                          Command="{Binding ReloadWebAppCommand}" />
+                </StackPanel>
+              </Grid>
+            </Border>
+          </Panel>
         </Grid>
       </Border>
     </Border>

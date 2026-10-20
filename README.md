@@ -792,16 +792,18 @@ then reveal the settled viewport; the animation does not run unseen behind the d
 the initial layout. Rendered-pixel tests check partial-opacity frames and visible travel.
 
 The mobile conversation is an unlimited canvas: history runs edge to edge underneath the floating
-top bar and composer, resting clear of both. Every floating control (the top-bar buttons, the
-composer, jump-to-latest, the background-work pill and the places) is glass, with the desktop's
-values: the top-bar buttons are its header pills (the overlay surface at two-thirds, a hairline
-rim, a soft shadow, frosted by Strata's `StrataBackdropBlur`), so text passing beneath is a soft
-blur; the composer's frost is a little lighter, so Lumi's presence settled behind it still glows
-through. As on the desktop, history passing under the top bar softens under a frost and a light
-veil that cover the bar and fade out just below it, visible yet never legible; beneath the
-composer, which spans the conversation, a scrim frosts only the gesture area. The chat list and
-every place's page veil their headers the same way, and the places pill sits on the desktop's
-untinted navigation frost, in the desktop's own pill materials.
+top bar and composer, resting clear of both. Everything that floats over moving content is one
+material, the composer's floating glass: the composer, the top-bar buttons and title pill, the
+project lens, the places, jump-to-latest, the working and background-work pills, connection and
+update notices, and the search field all share the same tint, the same frost (Strata's
+`StrataBackdropBlur`, light enough that text passing beneath is a soft blur while Lumi's presence
+settled behind the composer still glows through), a rim lit from above, and the same quiet
+elevation: a tight contact shadow, a soft pool just below and a one-pixel highlight inside the
+top edge. A press lowers a surface and lifts its tint. Glass buttons and fields are drawn 44 DIPs
+tall inside their 48-DIP targets. As on the desktop, history passing under the top bar softens
+under a frost and a light veil that cover the bar and fade out just below it, visible yet never
+legible; beneath the composer, which spans the conversation, a scrim frosts only the gesture
+area. The chat list and every place's page veil their headers the same way.
 Mobile uses one continuous, theme-aware presence field, following the desktop choreography:
 it gathers at the welcome greeting, rises into the live answer while working, and settles
 back behind the glass composer when an existing chat is idle. There is no separate composer
@@ -812,8 +814,8 @@ while active and visible. The cached chat is hidden on other pages without being
 and application backgrounding pauses lifecycle-managed activity across the shell. The
 presence follow timer stops when covered/backgrounded and shortly after the turn settles.
 The Settings
-and Search pages also scroll under their floating headers. Glass surfaces share quiet, uniform
-keylines and soft elevation; their blur is painted before the tint and border so the chrome stays
+and Search pages also scroll under their floating headers. Glass surfaces share one lit keyline and
+soft elevation; their blur is painted before the tint and border so the chrome stays
 crisp instead of being filtered into itself. At rest no
 scrim is drawn, so idle screens spend no extra GPU time. A settled final answer offers one-tap
 **Copy** (confirmed on the tap, before the clipboard write completes) and, on Android, **Share**

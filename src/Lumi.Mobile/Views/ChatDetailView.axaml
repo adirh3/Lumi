@@ -74,25 +74,33 @@
     </Style>
 
     <Style Selector="Border.floating-status">
-      <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="24" />
       <Setter Property="Padding" Value="16,0,4,0" />
-      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControl}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
     </Style>
 
-    <!-- The jump-to-latest control floats over moving history, so it gets its own small frost. -->
+    <!-- The jump-to-latest control floats over moving history, so it is the floating glass with its own
+         frost, drawn 44 dp inside its 48 dp target as the other glass buttons are, and a press lowers
+         it as it does them. -->
     <Style Selector="sc|StrataChatShell.mobile /template/ sc|StrataBackdropBlur#PART_ScrollToBottomBackdrop">
       <Setter Property="IsVisible" Value="True" />
-      <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
-      <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+      <Setter Property="Margin" Value="2" />
+      <Setter Property="BlurRadius" Value="{DynamicResource Glass.FloatingBlurRadius}" />
+      <Setter Property="Saturation" Value="{DynamicResource Glass.FloatingSaturation}" />
     </Style>
     <Style Selector="sc|StrataChatShell.mobile /template/ Border#PART_ScrollToBottomChrome">
-      <Setter Property="CornerRadius" Value="24" />
-      <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
-      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControl}" />
+      <Setter Property="Margin" Value="2" />
+      <Setter Property="CornerRadius" Value="22" />
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+    </Style>
+    <Style Selector="sc|StrataChatShell.mobile /template/ Button#PART_ScrollToBottomButton:pressed Border#PART_ScrollToBottomChrome">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlassPressed}" />
     </Style>
 
     <Style Selector="Button.start-setup">
@@ -969,16 +977,16 @@
         <!--
           A paired phone must not go silent when the PC disappears. The transcript remains readable,
           while this compact status strip explains why new work is unavailable and disappears
-          automatically when the link/host is healthy again.
+          automatically when the link/host is healthy again. It floats in the bar, so it is glass.
         -->
+        <Panel x:Name="ConnectionBannerHost"
+               IsVisible="{Binding ShowConnectionBanner}"
+               HorizontalAlignment="Center"
+               Margin="12,4,12,6">
+        <sc:StrataBackdropBlur Classes="floating-frost" CornerRadius="{Binding #ConnectionBanner.CornerRadius}" />
         <Border x:Name="ConnectionBanner"
-                IsVisible="{Binding ShowConnectionBanner}"
-                Background="{DynamicResource Brush.Surface2}"
-                BorderThickness="0"
-                CornerRadius="14"
-                HorizontalAlignment="Center"
-                Margin="12,4,12,6"
-                Padding="12,6">
+                Classes="floating-banner"
+                Padding="14,8">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
             <sc:StrataPulse x:Name="ConnectionRetryPulse"
                             IsVisible="{Binding !IsGatewaySignInRequired}"
@@ -1003,13 +1011,14 @@
             </StackPanel>
           </Grid>
         </Border>
+        </Panel>
         <!-- A ready assistant is not a busy session. Keep attached work visible and explicitly
              stoppable without driving the composer or the assistant's typing indicator. -->
         <Panel x:Name="BackgroundSessionStatusHost"
                IsVisible="{Binding Chat.HasBackgroundActivity}"
                MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
                Margin="12,0,12,6">
-        <sc:StrataBackdropBlur Classes="control-frost" CornerRadius="24" />
+        <sc:StrataBackdropBlur Classes="floating-frost" CornerRadius="{Binding #BackgroundSessionStatus.CornerRadius}" />
         <Border x:Name="BackgroundSessionStatus" Classes="floating-status">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
           <TextBlock Text="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"

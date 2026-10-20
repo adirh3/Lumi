@@ -41,19 +41,23 @@
                       Data="{DynamicResource Mobile.Icon.Back}" />
           </Button>
 
-          <!-- The list's "Search chats" capsule, opened: the same glass and magnifier, now a field. -->
-          <TextBox x:Name="SearchField" Grid.Column="1" Classes="mobile list-filter no-focus-accent"
-                   Margin="6,0,0,0"
-                   PlaceholderText="Search chats"
-                   AutomationProperties.Name="Search your chats"
-                   textInput:TextInputOptions.ContentType="Search"
-                   textInput:TextInputOptions.ReturnKeyType="Search"
-                   Text="{Binding SearchChatList.SearchText}">
-            <TextBox.InnerLeftContent>
-              <sc:StrataLineIcon Classes="list-filter-icon" Data="{x:Static sc:StrataIcons.Search}" />
-            </TextBox.InnerLeftContent>
-          </TextBox>
-          <Button x:Name="ClearSearchButton" Grid.Column="2" Classes="touch icon subtle"
+          <!-- The list's search button, opened: the same glass and magnifier, now a field. -->
+          <Panel x:Name="SearchFieldHost" Grid.Column="1" Margin="6,0,0,0">
+            <sc:StrataBackdropBlur Classes="floating-frost" Margin="0,2"
+                                   CornerRadius="{Binding #SearchField.CornerRadius}" />
+            <TextBox x:Name="SearchField" Classes="mobile list-filter floating-field no-focus-accent"
+                     PlaceholderText="Search chats"
+                     AutomationProperties.Name="Search your chats"
+                     textInput:TextInputOptions.ContentType="Search"
+                     textInput:TextInputOptions.ReturnKeyType="Search"
+                     Text="{Binding SearchChatList.SearchText}">
+              <TextBox.InnerLeftContent>
+                <sc:StrataLineIcon Classes="list-filter-icon" Data="{x:Static sc:StrataIcons.Search}" />
+              </TextBox.InnerLeftContent>
+            </TextBox>
+          </Panel>
+          <Button x:Name="ClearSearchButton" Grid.Column="2" Classes="chat-header-action floating-action"
+                  Margin="6,0,0,0"
                   AutomationProperties.Name="Clear search"
                   IsVisible="{Binding SearchChatList.HasSearchQuery}"
                   Command="{Binding SearchChatList.ClearSearchCommand}">

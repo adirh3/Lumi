@@ -915,10 +915,10 @@ public sealed class MobilePlacesNavigationTests
     }
 
     /// <summary>
-    /// The places pill is the desktop's nav pill in the desktop's materials and ink: Surface1 at 40% under
-    /// a hairline of text at 6% that runs unbroken all round and the nav pill's small shadow, over one frost
-    /// of its own and nothing else (no sheen); the places you are not in are quiet glyphs, the open one takes
-    /// the accent and its name the text's ink.
+    /// The places pill is the desktop's nav pill in the desktop's ink, in the floating glass every floating
+    /// surface wears (the composer's tint, rim and quiet elevation) over one frost of its own and nothing else
+    /// (no sheen); the places you are not in are quiet glyphs, the open one takes the accent and its name the
+    /// text's ink.
     /// </summary>
     [Theory]
     [InlineData(true)]
@@ -952,7 +952,6 @@ public sealed class MobilePlacesNavigationTests
                     ISolidColorBrush brush => brush.Color,
                     var other => throw new Xunit.Sdk.XunitException($"{key} is a {other.GetType().Name}."),
                 };
-                static Color At(Color color, byte alpha) => Color.FromArgb(alpha, color.R, color.G, color.B);
                 static T Part<T>(Control root, string name) where T : Control =>
                     root.GetVisualDescendants().OfType<T>().Single(control => control.Name == name);
                 static Color Solid(IBrush? brush)
@@ -963,10 +962,10 @@ public sealed class MobilePlacesNavigationTests
                 }
 
                 var surface = Part<Border>(drawer, "PlacesSurface");
-                Assert.Equal(At(ColorOf("Color.Surface1"), 0x66), Solid(surface.Background));
-                Assert.Equal(At(ColorOf("Color.TextPrimary"), 0x0F), Solid(surface.BorderBrush));
+                Assert.Same(Resource("Brush.FloatingGlass"), surface.Background);
+                Assert.Same(Resource("Brush.FloatingGlassRim"), surface.BorderBrush);
                 Assert.Equal(new Thickness(1), surface.BorderThickness);
-                Assert.Equal(BoxShadows.Parse("0 1 6 0 #16000000"), surface.BoxShadow);
+                Assert.Equal((BoxShadows)Resource("Shadow.FloatingGlass"), surface.BoxShadow);
                 var pill = Part<Panel>(drawer, "PlacesPill");
                 Assert.Equal("PlacesFrost", Assert.Single(pill.GetVisualDescendants().OfType<StrataBackdropBlur>()).Name);
                 Assert.DoesNotContain(pill.GetVisualDescendants().OfType<Control>(), control => control.Name == "PlacesSheen");

@@ -5,6 +5,8 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Behaviors;
@@ -242,25 +244,23 @@ public sealed class GlassCanvasTests
             shell.PreserveViewport();
             shell.ScrollToVerticalOffset(Math.Max(0, shell.VerticalOffset - 400));
             await SettleAsync(window);
-            Assert.True(view.TryFindResource("Glass.ControlBlurRadius", out var resource));
-            var controlBlur = Assert.IsType<double>(resource);
+            Assert.True(view.TryFindResource("Glass.FloatingBlurRadius", out var resource));
+            var floatingBlur = Assert.IsType<double>(resource);
 
-            // Each floating control frosts the conversation inside its own surface.
+            // Each floating control frosts the conversation inside its own surface, as the composer does.
             foreach (var name in new[] { "MenuButton", "HeaderDetailsButton", "NewChatButton" })
             {
                 var frost = Assert.Single(Single<Button>(view, name).GetVisualDescendants().OfType<StrataBackdropBlur>());
                 Assert.True(frost.IsEffectivelyVisible);
-                Assert.Equal(controlBlur, frost.BlurRadius);
+                Assert.Equal(floatingBlur, frost.BlurRadius);
             }
             var composer = Single<StrataChatComposer>(view, "Composer");
             var composerFrost = Single<StrataBackdropBlur>(composer, "PART_Backdrop");
             Assert.True(composerFrost.IsEffectivelyVisible);
-            // The composer's frost is its own: lighter, so the presence settled behind it still glows through.
-            Assert.True(view.TryFindResource("Glass.ComposerBlurRadius", out var composerResource));
-            var composerBlur = Assert.IsType<double>(composerResource);
-            Assert.Equal(composerBlur, composerFrost.BlurRadius);
-            Assert.InRange(composerBlur, 6, controlBlur);
-            Assert.Equal(controlBlur, Single<StrataBackdropBlur>(shell, "PART_ScrollToBottomBackdrop").BlurRadius);
+            Assert.Equal(floatingBlur, composerFrost.BlurRadius);
+            // The one frost is light, so the presence settled behind the composer still glows through.
+            Assert.InRange(floatingBlur, 6, 10);
+            Assert.Equal(floatingBlur, Single<StrataBackdropBlur>(shell, "PART_ScrollToBottomBackdrop").BlurRadius);
 
             // As on the desktop, history passing under the top bar dissolves into a veil that covers
             // the whole bar and fades out below it, so no sharp text shows between its controls.
@@ -306,16 +306,15 @@ public sealed class GlassCanvasTests
                 // its controls and fades out beyond them. The controls are the title bar's glass, each
                 // frosting what passes beneath it, as the chat's bar does.
                 var topEnd = top.TranslatePoint(new Point(0, top.Bounds.Height), drawer)!.Value.Y;
-                Assert.True(drawer.TryFindResource("Glass.ControlBlurRadius", out var controlBlur));
+                Assert.True(drawer.TryFindResource("Glass.FloatingBlurRadius", out var floatingBlur));
                 foreach (var name in new[] { "DrawerSearchButton", "DrawerNewChatButton", "DrawerProjectButton" })
                 {
                     var button = Single<Button>(drawer, name);
                     Assert.True(button.TranslatePoint(new Point(0, button.Bounds.Height), drawer)!.Value.Y + 20 <= topEnd,
                         $"{name} must sit inside the header's veil");
                     var frost = Assert.Single(button.GetVisualDescendants().OfType<StrataBackdropBlur>());
-                    Assert.Equal(Assert.IsType<double>(controlBlur), frost.BlurRadius);
-                    Assert.InRange(Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(button.Background).Color.A,
-                        (byte)1, (byte)254);
+                    Assert.Equal(Assert.IsType<double>(floatingBlur), frost.BlurRadius);
+                    Assert.All(Paint(button.Background), color => Assert.InRange(color.A, (byte)1, (byte)254));
                 }
                 // The places pill is glass of its own, as the title bar's controls are: one frost beneath its
                 // surface with the same blur and outline, taking in what lies just around the pill, and no band
@@ -323,7 +322,7 @@ public sealed class GlassCanvasTests
                 var places = Single<Panel>(drawer, "PlacesPill");
                 var pillFrost = Single<StrataBackdropBlur>(drawer, "PlacesFrost");
                 Assert.Same(places, pillFrost.GetVisualParent());
-                Assert.Equal(Assert.IsType<double>(controlBlur), pillFrost.BlurRadius);
+                Assert.Equal(Assert.IsType<double>(floatingBlur), pillFrost.BlurRadius);
                 Assert.True(pillFrost.SamplesBeyondEdges);
                 Assert.Equal(Single<Border>(drawer, "PlacesSurface").CornerRadius, pillFrost.CornerRadius);
                 Assert.Equal(places.Bounds.Size, pillFrost.Bounds.Size);
@@ -339,6 +338,109 @@ public sealed class GlassCanvasTests
             finally
             {
                 window.Close();
+            }
+        }, CancellationToken.None);
+        failure?.Throw();
+    }
+
+    /// <summary>
+    /// Everything that floats over moving content is one material, the composer's: the same frost, tint, rim
+    /// and quiet elevation, on the chat, the chat list and search alike, whichever notices and pills are up.
+    /// Each frost has exactly its surface's geometry, so none frosts beyond its glass.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EveryFloatingSurfaceWearsTheComposersGlass(bool darkTheme)
+    {
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MobileShellViewModel(store: session.NewStore(), post: action => action());
+            model.IsPaired = model.IsConnected = model.IsHostReady = true;
+            model.ChatList.Apply(LargeChatHistory.Create());
+            var id = Guid.NewGuid();
+            model.Chat.Reset(id, "Glass canvas");
+            model.Chat.ApplyTranscript(new RemoteTranscript { ChatId = id, Revision = 1, Turns = [.. LongTranscript()] });
+            Window? window = null;
+            async Task<Control> Show(Control content)
+            {
+                window?.Close();
+                window = new Window
+                {
+                    Width = 412, Height = 892, Content = content,
+                    RequestedThemeVariant = darkTheme ? ThemeVariant.Dark : ThemeVariant.Light
+                };
+                window.Show();
+                await SettleAsync(window);
+                return content;
+            }
+
+            try
+            {
+                // The chat: the composer, the title bar, jump-to-latest and the background-work pill.
+                model.Chat.ApplyStatus(new RemoteChatStatus { ChatId = id, IsSessionActive = true });
+                var chat = await Show(new ChatDetailView { DataContext = model });
+                var composer = Single<StrataChatComposer>(chat, "Composer");
+                AssertFloatingGlass(chat, Single<Border>(composer, "PART_Root"), Single<StrataBackdropBlur>(composer, "PART_Backdrop"));
+                foreach (var name in new[] { "MenuButton", "HeaderDetailsButton", "NewChatButton" })
+                    AssertGlassButton(chat, Single<Button>(chat, name));
+                var shell = Single<StrataChatShell>(chat, "ChatShell");
+                AssertFloatingGlass(chat, Single<Border>(shell, "PART_ScrollToBottomChrome"),
+                    Single<StrataBackdropBlur>(shell, "PART_ScrollToBottomBackdrop"));
+                Assert.True(Single<Border>(chat, "BackgroundSessionStatus").IsEffectivelyVisible);
+                AssertFloatingGlass(chat, Single<Border>(chat, "BackgroundSessionStatus"),
+                    FrostOf(Single<Panel>(chat, "BackgroundSessionStatusHost")));
+
+                // While Lumi works, what it is doing floats above the composer in the same glass.
+                model.Chat.IsBusy = true;
+                await SettleAsync(window!);
+                var typing = Single<StrataTypingIndicator>(chat, "ChatTyping");
+                Assert.True(typing.IsEffectivelyVisible);
+                AssertFloatingGlass(chat, Single<Border>(typing, "PART_Surface"), Single<StrataBackdropBlur>(typing, "PART_Backdrop"));
+
+                // Without the PC, the notice in the bar is glass too.
+                model.Chat.IsBusy = false;
+                model.IsConnected = false;
+                await SettleAsync(window!);
+                Assert.True(Single<Border>(chat, "ConnectionBanner").IsEffectivelyVisible);
+                AssertFloatingGlass(chat, Single<Border>(chat, "ConnectionBanner"), FrostOf(Single<Panel>(chat, "ConnectionBannerHost")));
+
+                // The chat list: its title bar's buttons, the project lens, the places and its notice.
+                var drawer = await Show(new MobileDrawerView { DataContext = model });
+                foreach (var name in new[] { "DrawerSearchButton", "DrawerNewChatButton", "DrawerProjectButton" })
+                    AssertGlassButton(drawer, Single<Button>(drawer, name));
+                AssertFloatingGlass(drawer, Single<Border>(drawer, "PlacesSurface"), Single<StrataBackdropBlur>(drawer, "PlacesFrost"));
+                Assert.True(Single<Border>(drawer, "DrawerConnectionBanner").IsEffectivelyVisible);
+                AssertFloatingGlass(drawer, Single<Border>(drawer, "DrawerConnectionBanner"),
+                    FrostOf(Single<Panel>(drawer, "DrawerConnectionBannerHost")));
+
+                // Search: its field floats in the header beside the back button, drawn as tall as the button's
+                // glass inside a full touch target.
+                var search = await Show(new MobileSearchView { DataContext = model });
+                var back = Single<Button>(search, "SearchBackButton");
+                AssertGlassButton(search, back);
+                var field = Single<TextBox>(search, "SearchField");
+                var fieldSurface = Single<Border>(field, "PART_Border");
+                AssertFloatingGlass(search, fieldSurface, FrostOf(Single<Panel>(search, "SearchFieldHost")),
+                    field.IsFocused ? "Brush.FloatingGlassRimStrong" : "Brush.FloatingGlassRim");
+                Assert.True(field.Bounds.Height >= 48, $"the search field is a {field.Bounds.Height} dp target");
+                Assert.Equal(Single<Border>(back, "PART_Surface").Bounds.Height, fieldSurface.Bounds.Height, 1);
+                // The whole target takes a tap, not only the glass: a touch just inside its top edge, above the
+                // drawn pill, still reaches the field.
+                var edge = field.TranslatePoint(new Point(field.Bounds.Width / 2, 1), window!)!.Value;
+                var hit = window!.InputHitTest(edge) as Visual;
+                Assert.True(hit is not null && (ReferenceEquals(hit, field) || field.IsVisualAncestorOf(hit)),
+                    $"A tap just inside the search field's edge reached {hit?.GetType().Name ?? "nothing"} '{(hit as Control)?.Name}'.");
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                window?.Close();
             }
         }, CancellationToken.None);
         failure?.Throw();
@@ -526,6 +628,52 @@ public sealed class GlassCanvasTests
         root.GetVisualDescendants().OfType<T>().Where(control => control.Name == name);
 
     private static T Single<T>(Control root, string name) where T : Control => Assert.Single(Named<T>(root, name));
+
+    private static StrataBackdropBlur FrostOf(Panel host) => Assert.Single(host.Children.OfType<StrataBackdropBlur>());
+
+    private static void AssertGlassButton(Control root, Button button) =>
+        AssertFloatingGlass(root, Single<Border>(button, "PART_Surface"), Single<StrataBackdropBlur>(button, "PART_Backdrop"));
+
+    /// <summary>
+    /// The surface wears the floating glass (tint, rim and elevation) over a frost with the floating blur and
+    /// saturation, in exactly the surface's outline.
+    /// </summary>
+    private static void AssertFloatingGlass(Control root, Border surface, StrataBackdropBlur frost,
+        string rimKey = "Brush.FloatingGlassRim")
+    {
+        object Resource(string key)
+        {
+            Assert.True(root.TryFindResource(key, root.ActualThemeVariant, out var value), key);
+            return value!;
+        }
+
+        var name = surface.TemplatedParent is Control owner
+            ? $"{owner.Name ?? owner.GetType().Name}'s {surface.Name}"
+            : surface.Name;
+        Assert.True(Paint((IBrush)Resource("Brush.FloatingGlass")).SequenceEqual(Paint(surface.Background)),
+            $"{name} must be tinted as the floating glass");
+        Assert.True(Paint((IBrush)Resource(rimKey)).SequenceEqual(Paint(surface.BorderBrush)),
+            $"{name} must have the floating glass's rim");
+        Assert.Equal((BoxShadows)Resource("Shadow.FloatingGlass"), surface.BoxShadow);
+        Assert.True(frost.IsVisible, $"{name} must frost what passes beneath it");
+        Assert.Equal((double)Resource("Glass.FloatingBlurRadius"), frost.BlurRadius);
+        Assert.Equal((double)Resource("Glass.FloatingSaturation"), frost.Saturation);
+        Assert.Equal(surface.CornerRadius, frost.CornerRadius);
+        var surfaceAt = surface.TranslatePoint(default, root)!.Value;
+        var frostAt = frost.TranslatePoint(default, root)!.Value;
+        Assert.True(surface.Bounds.Width > 0 && surface.Bounds.Height > 0, $"{name} must be laid out");
+        Assert.True(Math.Abs(surfaceAt.X - frostAt.X) < 0.5 && Math.Abs(surfaceAt.Y - frostAt.Y) < 0.5
+                    && Math.Abs(surface.Bounds.Width - frost.Bounds.Width) < 0.5
+                    && Math.Abs(surface.Bounds.Height - frost.Bounds.Height) < 0.5,
+            $"{name}'s frost {new Rect(frostAt, frost.Bounds.Size)} must match its glass {new Rect(surfaceAt, surface.Bounds.Size)}");
+    }
+
+    private static Color[] Paint(IBrush? brush) => brush switch
+    {
+        ISolidColorBrush solid => [solid.Color],
+        IGradientBrush gradient => [.. gradient.GradientStops.Select(stop => stop.Color)],
+        _ => throw new Xunit.Sdk.XunitException($"Expected a solid or gradient brush, got {brush?.GetType().Name ?? "none"}.")
+    };
 
     private static async Task SettleAsync(Window window)
     {
