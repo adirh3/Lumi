@@ -13,6 +13,7 @@ using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Media.Transformation;
+using Avalonia.Rendering.Composition;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -171,7 +172,7 @@ public sealed class NavigationBarTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Bar_FrostPreservesTheWindowBackgroundAcrossTheSidebarEdge(bool isDark)
+    public async Task Bar_FrostsOnlyThePill_LeavingItsSurroundingsClear(bool isDark)
     {
         using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
 
@@ -183,18 +184,30 @@ public sealed class NavigationBarTests
             };
             try
             {
-                var material = window.FindControl<Panel>("NavEdgeMaterial")!;
-                Assert.IsAssignableFrom<Panel>(material.Parent).Children.Remove(material);
-                material.Margin = default;
-                material.Width = 280;
-                material.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
-                Assert.True(Assert.Single(material.Children.OfType<StrataBackdropBlur>()).IsVisible);
+                var nav = window.FindControl<Panel>("SidebarNav")!;
+                var pill = window.FindControl<Border>("NavPill")!;
+                Assert.IsAssignableFrom<Panel>(nav.Parent).Children.Remove(nav);
+                nav.Width = 280;
+                nav.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+                // Do not warm shared icon geometry on this separate raster-rendering UI thread.
+                pill.Child = null;
+                pill.Width = 200;
+                pill.Height = 40;
+                pill.Opacity = 0;
 
-                var surface = new Panel
+                var surface = new Panel();
+                for (var x = 0; x < 560; x += 8)
                 {
-                    Background = new SolidColorBrush(Color.FromArgb(128, 96, 96, 96)),
-                    Children = { material },
-                };
+                    var shade = (byte)(x % 16 == 0 ? 64 : 192);
+                    surface.Children.Add(new Border
+                    {
+                        Width = 8,
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                        Margin = new Thickness(x, 0, 0, 0),
+                        Background = new SolidColorBrush(Color.FromArgb(128, shade, shade, shade)),
+                    });
+                }
+                surface.Children.Add(nav);
                 window.Content = surface;
                 surface.Measure(new Size(560, 96));
                 surface.Arrange(new Rect(0, 0, 560, 96));
@@ -207,15 +220,25 @@ public sealed class NavigationBarTests
                 using var pixels = SkiaSharp.SKBitmap.Decode(stream);
                 Assert.NotNull(pixels);
 
-                var y = pixels.Height - 3;
-                var inside = pixels.GetPixel(277, y);
-                var outside = pixels.GetPixel(283, y);
-
-                Assert.InRange(outside.Alpha, 1, 254);
-                Assert.InRange(Math.Abs(inside.Alpha - outside.Alpha), 0, 1);
-                Assert.InRange(Math.Abs(inside.Red - outside.Red), 0, 1);
-                Assert.InRange(Math.Abs(inside.Green - outside.Green), 0, 1);
-                Assert.InRange(Math.Abs(inside.Blue - outside.Blue), 0, 1);
+                var origin = pill.TranslatePoint(default, surface)!.Value;
+                var centreX = (int)(origin.X + pill.Bounds.Width / 2);
+                var centreY = (int)(origin.Y + pill.Bounds.Height / 2);
+                var clearPoints = new[]
+                {
+                    new PixelPoint(2, centreY),
+                    new PixelPoint(277, centreY),
+                    new PixelPoint(283, centreY),
+                    new PixelPoint(centreX, (int)origin.Y - 8),
+                    new PixelPoint(centreX, 94),
+                    new PixelPoint((int)origin.X + 1, (int)origin.Y + 1),
+                };
+                foreach (var point in clearPoints)
+                {
+                    var expected = pixels.GetPixel(point.X, 10);
+                    Assert.InRange(expected.Alpha, 1, 254);
+                    Assert.Equal(expected, pixels.GetPixel(point.X, point.Y));
+                }
+                Assert.NotEqual(pixels.GetPixel(centreX, 10), pixels.GetPixel(centreX, centreY));
             }
             finally
             {
@@ -261,11 +284,11 @@ public sealed class NavigationBarTests
                     await Settle();
                     var sidebar = Named<Border>("SidebarBorder");
                     var nav = Named<Panel>("SidebarNav");
-                    var material = Named<Panel>("NavEdgeMaterial");
+                    var material = Named<Panel>("NavPillMaterial");
                     var pill = Named<Border>("NavPill");
                     var scroll = Named<ScrollViewer>("ChatListScroller");
                     var spacer = Named<Border>("SidebarNavSpacer");
-                    var frost = Assert.Single(material.Children.OfType<StrataBackdropBlur>());
+                    var frost = Assert.Single(nav.GetVisualDescendants().OfType<StrataBackdropBlur>());
 
                     Assert.Equal(sidebar.Bounds.Width, nav.Bounds.Width, 1);
                     Assert.Equal(Bottom(sidebar), Bottom(nav), 1);
@@ -278,10 +301,14 @@ public sealed class NavigationBarTests
                     var pillFill = Assert.IsAssignableFrom<ISolidColorBrush>(pill.Background);
                     Assert.Equal(0.4, pillFill.Opacity);
                     Assert.True(pillFill.Color.A > 0);
-                    Assert.False(material.IsHitTestVisible);
-                    Assert.True(Top(material) < Top(nav));
-                    Assert.Equal(StrataBackdropFade.Top, frost.Fade);
-                    Assert.Equal(64, frost.FadeLength);
+                    Assert.Null(nav.Background);
+                    Assert.Same(material, frost.Parent);
+                    Assert.False(frost.IsHitTestVisible);
+                    Assert.Equal(pill.Bounds.Size, frost.Bounds.Size);
+                    Assert.Equal(pill.CornerRadius, frost.CornerRadius);
+                    Assert.Equal(Top(pill), Top(frost), 1);
+                    Assert.Equal(StrataBackdropFade.None, frost.Fade);
+                    Assert.True(frost.SamplesBeyondEdges);
                     Assert.Equal(10, frost.BlurRadius);
 
                     var lastChat = vm.ChatGroups.Last().Chats.Last();
@@ -547,6 +574,19 @@ public sealed class NavigationBarTests
                         Assert.Equal(3, layers.Length);
                         Assert.All(layers, layer => Assert.Equal(new Rect(3, 4, 18, 16), layer.Data!.Bounds));
                     }
+
+                    // Hover must animate the shared glass, not leave the frost behind the scaled pill.
+                    var pill = window.FindControl<Border>("NavPill")!;
+                    var material = window.FindControl<Panel>("NavPillMaterial")!;
+                    var materialVisual = ElementComposition.GetElementVisual(material);
+                    var pillVisual = ElementComposition.GetElementVisual(pill);
+                    Assert.NotNull(materialVisual);
+                    Assert.NotNull(pillVisual);
+                    var point = pill.TranslatePoint(new Point(pill.Bounds.Width / 2, pill.Bounds.Height / 2), window)!.Value;
+                    window.MouseMove(point);
+                    Assert.NotEqual(default, materialVisual.CenterPoint);
+                    Assert.Equal(default, pillVisual.CenterPoint);
+                    window.MouseMove(point - new Vector(0, 300));
 
                     // With animations off in Settings, the places keep still.
                     vm.SettingsVM.ShowAnimations = false;

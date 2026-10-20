@@ -1813,11 +1813,14 @@ public partial class MainWindow : Window
 
     private static void AnimateNavPillScale(Border pill, Avalonia.Vector3D targetScale, TimeSpan duration)
     {
-        var visual = ElementComposition.GetElementVisual(pill);
+        if (pill.Parent is not Panel material)
+            return;
+
+        var visual = ElementComposition.GetElementVisual(material);
         if (visual is null) return;
 
-        var w = pill.Bounds.Width;
-        var h = pill.Bounds.Height;
+        var w = material.Bounds.Width;
+        var h = material.Bounds.Height;
         visual.CenterPoint = new Avalonia.Vector3D(w / 2, h / 2, 0);
 
         var compositor = visual.Compositor;

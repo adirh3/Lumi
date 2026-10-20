@@ -325,7 +325,7 @@
     <Style Selector="ListBox.chat-list ListBoxItem:pointerover PathIcon.chat-row-pin, ListBox.chat-list ListBoxItem:selected PathIcon.chat-row-pin">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <!-- A light glass pill keeps the places together over the sidebar's edge frost. -->
+    <!-- Only the pill frosts the chats beneath it; the surrounding sidebar stays clear. -->
     <Style Selector="Border.nav-pill">
       <Setter Property="CornerRadius" Value="20" />
       <Setter Property="Padding" Value="4" />
@@ -2998,79 +2998,79 @@
           </Panel><!-- end sidebar content wrapper -->
         </DockPanel>
 
-        <!-- Frost the scrolling chats without tinting the shared window material: a sidebar-only
-             tint would leave a hard edge beside the chat island on translucent windows. -->
-        <Panel x:Name="SidebarNav" VerticalAlignment="Bottom" Background="Transparent">
-          <Panel x:Name="NavEdgeMaterial" Margin="0,-40,0,0" IsHitTestVisible="False">
-            <sc:StrataBackdropBlur BlurRadius="10" Saturation="1.15" Fade="Top" FadeLength="64" />
-          </Panel>
+        <Panel x:Name="SidebarNav" VerticalAlignment="Bottom">
           <!-- The active place wears its name; moving between places slides the label across. -->
           <Border x:Name="NavPillHost" Margin="12,4,12,12" ClipToBounds="False">
-            <Border Classes="nav-pill" x:Name="NavPill"
-                    Classes.motion-disabled="{Binding !SettingsVM.ShowAnimations}"
-                    ClipToBounds="False">
-              <StackPanel x:Name="NavRow" Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
-                <Button Classes="subtle nav-icon" x:Name="NavChat"
-                        Command="{Binding SetNavCommand}" CommandParameter="0"
-                        ToolTip.Tip="{loc:Str NavTip_Chats}">
-                  <StackPanel Orientation="Horizontal">
-                    <Panel>
-                      <PathIcon Classes="nav-chat" Data="{StaticResource Icon.Chat}" />
-                      <Border x:Name="NavChatUnreadBadge"
-                              Classes="unread-nav-badge"
-                              Margin="0,-5,-8,0"
-                              IsVisible="{Binding HasUnreadChats}">
-                        <TextBlock Text="{Binding UnreadBadgeText}" />
-                      </Border>
-                    </Panel>
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Chats}" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavLibrary"
-                        Command="{Binding OpenLibraryCommand}"
-                        ToolTip.Tip="{loc:Str NavTip_Library}">
-                  <StackPanel Orientation="Horizontal">
-                    <PathIcon Classes="nav-books" Data="{StaticResource Icon.Library}" />
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Library}" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavJobs"
-                        Command="{Binding SetNavCommand}" CommandParameter="1"
-                        ToolTip.Tip="{Binding JobsNavTip}">
-                  <StackPanel Orientation="Horizontal">
-                    <Panel>
-                      <PathIcon Classes="nav-clock" Data="{StaticResource Icon.Clock}" />
-                      <Border x:Name="NavJobsRunningDot" Classes="nav-live-dot" IsVisible="{Binding HasRunningJobs}" />
-                    </Panel>
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Jobs}" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavCustomize"
-                        Command="{Binding OpenCustomizeCommand}"
-                        ToolTip.Tip="{loc:Str Customize_NavTip}">
-                  <StackPanel Orientation="Horizontal">
-                    <Panel Classes="nav-tune">
-                      <PathIcon Data="{StaticResource Icon.CustomizeTracks}" />
-                      <PathIcon Classes="nav-knob-left" Data="{StaticResource Icon.CustomizeKnobTop}" />
-                      <PathIcon Classes="nav-knob-right" Data="{StaticResource Icon.CustomizeKnobBottom}" />
-                    </Panel>
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Customize}" />
-                  </StackPanel>
-                </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavSettings"
-                        Command="{Binding OpenSettingsCommand}"
-                        ToolTip.Tip="{loc:Str NavTip_Settings}">
-                  <StackPanel Orientation="Horizontal">
-                    <Panel>
-                      <PathIcon Classes="nav-gear" Data="{StaticResource Icon.Gear}" />
-                      <Border x:Name="UpdateBadge" Classes="nav-live-dot"
-                              IsVisible="{Binding SettingsVM.ShouldShowUpdateBadge}" />
-                    </Panel>
-                    <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Settings}" />
-                  </StackPanel>
-                </Button>
-              </StackPanel>
-            </Border>
+            <Panel x:Name="NavPillMaterial" HorizontalAlignment="Center">
+              <sc:StrataBackdropBlur x:Name="NavPillFrost"
+                                    CornerRadius="{Binding #NavPill.CornerRadius}"
+                                    BlurRadius="10" Saturation="1.15" SamplesBeyondEdges="True" />
+              <Border Classes="nav-pill" x:Name="NavPill"
+                      Classes.motion-disabled="{Binding !SettingsVM.ShowAnimations}"
+                      ClipToBounds="False">
+                <StackPanel x:Name="NavRow" Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
+                  <Button Classes="subtle nav-icon" x:Name="NavChat"
+                          Command="{Binding SetNavCommand}" CommandParameter="0"
+                          ToolTip.Tip="{loc:Str NavTip_Chats}">
+                    <StackPanel Orientation="Horizontal">
+                      <Panel>
+                        <PathIcon Classes="nav-chat" Data="{StaticResource Icon.Chat}" />
+                        <Border x:Name="NavChatUnreadBadge"
+                                Classes="unread-nav-badge"
+                                Margin="0,-5,-8,0"
+                                IsVisible="{Binding HasUnreadChats}">
+                          <TextBlock Text="{Binding UnreadBadgeText}" />
+                        </Border>
+                      </Panel>
+                      <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Chats}" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="subtle nav-icon" x:Name="NavLibrary"
+                          Command="{Binding OpenLibraryCommand}"
+                          ToolTip.Tip="{loc:Str NavTip_Library}">
+                    <StackPanel Orientation="Horizontal">
+                      <PathIcon Classes="nav-books" Data="{StaticResource Icon.Library}" />
+                      <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Library}" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="subtle nav-icon" x:Name="NavJobs"
+                          Command="{Binding SetNavCommand}" CommandParameter="1"
+                          ToolTip.Tip="{Binding JobsNavTip}">
+                    <StackPanel Orientation="Horizontal">
+                      <Panel>
+                        <PathIcon Classes="nav-clock" Data="{StaticResource Icon.Clock}" />
+                        <Border x:Name="NavJobsRunningDot" Classes="nav-live-dot" IsVisible="{Binding HasRunningJobs}" />
+                      </Panel>
+                      <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Jobs}" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="subtle nav-icon" x:Name="NavCustomize"
+                          Command="{Binding OpenCustomizeCommand}"
+                          ToolTip.Tip="{loc:Str Customize_NavTip}">
+                    <StackPanel Orientation="Horizontal">
+                      <Panel Classes="nav-tune">
+                        <PathIcon Data="{StaticResource Icon.CustomizeTracks}" />
+                        <PathIcon Classes="nav-knob-left" Data="{StaticResource Icon.CustomizeKnobTop}" />
+                        <PathIcon Classes="nav-knob-right" Data="{StaticResource Icon.CustomizeKnobBottom}" />
+                      </Panel>
+                      <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Customize}" />
+                    </StackPanel>
+                  </Button>
+                  <Button Classes="subtle nav-icon" x:Name="NavSettings"
+                          Command="{Binding OpenSettingsCommand}"
+                          ToolTip.Tip="{loc:Str NavTip_Settings}">
+                    <StackPanel Orientation="Horizontal">
+                      <Panel>
+                        <PathIcon Classes="nav-gear" Data="{StaticResource Icon.Gear}" />
+                        <Border x:Name="UpdateBadge" Classes="nav-live-dot"
+                                IsVisible="{Binding SettingsVM.ShouldShowUpdateBadge}" />
+                      </Panel>
+                      <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Settings}" />
+                    </StackPanel>
+                  </Button>
+                </StackPanel>
+              </Border>
+            </Panel>
           </Border>
         </Panel>
         </Panel>

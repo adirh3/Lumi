@@ -269,9 +269,9 @@ The bar at the bottom of the sidebar has five places: **Chats**, **Library**, **
 and **Settings** (`Ctrl+1`–`Ctrl+5`, `⌘1`–`⌘5` on macOS; `Ctrl+,` / `⌘,` also opens Settings). The open
 place is highlighted and named when the sidebar is wide enough; a narrower sidebar shows icons only,
 and the collapsed sidebar shows the same places as a rail.
-The translucent navigation pill floats over a softly fading backdrop blur, like the chat header and
-composer. Chats scroll underneath it, with enough space at the end to bring the last chat
-fully above the navigation.
+Only the translucent navigation pill blurs the chats beneath its rounded bounds; the surrounding
+sidebar stays clear. Chats still scroll underneath it, with enough space at the end to bring the last
+chat fully above the navigation.
 
 Grayscale text antialiasing is scoped to exposed and floating glass surfaces: every sidebar section,
 the navigation bar and collapsed rail, the chat header and composer, follow-up chips and the paused bar,
@@ -700,7 +700,7 @@ touch targets at the body size. Your messages carry their
 time as the desktop's bubbles do and use the width beside a narrow gutter. Every place's list
 scrolls under the floating places, as the chat list does. The pill is the desktop's navigation pill
 in the desktop's materials: the surface at 40% under an unbroken hairline and a small shadow, with the
-open place's accent glow inset concentrically. As on the desktop's sidebar, the band beneath it frosts
+open place's accent glow inset concentrically. On mobile, the band beneath it frosts
 the rows passing under the places with no tint of its own, fading in 40 dp above them, so they show
 through as softened shape and colour, never as words. Every popup is glass as the desktop's
 menus are: the page shows through the sheet as frosted colour and light, behind a light dim.
