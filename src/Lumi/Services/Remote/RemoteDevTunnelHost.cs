@@ -227,6 +227,14 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
 
             Task<string> RunCli(string[] arguments, CancellationToken ct) =>
                 RemoteDevTunnelCli.RunAsync(executablePath, arguments, ct);
+            void ReportReconnecting(Exception error, TimeSpan delay)
+            {
+                Trace.TraceWarning($"[Remote] Dev Tunnel will reconnect: {error.Message}");
+                Publish(lifetime, new RemoteDevTunnelState(
+                    IsStarting: true, Account: account, IsReconnecting: true,
+                    SetupMessage: Loc.Get("Remote_DevTunnelReconnecting", (int)delay.TotalSeconds)));
+            }
+
             var identity = await EnsureMicrosoftIdentityAsync(
                     (arguments, ct) => RemoteDevTunnelCli.RunAsync(
                         executablePath, arguments, ct,
@@ -236,7 +244,7 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                         SetupMessage: Loc.Get(useDeviceCode
                             ? "Remote_DevTunnelGettingSignInCode" : "Remote_DevTunnelDesktopSigningIn"))),
                     token,
-                    signIn, useDeviceCode)
+                    signIn, useDeviceCode, ReportReconnecting)
                 .ConfigureAwait(false);
             if (identity is not { } owner)
             {
@@ -262,13 +270,7 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                             port, account, lifetime, ct)
                         .ConfigureAwait(false);
                 },
-                (error, delay) =>
-                {
-                    Trace.TraceWarning($"[Remote] Dev Tunnel will reconnect: {error.Message}");
-                    Publish(lifetime, new RemoteDevTunnelState(
-                        IsStarting: true, Account: account, IsReconnecting: true,
-                        SetupMessage: Loc.Get("Remote_DevTunnelReconnecting", (int)delay.TotalSeconds)));
-                },
+                ReportReconnecting,
                 token).ConfigureAwait(false);
         }
         catch (RemoteDevTunnelCliException ex) when (ex.RequiresSignIn)
@@ -579,9 +581,16 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         Action reportSigningIn,
         CancellationToken cancellationToken,
         bool signIn = false,
-        bool useDeviceCode = false)
+        bool useDeviceCode = false,
+        Action<Exception, TimeSpan>? reportReconnecting = null)
     {
-        var json = await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false);
+        var json = string.Empty;
+        await RunWithRecoveryAsync(
+            async token =>
+                json = await runCli(["user", "show", "--json"], token).ConfigureAwait(false),
+            reportReconnecting ?? ((error, _) =>
+                Trace.TraceWarning($"[Remote] Dev Tunnel account check will retry: {error.Message}")),
+            cancellationToken).ConfigureAwait(false);
         using (var document = JsonDocument.Parse(json))
         {
             var root = document.RootElement;
