@@ -1357,16 +1357,16 @@ public partial class ToolCallItem : ToolCallItemBase
 
     /// <summary>
     /// The latest progress message the tool reported while running (the SDK's
-    /// <c>tool.execution_progress</c>, e.g. an MCP server's "Indexing 120 of 400 files"). Transient: it is
-    /// not persisted, and the row returns to its <see cref="Detail"/> once the step ends.
+    /// <c>tool.execution_progress</c>), including its full markdown for the opened card. Transient: it
+    /// is not persisted, and the row returns to its <see cref="Detail"/> once the step ends.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LiveDetail))]
     private string? _progressText;
 
-    /// <summary>The row's glance detail: the tool's progress while it runs and reports one, else its detail.</summary>
+    /// <summary>The first meaningful progress line while the tool runs, else its usual detail.</summary>
     public string? LiveDetail => Status == StrataAiToolCallStatus.InProgress && !string.IsNullOrWhiteSpace(ProgressText)
-        ? ProgressText
+        ? ReasoningItem.SummarizeReasoning(MessageReplyFormatter.StripMarkdown(ProgressText), fromEnd: false) ?? Detail
         : Detail;
 
     /// <summary>

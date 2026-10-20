@@ -55,6 +55,7 @@
                            Status="{Binding Status}"
                            IsExpanded="{Binding IsExpanded}"
                            InputParameters="{Binding InputParameters}"
+                           Progress="{Binding ProgressText}"
                            MoreInfo="{Binding ResultText}"
                            DurationMs="{Binding DurationMs}"
                            RunningSince="{Binding RunningSince}">

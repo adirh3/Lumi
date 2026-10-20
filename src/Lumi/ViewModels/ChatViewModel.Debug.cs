@@ -237,6 +237,36 @@ public partial class ChatViewModel
             Messages.Add(new ChatMessageViewModel(message));
         }
 
+        if (preparedFixture is null)
+        {
+            var connector = new ChatMessage
+            {
+                Role = "tool",
+                ToolCallId = "debug-connector-progress",
+                ToolName = "workiq-search",
+                ToolStatus = "InProgress",
+                ToolStartedAt = DateTimeOffset.UtcNow,
+                Content = "{\"query\":\"Find the project update\"}",
+            };
+            fixture.Messages.Add(connector);
+            Messages.Add(new ChatMessageViewModel(connector));
+            _transcriptBuilder.UpdateToolProgress(connector.ToolCallId, """
+                ## Searching **Microsoft 365**
+
+                This is a synthetic connector progress update; no account is being queried.
+
+                - Checked **mail** and `calendar`
+                - Searching shared documents
+                - Preparing a summary with [source links](https://example.com)
+                """);
+            if (_dataStore.Data.Settings.ShowToolCalls)
+            {
+                var group = TranscriptTurns.SelectMany(turn => turn.Items).OfType<ToolGroupItem>().Last();
+                group.IsExpanded = true;
+                group.ToolCalls.OfType<ToolCallItem>().Last().IsExpanded = true;
+            }
+        }
+
         ScrollToEndRequested?.Invoke();
     }
 

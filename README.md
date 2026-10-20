@@ -545,6 +545,11 @@ with a clear paused-chat message until resumed.
 
 ### Background work
 
+Running connectors can report Markdown progress, such as Work IQ's search updates. Their
+tool rows keep a compact plain-text summary; open a row to read the full formatted update,
+including lists, links and code. The update refreshes live and disappears when the tool ends,
+without changing its result, error or terminal output.
+
 When Lumi finishes replying while commands, delegated agents or other tasks keep
 running, a **Background** chip appears above the composer beside the context chip.
 Open it to see each running task with a live clock and what it is doing right now:

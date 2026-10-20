@@ -6,6 +6,12 @@ using System.Runtime.Serialization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Converters;
 using Lumi.Models;
 using Lumi.Services;
@@ -187,8 +193,11 @@ public sealed class TranscriptWorkTrailGlanceTests
         Assert.Equal(expected, ToolDisplayHelper.FormatToolStatusName(toolName, args, toolTitle: title));
     }
 
-    [Fact]
-    public void RunningTool_ShowsItsProgressMessage_ThenItsDetailOnceDone()
+    [Theory]
+    [InlineData("Completed")]
+    [InlineData("Failed")]
+    [InlineData("Stopped")]
+    public void RunningTool_ShowsItsProgressMessage_ThenItsDetailOnceDone(string finalStatus)
     {
         var (builder, turns) = CreateLiveBuilder();
         var lookup = CreateToolVm("lookup-1", "example_lookup", "InProgress", "{\"query\":\"OLED\"}");
@@ -201,16 +210,132 @@ public sealed class TranscriptWorkTrailGlanceTests
         Assert.Equal("OLED", row.LiveDetail);
 
         builder.UpdateToolProgress("lookup-1", "Indexing 120 of 400 files\nmore detail");
+        Assert.Equal("Indexing 120 of 400 files\nmore detail", row.ProgressText);
         Assert.Equal("Indexing 120 of 400 files", row.LiveDetail);
         Assert.Equal("Indexing 120 of 400 files", group.ActivityPreview[0].Detail);
 
-        lookup.Message.ToolStatus = "Completed";
+        lookup.Message.ToolStatus = finalStatus;
         lookup.NotifyToolStatusChanged();
         Assert.Equal("OLED", row.LiveDetail);
 
         // A late progress message for a finished step changes nothing.
         builder.UpdateToolProgress("lookup-1", "Indexing 400 of 400 files");
         Assert.Equal("OLED", row.LiveDetail);
+    }
+
+    [Fact]
+    public void RunningConnectorProgress_PreservesMarkdownWithAPlainGlance()
+    {
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(CreateToolVm("workiq-1", "workiq-search", "InProgress", "{}"));
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items));
+        var row = Assert.IsType<ToolCallItem>(Assert.Single(group.ToolCalls));
+        const string progress = "## Searching **Microsoft 365**\r\n\r\n- Reading `mail`\r\n- Finding [documents](https://example.com)";
+
+        builder.UpdateToolProgress("workiq-1", progress);
+
+        Assert.Equal(progress, row.ProgressText);
+        Assert.Equal("Searching Microsoft 365", row.LiveDetail);
+        Assert.Equal(row.LiveDetail, Assert.Single(group.ActivityPreview).Detail);
+
+        builder.UpdateToolProgress("workiq-1", " \r\n ");
+        Assert.Equal(progress, row.ProgressText);
+    }
+
+    [Theory]
+    [InlineData("```text\nChecking **documents**\n```", "Checking documents")]
+    [InlineData("---\n\nChecking documents", "Checking documents")]
+    [InlineData("```", "OLED")]
+    public void RunningConnectorProgress_MarkdownOpeningDoesNotBlankPreview(string progress, string expected)
+    {
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(CreateToolVm("workiq-1", "workiq-search", "InProgress", "{\"query\":\"OLED\"}"));
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items));
+        var row = Assert.IsType<ToolCallItem>(Assert.Single(group.ToolCalls));
+
+        builder.UpdateToolProgress("workiq-1", progress);
+
+        Assert.Equal(progress, row.ProgressText);
+        Assert.Equal(expected, row.LiveDetail);
+        Assert.Equal(expected, Assert.Single(group.ActivityPreview).Detail);
+    }
+
+#if DEBUG
+    [Fact]
+    public async Task DebugConnectorFixture_LoadsWhenToolCallsAreHidden()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var data = new AppData();
+            data.Settings.ShowToolCalls = false;
+            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+
+            viewModel.LoadDebugTranscriptFixture();
+
+            Assert.NotEmpty(viewModel.Messages);
+            Assert.Empty(viewModel.TranscriptTurns.SelectMany(turn => turn.Items).OfType<ToolGroupItem>());
+        }, CancellationToken.None);
+    }
+#endif
+
+    [Theory]
+    [InlineData("Completed")]
+    [InlineData("Failed")]
+    [InlineData("Stopped")]
+    public async Task RunningConnectorProgress_RendersAndUpdatesMarkdownInTheSharedToolCard(string finalStatus)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var (builder, turns) = CreateLiveBuilder();
+            var source = CreateToolVm("workiq-1", "workiq-search", "InProgress", "{}");
+            builder.ProcessMessageToTranscript(source);
+            var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items));
+            var row = Assert.IsType<ToolCallItem>(Assert.Single(group.ToolCalls));
+            var template = Application.Current!.DataTemplates.First(candidate => candidate.Match(row));
+            var card = Assert.IsType<StrataAiToolCall>(template.Build(row));
+            card.DataContext = row;
+            var window = new Window { Width = 760, Height = 480, Content = card };
+            window.Show();
+            try
+            {
+                const string first = "## Searching **Microsoft 365**\n\n- Reading `mail`";
+                builder.UpdateToolProgress("workiq-1", first);
+                await Task.Delay(100);
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+
+                Assert.False(card.IsExpanded);
+                Assert.Equal("Searching Microsoft 365", card.Detail);
+                Assert.Equal(card.Detail, Assert.Single(group.ActivityPreview).Detail);
+                Assert.DoesNotContain(card.GetVisualDescendants().OfType<StrataMarkdown>(),
+                    control => control.Markdown == first && control.IsEffectivelyVisible);
+
+                row.IsExpanded = true;
+                await Task.Delay(100);
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                var markdown = Assert.Single(card.GetVisualDescendants().OfType<StrataMarkdown>(),
+                    control => control.Markdown == first && control.IsEffectivelyVisible);
+                Assert.Contains(markdown.GetVisualDescendants().OfType<SelectableTextBlock>()
+                        .SelectMany(block => block.Inlines?.OfType<Run>() ?? []),
+                    run => run.Text == "Microsoft 365" && run.FontWeight == FontWeight.SemiBold);
+
+                const string next = first + "\n- Finding **documents**";
+                builder.UpdateToolProgress("workiq-1", next);
+                await Task.Delay(100);
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                Assert.Contains(card.GetVisualDescendants().OfType<StrataMarkdown>(),
+                    control => control.Markdown == next && control.IsEffectivelyVisible);
+
+                source.Message.ToolStatus = finalStatus;
+                source.NotifyToolStatusChanged();
+                await Task.Delay(100);
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                Assert.DoesNotContain(card.GetVisualDescendants().OfType<StrataMarkdown>(),
+                    control => control.Markdown == next && control.IsEffectivelyVisible);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
     }
 
     [Fact]

@@ -2894,8 +2894,8 @@ public class TranscriptBuilder
 
     /// <summary>
     /// Shows a running tool's latest progress message (the SDK's <c>tool.execution_progress</c>, e.g. an
-    /// MCP server's status) as its glance detail, in its row and in the live card. Only the first line is
-    /// kept; the row returns to its usual detail when the step ends.
+    /// MCP server's status). Keeps its full markdown for the opened card; the row and live preview show
+    /// a plain first-line summary and return to their usual detail when the step ends.
     /// </summary>
     public void UpdateToolProgress(string toolCallId, string? message)
     {
@@ -2903,7 +2903,7 @@ public class TranscriptBuilder
             || running.Item.Status != StrataAiToolCallStatus.InProgress)
             return;
 
-        var text = message?.Trim().Split('\n', 2)[0].Trim();
+        var text = message?.Trim();
         if (string.IsNullOrEmpty(text) || string.Equals(text, running.Item.ProgressText, StringComparison.Ordinal))
             return;
 
