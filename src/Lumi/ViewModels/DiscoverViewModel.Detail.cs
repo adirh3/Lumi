@@ -144,6 +144,23 @@ public sealed partial class DiscoverViewModel
 
     private void OpenCardFromGallery(DiscoverCard card) => OpenDetail(card);
 
+    internal void RestoreNavigation(DiscoverNavigationState state)
+    {
+        if (SearchQuery != state.SearchQuery)
+            SearchQuery = state.SearchQuery;
+
+        if (Filter != state.Filter || SourceKey != state.SourceKey)
+            SetFilter(state.Filter, state.SourceKey);
+
+        if (ReferenceEquals(OpenCard, state.Card))
+            return;
+
+        if (state.Card is { } card)
+            OpenDetail(card);
+        else
+            CloseDetail();
+    }
+
     /// <summary>Opens a plugin's page by name — used by "Manage in Discover" from the other sections.</summary>
     public async Task OpenInstalledPluginAsync(string pluginName)
     {

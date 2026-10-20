@@ -541,6 +541,43 @@ public partial class LibraryViewModel : ObservableObject
     private string SelectedTimeRangeId => TimeRanges.FirstOrDefault(option => option.IsSelected)?.Id ?? AllFilterId;
     private string SelectedProjectId => Projects.FirstOrDefault(option => option.IsSelected)?.Id ?? AllFilterId;
 
+    internal LibraryNavigationState CaptureNavigationState()
+        => new(SelectedItem?.Artifact.Key, SelectedKindId, SelectedOriginId, SelectedTimeRangeId, SelectedProjectId, SearchQuery);
+
+    internal bool ContainsNavigationItem(string key) => _itemCache.ContainsKey(key);
+
+    internal void RestoreNavigation(LibraryNavigationState state)
+    {
+        if (CaptureNavigationState() == state)
+            return;
+
+        _isApplyingFilters = true;
+        try
+        {
+            SearchQuery = state.SearchQuery;
+            RestoreFilter(Kinds, state.KindId);
+            RestoreFilter(Origins, state.OriginId);
+            RestoreFilter(TimeRanges, state.TimeRangeId);
+            RestoreFilter(Projects, state.ProjectId);
+        }
+        finally
+        {
+            _isApplyingFilters = false;
+        }
+
+        OnPropertyChanged(nameof(SelectedTimeRangeOption));
+        ApplyFilters();
+        SelectedItem = state.ItemKey is { } key ? _itemCache[key] : null;
+
+        static void RestoreFilter(ObservableCollection<LibraryFilterOption> options, string id)
+        {
+            if (!options.Any(option => option.Id == id))
+                id = AllFilterId;
+            foreach (var option in options)
+                option.IsSelected = option.Id == id;
+        }
+    }
+
     public LibraryViewModel(
         DataStore dataStore,
         Func<Guid, Task>? openChatAsync = null)

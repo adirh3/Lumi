@@ -63,7 +63,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool _isRefreshingCopilotState;
     private bool _wasExternalOnly;
     private bool _isSyncingDefaultModelSelectionFromChat;
-    private readonly ChatNavigationHistory _chatNavigationHistory = new();
 
     private const int ChatPageSize = 50;
     private int _chatLoadLimit = ChatPageSize;
@@ -172,6 +171,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             _ = SettingsVM.RefreshAuthStatusAsync();
         }
+
+        QueueNavigationRecord();
     }
 
     /// <summary>Nav index of the Library page, the second place in the nav pill.</summary>
@@ -794,7 +795,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             OpenAgentDebugHarness();
 #endif
 
-        _chatNavigationHistory.Record(ChatVM.CurrentChat?.Id, SelectedProjectFilter);
+        InitializeNavigationHistory();
         if (initializeCopilotOnStartup)
         {
             // Keep saved model choices ready for the first frame; only defer connecting.
@@ -2003,21 +2004,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return await LoadChatAndShowAsync(chat);
     }
 
-    public async Task<bool> TryNavigateChatHistoryAsync(int direction)
-    {
-        try
-        {
-            return await _chatNavigationHistory.TryNavigateAsync(
-                direction,
-                _dataStore.Data.Chats.Select(chat => chat.Id),
-                ApplyChatNavigationEntryAsync);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-    }
-
     [RelayCommand]
     private void NewChat()
     {
@@ -2212,7 +2198,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _dataStore.Data.Chats.Remove(chat);
         _dataStore.RemoveBackgroundJobsForChat(chat.Id);
         _backgroundJobService.Reschedule();
-        _chatNavigationHistory.RemoveChat(chat.Id);
+        _navigationHistory.RemoveChat(chat.Id);
         _dataStore.MarkChatDeleted(chat.Id);
         await _dataStore.DeleteChatFileAsync(chat.Id);
         await _dataStore.SaveAsync();
@@ -2861,7 +2847,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_isRevealingChat)
             return;
 
-        if (_chatNavigationHistory.IsRestoring)
+        if (_navigationHistory.IsRestoring)
         {
             if (ChatVM.CurrentChat is null || ChatVM.CurrentChat.Messages.Count == 0)
                 SetDraftChatProjectContext(value);
@@ -2872,14 +2858,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (ChatVM.CurrentChat is not null
             && ChatVM.CurrentChat.Messages.Count > 0
             && ChatVM.CurrentChat.ProjectId == value)
+        {
+            if (SelectedNavIndex == 0)
+                QueueNavigationRecord();
             return;
+        }
 
         // If we're in a new/empty chat (draft), stay in new-chat mode —
         // just update the project assignment without navigating away.
         if (ChatVM.CurrentChat is null || ChatVM.CurrentChat.Messages.Count == 0)
         {
             SetDraftChatProjectContext(value);
-            _chatNavigationHistory.Record(ChatVM.CurrentChat?.Id, value);
+            if (SelectedNavIndex == 0)
+                QueueNavigationRecord();
             return;
         }
 
@@ -2912,10 +2903,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnActiveChatIdChanged(Guid? value)
     {
-        if (_chatNavigationHistory.IsRestoring)
-            return;
-
-        _chatNavigationHistory.Record(value, SelectedProjectFilter);
+        if (SelectedNavIndex == 0)
+            QueueNavigationRecord();
     }
 
     partial void OnIsDarkThemeChanged(bool value)

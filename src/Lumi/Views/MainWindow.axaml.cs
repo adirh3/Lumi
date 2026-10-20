@@ -806,7 +806,7 @@ public partial class MainWindow : Window
 
         if (!vm.IsOnboarded) return;
 
-        if (TryHandleChatHistoryNavigationKey(vm, e))
+        if (TryHandleHistoryNavigationKey(vm, e))
             return;
 
         // Primary command modifier: Cmd (Meta) on macOS, Ctrl on Windows/Linux — so shortcuts
@@ -971,7 +971,7 @@ public partial class MainWindow : Window
 
     }
 
-    private bool CanHandleChatHistoryNavigationInput(MainViewModel vm, object? source)
+    private bool CanHandleHistoryNavigationInput(MainViewModel vm, object? source)
     {
         if (_renameOverlay?.IsVisible == true || vm.SearchOverlayVM.IsOpen)
             return false;
@@ -982,14 +982,16 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private void BeginChatHistoryNavigation(MainViewModel vm, int direction)
+    private static void BeginHistoryNavigation(MainViewModel vm, int direction)
     {
-        _ = vm.TryNavigateChatHistoryAsync(direction);
+        var command = direction < 0 ? vm.NavigateBackCommand : vm.NavigateForwardCommand;
+        if (command.CanExecute(null))
+            command.Execute(null);
     }
 
-    private bool TryHandleChatHistoryNavigationKey(MainViewModel vm, KeyEventArgs e)
+    private bool TryHandleHistoryNavigationKey(MainViewModel vm, KeyEventArgs e)
     {
-        if (!CanHandleChatHistoryNavigationInput(vm, e.Source))
+        if (!CanHandleHistoryNavigationInput(vm, e.Source))
             return false;
 
         var altOnly = e.KeyModifiers == KeyModifiers.Alt;
@@ -1005,14 +1007,14 @@ public partial class MainWindow : Window
         if (direction == 0)
             return false;
 
-        BeginChatHistoryNavigation(vm, direction);
+        BeginHistoryNavigation(vm, direction);
         e.Handled = true;
         return true;
     }
 
     private void OnWindowPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.Handled || DataContext is not MainViewModel vm || !CanHandleChatHistoryNavigationInput(vm, e.Source))
+        if (e.Handled || DataContext is not MainViewModel vm || !CanHandleHistoryNavigationInput(vm, e.Source))
             return;
 
         if (_isProjectSwitcherOpen
@@ -1030,16 +1032,17 @@ public partial class MainWindow : Window
         }
 
         var point = e.GetCurrentPoint(this);
-        var direction = point.Properties.IsXButton1Pressed
-            ? -1
-            : point.Properties.IsXButton2Pressed
-                ? 1
-                : 0;
+        var direction = point.Properties.PointerUpdateKind switch
+        {
+            PointerUpdateKind.XButton1Pressed => -1,
+            PointerUpdateKind.XButton2Pressed => 1,
+            _ => 0,
+        };
 
         if (direction == 0)
             return;
 
-        BeginChatHistoryNavigation(vm, direction);
+        BeginHistoryNavigation(vm, direction);
         e.Handled = true;
     }
 

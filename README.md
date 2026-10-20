@@ -273,6 +273,13 @@ Only the translucent navigation pill blurs the chats beneath its rounded bounds;
 sidebar stays clear. Chats still scroll underneath it, with enough space at the end to bring the last
 chat fully above the navigation.
 
+Mouse **Back** and **Forward** (also `Alt+Left` / `Alt+Right` or the keyboard's browser keys)
+follow navigation throughout the desktop app: chats and project filters, the places in the bar,
+Settings pages, Customize editors, Memories categories and details, Discover lists and details,
+Library filters and previews, and Jobs. A new destination replaces forward history; deleted items
+are skipped. History keeps the latest 200 destinations rather than retaining every visit throughout
+a long session. These navigate pages, not undo edits. The embedded browser keeps its own history.
+
 Grayscale text antialiasing is scoped to exposed and floating glass surfaces: every sidebar section,
 the navigation bar and collapsed rail, the chat header and composer, follow-up chips and the paused bar,
 the search palette, and glass title/composer pickers. Glass popup content opts in itself, whether hosted

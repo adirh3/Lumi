@@ -257,6 +257,18 @@ public sealed partial class ExternalCapabilitiesViewModel : ObservableObject
 
     [ObservableProperty] private ExternalCapabilityItem? _openItem;
 
+    internal string? NavigationItemKey => OpenItem is { } item ? ItemKey(item.Descriptor) : null;
+
+    internal bool ContainsNavigationItem(string key)
+        => _groups.SelectMany(static group => group.All).Any(item => ItemKey(item.Descriptor) == key);
+
+    internal void OpenNavigationItem(string key)
+    {
+        var item = _groups.SelectMany(static group => group.All).First(item => ItemKey(item.Descriptor) == key);
+        if (!ReferenceEquals(OpenItem, item))
+            Open(item);
+    }
+
     /// <summary>A long rendered body has been unfolded.</summary>
     [ObservableProperty] private bool _isBodyExpanded;
 
