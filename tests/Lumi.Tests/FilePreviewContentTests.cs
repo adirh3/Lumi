@@ -50,6 +50,35 @@ public sealed class FilePreviewContentTests : IDisposable
     }
 
     [Theory]
+    [InlineData("table.csv", "Name,Price\nA,2", ',')]
+    [InlineData("table.CSV", "Name;Price\nA;2", ';')]
+    [InlineData("table.tsv", "Name\tPrice\nA\t2", '\t')]
+    public async Task DelimitedFilesUseTablePreviews(string name, string text, char delimiter)
+    {
+        var path = Path.Combine(_root, name);
+        await File.WriteAllTextAsync(path, text, Encoding.Unicode);
+        var content = await FilePreviewContent.LoadAsync(path, CancellationToken.None);
+        Assert.Equal(FilePreviewKind.Csv, content.Kind);
+        Assert.Equal(delimiter, content.Csv!.Delimiter);
+        Assert.Equal(["A", "2"], content.Csv.Records[1]);
+        Assert.False(content.IsTruncated);
+        using var exclusive = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    [Fact]
+    public async Task LargeCsvOnlyIncludesCompleteRecords()
+    {
+        var path = Path.Combine(_root, "large.csv");
+        await File.WriteAllTextAsync(path, "Name,Notes\nA,complete\nB,\""
+            + new string('x', FilePreviewContent.MaxCharacters) + "\"\n");
+        var content = await FilePreviewContent.LoadAsync(path, CancellationToken.None);
+        Assert.Equal(FilePreviewKind.Csv, content.Kind);
+        Assert.True(content.IsTruncated);
+        Assert.Equal(2, content.Csv!.Records.Count);
+        Assert.Equal(["A", "complete"], content.Csv.Records[1]);
+    }
+
+    [Theory]
     [InlineData("report.pdf")]
     [InlineData("slides.pptx")]
     [InlineData("document.docx")]

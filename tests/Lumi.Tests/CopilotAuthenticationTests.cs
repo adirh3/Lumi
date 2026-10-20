@@ -1,10 +1,65 @@
+using GitHub.Copilot;
+using Lumi.Models;
 using Lumi.Services;
+using Lumi.ViewModels;
 using Xunit;
 
 namespace Lumi.Tests;
 
 public sealed class CopilotAuthenticationTests
 {
+#pragma warning disable GHCP001 // Only stored user identities may be removed via the SDK.
+    [Theory]
+    [InlineData("user", false, true, true)]
+    [InlineData("token", true, true, true)]
+    [InlineData("token", false, true, false)]
+    [InlineData("env", true, true, false)]
+    [InlineData("gh-cli", true, true, false)]
+    [InlineData("user", false, false, false)]
+    public void SignOutTargetsOnlyTheSelectedStoredAccount(
+        string authType, bool hasStoredSelection, bool authenticated, bool expected)
+    {
+        var status = new GetAuthStatusResponse
+        {
+            IsAuthenticated = authenticated,
+            AuthType = authType,
+            Host = "https://github.com",
+            Login = "current-user"
+        };
+        var selected = hasStoredSelection
+            ? new GitHub.Copilot.Rpc.AuthInfoUser { Host = "https://github.com", Login = "stored-user" }
+            : null;
+
+        var target = CopilotService.GetSignOutIdentity(status, selected);
+
+        Assert.Equal(expected, target is not null);
+        if (target is not null)
+            Assert.Equal(authType == "token" ? "stored-user" : "current-user", target.Login);
+    }
+#pragma warning restore GHCP001
+
+    [Fact]
+    public async Task SharedLoginChangesUpdateSettingsIdentityAndQuota()
+    {
+        await using var browser = new BrowserService();
+        using var settings = new SettingsViewModel(
+            new DataStore(new AppData()), TestCopilot.Shared, browser, new UpdateService());
+        var login = new GitHubLoginViewModel(TestCopilot.Shared);
+        settings.LoginVM = login;
+
+        login.GitHubLogin = "octocat";
+        login.IsAuthenticated = true;
+        Assert.True(settings.IsAuthenticated);
+        Assert.Equal("octocat", settings.GitHubLogin);
+
+        settings.QuotaDisplayText = "50% remaining";
+        login.GitHubLogin = "";
+        login.IsAuthenticated = false;
+        Assert.False(settings.IsAuthenticated);
+        Assert.Empty(settings.GitHubLogin);
+        Assert.Null(settings.QuotaDisplayText);
+    }
+
     [Fact]
     public void ParseStoredCopilotIdentity_SupportsCliConfigCommentsAndCamelCaseKey()
     {

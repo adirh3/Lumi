@@ -94,6 +94,106 @@ public sealed class RemoteWorkTimelineTests
     }
 
     [Fact]
+    public void ThinkingRecordedAfterTheAnswerFoldsWithTheWorkItEnded()
+    {
+        var messages = Timeline();
+        messages.Add(Message("reasoning", "the answer's own thinking, recorded late", 93));
+
+        var turn = Assert.Single(Build(messages).Turns);
+        Assert.Equal(messages[^2].Id.ToString("N"), turn.FinalAnswerId);
+        Assert.True(turn.IsSettled);
+        Assert.Equal("activity", turn.Items[^1].Kind);
+
+        using var displayed = new TranscriptTurnViewModel(turn.Id);
+        displayed.Apply(turn);
+        Assert.Collection(displayed.DisplayItems,
+            item => Assert.IsType<UserTurnItemViewModel>(item),
+            item => Assert.IsType<WorkSummaryItemViewModel>(item),
+            item => Assert.Equal("Final answer", Assert.IsType<AssistantItemViewModel>(item).Text));
+    }
+
+    [Fact]
+    public void SteeredTurnFoldsItsUpdatesUpToItsLastWordWithoutCallingItAnAnswer()
+    {
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Do it", 0),
+            Message("assistant", "Checking first", 1),
+            Message("tool", "{}", 2, "view"),
+            Message("assistant", "Now verifying", 3),
+            Message("tool", "{}", 4, "powershell"),
+            Message("assistant", "Still verifying", 5),
+            Message("tool", "{}", 6, "rg"),
+            Message("user", "Also check the light theme", 7),
+            Message("assistant", "Done, both themes pass", 9)
+        };
+
+        var transcript = Build(messages);
+        var steered = transcript.Turns[0];
+        Assert.Null(steered.FinalAnswerId);
+        Assert.True(steered.IsSettled);
+
+        using var displayed = new TranscriptTurnViewModel(steered.Id);
+        displayed.Apply(steered);
+        Assert.Collection(displayed.DisplayItems,
+            item => Assert.IsType<UserTurnItemViewModel>(item),
+            item => Assert.Equal("Worked · 2 actions", Assert.IsType<WorkSummaryItemViewModel>(item).Label),
+            item =>
+            {
+                var last = Assert.IsType<AssistantItemViewModel>(item);
+                Assert.Equal("Still verifying", last.Text);
+                Assert.False(last.IsFinalAnswer);
+            },
+            item => Assert.IsType<ActivitySummaryItemViewModel>(item));
+    }
+
+    [Fact]
+    public void BackgroundWorkStaysInViewWhileTheRestOfTheSettledTurnFolds()
+    {
+        var messages = Timeline();
+        messages[^2].ToolCallId = "background-tool";
+        var transcript = RemoteProjector.BuildTranscript(
+            new Chat(), messages, new RemoteChatStatus(),
+            showReasoning: true, showToolCalls: true, revision: 1, compact: true,
+            runningBackgroundToolCallIds: new HashSet<string> { "background-tool" });
+        var turn = Assert.Single(transcript.Turns);
+        Assert.Null(turn.FinalAnswerId);
+        Assert.True(turn.IsSettled);
+
+        using var displayed = new TranscriptTurnViewModel(turn.Id);
+        displayed.Apply(turn);
+        Assert.Collection(displayed.DisplayItems,
+            item => Assert.IsType<UserTurnItemViewModel>(item),
+            item => Assert.IsType<WorkSummaryItemViewModel>(item),
+            item => Assert.True(Assert.IsType<ActivitySummaryItemViewModel>(item).IsRunning),
+            item => Assert.Equal("Final answer", Assert.IsType<AssistantItemViewModel>(item).Text));
+    }
+
+    [Fact]
+    public void LiveTurnIsNeverSettledAndKeepsEveryUpdateInView()
+    {
+        var messages = Timeline();
+        var turn = Assert.Single(Build(messages, busy: true).Turns);
+        Assert.Null(turn.IsSettled);
+        Assert.Null(turn.FinalAnswerId);
+
+        using var displayed = new TranscriptTurnViewModel(turn.Id);
+        displayed.Apply(turn);
+        Assert.DoesNotContain(displayed.DisplayItems, item => item is WorkSummaryItemViewModel);
+    }
+
+    [Fact]
+    public void AnUpdateTheSdkRecordedAsProgressIsNotTheTurnsAnswer()
+    {
+        var messages = Timeline();
+        messages[^1].IsProgress = true;
+
+        var turn = Assert.Single(Build(messages).Turns);
+        Assert.Null(turn.FinalAnswerId);
+        Assert.True(turn.IsSettled);
+    }
+
+    [Fact]
     public void ActiveCompactWorkStaysBetweenAssistantMessagesAndDetailsAreSegmentScoped()
     {
         var messages = Timeline();
@@ -221,6 +321,141 @@ public sealed class RemoteWorkTimelineTests
     }
 
     [Fact]
+    public void DefaultHistoryCountsCollapsedWorkOnceAndIncludesRecentConversation()
+    {
+        var messages = DenseHistory();
+        var prompts = messages.Where(message => message.Role == "user").ToArray();
+
+        var limit = LumiRemoteServer.ResolveTranscriptWindowLimit(null, null, compact: true);
+        var latest = RemoteProjector.SelectCompactTranscriptWindow(messages, null, limit);
+        var transcript = RemoteProjector.BuildTranscript(
+            new Chat(), latest, new RemoteChatStatus(), true, true, 1,
+            compact: true, activitySourceMessages: messages);
+
+        Assert.Equal(16, transcript.Turns.Count);
+        Assert.Equal(messages.IndexOf(prompts[4]), latest.StartMessageIndex);
+        Assert.Equal(messages.Count, latest.EndMessageIndex);
+        Assert.True(latest.HasEarlierMessages);
+        Assert.True(latest.IsLatestWindow);
+        Assert.Equal(
+            prompts.Skip(4).Select(prompt => prompt.Id.ToString("N")),
+            transcript.Turns.Select(turn => turn.Items[0].Id));
+        foreach (var remoteTurn in transcript.Turns)
+        {
+            using var displayed = new TranscriptTurnViewModel(remoteTurn.Id);
+            displayed.Apply(remoteTurn);
+            Assert.Equal(3, displayed.DisplayItems.Count);
+            var work = Assert.IsType<WorkSummaryItemViewModel>(displayed.DisplayItems[1]);
+            Assert.False(work.IsExpanded);
+            Assert.IsType<AssistantItemViewModel>(displayed.DisplayItems[^1]);
+            work.ToggleCommand.Execute(null);
+            Assert.Equal(60, work.Items.Count);
+        }
+        Assert.InRange(JsonSerializer.SerializeToUtf8Bytes(
+            transcript, RemoteJsonContext.Default.RemoteTranscript).Length,
+            1, RemoteProtocol.MobileTranscriptJsonByteLimit);
+
+        var earlier = RemoteProjector.SelectCompactTranscriptWindow(
+            messages, latest.StartMessageIndex, RemoteProtocol.CompactTranscriptWindowVisibleItemLimit);
+        Assert.Equal(0, earlier.StartMessageIndex);
+        Assert.Equal(latest.StartMessageIndex, earlier.EndMessageIndex);
+        Assert.False(earlier.HasEarlierMessages);
+        Assert.True(earlier.HasLaterMessages);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LiveStatusKeepsUnsettledRowsInTheInitialHistoryBudget(bool streaming)
+    {
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Earlier prompt", 0),
+            Message("assistant", "Earlier answer", 1),
+            Message("user", "Current prompt", 2)
+        };
+        for (var step = 0; step < 30; step++)
+        {
+            messages.Add(Message("assistant", $"Checking step {step}", step * 2 + 3));
+            messages.Add(Message("tool", "{}", step * 2 + 4, "view"));
+        }
+        messages.Add(Message("assistant", "Not settled yet", 90));
+        var status = new RemoteChatStatus { IsBusy = !streaming, IsStreaming = streaming };
+        var window = RemoteProjector.SelectCompactTranscriptWindow(
+            messages, null, RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit,
+            latestStatus: status);
+        var transcript = RemoteProjector.BuildTranscript(
+            new Chat(), window, status, true, true, 1,
+            compact: true, activitySourceMessages: messages);
+
+        Assert.Equal(2, window.StartMessageIndex);
+        var turn = Assert.Single(transcript.Turns);
+        Assert.Null(turn.FinalAnswerId);
+        using var displayed = new TranscriptTurnViewModel(turn.Id);
+        displayed.Apply(turn);
+        Assert.Equal(62, displayed.DisplayItems.Count);
+        Assert.DoesNotContain(displayed.DisplayItems, item => item is WorkSummaryItemViewModel);
+    }
+
+    [Fact]
+    public void CollapsedWorkStillCountsTowardTheSourceTextBudget()
+    {
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Earlier prompt", 0),
+            Message("assistant", "Earlier answer", 1),
+            Message("user", "Latest prompt", 2),
+            Message("assistant", new string('x', 256), 3),
+            Message("tool", "{}", 4, "view"),
+            Message("assistant", "Final answer", 5)
+        };
+        var window = RemoteProjector.SelectCompactTranscriptWindow(
+            messages, null, RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit,
+            textBudgetCharacters: 128);
+
+        Assert.Equal(2, window.StartMessageIndex);
+        Assert.Equal(messages.Count, window.EndMessageIndex);
+        Assert.True(window.HasEarlierMessages);
+        Assert.Contains(window.Messages, message => message.Content == new string('x', 256));
+    }
+
+    [Fact]
+    public void OlderDenseHistoryPagesStayReadableAndKeepGapFreeCursors()
+    {
+        var messages = DenseHistory(turnCount: 200);
+        var latest = RemoteProjector.SelectCompactTranscriptWindow(
+            messages, null, RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit);
+        var before = latest.StartMessageIndex;
+        while (before > 0)
+        {
+            var window = RemoteProjector.SelectCompactTranscriptWindow(
+                messages, before, RemoteProtocol.CompactTranscriptWindowVisibleItemLimit);
+            var transcript = RemoteProjector.BuildTranscript(
+                new Chat(), window, new RemoteChatStatus(), true, true, 1,
+                compact: true, activitySourceMessages: messages);
+
+            Assert.DoesNotContain(transcript.Turns, turn => turn.Id == "mobile-wire-limit");
+            Assert.Equal(before, transcript.WindowEndMessageIndex);
+            Assert.InRange(transcript.WindowStartMessageIndex, 0, before - 1);
+            Assert.Equal(transcript.WindowStartMessageIndex > 0, transcript.HasEarlierMessages);
+            var firstUser = transcript.Turns[0].Items[0];
+            Assert.Equal(RemoteProtocol.ItemKinds.User, firstUser.Kind);
+            Assert.Equal(messages[transcript.WindowStartMessageIndex].Id.ToString("N"), firstUser.Id);
+            Assert.Equal(
+                messages.Skip(transcript.WindowStartMessageIndex)
+                    .Take(before - transcript.WindowStartMessageIndex)
+                    .Where(message => message.Role == "user")
+                    .Select(message => message.Id.ToString("N")),
+                transcript.Turns.Select(turn => turn.Items[0].Id));
+            Assert.InRange(JsonSerializer.SerializeToUtf8Bytes(
+                transcript, RemoteJsonContext.Default.RemoteTranscript).Length,
+                1, RemoteProtocol.MobileTranscriptJsonByteLimit);
+
+            before = transcript.WindowStartMessageIndex;
+        }
+    }
+
+    [Fact]
     public void DenseSegmentsKeepBoundedAnchorsAndWholeTurnPaging()
     {
         var messages = new List<ChatMessage>();
@@ -236,11 +471,11 @@ public sealed class RemoteWorkTimelineTests
             messages.Add(Message("assistant", "Final", turnIndex * 100 + 20));
         }
 
-        var latest = RemoteProjector.SelectCompactTranscriptWindow(messages, null, maxVisibleItems: 6);
+        var latest = RemoteProjector.SelectCompactTranscriptWindow(messages, null, maxVisibleItems: 3);
         Assert.Equal(6, latest.Messages.Count);
         Assert.True(latest.HasEarlierMessages);
         var earlier = RemoteProjector.SelectCompactTranscriptWindow(
-            messages, latest.StartMessageIndex, maxVisibleItems: 6);
+            messages, latest.StartMessageIndex, maxVisibleItems: 3);
         Assert.Equal(0, earlier.StartMessageIndex);
         Assert.Equal(latest.StartMessageIndex, earlier.EndMessageIndex);
         var transcript = RemoteProjector.BuildTranscript(
@@ -253,6 +488,22 @@ public sealed class RemoteWorkTimelineTests
         Assert.InRange(JsonSerializer.SerializeToUtf8Bytes(
             transcript, RemoteJsonContext.Default.RemoteTranscript).Length,
             1, RemoteProtocol.MobileTranscriptJsonByteLimit);
+    }
+
+    internal static List<ChatMessage> DenseHistory(int turnCount = 20)
+    {
+        var messages = new List<ChatMessage>();
+        for (var turnIndex = 0; turnIndex < turnCount; turnIndex++)
+        {
+            messages.Add(Message("user", $"Prompt {turnIndex}", turnIndex * 100));
+            for (var step = 0; step < 30; step++)
+            {
+                messages.Add(Message("assistant", $"Checking step {step}", turnIndex * 100 + step * 2 + 1));
+                messages.Add(Message("tool", "{}", turnIndex * 100 + step * 2 + 2, "view"));
+            }
+            messages.Add(Message("assistant", $"Answer {turnIndex}", turnIndex * 100 + 90));
+        }
+        return messages;
     }
 
     private static List<ChatMessage> Timeline() =>

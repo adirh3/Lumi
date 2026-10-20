@@ -48,12 +48,14 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             FocusableInTouchMode = true,
             DefaultFocusHighlightEnabled = false,
             Alpha = host.IsVisible ? 1f : 0f,
-            TextSize = 17,
+            // Android's sp, so the field follows the phone's font size; 16 is the shared body rung.
+            TextSize = 16f,
             VerticalScrollBarEnabled = true,
             Hint = host.Placeholder,
             Text = host.Text
         };
         editor.SetBackgroundColor(Color.Transparent);
+        AndroidAppTypeface.Apply(editor);
         editor.SetSingleLine(false);
         editor.SetHorizontallyScrolling(false);
         editor.SetMinLines(1);

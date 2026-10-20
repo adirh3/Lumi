@@ -17,8 +17,17 @@ public enum RemoteLinkState
     Connecting,
     Connected,
     Unauthorized,
-    Error
+    Error,
+    GatewaySignInRequired,
+
+    /// <summary>Lumi could not be reached for a while; retrying waits for a network change, resume or Retry.</summary>
+    Offline
 }
+
+public sealed class RemoteGatewaySignInException(string message) : HttpRequestException(message);
+
+/// <summary>The desktop answered with a protocol this phone cannot use; retrying cannot help.</summary>
+public sealed class RemoteProtocolMismatchException(string message) : Exception(message);
 
 /// <summary>
 /// The phone's half of the Lumi remote protocol: request/response over HTTP plus a resilient
@@ -45,6 +54,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     private readonly TimeSpan _uploadDeadline;
     private readonly IRemoteRouteVerifier _routeVerifier;
     private readonly IRemoteDownloadStore? _downloadStore;
+    private readonly TimeProvider _time;
+    private readonly object _subscriptionRequestGate = new();
 
     private CancellationTokenSource? _streamCts;
     private Task? _streamTask;
@@ -52,8 +63,19 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     private int _compatibleProtocolVersion;
     private HashSet<string> _capabilities = new(StringComparer.Ordinal);
     private RemoteEventSubscription _eventSubscription = new();
+    // The scope a registered desktop stream is known to hold; an identical update is not re-sent.
+    private RemoteEventSubscription? _confirmedSubscription;
+    // The scope the current stream request carries. The desktop registers the stream only while it
+    // builds the bootstrap, so this is confirmed when the bootstrap arrives, not when it is sent.
+    private RemoteEventSubscription? _routeSubscription;
+    private long _routeEpoch;
+    private long _liveRouteEpoch = -1;
+    private bool _postedSinceRoute;
+    private CancellationTokenSource? _silenceDeadline;
     private bool _streamDesired;
     private long _streamGeneration;
+    private long _lastFrameTimestamp;
+    private long _receivedFrameCount;
     private volatile bool _hasCompatibleBootstrap;
     private bool _disposed;
 
@@ -80,7 +102,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         TimeSpan uploadDeadline,
         IRemoteRouteVerifier? routeVerifier = null,
         TimeSpan? commandConfirmationDeadline = null,
-        IRemoteDownloadStore? downloadStore = null)
+        IRemoteDownloadStore? downloadStore = null,
+        TimeProvider? time = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(requestDeadline, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(uploadDeadline, TimeSpan.Zero);
@@ -92,10 +115,12 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _uploadDeadline = uploadDeadline;
         _routeVerifier = routeVerifier ?? RemotePlatformServices.RouteVerifier;
         _downloadStore = downloadStore;
+        _time = time ?? TimeProvider.System;
+        Stats = new RemoteTransportStats(_time);
 
         var transport = handler ?? CreateDefaultHandler();
         _http = new HttpClient(
-            new RouteGuardHandler(transport, _routeVerifier),
+            new RouteGuardHandler(transport, _routeVerifier, Stats),
             disposeHandler: true);
 
         // The SSE response never completes, so the overall timeout has to be infinite; per-request
@@ -126,10 +151,46 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     public int ConnectedProtocolVersion => _compatibleProtocolVersion;
     public bool SupportsScopedEvents =>
         _capabilities.Contains(RemoteProtocol.Capabilities.ScopedEventsV1);
+    public bool SupportsInteractiveResponses =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.InteractiveResponsesV1);
     public bool SupportsCompactTranscript =>
         _capabilities.Contains(RemoteProtocol.Capabilities.CompactTranscriptV1);
     public bool SupportsFileSuggestions =>
         _capabilities.Contains(RemoteProtocol.Capabilities.FileSuggestionsV1);
+    public bool SupportsConditionalTranscript =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.ConditionalTranscriptV1);
+    public bool SupportsResumePing =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.ResumePingV1);
+
+    /// <summary>True once this host has proven a compatible protocol; a resume can skip the handshake.</summary>
+    public bool HasCompatibleBootstrap => _hasCompatibleBootstrap;
+
+    /// <summary>True while a live event stream is wanted and its pump is running.</summary>
+    public bool IsEventStreamActive => Volatile.Read(ref _streamDesired) && _streamTask is { IsCompleted: false };
+
+    /// <summary>Time since the last live frame, or null before the first one.</summary>
+    public TimeSpan? TimeSinceLastFrame
+    {
+        get
+        {
+            var timestamp = Interlocked.Read(ref _lastFrameTimestamp);
+            return timestamp == 0 ? null : _time.GetElapsedTime(timestamp);
+        }
+    }
+
+    /// <summary>Live frames received since this client was created, including pings.</summary>
+    public long ReceivedFrameCount => Interlocked.Read(ref _receivedFrameCount);
+
+    public RemoteTransportStats Stats { get; }
+
+    /// <summary>Decides reconnect pauses. The app installs its connection supervisor here.</summary>
+    public IRemoteReconnectPolicy ReconnectPolicy { get; set; } = FixedRetryPolicy.Instance;
+
+    /// <summary>
+    /// Snapshot sections the phone already holds, by version. Sent with each bootstrap so unchanged
+    /// sections are not shipped again.
+    /// </summary>
+    public Func<IReadOnlyDictionary<string, string>>? KnownSnapshotSections { get; set; }
 
     /// <summary>Raised for every SSE frame. Handlers are invoked off the UI thread.</summary>
     public event Action<RemoteEventFrame>? FrameReceived;
@@ -147,6 +208,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     {
         BaseUrl = NormalizeBaseUrl(baseUrl);
         Token = token;
+        lock (_subscriptionRequestGate)
+        {
+            _confirmedSubscription = null;
+            _liveRouteEpoch = -1;
+        }
         _hasCompatibleBootstrap = string.Equals(
             BaseUrl,
             _compatibleBaseUrl,
@@ -240,16 +306,37 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             return new RemotePairResponse { Error = RequestTimeoutMessage };
         }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return new RemotePairResponse { Error = ex.Message };
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new RemotePairResponse { Error = Describe(ex) };
         }
     }
 
-    public async Task<RemoteSnapshot?> GetSnapshotAsync(CancellationToken cancellationToken)
+    public Task<RemoteSnapshot?> GetSnapshotAsync(CancellationToken cancellationToken) =>
+        GetSnapshotAsync(known: null, cancellationToken);
+
+    /// <summary>
+    /// Fetches the snapshot. Sections named in <paramref name="known"/> at their current version
+    /// come back empty and are listed in <see cref="RemoteSnapshot.UnchangedSections"/>.
+    /// </summary>
+    public async Task<RemoteSnapshot?> GetSnapshotAsync(
+        IReadOnlyDictionary<string, string>? known,
+        CancellationToken cancellationToken)
     {
+        var route = RemoteProtocol.Routes.Snapshot;
+        if (known is { Count: > 0 }
+            && RemoteProtocol.SnapshotSections.FormatKnown(known) is { Length: > 0 } knownQuery)
+        {
+            route += $"?known={Uri.EscapeDataString(knownQuery)}";
+        }
+
         var snapshot = await GetAsync(
-                RemoteProtocol.Routes.Snapshot,
+                route,
                 RemoteJsonContext.Default.RemoteSnapshot,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -362,6 +449,19 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         int? beforeMessageIndex,
         int maxItems,
         CancellationToken cancellationToken)
+        => await GetTranscriptAsync(chatId, beforeMessageIndex, maxItems, knownVersion: null, cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Fetches one transcript window. For the latest window, <paramref name="knownVersion"/> names the
+    /// projection the phone already shows; an identical one returns <see cref="RemoteTranscript.IsUnchanged"/>.
+    /// </summary>
+    public async Task<RemoteTranscript?> GetTranscriptAsync(
+        Guid chatId,
+        int? beforeMessageIndex,
+        int maxItems,
+        string? knownVersion,
+        CancellationToken cancellationToken)
     {
         await _transcriptGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -375,12 +475,21 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             route += $"&limit={Math.Clamp(maxItems, 1, maximum)}";
             if (SupportsCompactTranscript)
                 route += "&mode=compact";
+            if (beforeMessageIndex is null
+                && SupportsConditionalTranscript
+                && knownVersion is { Length: > 0 and <= RemoteProtocol.MaxTranscriptVersionLength })
+            {
+                route += $"&known={Uri.EscapeDataString(knownVersion)}";
+            }
 
-            return await GetAsync(
+            var transcript = await GetAsync(
                     route,
                     RemoteJsonContext.Default.RemoteTranscript,
                     cancellationToken)
                 .ConfigureAwait(false);
+            if (transcript is not null)
+                Stats.RecordTranscript(transcript.IsUnchanged);
+            return transcript;
         }
         finally
         {
@@ -431,7 +540,9 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 cancellationToken)
             .ConfigureAwait(false);
         var result = firstAttempt.Result;
-        if (firstAttempt.IsAuthoritative || command.Action == RemoteProtocol.Actions.RevokeDevice)
+        if (firstAttempt.IsAuthoritative
+            || firstAttempt.IsGatewaySignInFailure
+            || command.Action == RemoteProtocol.Actions.RevokeDevice)
             return result;
         if (cancellationToken.IsCancellationRequested)
         {
@@ -527,6 +638,15 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 IsTimeout = true
             }, IsAuthoritative: false);
         }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return new CommandAttempt(new RemoteCommandResult
+            {
+                Error = ex.Message,
+                RequestId = requestId
+            }, IsAuthoritative: false, IsGatewaySignInFailure: true);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new CommandAttempt(new RemoteCommandResult
@@ -539,7 +659,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     private readonly record struct CommandAttempt(
         RemoteCommandResult Result,
-        bool IsAuthoritative);
+        bool IsAuthoritative,
+        bool IsGatewaySignInFailure = false);
 
     internal void MarkProtocolCompatibleForTests(
         int protocolVersion = RemoteProtocol.Version,
@@ -587,7 +708,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _hasCompatibleBootstrap = false;
     }
 
-    private string BuildEventsRoute()
+    private string BuildEventsRoute(out long routeEpoch)
     {
         var subscription = Volatile.Read(ref _eventSubscription);
         var query = new List<string>
@@ -600,18 +721,48 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         };
         if (subscription.ChatId is { } chatId && chatId != Guid.Empty)
             query.Add($"chatId={chatId}");
+        if (subscription.StreamIntervalMs > 0)
+            query.Add($"streamMs={subscription.StreamIntervalMs}");
+        if (subscription.CompactStatus)
+            query.Add("compactStatus=true");
+        if (subscription.ChatRowPatches)
+            query.Add("rowPatches=true");
+        if (KnownSnapshotSections?.Invoke() is { Count: > 0 } known
+            && RemoteProtocol.SnapshotSections.FormatKnown(known) is { Length: > 0 } knownQuery)
+        {
+            query.Add($"known={Uri.EscapeDataString(knownQuery)}");
+        }
+
+        lock (_subscriptionRequestGate)
+        {
+            _routeSubscription = subscription.Copy();
+            _routeEpoch++;
+            _postedSinceRoute = false;
+            _confirmedSubscription = null;
+            routeEpoch = _routeEpoch;
+        }
+
         return $"{RemoteProtocol.Routes.Events}?{string.Join('&', query)}";
     }
 
-    private static RemoteEventSubscription CopySubscription(RemoteEventSubscription subscription) => new()
+    /// <summary>
+    /// The stream's bootstrap proves the desktop registered it with the route's scope, unless an
+    /// update was posted while it registered: that one may or may not have reached it.
+    /// </summary>
+    private void ConfirmRouteSubscription(long routeEpoch)
     {
-        Generation = subscription.Generation,
-        ChatId = subscription.ChatId,
-        IncludeChatList = subscription.IncludeChatList,
-        IncludeLibrary = subscription.IncludeLibrary,
-        CompactTranscript = subscription.CompactTranscript,
-        IsForeground = subscription.IsForeground
-    };
+        lock (_subscriptionRequestGate)
+        {
+            if (routeEpoch != _routeEpoch)
+                return;
+
+            _liveRouteEpoch = routeEpoch;
+            _confirmedSubscription = _postedSinceRoute ? null : _routeSubscription?.Copy();
+        }
+    }
+
+    private static RemoteEventSubscription CopySubscription(RemoteEventSubscription subscription) =>
+        subscription.Copy();
 
     private bool TryStoreEventSubscription(RemoteEventSubscription subscription)
     {
@@ -626,6 +777,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     Interlocked.CompareExchange(ref _eventSubscription, replacement, current),
                     current))
             {
+                if (current.IsForeground != replacement.IsForeground)
+                    RearmSilenceDeadline();
                 return true;
             }
         }
@@ -736,7 +889,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SetState(RemoteLinkState.Error, Describe(ex));
+            SetExceptionFailure(ex);
             return null;
         }
     }
@@ -870,6 +1023,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             {
                 return null;
             }
+            catch (RemoteGatewaySignInException ex)
+            {
+                SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+                return null;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Trace.TraceWarning($"[Mobile] Inline image download failed: {ex}");
@@ -947,6 +1105,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
         catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
         {
+            return null;
+        }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
             return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1120,6 +1283,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             return new RemoteUploadResponse { Error = RequestTimeoutMessage };
         }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return new RemoteUploadResponse { Error = ex.Message };
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new RemoteUploadResponse { Error = Describe(ex) };
@@ -1185,6 +1353,22 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             return;
         }
 
+        // Repeating a scope the desktop's registered stream already holds only wakes both radios.
+        // A scope sent before that stream is registered, or one whose request may not have been
+        // applied, is not trusted; while this request travels, nothing is, so a quick return to the
+        // previous scope is sent too. Generations stay monotonic either way.
+        long sentRouteEpoch;
+        bool sentToLiveStream;
+        lock (_subscriptionRequestGate)
+        {
+            if (_confirmedSubscription is { } confirmed && confirmed.HasSameScope(subscription))
+                return;
+            _confirmedSubscription = null;
+            _postedSinceRoute = true;
+            sentRouteEpoch = _routeEpoch;
+            sentToLiveStream = _liveRouteEpoch == _routeEpoch;
+        }
+
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             BaseUrl + RemoteProtocol.Routes.Subscription)
@@ -1194,6 +1378,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         ApplyAuth(request);
         using var deadline = CreateDeadline(cancellationToken, _requestDeadline);
         var restartStream = false;
+        var delivered = false;
         try
         {
             using var response = await _http
@@ -1210,6 +1395,10 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 Trace.TraceWarning($"[Mobile] Subscription update failed: {(int)response.StatusCode}");
                 restartStream = true;
             }
+            else
+            {
+                delivered = true;
+            }
         }
         catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
         {
@@ -1220,10 +1409,35 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             return;
         }
+        catch (RemoteGatewaySignInException ex)
+        {
+            SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+            return;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Trace.TraceWarning($"[Mobile] Subscription update failed: {ex.Message}");
             restartStream = true;
+        }
+        finally
+        {
+            lock (_subscriptionRequestGate)
+            {
+                if (!delivered)
+                {
+                    // The desktop may or may not hold this scope now; the next update must be sent.
+                    _confirmedSubscription = null;
+                }
+                else if (sentToLiveStream
+                         && sentRouteEpoch == _routeEpoch
+                         && _liveRouteEpoch == sentRouteEpoch
+                         && subscription.Generation == Volatile.Read(ref _eventSubscription).Generation)
+                {
+                    // Only the newest scope is confirmed: the desktop ignores older generations, so an
+                    // older request answered while a newer one travels says nothing about its scope.
+                    _confirmedSubscription = subscription.Copy();
+                }
+            }
         }
 
         if (restartStream && !cancellationToken.IsCancellationRequested && !_disposed && _streamDesired)
@@ -1248,6 +1462,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             _streamDesired = false;
             _streamGeneration++;
             await StopEventStreamCoreAsync().ConfigureAwait(false);
+            lock (_subscriptionRequestGate)
+            {
+                _confirmedSubscription = null;
+                _liveRouteEpoch = -1;
+            }
             SetState(RemoteLinkState.Disconnected, null);
         }
         finally
@@ -1294,17 +1513,25 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     private async Task RunEventStreamAsync(CancellationToken cancellationToken)
     {
-        var backoff = TimeSpan.FromSeconds(1);
+        var failures = 0;
 
         while (!cancellationToken.IsCancellationRequested)
         {
+            var connected = false;
             try
             {
                 SetState(RemoteLinkState.Connecting, null);
-                await PumpEventsAsync(cancellationToken).ConfigureAwait(false);
+                await PumpEventsAsync(
+                        () =>
+                        {
+                            connected = true;
+                            Stats.RecordStreamConnected();
+                            ReconnectPolicy.OnConnected();
+                        },
+                        cancellationToken)
+                    .ConfigureAwait(false);
 
                 // A clean end-of-stream means the desktop closed the connection: reconnect promptly.
-                backoff = TimeSpan.FromSeconds(1);
                 SetState(RemoteLinkState.Disconnected, "Lumi closed the connection.");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1316,29 +1543,44 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
                 return;
             }
+            catch (RemoteGatewaySignInException ex)
+            {
+                SetState(RemoteLinkState.GatewaySignInRequired, ex.Message);
+                return;
+            }
+            catch (RemoteProtocolMismatchException ex)
+            {
+                // Retrying cannot change the desktop's version; wait for a resume or Retry instead.
+                SetState(RemoteLinkState.Error, ex.Message);
+                return;
+            }
             catch (Exception ex)
             {
                 Trace.TraceWarning($"[Mobile] Event stream failed: {ex.Message}");
+                Stats.RecordStreamFailed();
                 SetState(RemoteLinkState.Error, Describe(ex));
             }
 
+            // A connection that reached Live starts a new streak: its first retry is the quickest.
+            failures = connected ? 1 : failures + 1;
+            var delay = ReconnectPolicy.NextDelay(failures);
+            if (delay is null)
+                SetState(RemoteLinkState.Offline, StateMessage);
+
             try
             {
-                await Task.Delay(backoff, cancellationToken).ConfigureAwait(false);
+                await ReconnectPolicy.WaitAsync(delay, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 return;
             }
-
-            // Back off gently so a sleeping phone does not hammer the LAN, but stay responsive.
-            backoff = TimeSpan.FromMilliseconds(Math.Min(backoff.TotalMilliseconds * 2, 10_000));
         }
     }
 
-    private async Task PumpEventsAsync(CancellationToken cancellationToken)
+    private async Task PumpEventsAsync(Action onBootstrap, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + BuildEventsRoute());
+        using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + BuildEventsRoute(out var routeEpoch));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         ApplyAuth(request);
 
@@ -1365,18 +1607,27 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 if (frames.Push(line) is not { } frame)
                     return;
 
+                Interlocked.Exchange(ref _lastFrameTimestamp, _time.GetTimestamp());
+                Interlocked.Increment(ref _receivedFrameCount);
+                Stats.RecordFrame(frame.Event, frame.Data.Length);
                 if (awaitingBootstrapSnapshot)
                 {
                     if (frame.Event != RemoteProtocol.Events.Snapshot
                         || JsonSerializer.Deserialize(
                                frame.Data,
                                RemoteJsonContext.Default.RemoteSnapshot) is not { } snapshot
-                        || !IsSupportedProtocol(snapshot.ProtocolVersion)
-                        || !RemoteProtocol.HasRequiredCapabilities(snapshot.Capabilities)
                         || snapshot.IsPartial)
                     {
                         _hasCompatibleBootstrap = false;
                         throw new InvalidDataException("Lumi did not send a valid bootstrap snapshot.");
+                    }
+
+                    if (!IsSupportedProtocol(snapshot.ProtocolVersion)
+                        || !RemoteProtocol.HasRequiredCapabilities(snapshot.Capabilities))
+                    {
+                        InvalidateCompatibility(BaseUrl ?? "");
+                        throw new RemoteProtocolMismatchException(
+                            $"This phone requires Lumi remote protocol {RemoteProtocol.Version} with scoped events.");
                     }
 
                     _compatibleBaseUrl = BaseUrl;
@@ -1384,7 +1635,10 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     ApplyCapabilities(snapshot.Capabilities);
                     _hasCompatibleBootstrap = true;
                     awaitingBootstrapSnapshot = false;
+                    Stats.RecordBootstrap(snapshot.UnchangedSections?.Count ?? 0);
+                    ConfirmRouteSubscription(routeEpoch);
                     SetState(RemoteLinkState.Connected, null);
+                    onBootstrap();
                     StreamFrameReceived?.Invoke(frame, true);
                     FrameReceived?.Invoke(frame);
                     return;
@@ -1399,7 +1653,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             throw new InvalidDataException("Lumi closed the stream before the bootstrap snapshot.");
     }
 
-    private static async Task ReadEventLinesAsync(
+    private async Task ReadEventLinesAsync(
         Stream stream,
         Action<string> consumeLine,
         CancellationToken cancellationToken)
@@ -1412,12 +1666,17 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             leaveOpen: true);
         var buffer = ArrayPool<char>.Shared.Rent(4096);
         var line = new StringBuilder();
+        // One silence timer per stream, re-armed before each read, instead of a new linked source
+        // and timer for every chunk of a busy stream.
+        using var silence = new CancellationTokenSource(Timeout.InfiniteTimeSpan, _time);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, silence.Token);
+        lock (_subscriptionRequestGate)
+            _silenceDeadline = silence;
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                deadline.CancelAfter(EventSilenceDeadline);
+                silence.CancelAfter(SilenceDeadline);
                 int read;
                 try
                 {
@@ -1439,9 +1698,10 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     {
                         if (line.Length > 0 && line[^1] == '\r')
                             line.Length--;
-                        if (Encoding.UTF8.GetByteCount(line.ToString()) > RemoteProtocol.MaxSseLineBytes)
+                        var text = line.ToString();
+                        if (Encoding.UTF8.GetByteCount(text) > RemoteProtocol.MaxSseLineBytes)
                             throw new InvalidDataException("SSE line is too large.");
-                        consumeLine(line.ToString());
+                        consumeLine(text);
                         line.Clear();
                         continue;
                     }
@@ -1457,7 +1717,35 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
         finally
         {
+            lock (_subscriptionRequestGate)
+            {
+                if (ReferenceEquals(_silenceDeadline, silence))
+                    _silenceDeadline = null;
+            }
+
             ArrayPool<char>.Shared.Return(buffer);
+        }
+    }
+
+    /// <summary>
+    /// The desktop pings a foreground phone every minute, so silence means a dead link. It writes
+    /// nothing to a backgrounded phone on purpose; that silence must not end a kept stream.
+    /// </summary>
+    private TimeSpan SilenceDeadline =>
+        Volatile.Read(ref _eventSubscription).IsForeground ? EventSilenceDeadline : Timeout.InfiniteTimeSpan;
+
+    private void RearmSilenceDeadline()
+    {
+        lock (_subscriptionRequestGate)
+        {
+            try
+            {
+                _silenceDeadline?.CancelAfter(SilenceDeadline);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The stream ended while the subscription changed.
+            }
         }
     }
 
@@ -1493,6 +1781,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     GetResponseLimit(request.RequestUri?.AbsolutePath),
                     deadline.Token)
                 .ConfigureAwait(false);
+            Stats.RecordResponseBytes(request.RequestUri?.AbsolutePath ?? "", body.Length);
             if (!response.IsSuccessStatusCode)
             {
                 SetRequestFailure(DescribeHttpFailure(response, body));
@@ -1513,7 +1802,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SetState(RemoteLinkState.Error, Describe(ex));
+            SetExceptionFailure(ex);
             return default;
         }
     }
@@ -1603,14 +1892,18 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     private sealed class RouteGuardHandler(
         HttpMessageHandler innerHandler,
-        IRemoteRouteVerifier routeVerifier) : DelegatingHandler(innerHandler)
+        IRemoteRouteVerifier routeVerifier,
+        RemoteTransportStats stats) : DelegatingHandler(innerHandler)
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             if (request.RequestUri is { } uri)
+            {
                 RemoteRouteSecurity.EnsureTrusted(uri, routeVerifier);
+                stats.RecordRequest(uri.AbsolutePath);
+            }
 
             return base.SendAsync(request, cancellationToken);
         }
@@ -1640,6 +1933,13 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         StateChanged?.Invoke(state, message);
     }
 
+    private void SetExceptionFailure(Exception exception) =>
+        SetState(
+            exception is RemoteGatewaySignInException
+                ? RemoteLinkState.GatewaySignInRequired
+                : RemoteLinkState.Error,
+            Describe(exception));
+
     private void SetRequestFailure(string message)
     {
         // A route-level 404/500 does not mean the live SSE transport disconnected. Preserve the
@@ -1655,6 +1955,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     private static string Describe(Exception ex) => ex switch
     {
+        RemoteGatewaySignInException => ex.Message,
         HttpRequestException => "Can't reach Lumi. Check that your PC is awake and on the same Wi-Fi.",
         TaskCanceledException => RequestTimeoutMessage,
         _ => ex.Message

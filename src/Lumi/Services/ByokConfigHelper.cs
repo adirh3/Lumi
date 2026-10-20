@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using GitHub.Copilot;
@@ -17,6 +18,18 @@ public sealed record SessionModelRoute(
 {
     public bool IsByok => Provider is not null;
 }
+
+public enum ByokTokenLimitWarningKind
+{
+    LongContextWindowBelowDefault,
+    TokenBudgetExceedsContextWindow
+}
+
+public sealed record ByokTokenLimitWarning(
+    ByokTokenLimitWarningKind Kind,
+    string? ContextTier = null,
+    long? ConfiguredTokenBudget = null,
+    int? ContextWindowTokens = null);
 
 /// <summary>
 /// Helper for Lumi's BYOK2 (Endpoint + Models) configuration.
@@ -56,6 +69,10 @@ public static class ByokConfigHelper
     public static bool IsByokModel(string? modelId)
         => !string.IsNullOrWhiteSpace(modelId)
            && modelId.StartsWith(TokenPrefix, StringComparison.Ordinal);
+
+    /// <summary>True for a connection that uses a ChatGPT plan through Sign in with ChatGPT.</summary>
+    public static bool IsChatGptEndpoint(ByokEndpoint? endpoint)
+        => string.Equals(endpoint?.ConnectionProviderId, ProviderCatalog.ChatGptId, StringComparison.Ordinal);
 
     /// <summary>Builds the canonical token for a model entry.</summary>
     public static string BuildModelToken(ByokModel model) => $"{TokenPrefix}{model.Id}";
@@ -120,6 +137,16 @@ public static class ByokConfigHelper
         model.EndpointId = (model.EndpointId ?? string.Empty).Trim();
         model.ModelId = (model.ModelId ?? string.Empty).Trim();
         model.DisplayName = (model.DisplayName ?? string.Empty).Trim();
+        model.SupportedReasoningEfforts = (model.SupportedReasoningEfforts ?? [])
+            .Where(static effort => !string.IsNullOrWhiteSpace(effort))
+            .Select(static effort => effort.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var defaultEffort = model.DefaultReasoningEffort?.Trim();
+        model.DefaultReasoningEffort = model.SupportedReasoningEfforts.FirstOrDefault(effort =>
+            string.Equals(effort, defaultEffort, StringComparison.OrdinalIgnoreCase));
+        model.DefaultContextWindowTokens = NormalizePositiveTokenLimit(model.DefaultContextWindowTokens);
+        model.LongContextWindowTokens = NormalizePositiveTokenLimit(model.LongContextWindowTokens);
         // Advanced token/rate limits: negative or zero values are meaningless (0 RPM means
         // "unlimited", not "never allow"), so normalize them to null ("inherit default").
         // This keeps persisted JSON tidy and lets the rate limiter treat null as a pure
@@ -250,6 +277,8 @@ public static class ByokConfigHelper
     /// </param>
     public static string? ResolveApiKey(ByokEndpoint endpoint, ISecureKeyStore? keyStore = null)
     {
+        if (endpoint.CredentialExpiresAt is { } expiresAt && expiresAt <= DateTimeOffset.UtcNow)
+            throw new InvalidOperationException(Lumi.Localization.Loc.Get("EasyConnect_Expired"));
         if (endpoint.ApiKeyMode == ByokApiKeyMode.None)
             return null;
 
@@ -271,7 +300,7 @@ public static class ByokConfigHelper
         return ResolveApiKeyFromEnvironment(endpoint);
     }
 
-    private static string? ResolveApiKeyFromEnvironment(ByokEndpoint endpoint)
+    internal static string? ResolveApiKeyFromEnvironment(ByokEndpoint endpoint)
     {
         if (!string.IsNullOrWhiteSpace(endpoint.ApiKeyEnvVar))
         {
@@ -359,6 +388,16 @@ public static class ByokConfigHelper
         if (validationError is not null)
             throw new InvalidOperationException($"Invalid BYOK endpoint configuration: {validationError}");
 
+        if (IsChatGptEndpoint(endpoint))
+        {
+            // The plan's renewable token stays inside Lumi: sessions reach ChatGPT through the bridge.
+            if (endpoint.CredentialExpiresAt is { } signInExpiry && signInExpiry <= DateTimeOffset.UtcNow)
+                throw new InvalidOperationException(Lumi.Localization.Loc.Get("ChatGpt_SignInExpired"));
+            var bridged = ChatGptPlanBridge.Shared.CreateProviderConfig(endpoint, keyStore);
+            bridged.MaxPromptTokens = model is null ? null : NormalizePositiveTokenLimit(model.MaxPromptTokens);
+            return bridged;
+        }
+
         // Resolve the API key ONCE and reuse it everywhere. This matters for correctness, not
         // just perf: a ${apiKey} header placeholder must resolve to the EXACT same value as
         // pc.ApiKey (the SDK sends the latter as 'Authorization: Bearer'). Resolving twice would
@@ -429,7 +468,7 @@ public static class ByokConfigHelper
     /// is the already-resolved endpoint API key (computed once by the caller) so a header using
     /// <c>${apiKey}</c> is guaranteed to match the <c>Authorization: Bearer</c> key the SDK sends.
     /// </summary>
-    private static bool TryResolveHeaderValue(string rawValue, string? resolvedKey, out string resolvedValue)
+    internal static bool TryResolveHeaderValue(string rawValue, string? resolvedKey, out string resolvedValue)
     {
         var value = rawValue ?? string.Empty;
         var trimmed = value.Trim();
@@ -476,6 +515,9 @@ public static class ByokConfigHelper
         => new()
         {
             Id = endpoint.Id,
+            ConnectionProviderId = endpoint.ConnectionProviderId,
+            CredentialExpiresAt = endpoint.CredentialExpiresAt,
+            Account = endpoint.Account?.Clone(),
             Name = endpoint.Name,
             ProviderType = endpoint.ProviderType,
             BaseUrl = endpoint.BaseUrl,
@@ -498,10 +540,106 @@ public static class ByokConfigHelper
             ModelId = model.ModelId,
             DisplayName = model.DisplayName,
             IsEnabled = model.IsEnabled,
+            SupportsReasoningEffort = model.SupportsReasoningEffort,
+            SupportedReasoningEfforts = model.SupportedReasoningEfforts?.ToList() ?? [],
+            DefaultReasoningEffort = model.DefaultReasoningEffort,
+            DefaultContextWindowTokens = model.DefaultContextWindowTokens,
+            LongContextWindowTokens = model.LongContextWindowTokens,
             MaxOutputTokens = model.MaxOutputTokens,
             MaxPromptTokens = model.MaxPromptTokens,
             MaxRequestsPerMinute = model.MaxRequestsPerMinute,
         };
+
+    private static ByokModel NormalizeModelCopy(ByokModel model)
+    {
+        var copy = CloneModel(model);
+        NormalizeModel(copy);
+        return copy;
+    }
+
+    public static GitHub.Copilot.Rpc.ModelCapabilitiesOverride? BuildModelCapabilitiesOverride(
+        ByokModel? model,
+        string? contextTier)
+    {
+        if (model is null)
+            return null;
+
+        var normalized = NormalizeModelCopy(model);
+        var maxContextWindowTokens = string.Equals(
+                contextTier,
+                ModelContextWindowTiers.LongContext,
+                StringComparison.OrdinalIgnoreCase)
+            ? normalized.LongContextWindowTokens
+            : normalized.DefaultContextWindowTokens;
+        var supports = normalized.SupportsReasoningEffort
+            ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideSupports { ReasoningEffort = true }
+            : null;
+        var limits = maxContextWindowTokens is > 0
+            ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideLimits
+            {
+                MaxContextWindowTokens = maxContextWindowTokens
+            }
+            : null;
+
+        return supports is null && limits is null
+            ? null
+            : new GitHub.Copilot.Rpc.ModelCapabilitiesOverride
+            {
+                Supports = supports,
+                Limits = limits
+            };
+    }
+
+    /// <summary>Finds configured BYOK token limits that conflict with declared context windows.</summary>
+    public static IReadOnlyList<ByokTokenLimitWarning> GetTokenLimitWarnings(ByokModel? model)
+    {
+        if (model is null)
+            return [];
+
+        var normalized = NormalizeModelCopy(model);
+        var warnings = new List<ByokTokenLimitWarning>();
+
+        if (normalized.DefaultContextWindowTokens is int defaultWindow
+            && normalized.LongContextWindowTokens is int longWindow
+            && longWindow < defaultWindow)
+        {
+            warnings.Add(new(ByokTokenLimitWarningKind.LongContextWindowBelowDefault));
+        }
+
+        long? configuredTokenBudget = null;
+        if (normalized.MaxPromptTokens is int maxPromptTokens
+            && normalized.MaxOutputTokens is int maxOutputTokens)
+        {
+            configuredTokenBudget = (long)maxPromptTokens + maxOutputTokens;
+        }
+        else if (normalized.MaxPromptTokens is int promptTokens)
+        {
+            configuredTokenBudget = promptTokens;
+        }
+        else if (normalized.MaxOutputTokens is int outputTokens)
+        {
+            configuredTokenBudget = outputTokens;
+        }
+
+        if (configuredTokenBudget is not long tokenBudget)
+            return warnings;
+
+        AddContextWindowWarning(ModelContextWindowTiers.Default, normalized.DefaultContextWindowTokens);
+        AddContextWindowWarning(ModelContextWindowTiers.LongContext, normalized.LongContextWindowTokens);
+        return warnings;
+
+        void AddContextWindowWarning(string tier, int? contextWindowTokens)
+        {
+            if (contextWindowTokens is not int contextWindow || tokenBudget <= contextWindow)
+                return;
+
+            warnings.Add(new(
+                ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow,
+                tier,
+                tokenBudget,
+                contextWindow));
+        }
+    }
 
     /// <summary>
     /// Computes a stable, comparable signature for a <see cref="ProviderConfig"/> that
@@ -512,11 +650,17 @@ public static class ByokConfigHelper
     /// The ApiKey/BearerToken values are hashed (not stored in cleartext) so the signature
     /// is safe to log for diagnostics.
     /// </summary>
-    public static string? BuildProviderSignature(ProviderConfig? provider)
+    public static string? BuildProviderSignature(
+        ProviderConfig? provider,
+        ByokModel? model = null)
     {
         if (provider is null) return null;
 
-        var apiKeyHash = HashOpaqueSecret(provider.ApiKey);
+        // A ChatGPT connection is served by Lumi's loopback bridge, whose port and key change with
+        // every launch. Resuming passes the current ones, so they must not make a chat's session look
+        // bound to another provider: the bridge route's connection id stands in for both.
+        var bridged = ChatGptPlanBridge.TryGetBridgedEndpoint(provider.BaseUrl, out var bridgedEndpoint);
+        var apiKeyHash = bridged ? "" : HashOpaqueSecret(provider.ApiKey);
         var bearerTokenHash = HashOpaqueSecret(provider.BearerToken);
         var azureApiVersion = provider.Azure?.ApiVersion?.Trim() ?? "";
         var headers = provider.Headers is null
@@ -533,10 +677,10 @@ public static class ByokConfigHelper
         var maxOutputTokens = provider.MaxOutputTokens?.ToString() ?? "";
         var maxPromptTokens = provider.MaxPromptTokens?.ToString() ?? "";
 
-        return string.Join(
+        var signature = string.Join(
             "|",
             provider.Type?.Trim() ?? "",
-            provider.BaseUrl?.Trim() ?? "",
+            bridged ? $"chatgpt-bridge:{bridgedEndpoint}" : provider.BaseUrl?.Trim() ?? "",
             provider.WireApi?.Trim() ?? "",
             apiKeyHash,
             bearerTokenHash,
@@ -544,6 +688,35 @@ public static class ByokConfigHelper
             headers,
             $"out={maxOutputTokens}",
             $"in={maxPromptTokens}");
+
+        if (model is null)
+            return signature;
+
+        var normalizedModel = NormalizeModelCopy(model);
+        if (!normalizedModel.SupportsReasoningEffort
+            && normalizedModel.DefaultContextWindowTokens is not > 0
+            && normalizedModel.LongContextWindowTokens is not > 0)
+        {
+            return signature;
+        }
+
+        static string EncodeSignatureValue(string? value)
+            => value is null ? "-" : $"{value.Length}:{value}";
+
+        var supportedEfforts = normalizedModel.SupportsReasoningEffort
+            ? normalizedModel.SupportedReasoningEfforts
+            : [];
+        var supportedEffortSignature = string.Concat(
+            supportedEfforts.Select(static effort => $"{effort.Length}:{effort}"));
+        var modelCapabilitiesSignature = string.Join(
+            ";",
+            $"reasoning={normalizedModel.SupportsReasoningEffort}",
+            $"efforts={supportedEfforts.Count}:{supportedEffortSignature}",
+            $"default={EncodeSignatureValue(normalizedModel.SupportsReasoningEffort ? normalizedModel.DefaultReasoningEffort : null)}",
+            $"defaultContext={normalizedModel.DefaultContextWindowTokens?.ToString(CultureInfo.InvariantCulture) ?? "-"}",
+            $"longContext={normalizedModel.LongContextWindowTokens?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
+
+        return $"{signature}|capabilities={modelCapabilitiesSignature}";
     }
 
     /// <summary>
@@ -592,6 +765,17 @@ public static class ByokConfigHelper
         endpoint = foundEndpoint;
         actualModelId = foundModel.ModelId;
         return true;
+    }
+
+    /// <summary>Returns true when an SDK-reported model id matches the selected BYOK model's wire id.</summary>
+    public static bool MatchesWireModelId(
+        UserSettings settings,
+        string? selectedModel,
+        string? reportedModelId)
+    {
+        return !string.IsNullOrWhiteSpace(reportedModelId)
+            && TryResolveModel(settings, selectedModel, out _, out _, out var wireModelId)
+            && string.Equals(wireModelId, reportedModelId, StringComparison.Ordinal);
     }
 
     /// <summary>

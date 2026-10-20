@@ -1,9 +1,13 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
+using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Raw;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using StrataTheme.Controls;
@@ -135,7 +139,9 @@ public sealed class StrataThinkTests
 
             var expandedContent = Assert.IsType<Border>(think.DisplayedContent);
             Assert.True(expandedContent.Bounds.Height > 0);
-            Assert.DoesNotContain(think.GetVisualDescendants(), control => control is ScrollViewer);
+            var contentScrollViewer = Assert.Single(think.GetVisualDescendants().OfType<ScrollViewer>());
+            Assert.InRange(contentScrollViewer.Bounds.Height, 1, 240);
+            Assert.True(contentScrollViewer.Extent.Height > contentScrollViewer.Viewport.Height);
 
             SetTranscriptScrollingState(shell, true);
             await PumpAsync();
@@ -149,6 +155,79 @@ public sealed class StrataThinkTests
             Assert.All(hitTestAncestors, control => Assert.True(control.IsHitTestVisible));
 
             window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task GrowingReasoning_StaysCappedAndScrollsIndependentlyOfTranscript()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var content = new Border { Height = 60, Background = Brushes.Transparent };
+            var think = new StrataThink
+            {
+                Label = "Reasoning",
+                IsActive = true,
+                IsExpanded = true,
+                Content = content,
+            };
+            var transcript = new ScrollViewer
+            {
+                Content = new StackPanel
+                {
+                    Children = { think, new Border { Height = 500 } }
+                }
+            };
+            var window = new Window { Width = 640, Height = 400, Content = transcript };
+            window.Show();
+
+            try
+            {
+                await PumpAsync();
+                window.UpdateLayout();
+
+                var contentScrollViewer = Assert.Single(think.GetVisualDescendants().OfType<ScrollViewer>());
+                var scrollbar = contentScrollViewer.GetVisualDescendants().OfType<ScrollBar>()
+                    .Single(control => control.Name == "PART_VerticalScrollBar");
+                Assert.Equal(240, think.MaxContentHeight);
+                Assert.InRange(contentScrollViewer.Bounds.Height, 1, 239);
+                Assert.False(scrollbar.IsVisible);
+
+                content.Height = 920;
+                await Task.Delay(450);
+                await PumpAsync();
+                window.UpdateLayout();
+
+                Assert.Equal(240, contentScrollViewer.Bounds.Height, precision: 1);
+                Assert.InRange(think.Bounds.Height, 240, 300);
+                Assert.True(scrollbar.IsVisible);
+                Assert.True(contentScrollViewer.Extent.Height > contentScrollViewer.Viewport.Height);
+
+                var wheelPoint = contentScrollViewer.TranslatePoint(
+                    new Point(contentScrollViewer.Bounds.Width / 2, contentScrollViewer.Bounds.Height / 2), window)!.Value;
+                window.MouseWheel(wheelPoint, new Vector(0, -1), RawInputModifiers.None);
+                await PumpAsync();
+
+                Assert.True(contentScrollViewer.Offset.Y > 0);
+                Assert.Equal(0, transcript.Offset.Y);
+
+                think.IsActive = false;
+                await PumpAsync();
+                window.UpdateLayout();
+                Assert.Equal(240, contentScrollViewer.Bounds.Height, precision: 1);
+
+                think.MaxContentHeight = double.PositiveInfinity;
+                await PumpAsync();
+                window.UpdateLayout();
+                Assert.Equal(920, contentScrollViewer.Bounds.Height, precision: 1);
+                Assert.False(scrollbar.IsVisible);
+            }
+            finally
+            {
+                window.Close();
+            }
         }, CancellationToken.None);
     }
 
@@ -264,6 +343,47 @@ public sealed class StrataThinkTests
             Assert.True(presenter.Bounds.Width > 0);
             Assert.True(think.Bounds.Width >= presenter.Bounds.Width - 1,
                 $"Expanded think width {think.Bounds.Width} should match presenter width {presenter.Bounds.Width}.");
+
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task FailedWork_TurnsItsIconTheDangerColourOnlyOnceItHasSettled()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var think = new StrataThink
+            {
+                Label = "Task plan",
+                Icon = StrataIcons.Checklist,
+                HasError = true,
+                IsActive = true,
+            };
+            var window = new Window { Width = 640, Height = 300, Content = think };
+            window.Show();
+            await PumpAsync();
+
+            var icon = think.GetVisualDescendants().OfType<StrataLineIcon>().Single(candidate => candidate.Name == "PART_Icon");
+            var working = icon.Foreground;
+            think.HasError = false;
+            await PumpAsync();
+
+            // A step that failed inside work still under way does not paint the working card red.
+            Assert.Same(working, icon.Foreground);
+
+            think.IsActive = false;
+            await PumpAsync();
+            var settled = icon.Foreground;
+            think.HasError = true;
+            await PumpAsync();
+
+            Assert.True(icon.TryFindResource("Brush.DangerDefault", icon.ActualThemeVariant, out var danger),
+                $"Brush.DangerDefault should resolve for theme {icon.ActualThemeVariant}.");
+            Assert.Same(danger, icon.Foreground);
+            Assert.NotSame(settled, icon.Foreground);
 
             window.Close();
         }, CancellationToken.None);

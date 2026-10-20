@@ -18,8 +18,8 @@ public sealed class LumiSkillProviderTests
     {
         var provider = CreateProvider([]);
 
-        Assert.Empty(await provider.ListAsync());
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => provider.ReadAsync("missing"));
+        Assert.Empty(await provider.ListSkillsAsync());
+        Assert.Null(await provider.ReadSkillAsync("missing"));
     }
 
     [Fact]
@@ -33,12 +33,12 @@ public sealed class LumiSkillProviderTests
         };
         var provider = CreateProvider([skill]);
 
-        var descriptor = Assert.Single(await provider.ListAsync());
+        var descriptor = Assert.Single(await provider.ListSkillsAsync());
         Assert.Equal("code-helper", descriptor.Name);
         Assert.Contains(skill.Name, descriptor.Description);
         Assert.DoesNotContain("BODY_ONLY_MARKER", descriptor.Description);
 
-        var markdown = await provider.ReadAsync("CODE-HELPER");
+        var markdown = await provider.ReadSkillAsync("CODE-HELPER");
         Assert.Equal(DataStore.BuildSkillMarkdown(skill, descriptor.Name, descriptor.Description), markdown);
         Assert.Contains("BODY_ONLY_MARKER", markdown);
     }
@@ -48,29 +48,28 @@ public sealed class LumiSkillProviderTests
     {
         var skill = new Skill { Name = "Writer", Description = "Before", Content = "old body" };
         var provider = CreateProvider([skill]);
-        var before = Assert.Single(await provider.ListAsync());
+        var before = Assert.Single(await provider.ListSkillsAsync());
 
         skill.Description = "After";
         skill.Content = "new body";
-        var beforeReload = await provider.ReadAsync(before.Name);
+        var beforeReload = await provider.ReadSkillAsync(before.Name);
         Assert.Contains("new body", beforeReload);
         Assert.Contains(DataStore.EncodeYamlScalar(before.Description), beforeReload);
 
-        var after = Assert.Single(await provider.ListAsync());
+        var after = Assert.Single(await provider.ListSkillsAsync());
         Assert.Contains("After", after.Description);
-        Assert.Contains(DataStore.EncodeYamlScalar(after.Description), await provider.ReadAsync(after.Name));
+        Assert.Contains(DataStore.EncodeYamlScalar(after.Description), await provider.ReadSkillAsync(after.Name));
     }
 
     [Fact]
-    public async Task DeletedSkill_FailsInsteadOfReturningStaleContent()
+    public async Task DeletedSkill_ReportsNotFoundInsteadOfReturningStaleContent()
     {
         var skills = new List<Skill> { new() { Name = "Temporary", Content = "Do not return after deletion." } };
         var provider = CreateProvider(skills);
-        var descriptor = Assert.Single(await provider.ListAsync());
+        var descriptor = Assert.Single(await provider.ListSkillsAsync());
         skills.Clear();
 
-        var error = await Assert.ThrowsAsync<KeyNotFoundException>(() => provider.ReadAsync(descriptor.Name));
-        Assert.Contains("deleted", error.Message);
+        Assert.Null(await provider.ReadSkillAsync(descriptor.Name));
     }
 
     [Fact]
@@ -84,7 +83,7 @@ public sealed class LumiSkillProviderTests
             new() { Name = "\u05db\u05ea\u05d9\u05d1\u05d4" },
         };
         var provider = CreateProvider(skills);
-        var descriptors = await provider.ListAsync();
+        var descriptors = await provider.ListSkillsAsync();
 
         Assert.Equal(skills.Count, descriptors.Select(descriptor => descriptor.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         foreach (var descriptor in descriptors)
@@ -112,11 +111,11 @@ public sealed class LumiSkillProviderTests
         ], isComplete: true);
         var provider = new LumiSkillProvider(
             _ => Task.FromResult<IReadOnlyList<Skill>>([skill]), snapshot);
-        var descriptor = Assert.Single(await provider.ListAsync());
+        var descriptor = Assert.Single(await provider.ListSkillsAsync());
 
         Assert.Equal($"code-helper-{skill.Id:N}", descriptor.Name);
         Assert.Same(skill, LumiSkillProvider.FindSkill([skill], descriptor.Name, snapshot));
-        Assert.Contains(skill.Content, await provider.ReadAsync(descriptor.Name));
+        Assert.Contains(skill.Content, await provider.ReadSkillAsync(descriptor.Name));
     }
 
     [Fact]
@@ -127,13 +126,13 @@ public sealed class LumiSkillProviderTests
         var result = new FeatureChangeResult("Saved", SkillIds: [skill.Id]);
         Assert.Equal("Saved", ChatViewModel.AppendNativeSkillInvocations(result, provider));
 
-        var descriptor = Assert.Single(await provider.ListAsync());
+        var descriptor = Assert.Single(await provider.ListSkillsAsync());
         skill.Name = "Renamed after advertisement";
         var beforeReload = ChatViewModel.AppendNativeSkillInvocations(result, provider);
         Assert.Contains($"skill({{\"skill\":\"{descriptor.Name}\"}})", beforeReload);
         Assert.DoesNotContain("renamed-after-advertisement", beforeReload);
 
-        var reloaded = Assert.Single(await provider.ListAsync());
+        var reloaded = Assert.Single(await provider.ListSkillsAsync());
         var afterReload = ChatViewModel.AppendNativeSkillInvocations(result, provider);
         Assert.Contains($"skill({{\"skill\":\"{reloaded.Name}\"}})", afterReload);
         Assert.DoesNotContain(descriptor.Name, afterReload);
@@ -144,7 +143,7 @@ public sealed class LumiSkillProviderTests
     public async Task LongDescription_IsBoundedWithoutChangingStoredData()
     {
         var skill = new Skill { Name = "Verbose", Description = new string('x', 1400), Content = "body" };
-        var descriptor = Assert.Single(await CreateProvider([skill]).ListAsync());
+        var descriptor = Assert.Single(await CreateProvider([skill]).ListSkillsAsync());
 
         Assert.Equal(1024, descriptor.Description.Length);
         Assert.Equal(1400, skill.Description.Length);
@@ -162,8 +161,8 @@ public sealed class LumiSkillProviderTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.ListAsync(cancellation.Token));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.ReadAsync("missing", cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.ListSkillsAsync(cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.ReadSkillAsync("missing", cancellation.Token));
         Assert.Equal(0, reads);
     }
 

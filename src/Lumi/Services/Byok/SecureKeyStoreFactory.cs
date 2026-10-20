@@ -3,14 +3,14 @@ using System;
 namespace Lumi.Services.Byok;
 
 /// <summary>
-/// Resolves the platform-appropriate <see cref="ISecureKeyStore"/>. Returns a single instance
-/// that reports <see cref="ISecureKeyStore.IsSupported"/> = <c>false</c> off-Windows so callers
-/// can construct it unconditionally and just hide/disable the credential-store UI when not
-/// supported.
+/// Resolves the platform-appropriate <see cref="ISecureKeyStore"/>. Native Keychain/Secret
+/// Service tools report unsupported when unavailable; no encrypted-file fallback is used.
 /// </summary>
 internal static class SecureKeyStoreFactory
 {
-    private static readonly ISecureKeyStore _instance = new WindowsCredentialKeyStore();
+    private static readonly ISecureKeyStore _instance = OperatingSystem.IsWindows()
+        ? new WindowsCredentialKeyStore()
+        : new NativeCredentialKeyStore();
 
     /// <summary>The shared key store. Always non-null; check <see cref="ISecureKeyStore.IsSupported"/>.</summary>
     public static ISecureKeyStore Instance => _instance;

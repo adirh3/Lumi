@@ -1,0 +1,122 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.CapabilityNoticeView"
+             x:DataType="vm:CapabilityNoticeViewModel"
+             x:CompileBindings="True">
+
+  <UserControl.Resources>
+    <StreamGeometry x:Key="Notice.Check">M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z</StreamGeometry>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <!-- Drops in from under the title bar with a little overshoot, and fades away without a jolt. -->
+    <Style Selector="Border#NoticeCard">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="translateY(-14px) scale(0.96)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border#NoticeCard.shown">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="none" />
+    </Style>
+
+    <!-- The capability's glyph settles in a beat after the card, like it was just handed over. -->
+    <Style Selector="Border#NoticeGlyph">
+      <Setter Property="RenderTransform" Value="scale(0.6) rotate(-12deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Delay="0:0:0.08" Duration="0:0:0.42" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border#NoticeCard.shown Border#NoticeGlyph">
+      <Setter Property="RenderTransform" Value="none" />
+    </Style>
+  </UserControl.Styles>
+
+  <Border x:Name="NoticeCard"
+          Classes.shown="{Binding IsShown}"
+          IsHitTestVisible="{Binding IsShown}"
+          IsEnabled="{Binding IsShown}"
+          MinWidth="320"
+          MaxWidth="600"
+          CornerRadius="16"
+          Background="{DynamicResource Brush.SurfaceOverlay}"
+          BoxShadow="0 12 36 0 #2E000000, 0 2 8 0 #14000000">
+    <Panel>
+      <!-- The same kind-coloured wash and outline as the capability's share card -->
+      <Border DataContext="{Binding Card}"
+              x:DataType="vm:CapabilityCardViewModel"
+              CornerRadius="16"
+              Background="{Binding CardBackground}"
+              BorderBrush="{Binding CardBorder}"
+              BorderThickness="1" />
+
+      <DockPanel Margin="10,10,12,10">
+        <Border x:Name="NoticeGlyph"
+                DataContext="{Binding Card}"
+                x:DataType="vm:CapabilityCardViewModel"
+                DockPanel.Dock="Left"
+                Width="40" Height="40"
+                CornerRadius="12"
+                Margin="0,0,12,0"
+                VerticalAlignment="Center"
+                Background="{Binding GlyphBackground}"
+                BorderBrush="{Binding GlyphBorder}"
+                BorderThickness="1">
+          <TextBlock Text="{Binding Glyph}"
+                     FontSize="20"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center" />
+        </Border>
+
+        <StackPanel DockPanel.Dock="Right"
+                    Orientation="Horizontal"
+                    Spacing="6"
+                    Margin="16,0,0,0"
+                    VerticalAlignment="Center"
+                    IsVisible="{Binding IsOffer}">
+          <Button x:Name="NoticePreviewButton"
+                  Classes="accent"
+                  Padding="14,6"
+                  MinHeight="0"
+                  Content="{loc:Str Notice_Preview}"
+                  Command="{Binding PreviewCommand}" />
+          <Button x:Name="NoticeDismissButton"
+                  Classes="subtle"
+                  Padding="10,6"
+                  MinHeight="0"
+                  Content="{loc:Str Notice_NotNow}"
+                  Command="{Binding DismissCommand}" />
+        </StackPanel>
+
+        <PathIcon DockPanel.Dock="Right"
+                  Data="{StaticResource Notice.Check}"
+                  Width="16" Height="16"
+                  Margin="16,0,4,0"
+                  VerticalAlignment="Center"
+                  Foreground="{DynamicResource Brush.SuccessDefault}"
+                  IsVisible="{Binding !IsOffer}" />
+
+        <StackPanel Spacing="1" VerticalAlignment="Center">
+          <TextBlock x:Name="NoticeTitle"
+                     Text="{Binding Title}"
+                     FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextPrimary}"
+                     TextTrimming="CharacterEllipsis" />
+          <TextBlock x:Name="NoticeDetail"
+                     Text="{Binding Detail}"
+                     Classes="caption secondary"
+                     TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </DockPanel>
+    </Panel>
+  </Border>
+</UserControl>

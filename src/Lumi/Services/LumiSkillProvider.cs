@@ -12,7 +12,7 @@ namespace Lumi.Services;
 /// <summary>Supplies Lumi's Markdown to the native skill tool without a filesystem identity.</summary>
 public sealed class LumiSkillProvider(
     Func<CancellationToken, Task<IReadOnlyList<Skill>>> getSkills,
-    CapabilitySnapshot? capabilities = null) : SkillProvider
+    CapabilitySnapshot? capabilities = null) : ISkillProvider
 {
     private sealed record Binding(Guid Id, SkillProviderDescriptor Descriptor);
     private readonly Func<CancellationToken, Task<IReadOnlyList<Skill>>> _getSkills =
@@ -21,7 +21,7 @@ public sealed class LumiSkillProvider(
     private IReadOnlyDictionary<string, Binding> _catalog =
         new Dictionary<string, Binding>(StringComparer.OrdinalIgnoreCase);
 
-    public override async Task<IReadOnlyList<SkillProviderDescriptor>> ListAsync(
+    public async Task<IReadOnlyList<SkillProviderDescriptor>> ListSkillsAsync(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -39,17 +39,18 @@ public sealed class LumiSkillProvider(
         return catalog.Values.Select(binding => binding.Descriptor).ToArray();
     }
 
-    public override async Task<string> ReadAsync(
+    public async Task<string?> ReadSkillAsync(
         string name,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Volatile.Read(ref _catalog).TryGetValue(name, out var binding))
-            throw new KeyNotFoundException($"Lumi skill '{name}' is not in this session's skill catalog.");
+            return null;
 
         var skills = await _getSkills(cancellationToken).ConfigureAwait(false);
-        var skill = skills.FirstOrDefault(candidate => candidate.Id == binding.Id)
-            ?? throw new KeyNotFoundException($"Lumi skill '{name}' was deleted.");
+        var skill = skills.FirstOrDefault(candidate => candidate.Id == binding.Id);
+        if (skill is null)
+            return null;
 
         // The header must match the advertised catalog, even if an edit happened before this read.
         return DataStore.BuildSkillMarkdown(

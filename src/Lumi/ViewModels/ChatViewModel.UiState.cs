@@ -42,6 +42,9 @@ public partial class ChatViewModel
     [ObservableProperty] private bool _sendWithEnter = true;
     [ObservableProperty] private bool _showAmbientPresence = true;
     [ObservableProperty] private bool _animatePresenceWhileWorking;
+
+    /// <summary>Multiplier on the presence glow's tuned brightness (Settings → Appearance).</summary>
+    [ObservableProperty] private double _presenceBrightness = 1.0;
     [ObservableProperty] private bool _isRecording;
     [ObservableProperty] private string? _selectedAgentName;
     [ObservableProperty] private string _selectedAgentGlyph = "◉";
@@ -60,10 +63,11 @@ public partial class ChatViewModel
     // ── Plan (server may still generate plans) ──
     [ObservableProperty] private bool _hasPlan;
     [ObservableProperty] private string? _planContent;
-    [ObservableProperty] private bool _isPlanOpen;
 
     partial void OnPlanContentChanged(string? value)
     {
+        RefreshWorkspacePlan();
+
         if (CurrentChat is null || string.Equals(CurrentChat.PlanContent, value, StringComparison.Ordinal))
             return;
 
@@ -92,7 +96,6 @@ public partial class ChatViewModel
     }
 
     // ── Skill preview (opened from a transcript skill chip) ──
-    [ObservableProperty] private bool _isSkillOpen;
     [ObservableProperty] private string? _skillPreviewContent;
     [ObservableProperty] private string? _skillPreviewTitle;
 
@@ -107,7 +110,11 @@ public partial class ChatViewModel
 
     // ── Coding Project / Git ──
     [ObservableProperty] private bool _isCodingProject;
-    partial void OnIsCodingProjectChanged(bool value) => OnPropertyChanged(nameof(ShowInfoStrip));
+    partial void OnIsCodingProjectChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowInfoStrip));
+        NotifyWorkspaceVisibilityChanged();
+    }
     [ObservableProperty] private string? _gitBranch;
     [ObservableProperty] private int _gitChangedFileCount;
     [ObservableProperty] private bool _isRefreshingGitStatus;
@@ -118,6 +125,8 @@ public partial class ChatViewModel
     private int _gitRefreshVersion;
     private string? _gitStatusDirectory;
     private CancellationTokenSource? _gitRefreshThrottleCts;
+    // Queued native Git work must not keep an evicted surface's transcript alive.
+    private readonly CancellationTokenSource _gitRefreshCts = new();
     private DateTime _lastLiveGitRefreshUtc = DateTime.MinValue;
     /// <summary>Minimum interval between live git status refreshes triggered by agent
     /// file edits, so the coding strip updates promptly without thrashing during bursts.</summary>
@@ -192,10 +201,6 @@ public partial class ChatViewModel
     public bool IsWelcomeVisible => CurrentChat is null;
     public bool IsChatVisible => CurrentChat is not null;
     public bool HasPendingAttachments => PendingAttachmentItems.Count > 0;
-    public bool HasProjectBadge => !string.IsNullOrWhiteSpace(ProjectBadgeText);
-    public bool HasAgentBadge => !string.IsNullOrWhiteSpace(AgentBadgeText);
-    public bool HasHeaderSubtitle => HasProjectBadge || HasAgentBadge;
-    public bool HasHeaderSubtitleSeparator => HasProjectBadge && HasAgentBadge;
     public bool ShowBrowserToggle => HasUsedBrowser;
 
     public event Action<Guid?>? ComposerProjectFilterRequested;
@@ -218,6 +223,20 @@ public partial class ChatViewModel
     private Dictionary<string, ModelOptionMetadata> _modelOptionMetadata = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// True once the authoritative (merge:false) SDK model catalog has been applied to this surface.
+    /// Startup injects synchronous BYOK entries first, so a non-empty capability map is not proof
+    /// that native models are resolvable yet.
+    /// </summary>
+    private bool _nativeModelCatalogLoaded;
+
+    /// <summary>
+    /// True once any supplementary (merge:true) BYOK catalog has been applied to this surface. The
+    /// local BYOK config is synchronous, so after it has spoken, a BYOK token absent from the map is
+    /// genuinely unknown rather than not-yet-loaded.
+    /// </summary>
+    private bool _byokModelCatalogLoaded;
+
+    /// <summary>
     /// Rich rows for the composer's model picker: the same models as <see cref="AvailableModels"/>,
     /// pinned favorites first, each carrying the metadata its badges render.
     /// <see cref="SelectedModel"/> stays a plain id — the picker resolves an option back to it.
@@ -229,43 +248,38 @@ public partial class ChatViewModel
     public string ModelUnpinToolTip => Loc.ModelPicker_Unpin;
 
     /// <summary>
+    /// "Using ChatGPT plan" while the selected model runs on a ChatGPT connection — OpenAI asks plan
+    /// usage to be visible beside the model selector, with a way to manage it. Null hides the note.
+    /// </summary>
+    public string? ModelPlanNote => UsesChatGptPlan(SelectedModel) ? Loc.Get("ChatGpt_UsingPlan") : null;
+
+    public string ModelPlanAction => Loc.Get("ChatGpt_ManageUsage");
+
+    private bool UsesChatGptPlan(string? model)
+    {
+        if (!ByokConfigHelper.TryParseModelToken(model, out var id))
+            return false;
+        var settings = _dataStore.Data.Settings;
+        return settings.ByokModels.FirstOrDefault(byok => byok.Id == id) is { } byokModel
+            && ByokConfigHelper.IsChatGptEndpoint(settings.ByokEndpoints.FirstOrDefault(endpoint => endpoint.Id == byokModel.EndpointId));
+    }
+
+    [RelayCommand]
+    private void OpenModelPlanUsage()
+    {
+        try { Process.Start(new ProcessStartInfo(Services.Byok.ChatGptAuthService.UsageUrl) { UseShellExecute = true }); }
+        catch (Exception ex) { Debug.WriteLine($"[Chat] Opening ChatGPT usage failed ({ex.GetType().Name})."); }
+    }
+
+    /// <summary>
     /// Rebuilds <see cref="ModelOptions"/> from the current model list, catalog metadata and saved
     /// favorites. Existing option instances are reused so a rebuild refreshes badges in place instead
     /// of re-creating rows the user may be pointing at.
     /// </summary>
     private void RebuildModelOptions()
     {
-        var favorites = _dataStore.Data.Settings.FavoriteModelIds;
-        var ordered = ModelOptionCatalog.OrderPinnedFirst(AvailableModels, favorites);
-        var pinned = new HashSet<string>(favorites ?? [], StringComparer.Ordinal);
-
-        var existing = ModelOptions.ToDictionary(static option => option.Id, StringComparer.Ordinal);
-
-        for (var index = ModelOptions.Count - 1; index >= 0; index--)
-        {
-            if (!ordered.Contains(ModelOptions[index].Id, StringComparer.Ordinal))
-                ModelOptions.RemoveAt(index);
-        }
-
-        for (var index = 0; index < ordered.Count; index++)
-        {
-            var id = ordered[index];
-            if (!existing.TryGetValue(id, out var option))
-            {
-                option = new ModelOption(id);
-                existing[id] = option;
-            }
-
-            if (_modelOptionMetadata.TryGetValue(id, out var metadata))
-                option.Apply(metadata);
-            option.IsPinned = pinned.Contains(id);
-
-            var currentIndex = ModelOptions.IndexOf(option);
-            if (currentIndex < 0)
-                ModelOptions.Insert(Math.Min(index, ModelOptions.Count), option);
-            else if (currentIndex != index)
-                ModelOptions.Move(currentIndex, index);
-        }
+        ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
+        OnPropertyChanged(nameof(ModelPlanNote));
     }
 
     /// <summary>
@@ -312,22 +326,32 @@ public partial class ChatViewModel
         // ones. A catalog refresh now lands while the user is interacting, so another surface may be
         // copying this catalog at the same time and must never observe a half-filled dictionary.
         var reasoningEfforts = merge
-            ? _modelReasoningEfforts.ToDictionary(
+            ? _modelReasoningEfforts
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(
                 static kvp => kvp.Key,
                 static kvp => kvp.Value.ToList(),
                 StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var defaultEfforts = merge
-            ? new Dictionary<string, string>(_modelDefaultEfforts, StringComparer.OrdinalIgnoreCase)
+            ? _modelDefaultEfforts
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(static kvp => kvp.Key, static kvp => kvp.Value, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var contextTokenLimits = merge
-            ? new Dictionary<string, long>(_modelContextTokenLimits, StringComparer.OrdinalIgnoreCase)
+            ? _modelContextTokenLimits
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(static kvp => kvp.Key, static kvp => kvp.Value, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         var longContextTokenLimits = merge
-            ? new Dictionary<string, long>(_modelLongContextTokenLimits, StringComparer.OrdinalIgnoreCase)
+            ? _modelLongContextTokenLimits
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(static kvp => kvp.Key, static kvp => kvp.Value, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         var optionMetadata = merge
-            ? new Dictionary<string, ModelOptionMetadata>(_modelOptionMetadata, StringComparer.OrdinalIgnoreCase)
+            ? _modelOptionMetadata
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(static kvp => kvp.Key, static kvp => kvp.Value, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, ModelOptionMetadata>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (id, metadata) in ModelOptionCatalog.BuildMetadata(models))
@@ -341,20 +365,6 @@ public partial class ChatViewModel
             replaceExisting: !merge);
         ApplyContextWindowLimits(contextWindowLimits, contextTokenLimits, longContextTokenLimits);
 
-        if (merge)
-        {
-            // Existing entries win only where the incoming set says nothing: a caller describing a
-            // model is still authoritative for that model.
-            foreach (var (key, value) in _modelReasoningEfforts)
-                reasoningEfforts.TryAdd(key, value);
-            foreach (var (key, value) in _modelDefaultEfforts)
-                defaultEfforts.TryAdd(key, value);
-            foreach (var (key, value) in _modelContextTokenLimits)
-                contextTokenLimits.TryAdd(key, value);
-            foreach (var (key, value) in _modelLongContextTokenLimits)
-                longContextTokenLimits.TryAdd(key, value);
-        }
-
         ApplyModelOptionContextLimits(optionMetadata, contextTokenLimits, longContextTokenLimits);
 
         _modelReasoningEfforts = reasoningEfforts;
@@ -362,8 +372,20 @@ public partial class ChatViewModel
         _modelContextTokenLimits = contextTokenLimits;
         _modelLongContextTokenLimits = longContextTokenLimits;
         _modelOptionMetadata = optionMetadata;
-        if (longContextModelIds is not null || !merge)
+        if (merge)
+        {
+            var mergedLongContextIds = CopyModelIdSet(
+                _modelsWithLongContext.Where(static id => !Lumi.Services.ByokConfigHelper.IsByokModel(id)));
+            if (longContextModelIds is not null)
+                mergedLongContextIds.UnionWith(longContextModelIds);
+            _modelsWithLongContext = mergedLongContextIds;
+            _byokModelCatalogLoaded = true;
+        }
+        else
+        {
             _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+            _nativeModelCatalogLoaded = true;
+        }
         ModelCatalogVersion++;
         OnPropertyChanged(nameof(ModelCatalogVersion));
 
@@ -445,6 +467,8 @@ public partial class ChatViewModel
         _modelOptionMetadata = new Dictionary<string, ModelOptionMetadata>(
             source._modelOptionMetadata,
             StringComparer.OrdinalIgnoreCase);
+        _nativeModelCatalogLoaded = source._nativeModelCatalogLoaded;
+        _byokModelCatalogLoaded = source._byokModelCatalogLoaded;
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
         RebuildModelOptions();
@@ -626,11 +650,32 @@ public partial class ChatViewModel
         // the target chat is loaded as the executor surface's CurrentChat, so this takes the
         // CurrentChat branch — and without the shared validation a stale effort (e.g. "low") would
         // reach an effort-less model such as claude-sonnet-4.5 and error the session on setup.
-        var storedEffort = CurrentChat?.Id == chat.Id
+        if (!Lumi.Services.ByokConfigHelper.IsByokModel(modelId))
+        {
+            var nativeStoredEffort = CurrentChat?.Id == chat.Id
+                ? GetPersistedReasoningEffortPreference()
+                : !string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed)
+                    ? chat.LastReasoningEffortUsed
+                    : _dataStore.Data.Settings.ReasoningEffort;
+
+            return string.IsNullOrWhiteSpace(nativeStoredEffort)
+                ? null
+                : ResolveReasoningEffortForModel(nativeStoredEffort, modelId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed))
+            return ResolveReasoningEffortForModel(chat.LastReasoningEffortUsed, modelId);
+
+        if (_modelDefaultEfforts.TryGetValue(modelId!, out var byokDefaultEffort))
+        {
+            return ResolveReasoningEffortForModel(byokDefaultEffort, modelId);
+        }
+
+        var isCurrentModel = CurrentChat?.Id == chat.Id
+            && string.Equals(SelectedModel, modelId, StringComparison.Ordinal);
+        var storedEffort = isCurrentModel
             ? GetPersistedReasoningEffortPreference()
-            : !string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed)
-                ? chat.LastReasoningEffortUsed
-                : _dataStore.Data.Settings.ReasoningEffort;
+            : _dataStore.Data.Settings.ReasoningEffort;
 
         if (string.IsNullOrWhiteSpace(storedEffort))
             return null;
@@ -639,12 +684,15 @@ public partial class ChatViewModel
     }
 
     // Resolves a reasoning effort against a model's capabilities. ModelSelectionHelper.NormalizeEffort returns
-    // null in two very different situations: (a) the model catalog has not loaded yet, and (b) a known model has
-    // no reasoning-effort support (e.g. claude-sonnet-4.5). These must be treated differently. Before the catalog
-    // loads we preserve the caller's stored effort so a pre-load selection/override isn't lost; once the catalog
-    // is known, a null means the model genuinely has no effort support, so we drop the effort rather than forward
-    // an unsupported value to the SDK. Forwarding it errors the turn on session setup and, on a mid-session model
-    // switch, is swallowed and silently keeps the previous model — which would defeat a manage_chats model override.
+    // null in three very different situations: (a) a known model has no reasoning-effort support (e.g.
+    // claude-sonnet-4.5), (b) a BYOK model unknown to the already-applied local catalog — that catalog is
+    // synchronous and authoritative, so unknown genuinely means no efforts — and (c) a native model unknown to
+    // this surface, which can only mean the authoritative SDK catalog has not been applied yet (startup injects
+    // BYOK entries first, so a non-empty map is not proof it loaded). Only (c) preserves the stored effort, and
+    // only until the SDK catalog arrives; afterwards a native model absent from the catalog is retired/pinned.
+    // Anywhere else we drop the effort rather than forward an unsupported value to the SDK: forwarding it errors
+    // the turn on session setup and, on a mid-session model switch, is swallowed and silently keeps the previous
+    // model — which would defeat a manage_chats model override.
     internal string? ResolveReasoningEffortForModel(string? storedEffort, string? modelId)
     {
         var normalized = ModelSelectionHelper.NormalizeEffort(
@@ -655,7 +703,14 @@ public partial class ChatViewModel
         if (normalized is not null)
             return normalized;
 
-        return _modelReasoningEfforts.Count == 0 ? storedEffort : null;
+        if (!string.IsNullOrWhiteSpace(modelId)
+            && (_modelReasoningEfforts.ContainsKey(modelId)
+                || (Lumi.Services.ByokConfigHelper.IsByokModel(modelId) && _byokModelCatalogLoaded)))
+        {
+            return null;
+        }
+
+        return _nativeModelCatalogLoaded ? null : storedEffort;
     }
 
     // Resolves a context-window tier against a specific model, mirroring ResolveReasoningEffortForModel.
@@ -686,9 +741,19 @@ public partial class ChatViewModel
             return;
         }
 
+        var selectedModelId = modelId ?? SelectedModel;
+        var effectiveEffort = preferredEffort;
+        if (string.IsNullOrWhiteSpace(effectiveEffort)
+            && Lumi.Services.ByokConfigHelper.IsByokModel(selectedModelId)
+            && string.IsNullOrWhiteSpace(CurrentChat?.LastReasoningEffortUsed)
+            && _modelDefaultEfforts.TryGetValue(selectedModelId!, out var byokDefaultEffort))
+        {
+            effectiveEffort = byokDefaultEffort;
+        }
+
         var display = ModelSelectionHelper.ResolveSelectedQualityDisplay(
-            preferredEffort ?? GetStoredReasoningEffortPreference(),
-            modelId ?? SelectedModel,
+            effectiveEffort ?? GetStoredReasoningEffortPreference(),
+            selectedModelId,
             _modelReasoningEfforts,
             _modelDefaultEfforts);
 
@@ -756,11 +821,28 @@ public partial class ChatViewModel
 
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
+            // Tuning a launchpad setup must not overwrite global defaults.
+            if (IsLaunchpadSetupApplied)
+                return;
+
+            var shouldSave = false;
             if (_dataStore.Data.Settings.ReasoningEffort != persistedEffort)
             {
                 _dataStore.Data.Settings.ReasoningEffort = persistedEffort;
-                _dataStore.Save();
+                shouldSave = true;
             }
+
+            if (CurrentChat is { } emptyChat
+                && Lumi.Services.ByokConfigHelper.IsByokModel(SelectedModel)
+                && !string.IsNullOrWhiteSpace(effort)
+                && emptyChat.LastReasoningEffortUsed != effort)
+            {
+                emptyChat.LastReasoningEffortUsed = effort;
+                shouldSave = true;
+            }
+
+            if (shouldSave)
+                _dataStore.Save();
 
             DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, effort, GetSelectedContextWindowTier());
             return;
@@ -796,13 +878,19 @@ public partial class ChatViewModel
 
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
+            if (IsLaunchpadSetupApplied)
+                return;
+
             if (_dataStore.Data.Settings.ContextWindowTier != contextTier)
             {
                 _dataStore.Data.Settings.ContextWindowTier = contextTier;
                 _dataStore.Save();
             }
 
-            DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, GetPersistedReasoningEffortPreference(), contextTier);
+            var defaultEffort = Lumi.Services.ByokConfigHelper.IsByokModel(SelectedModel)
+                ? _dataStore.Data.Settings.ReasoningEffort
+                : GetPersistedReasoningEffortPreference();
+            DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, defaultEffort, contextTier);
             return;
         }
 
@@ -818,9 +906,12 @@ public partial class ChatViewModel
         SendWithEnter = _dataStore.Data.Settings.SendWithEnter;
         ShowAmbientPresence = _dataStore.Data.Settings.ShowAmbientPresence;
         AnimatePresenceWhileWorking = _dataStore.Data.Settings.AnimatePresenceWhileWorking;
+        PresenceBrightness = SettingsViewModel.PresenceBrightnessMultiplier(_dataStore.Data.Settings.PresenceBrightness);
 
         ActiveSkillChips.CollectionChanged += OnActiveSkillChipsCollectionChanged;
         ActiveMcpChips.CollectionChanged += OnActiveMcpChipsCollectionChanged;
+        // With no connectors at all, the connector button invites the user to find some.
+        AvailableMcpChips.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ConnectorsButtonToolTip));
         PendingAttachmentItems.CollectionChanged += OnPendingAttachmentItemsCollectionChanged;
 
         RefreshComposerCatalogs();
@@ -848,8 +939,12 @@ public partial class ChatViewModel
         ReplaceCollection(AvailableAgentChips, BuildCapabilityChips(capabilities, CapabilityKind.Agent));
         ReplaceCollection(AvailableSkillChips, BuildCapabilityChips(capabilities, CapabilityKind.Skill));
 
-        var mcpChips = BuildCapabilityChips(capabilities, CapabilityKind.McpServer);
+        var mcpChips = capabilities
+            .UserInvocable(CapabilityKind.McpServer)
+            .Select(capability => ToMcpChip(capability))
+            .ToList();
         ReplaceCollection(AvailableMcpChips, mcpChips);
+        IsConnectorCatalogLoading = !capabilities.IsComplete;
 
         var discoveredMcpNames = capabilities
             .UserInvocable(CapabilityKind.McpServer)
@@ -998,7 +1093,7 @@ public partial class ChatViewModel
                     continue;
 
                 if (capabilities.FindMcpServer(chip.Name) is { } resolved)
-                    ActiveMcpChips[i] = ToMcpChip(resolved);
+                    ActiveMcpChips[i] = WithMcpIssue(ToMcpChip(resolved));
             }
         }
         finally
@@ -1101,8 +1196,17 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        if (value is null)
+            _draftApprovalMode = null;
+        RefreshPermissionRequests(showInTranscript: false);
+        NotifyPermissionPropertiesChanged();
+        OnPropertyChanged(nameof(IsAwaitingInput));
+        _launchpadBaseline = null;
         ResetContextDetailsForChatChange(value);
         IsSessionActive = value?.IsSessionActive == true;
+        NotifyChatPausePropertiesChanged();
+        // A message waiting for a connector sign-in belongs to its own chat.
+        ApplyMcpSignInWaitAction();
         BackgroundActivityText = Loc.Get("Chat_BackgroundActivity");
         ResetBackgroundActivityItems();
 
@@ -1138,7 +1242,17 @@ public partial class ChatViewModel
         if (e.PropertyName == nameof(Chat.Title))
             OnPropertyChanged(nameof(CurrentChatTitle));
         else if (e.PropertyName == nameof(Chat.IsSessionActive))
+        {
             IsSessionActive = CurrentChat?.IsSessionActive == true;
+            if (CurrentChat is { } chat && _runtimeStates.TryGetValue(chat.Id, out var runtime))
+                RefreshChatPauseState(runtime);
+        }
+        else if (e.PropertyName is nameof(Chat.IsPaused) or nameof(Chat.IsPausePending))
+        {
+            if (CurrentChat is { } chat && _runtimeStates.TryGetValue(chat.Id, out var runtime))
+                runtime.PauseGate.SetPaused(chat.IsPaused);
+            NotifyChatPausePropertiesChanged();
+        }
     }
 
     partial void OnActiveAgentChanged(LumiAgent? value)
@@ -1150,20 +1264,7 @@ public partial class ChatViewModel
     partial void OnHasUsedBrowserChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowBrowserToggle));
-    }
-
-    partial void OnProjectBadgeTextChanged(string? value)
-    {
-        OnPropertyChanged(nameof(HasProjectBadge));
-        OnPropertyChanged(nameof(HasHeaderSubtitle));
-        OnPropertyChanged(nameof(HasHeaderSubtitleSeparator));
-    }
-
-    partial void OnAgentBadgeTextChanged(string? value)
-    {
-        OnPropertyChanged(nameof(HasAgentBadge));
-        OnPropertyChanged(nameof(HasHeaderSubtitle));
-        OnPropertyChanged(nameof(HasHeaderSubtitleSeparator));
+        NotifyWorkspaceVisibilityChanged();
     }
 
     partial void OnGitChangedFileCountChanged(int value)
@@ -1183,6 +1284,8 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(ShowGitStatusBadge));
         OnPropertyChanged(nameof(GitChangesLabel));
         OnPropertyChanged(nameof(GitBranchLabel));
+        if (!value)
+            RefreshWorkspaceGit();
     }
 
     partial void OnSelectedAgentNameChanged(string? value)
@@ -1298,6 +1401,7 @@ public partial class ChatViewModel
     {
         var projectName = GetCurrentProjectName();
         ProjectBadgeText = string.IsNullOrWhiteSpace(projectName) ? null : projectName;
+        RefreshHeaderMark();
     }
 
     private void RefreshAgentBadge()
@@ -1306,6 +1410,7 @@ public partial class ChatViewModel
             AgentBadgeText = SelectedSdkAgentName;
         else
             AgentBadgeText = ActiveAgent?.Name;
+        RefreshHeaderMark();
     }
 
     private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> values)
@@ -1348,6 +1453,8 @@ public partial class ChatViewModel
 
     private void OnActiveMcpChipsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
     {
+        OnMcpIssuesChanged();
+
         if (IsLoadingChat || _suppressActiveMcpCollectionSync)
             return;
 
@@ -1363,6 +1470,8 @@ public partial class ChatViewModel
 
         if (args.Action == NotifyCollectionChangedAction.Remove && args.OldItems is not null)
         {
+            var removed = args.OldItems.OfType<StrataComposerChip>().Select(chip => chip.Name).ToList();
+            ForgetMcpIssues(removed);
             foreach (var item in args.OldItems)
             {
                 if (item is StrataComposerChip chip)
@@ -1380,6 +1489,7 @@ public partial class ChatViewModel
 
         if (args.Action == NotifyCollectionChangedAction.Reset)
         {
+            ForgetMcpIssues(null);
             foreach (var name in ActiveMcpServerNames.ToList())
                 _ = SetMcpEnabledOnSessionAsync(name, enabled: false);
 
@@ -1660,8 +1770,11 @@ public partial class ChatViewModel
     /// <summary>Detects whether the current project is a coding project and refreshes git state.</summary>
     public async Task RefreshCodingProjectState()
     {
+        if (_isDisposed)
+            return;
         // Increment version so any in-flight async refresh is discarded on completion.
         var version = Interlocked.Increment(ref _gitRefreshVersion);
+        var cancellationToken = _gitRefreshCts.Token;
 
         try
         {
@@ -1713,14 +1826,15 @@ public partial class ChatViewModel
             _gitStatusDirectory = normalizedWorkDir;
 
             // Reset stale change data immediately; keep the branch visible while refreshing
-            // the same coding context so the strip does not flicker blank.
+            // the same coding context so the strip does not flicker blank. Mark the refresh first:
+            // the Workspace keeps showing the last git answer until this one settles.
+            IsRefreshingGitStatus = true;
             GitChangedFileCount = 0;
             GitChangedFiles.Clear();
-            IsRefreshingGitStatus = true;
 
-            var branchTask = GitService.GetCurrentBranchAsync(workDir);
-            var changesTask = GitService.GetChangedFilesAsync(workDir);
-            var worktreesTask = GitService.ListWorktreeInfoAsync(projectDir);
+            var branchTask = GitService.GetCurrentBranchAsync(workDir, cancellationToken);
+            var changesTask = GitService.GetChangedFilesAsync(workDir, cancellationToken);
+            var worktreesTask = GitService.ListWorktreeInfoAsync(projectDir, cancellationToken);
 
             await Task.WhenAll(branchTask, changesTask, worktreesTask).ConfigureAwait(false);
 
@@ -1745,13 +1859,13 @@ public partial class ChatViewModel
             });
 
             // A newer refresh was started while we were awaiting — discard these stale results.
-            if (version != Volatile.Read(ref _gitRefreshVersion))
+            if (_isDisposed || cancellationToken.IsCancellationRequested || version != Volatile.Read(ref _gitRefreshVersion))
                 return;
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 // Double-check inside the UI dispatch in case another refresh snuck in.
-                if (version != Volatile.Read(ref _gitRefreshVersion))
+                if (_isDisposed || cancellationToken.IsCancellationRequested || version != Volatile.Read(ref _gitRefreshVersion))
                     return;
 
                 GitBranch = branch;
@@ -1766,13 +1880,16 @@ public partial class ChatViewModel
                 OnPropertyChanged(nameof(HasAvailableWorktrees));
             });
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
         finally
         {
-            if (version == Volatile.Read(ref _gitRefreshVersion))
+            if (!_isDisposed && version == Volatile.Read(ref _gitRefreshVersion))
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (version == Volatile.Read(ref _gitRefreshVersion))
+                    if (!_isDisposed && version == Volatile.Read(ref _gitRefreshVersion))
                         IsRefreshingGitStatus = false;
                 });
             }
@@ -2258,17 +2375,22 @@ public partial class ChatViewModel
     }
 
     [RelayCommand]
-    private void ShowGitChanges()
+    private void ShowGitChanges() => RequestGitChanges(openFilePath: null);
+
+    /// <summary>Opens the git changes page, optionally drilled straight into one file's diff.</summary>
+    private void RequestGitChanges(string? openFilePath)
     {
         if (GitChangedFiles.Count == 0)
             return;
 
-        var rootPath = GitService.FindRepoRoot(GetEffectiveWorkingDirectory()) ?? GetEffectiveWorkingDirectory();
         GitChangesShowRequested?.Invoke(new GitChangesViewModel(
             GitChangedFiles.Select(static f => f.Change),
-            rootPath,
+            ResolveGitRootPath(),
             GitBranch,
-            IsWorktreeMode));
+            IsWorktreeMode)
+        {
+            InitialFilePath = openFilePath,
+        });
     }
 
     [RelayCommand]

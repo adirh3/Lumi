@@ -7,6 +7,23 @@ namespace Lumi.Tests;
 public sealed class DataStorePersistenceTests
 {
     [Fact]
+    public async Task BackgroundModel_SurvivesIndexPublicationAndReload()
+    {
+        using var directory = new TemporaryDirectory();
+        var dataFile = Path.Combine(directory.Path, "data.json");
+        var data = CreateData("Background profile");
+        data.Settings.BackgroundModel = "gpt-6-luna";
+        data.Settings.PreferredModel = "gpt-6-sol";
+        var store = new DataStore(data);
+
+        await JsonFilePersistence.SaveAppDataAsync(dataFile, store.CreateIndexSnapshot());
+        var loaded = JsonFilePersistence.LoadAppData(dataFile);
+
+        Assert.Equal("gpt-6-luna", loaded.Settings.BackgroundModel);
+        Assert.Equal("gpt-6-sol", loaded.Settings.PreferredModel);
+    }
+
+    [Fact]
     public async Task SaveAppDataAsync_RotatesValidPrimaryToBackup()
     {
         using var directory = new TemporaryDirectory();

@@ -34,6 +34,8 @@ public static class DebugAgentHarness
     public static bool IsUiHarnessFlag(string arg)
         => string.Equals(arg, "--debug-agent-harness", StringComparison.OrdinalIgnoreCase)
            || string.Equals(arg, "--debug-transcript-fixture", StringComparison.OrdinalIgnoreCase);
+    public static bool IsInteractiveControlsFlag(string arg) =>
+        string.Equals(arg, "--debug-interactive-controls", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsChatStressFlag(string arg)
         => string.Equals(arg, "--test-chat-stress", StringComparison.OrdinalIgnoreCase)
@@ -50,6 +52,101 @@ public static class DebugAgentHarness
     public static bool IsSessionReapFlag(string arg)
         => string.Equals(arg, "--test-session-reap", StringComparison.OrdinalIgnoreCase)
            || string.Equals(arg, "--stress-session-reap", StringComparison.OrdinalIgnoreCase);
+
+    public static IReadOnlyList<LumiChatMessage> CreatePromptSharingFixtureMessages(DataStore dataStore)
+    {
+        var expensePath = Path.Combine(EnsureFixtureDirectory(), "prompt-expenses.csv");
+        File.WriteAllText(expensePath, "Date,Merchant,Category,Amount\n2026-08-10,Stream service,Subscriptions,12.99\n2026-09-10,Stream service,Subscriptions,12.99\n2026-09-15,Groceries,Food,48.50\n");
+        var user = new LumiChatMessage
+        {
+            Role = "user",
+            Content = "Create an Excel expense dashboard from my CSV with monthly and category charts."
+        };
+        user.Attachments = [expensePath];
+        var result = new LumiChatMessage { Role = "assistant", Author = "Lumi", Model = "gpt-5.5", Content = """
+            **Prompt sharing sample**
+
+            The expense dashboard has monthly/category charts, recurring-charge highlights and a
+            dark blue theme. The source CSV was left unchanged and no data was uploaded.
+
+            Choose **Share prompt** below this result to turn the request and refinements into a
+            reusable task. This is a synthetic fixture: sharing does not send a message in this chat.
+            """ };
+        if (dataStore.Data.Skills.FirstOrDefault(static skill => skill.Name == "Document Creator") is { } skill)
+            result.ActiveSkills = [new SkillReference { Name = skill.Name, Glyph = skill.IconGlyph, Description = skill.Description }];
+        return
+        [
+            user,
+            new LumiChatMessage
+            {
+                Role = "user",
+                Content = "Use a dark blue theme, highlight recurring charges, and keep the original CSV unchanged. Never email or upload my bank data."
+            },
+            result
+        ];
+    }
+
+    public static IReadOnlyList<LumiChatMessage> CreateTextSelectionFixtureMessages() =>
+    [
+        new LumiChatMessage
+        {
+            Role = "user",
+            Content = "Show me a safe playground for selecting text across chat elements and trying each copy format."
+        },
+        new LumiChatMessage
+        {
+            Role = "assistant", Author = "Lumi", Model = "gpt-5.5",
+            Content = """
+                ## Selection & copy playground
+
+                Start selecting in this **paragraph**, then keep dragging through the list, code,
+                table and adjacent messages. Right-click keeps your highlight.
+
+                - **Copy** chooses rich formatting or readable text for the app you paste into.
+                - **Copy as** lets you choose Plain text, Markdown or Rich text explicitly.
+                - **Select message** selects this answer; the footer copy button copies it whole.
+
+                ```csharp
+                var words = new[] { "Select", "across", "elements" };
+                Console.WriteLine(string.Join(" ", words));
+                ```
+
+                | Content | Markdown / document |
+                | --- | --- |
+                | Cards and comparisons | Headings and readable content |
+                | Charts | A table of every value |
+                | Interactive blocks | Lists and tables with current values |
+
+                ```card
+                {"header":"A portable card","summary":"The **summary** is copied with its formatting.","detail":"The detail is included too, even while the card is collapsed."}
+                ```
+
+                ```comparison
+                {"optionA":{"title":"Markdown","content":"Headings, lists, tables and standard Mermaid source."},"optionB":{"title":"Rich text","content":"Formatted document content and a rendered diagram image."}}
+                ```
+
+                ```chart
+                {"type":"bar","labels":["First","Second"],"series":[{"name":"Example values","values":[12,20]}]}
+                ```
+
+                ```confidence
+                {"label":"Example confidence","value":85,"explanation":"Copying preserves the percentage and this explanation."}
+                ```
+
+                ```mermaid
+                flowchart LR
+                    A[Select] --> B[Copy]
+                    B --> C[Paste]
+                ```
+
+                ```checklist
+                {"id":"copy_try","title":"Try it yourself","items":[{"id":"select","label":"Select across more than one element"},{"id":"menu","label":"Right-click without losing the selection"},{"id":"paste","label":"Copy into a document or Markdown editor"}]}
+                ```
+
+                This is a synthetic, unsaved fixture. It does not send a message to an AI.
+                """
+        }
+    ];
 
     public static Chat CreateTranscriptFixtureChat(DataStore dataStore)
     {
@@ -308,6 +405,8 @@ public static class DebugAgentHarness
 
             ### Inline markdown images
 
+            Use an image's top-right expand button to view it full screen. Press Esc or the close button to return.
+
             Local file:
 
             ![Lumi icon loaded from a local file]({fixtureImagePath})
@@ -315,6 +414,8 @@ public static class DebugAgentHarness
             Online image:
 
             ![GitHub mark loaded over HTTPS](https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png)
+
+            In-text image: ![Inline Lumi icon]({fixtureImagePath}) with text on both sides.
             """;
         firstAssistant.Sources.Add(new SearchSource
         {
@@ -372,6 +473,8 @@ public static class DebugAgentHarness
             JsonProperty("filePath", JsonString(researchNotesPath)),
             JsonProperty("file_text", JsonString("# OLED research notes\n\n- Compared LG C4, Samsung S90D, Sony Bravia 8.\n- Tracked retailer pricing for 65-inch panels.\n"))), "Completed", output: "Created OLED-Research-Notes.md"));
 
+        const string SyntheticAgentFailure =
+            "Failed to get response from the AI model; retried 5 times (synthetic fixture failure).";
         var subagentId = "debug-subagent-fixture";
         chat.Messages.Add(Tool("task", JsonObject(
             JsonProperty("description", JsonString("Inspect transcript fixture in a separate coding-agent card")),
@@ -384,14 +487,24 @@ public static class DebugAgentHarness
             JsonProperty("prompt", JsonString(
                 "Map how the Lumi chat transcript is rendered. Find the transcript builder, the "
                 + "data templates for each item type, and the debug entry points. Report the exact "
-                + "file paths and the responsibilities of each piece.")),
+                + "file paths and the responsibilities of each piece.\n\n"
+                + "## Scope\n\n"
+                + "- Start from `ChatViewModel` and follow how messages become transcript items.\n"
+                + "- Note which items are built in code and which come from data templates.\n"
+                + "- Include the read-only sub-agent run page, which reuses the same builder.\n\n"
+                + "## Constraints\n\n"
+                + "1. Read only: do not edit, build artifacts into the repo, or stash anything.\n"
+                + "2. Prefer exact file paths and member names over summaries.\n"
+                + "3. Flag anything that renders a message twice or out of order.\n\n"
+                + "## Report\n\n"
+                + "A short table of *piece → path → responsibility*, then any risks you noticed.")),
             JsonProperty("reasoning", JsonString("")),
             JsonProperty("transcript", JsonString("")),
             JsonProperty("entries", SubagentRunEntries(
-                ("r", "Start by locating the transcript builder and the view that renders it."),
-                ("a", "Found `TranscriptBuilder.cs` — it converts `ChatMessageViewModel`s into transcript items.\n\nChecking the view next."),
-                ("r", "Now confirm which templates ChatView declares, and where the debug harness enters."),
-                ("a", "**Summary**\n\n| Piece | Path |\n| --- | --- |\n| Builder | `src/Lumi/ViewModels/TranscriptBuilder.cs` |\n| Templates | `src/Lumi/Views/ChatView.axaml` |\n| Debug entry | `src/Lumi/DebugAgentHarness.cs` |\n\nAll three are reachable from `ChatViewModel`.")))),
+                ("r", "Start by locating the transcript builder and the view that renders it.", 20),
+                ("a", "Found `TranscriptBuilder.cs` — it converts `ChatMessageViewModel`s into transcript items.\n\nChecking the view next.", 38),
+                ("r", "Now confirm which templates ChatView declares, and where the debug harness enters.", 40),
+                ("a", "**Summary**\n\n| Piece | Path |\n| --- | --- |\n| Builder | `src/Lumi/ViewModels/TranscriptBuilder.cs` |\n| Templates | `src/Lumi/Views/ChatView.axaml` |\n| Debug entry | `src/Lumi/DebugAgentHarness.cs` |\n\nAll three are reachable from `ChatViewModel`.", 56)))),
             "Completed", toolCallId: subagentId, output: "Subagent completed"));
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString("E:\\Git\\Lumi\\src\\Lumi\\ViewModels\\TranscriptBuilder.cs"))),
@@ -590,7 +703,8 @@ public static class DebugAgentHarness
             "task",
             SubagentPayload("QA failed grouped sub-agent", "explore"),
             "Failed",
-            toolCallId: "debug-group-failed"));
+            toolCallId: "debug-group-failed",
+            output: SyntheticAgentFailure));
         chat.Messages.Add(Tool(
             "task",
             SubagentPayload("QA stopped grouped sub-agent", "code-review"),
@@ -636,6 +750,14 @@ public static class DebugAgentHarness
         chat.Messages.Add(activityUser);
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString("README.md"))), "Completed"));
+        // The agent tracks its plan in its SQL todos; the query that changed them shows the plan.
+        var planUpdate = Tool("sql", JsonObject(
+            JsonProperty("description", JsonString("Update todo progress")),
+            JsonProperty("query", JsonString("UPDATE todos SET status = 'done' WHERE id = 'read-builder';"))), "Completed");
+        planUpdate.PlanSnapshot = """
+            {"todoList":[{"title":"Read the transcript builder","status":"completed"},{"title":"Check the transcript tests","status":"in-progress"},{"title":"Wait for the design review","status":"blocked"},{"title":"Polish the activity card","status":"not-started"}]}
+            """;
+        chat.Messages.Add(planUpdate);
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString("src\\Lumi\\ViewModels\\TranscriptBuilder.cs"))), "InProgress"));
         chat.Messages.Add(Tool("powershell", JsonObject(
@@ -648,6 +770,10 @@ public static class DebugAgentHarness
         chat.Messages.Add(Tool("rg", JsonObject(
             JsonProperty("pattern", JsonString("ActivityPreview")),
             JsonProperty("glob", JsonString("*.cs"))), "InProgress"));
+
+        foreach (var message in chat.Messages.Where(message => message.Role == "assistant"
+                     && message.ParentToolCallId is null && !string.IsNullOrWhiteSpace(message.Content)))
+            message.Model ??= "gpt-5.5";
 
         return chat;
 
@@ -664,7 +790,8 @@ public static class DebugAgentHarness
                 "task",
                 SubagentPayload(description, "explore"),
                 status,
-                toolCallId: toolCallId));
+                toolCallId: toolCallId,
+                output: status == "Failed" ? SyntheticAgentFailure : null));
             chat.Messages.Add(Message("assistant", $"Standalone sub-agent fixture status: {status}."));
         }
 
@@ -673,18 +800,20 @@ public static class DebugAgentHarness
                 JsonProperty("description", JsonString(description)),
                 JsonProperty("agent_type", JsonString(agentType)),
                 JsonProperty("agentName", JsonString(agentType)),
-                JsonProperty("agentDisplayName", JsonString($"{agentType} agent")),
+                JsonProperty("agentDisplayName", JsonString(
+                    $"{char.ToUpperInvariant(agentType[0])}{agentType[1..].Replace('-', ' ')} agent")),
                 JsonProperty("mode", JsonString("background")),
                 JsonProperty("model", JsonString("claude-haiku-4.5")),
                 JsonProperty("prompt", JsonString($"{description}. Report back with a short, concrete summary.")),
                 JsonProperty("entries", SubagentRunEntries(
-                    ("r", $"Planning how to handle: {description}."),
-                    ("a", $"Done. **{description}** produced a short synthetic result for the fixture."))));
+                    ("r", $"Planning how to handle: {description}.", 1),
+                    ("a", $"Done. **{description}** produced a short synthetic result for the fixture.", 2))));
 
         // Builds the ordered run log persisted with a sub-agent ("r" = reasoning, "a" = assistant),
         // stamped just after the fixture's current clock so the read-only run transcript orders text
-        // against the agent's tool calls exactly as it would live.
-        string SubagentRunEntries(params (string Kind, string Text)[] entries)
+        // against the agent's tool calls exactly as it would live. An entry's offset (seconds) places it
+        // among the run's tool calls, which the fixture records 18 seconds apart.
+        string SubagentRunEntries(params (string Kind, string Text, int AtSecond)[] entries)
         {
             var stamped = new string[entries.Length];
             for (var i = 0; i < entries.Length; i++)
@@ -692,7 +821,7 @@ public static class DebugAgentHarness
                 stamped[i] = JsonObject(
                     JsonProperty("k", JsonString(entries[i].Kind)),
                     JsonProperty("t", JsonString(
-                        t.AddSeconds(i + 1).ToString("O", CultureInfo.InvariantCulture))),
+                        t.AddSeconds(entries[i].AtSecond).ToString("O", CultureInfo.InvariantCulture))),
                     JsonProperty("c", JsonString(entries[i].Text)));
             }
 
@@ -713,6 +842,9 @@ public static class DebugAgentHarness
             msg.ToolCallId = toolCallId ?? $"debug-{name}-{Guid.NewGuid():N}";
             msg.ParentToolCallId = parentToolCallId;
             msg.ToolOutput = output;
+            // Running steps carry their start, as live ones do, so their cards count up.
+            if (status == "InProgress")
+                msg.ToolStartedAt = DateTimeOffset.Now;
             return msg;
         }
 
@@ -753,6 +885,7 @@ public static class DebugAgentHarness
         {
             Role = role,
             Author = role == "user" ? "You" : "Lumi",
+            Model = role == "assistant" ? "gpt-5.5" : null,
             Content = content,
             Timestamp = DateTimeOffset.Now,
         };
@@ -777,8 +910,8 @@ public static class DebugAgentHarness
         Console.WriteLine("Connecting to Copilot...");
 
         await copilotService.ConnectAsync(ct).ConfigureAwait(false);
-        var model = await copilotService.GetFastestModelIdAsync(ct).ConfigureAwait(false);
-        Console.WriteLine($"Model: {model ?? "(default)"}");
+        var model = await copilotService.GetBackgroundModelIdAsync(ct).ConfigureAwait(false);
+        Console.WriteLine($"Model: {model}");
 
         var toolInputs = new List<string>();
         var toolStarted = 0;
@@ -899,8 +1032,10 @@ public static class DebugAgentHarness
 
         Console.WriteLine("Connecting to Copilot...");
         await copilotService.ConnectAsync(ct).ConfigureAwait(false);
-        var model = await copilotService.GetFastestModelIdAsync(ct).ConfigureAwait(false);
-        Console.WriteLine($"Model: {model ?? "(default)"}");
+        var model = CopilotService.SelectCheapestModelId(
+            await copilotService.GetModelsAsync(ct).ConfigureAwait(false))
+            ?? throw new InvalidOperationException("No usable Copilot model is available for the MCP stress harness.");
+        Console.WriteLine($"Model: {model}");
 
         var root = Path.Combine(Path.GetTempPath(), $"lumi-mcp-{harnessName}-stress-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1197,8 +1332,10 @@ public static class DebugAgentHarness
 
         Console.WriteLine("Connecting to Copilot...");
         await copilotService.ConnectAsync(ct).ConfigureAwait(false);
-        var model = await copilotService.GetFastestModelIdAsync(ct).ConfigureAwait(false);
-        Console.WriteLine($"Model: {model ?? "(default)"}");
+        var model = CopilotService.SelectCheapestModelId(
+            await copilotService.GetModelsAsync(ct).ConfigureAwait(false))
+            ?? throw new InvalidOperationException("No usable Copilot model is available for the session-reap stress harness.");
+        Console.WriteLine($"Model: {model}");
 
         var root = Path.Combine(Path.GetTempPath(), "lumi-session-reap-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);

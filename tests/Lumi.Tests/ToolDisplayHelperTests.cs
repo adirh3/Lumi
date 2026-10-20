@@ -6,6 +6,33 @@ namespace Lumi.Tests;
 
 public class ToolDisplayHelperTests
 {
+    [Theory]
+    [InlineData(ToolDisplayHelper.BrowserTabsToolName, "Managing browser tabs", "🌐", "{\"action\":\"switch\",\"tabId\":\"tab-alpha\"}", "switch: tab-alpha")]
+    [InlineData(ToolDisplayHelper.BrowserTabsToolName, "Managing browser tabs", "🌐", "{\"action\":\"new\",\"url\":\"https://example.test\"}", "new: https://example.test")]
+    [InlineData(ToolDisplayHelper.BrowserScreenshotToolName, "Taking browser screenshot", "📷", "{\"tabId\":\"tab-alpha\"}", "tab-alpha")]
+    [InlineData(ToolDisplayHelper.BrowserScreenshotToolName, "Taking browser screenshot", "📷", "{}", null)]
+    public void BrowserTools_HaveCoherentTranscriptLabelsAndGlyphs(
+        string toolName, string expectedName, string expectedGlyph, string args, string? expectedInfo)
+    {
+        var (name, info) = ToolDisplayHelper.GetFriendlyToolDisplay(toolName, null, args);
+
+        Assert.Equal(expectedName, name);
+        Assert.Equal(expectedInfo, info);
+        Assert.Equal(expectedName, ToolDisplayHelper.FormatToolStatusName(toolName, args));
+        Assert.Equal(expectedGlyph, ToolDisplayHelper.GetToolGlyph(toolName));
+        Assert.Equal(toolName, ToolDisplayHelper.ToRuntimeToolName(toolName));
+    }
+
+    [Fact]
+    public void DesktopBatch_UsesLocalizedDisplayAndKeepsDetailsExpandable()
+    {
+        Assert.Equal(("Automating window", "Benchmark"),
+            ToolDisplayHelper.GetFriendlyToolDisplay("ui_do", null, """{"title":"Benchmark","steps":[]}"""));
+        Assert.Equal("Automating window", ToolDisplayHelper.FormatToolStatusName("ui_do"));
+        Assert.Equal(ToolDisplayHelper.GetToolGlyph("ui_inspect"), ToolDisplayHelper.GetToolGlyph("ui_do"));
+        Assert.False(ToolDisplayHelper.IsCompactEligible("ui_do"));
+    }
+
     [Fact]
     public void ToRuntimeToolNames_NormalizesLegacyBrowserToolsForSdk()
     {

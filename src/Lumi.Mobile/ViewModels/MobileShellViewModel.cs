@@ -13,8 +13,8 @@ using Lumi.Remote.Protocol;
 namespace Lumi.Mobile.ViewModels;
 
 /// <summary>
-/// What is showing over the chat. The chat surface is always mounted underneath — this app is a
-/// chat, and everything else is a page pushed on top of it, exactly like ChatGPT / Claude.
+/// What is showing over the chat. The chat surface is always mounted underneath; pages for the
+/// other places sit over it so returning to a chat never costs a transcript rebuild.
 /// </summary>
 public enum MobilePage
 {
@@ -29,6 +29,36 @@ public enum MobilePage
     Search
 }
 
+/// <summary>
+/// The desktop's places, in the order its bar lists them. Library is a desktop place for files the
+/// phone does not browse, so the phone offers the other four.
+/// </summary>
+public enum MobilePlace
+{
+    Chats,
+    Jobs,
+    Customize,
+    Settings
+}
+
+/// <summary>A Settings page. None is the list itself on a phone; a wide window shows a page beside it.</summary>
+public enum SettingsSection
+{
+    None,
+    Appearance,
+    Connection,
+    About
+}
+
+public enum WebAppUpdateState
+{
+    Current,
+    Downloading,
+    Ready,
+    Applying,
+    Failed
+}
+
 /// <summary>A project the user can put the conversation into, straight from the drawer.</summary>
 public sealed partial class ProjectPickViewModel : ObservableObject
 {
@@ -39,17 +69,17 @@ public sealed partial class ProjectPickViewModel : ObservableObject
     public required string Name { get; init; }
 }
 
-/// <summary>
-/// One entry in the drawer's horizontal "experiences" strip. Mirrors ChatGPT's simplified sidebar,
-/// where capabilities sit in a scrolling row above the chat history instead of consuming a tab.
-/// </summary>
-public sealed class ExperienceViewModel
+public sealed partial class ChatStartSetup(RemoteChatSetup setup) : ObservableObject
 {
-    public required string Name { get; init; }
-
-    public required string Glyph { get; init; }
-
-    public required LibrarySection Section { get; init; }
+    internal RemoteChatSetup Source { get; } = setup;
+    public string Id => Source.Id;
+    public Guid? ProjectId => Source.ProjectId;
+    public Guid? AgentId => Source.AgentId;
+    public string? Model => Source.Model;
+    public string Title => Source.Title;
+    public string Description => Source.Description;
+    public string Glyph => Source.Glyph;
+    [ObservableProperty] private bool _isSelected;
 }
 
 
@@ -69,10 +99,17 @@ public sealed partial class MobileShellViewModel :
     IAsyncDisposable
 {
     private readonly IMobileSettingsStore _store;
+    private readonly Action? _reloadWebApp = MobilePlatformServices.HostEnvironment.ReloadWebApp;
+    private readonly Action? _applyWebAppUpdate = MobilePlatformServices.HostEnvironment.ApplyWebAppUpdate;
+    private readonly Action? _checkWebAppUpdate = MobilePlatformServices.HostEnvironment.CheckWebAppUpdate;
     private readonly MobileConnectionSettings _settings;
     private readonly Action<Action> _post;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly RemoteConnectionSupervisor _connection;
     private CancellationTokenSource _connectionLifetime = new();
+    // User actions (send, stop, answers, uploads) belong to the paired PC, not to the foreground
+    // stream: leaving the app must not abandon a message the user already sent.
+    private CancellationTokenSource _hostLifetime = new();
     private long _connectionGeneration;
     private readonly SemaphoreSlim _snapshotRefreshGate = new(1, 1);
     private readonly SemaphoreSlim _sendReconciliationGate = new(1, 1);
@@ -86,6 +123,7 @@ public sealed partial class MobileShellViewModel :
     private bool _isApplicationActive = true;
     private MobilePage _lastObservedPage = MobilePage.Chat;
     private bool _chatActivationOwnsSubscription;
+    private int _commandsInFlight;
 
     private readonly object _transcriptRefreshSync = new();
     private readonly Stack<int> _newerTranscriptCursors = new();
@@ -99,6 +137,22 @@ public sealed partial class MobileShellViewModel :
     private long _transcriptSurfaceGeneration;
     private bool _hasDeferredNewerActivity;
     private bool _canAdoptDesktopActiveChat = true;
+
+    // Streaming deltas that arrived while their row was missing or a transcript fetch was in
+    // flight. They are replayed once that transcript lands instead of each forcing another fetch.
+    private const int MaxHeldDeltas = 512;
+    private readonly List<HeldDelta> _heldDeltas = [];
+    private long _heldDeltaSequence;
+
+    // Snapshot sections the phone holds, by the desktop's content version. A reconnect names them
+    // so the desktop leaves unchanged sections out of the bootstrap.
+    private readonly object _sectionCacheSync = new();
+    private readonly Dictionary<string, string> _sectionVersions = new(StringComparer.Ordinal);
+    private RemoteChatPage? _cachedChatPage;
+    private RemoteLibrary? _cachedLibrary;
+    private RemoteSettings? _cachedSettings;
+
+    private sealed record HeldDelta(long Sequence, RemoteStreamDelta Delta);
 
     internal int BootstrapSnapshotCount { get; private set; }
 
@@ -124,7 +178,8 @@ public sealed partial class MobileShellViewModel :
         TranscriptRefreshKind Kind,
         long SurfaceGeneration,
         long Version,
-        long StatusVersion)
+        long StatusVersion,
+        string? KnownVersion = null)
     {
         public bool IsNavigation =>
             Kind is TranscriptRefreshKind.Earlier
@@ -155,7 +210,12 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(ShowConnectionBanner))]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(ShowMenuButton))]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderNewChat))]
+    [NotifyPropertyChangedFor(nameof(ShowBackToChats))]
+    [NotifyPropertyChangedFor(nameof(CanManageOpenChat))]
     [NotifyPropertyChangedFor(nameof(CanChangeProjectScope))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenProjectPickerCommand))]
     private bool _isPaired;
 
@@ -166,6 +226,14 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ConnectionBannerText))]
     private string? _connectionMessage;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ConnectionBannerText))]
+    [NotifyPropertyChangedFor(nameof(ConnectionStateLabel))]
+    [NotifyPropertyChangedFor(nameof(ShowGatewaySignInAction))]
+    [NotifyPropertyChangedFor(nameof(ShowRetryConnectionAction))]
+    private bool _isGatewaySignInRequired;
+
     [ObservableProperty] private MobileLayoutState _layout = MobileLayoutState.From(390, 844);
     [ObservableProperty] private ThemePreference _theme = ThemePreference.System;
     [ObservableProperty] private string _userName = "";
@@ -189,18 +257,34 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(IsNavigationCoveringContent))]
     private bool _isDrawerMoving;
 
-    [ObservableProperty] private bool _isModalSheetPresented;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
+    private bool _isModalSheetPresented;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isProjectPickerOpen;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowWebAppUpdateBanner))]
+    [NotifyPropertyChangedFor(nameof(WebAppUpdateTitle))]
+    [NotifyPropertyChangedFor(nameof(WebAppUpdateMessage))]
+    [NotifyPropertyChangedFor(nameof(IsWebAppUpdating))]
+    [NotifyPropertyChangedFor(nameof(ShowApplyWebAppUpdateAction))]
+    [NotifyPropertyChangedFor(nameof(ShowCheckWebAppUpdateAction))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
+    private WebAppUpdateState _webAppUpdateState;
 
     public MobileShellViewModel(
         LumiRemoteClient? client = null,
         ILumiDiscoveryClient? discovery = null,
         IMobileSettingsStore? store = null,
-        Action<Action>? post = null)
+        Action<Action>? post = null,
+        RemoteConnectionOptions? connection = null)
     {
         _store = store ?? new MobileSettingsStore();
         _settings = _store.Load();
@@ -208,6 +292,15 @@ public sealed partial class MobileShellViewModel :
 
         Client = client ?? new LumiRemoteClient(_settings.DeviceId, _settings.DeviceName);
         Discovery = discovery ?? new LumiDiscoveryClient();
+        _connection = new RemoteConnectionSupervisor(connection);
+        Client.ReconnectPolicy = _connection;
+        Client.KnownSnapshotSections = GetKnownSnapshotSections;
+        _connection.OfflineChanged += () => _post(() =>
+        {
+            IsConnectionOffline = _connection.IsOffline || Client.State == RemoteLinkState.Offline;
+            RetryConnectionCommand.NotifyCanExecuteChanged();
+        });
+        _connection.NetworkRestored += OnNetworkRestored;
 
         Theme = Enum.TryParse<ThemePreference>(_settings.Theme, ignoreCase: true, out var theme) ? theme : ThemePreference.System;
 
@@ -247,7 +340,39 @@ public sealed partial class MobileShellViewModel :
                 or nameof(MobileChatViewModel.Title))
             {
                 OnPropertyChanged(nameof(HeaderTitle));
+                OnPropertyChanged(nameof(ChatDetailsTitle));
             }
+            if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
+                or nameof(MobileChatViewModel.ChatId))
+            {
+                OnPropertyChanged(nameof(CanManageOpenChat));
+                OnPropertyChanged(nameof(CanGoBack));
+            }
+            if (e.PropertyName is nameof(MobileChatViewModel.ProjectName)
+                or nameof(MobileChatViewModel.ProjectValue)
+                or nameof(MobileChatViewModel.AgentName)
+                or nameof(MobileChatViewModel.AgentGlyph))
+            {
+                OnPropertyChanged(nameof(ChatHeaderMark));
+                OnPropertyChanged(nameof(HasChatHeaderMark));
+            }
+            if (e.PropertyName is nameof(MobileChatViewModel.IsRunSettingsSheetOpen))
+            {
+                OnPropertyChanged(nameof(CanPinOpenChat));
+                OnPropertyChanged(nameof(OpenChatPinLabel));
+            }
+            if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
+                or nameof(MobileChatViewModel.IsBusy)
+                or nameof(MobileChatViewModel.IsLoading)
+                or nameof(MobileChatViewModel.CanChangeProjectSelection))
+                UseStartSetupCommand.NotifyCanExecuteChanged();
+            if (e.PropertyName is nameof(MobileChatViewModel.ProjectValue)
+                or nameof(MobileChatViewModel.AgentValue)
+                or nameof(MobileChatViewModel.Model)
+                or nameof(MobileChatViewModel.Quality)
+                or nameof(MobileChatViewModel.UseWorktree)
+                or nameof(MobileChatViewModel.ChatId))
+                RefreshSetupSelection();
 
             if (e.PropertyName is nameof(MobileChatViewModel.IsEmpty))
                 OnPropertyChanged(nameof(IsWelcomeVisible));
@@ -256,6 +381,16 @@ public sealed partial class MobileShellViewModel :
             {
                 OnPropertyChanged(nameof(CanGoBack));
                 OnPropertyChanged(nameof(CanDragDrawer));
+            }
+
+            if (e.PropertyName is nameof(MobileChatViewModel.HasSidePanelOpen))
+                OnSidePanelChanged();
+
+            if (e.PropertyName is nameof(MobileChatViewModel.HasUnsentWork)
+                or nameof(MobileChatViewModel.HasOpenSheet)
+                or nameof(MobileChatViewModel.CanChooseWorktree))
+            {
+                NotifyWebAppUpdateSafetyChanged();
             }
 
             if (e.PropertyName == nameof(MobileChatViewModel.IsGitChangesOpen) && CanReadChatTranscript)
@@ -289,6 +424,13 @@ public sealed partial class MobileShellViewModel :
             {
                 OnPropertyChanged(nameof(CanGoBack));
                 OnPropertyChanged(nameof(CanDragDrawer));
+            }
+            if (e.PropertyName is nameof(LibraryViewModel.HasOpenSurface)
+                or nameof(LibraryViewModel.HasUnsavedChanges)
+                or nameof(LibraryViewModel.IsSaving)
+                or nameof(LibraryViewModel.IsActionBusy))
+            {
+                NotifyWebAppUpdateSafetyChanged();
             }
         };
 
@@ -326,7 +468,21 @@ public sealed partial class MobileShellViewModel :
                 });
         };
 
-        Library.CloseRequested += () => Page = MobilePage.Chat;
+        Library.CloseRequested += () =>
+        {
+            // Memories is a Settings page; the places' own lists step back to the chat list.
+            if (Library.Scope == LibraryScope.Memories)
+                Page = MobilePage.Settings;
+            else
+                ShowHome();
+        };
+        Library.ScopeChanged += NotifyPlaceChanged;
+        // A job's page opens the chat it runs in, as the desktop's job page does.
+        Library.ChatRequested += (chatId, title) =>
+        {
+            Library.CloseViewCommand.Execute(null);
+            OnChatActivated(chatId, title, null);
+        };
 
         if (_settings is { BaseUrl.Length: > 0, Token.Length: > 0 })
         {
@@ -337,6 +493,7 @@ public sealed partial class MobileShellViewModel :
     }
 
     public LumiRemoteClient Client { get; }
+    public bool SupportsInteractiveResponses => Client.SupportsInteractiveResponses;
 
     public ILumiDiscoveryClient Discovery { get; }
 
@@ -355,6 +512,67 @@ public sealed partial class MobileShellViewModel :
 
     public bool HasProjects => Projects.Count > 0;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasStartSetups))]
+    private IReadOnlyList<ChatStartSetup> _startSetups = [];
+
+    public bool HasStartSetups => StartSetups.Count > 0;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Greeting))]
+    private bool _hasDesktopNewChat;
+    [ObservableProperty] private string _newChatBrief = "Ask a question or get something done on your PC.";
+    [ObservableProperty] private string _startSetupsTitle = "Your usual setups";
+    private string? _desktopGreeting;
+
+    internal void ApplyNewChatExperience(RemoteNewChatExperience? experience)
+    {
+        _desktopGreeting = experience?.Greeting;
+        HasDesktopNewChat = experience is not null;
+        NewChatBrief = experience?.Brief ?? "Ask a question or get something done on your PC.";
+        StartSetupsTitle = experience?.SetupsTitle ?? "Your usual setups";
+        StartSetups = experience?.Setups.Take(3).Select(setup => new ChatStartSetup(setup)).ToArray() ?? [];
+        Chat.ApplyNewChatStarters(experience?.Starters);
+        RefreshSetupSelection();
+        OnPropertyChanged(nameof(Greeting));
+    }
+
+    private void RefreshSetupSelection()
+    {
+        foreach (var setup in StartSetups)
+        {
+            var source = setup.Source;
+            setup.IsSelected = !Chat.HasChat
+                && source.ProjectId?.ToString() == Chat.ProjectValue
+                && source.AgentId?.ToString() == Chat.AgentValue
+                && source.UseWorktree == Chat.UseWorktree
+                && (source.Model is null || source.Model == Chat.Model)
+                && (source.Quality is null || source.Quality == Chat.Quality);
+        }
+    }
+
+    private bool CanUseStartSetup() => !Chat.HasChat && !Chat.IsBusy && !Chat.IsLoading && Chat.CanChangeProjectSelection;
+
+    [RelayCommand(CanExecute = nameof(CanUseStartSetup))]
+    private void UseStartSetup(ChatStartSetup? setup)
+    {
+        if (!CanUseStartSetup())
+        {
+            Chat.ErrorText = "Setups are available before the first message.";
+            return;
+        }
+        if (setup is null || !StartSetups.Contains(setup))
+        {
+            Chat.ErrorText = "That setup is no longer available. Choose another setup.";
+            return;
+        }
+
+        ActiveProjectId = setup.ProjectId;
+        Chat.ApplyStartSetup(setup.Source);
+        RefreshSetupSelection();
+        Chat.ErrorText = null;
+    }
+
     // ── Chat action sheet ────────────────────────────────────────────────────────────────────
 
     private long _chatActionsVersion;
@@ -362,6 +580,8 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isChatActionsOpen;
 
     [ObservableProperty]
@@ -374,6 +594,8 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowChatActionList))]
     [NotifyPropertyChangedFor(nameof(ChatActionsTitle))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveChatNameCommand))]
     private bool _isRenamingChat;
 
@@ -396,6 +618,8 @@ public sealed partial class MobileShellViewModel :
     [NotifyCanExecuteChangedFor(nameof(RenameActionChatCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveChatNameCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConfirmDeleteActionChatCommand))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isChatActionBusy;
 
     public string ActionChatTitle => ActionChat?.Title ?? "";
@@ -459,6 +683,14 @@ public sealed partial class MobileShellViewModel :
                 .With("chatId", chat.Id.ToString())))
         {
             IsChatActionsOpen = false;
+            // A list that is not on screen hears of the deletion only when it reloads, so the open chat
+            // leaves at once, as on the desktop, and a single pane returns to the list.
+            if (Chat.ChatId == chat.Id)
+            {
+                OnChatRemoved(chat.Id);
+                if (!CanDockDrawer)
+                    ShowHome();
+            }
         }
     }
 
@@ -563,7 +795,44 @@ public sealed partial class MobileShellViewModel :
 
     public bool HasActiveProject => ActiveProjectId.HasValue;
 
-    public string ProjectScopeLabel => ActiveProject ?? "All projects";
+    /// <summary>The chat list's title, as the desktop's project switcher names it.</summary>
+    public string ProjectSwitcherTitle => ActiveProject ?? "All chats";
+
+    /// <summary>"4 projects" beside All chats; nothing once one project is the lens.</summary>
+    public string ProjectSwitcherMeta => HasActiveProject || Projects.Count == 0
+        ? ""
+        : Projects.Count == 1 ? "1 project" : $"{Projects.Count} projects";
+
+    /// <summary>The open project's initial on its hue; empty while every chat is in view.</summary>
+    public ChatIdentityMark ProjectSwitcherMark => ActiveProjectId is { } id && ActiveProject is { } name
+        ? ChatIdentityMark.Create(id, name, null, null) ?? ChatIdentityMark.Empty
+        : ChatIdentityMark.Empty;
+
+    /// <summary>The open chat's identity in its title pill: agent glyph or project initial on its hue.</summary>
+    public ChatIdentityMark ChatHeaderMark => ChatIdentityMark.Create(
+        Guid.TryParse(Chat.ProjectValue, out var projectId) ? projectId : null,
+        Chat.ProjectName, Chat.AgentName, Chat.AgentGlyph) ?? ChatIdentityMark.Empty;
+
+    public bool HasChatHeaderMark => !ReferenceEquals(ChatHeaderMark, ChatIdentityMark.Empty);
+
+    /// <summary>
+    /// New chat is the top right of the chat's title bar in every layout, balancing the back or sidebar
+    /// button at its left. A docked list beside the chat leaves it to the chat's bar.
+    /// </summary>
+    public bool ShowHeaderNewChat => IsPaired;
+
+    /// <summary>
+    /// The chat list carries New chat beside search only when it is a screen of its own; docked beside
+    /// a chat, the chat's title bar has it.
+    /// </summary>
+    public bool ShowListNewChat => !CanDockDrawer;
+
+    private void NotifyProjectSwitcherChanged()
+    {
+        OnPropertyChanged(nameof(ProjectSwitcherTitle));
+        OnPropertyChanged(nameof(ProjectSwitcherMeta));
+        OnPropertyChanged(nameof(ProjectSwitcherMark));
+    }
 
     public bool CanChangeProjectScope =>
         IsPaired && (Chat.ChatId != Guid.Empty || Chat.CanChangeProjectSelection);
@@ -584,7 +853,7 @@ public sealed partial class MobileShellViewModel :
             SearchChatList.ProjectFilterId = value;
         OnPropertyChanged(nameof(ActiveProject));
         OnPropertyChanged(nameof(HasActiveProject));
-        OnPropertyChanged(nameof(ProjectScopeLabel));
+        NotifyProjectSwitcherChanged();
         SyncProjectSelection();
 
         // A project chosen while composing a blank chat is both a history lens and the destination
@@ -637,7 +906,7 @@ public sealed partial class MobileShellViewModel :
 
             OnPropertyChanged(nameof(HasProjects));
             OnPropertyChanged(nameof(ActiveProject));
-            OnPropertyChanged(nameof(ProjectScopeLabel));
+            NotifyProjectSwitcherChanged();
         }
 
         SyncProjectSelection();
@@ -658,6 +927,88 @@ public sealed partial class MobileShellViewModel :
     }
 
     public string DeviceName => _settings.DeviceName;
+
+    public bool CanReloadWebApp => _reloadWebApp is not null;
+
+    public bool ShowGatewaySignInAction => IsGatewaySignInRequired && CanReloadWebApp;
+
+    public bool CanAutomaticallyRecoverGatewaySignIn =>
+        IsPaired
+        && CanReloadWebApp
+        && Volatile.Read(ref _commandsInFlight) == 0
+        && Page == MobilePage.Chat
+        && !Chat.HasUnsentWork
+        && !Chat.HasOpenSheet
+        && !Library.HasUnsavedChanges
+        && !Library.IsSaving
+        && !IsRenamingChat
+        && !IsChatActionBusy;
+
+    public bool CanApplyWebAppUpdate =>
+        _applyWebAppUpdate is not null
+        && _isApplicationActive
+        && IsPaired
+        && Volatile.Read(ref _commandsInFlight) == 0
+        && !IsKeyboardOpen
+        && !Chat.HasUnsentWork
+        && !Chat.HasOpenSheet
+        && !Library.HasOpenSurface
+        && !Library.IsSaving
+        && !Library.IsActionBusy
+        && !IsModalSheetPresented
+        && !IsProjectPickerOpen
+        && !IsChatActionsOpen
+        && !IsRenamingChat
+        && !IsChatActionBusy
+        && !IsDisconnectConfirmationOpen;
+
+    public bool ShowWebAppUpdateBanner =>
+        _applyWebAppUpdate is not null && WebAppUpdateState != WebAppUpdateState.Current;
+
+    public bool IsWebAppUpdating =>
+        WebAppUpdateState is WebAppUpdateState.Downloading or WebAppUpdateState.Applying;
+
+    public bool ShowApplyWebAppUpdateAction => WebAppUpdateState == WebAppUpdateState.Ready;
+
+    public bool ShowCheckWebAppUpdateAction => WebAppUpdateState == WebAppUpdateState.Failed;
+
+    public string WebAppUpdateTitle => WebAppUpdateState switch
+    {
+        WebAppUpdateState.Downloading => "Downloading update",
+        WebAppUpdateState.Ready => "Update ready",
+        WebAppUpdateState.Applying => "Applying update",
+        WebAppUpdateState.Failed => "Update couldn't finish",
+        _ => ""
+    };
+
+    public string WebAppUpdateMessage => WebAppUpdateState switch
+    {
+        WebAppUpdateState.Downloading => "You can keep using Lumi while the verified app downloads.",
+        WebAppUpdateState.Ready => "Wait for downloads and actions, finish or clear drafts and question replies, then close editors. Lumi will update automatically when it's safe.",
+        WebAppUpdateState.Applying => "Reopening Lumi with the new build. Your pairing is kept.",
+        WebAppUpdateState.Failed => "Your current app and pairing are kept. Try again when connected.",
+        _ => ""
+    };
+
+    private bool CanApplyReadyWebAppUpdate =>
+        ShowApplyWebAppUpdateAction && CanApplyWebAppUpdate;
+
+    private bool CanCheckWebAppUpdate => _checkWebAppUpdate is not null;
+
+    private void NotifyWebAppUpdateSafetyChanged()
+    {
+        OnPropertyChanged(nameof(CanApplyWebAppUpdate));
+        ApplyWebAppUpdateCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanApplyReadyWebAppUpdate))]
+    private void ApplyWebAppUpdate() => _applyWebAppUpdate?.Invoke();
+
+    [RelayCommand(CanExecute = nameof(CanCheckWebAppUpdate))]
+    private void CheckWebAppUpdate() => _checkWebAppUpdate?.Invoke();
+
+    [RelayCommand(CanExecute = nameof(CanReloadWebApp))]
+    private void ReloadWebApp() => _reloadWebApp?.Invoke();
 
     /// <summary>
     /// The running build, shown in Settings. Without this there is no way to confirm which APK is
@@ -699,6 +1050,8 @@ public sealed partial class MobileShellViewModel :
     {
         get
         {
+            if (HasDesktopNewChat && !string.IsNullOrWhiteSpace(_desktopGreeting))
+                return _desktopGreeting;
             var part = DateTime.Now.Hour switch
             {
                 < 5 => "Still up",
@@ -718,23 +1071,80 @@ public sealed partial class MobileShellViewModel :
         ? Chat.Title
         : "Lumi";
 
+    /// <summary>The details popup is titled by the chat it configures; a blank chat is a new chat.</summary>
+    public string ChatDetailsTitle => Chat.HasChat && !string.IsNullOrWhiteSpace(Chat.Title)
+        ? Chat.Title
+        : "New chat";
+
+    // ── The open chat's own actions ─────────────────────────────────────────────────────────
+    //
+    // The chat's details sheet also pins, renames and deletes it, as the desktop's header and
+    // sidebar menu do, so a chat read full-screen never has to be found in the list first.
+
+    public bool CanManageOpenChat => IsPaired && Chat.HasChat && Chat.ChatId != Guid.Empty;
+
+    /// <summary>Pinning is offered when the list knows whether the open chat is pinned.</summary>
+    public bool CanPinOpenChat => CanManageOpenChat && ChatList.FindLoadedChat(Chat.ChatId) is not null;
+
+    public string OpenChatPinLabel =>
+        CanManageOpenChat && ChatList.FindLoadedChat(Chat.ChatId) is { IsPinned: true }
+            ? "Unpin chat"
+            : "Pin chat";
+
+    /// <summary>The open chat as its list row when shown, else as its loaded summary.</summary>
+    private ChatListItemViewModel? OpenChatRow()
+    {
+        if (!CanManageOpenChat)
+            return null;
+        if (ChatList.FindChat(Chat.ChatId) is { } row)
+            return row;
+        return ChatList.FindLoadedChat(Chat.ChatId) is { } loaded
+            ? new ChatListItemViewModel(loaded)
+            : new ChatListItemViewModel(new RemoteChat { Id = Chat.ChatId, Title = Chat.Title });
+    }
+
+    [RelayCommand]
+    private void RenameOpenChat()
+    {
+        if (OpenChatRow() is not { } chat)
+            return;
+        Chat.IsRunSettingsSheetOpen = false;
+        OpenChatActions(chat);
+        RenameActionChat();
+    }
+
+    [RelayCommand]
+    private void DeleteOpenChat()
+    {
+        if (OpenChatRow() is not { } chat)
+            return;
+        Chat.IsRunSettingsSheetOpen = false;
+        OpenChatActions(chat);
+        DeleteActionChat();
+    }
+
+    [RelayCommand]
+    private async Task PinOpenChatAsync()
+    {
+        if (!CanManageOpenChat || ChatList.FindLoadedChat(Chat.ChatId) is not { } chat)
+            return;
+        Chat.IsRunSettingsSheetOpen = false;
+        var chatId = chat.Id;
+        var pinned = !chat.IsPinned;
+        var result = await SendCommandAsync(new RemoteCommand(RemoteProtocol.Actions.PinChat)
+            .With("chatId", chatId.ToString()).With("pinned", pinned.ToString()));
+        if (result.Ok)
+            ChatList.SetPinned(chatId, pinned);
+        else if (Chat.ChatId == chatId)
+            Chat.ErrorText = result.Error ?? "This action didn't complete. Please try again.";
+        OnPropertyChanged(nameof(OpenChatPinLabel));
+    }
+
     partial void OnUserNameChanged(string value)
     {
         OnPropertyChanged(nameof(AccountName));
         OnPropertyChanged(nameof(UserInitial));
         OnPropertyChanged(nameof(Greeting));
-    }
-
-    /// <summary>Opens the library on the tapped experience.</summary>
-    [RelayCommand]
-    private void OpenExperience(ExperienceViewModel? experience)
-    {
-        if (experience is null)
-            return;
-
-        Library.Section = experience.Section;
-        Page = MobilePage.Library;
-        IsDrawerOpen = false;
     }
 
     /// <summary>
@@ -754,7 +1164,32 @@ public sealed partial class MobileShellViewModel :
     /// <summary>True only when the phone can actually reach a ready Lumi: link up AND host ready.</summary>
     public bool IsLive => IsConnected && IsHostReady;
 
-    public string ConnectionStateLabel => !IsConnected ? "Reconnecting"
+    /// <summary>
+    /// True when the phone stopped retrying because Lumi stayed unreachable. A network change, the
+    /// app reopening or Retry resumes connecting.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ConnectionBannerText))]
+    [NotifyPropertyChangedFor(nameof(ConnectionStateLabel))]
+    [NotifyPropertyChangedFor(nameof(ShowRetryConnectionAction))]
+    private bool _isConnectionOffline;
+
+    public bool ShowRetryConnectionAction => IsConnectionOffline && !IsGatewaySignInRequired;
+
+    /// <summary>What the link has cost since launch, shown in Settings.</summary>
+    [ObservableProperty] private string _connectionDiagnostics = "";
+
+    [RelayCommand]
+    private Task RetryConnectionAsync()
+    {
+        _connection.RetryNow();
+        IsConnectionOffline = false;
+        return Client.IsEventStreamActive ? Task.CompletedTask : StartAsync();
+    }
+
+    public string ConnectionStateLabel => IsGatewaySignInRequired ? "Sign-in required"
+        : IsConnectionOffline && !IsConnected ? "Offline"
+        : !IsConnected ? "Reconnecting"
         : IsHostReady ? "Connected" : "Getting ready";
 
     /// <summary>
@@ -767,10 +1202,21 @@ public sealed partial class MobileShellViewModel :
     {
         get
         {
+            if (IsGatewaySignInRequired)
+                return ConnectionMessage ?? "Microsoft sign-in needs attention. Your Lumi pairing is kept.";
+
             if (!IsConnected)
             {
                 var host = string.IsNullOrWhiteSpace(HostName) ? "your PC" : HostName;
-                return $"Reconnecting to {host}...";
+                if (IsConnectionOffline)
+                {
+                    return _connection.IsNetworkAvailable
+                        ? $"Can't reach {host}. Make sure it's awake and online, then retry."
+                        : $"This phone is offline. Lumi reconnects to {host} when the network is back.";
+                }
+                return string.IsNullOrWhiteSpace(ConnectionMessage)
+                    ? $"Reconnecting to {host}..."
+                    : $"Reconnecting to {host}... {ConnectionMessage}";
             }
 
             return string.IsNullOrWhiteSpace(ConnectionMessage)
@@ -781,10 +1227,10 @@ public sealed partial class MobileShellViewModel :
 
     // ── Navigation ────────────────────────────────────────────────────────────────────────────
     //
-    // The chat surface is the app. It is always mounted; Library and Settings are pages pushed
-    // over it, and the chat list lives in a drawer rather than a tab. This mirrors ChatGPT, Claude
-    // and Gemini: on a phone the conversation deserves the whole screen, and a permanent tab bar
-    // would spend ~56dp of it advertising destinations the user visits occasionally.
+    // The desktop's places, adapted to the window. With room for one pane the chat list is home:
+    // a chat, or another place, opens over it and Back or a swipe from anywhere returns to it. With
+    // room for two, the open place's list sits beside its content as the desktop sidebar does. The
+    // chat surface is always mounted so coming back to it never rebuilds a transcript.
 
     public bool IsChatPage => Page == MobilePage.Chat;
 
@@ -797,15 +1243,54 @@ public sealed partial class MobileShellViewModel :
     /// <summary>True when a page is stacked over the conversation.</summary>
     public bool HasPageOverlay => Page != MobilePage.Chat;
 
+    /// <summary>The place the user is in, derived from the page and the Library's scope.</summary>
+    public MobilePlace Place => Page switch
+    {
+        MobilePage.Library => Library.Scope switch
+        {
+            LibraryScope.Jobs => MobilePlace.Jobs,
+            LibraryScope.Memories => MobilePlace.Settings,
+            _ => MobilePlace.Customize
+        },
+        MobilePage.Settings => MobilePlace.Settings,
+        _ => MobilePlace.Chats
+    };
+
+    public bool IsChatsPlace => Place == MobilePlace.Chats;
+
+    public bool IsJobsPlace => Place == MobilePlace.Jobs;
+
+    public bool IsCustomizePlace => Place == MobilePlace.Customize;
+
+    public bool IsSettingsPlace => Place == MobilePlace.Settings;
+
     /// <summary>
-    /// At expanded widths the drawer can dock beside the chat instead of sliding over it. It is
+    /// A place's own list sits beside its content. Not across a physical hinge, where the chat list
+    /// keeps the leading pane and each place uses the other pane as one.
+    /// </summary>
+    public bool IsTwoPane => Layout.CanShowTwoPanes && !HasHingeGap;
+
+    public bool IsSinglePane => !IsTwoPane;
+
+    /// <summary>The window also has room for a supporting panel beside the chat.</summary>
+    public bool IsThreePane => Layout.CanShowThreePanes;
+
+    /// <summary>Width of a place's list column when it sits beside its content.</summary>
+    public double ListPaneWidth => Layout.ListPaneWidth;
+
+    /// <summary>
+    /// At two-pane widths the chat list docks beside the chat instead of sliding over it. It is
     /// still collapsible: the list uses a meaningful share of the conversation width, so its
     /// visibility is controlled by the same button/gesture state and remembered between launches.
     /// </summary>
     public bool IsDrawerDocked => CanDockDrawer && !IsSidebarCollapsed;
 
-    /// <summary>Wide enough to dock, whether or not the user has collapsed it.</summary>
-    public bool CanDockDrawer => Layout.WidthClass == WidthSizeClass.Expanded;
+    /// <summary>
+    /// Wide enough to dock, whether or not the user has collapsed it. Only the chat list docks: the
+    /// other places lay out their own list beside their content. Across a physical hinge the list
+    /// keeps the leading pane for every place, since nothing can span the gap.
+    /// </summary>
+    public bool CanDockDrawer => Layout.CanShowTwoPanes && (Place == MobilePlace.Chats || HasHingeGap);
 
     public bool IsPhoneLayout => Layout.WidthClass == WidthSizeClass.Compact;
 
@@ -830,13 +1315,13 @@ public sealed partial class MobileShellViewModel :
     /// <summary>
     /// Drawer gestures are suspended while another modal surface owns the pointer. This prevents a
     /// horizontal drift inside a model list or action sheet from stacking the navigation drawer over
-    /// the active modal.
+    /// the active modal. A side panel holds the width the list would take, so it suspends them too.
     /// </summary>
     public bool CanDragDrawer =>
         !IsChatActionsOpen &&
         !IsProjectPickerOpen &&
         !IsDisconnectConfirmationOpen &&
-        (Page != MobilePage.Chat || !Chat.HasOpenSheet) &&
+        (Page != MobilePage.Chat || (!Chat.HasOpenSheet && !Chat.HasSidePanelOpen)) &&
         (Page != MobilePage.Library || !Library.HasOpenSurface);
 
     /// <summary>Scrim is shown for the sliding drawer only; a docked drawer never dims the chat.</summary>
@@ -849,7 +1334,7 @@ public sealed partial class MobileShellViewModel :
     /// Phones use the full screen. Larger layouts keep a readable pane width or honour the hinge.
     /// </summary>
     public double DrawerWidth => CanDockDrawer
-        ? HasHingeGap ? Layout.HingePosition : 320
+        ? Layout.ListPaneWidth
         : IsPhoneLayout ? Layout.Width + SafeArea.Left + SafeArea.Right : Math.Min(360, Layout.Width);
 
     /// <summary>Final reserved width. The view follows drawer progress between these endpoints.</summary>
@@ -860,7 +1345,11 @@ public sealed partial class MobileShellViewModel :
     /// <summary>The shared expander lives beside the chat title in both phone and tablet layouts.</summary>
     public bool ShowMenuButton => IsPaired;
 
-    public string NavigationToggleLabel => IsNavigationOpen ? "Hide navigation" : "Open navigation";
+    /// <summary>One pane: the button returns to the list. Two panes: it shows or hides the list.</summary>
+    public bool ShowBackToChats => IsPaired && !CanDockDrawer;
+
+    public string NavigationToggleLabel => !CanDockDrawer ? "Back to chats"
+        : IsNavigationOpen ? "Hide chats" : "Show chats";
 
     /// <summary>Physical hinge gap kept empty between a docked drawer and the conversation.</summary>
     public double HingeGapWidth => Layout.HingeSize;
@@ -877,30 +1366,270 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void CloseDrawer() => IsDrawerOpen = false;
 
-    partial void OnIsSidebarCollapsedChanged(bool value)
+    /// <summary>
+    /// Shows the chat list: docked beside the chat on a wide window, as the whole screen otherwise.
+    /// This is where the app opens and where Back from any other place returns.
+    /// </summary>
+    public void ShowHome()
     {
-        _settings.IsSidebarCollapsed = value;
-        _store.Save(_settings);
+        Page = MobilePage.Chat;
+        if (!CanDockDrawer && IsPaired)
+            IsDrawerOpen = true;
+    }
 
+    private bool _isOpeningAtLaunch;
+
+    /// <summary>
+    /// Opens on the chat list at launch or right after pairing. The startup snapshot brings the
+    /// chats, so the list is not fetched separately ahead of the connection being ready.
+    /// </summary>
+    public void ShowLaunchHome()
+    {
+        _isOpeningAtLaunch = true;
+        try
+        {
+            ShowHome();
+            // A docked list is in view without the drawer opening; the snapshot brings its chats.
+            FollowChatListVisibility();
+        }
+        finally
+        {
+            _isOpeningAtLaunch = false;
+        }
+    }
+
+    [RelayCommand]
+    private void SelectPlace(string? place)
+    {
+        if (Enum.TryParse<MobilePlace>(place, ignoreCase: true, out var parsed))
+            SelectPlace(parsed);
+    }
+
+    public void SelectPlace(MobilePlace place)
+    {
+        switch (place)
+        {
+            case MobilePlace.Chats:
+                ShowHome();
+                break;
+            case MobilePlace.Jobs:
+                ShowLibraryScope(LibraryScope.Jobs);
+                break;
+            case MobilePlace.Customize:
+                ShowLibraryScope(LibraryScope.Customize);
+                break;
+            case MobilePlace.Settings:
+                SettingsSection = SettingsSection.None;
+                Page = MobilePage.Settings;
+                IsDrawerOpen = false;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Opens the Library page for a place. With unsaved edits the page stays on them and asks first;
+    /// the scope follows only when the user discards.
+    /// </summary>
+    private void ShowLibraryScope(LibraryScope scope)
+    {
+        Library.RequestScope(scope);
+        Page = MobilePage.Library;
         IsDrawerOpen = false;
+        NotifyPlaceChanged();
+    }
 
+    /// <summary>Memories is a page of Settings, kept with the Library editor that already serves it.</summary>
+    [RelayCommand]
+    private void ShowMemories() => ShowLibraryScope(LibraryScope.Memories);
+
+    /// <summary>The Settings page in view. A phone starts on the list; a wide window shows a page beside it.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanGoBack))]
+    private SettingsSection _settingsSection;
+
+    [RelayCommand]
+    private void OpenSettingsSection(string? section)
+    {
+        if (Enum.TryParse<SettingsSection>(section, ignoreCase: true, out var parsed))
+            SettingsSection = parsed;
+    }
+
+    /// <summary>The page a wide Settings shows beside its list: the chosen one, or Appearance.</summary>
+    public SettingsSection VisibleSettingsSection => SettingsSection == SettingsSection.None && IsTwoPane
+        ? SettingsSection.Appearance
+        : SettingsSection;
+
+    public bool ShowSettingsDetail => VisibleSettingsSection != SettingsSection.None;
+
+    public bool IsAppearanceSectionVisible => VisibleSettingsSection == SettingsSection.Appearance;
+
+    public bool IsConnectionSectionVisible => VisibleSettingsSection == SettingsSection.Connection;
+
+    public bool IsAboutSectionVisible => VisibleSettingsSection == SettingsSection.About;
+
+    public string SettingsDetailTitle => VisibleSettingsSection switch
+    {
+        SettingsSection.Appearance => "Appearance",
+        SettingsSection.Connection => "Connection",
+        SettingsSection.About => "About",
+        _ => "Settings"
+    };
+
+    partial void OnSettingsSectionChanged(SettingsSection value) => NotifySettingsSectionChanged();
+
+    private void NotifySettingsSectionChanged()
+    {
+        OnPropertyChanged(nameof(VisibleSettingsSection));
+        OnPropertyChanged(nameof(ShowSettingsDetail));
+        OnPropertyChanged(nameof(IsAppearanceSectionVisible));
+        OnPropertyChanged(nameof(IsConnectionSectionVisible));
+        OnPropertyChanged(nameof(IsAboutSectionVisible));
+        OnPropertyChanged(nameof(SettingsDetailTitle));
+    }
+
+    // ── The supporting panel ──────────────────────────────────────────────────────────────────
+    //
+    // With two panes the plan, sources and activity open beside the chat. Below three panes the
+    // chat list steps aside while one is open, as the desktop's Workspace takes the sidebar's room,
+    // and returns when it closes.
+
+    public const double SidePanelWidth = 400;
+
+    /// <summary>The chat keeps at least this much beside a side panel; narrower windows use sheets.</summary>
+    private const double MinimumChatBesidePanel = 480;
+
+    /// <summary>The plan, sources and activity can open beside the chat rather than over it.</summary>
+    public bool CanShowSidePanels =>
+        IsTwoPane && Layout.Width >= SidePanelWidth + 12 + MinimumChatBesidePanel;
+
+    private bool _sidebarYieldedToPanel;
+    private bool _isYieldingSidebar;
+
+    /// <summary>The chat makes room on its trailing edge for an open side panel.</summary>
+    public Thickness ChatSidePanelInset => Chat.HasSidePanelOpen
+        ? new Thickness(0, 0, SidePanelWidth + 12, 0)
+        : default;
+
+    /// <summary>Where a side panel floats: clear of the status bar, the cutout and the gesture area.</summary>
+    public Thickness SidePanelSheetMargin =>
+        new(0, SafeArea.Top + 8, SafeArea.Right + 8, SafeArea.Bottom + 8);
+
+    private void OnSidePanelChanged()
+    {
+        ReconcileSidebarWithSidePanel();
+        OnPropertyChanged(nameof(ChatSidePanelInset));
+        OnPropertyChanged(nameof(CanGoBack));
+        OnPropertyChanged(nameof(CanDragDrawer));
+    }
+
+    /// <summary>
+    /// Below three panes the chat list steps aside while a side panel is open; it returns when the
+    /// panel closes or the window grows room for all three.
+    /// </summary>
+    private void ReconcileSidebarWithSidePanel()
+    {
+        if (Chat.HasSidePanelOpen && !IsThreePane && IsDrawerDocked)
+            YieldSidebar(collapsed: true);
+        else if (_sidebarYieldedToPanel && (!Chat.HasSidePanelOpen || IsThreePane))
+            YieldSidebar(collapsed: false);
+    }
+
+    private void YieldSidebar(bool collapsed)
+    {
+        _isYieldingSidebar = true;
+        try
+        {
+            IsSidebarCollapsed = collapsed;
+        }
+        finally
+        {
+            _isYieldingSidebar = false;
+        }
+
+        _sidebarYieldedToPanel = collapsed;
+    }
+
+    private void CloseSidePanels()
+    {
+        Chat.IsPlanOpen = false;
+        Chat.IsSourcesSheetOpen = false;
+        Chat.IsActivitySheetOpen = false;
+    }
+
+    /// <summary>Raises everything that follows from the place and the window together.</summary>
+    private void NotifyPlaceChanged()
+    {
+        OnPropertyChanged(nameof(Place));
+        OnPropertyChanged(nameof(IsChatsPlace));
+        OnPropertyChanged(nameof(IsJobsPlace));
+        OnPropertyChanged(nameof(IsCustomizePlace));
+        OnPropertyChanged(nameof(IsSettingsPlace));
+        NotifyNavigationLayoutChanged();
+    }
+
+    private void NotifyNavigationLayoutChanged()
+    {
+        // Open state first: a drawer that closes while still docked and only then turns modal snaps
+        // to its new layout, instead of sliding over the place that replaced it.
         OnPropertyChanged(nameof(IsNavigationOpen));
+        OnPropertyChanged(nameof(CanDockDrawer));
         OnPropertyChanged(nameof(NavigationToggleLabel));
         OnPropertyChanged(nameof(IsDrawerDocked));
         OnPropertyChanged(nameof(IsNavigationCoveringContent));
-        OnPropertyChanged(nameof(NavigationLeadingWidth));
-        OnPropertyChanged(nameof(ShowMenuButton));
         OnPropertyChanged(nameof(CanDragDrawer));
         OnPropertyChanged(nameof(IsDrawerOverlay));
         OnPropertyChanged(nameof(IsDrawerVisible));
         OnPropertyChanged(nameof(ShowScrim));
+        OnPropertyChanged(nameof(ShowMenuButton));
+        OnPropertyChanged(nameof(ShowBackToChats));
+        OnPropertyChanged(nameof(ShowHeaderNewChat));
+        OnPropertyChanged(nameof(ShowListNewChat));
         OnPropertyChanged(nameof(DrawerWidth));
+        OnPropertyChanged(nameof(NavigationLeadingWidth));
+        OnPropertyChanged(nameof(ProjectPickerSheetMargin));
+        OnPropertyChanged(nameof(CanGoBack));
+    }
+
+    private bool _isChatListShown;
+
+    /// <summary>
+    /// The PC tells the phone about its chats only while the list is on screen, so the list reloads when it
+    /// comes back into view (the drawer opening, the sidebar showing, a place or a new layout bringing it
+    /// back), and not on every change while it stays in view. Callers run it after their subscription
+    /// update, so the list is read once the PC already sends what changes after it.
+    /// </summary>
+    private void FollowChatListVisibility()
+    {
+        var shown = IsDrawerVisible;
+        if (shown == _isChatListShown)
+            return;
+
+        _isChatListShown = shown;
+        if (shown && IsPaired && !_isOpeningAtLaunch)
+            _ = ChatList.RefreshFromServerAsync();
+    }
+
+    partial void OnIsSidebarCollapsedChanged(bool value)
+    {
+        if (!_isYieldingSidebar)
+        {
+            _settings.IsSidebarCollapsed = value;
+            _store.Save(_settings);
+
+            // Asking for the list back below three panes trades the supporting panel for it.
+            _sidebarYieldedToPanel = false;
+            if (!value && Chat.HasSidePanelOpen && !IsThreePane)
+                CloseSidePanels();
+        }
+
+        IsDrawerOpen = false;
+
+        NotifyNavigationLayoutChanged();
         OnPropertyChanged(nameof(HingeGapWidth));
         OnPropertyChanged(nameof(HasHingeGap));
         OnPropertyChanged(nameof(UsableContentHeight));
         QueueSubscriptionUpdate();
-        if (IsDrawerVisible)
-            _ = ChatList.RefreshFromServerAsync();
+        FollowChatListVisibility();
     }
 
     [RelayCommand]
@@ -944,21 +1673,40 @@ public sealed partial class MobileShellViewModel :
             return;
         }
 
-        if (IsDrawerOverlay)
-        {
-            IsDrawerOpen = false;
-            return;
-        }
-
         if (Page == MobilePage.Library && Library.DismissTopmostSurface())
             return;
 
         if (Page == MobilePage.Chat && Chat.DismissTopmostSheet())
             return;
 
+        if (Page == MobilePage.Library && Library.Scope == LibraryScope.Memories)
+        {
+            Page = MobilePage.Settings;
+            return;
+        }
+
+        if (Page == MobilePage.Settings && SettingsSection != SettingsSection.None && IsSinglePane)
+        {
+            SettingsSection = SettingsSection.None;
+            return;
+        }
+
         if (HasPageOverlay)
-            Page = MobilePage.Chat;
+        {
+            ShowHome();
+            return;
+        }
+
+        if (IsReadingChatOverHome)
+            IsDrawerOpen = true;
     }
+
+    /// <summary>
+    /// One pane, a chat (or a new one) in view: Back returns to the chat list. However wide the
+    /// pane, the list is home, so Back from it leaves the app rather than returning to the chat.
+    /// </summary>
+    private bool IsReadingChatOverHome =>
+        IsPaired && Page == MobilePage.Chat && !CanDockDrawer && !IsDrawerOpen;
 
     /// <summary>True when the system back gesture has something of ours to dismiss.</summary>
     public bool CanGoBack =>
@@ -967,9 +1715,9 @@ public sealed partial class MobileShellViewModel :
         IsChatActionsOpen ||
         IsProjectPickerOpen ||
         (Page == MobilePage.Library && Library.HasOpenSurface) ||
-        (Page == MobilePage.Chat && Chat.HasOpenSheet) ||
-        IsDrawerOverlay ||
-        HasPageOverlay;
+        (Page == MobilePage.Chat && (Chat.HasOpenSheet || Chat.HasSidePanelOpen)) ||
+        HasPageOverlay ||
+        IsReadingChatOverHome;
 
     partial void OnPageChanged(MobilePage value)
     {
@@ -982,8 +1730,7 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(IsSettingsPage));
         OnPropertyChanged(nameof(IsSearchPage));
         OnPropertyChanged(nameof(HasPageOverlay));
-        OnPropertyChanged(nameof(CanGoBack));
-        OnPropertyChanged(nameof(CanDragDrawer));
+        NotifyPlaceChanged();
         if (_chatActivationOwnsSubscription)
         {
             // ActivateChatAsync installs the exact chat scope before its authoritative fetch.
@@ -998,10 +1745,13 @@ public sealed partial class MobileShellViewModel :
         {
             QueueSubscriptionUpdate();
         }
+        FollowChatListVisibility();
         if (value == MobilePage.Library)
             _ = RefreshSnapshotAsync();
         if (value == MobilePage.Search)
             _ = SearchChatList.RefreshFromServerAsync();
+        if (value == MobilePage.Settings)
+            ConnectionDiagnostics = Client.Stats.Snapshot().Summary;
     }
 
     partial void OnIsDrawerOpenChanged(bool value)
@@ -1013,39 +1763,37 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(ShowScrim));
         OnPropertyChanged(nameof(CanGoBack));
         QueueSubscriptionUpdate();
-        if (value)
-            _ = ChatList.RefreshFromServerAsync();
-        else if (CanReadChatTranscript)
+        FollowChatListVisibility();
+        if (!value && CanReadChatTranscript)
             _ = RefreshTranscriptAsync();
     }
 
-    partial void OnLayoutChanged(MobileLayoutState value)
+    partial void OnLayoutChanged(MobileLayoutState oldValue, MobileLayoutState newValue)
     {
-        IsDrawerOpen = false;
-        OnPropertyChanged(nameof(IsNavigationOpen));
-        OnPropertyChanged(nameof(NavigationToggleLabel));
-        OnPropertyChanged(nameof(CanDockDrawer));
+        // Folding, unfolding or splitting the screen changes how many panes fit. Whatever was being
+        // read stays in view; with nothing open, a single pane lands on the chat list.
+        if (oldValue.CanShowTwoPanes != newValue.CanShowTwoPanes)
+            IsDrawerOpen = !newValue.CanShowTwoPanes && IsPaired && Page == MobilePage.Chat && !Chat.HasChat;
+        else if (oldValue.WidthClass != newValue.WidthClass && !IsPhoneLayout && Chat.HasChat)
+            IsDrawerOpen = false;
+
         OnPropertyChanged(nameof(IsPhoneLayout));
+        OnPropertyChanged(nameof(IsTwoPane));
+        OnPropertyChanged(nameof(IsSinglePane));
+        OnPropertyChanged(nameof(IsThreePane));
+        OnPropertyChanged(nameof(ListPaneWidth));
+        Chat.UseSidePanels = CanShowSidePanels;
+        ReconcileSidebarWithSidePanel();
         OnPropertyChanged(nameof(SafeAreaSheetMargin));
-        OnPropertyChanged(nameof(ProjectPickerSheetMargin));
-        OnPropertyChanged(nameof(IsDrawerDocked));
-        OnPropertyChanged(nameof(IsNavigationCoveringContent));
-        OnPropertyChanged(nameof(CanDragDrawer));
-        OnPropertyChanged(nameof(IsDrawerOverlay));
-        OnPropertyChanged(nameof(IsDrawerVisible));
-        OnPropertyChanged(nameof(ShowScrim));
-        OnPropertyChanged(nameof(ShowMenuButton));
-        OnPropertyChanged(nameof(DrawerWidth));
-        OnPropertyChanged(nameof(NavigationLeadingWidth));
+        NotifyNavigationLayoutChanged();
+        NotifySettingsSectionChanged();
         OnPropertyChanged(nameof(HingeGapWidth));
         OnPropertyChanged(nameof(HasHingeGap));
         OnPropertyChanged(nameof(UsableContentHeight));
         OnPropertyChanged(nameof(HasWelcomeSpace));
         OnPropertyChanged(nameof(IsWelcomeVisible));
-        OnPropertyChanged(nameof(CanGoBack));
         QueueSubscriptionUpdate();
-        if (IsDrawerVisible)
-            _ = ChatList.RefreshFromServerAsync();
+        FollowChatListVisibility();
     }
 
     /// <summary>
@@ -1068,7 +1816,11 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(IsSystemTheme));
         OnPropertyChanged(nameof(IsLightTheme));
         OnPropertyChanged(nameof(IsDarkTheme));
+        OnPropertyChanged(nameof(ThemeLabel));
     }
+
+    /// <summary>The theme in words, beside Appearance in the Settings list.</summary>
+    public string ThemeLabel => Theme.ToString();
 
     /// <summary>Selected-state helpers for the settings segmented control.</summary>
     public bool IsSystemTheme => Theme == ThemePreference.System;
@@ -1088,7 +1840,7 @@ public sealed partial class MobileShellViewModel :
     public void UpdateLayout(double width, double height, FoldPosture posture = FoldPosture.Flat,
         double hingeSize = 0, double hingePosition = 0)
     {
-        var next = MobileLayoutState.From(width, height, posture, hingeSize, hingePosition);
+        var next = MobileLayoutState.From(width, height, posture, hingeSize, hingePosition).Following(Layout);
         if (next != Layout)
             Layout = next;
     }
@@ -1148,6 +1900,8 @@ public sealed partial class MobileShellViewModel :
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsWelcomeVisible))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isKeyboardOpen;
 
     /// <summary>
@@ -1163,6 +1917,7 @@ public sealed partial class MobileShellViewModel :
     partial void OnSafeAreaChanged(Thickness value)
     {
         OnPropertyChanged(nameof(DrawerWidth));
+        OnPropertyChanged(nameof(SidePanelSheetMargin));
         OnPropertyChanged(nameof(SafeAreaTop));
         OnPropertyChanged(nameof(SafeAreaBottom));
         OnPropertyChanged(nameof(SafeAreaSides));
@@ -1193,64 +1948,80 @@ public sealed partial class MobileShellViewModel :
 
             var generation = Volatile.Read(ref _connectionGeneration);
             using var request = CreateConnectionRequest();
-            RemoteHello? hello = null;
-            try
+
+            // A host this phone already bootstrapped from proves its protocol again with the
+            // stream's own snapshot, and a revoked token answers that request with 401. Skipping the
+            // handshake saves a round trip on every resume.
+            var startStream = true;
+            if (!Client.HasCompatibleBootstrap)
             {
-                var backoff = TimeSpan.FromSeconds(1);
-                while (hello is null)
+                RemoteHello? hello = null;
+                try
                 {
-                    try
+                    var failures = 0;
+                    while (hello is null)
                     {
-                        hello = await Client.HelloAsync(baseUrl, request.Token);
-                    }
-                    catch (OperationCanceledException) when (!request.IsCancellationRequested)
-                    {
-                        Trace.TraceWarning("[Mobile] The transport canceled the handshake attempt; retrying.");
-                    }
-                    if (hello is not null)
-                        break;
+                        try
+                        {
+                            hello = await Client.HelloAsync(baseUrl, request.Token);
+                        }
+                        catch (OperationCanceledException) when (!request.IsCancellationRequested)
+                        {
+                            Trace.TraceWarning("[Mobile] The transport canceled the handshake attempt; retrying.");
+                        }
+                        if (hello is not null)
+                            break;
 
-                    if (!_isApplicationActive
-                        || generation != Volatile.Read(ref _connectionGeneration)
-                        || !IsPaired
-                        || Client.State == RemoteLinkState.Unauthorized)
-                    {
-                        return;
-                    }
+                        if (!_isApplicationActive
+                            || generation != Volatile.Read(ref _connectionGeneration)
+                            || !IsPaired
+                            || Client.State is RemoteLinkState.Unauthorized or RemoteLinkState.GatewaySignInRequired)
+                        {
+                            return;
+                        }
 
-                    // A transient resume/launch handshake failure happens before the SSE retry
-                    // loop exists. Keep this attempt alive, scoped to the current foreground host.
-                    await Task.Delay(backoff, request.Token);
-                    backoff = TimeSpan.FromMilliseconds(Math.Min(backoff.TotalMilliseconds * 2, 10_000));
+                        // A transient resume/launch handshake failure happens before the SSE retry
+                        // loop exists. The supervisor paces it like the stream, and stops trying
+                        // while the PC stays unreachable until the network, a resume or Retry.
+                        var delay = _connection.NextDelay(++failures);
+                        await _connection.WaitAsync(delay, request.Token);
+                    }
+                }
+                catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
+                {
+                    return;
+                }
+                if (!_isApplicationActive || generation != Volatile.Read(ref _connectionGeneration))
+                    return;
+                _connection.OnConnected();
+                if (!RemoteProtocol.IsCompatibleVersion(hello.ProtocolVersion)
+                    || !RemoteProtocol.HasRequiredCapabilities(hello.Capabilities))
+                {
+                    return;
+                }
+
+                if (!Client.SupportsScopedEvents)
+                    return;
+
+                if (!hello.IsPaired)
+                {
+                    ClearPairedState();
+                    restartOnboarding = true;
+                    startStream = false;
                 }
             }
-            catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
-            {
-                return;
-            }
-            if (!_isApplicationActive || generation != Volatile.Read(ref _connectionGeneration))
-                return;
-            if (!RemoteProtocol.IsCompatibleVersion(hello.ProtocolVersion)
-                || !RemoteProtocol.HasRequiredCapabilities(hello.Capabilities))
-            {
-                return;
-            }
 
-            if (!Client.SupportsScopedEvents)
-                return;
-
-            if (!hello.IsPaired)
+            if (startStream)
             {
-                ClearPairedState();
-                restartOnboarding = true;
-            }
-            else if (Client.State is RemoteLinkState.Connecting or RemoteLinkState.Connected)
-            {
-                await Client.UpdateEventSubscriptionAsync(BuildEventSubscription(), request.Token);
-            }
-            else if (_isApplicationActive)
-            {
-                await Client.StartEventStreamAsync(BuildEventSubscription());
+                if (Client.IsEventStreamActive
+                    && Client.State is RemoteLinkState.Connecting or RemoteLinkState.Connected)
+                {
+                    await Client.UpdateEventSubscriptionAsync(BuildEventSubscription(), request.Token);
+                }
+                else if (_isApplicationActive)
+                {
+                    await Client.StartEventStreamAsync(BuildEventSubscription());
+                }
             }
         }
         finally
@@ -1282,6 +2053,7 @@ public sealed partial class MobileShellViewModel :
     {
         await Client.StopEventStreamAsync();
         BeginConnectionGeneration();
+        BeginHostGeneration();
         Client.Configure(baseUrl, Client.Token);
         ResetHostScopedState();
         _settings.BaseUrl = baseUrl;
@@ -1293,6 +2065,9 @@ public sealed partial class MobileShellViewModel :
         _canAdoptDesktopActiveChat = true;
         IsPaired = true;
 
+        // A newly paired phone opens on the PC's chats, the app's home.
+        ShowLaunchHome();
+
         await StartAsync();
     }
 
@@ -1300,12 +2075,31 @@ public sealed partial class MobileShellViewModel :
     {
         var generation = Interlocked.Increment(ref _lifecycleGeneration);
         _isApplicationActive = false;
-        BeginConnectionGeneration();
+        NotifyWebAppUpdateSafetyChanged();
+        LogTransportSummary();
+
+        // A live stream on a desktop that keeps background subscriptions quiet survives a short app
+        // switch: a file picker, the share sheet or a glance elsewhere resumes without reconnecting.
+        // A handshake, a retry pause or an older desktop stops at once, as before.
+        var keepStream = _connection.BackgroundGrace > TimeSpan.Zero
+                         && Client.SupportsResumePing
+                         && Client.IsEventStreamActive
+                         && Client.State == RemoteLinkState.Connected;
+        if (!keepStream)
+            BeginConnectionGeneration();
         await _lifecycleGate.WaitAsync();
         try
         {
             if (generation != Volatile.Read(ref _lifecycleGeneration) || _isApplicationActive)
                 return;
+
+            if (keepStream)
+            {
+                _connection.BeginBackgroundGrace(OnBackgroundGraceExpiredAsync);
+                await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
+                return;
+            }
+
             await Client.StopEventStreamAsync();
         }
         finally
@@ -1318,17 +2112,166 @@ public sealed partial class MobileShellViewModel :
     {
         var generation = Interlocked.Increment(ref _lifecycleGeneration);
         _isApplicationActive = true;
+        NotifyWebAppUpdateSafetyChanged();
+        var hadGrace = _connection.IsInBackgroundGrace;
+        var resumedInGrace = _connection.EndBackgroundGrace();
         await _lifecycleGate.WaitAsync();
         try
         {
             if (generation != Volatile.Read(ref _lifecycleGeneration) || !_isApplicationActive)
                 return;
+
+            if (resumedInGrace
+                && Client.IsEventStreamActive
+                && Client.State == RemoteLinkState.Connected)
+            {
+                await ResumeKeptStreamAsync();
+                return;
+            }
+
+            if (hadGrace && !resumedInGrace)
+            {
+                // The process was frozen past the grace window, so its timer never ran. The kept
+                // stream may have died meanwhile; start a fresh one.
+                BeginConnectionGeneration();
+                await Client.StopEventStreamAsync();
+            }
+
+            // Reopening is a reason to try again at once, even after giving up.
+            _connection.RetryNow();
             await StartAsync();
         }
         finally
         {
             _lifecycleGate.Release();
         }
+    }
+
+    private async Task OnBackgroundGraceExpiredAsync()
+    {
+        try
+        {
+            await _lifecycleGate.WaitAsync();
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_isApplicationActive)
+                return;
+
+            BeginConnectionGeneration();
+            await Client.StopEventStreamAsync();
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Brings a stream kept through the background grace back to the foreground: the desktop pushes
+    /// a ping in response, and a stream that stays silent is replaced.
+    /// </summary>
+    private async Task ResumeKeptStreamAsync()
+    {
+        var framesBefore = Client.ReceivedFrameCount;
+        var generation = Volatile.Read(ref _connectionGeneration);
+        await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
+        _ = VerifyResumedStreamAsync(framesBefore, generation);
+        CatchUpAfterBackground();
+    }
+
+    private async Task VerifyResumedStreamAsync(long framesBefore, long generation)
+    {
+        try
+        {
+            await Task.Delay(_connection.ResumeProbeTimeout, _connection.Time, _lifetime.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (generation != Volatile.Read(ref _connectionGeneration) || !_isApplicationActive)
+            return;
+
+        if (Client.ReceivedFrameCount == framesBefore)
+        {
+            Trace.TraceWarning("[Mobile] The kept stream stayed silent after resuming; reconnecting.");
+            await RestartEventStreamAsync();
+        }
+    }
+
+    private async Task RestartEventStreamAsync()
+    {
+        try
+        {
+            await _lifecycleGate.WaitAsync(_lifetime.Token);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_isApplicationActive)
+                return;
+
+            BeginConnectionGeneration();
+            await Client.StopEventStreamAsync();
+            await StartAsync();
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    /// <summary>The desktop kept the stream quiet while the app was away; read what may have moved.</summary>
+    private void CatchUpAfterBackground()
+    {
+        if (Page == MobilePage.Chat && Chat.ChatId != Guid.Empty)
+            _ = RefreshTranscriptAsync();
+        if (IsDrawerVisible)
+            _ = ChatList.RefreshFromServerAsync();
+        if (Page == MobilePage.Search)
+            _ = SearchChatList.RefreshFromServerAsync();
+        if (Page == MobilePage.Library)
+            _ = RefreshSnapshotAsync();
+    }
+
+    private void OnNetworkRestored() => _post(() =>
+    {
+        if (!_isApplicationActive || !IsPaired)
+            return;
+
+        if (Client.IsEventStreamActive && Client.State == RemoteLinkState.Connected)
+        {
+            // The tunnel may survive a network move, but a stream silent since then can be stuck
+            // until its silence deadline. A fresh stream is cheap with cached sections.
+            if (Client.TimeSinceLastFrame is not { } silent
+                || silent >= _connection.StaleStreamAfterNetworkChange)
+            {
+                _ = RestartEventStreamAsync();
+            }
+
+            return;
+        }
+
+        if (!Client.IsEventStreamActive)
+            _ = StartAsync();
+    });
+
+    private void LogTransportSummary()
+    {
+        var stats = Client.Stats.Snapshot();
+        _post(() => ConnectionDiagnostics = stats.Summary);
+        Trace.TraceInformation("[Mobile] Transport " + stats.Details);
     }
 
     private RemoteEventSubscription BuildEventSubscription() => new()
@@ -1341,7 +2284,10 @@ public sealed partial class MobileShellViewModel :
                           Chat.GetPendingSendReconciliations().Any(send => send.ChatId == Guid.Empty),
         IncludeLibrary = Page == MobilePage.Library,
         CompactTranscript = Client.SupportsCompactTranscript,
-        IsForeground = _isApplicationActive
+        IsForeground = _isApplicationActive,
+        StreamIntervalMs = RemoteProtocol.MobileStreamIntervalMs,
+        CompactStatus = true,
+        ChatRowPatches = true
     };
 
     private void QueueSubscriptionUpdate()
@@ -1370,7 +2316,8 @@ public sealed partial class MobileShellViewModel :
     private async Task ReacquireVisibleChatAsync(Guid chatId)
     {
         await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
-        if (!_isApplicationActive || Page != MobilePage.Chat || Chat.ChatId != chatId)
+        // Under the list on a single pane the chat is fetched when the list uncovers it.
+        if (!_isApplicationActive || Page != MobilePage.Chat || IsDrawerOverlay || Chat.ChatId != chatId)
             return;
 
         await RefreshTranscriptAsync();
@@ -1381,11 +2328,17 @@ public sealed partial class MobileShellViewModel :
         _sendReconciliationCandidates = [];
         Interlocked.Increment(ref _sendReconciliationVersion);
         _readWatermarks.Clear();
+        ClearSnapshotSections();
+        Client.Stats.Reset();
+        // A new PC starts a fresh retry streak instead of inheriting the previous PC's give-up.
+        _connection.RetryNow();
+        IsConnectionOffline = false;
         IsDisconnectConfirmationOpen = false;
         _canAdoptDesktopActiveChat = true;
         ActiveProjectId = null;
         ResetTranscriptNavigation();
         Chat.ResetHostState();
+        ApplyNewChatExperience(null);
         ChatList.SelectedChatId = Guid.Empty;
         ChatList.Apply([]);
         ChatList.SearchText = "";
@@ -1404,6 +2357,8 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
     private bool _isDisconnectConfirmationOpen;
 
     [RelayCommand]
@@ -1450,6 +2405,7 @@ public sealed partial class MobileShellViewModel :
     private void ClearPairedState()
     {
         BeginConnectionGeneration();
+        BeginHostGeneration();
 
         _settings.BaseUrl = "";
         _settings.Token = "";
@@ -1472,7 +2428,13 @@ public sealed partial class MobileShellViewModel :
     }
 
     [RelayCommand]
-    private async Task RefreshAsync() => await RefreshSnapshotAsync();
+    private async Task RefreshAsync()
+    {
+        if (IsConnectionOffline)
+            await RetryConnectionAsync();
+        await RefreshSnapshotAsync();
+        ConnectionDiagnostics = Client.Stats.Snapshot().Summary;
+    }
 
     public async Task RefreshSnapshotAsync()
     {
@@ -1483,29 +2445,132 @@ public sealed partial class MobileShellViewModel :
             if (requestVersion != Volatile.Read(ref _snapshotRefreshVersion))
                 return;
 
-        var generation = Volatile.Read(ref _connectionGeneration);
-        using var request = CreateConnectionRequest();
-        RemoteSnapshot? snapshot;
-        try
-        {
-            snapshot = await Client.GetSnapshotAsync(request.Token);
-        }
-        catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
-        {
-            return;
-        }
-        if (snapshot is null)
-            return;
-
-            PostForConnection(generation, () =>
+            var generation = Volatile.Read(ref _connectionGeneration);
+            using var request = CreateConnectionRequest();
+            RemoteSnapshot? snapshot;
+            // The response may be older than chat-list pushes that land while it travels.
+            var chatListReadStartedAt = ChatList.BeginFirstPageRead();
+            var chatListReadHandedOff = false;
+            try
             {
-                if (requestVersion == Volatile.Read(ref _snapshotRefreshVersion))
-                    ApplySnapshot(snapshot, SnapshotSource.ManualRefresh);
-            });
+                try
+                {
+                    // Sections the phone already holds at their current version come back empty,
+                    // so a navigation refresh only pays for what actually changed.
+                    snapshot = await Client.GetSnapshotAsync(GetKnownSnapshotSections(), request.Token);
+                }
+                catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
+                {
+                    return;
+                }
+                if (snapshot is null)
+                    return;
+
+                chatListReadHandedOff = true;
+                _post(() =>
+                {
+                    var applied = false;
+                    try
+                    {
+                        if (generation == Volatile.Read(ref _connectionGeneration)
+                            && requestVersion == Volatile.Read(ref _snapshotRefreshVersion))
+                        {
+                            ApplySnapshot(snapshot, SnapshotSource.ManualRefresh);
+                            applied = true;
+                        }
+                    }
+                    finally
+                    {
+                        ChatList.EndFirstPageRead(chatListReadStartedAt, applied);
+                    }
+                });
+            }
+            finally
+            {
+                if (!chatListReadHandedOff)
+                    ChatList.EndFirstPageRead(chatListReadStartedAt, applied: false);
+            }
         }
         finally
         {
             _snapshotRefreshGate.Release();
+        }
+    }
+
+    /// <summary>The snapshot sections this phone holds, by the desktop's content version.</summary>
+    private IReadOnlyDictionary<string, string> GetKnownSnapshotSections()
+    {
+        lock (_sectionCacheSync)
+            return new Dictionary<string, string>(_sectionVersions, StringComparer.Ordinal);
+    }
+
+    /// <summary>A live push replaced part of a section, so its cached copy no longer matches a version.</summary>
+    private void ForgetSnapshotSection(string section)
+    {
+        lock (_sectionCacheSync)
+            _sectionVersions.Remove(section);
+    }
+
+    private void ClearSnapshotSections()
+    {
+        lock (_sectionCacheSync)
+        {
+            _sectionVersions.Clear();
+            _cachedChatPage = null;
+            _cachedLibrary = null;
+            _cachedSettings = null;
+        }
+    }
+
+    /// <summary>
+    /// Picks the copy of each section to apply: the snapshot's own, or the cached one the desktop
+    /// reported unchanged. Null means the section is not applied at all.
+    /// </summary>
+    private (RemoteChatPage? Chats, RemoteLibrary? Library, RemoteSettings Settings) ResolveSnapshotSections(
+        RemoteSnapshot snapshot)
+    {
+        var unchanged = snapshot.UnchangedSections ?? [];
+        lock (_sectionCacheSync)
+        {
+            RemoteChatPage? chats = null;
+            RemoteLibrary? library = null;
+            if (!snapshot.IsPartial)
+            {
+                chats = Resolve(
+                    RemoteProtocol.SnapshotSections.Chats,
+                    snapshot.Chats,
+                    snapshot.ChatsVersion,
+                    ref _cachedChatPage);
+                library = Resolve(
+                    RemoteProtocol.SnapshotSections.Library,
+                    snapshot.Library,
+                    snapshot.LibraryVersion,
+                    ref _cachedLibrary);
+            }
+
+            var settings = Resolve(
+                RemoteProtocol.SnapshotSections.Settings,
+                snapshot.Settings,
+                snapshot.SettingsVersion,
+                ref _cachedSettings) ?? snapshot.Settings;
+            return (chats, library, settings);
+        }
+
+        T? Resolve<T>(string section, T incoming, string? version, ref T? cached) where T : class
+        {
+            if (unchanged.Contains(section, StringComparer.Ordinal))
+            {
+                if (cached is null)
+                    _sectionVersions.Remove(section);
+                return cached;
+            }
+
+            cached = incoming;
+            if (version is { Length: > 0 })
+                _sectionVersions[section] = version;
+            else
+                _sectionVersions.Remove(section);
+            return incoming;
         }
     }
 
@@ -1516,6 +2581,7 @@ public sealed partial class MobileShellViewModel :
             !Chat.HasChat &&
             !Chat.HasStagedBlankState;
         var didAdoptDesktopChat = false;
+        var (chats, library, settings) = ResolveSnapshotSections(snapshot);
 
         // Exactly one snapshot gets to choose the launch surface. Reconnects and later catalog
         // refreshes are data updates, not navigation commands.
@@ -1534,20 +2600,25 @@ public sealed partial class MobileShellViewModel :
         if (IsConnected)
             ConnectionMessage = snapshot.ConnectionStatus;
 
-        UserName = snapshot.Settings.UserName;
+        UserName = settings.UserName;
         Chat.ApplyRemoteProtocolVersion(snapshot.ProtocolVersion);
 
         if (!snapshot.IsPartial)
         {
-            if (string.IsNullOrWhiteSpace(ChatList.SearchText) && ChatList.ProjectFilterId is null)
-                ChatList.Apply(snapshot.Chats);
-            else
-                _ = ChatList.RefreshFromServerAsync();
+            if (chats is not null)
+            {
+                if (string.IsNullOrWhiteSpace(ChatList.SearchText) && ChatList.ProjectFilterId is null)
+                    ChatList.Apply(chats);
+                else
+                    _ = ChatList.RefreshFromServerAsync();
+            }
             if (Page == MobilePage.Search)
                 _ = SearchChatList.RefreshFromServerAsync();
-            ApplyLibrary(snapshot.Library, reconcileSelections: false);
+            if (library is not null)
+                ApplyLibrary(library, reconcileSelections: false);
         }
-        Chat.ApplyCatalogs(snapshot.Settings);
+        Chat.ApplyCatalogs(settings);
+        ApplyNewChatExperience(settings.NewChat);
 
         // Adopt the desktop's active chat on first connect so the phone opens where the PC left off.
         if (!snapshot.IsPartial &&
@@ -1556,7 +2627,7 @@ public sealed partial class MobileShellViewModel :
             activeChatId != Guid.Empty)
         {
             var activeChat = snapshot.ActiveChat
-                ?? snapshot.Chats.Groups
+                ?? chats?.Groups
                     .SelectMany(group => group.Chats)
                     .FirstOrDefault(chat => chat.Id == activeChatId);
 
@@ -1571,7 +2642,7 @@ public sealed partial class MobileShellViewModel :
             BootstrapSnapshotCount++;
 
         if (!snapshot.IsPartial)
-            UpdateSendReconciliationCandidates(snapshot.Chats, snapshot.ActiveChatId);
+            UpdateSendReconciliationCandidates(chats ?? new RemoteChatPage(), snapshot.ActiveChatId);
         QueueSubscriptionUpdate();
 
         if (Chat.ChatId != Guid.Empty
@@ -1744,6 +2815,8 @@ public sealed partial class MobileShellViewModel :
                 Chat.ProjectName = ActiveProject;
             }
 
+            if (IsConnected)
+                await RefreshSnapshotAsync();
             return;
         }
 
@@ -1771,6 +2844,7 @@ public sealed partial class MobileShellViewModel :
 
         var connection = Volatile.Read(ref _connectionGeneration);
         var surface = _transcriptSurfaceGeneration;
+        var statusVersion = Chat.StatusVersion;
         try
         {
             var result = await SendCommandAsync(
@@ -1784,10 +2858,18 @@ public sealed partial class MobileShellViewModel :
 
             if (!result.Ok)
                 Trace.TraceWarning($"[Mobile] Could not mark chat {chatId} read: {result.Error}");
-            else if (hasUnreadMessages is null)
-                // Legacy hosts have no read state in transcript status. Never let this fallback
-                // suppress a fresh authoritative unread flag (completion can keep the same count).
-                _readWatermarks[chatId] = messageCount;
+            else
+            {
+                if (hasUnreadMessages is null)
+                    _readWatermarks[chatId] = messageCount;
+                // Do not clear a newer desktop read-state update that arrived during the request.
+                if (Chat.StatusVersion == statusVersion && CanReadChatTranscript
+                    && Chat.IsLatestWindow && Chat.TotalRawMessageCount <= messageCount)
+                {
+                    ChatList.SetUnread(chatId, false);
+                    SearchChatList.SetUnread(chatId, false);
+                }
+            }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -1904,7 +2986,12 @@ public sealed partial class MobileShellViewModel :
                 kind,
                 _transcriptSurfaceGeneration,
                 ++_transcriptRequestVersion,
-                Chat.StatusVersion);
+                Chat.StatusVersion,
+                // An automatic refresh of the window already on screen asks the desktop whether
+                // it changed at all; an unchanged answer costs no body, parse or projection.
+                kind == TranscriptRefreshKind.Refresh && beforeMessageIndex is null
+                    ? Chat.TranscriptVersion
+                    : null);
 
             // One pending slot is enough: every trigger asks for the newest known view of one exact
             // chat/window, so replacing it coalesces reconnect and invalidation bursts.
@@ -1950,6 +3037,7 @@ public sealed partial class MobileShellViewModel :
         {
             TranscriptRefreshRequest request;
             CancellationTokenSource requestCts;
+            long heldWatermark;
 
             lock (_transcriptRefreshSync)
             {
@@ -1967,6 +3055,8 @@ public sealed partial class MobileShellViewModel :
                     connectionLifetime.Token);
                 _activeTranscriptRefreshRequest = request;
                 _activeTranscriptRefreshCts = requestCts;
+                // Deltas held before this read started are older than what it will capture.
+                heldWatermark = _heldDeltaSequence;
             }
 
             RemoteTranscript? transcript = null;
@@ -1985,6 +3075,7 @@ public sealed partial class MobileShellViewModel :
                             : Client.SupportsCompactTranscript
                                 ? RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit
                                 : RemoteProtocol.InitialTranscriptWindowRawMessageLimit,
+                        request.KnownVersion,
                         requestCts.Token)
                     .ConfigureAwait(false);
 
@@ -2030,6 +3121,7 @@ public sealed partial class MobileShellViewModel :
             _post(() =>
             {
                 var queueTrailingLatestRefresh = false;
+                var queueFullRefresh = false;
                 try
                 {
                     if (!IsCurrentTranscriptRequest(request))
@@ -2043,18 +3135,49 @@ public sealed partial class MobileShellViewModel :
                         return;
                     }
 
-                    ApplyTranscriptNavigation(request, transcript);
-                    Chat.ApplyTranscript(transcript, request.StatusVersion);
-                    Chat.IsLoading = false;
-                    if (CanReadChatTranscript
-                        && request.StatusVersion == Chat.StatusVersion
-                        && transcript.IsLatestWindow)
+                    if (transcript.IsUnchanged)
                     {
-                        _ = MarkChatReadAsync(
-                            transcript.ChatId,
-                            transcript.TotalRawMessageCount,
-                            transcript.Status.HasUnreadMessages);
+                        if (!Chat.ApplyUnchangedTranscript(transcript, request.StatusVersion))
+                        {
+                            // The confirmation no longer describes what is on screen: read it all.
+                            Chat.ForgetTranscriptVersion();
+                            queueFullRefresh = true;
+                        }
+
+                        Chat.IsLoading = false;
+                        if (!queueFullRefresh
+                            && CanReadChatTranscript
+                            && request.StatusVersion == Chat.StatusVersion)
+                        {
+                            _ = MarkChatReadAsync(
+                                transcript.ChatId,
+                                Chat.TotalRawMessageCount,
+                                transcript.Status.HasUnreadMessages);
+                        }
+
+                        ReplayHeldDeltas(request.ChatId, heldWatermark);
                     }
+                    else
+                    {
+                        ApplyTranscriptNavigation(request, transcript);
+                        Chat.ApplyTranscript(transcript, request.StatusVersion);
+                        Chat.IsLoading = false;
+                        if (CanReadChatTranscript
+                            && request.StatusVersion == Chat.StatusVersion
+                            && transcript.IsLatestWindow)
+                        {
+                            _ = MarkChatReadAsync(
+                                transcript.ChatId,
+                                transcript.TotalRawMessageCount,
+                                transcript.Status.HasUnreadMessages);
+                        }
+
+                        if (transcript.IsLatestWindow)
+                            ReplayHeldDeltas(request.ChatId, heldWatermark);
+                        else
+                            ClearHeldDeltas();
+                    }
+
                     queueTrailingLatestRefresh = ApplyDeferredNewerActivity(request);
                 }
                 finally
@@ -2066,7 +3189,7 @@ public sealed partial class MobileShellViewModel :
                     }
                 }
 
-                if (queueTrailingLatestRefresh)
+                if (queueTrailingLatestRefresh || queueFullRefresh)
                 {
                     _ = RequestTranscriptRefreshAsync(
                         beforeMessageIndex: null,
@@ -2094,6 +3217,104 @@ public sealed partial class MobileShellViewModel :
         Chat.MarkNewerActivityAvailable();
         return Chat.IsLatestWindow;
     }
+
+    /// <summary>
+    /// Keeps a delta the phone cannot place yet. One latest-window read is enough for all of them:
+    /// a read already in flight is followed by a replay, so a busy stream never chains fetches.
+    /// </summary>
+    private void HoldDeltaForTranscript(RemoteStreamDelta delta)
+    {
+        bool readCovers;
+        var overflowed = false;
+        lock (_transcriptRefreshSync)
+        {
+            if (_heldDeltas.Count >= MaxHeldDeltas)
+            {
+                _heldDeltas.Clear();
+                overflowed = true;
+            }
+
+            _heldDeltas.Add(new HeldDelta(++_heldDeltaSequence, delta));
+            readCovers = IsLatestReadQueuedLocked(delta.ChatId, includeApplying: true);
+        }
+
+        Client.Stats.RecordDelta(readCovers && !overflowed
+            ? StreamDeltaDisposition.Held
+            : StreamDeltaDisposition.Refetched);
+        if (!readCovers || overflowed)
+            QueueTranscriptRefresh();
+    }
+
+    /// <summary>
+    /// Replays held deltas against a transcript that just landed. Those it covers or extends are
+    /// done; unresolved ones received before the read started are older than it and dropped; the
+    /// rest wait for one more read.
+    /// </summary>
+    private void ReplayHeldDeltas(Guid chatId, long watermark)
+    {
+        List<HeldDelta> held;
+        lock (_transcriptRefreshSync)
+        {
+            if (_heldDeltas.Count == 0)
+                return;
+
+            held = [.. _heldDeltas];
+            _heldDeltas.Clear();
+        }
+
+        var unresolved = new List<HeldDelta>();
+        foreach (var entry in held)
+        {
+            if (entry.Delta.ChatId != chatId || chatId != Chat.ChatId)
+            {
+                Client.Stats.RecordDelta(StreamDeltaDisposition.Dropped);
+                continue;
+            }
+
+            switch (Chat.ApplyStreamDelta(entry.Delta))
+            {
+                case StreamDeltaOutcome.Applied:
+                    Client.Stats.RecordDelta(StreamDeltaDisposition.Replayed);
+                    break;
+                case StreamDeltaOutcome.Missing or StreamDeltaOutcome.Gap when entry.Sequence > watermark:
+                    unresolved.Add(entry);
+                    break;
+                default:
+                    Client.Stats.RecordDelta(StreamDeltaDisposition.Dropped);
+                    break;
+            }
+        }
+
+        if (unresolved.Count == 0)
+            return;
+
+        bool readCovers;
+        lock (_transcriptRefreshSync)
+        {
+            _heldDeltas.InsertRange(0, unresolved);
+            readCovers = IsLatestReadQueuedLocked(chatId, includeApplying: false);
+        }
+
+        if (!readCovers)
+            QueueTranscriptRefresh();
+    }
+
+    private void ClearHeldDeltas()
+    {
+        lock (_transcriptRefreshSync)
+            _heldDeltas.Clear();
+    }
+
+    /// <summary>
+    /// True when a latest-window read for this chat is queued or in flight (and, optionally, being
+    /// applied), so a held delta will be replayed without asking for another read.
+    /// </summary>
+    private bool IsLatestReadQueuedLocked(Guid chatId, bool includeApplying) =>
+        _activeTranscriptRefreshRequest is { BeforeMessageIndex: null } active && active.ChatId == chatId
+        || _pendingTranscriptRefresh is { BeforeMessageIndex: null } pending && pending.ChatId == chatId
+        || includeApplying
+           && _applyingTranscriptRefreshRequest is { BeforeMessageIndex: null } applying
+           && applying.ChatId == chatId;
 
     private bool IsCurrentTranscriptRequest(TranscriptRefreshRequest request)
     {
@@ -2141,6 +3362,7 @@ public sealed partial class MobileShellViewModel :
             _activeTranscriptRefreshRequest = null;
             _applyingTranscriptRefreshRequest = null;
             _hasDeferredNewerActivity = false;
+            _heldDeltas.Clear();
             active = _activeTranscriptRefreshCts;
         }
 
@@ -2168,16 +3390,24 @@ public sealed partial class MobileShellViewModel :
         var generation = Volatile.Read(ref _connectionGeneration);
         PostForConnection(generation, () =>
         {
+            Chat.RefreshInteractiveCapabilities();
             ConnectionMessage = message;
+            IsGatewaySignInRequired = state == RemoteLinkState.GatewaySignInRequired;
 
             switch (state)
             {
                 case RemoteLinkState.Connected:
                     IsConnected = true;
+                    IsConnectionOffline = false;
                     break;
                 case RemoteLinkState.Unauthorized:
                     _ = RestartOnboardingAsync();
                     ConnectionMessage = message;
+                    break;
+                case RemoteLinkState.Offline:
+                    IsConnected = false;
+                    IsHostReady = false;
+                    IsConnectionOffline = true;
                     break;
                 default:
                     IsConnected = false;
@@ -2213,23 +3443,17 @@ public sealed partial class MobileShellViewModel :
             {
                 if (TryParse(frame.Data, RemoteJsonContext.Default.RemoteChatPage) is { } page)
                 {
+                    ForgetSnapshotSection(RemoteProtocol.SnapshotSections.Chats);
                     Post(() =>
                     {
                         foreach (var removedChatId in page.RemovedChatIds)
                             OnChatRemoved(removedChatId);
                         UpdateSendReconciliationCandidates(page);
-                        if (string.IsNullOrWhiteSpace(ChatList.SearchText)
-                            && ChatList.ProjectFilterId is null)
-                        {
-                            ChatList.ApplyLive(page);
-                        }
-                        else
-                        {
-                            _ = ChatList.RefreshFromServerAsync();
-                        }
-
+                        // Pushes update rows in place; filtered lists and search results only
+                        // refresh the rows they show, instead of downloading the list again.
+                        ChatList.ApplyLive(page);
                         if (Page == MobilePage.Search)
-                            _ = SearchChatList.RefreshFromServerAsync();
+                            SearchChatList.ApplyLive(page);
                     });
                 }
                 return;
@@ -2239,6 +3463,7 @@ public sealed partial class MobileShellViewModel :
             {
                 if (TryParse(frame.Data, RemoteJsonContext.Default.RemoteLibrary) is { } library)
                 {
+                    ForgetSnapshotSection(RemoteProtocol.SnapshotSections.Library);
                     Post(() =>
                     {
                         ApplyLibrary(library);
@@ -2308,10 +3533,19 @@ public sealed partial class MobileShellViewModel :
                             return;
                         }
 
-                        // A delta for a row we have never seen means the transcript shape changed;
-                        // pull a fresh projection instead of guessing.
-                        if (!Chat.ApplyDelta(delta) && delta.ChatId == Chat.ChatId)
-                            QueueTranscriptRefresh();
+                        switch (Chat.ApplyStreamDelta(delta))
+                        {
+                            case StreamDeltaOutcome.Applied:
+                                Client.Stats.RecordDelta(StreamDeltaDisposition.Applied);
+                                break;
+                            case StreamDeltaOutcome.Missing or StreamDeltaOutcome.Gap
+                                when delta.ChatId == Chat.ChatId:
+                                // The row is not here yet, or the text has a hole. Keep the delta
+                                // for the transcript that will carry its predecessor instead of
+                                // letting every frame of a busy stream request another fetch.
+                                HoldDeltaForTranscript(delta);
+                                break;
+                        }
                     });
                 }
 
@@ -2374,34 +3608,63 @@ public sealed partial class MobileShellViewModel :
         }
     }
 
+    internal void BeginPendingRemoteAction()
+    {
+        Interlocked.Increment(ref _commandsInFlight);
+        _post(NotifyPendingRemoteActionSafetyChanged);
+    }
+
+    internal void EndPendingRemoteAction()
+    {
+        Interlocked.Decrement(ref _commandsInFlight);
+        _post(NotifyPendingRemoteActionSafetyChanged);
+    }
+
+    private void NotifyPendingRemoteActionSafetyChanged()
+    {
+        NotifyWebAppUpdateSafetyChanged();
+        OnPropertyChanged(nameof(CanAutomaticallyRecoverGatewaySignIn));
+    }
+
     public async Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command)
     {
-        var generation = Volatile.Read(ref _connectionGeneration);
-        using var request = CreateConnectionRequest();
-        RemoteCommandResult result;
+        BeginPendingRemoteAction();
         try
         {
-            result = await Client.SendCommandAsync(command, request.Token);
-        }
-        catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
-        {
-            result = new RemoteCommandResult
+            var generation = Volatile.Read(ref _connectionGeneration);
+            // Commands outlive the foreground stream: a message sent just before the phone locks
+            // still reaches the PC. Only switching or forgetting the PC abandons it.
+            using var request = CreateHostRequest();
+            RemoteCommandResult result;
+            try
             {
-                Error = "The PC connection changed before this action completed.",
-                RequestId = command.RequestId,
-                IsOutcomeUnknown = true
-            };
+                result = await Client.SendCommandAsync(command, request.Token);
+            }
+            catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
+            {
+                result = new RemoteCommandResult
+                {
+                    Error = "The PC connection changed before this action completed.",
+                    RequestId = command.RequestId,
+                    IsOutcomeUnknown = true
+                };
+            }
+
+            if (!result.Ok && result.Error is { Length: > 0 } error)
+                PostForConnection(generation, () => ConnectionMessage = error);
+
+            return result;
         }
-
-        if (!result.Ok && result.Error is { Length: > 0 } error)
-            PostForConnection(generation, () => ConnectionMessage = error);
-
-        return result;
+        finally
+        {
+            EndPendingRemoteAction();
+        }
     }
 
     public async Task<RemoteUploadResponse> UploadAsync(string fileName, ReadOnlyMemory<byte> content)
     {
-        using var request = CreateConnectionRequest();
+        // An upload the user started keeps going if they switch apps while it runs.
+        using var request = CreateHostRequest();
         try
         {
             return await Client.UploadAsync(fileName, content, request.Token);
@@ -2568,9 +3831,12 @@ public sealed partial class MobileShellViewModel :
 
         ChatList.Dispose();
         SearchChatList.Dispose();
+        _connection.Dispose();
         await Client.DisposeAsync();
         await _connectionLifetime.CancelAsync();
         _connectionLifetime.Dispose();
+        await _hostLifetime.CancelAsync();
+        _hostLifetime.Dispose();
         _startGate.Dispose();
         _lifecycleGate.Dispose();
         _lifetime.Dispose();
@@ -2590,6 +3856,20 @@ public sealed partial class MobileShellViewModel :
         previous.Dispose();
     }
 
+    /// <summary>Abandons user actions that belong to the previous PC.</summary>
+    private void BeginHostGeneration()
+    {
+        CancellationTokenSource previous;
+        lock (_transcriptRefreshSync)
+        {
+            previous = _hostLifetime;
+            _hostLifetime = new CancellationTokenSource();
+        }
+        try { previous.Cancel(); }
+        catch (ObjectDisposedException) { }
+        previous.Dispose();
+    }
+
     private CancellationTokenSource CreateConnectionRequest()
     {
         lock (_transcriptRefreshSync)
@@ -2598,6 +3878,17 @@ public sealed partial class MobileShellViewModel :
             return CancellationTokenSource.CreateLinkedTokenSource(
                 _lifetime.Token,
                 connectionLifetime.Token);
+        }
+    }
+
+    private CancellationTokenSource CreateHostRequest()
+    {
+        lock (_transcriptRefreshSync)
+        {
+            var hostLifetime = _hostLifetime;
+            return CancellationTokenSource.CreateLinkedTokenSource(
+                _lifetime.Token,
+                hostLifetime.Token);
         }
     }
 

@@ -19,6 +19,72 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class StrataChatComposerSendTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TextInput_ReplacesSelectionAndAcceptsTheNextCharacter(bool reverseSelection)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var composer = new StrataChatComposer { PromptText = "selected draft" };
+            var window = new Window { Width = 360, Height = 180, Content = composer };
+            window.Show();
+            await PumpAsync();
+
+            var input = composer.GetVisualDescendants()
+                .OfType<TextBox>()
+                .Single(control => control.Name == "PART_Input");
+            input.Focus();
+            input.CaretIndex = input.Text!.Length;
+            input.SelectionStart = reverseSelection ? input.Text!.Length : 0;
+            input.SelectionEnd = reverseSelection ? 0 : input.Text!.Length;
+
+            window.KeyTextInput("x");
+            window.KeyTextInput("y");
+
+            Assert.Equal("xy", input.Text);
+            Assert.Equal("xy", composer.PromptText);
+            Assert.Equal(2, input.CaretIndex);
+            Assert.Equal(2, input.SelectionStart);
+            Assert.Equal(2, input.SelectionEnd);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("short")]
+    public async Task TextInput_AfterBoundDraftShrinks_KeepsSelectionWithinText(string replacement)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var composer = new StrataChatComposer { PromptText = "selected long draft" };
+            var window = new Window { Width = 360, Height = 180, Content = composer };
+            window.Show();
+            await PumpAsync();
+
+            var input = composer.GetVisualDescendants()
+                .OfType<TextBox>()
+                .Single(control => control.Name == "PART_Input");
+            input.Focus();
+            input.CaretIndex = input.Text!.Length;
+            input.SelectAll();
+            composer.PromptText = replacement;
+
+            Assert.InRange(input.SelectionStart, 0, input.Text!.Length);
+            Assert.InRange(input.SelectionEnd, 0, input.Text.Length);
+            window.KeyTextInput("x");
+
+            Assert.Equal(replacement + "x", input.Text);
+            Assert.Equal(replacement + "x", composer.PromptText);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task SendButton_SendsOnFirstPhysicalMouseClick()
     {

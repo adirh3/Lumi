@@ -1,12 +1,14 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.ViewModels;
@@ -32,6 +34,259 @@ public sealed class TranscriptPagingHeadlessTests
     }
 
     private readonly record struct Anchor(string StableId, double ViewportY);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClickAtTheViewportEdge_DoesNotAutoScroll(bool shift)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var root = new StackPanel();
+            for (var index = 0; index < 30; index++)
+                root.Children.Add(new SelectableTextBlock { Text = $"Line {index} to select.", Height = 32 });
+            StrataTextSelection.SetIsSelectionScope(root, true);
+            var scroll = new ScrollViewer { Height = 120, Content = root, BringIntoViewOnFocusChange = false };
+            var window = new Window { Width = 640, Height = 300, Content = scroll };
+            window.Show();
+            try
+            {
+                await PumpAsync(window);
+                Assert.True(scroll.Extent.Height > scroll.Viewport.Height && scroll.Viewport.Height > 0);
+                if (shift)
+                    StrataTextSelection.SelectAll(root.Children[0]);
+                var text = (SelectableTextBlock)root.Children[3];
+                var pointer = new Avalonia.Input.Pointer(
+                    Avalonia.Input.Pointer.GetNextFreeId(), PointerType.Mouse, true);
+                var caret = text.TextLayout.HitTestTextPosition(2);
+                var point = text.TranslatePoint(new Point(caret.X + 0.1, caret.Center.Y), window)!.Value;
+                text.RaiseEvent(new PointerPressedEventArgs(text, pointer, window, point, 0,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+                    shift ? KeyModifiers.Shift : KeyModifiers.None));
+                var selected = StrataTextSelection.GetSelectedText(root);
+                await Task.Delay(160);
+                await PumpAsync(window);
+                Assert.Equal(0, scroll.Offset.Y);
+                Assert.Equal(selected, StrataTextSelection.GetSelectedText(root));
+                (pointer.Captured as Control ?? text).RaiseEvent(new PointerReleasedEventArgs(
+                    pointer.Captured as Control ?? text, pointer, window, point, 1,
+                    new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+                    KeyModifiers.None, MouseButton.Left));
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SelectionAtTheViewportEdge_AutoScrollsAndStopsOnRelease(bool singleBlock)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var root = new StackPanel();
+            if (singleBlock)
+                root.Children.Add(new SelectableTextBlock
+                {
+                    Text = string.Join("\n", Enumerable.Range(0, 30).Select(index => $"Line {index} to select.")),
+                    LineHeight = 32
+                });
+            else
+                for (var index = 0; index < 30; index++)
+                    root.Children.Add(new SelectableTextBlock { Text = $"Line {index} to select.", Height = 32 });
+            StrataTextSelection.SetIsSelectionScope(root, true);
+            var scroll = new ScrollViewer { Height = 120, Content = root, BringIntoViewOnFocusChange = false };
+            var window = new Window { Width = 640, Height = 300, Content = scroll };
+            window.Show();
+            try
+            {
+                await PumpAsync(window);
+                Assert.True(scroll.Extent.Height > scroll.Viewport.Height && scroll.Viewport.Height > 0);
+                var first = (SelectableTextBlock)root.Children[0];
+                first.Focus();
+                var pointer = new Avalonia.Input.Pointer(
+                    Avalonia.Input.Pointer.GetNextFreeId(), PointerType.Mouse, true);
+                var caret = first.TextLayout.HitTestTextPosition(0);
+                var start = first.TranslatePoint(new Point(caret.X + 0.1, caret.Center.Y), window)!.Value;
+                var edge = scroll.TranslatePoint(new Point(20, 115), window)!.Value;
+                first.RaiseEvent(new PointerPressedEventArgs(first, pointer, window, start, 0,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+                    KeyModifiers.None));
+                first.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, first, pointer, window, edge, 1,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
+                await Task.Delay(160);
+                await PumpAsync(window);
+                Assert.True(scroll.Offset.Y > 0,
+                    $"Offset: {scroll.Offset}; viewport: {scroll.Viewport}; extent: {scroll.Extent}; capture: {pointer.Captured}");
+                Assert.False(string.IsNullOrEmpty(StrataTextSelection.GetSelectedText(root)));
+                if (singleBlock)
+                    Assert.Single(StrataTextSelection.GetSelection(root));
+                else
+                    Assert.True(StrataTextSelection.GetSelection(root).Count > 1);
+                (pointer.Captured as Control ?? first).RaiseEvent(new PointerReleasedEventArgs(
+                    pointer.Captured as Control ?? first, pointer, window, edge, 2,
+                    new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+                    KeyModifiers.None, MouseButton.Left));
+                var stopped = scroll.Offset.Y;
+                await Task.Delay(60);
+                Assert.Equal(stopped, scroll.Offset.Y);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SelectionAtAnInnerViewportEdge_ScrollsTheInnerContentOnly()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var rows = new StackPanel();
+            for (var index = 0; index < 30; index++)
+                rows.Children.Add(new SelectableTextBlock { Text = $"Row {index} to select.", Height = 32 });
+            var inner = new ScrollViewer { Height = 120, Content = rows };
+            var root = new StackPanel
+            {
+                Children = { new Border { Height = 60 }, inner, new Border { Height = 900 } }
+            };
+            StrataTextSelection.SetIsSelectionScope(root, true);
+            var outer = new ScrollViewer { Height = 260, Content = root };
+            var window = new Window { Width = 640, Height = 320, Content = outer };
+            window.Show();
+            try
+            {
+                await PumpAsync(window);
+                Assert.True(inner.Extent.Height > inner.Viewport.Height && inner.Viewport.Height > 0);
+                Assert.True(outer.Extent.Height > outer.Viewport.Height);
+                var first = (SelectableTextBlock)rows.Children[0];
+                first.Focus();
+                var pointer = new Avalonia.Input.Pointer(
+                    Avalonia.Input.Pointer.GetNextFreeId(), PointerType.Mouse, true);
+                var caret = first.TextLayout.HitTestTextPosition(0);
+                var start = first.TranslatePoint(new Point(caret.X + 0.1, caret.Center.Y), window)!.Value;
+                var edge = inner.TranslatePoint(new Point(20, 115), window)!.Value;
+                first.RaiseEvent(new PointerPressedEventArgs(first, pointer, window, start, 0,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+                    KeyModifiers.None));
+                first.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, first, pointer, window, edge, 1,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
+                await Task.Delay(160);
+                await PumpAsync(window);
+                Assert.True(inner.Offset.Y > 0);
+                Assert.Equal(0, outer.Offset.Y);
+                (pointer.Captured as Control ?? first).RaiseEvent(new PointerReleasedEventArgs(
+                    pointer.Captured as Control ?? first, pointer, window, edge, 2,
+                    new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+                    KeyModifiers.None, MouseButton.Left));
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SelectedTurn_RemainsRealizedOutsideTheViewport_UntilSelectionIsCleared()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var transcript = new TranscriptItemsControl
+            {
+                ItemsSource = CreateVisualTurns(30),
+                ItemsPanel = new FuncTemplate<Panel?>(() => new StackPanel()),
+                ItemTemplate = new FuncDataTemplate<TranscriptTurn>((turn, _) => new TranscriptTurnControl
+                {
+                    Turn = turn, IsViewportManaged = true
+                })
+            };
+            StrataTextSelection.SetIsSelectionScope(transcript, true);
+            var scroll = new ScrollViewer { Height = 240, Content = transcript };
+            var window = new Window { Width = 640, Height = 300, Content = scroll };
+            window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new SelectableTextBlock
+            {
+                Height = item.DesiredHeight, Text = item.Text
+            }));
+            window.Show();
+            try
+            {
+                await PumpAsync(window);
+                transcript.RealizeCurrentViewportNow();
+                var firstTurn = transcript.GetVisualDescendants().OfType<TranscriptTurnControl>().First();
+                var text = Assert.Single(firstTurn.GetVisualDescendants().OfType<SelectableTextBlock>());
+                StrataTextSelection.SelectAll(firstTurn);
+                scroll.ScrollToEnd();
+                await PumpAsync(window);
+                transcript.RealizeCurrentViewportNow();
+                Assert.True(firstTurn.IsViewportActive);
+                Assert.Same(text, Assert.Single(firstTurn.GetVisualDescendants().OfType<SelectableTextBlock>()));
+
+                text.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+                transcript.RealizeCurrentViewportNow();
+                Assert.False(firstTurn.IsViewportActive);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ZeroHeightViewport_DoesNotStarveDispatcher_AndRealizesAfterResize()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new TranscriptItemsControl
+            {
+                ItemsSource = CreateVisualTurns(3),
+                ItemsPanel = new FuncTemplate<Panel?>(() => new StackPanel()),
+                ItemTemplate = new FuncDataTemplate<TranscriptTurn>((turn, _) => new TranscriptTurnControl
+                {
+                    Turn = turn,
+                    IsViewportManaged = true,
+                }),
+            };
+            var scrollViewer = new ScrollViewer { Height = 0, Content = transcript };
+            var window = new Window { Width = 480, Height = 360, Content = scrollViewer };
+            window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new Border
+            {
+                Height = item.DesiredHeight,
+                Child = new TextBlock { Text = item.Text },
+            }));
+
+            window.Show();
+            try
+            {
+                window.UpdateLayout();
+                Assert.Equal(0, scrollViewer.Viewport.Height);
+                transcript.RealizeCurrentViewportNow();
+
+                // Assert before pumping so the old retry loop fails instead of hanging the test host.
+                var queuedField = typeof(TranscriptItemsControl).GetField(
+                    "_viewportUpdateQueued", BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.NotNull(queuedField);
+                Assert.False(Assert.IsType<bool>(queuedField.GetValue(transcript)),
+                    "A zero-height viewport must wait for layout, not continually repost Loaded work.");
+
+                await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+                Assert.Equal(0, scrollViewer.Viewport.Height);
+
+                scrollViewer.Height = 240;
+                window.UpdateLayout();
+                await PumpAsync(window);
+                await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+
+                Assert.True(scrollViewer.Viewport.Height > 0);
+                var firstTurn = transcript.GetVisualDescendants().OfType<TranscriptTurnControl>().First();
+                Assert.IsType<StackPanel>(firstTurn.Content);
+                Assert.Equal(1, GetHostedItemCount(firstTurn));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
 
     [Fact]
     public async Task OpeningLongTranscript_RealizesOnlyMountedTurns()

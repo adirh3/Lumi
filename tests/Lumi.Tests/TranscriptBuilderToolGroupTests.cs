@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -14,6 +15,157 @@ namespace Lumi.Tests;
 
 public sealed class TranscriptBuilderToolGroupTests
 {
+    [Fact]
+    public void AppendModelLabel_KeepsTurnBoundaryWithoutRepeatingTheReplyCaption()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Content = "Answer",
+            Model = "gpt-5.5"
+        }));
+
+        builder.AppendModelLabel("gpt-5.5");
+
+        var marker = Assert.Single(turns.SelectMany(turn => turn.Items).OfType<TurnModelItem>());
+        Assert.False(marker.IsItemVisible);
+        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), marker.ModelName);
+    }
+
+    [Fact]
+    public void Rebuild_KeepsTurnBoundaryWithoutRepeatingTheReplyCaption()
+    {
+        var turns = CreateBuilder().Rebuild([new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Content = "Answer",
+            Model = "gpt-5.5"
+        })]);
+
+        var marker = Assert.Single(turns.SelectMany(turn => turn.Items).OfType<TurnModelItem>());
+        Assert.False(marker.IsItemVisible);
+    }
+
+    [Fact]
+    public void AppendModelLabel_FillsMissingSnippetModelsInTheirOwnFooters()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Author = "Lumi",
+            Content = "Legacy answer"
+        }));
+
+        builder.AppendModelLabel("gpt-5.5");
+
+        var marker = Assert.Single(turns.SelectMany(turn => turn.Items).OfType<TurnModelItem>());
+        Assert.False(marker.IsItemVisible);
+        var answer = Assert.Single(turns.SelectMany(turn => turn.Items).OfType<AssistantMessageItem>());
+        Assert.Equal(marker.ModelName, answer.ModelName);
+        Assert.Equal(marker.ModelName, answer.HeaderLabel);
+    }
+
+    [Fact]
+    public void Rebuild_UsesTheSameTurnsRecordedModelWithoutOverwritingKnownModels()
+    {
+        var turns = CreateBuilder().Rebuild([
+            new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Question" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "First step" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Known other model", Model = "gpt-5.5" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Final answer", Model = "claude-sonnet-4.6" })
+        ]);
+        // Earlier messages fold into the turn's work; their captions are still filled in.
+        var answers = turns.SelectMany(turn => turn.EnumerateItems()).OfType<AssistantMessageItem>().ToList();
+
+        Assert.Equal(ChatViewModel.FormatModelDisplay("claude-sonnet-4.6"), answers[0].ModelName);
+        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), answers[1].ModelName);
+        Assert.Equal(ChatViewModel.FormatModelDisplay("claude-sonnet-4.6"), answers[2].ModelName);
+    }
+
+    [Fact]
+    public void Rebuild_NeverUsesAnotherTurnsModelForUnrecordedHistory()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var turns = CreateBuilder().Rebuild([
+            new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Old question" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Old answer" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "New question" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "New answer", Model = "gpt-5.5" })
+        ]);
+        var answers = turns.SelectMany(turn => turn.Items).OfType<AssistantMessageItem>().ToList();
+
+        Assert.Null(answers[0].ModelName);
+        Assert.Equal(Lumi.Localization.Loc.Chat_ModelNotRecorded, answers[0].HeaderLabel);
+        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), answers[1].ModelName);
+    }
+
+    [Fact]
+    public void Rebuild_RetainsTheKnownTurnModelWhenTheLastSnippetHasNone()
+    {
+        var turns = CreateBuilder().Rebuild([
+            new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Question" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "First step", Model = "gpt-5.5" }),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Final answer" })
+        ]);
+        var answers = turns.SelectMany(turn => turn.EnumerateItems()).OfType<AssistantMessageItem>().ToList();
+
+        Assert.Equal(ChatViewModel.FormatModelDisplay("gpt-5.5"), answers[0].ModelName);
+        Assert.Equal(answers[0].ModelName, answers[1].ModelName);
+        Assert.False(Assert.Single(turns.SelectMany(turn => turn.Items).OfType<TurnModelItem>()).IsItemVisible);
+    }
+
+    [Fact]
+    public void InterruptedCompletedLaunch_RefreshesItsAlreadyFlattenedPill()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("async-flattened", "powershell", "Completed", "{}");
+        builder.ProcessMessageToTranscript(message);
+        builder.CloseCurrentToolGroup();
+        var pill = Assert.IsType<SingleToolItem>(Assert.Single(turns[0].Items));
+        var notifications = new List<string?>();
+        pill.PropertyChanged += (_, args) => notifications.Add(args.PropertyName);
+
+        builder.SetTerminalRunningInBackground("async-flattened", false, 1500, finalStatus: "Stopped");
+
+        Assert.Contains("Command interrupted", pill.Label);
+        Assert.Equal("1.5s", pill.Meta);
+        Assert.Contains(nameof(SingleToolItem.Label), notifications);
+        Assert.Contains(nameof(SingleToolItem.Meta), notifications);
+        Assert.Contains(nameof(SingleToolItem.IsActive), notifications);
+        Assert.False(pill.IsActive);
+    }
+
+    [Theory]
+    [InlineData("Stopped", "Command interrupted")]
+    [InlineData("Completed", "Ran command")]
+    [InlineData("Failed", "Command failed")]
+    public void FinishedCommand_NeverKeepsARunningLabel(string status, string label)
+    {
+        Lumi.Localization.Loc.Load("en");
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("terminal-pause", "powershell", "InProgress", "{}");
+        builder.ProcessMessageToTranscript(message);
+        message.Message.ToolStatus = status;
+        message.NotifyToolStatusChanged();
+        builder.CloseCurrentToolGroup();
+
+        var single = Assert.IsType<SingleToolItem>(Assert.Single(turns[0].Items));
+        Assert.Contains(label, single.Label);
+        Assert.DoesNotContain("Running", single.Label);
+        Assert.False(single.IsActive);
+    }
+
     [Theory]
     [InlineData("Failed", "External tool request received no response within 1800 seconds.", false)]
     [InlineData("Stopped", null, false)]
@@ -33,6 +185,21 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.Equal(answered, question.IsAnswered);
         Assert.Equal(!answered, question.IsExpired);
         Assert.Equal(answered ? "Yes" : null, question.SelectedAnswer);
+    }
+
+    [Fact]
+    public void ApplyingAQuestionReceipt_NotifiesTheCardWithoutSubmittingAgain()
+    {
+        var submissions = 0;
+        var question = new QuestionItem("q1", "Choose", ["Yes", "No"], true, (_, _) => submissions++);
+        question.ApplyAnswer("Yes");
+        question.ApplyAnswer("Yes");
+
+        Assert.True(question.IsAnswered);
+        Assert.Equal("Yes", question.SelectedAnswer);
+        Assert.Equal(0, submissions);
+        question.Submit("No");
+        Assert.Equal(1, submissions);
     }
 
     [Fact]
@@ -487,23 +654,6 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
-    public void ActivityHistory_RespectsSubagentShowAllWorkMode()
-    {
-        var builder = new TranscriptBuilder(CreateDataStore(), _ => { }, (_, _) => { }, _ => { },
-            (_, _) => Task.CompletedTask, () => null) { CollapseCompletedTurns = false };
-        var turns = new ObservableCollection<TranscriptTurn>();
-        builder.SetLiveTarget(turns);
-        builder.ProcessMessageToTranscript(CreateToolVm("first", "view", "Completed", "{}"));
-        builder.ProcessMessageToTranscript(CreateReasoningVm("Thought one"));
-        builder.ProcessMessageToTranscript(CreateReasoningVm("Thought two"));
-        builder.ProcessMessageToTranscript(CreateToolVm("second", "view", "Completed", "{}"));
-
-        Assert.Equal(3, turns[0].Items.Count);
-        Assert.DoesNotContain(turns[0].Items, item => item is TurnSummaryItem);
-        Assert.Equal("Thought one\n\nThought two", Assert.IsType<ReasoningItem>(turns[0].Items[1]).Content);
-    }
-
-    [Fact]
     public void ProcessMessageToTranscript_SameMessageTwice_RendersOnce()
     {
         var builder = CreateBuilder();
@@ -916,13 +1066,15 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
-    public void ProcessMessageToTranscript_StreamingAssistantEndKeepsPriorActivityBetweenAssistantMessages()
+    public void ProcessMessageToTranscript_StreamingAnswerEndFoldsEarlierUpdatesWithTheirWork()
     {
+        Lumi.Localization.Loc.Load("en");
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
         builder.SetLiveTarget(liveTurns);
 
-        builder.ProcessMessageToTranscript(CreateAssistantVm("I will inspect the file."));
+        var update = CreateAssistantVm("I will inspect the file.");
+        builder.ProcessMessageToTranscript(update);
         builder.ProcessMessageToTranscript(CreateToolVm("tool-1", "view", "Completed", "{\"path\":\"E:\\\\repo\\\\README.md\"}"));
         builder.ProcessMessageToTranscript(CreateReasoningVm("The first file is not enough context."));
         var streamingAssistant = CreateAssistantVm("I need to check one more thing.", isStreaming: true);
@@ -932,18 +1084,19 @@ public sealed class TranscriptBuilderToolGroupTests
         streamingAssistant.NotifyStreamingEnded();
 
         var turn = Assert.Single(liveTurns);
-        Assert.Equal(3, turn.Items.Count);
-        Assert.IsType<AssistantMessageItem>(turn.Items[0]);
-
-        var summary = Assert.IsType<TurnSummaryItem>(turn.Items[1]);
-        Assert.Equal(2, summary.InnerItems.Count);
-        Assert.IsType<SingleToolItem>(summary.InnerItems[0]);
-        Assert.IsType<ReasoningItem>(summary.InnerItems[1]);
-        Assert.IsType<AssistantMessageItem>(turn.Items[2]);
+        Assert.Equal(2, turn.Items.Count);
+        var summary = Assert.IsType<TurnSummaryItem>(turn.Items[0]);
+        Assert.Collection(summary.InnerItems,
+            item => Assert.Equal(update.Message.Id, Assert.IsType<AssistantMessageItem>(item).MessageId),
+            item => Assert.IsType<SingleToolItem>(item),
+            item => Assert.IsType<ReasoningItem>(item));
+        Assert.StartsWith("Worked for", summary.Label);
+        Assert.True(Assert.IsType<AssistantMessageItem>(summary.InnerItems[0]).IsProgress);
+        Assert.False(Assert.IsType<AssistantMessageItem>(turn.Items[1]).IsProgress);
     }
 
     [Fact]
-    public void CollapseCompletedBlocksInCurrentTurn_MergesPriorTailSummaryWithLaterTools()
+    public void CollapseCompletedBlocksInCurrentTurn_MergesEarlierUpdatesAndLaterToolsIntoOneHistoryRow()
     {
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
@@ -954,26 +1107,27 @@ public sealed class TranscriptBuilderToolGroupTests
         builder.ProcessMessageToTranscript(CreateReasoningVm("The first file is not enough context."));
         builder.ProcessMessageToTranscript(CreateAssistantVm("I need to check one more thing."));
         builder.CollapseCompletedBlocksInCurrentTurn();
+        var history = Assert.IsType<TurnSummaryItem>(Assert.Single(liveTurns).Items[0]);
 
         builder.ProcessMessageToTranscript(CreateToolVm("tool-2", "powershell", "Completed", "{\"command\":\"dotnet test\"}"));
         builder.ProcessMessageToTranscript(CreateAssistantVm("Now I have the final result."));
         builder.CollapseCompletedBlocksInCurrentTurn();
 
         var turn = Assert.Single(liveTurns);
-        Assert.Equal(5, turn.Items.Count);
-        Assert.IsType<AssistantMessageItem>(turn.Items[0]);
-
-        var summary = Assert.IsType<TurnSummaryItem>(turn.Items[1]);
-        Assert.Equal(2, summary.InnerItems.Count);
-        Assert.IsType<SingleToolItem>(summary.InnerItems[0]);
-        Assert.IsType<ReasoningItem>(summary.InnerItems[1]);
-        Assert.IsType<AssistantMessageItem>(turn.Items[2]);
-        Assert.IsType<SingleToolItem>(turn.Items[3]);
-        Assert.IsType<AssistantMessageItem>(turn.Items[4]);
+        Assert.Equal(2, turn.Items.Count);
+        // The same row grows as work arrives, so a reader's expansion survives.
+        Assert.Same(history, turn.Items[0]);
+        Assert.Collection(history.InnerItems,
+            item => Assert.Equal("I will inspect the file.", Assert.IsType<AssistantMessageItem>(item).Content),
+            item => Assert.IsType<SingleToolItem>(item),
+            item => Assert.IsType<ReasoningItem>(item),
+            item => Assert.Equal("I need to check one more thing.", Assert.IsType<AssistantMessageItem>(item).Content),
+            item => Assert.IsType<SingleToolItem>(item));
+        Assert.Equal("Now I have the final result.", Assert.IsType<AssistantMessageItem>(turn.Items[1]).Content);
     }
 
     [Fact]
-    public void CollapseCompletedBlocksInCurrentTurn_KeepsMultipleToolGroupsCompactBetweenAssistantMessages()
+    public void CollapseCompletedBlocksInCurrentTurn_FoldsEarlierUpdatesAndKeepsTrailingToolsCompact()
     {
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
@@ -994,18 +1148,19 @@ public sealed class TranscriptBuilderToolGroupTests
         builder.CollapseCompletedBlocksInCurrentTurn();
 
         var turn = Assert.Single(liveTurns);
-        Assert.Equal(6, turn.Items.Count);
-        Assert.IsType<AssistantMessageItem>(turn.Items[0]);
-        AssertCompactFinishedToolGroup(turn.Items[1], expectedToolCalls: 2);
-        Assert.IsType<AssistantMessageItem>(turn.Items[2]);
-
-        var middleSummary = Assert.IsType<TurnSummaryItem>(turn.Items[3]);
-        Assert.False(middleSummary.IsExpanded);
-        Assert.Equal(2, middleSummary.InnerItems.Count);
-        Assert.IsType<ReasoningItem>(middleSummary.InnerItems[0]);
-        AssertCompactFinishedToolGroup(middleSummary.InnerItems[1], expectedToolCalls: 2);
-        Assert.IsType<AssistantMessageItem>(turn.Items[4]);
-        AssertCompactFinishedToolGroup(turn.Items[5], expectedToolCalls: 2);
+        Assert.Equal(3, turn.Items.Count);
+        var history = Assert.IsType<TurnSummaryItem>(turn.Items[0]);
+        Assert.False(history.IsExpanded);
+        Assert.Collection(history.InnerItems,
+            item => Assert.IsType<AssistantMessageItem>(item),
+            item => AssertCompactFinishedToolGroup(item, expectedToolCalls: 2),
+            item => Assert.IsType<AssistantMessageItem>(item),
+            item => Assert.IsType<ReasoningItem>(item),
+            item => AssertCompactFinishedToolGroup(item, expectedToolCalls: 2));
+        Assert.Equal(
+            "Second check is done; one final command remains.",
+            Assert.IsType<AssistantMessageItem>(turn.Items[1]).Content);
+        AssertCompactFinishedToolGroup(turn.Items[2], expectedToolCalls: 2);
     }
 
     [Fact]
@@ -1029,6 +1184,108 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.Equal(1, change.LinesAdded);
         Assert.Equal(1, change.LinesRemoved);
     }
+
+    [Fact]
+    public void FileSnapshots_ShareUnchangedRevisionAcrossToolSummaryAndNextEdit()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), $"lumi-snapshots-{Guid.NewGuid():N}.txt");
+        var original = new string('x', 200_000) + "\nbefore";
+        var firstRevision = original.Replace("before", "middle", StringComparison.Ordinal);
+        var secondRevision = original.Replace("before", "after!", StringComparison.Ordinal);
+        File.WriteAllText(filePath, original);
+        try
+        {
+            var builder = CreateBuilder();
+            var turns = new ObservableCollection<TranscriptTurn>();
+            builder.SetLiveTarget(turns);
+            var firstMessage = CreateToolVm("first-edit", "edit", "InProgress",
+                JsonSerializer.Serialize(new { filePath, oldString = "before", newString = "middle" }));
+            builder.ProcessMessageToTranscript(firstMessage);
+            var firstTool = turns.SelectMany(turn => turn.EnumerateItems())
+                .OfType<ToolGroupItem>().SelectMany(group => group.ToolCalls).OfType<ToolCallItem>().Single();
+            File.WriteAllText(filePath, firstRevision);
+            firstMessage.ToolStatus = "Completed";
+            builder.FlushPendingFileEdits();
+            var summary = turns.SelectMany(turn => turn.EnumerateItems())
+                .OfType<FileChangesSummaryItem>().Single();
+            Assert.Equal(original, firstTool.DiffOriginalContent);
+            Assert.Equal(firstRevision, firstTool.DiffCurrentContent);
+            Assert.Same(firstTool.DiffCurrentContent, Assert.Single(summary.FileChanges).CurrentContent);
+
+            var secondMessage = CreateToolVm("second-edit", "edit", "InProgress",
+                JsonSerializer.Serialize(new { filePath, oldString = "middle", newString = "after!" }));
+            builder.ProcessMessageToTranscript(secondMessage);
+            var secondTool = turns.SelectMany(turn => turn.EnumerateItems())
+                .OfType<ToolGroupItem>().SelectMany(group => group.ToolCalls).OfType<ToolCallItem>()
+                .Single(tool => tool.StableId == "tool:second-edit");
+            Assert.Same(firstTool.DiffCurrentContent, secondTool.DiffOriginalContent);
+            File.WriteAllText(filePath, secondRevision);
+            secondMessage.ToolStatus = "Completed";
+            Assert.Equal(secondRevision, secondTool.DiffCurrentContent);
+            Assert.Equal(firstRevision, firstTool.DiffCurrentContent);
+            Assert.Equal(original, firstTool.DiffOriginalContent);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public void FileSnapshots_ReadChangedContentEvenWhenLengthAndTimestampMatch()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), $"lumi-snapshots-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(filePath, "before");
+        try
+        {
+            var builder = CreateBuilder();
+            var timestamp = File.GetLastWriteTimeUtc(filePath);
+            var before = ReadFileSnapshot(builder, filePath);
+            File.WriteAllText(filePath, "after!");
+            File.SetLastWriteTimeUtc(filePath, timestamp);
+
+            var after = ReadFileSnapshot(builder, filePath);
+
+            Assert.Equal("before", before);
+            Assert.Equal("after!", after);
+            Assert.NotSame(before, after);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public void FileSnapshots_DoNotKeepUnownedFileTextAlive()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), $"lumi-snapshots-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(filePath, new string('x', 200_000));
+        try
+        {
+            var builder = CreateBuilder();
+            var snapshot = CaptureUnownedFileSnapshot(builder, filePath);
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+
+            Assert.False(snapshot.IsAlive);
+            GC.KeepAlive(builder);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    private static string? ReadFileSnapshot(TranscriptBuilder builder, string filePath)
+        => (string?)typeof(TranscriptBuilder)
+            .GetMethod("ReadFileContentOrEmpty", BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(builder, [filePath, true]);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference CaptureUnownedFileSnapshot(TranscriptBuilder builder, string filePath)
+        => new(ReadFileSnapshot(builder, filePath));
 
     [Fact]
     public void ProcessMessageToTranscript_WorkspaceFileChangedToolFlushesCreatedFileSummary()

@@ -1,7 +1,9 @@
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using GitHub.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
@@ -118,6 +120,102 @@ public sealed class ChatActivityControlsTests
                     vm.IsSessionActive = false;
                     Dispatcher.UIThread.RunJobs();
                     Assert.False(activity.IsVisible);
+                    Assert.False(flyout.IsOpen);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(session.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task BackgroundActivity_RowsShowLiveWork_ExpandCommandsAndOpenAgentRuns()
+    {
+        var session = HeadlessTestSession.Start();
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                Loc.Load("en");
+                var chat = new Chat { IsSessionActive = true };
+                var data = new AppData
+                {
+                    Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+                    Chats = [chat]
+                };
+                using var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared) { CurrentChat = chat };
+                vm.Messages.Add(new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Review it" }));
+                vm.Messages.Add(new ChatMessageViewModel(new ChatMessage
+                {
+                    Role = "tool", ToolName = "task", ToolCallId = "review-tool", ToolStatus = "InProgress",
+                    Content = "{\"description\":\"Review session cleanup\",\"agent_type\":\"code-review\"}",
+                    Timestamp = DateTimeOffset.Now
+                }));
+                var run = Assert.Single(vm.SubagentRuns);
+                var view = new ChatView { DataContext = vm };
+                var window = new Window { Width = 1000, Height = 700, Content = view };
+                window.Show();
+                try
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    var now = DateTimeOffset.UtcNow;
+                    vm.ApplyBackgroundActivitySnapshot(
+                    [
+                        new TaskInfoShell
+                        {
+                            Id = "preview", Description = "Local app preview", Command = "dotnet run",
+                            Status = GitHub.Copilot.Rpc.TaskStatus.Running, ExecutionMode = TaskExecutionMode.Background,
+                            AttachmentMode = TaskShellInfoAttachmentMode.Attached, StartedAt = now
+                        },
+                        new TaskInfoAgent
+                        {
+                            Id = "reviewer", AgentType = "code-review", DisplayName = "Code reviewer",
+                            Description = "Review session cleanup", Prompt = "", ToolCallId = "review-tool",
+                            StartedAt = now, Status = GitHub.Copilot.Rpc.TaskStatus.Running
+                        }
+                    ], now);
+                    vm.RunningSessionActivities[0].ApplyProgress(
+                        new TaskProgressShell { RecentOutput = "Restoring\nNow listening on: http://localhost:5000" });
+
+                    var activity = view.FindControl<Button>("BackgroundActivityButton")!;
+                    var flyout = Assert.IsType<Flyout>(activity.Flyout);
+                    var details = Assert.IsType<StackPanel>(flyout.Content);
+                    flyout.ShowAt(activity);
+                    Dispatcher.UIThread.RunJobs();
+
+                    var rows = details.GetVisualDescendants().OfType<Button>()
+                        .Where(button => button.Classes.Contains("session-task")).ToList();
+                    Assert.Equal(2, rows.Count);
+
+                    // A command says what it is doing now: its newest output line.
+                    var command = rows[0].GetVisualDescendants().OfType<StrataAgentRun>().Single();
+                    Assert.Contains("command", command.Classes);
+                    Assert.Equal("Local app preview", command.Title);
+                    Assert.Equal("Now listening on: http://localhost:5000", command.Activity);
+
+                    // An agent is its live run, as the Workspace lists it.
+                    var agent = rows[1].GetVisualDescendants().OfType<StrataAgentRun>().Single();
+                    Assert.Same(run, agent.DataContext);
+
+                    // Clicking a command shows its newest output beneath the row.
+                    var output = details.GetVisualDescendants().OfType<Border>()
+                        .First(border => border.Classes.Contains("session-task-output"));
+                    Assert.False(output.IsVisible);
+                    new ButtonAutomationPeer(rows[0]).Invoke();
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.True(output.IsVisible);
+                    Assert.True(flyout.IsOpen);
+
+                    // Clicking an agent opens its run on the Agents page and gets the list out of the way.
+                    new ButtonAutomationPeer(rows[1]).Invoke();
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.Same(run, vm.SelectedSubagentRun);
                     Assert.False(flyout.IsOpen);
                 }
                 finally

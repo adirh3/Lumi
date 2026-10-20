@@ -1,0 +1,57 @@
+<!-- "Continue with ChatGPT" in one of OpenAI's approved formats: the ChatGPT mark and label on
+     black (light theme) or white (dark theme). Shared by the AI accounts list and the dialog. -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="Ec.ChatGptBackground" Color="#0D0D0D" />
+          <SolidColorBrush x:Key="Ec.ChatGptBackgroundHover" Color="#2B2B2B" />
+          <SolidColorBrush x:Key="Ec.ChatGptBackgroundPressed" Color="#000000" />
+          <SolidColorBrush x:Key="Ec.ChatGptForeground" Color="#FFFFFF" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="Ec.ChatGptBackground" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="Ec.ChatGptBackgroundHover" Color="#E6E6E6" />
+          <SolidColorBrush x:Key="Ec.ChatGptBackgroundPressed" Color="#D4D4D4" />
+          <SolidColorBrush x:Key="Ec.ChatGptForeground" Color="#0D0D0D" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <Style Selector="Button.ec-chatgpt">
+    <Setter Property="Background" Value="{DynamicResource Ec.ChatGptBackground}" />
+    <Setter Property="Foreground" Value="{DynamicResource Ec.ChatGptForeground}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.ec-chatgpt TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Ec.ChatGptForeground}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.ec-chatgpt PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Ec.ChatGptForeground}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.ec-chatgpt:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Ec.ChatGptBackgroundHover}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BoxShadow" Value="0 2 8 0 #22000000" />
+  </Style>
+  <Style Selector="Button.ec-chatgpt:pointerover /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Button.ec-chatgpt:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Ec.ChatGptBackgroundPressed}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    <Setter Property="RenderTransform" Value="scale(0.98)" />
+  </Style>
+  <Style Selector="Button.ec-chatgpt:disabled">
+    <Setter Property="Opacity" Value="0.6" />
+  </Style>
+</Styles>

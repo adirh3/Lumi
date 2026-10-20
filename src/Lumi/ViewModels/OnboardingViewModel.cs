@@ -3,86 +3,401 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
-using Microsoft.Extensions.AI;
+using Lumi.Services.Onboarding;
+using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
 
-public enum DiscoveryCategoryStatus { Pending, Scanning, Complete, Skipped }
+public enum OnboardingStep { Hello, Capabilities, Autonomy, Connect, Workspace, KnowYou, Ready }
 
-public enum InsightKind { Discovery, Memory, AgentText }
+public enum OnboardingWorkspacePhase { Consent, Scanning, Results }
 
-public partial class InsightItem : ObservableObject
-{
-    [ObservableProperty] private string _icon = "💡";
-    [ObservableProperty] private string _text = "";
-    [ObservableProperty] private InsightKind _kind = InsightKind.Discovery;
+public enum OnboardingPronoun { Unset, He, She, Unspecified }
 
-    public bool IsMemory => Kind == InsightKind.Memory;
-    public bool IsDiscovery => Kind == InsightKind.Discovery;
-    public bool IsAgentText => Kind == InsightKind.AgentText;
-}
-
-public partial class DiscoveryCategoryViewModel : ObservableObject
-{
-    [ObservableProperty] private string _icon = "";
-    [ObservableProperty] private string _name = "";
-    [ObservableProperty] private string _description = "";
-    [ObservableProperty] private DiscoveryCategoryStatus _status = DiscoveryCategoryStatus.Pending;
-    [ObservableProperty] private string _statusText = "";
-    [ObservableProperty] private int _findingsCount;
-
-    public bool IsPending => Status == DiscoveryCategoryStatus.Pending;
-    public bool IsScanning => Status == DiscoveryCategoryStatus.Scanning;
-    public bool IsComplete => Status == DiscoveryCategoryStatus.Complete;
-    public bool IsSkipped => Status == DiscoveryCategoryStatus.Skipped;
-
-    partial void OnStatusChanged(DiscoveryCategoryStatus value)
-    {
-        OnPropertyChanged(nameof(IsPending));
-        OnPropertyChanged(nameof(IsScanning));
-        OnPropertyChanged(nameof(IsComplete));
-        OnPropertyChanged(nameof(IsSkipped));
-    }
-}
+/// <summary>What onboarding hands back to the shell: optionally a first message to send, in a project.</summary>
+public sealed record OnboardingCompletion(string? StarterPrompt, Guid? StarterProjectId);
 
 /// <summary>
-/// Manages the 5-step onboarding flow: Welcome → Learn → Scan → Meet → Ready.
-/// Discovery runs in two phases across steps 2 and 3:
-///   Phase 1 (Scan, Step 2): Fast local scans with per-category loading indicators
-///   Phase 2 (Meet, Step 3): Copilot SDK agent analyzes scan results, digs deeper, asks questions, creates memories
+/// Lumi's first run, in seven calm steps: say hello, see what Lumi can do, choose how much it may do
+/// on its own, connect an AI, let Lumi look around and set up projects, answer a few questions that
+/// become memories, and start a first task.
+/// Discovery is local and per-source opt-in; one prefetched, tool-free model call personalizes the
+/// conversation and the first tasks, with deterministic fallbacks when no AI is available.
 /// </summary>
 public partial class OnboardingViewModel : ObservableObject
 {
+    public const int StepCount = 7;
+    private const int PreselectedProjects = 3;
+    private static readonly TimeSpan CapabilityInterval = TimeSpan.FromSeconds(6.5);
+    private static readonly TimeSpan PersonalizationTimeout = TimeSpan.FromSeconds(25);
+    private static readonly TimeSpan RecentProject = TimeSpan.FromDays(30);
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly MemoryAgentService _memoryAgentService;
-    private CancellationTokenSource? _discoveryCts;
-    private TaskCompletionSource<string>? _pendingQuestionTcs;
+    private readonly IWorkspaceDiscovery _discovery;
+    private readonly Func<string, WorkspaceSnapshot, CancellationToken, Task<OnboardingPersonalization>> _personalize;
+    private readonly string _activeLanguage;
+    private readonly List<OnboardingProjectSummary> _setUpProjects = [];
+    private readonly List<Memory> _savedMemories = [];
 
-    // ── Step tracking ──
-    [ObservableProperty] private int _currentStep; // 0=Welcome, 1=Learn, 2=Scan, 3=Meet, 4=Ready
+    private DispatcherTimer? _capabilityTimer;
+    private bool _capabilityPinned;
+    private CancellationTokenSource? _scanCts;
+    private CancellationTokenSource? _personalizationCts;
+    private Task<OnboardingPersonalization>? _personalizationTask;
+    private OnboardingPersonalization? _personalization;
+    private WorkspaceSnapshot _workspace = WorkspaceSnapshot.Empty;
+    private OnboardingChatItem? _pendingQuestion;
+    private bool _conversationStarted;
+    private bool _conversationSkipped;
+    private int _questionIndex;
+    private bool _isCompleting;
 
-    // ── Step 0: Basic info ──
+    public OnboardingViewModel(
+        DataStore dataStore,
+        CopilotService copilotService,
+        IWorkspaceDiscovery? discovery = null,
+        Func<string, WorkspaceSnapshot, CancellationToken, Task<OnboardingPersonalization>>? personalize = null)
+    {
+        _dataStore = dataStore;
+        _copilotService = copilotService;
+        _memoryAgentService = new MemoryAgentService(dataStore, copilotService);
+        _discovery = discovery ?? new WorkspaceDiscovery();
+        _personalize = personalize ?? PersonalizeWithCopilotAsync;
+
+        var settings = dataStore.Data.Settings;
+        _isDarkTheme = settings.IsDarkTheme;
+        _userName = settings.UserName ?? "";
+        _pronoun = settings.UserSex switch
+        {
+            "male" => OnboardingPronoun.He,
+            "female" => OnboardingPronoun.She,
+            _ => OnboardingPronoun.Unset,
+        };
+        _activeLanguage = string.IsNullOrWhiteSpace(settings.Language) ? "en" : settings.Language;
+        _languageIndex = Math.Max(0, Array.FindIndex(Loc.AvailableLanguages,
+            language => string.Equals(language.Code, _activeLanguage, StringComparison.OrdinalIgnoreCase)));
+
+        for (var index = 0; index < StepCount; index++)
+            StepDots.Add(new OnboardingStepDot(index));
+
+        Capabilities =
+        [
+            OnboardingCapability.FromStrings("pc", static () => WorkspaceIcons.Desktop, "Pc"),
+            OnboardingCapability.FromStrings("web", static () => WorkspaceIcons.Browser, "Web"),
+            OnboardingCapability.FromStrings("documents", static () => WorkspaceIcons.FileAdded, "Docs"),
+            OnboardingCapability.FromStrings("memory", static () => WorkspaceIcons.Sparkle, "Memory"),
+            OnboardingCapability.FromStrings("projects", static () => WorkspaceIcons.Workspace, "Projects"),
+            OnboardingCapability.FromStrings("background", static () => WorkspaceIcons.Clock, "Background"),
+        ];
+        _selectedCapability = Capabilities[0];
+        Capabilities[0].IsSelected = true;
+
+        Sources =
+        [
+            new OnboardingSource("projects", static () => WorkspaceIcons.Workspace, Loc.Onboarding_SourceProjects, Loc.Onboarding_SourceProjectsDescription),
+            new OnboardingSource("apps", static () => WorkspaceIcons.Desktop, Loc.Onboarding_SourceApps, Loc.Onboarding_SourceAppsDescription),
+            new OnboardingSource("sites", static () => WorkspaceIcons.Browser, Loc.Onboarding_SourceSites, Loc.Onboarding_SourceSitesDescription),
+            new OnboardingSource("files", static () => WorkspaceIcons.Files, Loc.Onboarding_SourceFiles, Loc.Onboarding_SourceFilesDescription),
+        ];
+
+        UpdateStepDots();
+    }
+
+    public event Action<OnboardingCompletion>? OnboardingCompleted;
+
+    public SetupSuggestionsViewModel? Setups { get; init; }
+
+    /// <summary>Raised when a replayed welcome is closed early. Whatever it already set up stays.</summary>
+    public event Action? Dismissed;
+
+    public event Action<bool>? ThemeChanged;
+
+    /// <summary>Raised when the user picks another language; the shell saves it and restarts Lumi in it.</summary>
+    public event Action<string>? LanguageChangeRequested;
+
+    /// <summary>One-shot moments for the ambient presence behind onboarding.</summary>
+    public event Action<PresencePulse>? PresencePulseRequested;
+
+    /// <summary>Pause between Lumi's lines, so the conversation reads like one. Tests set it to zero.</summary>
+    internal TimeSpan Pacing { get; set; } = TimeSpan.FromMilliseconds(450);
+
+    /// <summary>The shortest scan, so a fast one still reads as a moment rather than a flash. Tests set it to zero.</summary>
+    internal TimeSpan MinimumScanDuration { get; set; } = TimeSpan.FromMilliseconds(900);
+
+    // ═══════════════════════════════════════════════════════════════
+    // Steps and navigation
+    // ═══════════════════════════════════════════════════════════════
+
+    [ObservableProperty] private int _currentStep;
+
+    public ObservableCollection<OnboardingStepDot> StepDots { get; } = [];
+
+    public OnboardingStep Step => (OnboardingStep)CurrentStep;
+    public bool IsHelloStep => Step == OnboardingStep.Hello;
+    public bool IsCapabilitiesStep => Step == OnboardingStep.Capabilities;
+    public bool IsAutonomyStep => Step == OnboardingStep.Autonomy;
+    public bool IsConnectStep => Step == OnboardingStep.Connect;
+    public bool IsWorkspaceStep => Step == OnboardingStep.Workspace;
+    public bool IsKnowYouStep => Step == OnboardingStep.KnowYou;
+    public bool IsReadyStep => Step == OnboardingStep.Ready;
+
+    public bool ShowBack => Step is OnboardingStep.Capabilities or OnboardingStep.Autonomy or OnboardingStep.Connect or OnboardingStep.KnowYou
+                            || (IsWorkspaceStep && !IsScanningPhase);
+
+    /// <summary>
+    /// Someone who has been through the welcome opened it again, so they can close it at any step.
+    /// The language stays as it is: changing it restarts Lumi, which would end the replay.
+    /// </summary>
+    public bool IsReplay { get; init; }
+
+    public bool ShowLanguagePicker => IsHelloStep && !IsReplay;
+
+    public bool CanContinue => Step switch
+    {
+        OnboardingStep.Hello => HasName,
+        OnboardingStep.Workspace => !IsScanningPhase,
+        OnboardingStep.KnowYou => IsConversationDone,
+        _ => true,
+    };
+
+    public string PrimaryLabel => Step switch
+    {
+        OnboardingStep.Workspace when IsConsentPhase => Loc.Onboarding_LookAround,
+        OnboardingStep.Workspace when IsScanningPhase => Loc.Onboarding_ScanningTitle,
+        OnboardingStep.Workspace when NewlySelectedCount > 0 =>
+            ManagementText.Count(NewlySelectedCount, Loc.Onboarding_SetUpProjectsOne, Loc.Onboarding_SetUpProjectsMany),
+        OnboardingStep.Ready => Loc.Onboarding_GetStarted,
+        _ => Loc.Onboarding_Continue,
+    };
+
+    public bool ShowSecondary => (IsWorkspaceStep && !IsResultsPhase) || (IsKnowYouStep && !IsConversationDone);
+
+    public string SecondaryLabel => IsKnowYouStep ? Loc.Onboarding_SkipQuestions : Loc.Onboarding_Skip;
+
+    partial void OnCurrentStepChanged(int value)
+    {
+        if (value is < 0 or >= StepCount)
+        {
+            CurrentStep = Math.Clamp(value, 0, StepCount - 1);
+            return;
+        }
+
+        UpdateStepDots();
+        NotifyNavigation();
+
+        if (IsCapabilitiesStep)
+            StartCapabilityTour();
+        else
+            StopCapabilityTour();
+
+        if (IsKnowYouStep)
+            _ = StartConversationAsync();
+        if (IsReadyStep)
+            PrepareReady();
+
+        PresencePulseRequested?.Invoke(IsReadyStep ? PresencePulse.Bloom : PresencePulse.Awaken);
+    }
+
+    private void UpdateStepDots()
+    {
+        foreach (var dot in StepDots)
+        {
+            dot.IsCurrent = dot.Index == CurrentStep;
+            dot.IsDone = dot.Index < CurrentStep;
+        }
+    }
+
+    private void NotifyNavigation()
+    {
+        OnPropertyChanged(nameof(Step));
+        OnPropertyChanged(nameof(IsHelloStep));
+        OnPropertyChanged(nameof(IsCapabilitiesStep));
+        OnPropertyChanged(nameof(IsAutonomyStep));
+        OnPropertyChanged(nameof(IsConnectStep));
+        OnPropertyChanged(nameof(IsWorkspaceStep));
+        OnPropertyChanged(nameof(IsKnowYouStep));
+        OnPropertyChanged(nameof(IsReadyStep));
+        OnPropertyChanged(nameof(ShowBack));
+        OnPropertyChanged(nameof(ShowLanguagePicker));
+        OnPropertyChanged(nameof(CanContinue));
+        OnPropertyChanged(nameof(PrimaryLabel));
+        OnPropertyChanged(nameof(ShowSecondary));
+        OnPropertyChanged(nameof(SecondaryLabel));
+        OnPropertyChanged(nameof(PresenceState));
+        OnPropertyChanged(nameof(ShowHalo));
+        OnPropertyChanged(nameof(PresenceFocus));
+        ContinueCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanContinue))]
+    private async Task Continue()
+    {
+        switch (Step)
+        {
+            case OnboardingStep.Workspace when IsConsentPhase:
+                await ScanWorkspaceAsync();
+                break;
+            case OnboardingStep.Workspace when IsResultsPhase:
+                await SetUpSelectedProjectsAsync();
+                StartPersonalization();
+                CurrentStep++;
+                break;
+            case OnboardingStep.Ready:
+                await CompleteAsync(null);
+                break;
+            case OnboardingStep.Workspace:
+                break;
+            default:
+                if (CanContinue)
+                    CurrentStep++;
+                break;
+        }
+    }
+
+    [RelayCommand]
+    private void GoBack()
+    {
+        if (!ShowBack)
+            return;
+        if (IsWorkspaceStep && IsResultsPhase)
+        {
+            WorkspacePhase = OnboardingWorkspacePhase.Consent;
+            return;
+        }
+
+        CurrentStep--;
+    }
+
+    [RelayCommand]
+    private void Secondary()
+    {
+        if (IsWorkspaceStep)
+            SkipWorkspace();
+        else if (IsKnowYouStep)
+            SkipQuestions();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Hello
+    // ═══════════════════════════════════════════════════════════════
+
     [ObservableProperty] private string _userName = "";
-    [ObservableProperty] private int _sexIndex;
-    [ObservableProperty] private int _languageIndex;
     [ObservableProperty] private bool _isDarkTheme = true;
+    [ObservableProperty] private int _languageIndex;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHe), nameof(IsShe), nameof(IsPronounUnspecified))]
+    private OnboardingPronoun _pronoun;
+
+    public bool HasName => !string.IsNullOrWhiteSpace(UserName);
+    public string NiceToMeetText => HasName ? string.Format(Loc.Culture, Loc.Onboarding_NiceToMeet, UserName.Trim()) : "";
+    public string CapabilitiesTitle => string.Format(Loc.Culture, Loc.Onboarding_CapabilitiesTitle, UserName.Trim());
+    public string ReadyTitle => string.Format(Loc.Culture, Loc.Onboarding_ReadyTitle, UserName.Trim());
+    public bool IsHe => Pronoun == OnboardingPronoun.He;
+    public bool IsShe => Pronoun == OnboardingPronoun.She;
+    public bool IsPronounUnspecified => Pronoun == OnboardingPronoun.Unspecified;
+    public IReadOnlyList<string> LanguageNames { get; } = Loc.AvailableLanguages.Select(language => language.DisplayName).ToList();
+
+    partial void OnUserNameChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasName));
+        OnPropertyChanged(nameof(NiceToMeetText));
+        OnPropertyChanged(nameof(CapabilitiesTitle));
+        OnPropertyChanged(nameof(ReadyTitle));
+        NotifyNavigation();
+    }
+
+    partial void OnIsDarkThemeChanged(bool value) => ThemeChanged?.Invoke(value);
+
+    partial void OnLanguageIndexChanged(int value)
+    {
+        if (value < 0 || value >= Loc.AvailableLanguages.Length)
+            return;
+        var code = Loc.AvailableLanguages[value].Code;
+        if (!string.Equals(code, _activeLanguage, StringComparison.OrdinalIgnoreCase))
+            LanguageChangeRequested?.Invoke(code);
+    }
+
+    [RelayCommand]
+    private void ChoosePronoun(string? pronoun) => Pronoun = pronoun switch
+    {
+        "he" => OnboardingPronoun.He,
+        "she" => OnboardingPronoun.She,
+        _ => OnboardingPronoun.Unspecified,
+    };
+
+    [RelayCommand]
+    private void ToggleTheme() => IsDarkTheme = !IsDarkTheme;
+
+    // ═══════════════════════════════════════════════════════════════
+    // What Lumi can do
+    // ═══════════════════════════════════════════════════════════════
+
+    public ObservableCollection<OnboardingCapability> Capabilities { get; }
+
+    [ObservableProperty] private OnboardingCapability? _selectedCapability;
+
+    partial void OnSelectedCapabilityChanged(OnboardingCapability? oldValue, OnboardingCapability? newValue)
+    {
+        if (oldValue is not null)
+            oldValue.IsSelected = false;
+        if (newValue is not null)
+            newValue.IsSelected = true;
+    }
+
+    [RelayCommand]
+    private void SelectCapability(OnboardingCapability? capability)
+    {
+        if (capability is null)
+            return;
+        // Once the user picks one, the tour stops moving on by itself.
+        _capabilityPinned = true;
+        StopCapabilityTour();
+        SelectedCapability = capability;
+    }
+
+    private void StartCapabilityTour()
+    {
+        if (_capabilityPinned || _capabilityTimer is not null)
+            return;
+        _capabilityTimer = new DispatcherTimer(CapabilityInterval, DispatcherPriority.Normal, (_, _) => AdvanceCapability());
+        _capabilityTimer.Start();
+    }
+
+    private void StopCapabilityTour()
+    {
+        _capabilityTimer?.Stop();
+        _capabilityTimer = null;
+    }
+
+    private void AdvanceCapability()
+    {
+        var index = SelectedCapability is null ? 0 : Capabilities.IndexOf(SelectedCapability) + 1;
+        SelectedCapability = Capabilities[index % Capabilities.Count];
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Connect an AI
+    // ═══════════════════════════════════════════════════════════════
+
+    private GitHubLoginViewModel? _loginVM;
+    private EasyConnectViewModel? _easyConnect;
 
     /// <summary>Shared GitHub login ViewModel — set by MainViewModel.</summary>
-    private GitHubLoginViewModel? _loginVM;
     public GitHubLoginViewModel? LoginVM
     {
         get => _loginVM;
@@ -93,1021 +408,585 @@ public partial class OnboardingViewModel : ObservableObject
             _loginVM = value;
             if (_loginVM is not null)
                 _loginVM.AuthenticationChanged += OnAuthChanged;
-            OnPropertyChanged(nameof(IsAuthenticated));
+            OnAiChanged();
         }
     }
 
-    private void OnAuthChanged(bool _) => OnPropertyChanged(nameof(IsAuthenticated));
+    /// <summary>AI accounts shared with Settings; set by MainViewModel.</summary>
+    public EasyConnectViewModel? EasyConnect
+    {
+        get => _easyConnect;
+        set
+        {
+            if (_easyConnect is not null)
+                _easyConnect.PropertyChanged -= OnEasyConnectPropertyChanged;
+            _easyConnect = value;
+            if (_easyConnect is not null)
+                _easyConnect.PropertyChanged += OnEasyConnectPropertyChanged;
+            OnPropertyChanged();
+            OnAiChanged();
+        }
+    }
 
-    /// <summary>Whether the user is authenticated (delegates to LoginVM).</summary>
     public bool IsAuthenticated => LoginVM?.IsAuthenticated == true;
 
-    // ── Step 2+3: Discovery ──
-    [ObservableProperty] private bool _isDiscovering;
-    [ObservableProperty] private bool _isScanPhase;     // true = deterministic scan, false = agent phase
-    [ObservableProperty] private bool _isAgentPhase;
-    [ObservableProperty] private string _agentOutput = "";
-    [ObservableProperty] private string _currentToolName = "";
-    [ObservableProperty] private bool _hasActiveToolCall;
-    [ObservableProperty] private string _pendingQuestion = "";
-    [ObservableProperty] private string _pendingQuestionOptions = "";
-    [ObservableProperty] private bool _hasPendingQuestion;
-    [ObservableProperty] private bool _questionAnswered;
-    [ObservableProperty] private string _scanPhaseStatus = "";
+    /// <summary>Whether Lumi has an AI to think with: GitHub Copilot or another connected account.</summary>
+    public bool CanLearn => (IsAuthenticated && !_dataStore.Data.Settings.UseBYOKOnly)
+                            || EasyConnect?.HasUsableConnections == true;
 
-    // ── Step 3: Meet — single-card carousel ──
-    [ObservableProperty] private string _cardIcon = "🔍";
-    [ObservableProperty] private string _cardTitle = "";
-    [ObservableProperty] private string _cardBody = "";
-    [ObservableProperty] private bool _hasCard;
-    [ObservableProperty] private int _cardIndex;
-    [ObservableProperty] private int _cardTotal;
-    [ObservableProperty] private string _cardProgress = "";
+    public string ConnectStatus => CanLearn ? Loc.Onboarding_ConnectReady : Loc.Onboarding_ConnectMissing;
+    public string AiStatus => CanLearn ? Loc.Onboarding_ReadyAiReady : Loc.Onboarding_ReadyAiMissing;
 
-    /// <summary>Show the "exploring" placeholder when no card and no question are visible.</summary>
-    public bool ShowPlaceholder => !HasCard && !HasPendingQuestion && IsDiscovering && AgentOutput.Length == 0;
+    private void OnAuthChanged(bool _) => OnAiChanged();
 
-    /// <summary>Show the streaming card when there's live agent text and no static card.</summary>
-    public bool ShowStreaming => !HasCard && AgentOutput.Length > 0;
-
-    partial void OnHasCardChanged(bool value)
+    private void OnEasyConnectPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        OnPropertyChanged(nameof(ShowPlaceholder));
-        OnPropertyChanged(nameof(ShowStreaming));
-    }
-    partial void OnHasPendingQuestionChanged(bool value) => OnPropertyChanged(nameof(ShowPlaceholder));
-    partial void OnIsDiscoveringChanged(bool value) => OnPropertyChanged(nameof(ShowPlaceholder));
-    partial void OnAgentOutputChanged(string value)
-    {
-        OnPropertyChanged(nameof(ShowPlaceholder));
-        OnPropertyChanged(nameof(ShowStreaming));
+        if (e.PropertyName == nameof(EasyConnectViewModel.HasUsableConnections))
+            OnAiChanged();
     }
 
-    // ── Step 3: Summary ──
-    [ObservableProperty] private int _totalDiscoveries;
-    [ObservableProperty] private bool _learningWasSkipped;
-    [ObservableProperty] private int _memoriesCreated;
-
-    // Scan results collected in Phase 1, fed to agent as context in Phase 2
-    private readonly Dictionary<string, string> _scanResults = new();
-
-    public ObservableCollection<DiscoveryCategoryViewModel> Categories { get; } = [];
-    public ObservableCollection<InsightItem> Insights { get; } = [];
-
-    public event Action? OnboardingCompleted;
-    public event Action<bool>? ThemeChanged;
-    /// <summary>Raised when the agent asks a question. Payload: (question, options as JSON array string).</summary>
-    public event Action<string, string>? QuestionAsked;
-
-    public bool CanContinueToLearn => !string.IsNullOrWhiteSpace(UserName);
-
-    public OnboardingViewModel(DataStore dataStore, CopilotService copilotService)
+    private void OnAiChanged()
     {
-        _dataStore = dataStore;
-        _copilotService = copilotService;
-        _memoryAgentService = new MemoryAgentService(dataStore, copilotService);
-        _isDarkTheme = dataStore.Data.Settings.IsDarkTheme;
-
-        Categories.Add(new DiscoveryCategoryViewModel
-        {
-            Icon = "🖥️", Name = Loc.Onboarding_LearnFeatureApps,
-            Description = Loc.Onboarding_LearnFeatureAppsDesc
-        });
-        Categories.Add(new DiscoveryCategoryViewModel
-        {
-            Icon = "🌐", Name = Loc.Onboarding_LearnFeatureBrowsing,
-            Description = Loc.Onboarding_LearnFeatureBrowsingDesc
-        });
-        Categories.Add(new DiscoveryCategoryViewModel
-        {
-            Icon = "📁", Name = Loc.Onboarding_LearnFeatureFiles,
-            Description = Loc.Onboarding_LearnFeatureFilesDesc
-        });
-        Categories.Add(new DiscoveryCategoryViewModel
-        {
-            Icon = "🎯", Name = Loc.Onboarding_LearnFeatureProfile,
-            Description = Loc.Onboarding_LearnFeatureProfileDesc
-        });
-        Categories.Add(new DiscoveryCategoryViewModel
-        {
-            Icon = "🔍", Name = "Browser History",
-            Description = "Your most visited sites"
-        });
-    }
-
-    partial void OnUserNameChanged(string value) => OnPropertyChanged(nameof(CanContinueToLearn));
-    partial void OnIsDarkThemeChanged(bool value) => ThemeChanged?.Invoke(value);
-
-    // ═══════════════════════════════════════════════════════════════
-    // Step navigation
-    // ═══════════════════════════════════════════════════════════════
-
-    [RelayCommand]
-    private void ContinueToLearn()
-    {
-        if (!CanContinueToLearn) return;
-        CurrentStep = 1;
-    }
-
-    [RelayCommand]
-    private async Task AcceptLearning()
-    {
-        CurrentStep = 2;
-        await RunDiscoveryAsync();
-    }
-
-    [RelayCommand]
-    private void SkipLearning()
-    {
-        LearningWasSkipped = true;
-        CurrentStep = 4;
-    }
-
-    [RelayCommand]
-    private void SkipDiscovery()
-    {
-        _discoveryCts?.Cancel();
-    }
-
-    [RelayCommand]
-    private async Task FinishOnboarding()
-    {
-        var settings = _dataStore.Data.Settings;
-        settings.UserName = UserName.Trim();
-        settings.UserSex = SexIndex switch { 0 => "male", 1 => "female", _ => null };
-        if (LanguageIndex >= 0 && LanguageIndex < Loc.AvailableLanguages.Length)
-            settings.Language = Loc.AvailableLanguages[LanguageIndex].Code;
-        settings.IsDarkTheme = IsDarkTheme;
-        settings.IsOnboarded = true;
-        await _dataStore.SaveAsync();
-        OnboardingCompleted?.Invoke();
-    }
-
-    /// <summary>Called by the View when user answers a question card.</summary>
-    public void SubmitQuestionAnswer(string answer)
-    {
-        QuestionAnswered = true;
-        _pendingQuestionTcs?.TrySetResult(answer);
+        OnPropertyChanged(nameof(IsAuthenticated));
+        OnPropertyChanged(nameof(CanLearn));
+        OnPropertyChanged(nameof(ConnectStatus));
+        OnPropertyChanged(nameof(AiStatus));
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Two-phase discovery
+    // Workspace discovery and projects
     // ═══════════════════════════════════════════════════════════════
 
-    private async Task RunDiscoveryAsync()
-    {
-        _discoveryCts?.Dispose();
-        _discoveryCts = new CancellationTokenSource();
-        var ct = _discoveryCts.Token;
-        IsDiscovering = true;
-        var memoriesAtStart = _dataStore.Data.Memories.Count;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsConsentPhase), nameof(IsScanningPhase), nameof(IsResultsPhase),
+        nameof(WorkspaceTitle), nameof(WorkspaceSubtitle))]
+    private OnboardingWorkspacePhase _workspacePhase;
 
+    public bool IsConsentPhase => WorkspacePhase == OnboardingWorkspacePhase.Consent;
+    public bool IsScanningPhase => WorkspacePhase == OnboardingWorkspacePhase.Scanning;
+    public bool IsResultsPhase => WorkspacePhase == OnboardingWorkspacePhase.Results;
+
+    public ObservableCollection<OnboardingSource> Sources { get; }
+    public ObservableCollection<OnboardingProjectCandidate> Candidates { get; } = [];
+
+    public bool HasCandidates => Candidates.Count > 0;
+    public bool ShowSourceStatus => !IsConsentPhase;
+
+    /// <summary>Selected candidates that are not projects yet.</summary>
+    public int NewlySelectedCount => Candidates.Count(candidate => candidate.IsSelected && !candidate.IsAdded);
+
+    public string NoticedApps => string.Join(" · ", _workspace.Apps.Take(8));
+    public string NoticedSites => string.Join(" · ", _workspace.Sites.Take(8));
+    public bool HasNoticedApps => _workspace.Apps.Count > 0;
+    public bool HasNoticedSites => _workspace.Sites.Count > 0;
+
+    public string WorkspaceTitle => WorkspacePhase switch
+    {
+        OnboardingWorkspacePhase.Scanning => Loc.Onboarding_ScanningTitle,
+        OnboardingWorkspacePhase.Results => HasCandidates ? Loc.Onboarding_ResultsTitle : Loc.Onboarding_ResultsEmptyTitle,
+        _ => Loc.Onboarding_WorkspaceTitle,
+    };
+
+    public string WorkspaceSubtitle => WorkspacePhase switch
+    {
+        OnboardingWorkspacePhase.Scanning => Loc.Onboarding_ScanningSubtitle,
+        OnboardingWorkspacePhase.Results => HasCandidates ? Loc.Onboarding_ResultsSubtitle : Loc.Onboarding_ResultsEmptySubtitle,
+        _ => Loc.Onboarding_WorkspaceSubtitle,
+    };
+
+    partial void OnWorkspacePhaseChanged(OnboardingWorkspacePhase value)
+    {
+        OnPropertyChanged(nameof(ShowSourceStatus));
+        NotifyNavigation();
+    }
+
+    private async Task ScanWorkspaceAsync()
+    {
+        Setups?.RememberAppDiscoveryChoice(Sources.Single(source => source.Key == "apps").IsEnabled);
+        _scanCts?.Cancel();
+        _scanCts?.Dispose();
+        var scan = _scanCts = new CancellationTokenSource();
+        var ct = scan.Token;
+
+        foreach (var source in Sources)
+        {
+            source.State = source.IsEnabled ? OnboardingSourceState.Waiting : OnboardingSourceState.Skipped;
+            source.Summary = source.IsEnabled ? "" : Loc.Onboarding_SourceSkipped;
+        }
+        WorkspacePhase = OnboardingWorkspacePhase.Scanning;
+
+        IReadOnlyList<DiscoveredProject> projects = [];
+        IReadOnlyList<string> apps = [];
+        IReadOnlyList<string> sites = [];
+        var documents = WorkspaceDocuments.Empty;
         try
         {
-            // ── Phase 1: Deterministic scans with per-category loading ──
-            IsScanPhase = true;
-            ScanPhaseStatus = Loc.Onboarding_ScanningYourPC ?? "Scanning your PC…";
-            await RunDeterministicScansAsync(ct);
-            IsScanPhase = false;
-
-            ct.ThrowIfCancellationRequested();
-
-            // ── Transition to Meet step ──
-            CurrentStep = 3;
-
-            // ── Phase 2: Agent analyzes results, digs deeper, asks questions ──
-            IsAgentPhase = true;
-            CardIndex = 0;
-            CardTotal = 12; // Estimated: ~5 investigation + ~5 memories + ~3 questions
-            ScanPhaseStatus = Loc.Onboarding_AgentAnalyzing ?? "Lumi is getting to know you…";
-            await RunAgentPhaseAsync(ct);
+            await Task.WhenAll(
+                ScanSourceAsync(Sources[0], _discovery.FindProjectsAsync, found => projects = found,
+                    found => Found(found.Count, Loc.Onboarding_FoundProjectsOne, Loc.Onboarding_FoundProjectsMany), ct),
+                ScanSourceAsync(Sources[1], _discovery.FindAppsAsync, found => apps = found,
+                    found => Found(found.Count, Loc.Onboarding_FoundAppsOne, Loc.Onboarding_FoundAppsMany), ct),
+                ScanSourceAsync(Sources[2], _discovery.FindSitesAsync, found => sites = found,
+                    found => Found(found.Count, Loc.Onboarding_FoundSitesOne, Loc.Onboarding_FoundSitesMany), ct),
+                ScanSourceAsync(Sources[3], _discovery.FindDocumentsAsync, found => documents = found,
+                    found => Found(found.Recent, Loc.Onboarding_FoundFilesOne, Loc.Onboarding_FoundFilesMany), ct),
+                MinimumScanDuration > TimeSpan.Zero ? Task.Delay(MinimumScanDuration, ct) : Task.CompletedTask);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            foreach (var cat in Categories)
-                if (cat.Status is DiscoveryCategoryStatus.Pending or DiscoveryCategoryStatus.Scanning)
-                    cat.Status = DiscoveryCategoryStatus.Skipped;
+            if (ReferenceEquals(_scanCts, scan))
+                WorkspacePhase = OnboardingWorkspacePhase.Consent;
+            return;
+        }
+
+        _workspace = new WorkspaceSnapshot(projects, apps, sites, documents);
+        Setups?.ConsiderWorkspace(_workspace);
+        BuildCandidates();
+        WorkspacePhase = OnboardingWorkspacePhase.Results;
+
+        // Prefetch Lumi's first words while the user looks over the projects.
+        StartPersonalization(restart: true);
+    }
+
+    private static string Found(int count, string one, string many)
+        => count == 0 ? Loc.Onboarding_FoundNothing : ManagementText.Count(count, one, many);
+
+    private static async Task ScanSourceAsync<T>(
+        OnboardingSource source,
+        Func<CancellationToken, Task<T>> find,
+        Action<T> apply,
+        Func<T, string> describe,
+        CancellationToken ct)
+    {
+        if (!source.IsEnabled)
+            return;
+
+        source.State = OnboardingSourceState.Scanning;
+        try
+        {
+            var found = await find(ct);
+            ct.ThrowIfCancellationRequested();
+            apply(found);
+            source.Summary = describe(found);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            // Agent failed — keep only durable user-provided fallback memory.
-            Dispatcher.UIThread.Post(() =>
-                AgentOutput = $"I couldn't complete the deep analysis, but I kept the basics I know. ({ex.Message})");
-            await CreateFallbackMemoriesAsync();
+            Debug.WriteLine($"[Onboarding] {source.Key} discovery failed: {ex.Message}");
+            source.Summary = Loc.Onboarding_SourceUnavailable;
         }
-        finally
-        {
-            _discoveryCts?.Dispose();
-            _discoveryCts = null;
-            IsDiscovering = false;
-            IsScanPhase = false;
-            IsAgentPhase = false;
-            HasActiveToolCall = false;
-            MemoriesCreated = _dataStore.Data.Memories.Count - memoriesAtStart;
-            TotalDiscoveries = Categories.Sum(c => c.FindingsCount);
-            CurrentStep = 4;
-        }
+
+        source.State = OnboardingSourceState.Done;
     }
 
-    // ── Phase 1: Fast deterministic scans ──
-
-    private async Task RunDeterministicScansAsync(CancellationToken ct)
+    private void BuildCandidates()
     {
-        var scans = new (int index, string key, Func<CancellationToken, Task<string>> scan)[]
-        {
-            (0, "apps", ScanInstalledAppsAsync),
-            (1, "bookmarks", ScanBookmarksAsync),
-            (2, "files", ScanRecentFilesAsync),
-            (3, "devtools", ScanDevEnvironmentAsync),
-            (4, "browser_history", ScanBrowserHistoryAsync),
-        };
+        foreach (var candidate in Candidates)
+            candidate.PropertyChanged -= OnCandidatePropertyChanged;
+        Candidates.Clear();
 
-        foreach (var (index, key, scan) in scans)
+        var now = DateTimeOffset.Now;
+        var preselected = 0;
+        foreach (var project in _workspace.Projects)
         {
-            ct.ThrowIfCancellationRequested();
-            Dispatcher.UIThread.Post(() => Categories[index].Status = DiscoveryCategoryStatus.Scanning);
+            var added = FindProjectByFolder(project.Path) is not null;
+            var recent = (project.LastActive is { } active && now - active < RecentProject)
+                         || project.EditorRank is >= 0 and < 5;
+            var select = !added && recent && preselected < PreselectedProjects;
+            if (select)
+                preselected++;
 
-            try
-            {
-                var result = await scan(ct);
-                _scanResults[key] = result;
-                Dispatcher.UIThread.Post(() => Categories[index].Status = DiscoveryCategoryStatus.Complete);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch
-            {
-                _scanResults[key] = "Scan failed.";
-                Dispatcher.UIThread.Post(() => Categories[index].Status = DiscoveryCategoryStatus.Skipped);
-            }
+            var candidate = new OnboardingProjectCandidate(project, added, select, now);
+            candidate.PropertyChanged += OnCandidatePropertyChanged;
+            Candidates.Add(candidate);
+        }
+
+        OnPropertyChanged(nameof(HasCandidates));
+        OnPropertyChanged(nameof(NewlySelectedCount));
+        OnPropertyChanged(nameof(NoticedApps));
+        OnPropertyChanged(nameof(NoticedSites));
+        OnPropertyChanged(nameof(HasNoticedApps));
+        OnPropertyChanged(nameof(HasNoticedSites));
+        OnPropertyChanged(nameof(WorkspaceTitle));
+        OnPropertyChanged(nameof(WorkspaceSubtitle));
+        NotifyNavigation();
+    }
+
+    private void OnCandidatePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(OnboardingProjectCandidate.IsSelected) or nameof(OnboardingProjectCandidate.IsAdded))
+        {
+            OnPropertyChanged(nameof(NewlySelectedCount));
+            OnPropertyChanged(nameof(PrimaryLabel));
         }
     }
 
-    // ── Phase 2: Agent with scan context + investigation tools ──
+    private void SkipWorkspace()
+    {
+        var wasScanning = IsScanningPhase;
+        _scanCts?.Cancel();
+        if (wasScanning || IsConsentPhase)
+        {
+            Setups?.RememberAppDiscoveryChoice(false);
+            _workspace = WorkspaceSnapshot.Empty;
+            // A scan the user backed out of and skipped no longer suggests anything.
+            Setups?.ConsiderWorkspace(_workspace);
+            WorkspacePhase = OnboardingWorkspacePhase.Consent;
+        }
 
-    private async Task RunAgentPhaseAsync(CancellationToken ct)
+        StartPersonalization(restart: !_conversationStarted);
+        CurrentStep = (int)OnboardingStep.KnowYou;
+    }
+
+    /// <summary>Creates a Lumi project for every selected folder that isn't one yet.</summary>
+    internal async Task SetUpSelectedProjectsAsync()
+    {
+        var created = false;
+        foreach (var candidate in Candidates.Where(candidate => candidate.IsSelected && !candidate.IsAdded).ToList())
+        {
+            if (FindProjectByFolder(candidate.Path) is null)
+            {
+                var project = new Project
+                {
+                    Name = UniqueProjectName(candidate),
+                    WorkingDirectory = candidate.Path,
+                    Instructions = BuildInstructions(candidate.Project),
+                };
+                _dataStore.Data.Projects.Add(project);
+                _setUpProjects.Add(new OnboardingProjectSummary(project, candidate));
+                created = true;
+            }
+
+            candidate.IsAdded = true;
+        }
+
+        if (created)
+            await _dataStore.SaveAsync();
+    }
+
+    private Project? FindProjectByFolder(string folder)
+    {
+        var normalized = WorkspaceDiscovery.NormalizePath(folder);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return _dataStore.Data.Projects.FirstOrDefault(project =>
+            !string.IsNullOrWhiteSpace(project.WorkingDirectory)
+            && string.Equals(WorkspaceDiscovery.NormalizePath(project.WorkingDirectory), normalized, comparison));
+    }
+
+    private string UniqueProjectName(OnboardingProjectCandidate candidate)
+    {
+        bool Taken(string name) => _dataStore.Data.Projects.Any(project =>
+            string.Equals(project.Name, name, StringComparison.CurrentCultureIgnoreCase));
+
+        var name = candidate.Name;
+        if (!Taken(name))
+            return name;
+
+        var parent = Path.GetFileName(Path.GetDirectoryName(candidate.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+        if (!string.IsNullOrWhiteSpace(parent) && !Taken($"{name} ({parent})"))
+            return $"{name} ({parent})";
+
+        for (var number = 2; ; number++)
+        {
+            if (!Taken($"{name} {number}"))
+                return $"{name} {number}";
+        }
+    }
+
+    /// <summary>A short, editable description of the project, written into its instructions.</summary>
+    internal static string BuildInstructions(DiscoveredProject project)
+    {
+        if (project.Kind == DiscoveredProjectKind.Folder)
+            return Loc.Onboarding_InstructionsFolder;
+
+        var lines = new List<string>();
+        if (!string.IsNullOrWhiteSpace(project.Description))
+            lines.Add(string.Format(Loc.Culture, Loc.Onboarding_InstructionsAbout, project.Description));
+        if (!string.IsNullOrWhiteSpace(project.Stack))
+            lines.Add(string.Format(Loc.Culture, Loc.Onboarding_InstructionsStack, project.Stack));
+        if (!string.IsNullOrWhiteSpace(project.Remote))
+            lines.Add(string.Format(Loc.Culture, Loc.Onboarding_InstructionsRepository, project.Remote));
+        return string.Join('\n', lines);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Personalization
+    // ═══════════════════════════════════════════════════════════════
+
+    private void StartPersonalization(bool restart = false)
+    {
+        if (_personalizationTask is not null && (!restart || _conversationStarted))
+            return;
+
+        _personalizationCts?.Cancel();
+        _personalizationCts?.Dispose();
+        _personalizationCts = new CancellationTokenSource();
+        var name = UserName.Trim();
+        var workspace = _workspace;
+        _personalizationTask = CanLearn
+            ? PersonalizeSafelyAsync(name, workspace, _personalizationCts.Token)
+            : Task.FromResult(OnboardingPersonalizer.Fallback(name, workspace));
+    }
+
+    private async Task<OnboardingPersonalization> PersonalizeSafelyAsync(string name, WorkspaceSnapshot workspace, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(PersonalizationTimeout);
+        try
+        {
+            return await _personalize(name, workspace, timeout.Token);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Onboarding] Personalization fell back: {ex.Message}");
+            return OnboardingPersonalizer.Fallback(name, workspace);
+        }
+    }
+
+    private async Task<OnboardingPersonalization> PersonalizeWithCopilotAsync(string name, WorkspaceSnapshot workspace, CancellationToken ct)
     {
         if (!_copilotService.IsConnected)
             await _copilotService.ConnectAsync(ct);
-
-        var tools = BuildAgentTools(ct);
-        await _copilotService.UseLightweightSessionAsync(
-            new LightweightSessionOptions
-            {
-                SystemPrompt = BuildAgentSystemPrompt(),
-                Streaming = true,
-                Tools = tools
-            },
-            async (session, innerCt) =>
-            {
-                IDisposable? subscription = null;
-                var assistantText = "";
-                var toolNameByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
-                try
-                {
-                    subscription = session.On<SessionEvent>(evt =>
-                    {
-                        switch (evt)
-                        {
-                            case AssistantMessageDeltaEvent delta:
-                                assistantText += delta.Data?.DeltaContent ?? "";
-                                Dispatcher.UIThread.Post(() => AgentOutput = assistantText);
-                                break;
-
-                            case ToolExecutionStartEvent toolStart:
-                            {
-                                var name = toolStart.Data?.ToolName ?? "";
-                                var id = toolStart.Data?.ToolCallId;
-                                if (!string.IsNullOrEmpty(id))
-                                    toolNameByCallId[id] = name;
-                                // Flush pending assistant text as a card
-                                var pendingText = assistantText.Trim();
-                                if (pendingText.Length > 0)
-                                {
-                                    ShowCard("", "", pendingText);
-                                    assistantText = "";
-                                }
-                                var friendly = GetFriendlyToolName(name);
-                                Dispatcher.UIThread.Post(() =>
-                                {
-                                    CurrentToolName = friendly;
-                                    HasActiveToolCall = true;
-                                });
-                                break;
-                            }
-
-                            case ToolExecutionCompleteEvent:
-                                Dispatcher.UIThread.Post(() => HasActiveToolCall = false);
-                                break;
-
-                            case SessionIdleEvent:
-                                // Flush remaining assistant text
-                                var remainingText = assistantText.Trim();
-                                if (remainingText.Length > 0)
-                                {
-                                    ShowCard("", "", remainingText);
-                                    assistantText = "";
-                                }
-                                break;
-                        }
-                    });
-
-                    var prompt = BuildAgentPromptWithContext();
-                    await session.SendAndWaitAsync(
-                        new MessageOptions { Prompt = prompt },
-                        TimeSpan.FromMinutes(5), innerCt).ConfigureAwait(false);
-                }
-                finally
-                {
-                    subscription?.Dispose();
-                }
-            },
-            ct).ConfigureAwait(false);
+        return await OnboardingPersonalizer.GenerateAsync(_copilotService, name, workspace, ct);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Agent tools — only intelligence tasks, not deterministic scans
+    // Getting to know you
     // ═══════════════════════════════════════════════════════════════
 
-    private List<AIFunction> BuildAgentTools(CancellationToken ct)
+    public ObservableCollection<OnboardingChatItem> Conversation { get; } = [];
+
+    [ObservableProperty] private bool _isConversationDone;
+    [ObservableProperty] private bool _isLumiTyping;
+
+    partial void OnIsConversationDoneChanged(bool value) => NotifyNavigation();
+    partial void OnIsLumiTypingChanged(bool value) => OnPropertyChanged(nameof(PresenceState));
+
+    private async Task StartConversationAsync()
     {
-        return
-        [
-            // Save a memory
-            AIFunctionFactory.Create(
-                async ([Description("Brief label (e.g. Favorite IDE, Profession)")] string key,
-                       [Description("Full memory text with details")] string content,
-                       [Description("Category: Personal, Preferences, Work, Technical, Interests")] string? category) =>
-                {
-                    return await SaveMemoryAsync(key, content, category ?? "General");
-                },
-                "save_memory",
-                "Save a persistent memory about the user. Use this to record important facts and insights."),
+        if (_conversationStarted)
+            return;
+        _conversationStarted = true;
 
-            // Ask the user a question
-            AIFunctionFactory.Create(
-                async ([Description("A clear, engaging question to ask the user")] string question,
-                       [Description("List of suggested answer options (3-5 options)")] string[] options) =>
-                {
-                    var optionsJson = System.Text.Json.JsonSerializer.Serialize(
-                        new System.Collections.Generic.List<string>(options ?? Array.Empty<string>()),
-                        Lumi.Models.AppDataJsonContext.Default.ListString);
-                    return await AskUserQuestionAsync(question, optionsJson, ct);
-                },
-                "ask_user",
-                "Ask the user a question with clickable answer options. The user sees a visual card with buttons. Use this to learn about their preferences, work, and interests.",
-                Lumi.Models.AppDataJsonContext.Default.Options),
+        StartPersonalization();
+        var typing = OnboardingChatItem.Typing();
+        Conversation.Add(typing);
+        IsLumiTyping = true;
+        var personalization = await _personalizationTask!;
+        Conversation.Remove(typing);
+        IsLumiTyping = false;
+        _personalization = personalization;
+        if (_conversationSkipped)
+            return;
 
-            // Run a command to dig deeper
-            AIFunctionFactory.Create(
-                async ([Description("Read-only shell command to execute (no mutations)")] string command) =>
-                {
-                    return await RunSafeCommandAsync(command, ct);
-                },
-                "run_command",
-                $"Execute a read-only {OnboardingShellLabel} command to investigate the user's PC. Use this to dig deeper into specific areas of interest discovered in the scan data. Examples: read config files, check git repos, inspect app settings, list recent browser history."),
-
-            // Read a specific file
-            AIFunctionFactory.Create(
-                async ([Description("Absolute path to the file to read")] string path,
-                       [Description("Max number of lines to read (default 50)")] int? maxLines) =>
-                {
-                    return await ReadFileAsync(path, maxLines ?? 50, ct);
-                },
-                "read_file",
-                "Read the contents of a file on the user's PC. Use this to inspect configuration files, project files, or other interesting files discovered during scanning."),
-
-            // List directory contents
-            AIFunctionFactory.Create(
-                ([Description("Absolute path to the directory to list")] string path,
-                       [Description("Max number of entries to return (default 30)")] int? maxEntries) =>
-                {
-                    return ListDirectoryAsync(path, maxEntries ?? 30);
-                },
-                "list_directory",
-                "List files and folders in a directory. Use this to explore project structures, app data, or areas of interest."),
-        ];
+        Conversation.Add(OnboardingChatItem.FromLumi(personalization.Observation));
+        await PauseAsync();
+        AskNextQuestion();
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // Deterministic scan implementations
-    // ═══════════════════════════════════════════════════════════════
-
-    private async Task<string> ScanInstalledAppsAsync(CancellationToken ct)
+    private void AskNextQuestion()
     {
-        var results = new List<string>();
+        if (_conversationSkipped || IsConversationDone)
+            return;
+
+        var questions = _personalization?.Questions ?? [];
+        if (_questionIndex >= questions.Count)
+        {
+            Conversation.Add(OnboardingChatItem.FromLumi(string.Format(Loc.Culture, Loc.Onboarding_Closing, UserName.Trim())));
+            IsConversationDone = true;
+            return;
+        }
+
+        _pendingQuestion = OnboardingChatItem.Ask(questions[_questionIndex], (item, answer) => _ = AnswerAsync(item, answer));
+        Conversation.Add(_pendingQuestion);
+    }
+
+    /// <summary>Records an answer: it joins the conversation and, when it is a lasting fact, becomes a memory.</summary>
+    internal async Task AnswerAsync(OnboardingChatItem item, string answer)
+    {
+        if (item.Question is null || item.IsAnswered || !ReferenceEquals(item, _pendingQuestion))
+            return;
+
+        item.IsAnswered = true;
+        _pendingQuestion = null;
+        Conversation.Add(OnboardingChatItem.FromAnswer(answer));
+        PresencePulseRequested?.Invoke(PresencePulse.Ripple);
+
+        if (await RememberAsync(item.Question.Slot, answer) is { } memory)
+            Conversation.Add(OnboardingChatItem.FromMemory(memory.Content));
+
+        _questionIndex++;
+        await PauseAsync();
+        AskNextQuestion();
+    }
+
+    private async Task<Memory?> RememberAsync(string slot, string answer)
+    {
+        if (OnboardingPersonalizer.BuildDurableMemory(slot, UserName, answer) is not { } memory)
+            return null;
+
         try
         {
-            if (OperatingSystem.IsWindows())
+            var result = await _memoryAgentService.SaveMemoryAsync(memory.Key, memory.Content, memory.Category, source: "onboarding");
+            if (!result.StartsWith("Memory saved:", StringComparison.Ordinal)
+                && !result.StartsWith("Memory already saved:", StringComparison.Ordinal))
             {
-                var output = await RunPowerShellAsync(
-                    "(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | " +
-                    "Where-Object { $_.DisplayName -and $_.DisplayName.Length -gt 1 } | " +
-                    "Select-Object -ExpandProperty DisplayName -Unique | Sort-Object | Select-Object -First 60) -join \"`n\"", ct);
-                results.AddRange(output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                return null;
             }
-
-            var knownProcesses = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["code"] = "VS Code", ["devenv"] = "Visual Studio", ["rider64"] = "JetBrains Rider",
-                ["chrome"] = "Chrome", ["firefox"] = "Firefox", ["msedge"] = "Edge",
-                ["discord"] = "Discord", ["slack"] = "Slack", ["Telegram"] = "Telegram",
-                ["teams"] = "Teams", ["spotify"] = "Spotify", ["docker"] = "Docker",
-                ["WINWORD"] = "Word", ["EXCEL"] = "Excel", ["OUTLOOK"] = "Outlook",
-                ["figma_agent"] = "Figma", ["steam"] = "Steam", ["obsidian"] = "Obsidian",
-                ["notion"] = "Notion", ["WindowsTerminal"] = "Windows Terminal",
-            };
-
-            var running = Process.GetProcesses()
-                .Select(p => { try { return p.ProcessName; } catch { return null; } })
-                .Where(n => n is not null && knownProcesses.ContainsKey(n!))
-                .Select(n => $"{knownProcesses[n!]} (running)")
-                .Distinct().ToList();
-            results.AddRange(running);
-        }
-        catch (Exception ex) { results.Add($"Error: {ex.Message}"); }
-
-        UpdateCategoryCount(0, results.Count);
-        return results.Count == 0
-            ? "No apps found."
-            : $"Found {results.Count} apps:\n{string.Join("\n", results)}";
-    }
-
-    private async Task<string> ScanBookmarksAsync(CancellationToken ct)
-    {
-        var results = new List<string>();
-        try
-        {
-            foreach (var path in GetChromiumDefaultProfileFiles("Bookmarks"))
-            {
-                if (!File.Exists(path)) continue;
-                try
-                {
-                    var json = await File.ReadAllTextAsync(path, ct);
-                    ExtractBookmarkNames(json, results);
-                }
-                catch { }
-            }
-            results = results.Distinct(StringComparer.OrdinalIgnoreCase).Take(50).ToList();
-        }
-        catch (Exception ex) { results.Add($"Error: {ex.Message}"); }
-
-        UpdateCategoryCount(1, results.Count);
-        return results.Count == 0
-            ? "No bookmarks found."
-            : $"Found {results.Count} bookmarks:\n{string.Join("\n", results)}";
-    }
-
-    private static string[] GetChromiumDefaultProfileFiles(string fileName)
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-        if (OperatingSystem.IsWindows())
-        {
-            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return
-            [
-                Path.Combine(local, "Google", "Chrome", "User Data", "Default", fileName),
-                Path.Combine(local, "Microsoft", "Edge", "User Data", "Default", fileName),
-            ];
-        }
-
-        if (OperatingSystem.IsMacOS())
-        {
-            var applicationSupport = Path.Combine(home, "Library", "Application Support");
-            return
-            [
-                Path.Combine(applicationSupport, "Google", "Chrome", "Default", fileName),
-                Path.Combine(applicationSupport, "Microsoft Edge", "Default", fileName),
-            ];
-        }
-
-        var config = Path.Combine(home, ".config");
-        return
-        [
-            Path.Combine(config, "google-chrome", "Default", fileName),
-            Path.Combine(config, "microsoft-edge", "Default", fileName),
-        ];
-    }
-
-    private Task<string> ScanRecentFilesAsync(CancellationToken ct)
-    {
-        var results = new List<string>();
-        try
-        {
-            var folders = new[]
-            {
-                (Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Desktop"),
-                (Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Documents"),
-                (Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"), "Downloads"),
-            };
-
-            foreach (var (path, label) in folders)
-            {
-                if (!Directory.Exists(path)) continue;
-                try
-                {
-                    var dirs = Directory.GetDirectories(path)
-                        .Select(Path.GetFileName)
-                        .Where(n => n is not null && !n.StartsWith('.'))
-                        .Take(10).Select(n => $"[Folder] {label}/{n}").ToList();
-                    results.AddRange(dirs);
-
-                    var files = Directory.GetFiles(path)
-                        .Select(f => new FileInfo(f))
-                        .Where(f => !f.Name.StartsWith('.') && f.Name != "desktop.ini")
-                        .OrderByDescending(f => f.LastWriteTime)
-                        .Take(8).Select(f => $"[File] {label}/{f.Name} ({f.Extension}, {f.LastWriteTime:yyyy-MM-dd})").ToList();
-                    results.AddRange(files);
-                }
-                catch { }
-            }
-        }
-        catch (Exception ex) { results.Add($"Error: {ex.Message}"); }
-
-        UpdateCategoryCount(2, results.Count);
-        return Task.FromResult(results.Count == 0
-            ? "No files found."
-            : $"Found {results.Count} items:\n{string.Join("\n", results)}");
-    }
-
-    private Task<string> ScanDevEnvironmentAsync(CancellationToken ct)
-    {
-        var results = new List<string>();
-        try
-        {
-            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var indicators = new Dictionary<string, string>
-            {
-                [".gitconfig"] = "Git (version control)",
-                [".npmrc"] = "Node.js/npm",
-                [".ssh"] = "SSH keys configured",
-                [".vscode"] = "VS Code settings",
-                [".docker"] = "Docker",
-                [".nuget"] = ".NET/NuGet",
-                [".cargo"] = "Rust/Cargo",
-                [".rustup"] = "Rust toolchain",
-                [".pyenv"] = "Python (pyenv)",
-                [".conda"] = "Python (Conda)",
-                ["go"] = "Go workspace",
-                [".m2"] = "Java/Maven",
-                [".gradle"] = "Java/Gradle",
-            };
-
-            foreach (var (name, desc) in indicators)
-            {
-                var fullPath = Path.Combine(userProfile, name);
-                if (File.Exists(fullPath) || Directory.Exists(fullPath))
-                    results.Add($"{desc} ({name})");
-            }
-
-            if (Directory.Exists(Path.Combine(userProfile, "AppData", "Local", "Packages")) &&
-                Directory.GetDirectories(Path.Combine(userProfile, "AppData", "Local", "Packages"))
-                    .Any(d => Path.GetFileName(d)?.Contains("Ubuntu", StringComparison.OrdinalIgnoreCase) == true ||
-                              Path.GetFileName(d)?.Contains("Debian", StringComparison.OrdinalIgnoreCase) == true))
-                results.Add("WSL (Windows Subsystem for Linux)");
-        }
-        catch (Exception ex) { results.Add($"Error: {ex.Message}"); }
-
-        UpdateCategoryCount(3, results.Count);
-        return Task.FromResult(results.Count == 0
-            ? "No developer tools found."
-            : $"Found {results.Count} developer indicators:\n{string.Join("\n", results)}");
-    }
-
-    private async Task<string> ScanBrowserHistoryAsync(CancellationToken ct)
-    {
-        var domainCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        try
-        {
-            foreach (var histPath in GetChromiumDefaultProfileFiles("History"))
-            {
-                if (!File.Exists(histPath)) continue;
-                try
-                {
-                    var tempCopy = Path.Combine(Path.GetTempPath(), $"lumi_hist_{Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(histPath)))}.db");
-                    File.Copy(histPath, tempCopy, true);
-
-                    var script = "import sqlite3, collections\n" +
-                        $"conn = sqlite3.connect(r'{tempCopy}')\n" +
-                        "rows = conn.execute('SELECT url, visit_count FROM urls WHERE visit_count > 2 ORDER BY visit_count DESC LIMIT 100').fetchall()\n" +
-                        "domains = collections.Counter()\n" +
-                        "for url, count in rows:\n" +
-                        "    parts = url.split('/')\n" +
-                        "    if len(parts) > 2:\n" +
-                        "        domain = parts[2].replace('www.', '')\n" +
-                        "        domains[domain] += count\n" +
-                        "for domain, count in domains.most_common(25):\n" +
-                        "    print(str(count) + ' ' + domain)\n" +
-                        "conn.close()\n";
-
-                    var scriptFile = Path.Combine(Path.GetTempPath(), "lumi_hist_scan.py");
-                    await File.WriteAllTextAsync(scriptFile, script, ct);
-                    try
-                    {
-                        var python = OperatingSystem.IsWindows() ? "python" : "python3";
-                        var output = await RunPowerShellAsync($"{python} \"{scriptFile}\"", ct);
-                        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                        {
-                            var spaceIdx = line.IndexOf(' ');
-                            if (spaceIdx > 0 && int.TryParse(line[..spaceIdx], out var count))
-                            {
-                                var domain = line[(spaceIdx + 1)..].Trim();
-                                domainCounts.TryGetValue(domain, out var existing);
-                                domainCounts[domain] = existing + count;
-                            }
-                        }
-                    }
-                    finally { try { File.Delete(scriptFile); } catch { } }
-                }
-                catch { }
-            }
-        }
-        catch { }
-
-        var sorted = domainCounts.OrderByDescending(kv => kv.Value).Take(25)
-            .Select(kv => $"  {kv.Value}x {kv.Key}").ToList();
-
-        UpdateCategoryCount(4, sorted.Count);
-        return sorted.Count == 0
-            ? "No browser history found."
-            : $"Top {sorted.Count} most visited domains:\n{string.Join("\n", sorted)}";
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // Agent tool implementations
-    // ═══════════════════════════════════════════════════════════════
-
-    private async Task<string> SaveMemoryAsync(string key, string content, string category)
-    {
-        var result = await _memoryAgentService
-            .SaveMemoryAsync(key, content, category, source: "onboarding")
-            .ConfigureAwait(false);
-
-        if (!result.StartsWith("Memory saved:", StringComparison.Ordinal)
-            && !result.StartsWith("Memory already saved:", StringComparison.Ordinal))
-        {
-            return result;
-        }
-
-        var memory = _dataStore.Data.Memories
-            .LastOrDefault(m => string.Equals(m.Content, content, StringComparison.Ordinal))
-            ?? _dataStore.Data.Memories.LastOrDefault(m =>
-                string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase));
-        if (memory is null)
-            return result;
-
-        var icon = memory.Category switch
-        {
-            "Work" => "💼",
-            "Technical" => "🔧",
-            "Interests" => "🎯",
-            "Preferences" => "⭐",
-            "Personal" => "👤",
-            "Goals" => "🚀",
-            _ => "💡"
-        };
-        ShowCard(icon, memory.Key, memory.Content);
-
-        return result;
-    }
-
-    private async Task<string> AskUserQuestionAsync(string question, string options, CancellationToken ct)
-    {
-        _pendingQuestionTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        // Hide the current card and show the question card
-        Dispatcher.UIThread.Post(() =>
-        {
-            HasCard = false;
-            PendingQuestion = question;
-            PendingQuestionOptions = options;
-            HasPendingQuestion = true;
-            QuestionAnswered = false;
-            AgentOutput = "";
-            QuestionAsked?.Invoke(question, options);
-
-            if (_dataStore.Data.Settings.NotificationsEnabled)
-                NotificationService.ShowQuestion(question);
-        });
-
-        try
-        {
-            // Wait for user answer with overall cancellation support
-            var tcs = _pendingQuestionTcs;
-            using var reg = ct.Register(() => tcs.TrySetCanceled());
-            var answer = await tcs.Task;
-            Dispatcher.UIThread.Post(() => HasPendingQuestion = false);
-            return $"User answered: {answer}";
-        }
-        catch (OperationCanceledException)
-        {
-            Dispatcher.UIThread.Post(() => HasPendingQuestion = false);
-            return "User skipped the question.";
-        }
-    }
-
-    private async Task<string> RunSafeCommandAsync(string command, CancellationToken ct)
-    {
-        // Block dangerous commands
-        var lower = command.ToLowerInvariant();
-        var blocked = new[] { "remove-item", "del ", "rm ", "format-", "stop-process", "kill",
-            "set-content", "out-file", "new-item", "mkdir", "invoke-webrequest",
-            "start-process", "invoke-expression", "iex ", "& {", "restart-", "shutdown" };
-        if (blocked.Any(b => lower.Contains(b)))
-            return "Error: This command is not allowed. Only read-only commands are permitted.";
-
-        try
-        {
-            // Timeout individual commands at 15 seconds to prevent blocking the whole flow
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TimeSpan.FromSeconds(15));
-            var output = await RunPowerShellAsync(command, cts.Token);
-            return string.IsNullOrWhiteSpace(output) ? "(no output)" : Truncate(output, 3000);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            return "Command timed out (15s limit). Try a simpler command.";
         }
         catch (Exception ex)
         {
-            return $"Error: {ex.Message}";
+            Debug.WriteLine($"[Onboarding] Could not save memory: {ex.Message}");
+            return null;
         }
+
+        var saved = _dataStore.Data.Memories.LastOrDefault(candidate =>
+            string.Equals(candidate.Key, memory.Key, StringComparison.OrdinalIgnoreCase)
+            && candidate.Scope == MemoryScopes.Global);
+        if (saved is not null && !_savedMemories.Contains(saved))
+            _savedMemories.Add(saved);
+        return saved;
     }
 
-    private static async Task<string> ReadFileAsync(string path, int maxLines, CancellationToken ct)
+    private void SkipQuestions()
     {
+        _conversationSkipped = true;
+        if (_pendingQuestion is not null)
+        {
+            _pendingQuestion.IsExpired = true;
+            _pendingQuestion = null;
+        }
+
+        IsConversationDone = true;
+        CurrentStep = (int)OnboardingStep.Ready;
+    }
+
+    private Task PauseAsync() => Pacing > TimeSpan.Zero ? Task.Delay(Pacing) : Task.CompletedTask;
+
+    // ═══════════════════════════════════════════════════════════════
+    // Ready
+    // ═══════════════════════════════════════════════════════════════
+
+    public ObservableCollection<OnboardingProjectSummary> ReadyProjects { get; } = [];
+    public ObservableCollection<OnboardingMemoryItem> ReadyMemories { get; } = [];
+    public ObservableCollection<OnboardingStarterItem> Starters { get; } = [];
+
+    public bool HasReadyProjects => ReadyProjects.Count > 0;
+    public bool HasReadyMemories => ReadyMemories.Count > 0;
+    public bool HasStarters => Starters.Count > 0;
+
+    private void PrepareReady()
+    {
+        ReadyProjects.Clear();
+        foreach (var summary in _setUpProjects.Where(summary => _dataStore.Data.Projects.Contains(summary.Project)))
+            ReadyProjects.Add(summary);
+
+        ReadyMemories.Clear();
+        foreach (var memory in _savedMemories.Where(_dataStore.Data.Memories.Contains))
+            ReadyMemories.Add(new OnboardingMemoryItem(memory, ForgetMemory));
+
+        Starters.Clear();
+        if (CanLearn)
+        {
+            var projects = new Dictionary<string, Project>(StringComparer.OrdinalIgnoreCase);
+            foreach (var candidate in Candidates.Where(candidate => candidate.IsAdded))
+            {
+                if (FindProjectByFolder(candidate.Path) is { } project)
+                    projects.TryAdd(candidate.Name, project);
+            }
+
+            var personalization = _personalization
+                                  ?? (_personalizationTask is { IsCompletedSuccessfully: true } done ? done.Result : null)
+                                  ?? OnboardingPersonalizer.Fallback(UserName, _workspace);
+            foreach (var idea in OnboardingPersonalizer.SelectStarters(personalization.Starters, _workspace, projects.Keys.ToList()))
+            {
+                var project = idea.ProjectName is { } name && projects.TryGetValue(name, out var match) ? match : null;
+                Starters.Add(new OnboardingStarterItem(idea, project, StartWith));
+            }
+        }
+
+        OnPropertyChanged(nameof(HasReadyProjects));
+        OnPropertyChanged(nameof(HasReadyMemories));
+        OnPropertyChanged(nameof(HasStarters));
+        OnPropertyChanged(nameof(AiStatus));
+        OnPropertyChanged(nameof(ReadyApprovalText));
+    }
+
+    private void ForgetMemory(OnboardingMemoryItem item)
+    {
+        _dataStore.Data.Memories.Remove(item.Memory);
+        _savedMemories.Remove(item.Memory);
+        ReadyMemories.Remove(item);
+        _ = _dataStore.SaveAsync();
+        OnPropertyChanged(nameof(HasReadyMemories));
+    }
+
+    private void StartWith(OnboardingStarterItem starter) => _ = CompleteAsync(starter);
+
+    private async Task CompleteAsync(OnboardingStarterItem? starter)
+    {
+        if (_isCompleting)
+            return;
+        _isCompleting = true;
         try
         {
-            if (!File.Exists(path))
-                return $"File not found: {path}";
+            StopCapabilityTour();
+            _scanCts?.Cancel();
+            _personalizationCts?.Cancel();
+            LoginVM?.CancelSignIn();
 
-            var info = new FileInfo(path);
-            if (info.Length > 512 * 1024)
-                return $"File too large ({info.Length / 1024}KB). Try reading a smaller file or using run_command with {(OperatingSystem.IsWindows() ? "Select-String" : "grep")}.";
-
-            var lines = await File.ReadAllLinesAsync(path, ct);
-            var taken = lines.Take(maxLines).ToArray();
-            var result = string.Join("\n", taken);
-            if (lines.Length > maxLines)
-                result += $"\n... ({lines.Length - maxLines} more lines)";
-            return result;
-        }
-        catch (Exception ex)
-        {
-            return $"Error reading file: {ex.Message}";
-        }
-    }
-
-    private static string ListDirectoryAsync(string path, int maxEntries)
-    {
-        try
-        {
-            if (!Directory.Exists(path))
-                return $"Directory not found: {path}";
-
-            var entries = new List<string>();
-            foreach (var dir in Directory.GetDirectories(path).Take(maxEntries))
+            var settings = _dataStore.Data.Settings;
+            settings.UserName = UserName.Trim();
+            settings.UserSex = Pronoun switch
             {
-                var name = Path.GetFileName(dir);
-                entries.Add($"[DIR]  {name}");
-            }
-            foreach (var file in Directory.GetFiles(path).Take(maxEntries - entries.Count))
-            {
-                var fi = new FileInfo(file);
-                entries.Add($"[FILE] {fi.Name} ({fi.Length / 1024}KB, {fi.LastWriteTime:yyyy-MM-dd})");
-            }
-            return entries.Count == 0
-                ? "Directory is empty."
-                : string.Join("\n", entries);
-        }
-        catch (Exception ex)
-        {
-            return $"Error listing directory: {ex.Message}";
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // Fallback: never persist noisy scan output; keep only explicit onboarding basics.
-    // ═══════════════════════════════════════════════════════════════
-
-    private async Task CreateFallbackMemoriesAsync()
-    {
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(UserName))
-                await SaveMemoryAsync("Name", UserName, "Personal").ConfigureAwait(false);
-        }
-        catch { }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // Agent system prompt & user prompt
-    // ═══════════════════════════════════════════════════════════════
-
-    private string BuildAgentSystemPrompt()
-    {
-        return $"""
-            You are Lumi's onboarding investigator. Your job is to learn a few useful, durable facts about {UserName} by using local context to ask smarter questions.
-
-            You have scan data as a starting point, but scan/tool output is only evidence for questions — not memory material by itself.
-
-            ## Your tools
-            - run_command: Run safe {OnboardingShellLabel} commands to gather light context
-            - read_file: Read small files only when needed for context
-            - list_directory: Explore folders only when needed for context
-            - save_memory: Save a durable personal fact the user explicitly states or chooses (key + content + category)
-            - ask_user: Ask the user a question with clickable answer buttons. Blocks until they answer.
-
-            ## What to investigate
-            - Use installed apps, browser domains, and development tools only as hints for broad questions.
-            - If you inspect technical context, summarize it conversationally but do NOT save it as memory.
-
-            The scan already includes browser history domains — use that to understand interests, services used, and work patterns. No need to re-query browser history.
-
-            ## Flow
-            1. Investigate 2-3 lightweight hints using run_command/read_file/list_directory
-            2. After each investigation, write a SHORT friendly comment about what you found. Examples:
-               - "Oh nice, looks like you're deep into .NET and Avalonia development!"
-               - "I see you're a Home Assistant user — smart home enthusiast!"
-               - "Interesting, you've got three different AI coding assistants installed"
-            3. Ask 3 questions using ask_user based on what you discovered. After each answer, save one concise memory from the user's answer.
-            4. Save at most one memory from investigation, and only if it is a durable profile fact about the user as a person.
-            5. End with a brief closing message.
-
-            ## Question Guidelines
-            Questions should be BROAD and personal, not hyper-specific technical questions.
-            The user can select MULTIPLE answers, so provide 5-6 diverse options per question.
-            Good questions:
-            - "What do you enjoy most about your work?" → options: Building products, Solving hard problems, Learning new tech, Working with teams, Creative design, Teaching/mentoring
-            - "What would you like Lumi to help with?" → options: Coding & debugging, Writing & communication, Research & learning, Task planning, File management, Creative projects
-            - "What are your interests outside work?" → options: Gaming, Music, Travel, Cooking, Fitness, Reading/anime
-            Bad questions (too specific):
-            - "Which Avalonia rendering issue should we fix?" — way too technical
-            - "Do you prefer imperative or declarative UI?" — not suitable for onboarding
-
-            ## Rules
-            - To ask a question, ALWAYS call ask_user. Never write questions as text.
-            - ask_user blocks until the user clicks answers, then returns their choices.
-            - Memories must be stable facts useful months from now: relationships, location, job/career, lasting preferences, hobbies, interests, goals.
-            - Good: "Preferred IDE" → "Adir prefers VS Code as his code editor."
-            - Good: "Outside-work interests" → "Adir enjoys music and smart home / tech tinkering."
-            - Bad: "Git identity" → "Global git config uses user.name..." (machine config, not a personal memory)
-            - Bad: "Active projects" → "Currently on branch version/1.1..." (temporary work context)
-            - Bad: "VS Code tooling stack" → "Installed extensions include..." (tool inventory)
-            - Categories: Personal, Preferences, Work, Interests, Goals
-            - Avoid the Technical category unless it is clearly a durable personal preference like favorite programming language or preferred IDE.
-            - Never show raw file paths or technical jargon to the user in text.
-            
-            CRITICAL: Do not stop after writing a comment. You must continue making tool calls until you have completed all phases.
-            After writing a comment, IMMEDIATELY make the next tool call in the same response. Never end a turn with just text.
-            """;
-    }
-
-    private string BuildAgentPromptWithContext()
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine($"Hi, I'm {UserName}! Here's what the quick scan found on my PC:");
-        sb.AppendLine();
-
-        foreach (var (key, value) in _scanResults)
-        {
-            sb.AppendLine($"## {key.ToUpperInvariant()}");
-            sb.AppendLine(Truncate(value, 2000));
-            sb.AppendLine();
-        }
-
-        sb.AppendLine($"""
-            The scan gives you leads — now investigate deeper! Follow this plan:
-
-            Phase 1 — Investigate (2-3 tool calls):
-            - Use scan data and light read-only checks only to tailor questions.
-            - Do NOT save raw git config, installed extensions, recent projects, browser history, file paths, branch/worktree state, or command history as memories.
-            Write a brief friendly comment after each investigation, but ALWAYS include a tool call with it.
-
-            Phase 2 — Ask 3 BROAD questions (3 calls to ask_user, save_memory after each):
-            The user can select MULTIPLE answers. Provide 5-6 options per question.
-            - Q1: What they enjoy most about their work (broad career/passion question)
-            - Q2: What they'd like Lumi to help with (daily life + work, not just coding)
-            - Q3: Their interests and hobbies outside work
-
-            Phase 3 — Optional memory from investigation:
-            - Save at most one investigation-based memory, only if it is a stable user preference or life/work fact. When in doubt, skip it.
-
-            Phase 4 — Close with one friendly sentence.
-
-            IMPORTANT: Do NOT stop after Phase 1. You must complete ALL four phases.
-            """);
-        return sb.ToString();
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // Helpers
-    // ═══════════════════════════════════════════════════════════════
-
-    private void UpdateCategoryCount(int idx, int count)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (idx >= 0 && idx < Categories.Count)
-            {
-                Categories[idx].FindingsCount = count;
-                Categories[idx].StatusText = string.Format(Loc.Onboarding_DiscoverFound, count);
-            }
-        });
-    }
-
-    /// <summary>Push a new card to the Meet step carousel. Replaces the current card.</summary>
-    private void ShowCard(string icon, string title, string body)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            AgentOutput = ""; // Clear streaming text before showing card to prevent overlap
-            CardIndex++;
-            CardIcon = icon;
-            CardTitle = title;
-            CardBody = body;
-            CardProgress = $"{CardIndex} / {CardTotal}";
-            HasCard = true;
-        });
-    }
-
-    private static string GetFriendlyToolName(string? toolName) => toolName switch
-    {
-        "save_memory" => "Saving memory…",
-        "ask_user" => "Thinking of a question…",
-        "run_command" => "Investigating…",
-        "read_file" => "Reading a file…",
-        "list_directory" => "Exploring folders…",
-        _ => toolName ?? ""
-    };
-
-    private static string Truncate(string text, int maxLength) =>
-        text.Length <= maxLength ? text : text[..maxLength] + "…";
-
-    /// <summary>Label for the platform shell, used in agent-facing tool descriptions.</summary>
-    private static string OnboardingShellLabel => OperatingSystem.IsWindows() ? "PowerShell" : "bash";
-
-    private static async Task<string> RunPowerShellAsync(string command, CancellationToken ct)
-    {
-        // Use the platform's default shell: PowerShell on Windows, bash elsewhere.
-        var startInfo = OperatingSystem.IsWindows()
-            ? new ProcessStartInfo
-            {
-                FileName = "powershell",
-                Arguments = $"-NoProfile -NoLogo -NonInteractive -Command {command}",
-                RedirectStandardOutput = true, RedirectStandardError = true,
-                UseShellExecute = false, CreateNoWindow = true
-            }
-            : new ProcessStartInfo
-            {
-                FileName = "/bin/bash",
-                ArgumentList = { "-c", command },
-                RedirectStandardOutput = true, RedirectStandardError = true,
-                UseShellExecute = false, CreateNoWindow = true
+                OnboardingPronoun.He => "male",
+                OnboardingPronoun.She => "female",
+                _ => null,
             };
+            if (LanguageIndex >= 0 && LanguageIndex < Loc.AvailableLanguages.Length)
+                settings.Language = Loc.AvailableLanguages[LanguageIndex].Code;
+            settings.IsDarkTheme = IsDarkTheme;
+            settings.DefaultApprovalMode = Autonomy;
+            settings.IsOnboarded = true;
+            await _dataStore.SaveAsync();
 
-        if (!OperatingSystem.IsWindows())
-            UnixShellPath.ApplyTo(startInfo);
-
-        using var process = new Process { StartInfo = startInfo };
-        try { process.Start(); }
-        catch { return ""; } // Shell unavailable — scans degrade gracefully.
-        var output = await process.StandardOutput.ReadToEndAsync(ct);
-        try { await process.WaitForExitAsync(ct); }
-        catch (OperationCanceledException) { try { process.Kill(); } catch { } throw; }
-        return output.Trim();
+            OnboardingCompleted?.Invoke(new OnboardingCompletion(starter?.Prompt, starter?.ProjectId));
+        }
+        finally
+        {
+            _isCompleting = false;
+        }
     }
 
-    private static void ExtractBookmarkNames(string json, List<string> names)
+    [RelayCommand]
+    private void Dismiss()
     {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            var roots = doc.RootElement.GetProperty("roots");
-            ExtractBookmarkNamesRecursive(roots, names);
-        }
-        catch { }
+        if (!IsReplay || _isCompleting)
+            return;
+
+        StopCapabilityTour();
+        _scanCts?.Cancel();
+        _personalizationCts?.Cancel();
+        LoginVM?.CancelSignIn();
+        Dismissed?.Invoke();
     }
 
-    private static void ExtractBookmarkNamesRecursive(JsonElement element, List<string> names)
-    {
-        if (names.Count >= 50) return;
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            if (element.TryGetProperty("type", out var t) && t.GetString() == "url" &&
-                element.TryGetProperty("name", out var n))
-            {
-                var name = n.GetString();
-                if (!string.IsNullOrWhiteSpace(name)) names.Add(name);
-            }
-            foreach (var prop in element.EnumerateObject())
-                if (prop.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
-                    ExtractBookmarkNamesRecursive(prop.Value, names);
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in element.EnumerateArray())
-                ExtractBookmarkNamesRecursive(item, names);
-        }
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // Ambient presence
+    // ═══════════════════════════════════════════════════════════════
+
+    public bool ShowAmbientPresence => _dataStore.Data.Settings.ShowAmbientPresence;
+
+    public PresenceState PresenceState
+        => (IsWorkspaceStep && IsScanningPhase) || (IsKnowYouStep && IsLumiTyping)
+            ? PresenceState.Thinking
+            : IsHelloStep ? PresenceState.Dormant : PresenceState.Idle;
+
+    /// <summary>The glow gathers around Lumi's mark when the mark is the focus: hello and ready.</summary>
+    public bool ShowHalo => IsHelloStep || IsReadyStep;
+
+    public Point PresenceFocus => ShowHalo ? new Point(0.5, 0.26) : new Point(0.5, 0.42);
 }

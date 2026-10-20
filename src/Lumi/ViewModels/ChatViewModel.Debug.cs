@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using GitHub.Copilot.Rpc;
 using Lumi.Localization;
 using Lumi.Models;
 
@@ -12,11 +13,135 @@ namespace Lumi.ViewModels;
 
 public partial class ChatViewModel
 {
-    public void LoadDebugTranscriptFixture()
+    private Task? _debugPermissionProbeTask;
+
+    /// <summary>
+    /// Raises real native approval requests (a command, a new file and a Lumi tool) in a fresh chat of
+    /// an isolated Debug profile, without a model message, so the approval cards can be inspected.
+    /// </summary>
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void StartDebugPermissionProbe()
+    {
+        var profile = Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR");
+        if (string.IsNullOrWhiteSpace(profile))
+            throw new InvalidOperationException("Permission probes require an isolated LUMI_APPDATA_DIR.");
+        if (CurrentChat is not { } chat || chat.Messages.Count != 0 || chat.CopilotSessionId is not null
+            || _debugPermissionProbeTask is { IsCompleted: false })
+            throw new InvalidOperationException("Create a fresh, empty isolated Debug chat for this probe.");
+        var root = System.IO.Path.GetFullPath(profile);
+        // A project made through the debug bridge shows in Customize; the probe only writes inside the profile.
+        var project = chat.ProjectId is { } projectId
+            ? _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == projectId)
+            : null;
+        if (project?.WorkingDirectory is not { Length: > 0 } projectFolder
+            || !System.IO.Path.GetFullPath(projectFolder).StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            var probeFolder = System.IO.Path.Combine(root, "approval-probe");
+            project = _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Name == "Approval probe");
+            if (project is null)
+            {
+                project = new Project { Name = "Approval probe", WorkingDirectory = probeFolder };
+                _dataStore.Data.Projects.Add(project);
+            }
+            projectFolder = project.WorkingDirectory ?? probeFolder;
+        }
+        var folder = System.IO.Path.GetFullPath(projectFolder);
+        System.IO.Directory.CreateDirectory(folder);
+        chat.ProjectId = project.Id;
+        chat.ApprovalMode = ApprovalMode.AskFirst;
+        chat.HasExplicitMcpServerSelection = true;
+        chat.ActiveMcpServerNames.Clear();
+        NotifyPermissionPropertiesChanged();
+        _debugPermissionProbeTask = RunDebugPermissionProbeAsync(chat, folder);
+    }
+
+    private async Task RunDebugPermissionProbeAsync(Chat chat, string folder)
+    {
+        var cancellation = new CancellationTokenSource();
+        var ct = cancellation.Token;
+        _ctsSources[chat.Id] = cancellation;
+        ClearManualStopRequested(chat.Id);
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        MarkRuntimeActive(runtime, "Preparing native approval probe");
+        if (CurrentChat?.Id == chat.Id)
+            ApplyDisplayedRuntimeState(runtime);
+        string? errorMessage = null;
+        try
+        {
+            if (!_copilotService.IsConnected)
+                await _copilotService.ConnectAsync();
+            ct.ThrowIfCancellationRequested();
+            if (!await EnsureSessionAsync(chat, ct)
+                || !_sessionCache.TryGetValue(chat.Id, out var session))
+                throw new InvalidOperationException("The isolated native probe session wasn't created.");
+            // No message is sent, so build the session's tool set now, as a turn would.
+            await session.Rpc.Tools.InitializeAndValidateAsync(ct);
+            System.Text.Json.JsonElement Arguments(string json)
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(json);
+                return document.RootElement.Clone();
+            }
+            string Json(string value) => System.Text.Json.JsonSerializer.Serialize(value, AppDataJsonContext.Default.String);
+            var shell = OperatingSystem.IsWindows() ? "powershell" : "bash";
+            var notes = System.IO.Path.Combine(folder, "notes.md");
+            await Task.WhenAll(
+                session.Rpc.Tools.ExecuteAsync(shell, Arguments(
+                    "{\"command\":\"echo 'Hello from the approval probe'\",\"description\":\"Say hello from the approval probe\",\"mode\":\"sync\",\"initial_wait\":10}"),
+                    "debug-approval-command", ct),
+                session.Rpc.Tools.ExecuteAsync("create", Arguments(
+                    "{\"path\":" + Json(notes) + ",\"file_text\":" + Json("# Approval probe\n\nWritten only after you allowed it.\n") + "}"),
+                    "debug-approval-edit", ct),
+                session.Rpc.Tools.ExecuteAsync("manage_current_chat", Arguments("{\"action\":\"get\"}"),
+                    "debug-approval-lumi-tool", ct));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            errorMessage = "Native approval probe stopped.";
+        }
+        catch (Exception error)
+        {
+            System.Diagnostics.Trace.TraceWarning("[Approvals] Isolated Debug probe failed: {0}", error);
+            errorMessage = "Native approval probe failed: " + error.Message;
+        }
+        finally
+        {
+            var ownsRequest = _ctsSources.TryGetValue(chat.Id, out var current) && ReferenceEquals(current, cancellation);
+            if (ownsRequest)
+                ReleaseChatCancellation(chat.Id, cancel: false);
+            if (ownsRequest || !_ctsSources.ContainsKey(chat.Id))
+            {
+                MarkRuntimeTerminal(runtime);
+                if (CurrentChat?.Id == chat.Id)
+                {
+                    ApplyDisplayedRuntimeState(runtime);
+                    StatusText = errorMessage ?? "Native approval probe finished. No model message was sent.";
+                }
+            }
+            _debugPermissionProbeTask = null;
+        }
+    }
+
+    /// <summary>Opens a local browser fixture without a model turn, only in an isolated Debug app.</summary>
+    internal async Task<string> LoadDebugBrowserFixtureAsync(string url)
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR")))
+            throw new InvalidOperationException("Browser fixtures require an isolated LUMI_APPDATA_DIR.");
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !uri.IsFile
+            || !System.IO.File.Exists(uri.LocalPath))
+            throw new InvalidOperationException("Browser fixtures require an existing local file URL.");
+        if (CurrentChat is null)
+            LoadDebugTranscriptFixture();
+        var browser = GetOrCreateBrowserService(CurrentChat!.Id);
+        HasUsedBrowser = true;
+        RequestShowBrowser();
+        return await browser.OpenAndSnapshotAsync(url);
+    }
+
+    public void LoadDebugTranscriptFixture(Chat? preparedFixture = null)
     {
         ClearChat();
 
-        var fixture = DebugAgentHarness.CreateTranscriptFixtureChat(_dataStore);
+        var fixture = preparedFixture ?? DebugAgentHarness.CreateTranscriptFixtureChat(_dataStore);
 
         BrowserHideRequested?.Invoke();
         DiffHideRequested?.Invoke();
@@ -30,7 +155,7 @@ public partial class ChatViewModel
         IsStreaming = false;
         HasUsedBrowser = false;
         IsBrowserOpen = false;
-        StatusText = "Debug transcript fixture";
+        StatusText = preparedFixture is null ? "Debug transcript fixture" : "Interactive UI lab";
         TotalInputTokens = fixture.TotalInputTokens;
         TotalOutputTokens = fixture.TotalOutputTokens;
         fixture.ContextCurrentTokens = fixture.TotalInputTokens + fixture.TotalOutputTokens;
@@ -38,7 +163,7 @@ public partial class ChatViewModel
         fixture.ContextTokenLimit = 128000;
         ContextCurrentTokens = fixture.ContextCurrentTokens;
         ContextTokenLimit = fixture.ContextTokenLimit;
-        HasPlan = true;
+        HasPlan = !string.IsNullOrWhiteSpace(fixture.PlanContent);
         PlanContent = fixture.PlanContent;
         ActiveAgent = null;
         SelectedSdkAgentName = null;
@@ -63,7 +188,8 @@ public partial class ChatViewModel
             LoadDebugContextWindowDetails();
             PromptText = "";
             RebuildTranscript();
-            _transcriptBuilder.AppendPlanCardToLastTurn("Debug plan", () => PlanShowRequested?.Invoke());
+            if (preparedFixture is null)
+                _transcriptBuilder.AppendPlanCardToLastTurn("Debug plan", () => PlanShowRequested?.Invoke());
         }
         finally
         {
@@ -80,15 +206,32 @@ public partial class ChatViewModel
         RefreshComposerCatalogs();
 
         // Seed representative suggestion chips so the post-turn suggestion row is inspectable in the
-        // fixture. SuggestionA is intentionally long enough to truncate at the chip MaxWidth, which
-        // exercises the hover tooltip that reveals the full suggestion text.
-        SuggestionA = "Walk me through exactly how the streaming token accumulator throttles UI updates during a very long assistant response";
-        SuggestionB = "Summarize the root cause";
-        SuggestionC = "Show the diff that fixed the freeze";
+        // fixture. SuggestionA is intentionally too long for the row, which trims it to keep all three on
+        // one line and exercises the hover tooltip that reveals the full suggestion text.
+        if (preparedFixture is null)
+        {
+            SuggestionA = "Walk me through exactly how the streaming token accumulator throttles UI updates during a very long assistant response";
+            SuggestionB = "Summarize the root cause";
+            SuggestionC = "Show the diff that fixed the freeze";
+        }
 
         // Feed this tail through the live collection path, not Rebuild, so the fixture exercises
         // progressive folding before a final answer (without sending anything to Copilot).
-        foreach (var message in DebugAgentHarness.CreateActivityTrailFixtureMessages())
+        foreach (var message in preparedFixture is null
+                     ? DebugAgentHarness.CreateActivityTrailFixtureMessages() : [])
+        {
+            fixture.Messages.Add(message);
+            Messages.Add(new ChatMessageViewModel(message));
+        }
+
+        foreach (var message in DebugAgentHarness.CreatePromptSharingFixtureMessages(_dataStore))
+        {
+            fixture.Messages.Add(message);
+            Messages.Add(new ChatMessageViewModel(message));
+        }
+
+        foreach (var message in preparedFixture is null
+                     ? DebugAgentHarness.CreateTextSelectionFixtureMessages() : [])
         {
             fixture.Messages.Add(message);
             Messages.Add(new ChatMessageViewModel(message));
@@ -295,8 +438,24 @@ public partial class ChatViewModel
     // tool group stays expanded, and the bottom line reads "Running in background · <elapsed>" instead
     // of a generic "Generating…" spinner. No real Copilot/shell is involved, so it is instant and
     // repeatable — perfect for inspecting the UX on demand. The state is driven live by a 1s timer.
+    //
+    // The session also runs a background agent (with its run in the transcript) and a client-owned task,
+    // so the Background activity list shows every kind of row with live progress: the command's newest
+    // output, the agent's latest step (its row opens the run on the Agents page) and the task's progress.
 
     private const string DebugBackgroundShellToolCallId = "debug-bgshell-root";
+    private const string DebugBackgroundShellTaskId = "debug-bgshell-task";
+    private const string DebugBackgroundAgentToolCallId = "debug-bgagent-root";
+    private const string DebugBackgroundAgentTaskId = "debug-bgagent-task";
+    private const string DebugBackgroundClientTaskId = "debug-bgclient-task";
+
+    private static readonly (string Tool, string ArgsJson)[] DebugBackgroundAgentSteps =
+    [
+        ("view", "{\"path\":\"src\\\\Lumi\\\\ViewModels\\\\ChatViewModel.SessionLifecycle.cs\"}"),
+        ("grep", "{\"pattern\":\"ReleaseSessionResources\",\"glob\":\"*.cs\"}"),
+        ("view", "{\"path\":\"src\\\\Lumi\\\\ViewModels\\\\ChatViewModel.ChatStateCleanup.cs\"}"),
+        ("powershell", "{\"command\":\"dotnet test tests\\\\Lumi.Tests --filter SessionCleanup\",\"description\":\"Run cleanup tests\"}"),
+    ];
 
     private DispatcherTimer? _debugBgShellTimer;
     private DateTime _debugBgShellStartUtc;
@@ -356,6 +515,21 @@ public partial class ChatViewModel
             ToolOutput = "Started background job (async). Process is running…",
         });
 
+        var fixtureStart = DateTimeOffset.UtcNow;
+        chat.Messages.Add(new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "task",
+            ToolStatus = "InProgress",
+            ToolCallId = DebugBackgroundAgentToolCallId,
+            ToolStartedAt = fixtureStart,
+            Content = "{\"description\":\"Review session cleanup paths\",\"agent_type\":\"code-review\","
+                + "\"agentName\":\"code-review\",\"agentDisplayName\":\"Code review agent\","
+                + "\"mode\":\"background\",\"model\":\"claude-sonnet-4.5\","
+                + "\"prompt\":\"Review how Lumi releases a chat's session resources. Report leaks or races.\"}",
+        });
+        chat.Messages.Add(DebugBackgroundAgentStep(0, fixtureStart));
+
         var runtime = GetOrCreateRuntimeState(chat.Id);
         MarkSessionBackgroundActive(runtime);
         MarkAssistantIdle(runtime);
@@ -395,6 +569,50 @@ public partial class ChatViewModel
         _transcriptBuilder.UpdateTerminalOutput(
             DebugBackgroundShellToolCallId, _debugBgShellOutput.ToString().TrimEnd(), true);
 
+        // What the session's Tasks API would report for this chat.
+        ApplyBackgroundActivitySnapshot(
+        [
+            new TaskInfoShell
+            {
+                Id = DebugBackgroundShellTaskId,
+                Description = "Wait 10 minutes without blocking the turn",
+                Command = "Start-Sleep -Seconds 600",
+                Status = GitHub.Copilot.Rpc.TaskStatus.Running,
+                ExecutionMode = TaskExecutionMode.Background,
+                AttachmentMode = TaskShellInfoAttachmentMode.Attached,
+                StartedAt = fixtureStart,
+            },
+            new TaskInfoAgent
+            {
+                Id = DebugBackgroundAgentTaskId,
+                AgentType = "code-review",
+                DisplayName = "Code review agent",
+                Description = "Review session cleanup paths",
+                Prompt = "Review how Lumi releases a chat's session resources.",
+                ToolCallId = DebugBackgroundAgentToolCallId,
+                Status = GitHub.Copilot.Rpc.TaskStatus.Running,
+                ExecutionMode = TaskExecutionMode.Background,
+                StartedAt = fixtureStart,
+            },
+            new TaskInfoClient
+            {
+                Id = DebugBackgroundClientTaskId,
+                ClientTaskId = DebugBackgroundClientTaskId,
+                DisplayName = "Index workspace files",
+                Description = "Building the search index for this project",
+                ActiveTimeMs = 0,
+                CanCancel = true,
+                ExecutionMode = new TaskClientExecutionMode("background"),
+                Owner = new TaskClientOwner(),
+                Sequence = 1,
+                StartedAt = fixtureStart,
+                UpdatedAt = fixtureStart,
+                Status = TaskClientStatus.Running,
+            },
+        ], fixtureStart);
+        ApplyDebugBackgroundProgress();
+        UpdateBackgroundStatusLine(chat.Id);
+
         _debugBgShellTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromSeconds(1),
@@ -403,6 +621,44 @@ public partial class ChatViewModel
         _debugBgShellTimer.Start();
 
         ScrollToEndRequested?.Invoke();
+    }
+
+    private static ChatMessage DebugBackgroundAgentStep(int step, DateTimeOffset startedAt)
+    {
+        var (tool, args) = DebugBackgroundAgentSteps[step % DebugBackgroundAgentSteps.Length];
+        return new ChatMessage
+        {
+            Role = "tool",
+            ToolName = tool,
+            ToolStatus = "Completed",
+            ToolCallId = $"debug-bgagent-step-{step}",
+            ParentToolCallId = DebugBackgroundAgentToolCallId,
+            ToolStartedAt = startedAt,
+            ToolDurationMs = 420,
+            Content = args,
+        };
+    }
+
+    /// <summary>
+    /// Feeds the command and task rows what the Tasks API's progress reads would return. The agent's
+    /// row is its run, which the steps added on each tick keep live.
+    /// </summary>
+    private void ApplyDebugBackgroundProgress()
+    {
+        FindSessionActivity(DebugBackgroundShellTaskId)?.ApplyProgress(
+            new TaskProgressShell { RecentOutput = _debugBgShellOutput.ToString() });
+
+        var percentage = Math.Min(100, 8 + _debugBgShellTick * 3);
+        FindSessionActivity(DebugBackgroundClientTaskId)?.ApplyProgress(new TaskProgressClient
+        {
+            LastMessage = $"Indexed {percentage * 12:N0} of 1,200 files",
+            Percentage = percentage,
+            Phase = "Indexing",
+            RecentActivity = [],
+            Sequence = _debugBgShellTick,
+            Status = TaskClientStatus.Running,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
     }
 
     private void DebugBackgroundShellTick()
@@ -426,6 +682,17 @@ public partial class ChatViewModel
             _transcriptBuilder.UpdateTerminalOutput(
                 _debugBgShellToolCallId, _debugBgShellOutput.ToString().TrimEnd(), true);
         }
+
+        // The agent takes a new step every few seconds, through the same live path as real events.
+        if (_debugBgShellTick % 4 == 0 && CurrentChat is { } chat)
+        {
+            var step = DebugBackgroundAgentStep(_debugBgShellTick / 4, DateTimeOffset.UtcNow);
+            chat.Messages.Add(step);
+            Messages.Add(new ChatMessageViewModel(step));
+        }
+
+        ApplyDebugBackgroundProgress();
+        UpdateBackgroundStatusLine(_debugBgShellChatId);
     }
 
     public void DebugStopBackgroundShellFixture()

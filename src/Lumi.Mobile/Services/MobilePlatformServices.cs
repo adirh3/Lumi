@@ -21,6 +21,14 @@ public interface ITextSelectionPresenter
     void Dismiss();
 }
 
+/// <summary>Hands text to the platform's share sheet. Hosts without one leave Share hidden.</summary>
+public interface ITextShareService
+{
+    bool IsAvailable { get; }
+
+    bool TryShare(string text, string? subject);
+}
+
 internal readonly record struct NativeTextInputOverlayOptions(
     bool IsMultiline,
     int MaxLength,
@@ -76,6 +84,12 @@ public interface IMobileHostEnvironment
     string? FixedBaseUrl { get; }
 
     string FixedEndpointName { get; }
+
+    Action? ReloadWebApp => null;
+
+    Action? ApplyWebAppUpdate => null;
+
+    Action? CheckWebAppUpdate => null;
 }
 
 public interface IRemoteDownloadStore
@@ -133,11 +147,25 @@ public static class MobilePlatformServices
     public static ITextSelectionPresenter TextSelectionPresenter { get; set; } =
         new DefaultTextSelectionPresenter();
 
+    public static ITextShareService TextShare { get; set; } = new DefaultTextShareService();
+
     internal static INativeTextInputOverlayPresenter TextInputOverlayPresenter { get; set; } =
         new DefaultNativeTextInputOverlayPresenter();
 
     public static IMobileHostEnvironment HostEnvironment { get; set; } =
         new DefaultMobileHostEnvironment();
+
+    /// <summary>
+    /// Connectivity changes for the connection supervisor. Android and the browser host install
+    /// platform monitors; desktop hosts observe System.Net.NetworkInformation.NetworkChange.
+    /// </summary>
+    public static IRemoteNetworkMonitor NetworkMonitor
+    {
+        get => _networkMonitor ?? SystemNetworkMonitor.Instance;
+        set => _networkMonitor = value;
+    }
+
+    private static IRemoteNetworkMonitor? _networkMonitor;
 
     public static string? DeviceNameOverride { get; set; }
 
@@ -279,6 +307,13 @@ internal sealed class DefaultTextSelectionPresenter : ITextSelectionPresenter
     public void Dismiss()
     {
     }
+}
+
+internal sealed class DefaultTextShareService : ITextShareService
+{
+    public bool IsAvailable => false;
+
+    public bool TryShare(string text, string? subject) => false;
 }
 
 internal sealed class DefaultNativeTextInputOverlayPresenter : INativeTextInputOverlayPresenter

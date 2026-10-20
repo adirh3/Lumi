@@ -1,9 +1,12 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
              xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:textInput="using:Avalonia.Input.TextInput"
              xmlns:sa="using:StrataTheme.Animation"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              x:Class="Lumi.Mobile.Views.MobileSearchView"
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.Surface0}">
@@ -16,41 +19,60 @@
   -->
   <Grid RowDefinitions="Auto,*">
 
-    <Border x:Name="SearchTopInset" Grid.Row="0" Padding="{Binding SafeAreaTop}">
+    <Panel x:Name="SearchHeaderChrome" Grid.Row="0" ZIndex="1" Background="Transparent">
+    <Panel Classes="chrome-edge" Margin="{DynamicResource Mobile.Chat.TopEdgeMargin}">
+      <sc:StrataBackdropBlur Classes="chrome-frost" Fade="Bottom"
+                             FadeLength="{DynamicResource Mobile.Chat.EdgeFadeLength}" />
+      <Border Background="{DynamicResource Brush.PageEdgeTop}" />
+    </Panel>
+    <Border x:Name="SearchTopInset" Padding="{Binding SafeAreaTop}">
       <Border x:Name="SearchHeaderSideInset" Padding="{Binding SafeAreaSides}">
         <Grid x:Name="SearchHeaderLayout"
+              RowDefinitions="Auto,Auto"
               ColumnDefinitions="Auto,*,Auto"
               ColumnSpacing="2"
               MaxWidth="720"
               HorizontalAlignment="Stretch"
               Margin="{DynamicResource Mobile.Page.HeaderMargin}">
-          <Button x:Name="SearchBackButton" Grid.Column="0" Classes="page-back"
+          <Button x:Name="SearchBackButton" Grid.Column="0" Classes="chat-header-action floating-action"
                   AutomationProperties.Name="Back to chat"
                   Command="{Binding GoBackCommand}">
             <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
-                      Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+                      Data="{DynamicResource Mobile.Icon.Back}" />
           </Button>
 
-          <TextBox x:Name="SearchField" Grid.Column="1" Classes="search-field no-focus-accent"
+          <!-- The list's "Search chats" capsule, opened: the same glass and magnifier, now a field. -->
+          <TextBox x:Name="SearchField" Grid.Column="1" Classes="mobile list-filter no-focus-accent"
+                   Margin="6,0,0,0"
                    PlaceholderText="Search chats"
                    AutomationProperties.Name="Search your chats"
                    textInput:TextInputOptions.ContentType="Search"
                    textInput:TextInputOptions.ReturnKeyType="Search"
-                   Text="{Binding SearchChatList.SearchText}" />
+                   Text="{Binding SearchChatList.SearchText}">
+            <TextBox.InnerLeftContent>
+              <sc:StrataLineIcon Classes="list-filter-icon" Data="{x:Static sc:StrataIcons.Search}" />
+            </TextBox.InnerLeftContent>
+          </TextBox>
           <Button x:Name="ClearSearchButton" Grid.Column="2" Classes="touch icon subtle"
                   AutomationProperties.Name="Clear search"
                   IsVisible="{Binding SearchChatList.HasSearchQuery}"
                   Command="{Binding SearchChatList.ClearSearchCommand}">
-            <PathIcon Width="18" Height="18"
+            <PathIcon Width="20" Height="20"
                       Data="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
           </Button>
+          <views:WebAppUpdateBannerView x:Name="SearchUpdateBanner"
+                                        Grid.Row="1" Grid.ColumnSpan="3" />
         </Grid>
       </Border>
     </Border>
+    </Panel>
 
-    <Border x:Name="SearchBottomInset" Grid.Row="1" Padding="{Binding SafeAreaBottom}">
+    <!-- Results run under the floating search bar; ScrollEdgeChrome keeps them clear of it at rest. -->
+    <Border x:Name="SearchBottomInset" Grid.Row="0" Grid.RowSpan="2" Padding="{Binding SafeAreaBottom}">
       <Border x:Name="SearchResultsSideInset" Padding="{Binding SafeAreaSides}">
-        <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer x:Name="SearchScroll" Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled"
+                      behaviors:ScrollEdgeChrome.Header="{Binding #SearchHeaderChrome}">
+          <Border x:Name="SearchScrollInset">
           <StackPanel x:Name="SearchResultsContent"
                       MaxWidth="720"
                       HorizontalAlignment="Stretch"
@@ -66,7 +88,7 @@
             </Border>
 
             <TextBlock x:Name="SearchResultsLabel" Text="{Binding SearchChatList.ResultsLabel}"
-                       Classes="muted" Margin="4,4,4,8" />
+                       Classes="muted" Margin="12,4,12,8" />
             <ProgressBar IsIndeterminate="True" Height="3" Margin="4,0,4,12"
                          IsVisible="{Binding SearchChatList.IsRefreshing}" />
             <Border x:Name="SearchLoadError" Classes="mobile-card" Margin="0,4,0,12"
@@ -80,7 +102,7 @@
 
             <StackPanel x:Name="SearchEmpty" IsVisible="{Binding SearchChatList.ShowEmptyState}"
                         Spacing="8" Margin="12,40" HorizontalAlignment="Center">
-              <PathIcon Width="36" Height="36" Margin="0,0,0,12"
+              <PathIcon Width="40" Height="40" Margin="0,0,0,12"
                         Foreground="{DynamicResource Brush.TextTertiary}"
                         Data="M9.5 3a6.5 6.5 0 1 0 3.94 11.67L19.77 21 21 19.77l-6.33-6.33A6.5 6.5 0 0 0 9.5 3zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z" />
               <TextBlock Text="{Binding SearchChatList.EmptyTitle}" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
@@ -93,51 +115,66 @@
                       HorizontalAlignment="Center" Margin="0,8,0,0" />
             </StackPanel>
 
-            <ItemsControl x:Name="SearchResults" ItemsSource="{Binding SearchChatList.Groups}">
-              <ItemsControl.ItemTemplate>
+            <!-- One virtualizing list of headers and rows, so row controls are recycled across groups. -->
+            <ItemsControl x:Name="SearchResults" ItemsSource="{Binding SearchChatList.Rows}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <VirtualizingStackPanel />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.DataTemplates>
                 <DataTemplate x:DataType="vm:ChatGroupViewModel">
-                  <StackPanel>
-                    <TextBlock Text="{Binding Label}" Classes="group-label" />
-                    <ItemsControl ItemsSource="{Binding Chats}">
-                      <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                          <VirtualizingStackPanel />
-                        </ItemsPanelTemplate>
-                      </ItemsControl.ItemsPanel>
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:ChatListItemViewModel">
-                          <Button Classes="search-result" Classes.unread="{Binding HasUnreadMessages}"
-                                  Classes.running="{Binding IsRunning}"
-                                  AutomationProperties.Name="{Binding AccessibilityName}"
-                                  Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).SearchChatList.OpenChatCommand}"
-                                  CommandParameter="{Binding}">
-                            <Grid ColumnDefinitions="Auto,*">
-                              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Border Classes="chat-list-status" IsHitTestVisible="False"
-                                        sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
-                                  <Border.IsVisible>
-                                    <MultiBinding Converter="{x:Static BoolConverters.Or}">
-                                      <Binding Path="IsRunning" />
-                                      <Binding Path="HasUnreadMessages" />
-                                    </MultiBinding>
-                                  </Border.IsVisible>
-                                </Border>
-                                <PathIcon x:Name="BackgroundActivityIndicator" Classes="chat-list-background"
-                                          IsVisible="{Binding HasBackgroundActivity}"
-                                          ToolTip.Tip="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
-                                          AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
-                              </StackPanel>
-                              <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
-                                         FontSize="{DynamicResource Font.SizeBody}"
-                                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            </Grid>
-                          </Button>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </StackPanel>
+                  <TextBlock Text="{Binding Label}" Classes="group-label" Margin="12,14,12,4" />
                 </DataTemplate>
-              </ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ChatListItemViewModel">
+                  <Button Classes="search-result" Classes.unread="{Binding HasUnreadMessages}"
+                          Classes.running="{Binding IsRunning}"
+                          AutomationProperties.Name="{Binding AccessibilityName}"
+                          Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).SearchChatList.OpenChatCommand}"
+                          CommandParameter="{Binding}">
+                    <!-- The chat list's line, then a second one search needs: where the chat lives and
+                         its last reply, so a match can be recognised before it is opened. -->
+                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="3">
+                      <Border Classes="chat-row-dot" IsHitTestVisible="False"
+                              sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
+                        <Border.IsVisible>
+                          <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                            <Binding Path="IsRunning" />
+                            <Binding Path="HasUnreadMessages" />
+                          </MultiBinding>
+                        </Border.IsVisible>
+                      </Border>
+                      <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
+                                 FontSize="{DynamicResource Font.SizeBody}"
+                                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                      <Border x:Name="BackgroundActivityIndicator" Grid.Column="2" Classes="chat-row-background"
+                              Margin="10,0,0,0"
+                              IsVisible="{Binding HasBackgroundActivity}"
+                              AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
+                      <DockPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2">
+                        <DockPanel.IsVisible>
+                          <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                            <Binding Path="IsRunning" />
+                            <Binding Path="HasProject" />
+                            <Binding Path="Preview" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
+                          </MultiBinding>
+                        </DockPanel.IsVisible>
+                        <TextBlock DockPanel.Dock="Left" Classes="conversation-working" Text="Working"
+                                   Margin="0,0,8,0" IsVisible="{Binding IsRunning}" />
+                        <Border DockPanel.Dock="Left" Classes="project-chip" Margin="0,0,6,0"
+                                IsVisible="{Binding HasProject}">
+                          <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Data="{DynamicResource Mobile.Icon.Folder}" />
+                            <TextBlock Text="{Binding ProjectName}" />
+                          </StackPanel>
+                        </Border>
+                        <TextBlock Classes="conversation-preview"
+                                   Text="{Binding Preview}" IsVisible="{Binding !IsRunning}" />
+                      </DockPanel>
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.DataTemplates>
             </ItemsControl>
 
             <Button x:Name="SearchLoadMoreButton" Classes="search-result"
@@ -147,6 +184,7 @@
               <TextBlock Text="Load more chats" Foreground="{DynamicResource Brush.TextSecondary}" />
             </Button>
           </StackPanel>
+          </Border>
         </ScrollViewer>
       </Border>
     </Border>

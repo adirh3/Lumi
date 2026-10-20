@@ -200,6 +200,10 @@ public sealed class CapabilityCatalog : IDisposable
             SessionSkillRoots: results
                 .SelectMany(static result => result.SessionSkillRoots ?? [])
                 .Distinct(CapabilityQuery.DirectoryComparer)
+                .ToArray(),
+            SessionPluginRoots: results
+                .SelectMany(static result => result.SessionPluginRoots ?? [])
+                .Distinct(CapabilityQuery.DirectoryComparer)
                 .ToArray());
     }
 
@@ -246,7 +250,9 @@ public sealed class CapabilityCatalog : IDisposable
             merged.Values.ToArray(),
             isComplete: external?.IsAvailable ?? _externalProviders.Count == 0,
             sessionSkillRoots: external?.SessionSkillRoots,
-            nativeSkillInvocationNames: CapabilitySnapshot.GetNativeSkillInvocationNames(external?.Capabilities ?? []));
+            nativeSkillInvocationNames: CapabilitySnapshot.GetNativeSkillInvocationNames(external?.Capabilities ?? []),
+            sessionPluginRoots: external?.SessionPluginRoots,
+            externalCapabilities: external?.Capabilities);
     }
 
     private sealed class PendingLoad(int generation)

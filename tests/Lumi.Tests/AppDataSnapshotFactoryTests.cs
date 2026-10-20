@@ -9,6 +9,26 @@ namespace Lumi.Tests;
 
 public class AppDataSnapshotFactoryTests
 {
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("gpt-6-luna")]
+    [InlineData("byok:private-helper")]
+    public void BackgroundModel_SurvivesIndexSnapshotsAndJsonRoundTrip(string backgroundModel)
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings { BackgroundModel = backgroundModel, PreferredModel = "gpt-6-sol" }
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        data.Settings.BackgroundModel = "another-model";
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
+
+        Assert.Equal(backgroundModel, snapshot.Settings.BackgroundModel);
+        Assert.Equal(backgroundModel, restored.Settings.BackgroundModel);
+        Assert.Equal("gpt-6-sol", restored.Settings.PreferredModel);
+    }
+
     [Fact]
     public void McpToolTimeout_DefaultsToThreeMinutesForExistingSettings()
     {
@@ -33,6 +53,64 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void AppearanceAndChatCustomization_SurvivesSnapshotAndJsonRoundTrip()
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                FollowSystemTheme = true,
+                AccentColor = "sunset",
+                WindowMaterial = UserSettings.WindowMaterialSolid,
+                PresenceBrightness = UserSettings.PresenceBrightnessVivid,
+                SuggestFollowUps = false,
+                ExpandReasoningWhileStreaming = false,
+            }
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!.Settings;
+
+        Assert.True(restored.FollowSystemTheme);
+        Assert.Equal("sunset", restored.AccentColor);
+        Assert.Equal(UserSettings.WindowMaterialSolid, restored.WindowMaterial);
+        Assert.Equal(UserSettings.PresenceBrightnessVivid, restored.PresenceBrightness);
+        Assert.False(restored.SuggestFollowUps);
+        Assert.False(restored.ExpandReasoningWhileStreaming);
+    }
+
+    [Fact]
+    public void AppearanceAndChatCustomization_DefaultsForExistingSettings()
+    {
+        var settings = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;
+
+        Assert.False(settings.FollowSystemTheme);
+        Assert.Equal(UserSettings.DefaultAccentColor, settings.AccentColor);
+        Assert.Equal(UserSettings.WindowMaterialAuto, settings.WindowMaterial);
+        Assert.Equal(UserSettings.PresenceBrightnessBalanced, settings.PresenceBrightness);
+        Assert.True(settings.SuggestFollowUps);
+    }
+
+    [Fact]
+    public void DiscoverFields_SurviveSnapshotAndJsonRoundTrip()
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings { McpRegistryUrls = [UserSettings.DefaultMcpRegistryUrl, "https://registry.example"] },
+            McpServers = [new McpServer { Name = "Microsoft Learn", CatalogId = "microsoftdocs/mcp" }]
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        data.Settings.McpRegistryUrls.Clear();
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
+
+        Assert.Equal([UserSettings.DefaultMcpRegistryUrl, "https://registry.example"], restored.Settings.McpRegistryUrls);
+        Assert.Equal("microsoftdocs/mcp", Assert.Single(restored.McpServers).CatalogId);
+        Assert.Equal([UserSettings.DefaultMcpRegistryUrl],
+            JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!.McpRegistryUrls);
+    }
+
+    [Fact]
     public void RemoteSecuritySnapshotReplacesEveryOwnerControlledField()
     {
         var store = new DataStore(new AppData
@@ -42,6 +120,7 @@ public class AppDataSnapshotFactoryTests
                 RemoteAccessEnabled = true,
                 RemoteAllowInsecureLan = true,
                 RemoteAccessPort = 47653,
+                RemoteDevTunnelId = "lumi-11111111111111111111111111111111",
                 RemotePairedDevices =
                 [
                     new RemotePairedDevice { DeviceId = "stale", Token = "stale-token" }
@@ -53,6 +132,7 @@ public class AppDataSnapshotFactoryTests
             RemoteAccessEnabled = false,
             RemoteAllowInsecureLan = false,
             RemoteAccessPort = 49000,
+            RemoteDevTunnelId = "lumi-22222222222222222222222222222222",
             RemotePairedDevices =
             [
                 new RemotePairedDevice { DeviceId = "current", Token = "current-token" }
@@ -64,6 +144,7 @@ public class AppDataSnapshotFactoryTests
         Assert.False(store.Data.Settings.RemoteAccessEnabled);
         Assert.False(store.Data.Settings.RemoteAllowInsecureLan);
         Assert.Equal(49000, store.Data.Settings.RemoteAccessPort);
+        Assert.Equal(persisted.RemoteDevTunnelId, store.Data.Settings.RemoteDevTunnelId);
         Assert.Equal("current", Assert.Single(store.Data.Settings.RemotePairedDevices).DeviceId);
     }
 
@@ -484,7 +565,12 @@ public class AppDataSnapshotFactoryTests
                         DisplayName = "Test",
                         MaxOutputTokens = 4096,
                         MaxPromptTokens = 128000,
-                        MaxRequestsPerMinute = 60
+                        MaxRequestsPerMinute = 60,
+                        SupportsReasoningEffort = true,
+                        SupportedReasoningEfforts = ["low", "high"],
+                        DefaultReasoningEffort = "low",
+                        DefaultContextWindowTokens = 128000,
+                        LongContextWindowTokens = 200000
                     }
                 ]
             }
@@ -496,6 +582,11 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal(4096, model.MaxOutputTokens);
         Assert.Equal(128000, model.MaxPromptTokens);
         Assert.Equal(60, model.MaxRequestsPerMinute);
+        Assert.True(model.SupportsReasoningEffort);
+        Assert.Equal(["low", "high"], model.SupportedReasoningEfforts);
+        Assert.Equal("low", model.DefaultReasoningEffort);
+        Assert.Equal(128000, model.DefaultContextWindowTokens);
+        Assert.Equal(200000, model.LongContextWindowTokens);
     }
 
     [Fact]
@@ -1106,6 +1197,7 @@ public class AppDataSnapshotFactoryTests
             {
                 RemoteAccessEnabled = true,
                 RemoteAccessPort = 47653,
+                RemoteDevTunnelId = "lumi-0123456789abcdef0123456789abcdef",
                 RemotePairedDevices =
                 [
                     new RemotePairedDevice
@@ -1124,6 +1216,7 @@ public class AppDataSnapshotFactoryTests
 
         Assert.True(snapshot.Settings.RemoteAccessEnabled);
         Assert.Equal(47653, snapshot.Settings.RemoteAccessPort);
+        Assert.Equal(source.Settings.RemoteDevTunnelId, snapshot.Settings.RemoteDevTunnelId);
 
         var device = Assert.Single(snapshot.Settings.RemotePairedDevices);
         Assert.Equal("device-1", device.DeviceId);

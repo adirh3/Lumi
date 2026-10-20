@@ -45,6 +45,33 @@ public sealed class TranscriptTextContentHeadlessTests
     }
 
     [Fact]
+    public async Task OnlyAssistantAnswersHostLiveInteractions()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            const string fence = "```checklist\n{\"id\":\"pack\",\"title\":\"Pack\",\"items\":[{\"id\":\"a\",\"label\":\"Passport\"}]}\n```";
+            var quoted = new TranscriptTextContent { Text = fence };
+            var answer = new TranscriptTextContent
+            {
+                Text = fence,
+                DataContext = new AssistantMessageItem(
+                    new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = fence }), showTimestamps: false)
+            };
+            var window = new Window { Width = 640, Height = 480, Content = new StackPanel { Children = { quoted, answer } } };
+            window.Show();
+            try
+            {
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(Assert.IsType<StrataMarkdown>(quoted.Content).InteractionsHosted);
+                Assert.True(Assert.IsType<StrataMarkdown>(answer.Content).InteractionsHosted);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task StreamingReasoningMarkdown_CanRenderMarkdownWhenEnabled()
     {
         using var session = HeadlessTestSession.Start();
@@ -156,14 +183,16 @@ public sealed class TranscriptTextContentHeadlessTests
         }, CancellationToken.None);
     }
 
-    [Fact]
-    public async Task ReasoningTemplate_RendersMarkdownWhileStreaming()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReasoningTemplate_RendersMarkdownWhileStreamingAndCapsLongContent(bool subagent)
     {
         using var session = HeadlessTestSession.Start();
 
         await session.Dispatch(async () =>
         {
-            var chatView = new ChatView();
+            UserControl host = subagent ? new SubagentRunView() : new ChatView();
             var reasoningMessage = new ChatMessage
             {
                 Role = "reasoning",
@@ -172,7 +201,7 @@ public sealed class TranscriptTextContentHeadlessTests
             };
 
             var reasoningItem = new ReasoningItem(new ChatMessageViewModel(reasoningMessage), expandWhileStreaming: true);
-            var template = chatView.DataTemplates.FirstOrDefault(candidate => candidate.Match(reasoningItem));
+            var template = host.DataTemplates.FirstOrDefault(candidate => candidate.Match(reasoningItem));
 
             Assert.NotNull(template);
 
@@ -182,7 +211,7 @@ public sealed class TranscriptTextContentHeadlessTests
             {
                 Width = 640,
                 Height = 360,
-                Content = control
+                Content = new StackPanel { Children = { control } }
             };
 
             window.Show();
@@ -194,6 +223,28 @@ public sealed class TranscriptTextContentHeadlessTests
             Assert.True(textContent.PreferPlainText);
             Assert.True(textContent.RenderMarkdownWhileStreaming);
             Assert.IsType<StrataMarkdown>(textContent.Content);
+
+            var think = Assert.IsType<StrataThink>(control);
+            var contentScrollViewer = Assert.Single(think.GetVisualDescendants().OfType<ScrollViewer>());
+            Assert.Equal(240, think.MaxContentHeight);
+            Assert.InRange(contentScrollViewer.Bounds.Height, 1, 239);
+
+            reasoningItem.Content = string.Join("\n\n", Enumerable.Range(1, 40)
+                .Select(index => $"**Step {index}:** Review the evidence before choosing the next action."));
+            await Task.Delay(450);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            window.UpdateLayout();
+
+            Assert.Equal(240, contentScrollViewer.Bounds.Height, precision: 1);
+            Assert.True(contentScrollViewer.Extent.Height > contentScrollViewer.Viewport.Height);
+            var pill = think.GetVisualDescendants().OfType<Border>()
+                .Single(control => control.Name == "PART_Pill");
+            Assert.InRange(pill.Bounds.Height, 240, 300);
+
+            reasoningItem.IsActive = false;
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            window.UpdateLayout();
+            Assert.Equal(240, contentScrollViewer.Bounds.Height, precision: 1);
 
             window.Close();
         }, CancellationToken.None);

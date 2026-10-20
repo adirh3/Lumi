@@ -456,6 +456,115 @@ public sealed class RemoteEndToEndTests
     }
 
     /// <summary>
+    /// The phone names the latest window it already shows; the real server answers an identical
+    /// projection with no body, and any change it can show — an in-memory edit no event announced,
+    /// a display setting — brings the whole window back. History pages are never conditional.
+    /// </summary>
+    [Fact]
+    public Task AnUnchangedTranscriptComesBackWithoutItsBody()
+    {
+        var chatId = Guid.NewGuid();
+        Chat? chat = null;
+        return RunAsync(
+            async rig =>
+            {
+                Assert.IsType<RemoteHello>(await rig.Client.HelloAsync(rig.BaseUrl, CancellationToken.None));
+                var pair = await rig.Client.PairAsync(rig.BaseUrl, rig.Server.BeginPairing(), CancellationToken.None);
+                Assert.True(pair.Ok, pair.Error);
+                Assert.True(rig.Client.SupportsConditionalTranscript);
+
+                var limit = RemoteProtocol.CompactTranscriptWindowVisibleItemLimit;
+                var full = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, knownVersion: null, CancellationToken.None));
+                Assert.False(full.IsUnchanged);
+                Assert.False(string.IsNullOrEmpty(full.TranscriptVersion));
+                Assert.Contains(full.Turns.SelectMany(turn => turn.Items), item => item.Text == "first answer");
+
+                var unchanged = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, full.TranscriptVersion, CancellationToken.None));
+                Assert.True(unchanged.IsUnchanged);
+                Assert.Equal(full.TranscriptVersion, unchanged.TranscriptVersion);
+                Assert.Empty(unchanged.Turns);
+                Assert.Equal(chatId, unchanged.Status?.ChatId);
+                Assert.Equal(1, rig.Client.Stats.Snapshot().TranscriptsUnchanged);
+
+                chat!.Messages.Add(new ChatMessage
+                {
+                    Id = Guid.NewGuid(),
+                    Role = "assistant",
+                    Content = "second answer",
+                    Timestamp = DateTime.UtcNow
+                });
+                var edited = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, full.TranscriptVersion, CancellationToken.None));
+                Assert.False(edited.IsUnchanged);
+                Assert.NotEqual(full.TranscriptVersion, edited.TranscriptVersion);
+                Assert.Contains(edited.Turns.SelectMany(turn => turn.Items), item => item.Text == "second answer");
+
+                rig.DataStore.Data.Settings.ShowToolCalls = !rig.DataStore.Data.Settings.ShowToolCalls;
+                var resettled = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, edited.TranscriptVersion, CancellationToken.None));
+                Assert.False(resettled.IsUnchanged);
+                Assert.NotEqual(edited.TranscriptVersion, resettled.TranscriptVersion);
+
+                var history = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, 1, limit, resettled.TranscriptVersion, CancellationToken.None));
+                Assert.False(history.IsUnchanged);
+                Assert.Null(history.TranscriptVersion);
+            },
+            data =>
+            {
+                chat = new Chat
+                {
+                    Id = chatId,
+                    Title = "Conditional",
+                    Messages =
+                    [
+                        new ChatMessage { Id = Guid.NewGuid(), Role = "user", Content = "question", Timestamp = DateTime.UtcNow },
+                        new ChatMessage { Id = Guid.NewGuid(), Role = "assistant", Content = "first answer", Timestamp = DateTime.UtcNow }
+                    ]
+                };
+                data.Chats.Add(chat);
+            });
+    }
+
+    /// <summary>
+    /// A phone that reopens names the snapshot sections it holds; the server sends only those that
+    /// changed. The chat page and library keep their versions while only a setting moves.
+    /// </summary>
+    [Fact]
+    public Task ASnapshotSendsOnlyTheSectionsThePhoneDoesNotHave() => RunAsync(async rig =>
+    {
+        Assert.IsType<RemoteHello>(await rig.Client.HelloAsync(rig.BaseUrl, CancellationToken.None));
+        var pair = await rig.Client.PairAsync(rig.BaseUrl, rig.Server.BeginPairing(), CancellationToken.None);
+        Assert.True(pair.Ok, pair.Error);
+
+        var first = Assert.IsType<RemoteSnapshot>(await rig.Client.GetSnapshotAsync(CancellationToken.None));
+        Assert.Null(first.UnchangedSections);
+        var known = new Dictionary<string, string>
+        {
+            [RemoteProtocol.SnapshotSections.Chats] = Assert.IsType<string>(first.ChatsVersion),
+            [RemoteProtocol.SnapshotSections.Library] = Assert.IsType<string>(first.LibraryVersion),
+            [RemoteProtocol.SnapshotSections.Settings] = Assert.IsType<string>(first.SettingsVersion)
+        };
+
+        var reopened = Assert.IsType<RemoteSnapshot>(await rig.Client.GetSnapshotAsync(known, CancellationToken.None));
+        Assert.Equal(
+            [RemoteProtocol.SnapshotSections.Chats, RemoteProtocol.SnapshotSections.Library, RemoteProtocol.SnapshotSections.Settings],
+            reopened.UnchangedSections);
+        Assert.Equal(first.ChatsVersion, reopened.ChatsVersion);
+        Assert.Equal("", reopened.Settings.UserName);
+
+        rig.DataStore.Data.Settings.UserName = "Adir Hudayfi";
+        var renamed = Assert.IsType<RemoteSnapshot>(await rig.Client.GetSnapshotAsync(known, CancellationToken.None));
+        Assert.Equal(
+            [RemoteProtocol.SnapshotSections.Chats, RemoteProtocol.SnapshotSections.Library],
+            renamed.UnchangedSections);
+        Assert.NotEqual(first.SettingsVersion, renamed.SettingsVersion);
+        Assert.Equal("Adir Hudayfi", renamed.Settings.UserName);
+    });
+
+    /// <summary>
     /// The whole composer-configuration surface, end to end. Before this existed the phone could
     /// only send text: it inherited whatever model, agent, project and skills the PC happened to be
     /// set to, with no way to see or change any of them. Each picker is exercised in one test
@@ -1413,6 +1522,53 @@ public sealed class RemoteEndToEndTests
     });
 
     [Fact]
+    public async Task DeferredMobileSetupKeepsItsPairingExpiryTimer()
+    {
+        var webRoot = NewTempDir();
+        Directory.CreateDirectory(webRoot);
+        File.WriteAllText(Path.Combine(webRoot, "index.html"), "<html>Lumi test</html>");
+        var previousWebRoot = Environment.GetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT");
+        Environment.SetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT", webRoot);
+        IReadOnlySet<IPAddress> available = new HashSet<IPAddress>();
+        try
+        {
+            await RunAsync(async rig =>
+            {
+                var settings = rig.Main.SettingsVM;
+                await rig.Server.RefreshNetworkAddressesNowAsync();
+                settings.StartMobileWebSetupCommand.Execute(null);
+                Assert.True(settings.IsMobileSetupActive);
+                Assert.False(settings.IsMobileSetupReady);
+                Assert.Null(rig.Server.ActivePairingCode);
+
+                var shortened = false;
+                rig.Server.StateChanged += () =>
+                {
+                    if (shortened || rig.Server.ActivePairingCode is null)
+                        return;
+                    shortened = true;
+                    typeof(LumiRemoteServer).GetField("_pairingCodeExpiresAt",
+                            BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .SetValue(rig.Server, DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(500));
+                    settings.RefreshRemoteState(DateTimeOffset.UtcNow);
+                };
+                available = new HashSet<IPAddress> { IPAddress.Parse("100.64.0.10") };
+                await rig.Server.RefreshNetworkAddressesNowAsync();
+                await WaitAsync(() => settings.IsRemotePairing, "Deferred setup to generate its pairing code");
+                Assert.True(settings.IsMobileSetupReady);
+                await WaitAsync(() => !settings.IsRemotePairing, "The scheduled pairing expiry to clear the code");
+                Assert.Empty(settings.RemotePairingCode);
+                Assert.Equal(Loc.Get("Remote_PairButton"), settings.RemotePairActionText);
+            }, tailscaleAddressProvider: () => available);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT", previousWebRoot);
+            Directory.Delete(webRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public Task OversizedOrdinaryRequestReceivesAJson413Response() => RunAsync(async rig =>
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -1469,6 +1625,7 @@ public sealed class RemoteEndToEndTests
         Assert.NotNull(uploaded.Path);
         try
         {
+            Assert.StartsWith(TestProfile.Root, uploaded.Path, StringComparison.OrdinalIgnoreCase);
             Assert.True(File.Exists(uploaded.Path));
             var saved = await File.ReadAllBytesAsync(uploaded.Path);
             Assert.Equal(bytes.Length, saved.Length);
@@ -1581,6 +1738,56 @@ public sealed class RemoteEndToEndTests
         chat.MessageCount = 1;
         data.Chats.Add(chat);
     });
+
+    [Fact]
+    public async Task ViewedInlineImageDownloadsThroughTheAuthenticatedEndpointWithoutAnnouncement()
+    {
+        var imageBytes = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2uoAAAAASUVORK5CYII=");
+        var sourcePath = Path.Combine(Path.GetTempPath(), $"lumi-viewed-{Guid.NewGuid():N}.png");
+        string? downloadedPath = null;
+        File.WriteAllBytes(sourcePath, imageBytes);
+        try
+        {
+            await RunAsync(async rig =>
+            {
+                var paired = await rig.Client.PairAsync(
+                    rig.BaseUrl, rig.Server.BeginPairing(), CancellationToken.None);
+                Assert.True(paired.Ok, paired.Error);
+                var chat = Assert.Single(rig.DataStore.Data.Chats);
+                var transcript = Assert.IsType<RemoteTranscript>(
+                    await rig.Client.GetTranscriptAsync(chat.Id, CancellationToken.None));
+                var answer = Assert.Single(transcript.Turns.SelectMany(turn => turn.Items),
+                    item => item.Kind == RemoteProtocol.ItemKinds.Assistant);
+                var image = Assert.Single(answer.InlineImages!);
+                downloadedPath = await rig.Client.DownloadMarkdownImageAsync(
+                    chat.Id, Guid.ParseExact(answer.Id, "N"), image.Index, image.FileName,
+                    CancellationToken.None);
+                Assert.NotNull(downloadedPath);
+                Assert.Equal(imageBytes, await File.ReadAllBytesAsync(downloadedPath!));
+            }, seed: data =>
+            {
+                var chat = new Chat { Title = "Viewed inline image" };
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "tool", ToolName = "view", ToolStatus = "Completed",
+                    Content = JsonSerializer.Serialize(new { path = sourcePath })
+                });
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "assistant", Content = $"![Viewed screenshot]({sourcePath})"
+                });
+                chat.MessageCount = chat.Messages.Count;
+                data.Chats.Add(chat);
+            });
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            if (downloadedPath is not null)
+                File.Delete(downloadedPath);
+        }
+    }
 
     [Fact]
     public Task TimedOutRetryWithTheSameRequestIdDoesNotDuplicateASteeredMessage() => RunAsync(async rig =>
@@ -1746,6 +1953,66 @@ public sealed class RemoteEndToEndTests
         chat.MessageCount = chat.Messages.Count;
         data.Chats.Add(chat);
     });
+
+    [Theory]
+    [InlineData(20)]
+    [InlineData(200)]
+    public Task OpeningToolHeavyHistoryLoadsRecentRepliesBeforeRequestingEarlierActivity(int turnCount) =>
+        RunAsync(
+            async rig =>
+            {
+                await PairAsync(rig);
+                await WaitAsync(
+                    () => rig.Shell.ChatList.Groups.SelectMany(group => group.Chats)
+                        .Any(chat => chat.Title == "Work-heavy history"),
+                    "the work-heavy chat to arrive");
+                var item = rig.Shell.ChatList.Groups.SelectMany(group => group.Chats)
+                    .Single(chat => chat.Title == "Work-heavy history");
+                rig.Shell.ChatList.OpenChatCommand.Execute(item);
+                await WaitAsync(() => !rig.Shell.Chat.IsLoading && rig.Shell.Chat.Turns.Count == 16,
+                    "the recent conversation to load");
+
+                var chat = rig.Shell.Chat;
+                Assert.Equal($"Prompt {turnCount - 16}", Assert.IsType<UserTurnItemViewModel>(chat.Turns[0].DisplayItems[0]).Text);
+                Assert.Equal($"Answer {turnCount - 1}", Assert.IsType<AssistantItemViewModel>(chat.Turns[^1].DisplayItems[^1]).Text);
+                Assert.True(chat.HasEarlierMessages);
+                Assert.All(chat.Turns, turn => Assert.Equal(3, turn.DisplayItems.Count));
+                var latestStart = chat.WindowStartMessageIndex;
+
+                do
+                {
+                    var previousStart = chat.WindowStartMessageIndex;
+                    await rig.Shell.LoadEarlierActivityCommand.ExecuteAsync(null);
+                    await WaitAsync(() => !chat.IsLoading && !chat.IsLatestWindow, "earlier history to load");
+                    Assert.Equal(previousStart, chat.WindowEndMessageIndex);
+                    Assert.InRange(chat.WindowStartMessageIndex, 0, previousStart - 1);
+                    Assert.NotEmpty(chat.Turns);
+                    Assert.All(chat.Turns, turn => Assert.Equal(3, turn.DisplayItems.Count));
+                    Assert.Equal(
+                        rig.DataStore.Data.Chats[0].Messages[chat.WindowStartMessageIndex].Content,
+                        Assert.IsType<UserTurnItemViewModel>(chat.Turns[0].DisplayItems[0]).Text);
+                } while (chat.HasEarlierMessages);
+
+                Assert.Equal(0, chat.WindowStartMessageIndex);
+                Assert.False(chat.HasEarlierMessages);
+                Assert.True(chat.HasLaterMessages);
+
+                await rig.Shell.ReturnToLatestCommand.ExecuteAsync(null);
+                await WaitAsync(() => !chat.IsLoading && chat.Turns.Count == 16, "recent history to return");
+                Assert.Equal(latestStart, chat.WindowStartMessageIndex);
+                Assert.True(chat.IsLatestWindow);
+            },
+            seed: data =>
+            {
+                var chat = new Chat
+                {
+                    Title = "Work-heavy history",
+                    Messages = RemoteWorkTimelineTests.DenseHistory(turnCount),
+                    UpdatedAt = DateTimeOffset.Now
+                };
+                chat.MessageCount = chat.Messages.Count;
+                data.Chats.Add(chat);
+            });
 
     [Fact]
     public Task PhoneCanCreateRenamePinAndDeleteChats() => RunAsync(async rig =>

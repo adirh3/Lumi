@@ -8,10 +8,12 @@ namespace Lumi.Tests;
 internal sealed class HeadlessTestSession : IDisposable
 {
     private readonly HeadlessUnitTestSession _inner;
+    private readonly bool _ownsSession;
 
-    private HeadlessTestSession(HeadlessUnitTestSession inner)
+    private HeadlessTestSession(HeadlessUnitTestSession inner, bool ownsSession = true)
     {
         _inner = inner;
+        _ownsSession = ownsSession;
     }
 
     public static HeadlessTestSession Start()
@@ -20,6 +22,12 @@ internal sealed class HeadlessTestSession : IDisposable
     public static HeadlessTestSession Start(Type appType)
     {
         ArgumentNullException.ThrowIfNull(appType);
+
+        // Reuse the UI thread for cached geometries while retaining PerTest application isolation.
+        if (appType == typeof(HeadlessTestApp))
+            return new HeadlessTestSession(
+                HeadlessUnitTestSession.GetOrStartForAssembly(appType.Assembly),
+                ownsSession: false);
 
         return new HeadlessTestSession(HeadlessUnitTestSession.StartNew(
             appType,
@@ -44,6 +52,9 @@ internal sealed class HeadlessTestSession : IDisposable
 
     public void Dispose()
     {
+        if (!_ownsSession)
+            return;
+
         try
         {
             _inner.Dispose();

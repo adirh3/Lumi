@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -10,6 +11,8 @@ using System.Threading.Tasks;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Permissions;
+using Lumi.Services.Sharing;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -70,12 +73,337 @@ public class CopilotIntegrationTests : IAsyncLifetime
     private static bool IsEnabled =>
         Environment.GetEnvironmentVariable("LUMI_INTEGRATION_TESTS") == "1";
 
+    [SkippableFact]
+    public async Task PromptSharing_RealModelPreservesDashboardRefinementsAndUsesRecipientFiles()
+    {
+        SkipIfDisabled();
+        var result = new Lumi.Models.ChatMessage
+        {
+            Role = "assistant",
+            Content = @"Created C:\Users\Sender\Reports\dashboard.xlsx with monthly category charts, recurring-charge highlights and a dark blue theme. The original CSV is untouched."
+        };
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Content = "Recommend an anime to watch." },
+                new() { Role = "assistant", Content = "Try a short adventure anime." },
+                new() { Content = @"Create an Excel expense dashboard from C:\Users\Sender\bank.csv.", Attachments = [@"C:\Users\Sender\bank.csv"] },
+                new() { Role = "assistant", Content = "I can use Excel COM on this Windows computer." },
+                new() { Content = "Use monthly category charts, highlight recurring charges and use a dark blue theme. Keep the original CSV unchanged. Never email or upload the bank data. API_KEY=private-fixture-key" },
+                result
+            ]
+        };
+        var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
+        var prompt = await _service.GenerateSharedPromptAsync(source);
+        _output.WriteLine(PromptSharing.Write(prompt));
+
+        Assert.Contains(prompt.Inputs, input => input.Kind == PromptInputKind.File);
+        Assert.Contains("monthly", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("recurring", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("blue", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches("(?i)(unchanged|untouched|read.only|do not (?:modify|alter|change)|without (?:modifying|altering|changing))", prompt.Content);
+        Assert.Matches("(?i)(never|do not|no|must not).*(?:upload|email)", prompt.Content);
+        Assert.DoesNotContain("anime", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("private-fixture-key", PromptSharing.Write(prompt));
+        Assert.DoesNotContain("Sender", PromptSharing.Write(prompt), StringComparison.OrdinalIgnoreCase);
+        Assert.False(PromptDraftBuilder.HasPersonalLocation(prompt));
+        Assert.Contains("operating system", PromptSharing.ComposeText(prompt));
+        Assert.Equal(6, chat.Messages.Count);
+    }
+
+    [SkippableFact]
+    public async Task PromptSharing_RealModelMakesPlatformSpecificBackupReusableWithoutAssumingSourceSetup()
+    {
+        var result = new Lumi.Models.ChatMessage
+        {
+            Role = "assistant",
+            Content = @"Set up SenderBackup on Windows with a scheduled PowerShell/robocopy job. It copies C:\Users\Sender\Code to D:\Backups at 09:00 Monday-Friday, retaining the last seven dated backups. It never uploads to the cloud or deletes the source."
+        };
+        SkipIfDisabled();
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Content = @"Set up a local backup of C:\Users\Sender\Code into D:\Backups." },
+                new() { Content = "Run at 09:00 on weekdays, retain seven dated backups. Don't upload to any cloud service or delete the source. Verify I can restore a file." },
+                result
+            ]
+        };
+        var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
+        var prompt = await _service.GenerateSharedPromptAsync(source);
+        _output.WriteLine(PromptSharing.Write(prompt));
+        Assert.True(prompt.Inputs.Count(input => input.Kind == PromptInputKind.Folder) >= 2);
+        Assert.Matches("(?i)(09:00|9:00|9\\s*(?:am|a\\.m\\.))", prompt.Content);
+        Assert.Matches("(?i)(weekday|Monday)", prompt.Content);
+        Assert.Matches("(?i)(seven|\\b7\\b)", prompt.Content);
+        Assert.Contains("restore", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches("(?i)(windows|operating system|platform|scheduler)", prompt.Content + string.Join(' ', prompt.Requirements));
+        Assert.False(PromptDraftBuilder.HasPersonalLocation(prompt));
+        Assert.DoesNotContain("SenderBackup", prompt.Content);
+        Assert.Contains("creating recurring jobs", PromptSharing.ComposeText(prompt));
+    }
+
+    [SkippableFact]
+    public async Task PromptSharing_RealRecipientAdaptsAWindowsTaskToLinuxAndAsksForMissingData()
+    {
+        SkipIfDisabled();
+        var result = new Lumi.Models.ChatMessage
+        {
+            Role = "assistant", Content = "Created the Excel dashboard using Excel COM on Windows. The original CSV is unchanged."
+        };
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Content = "Create an Excel workbook with monthly expense charts from my bank CSV. Keep the CSV unchanged.", Attachments = [@"C:\Users\Sender\bank.csv"] },
+                result
+            ]
+        };
+        var model = await _service.GetBackgroundModelIdAsync();
+        var prompt = await _service.GenerateSharedPromptAsync(PromptDraftBuilder.Create(chat, result.Id, "Windows"));
+        var raw = await _service.UseLightweightSessionAsync(new LightweightSessionOptions
+        {
+            Model = model,
+            SystemPrompt = """
+                Evaluate a shared task for a declared recipient machine. This is a planning-only
+                test: do not execute anything. The recipient is on Linux, has Python and openpyxl,
+                does not have Microsoft Excel, COM, PowerShell or Windows desktop automation, and
+                has not supplied the bank CSV. Treat these declared capabilities as authoritative,
+                not the test process's actual host environment.
+                Return ONLY JSON: {"approach":"specific viable tool/approach","missingInputs":["what the user must supply"],"canProceed":false,"needsWindows":false}.
+                Follow the shared prompt's setup checks. Do not claim you have accessed files or
+                completed the task. Distinguish missing data from missing Windows-only tooling.
+                """
+        }, async (session, ct) =>
+        {
+            var response = await session.SendAndWaitAsync(new MessageOptions
+            {
+                Prompt = PromptSharing.ComposeText(prompt)
+            }, TimeSpan.FromSeconds(90), ct);
+            return response?.Data?.Content;
+        });
+        Assert.False(string.IsNullOrWhiteSpace(raw));
+        _output.WriteLine("Generated share:\n" + PromptSharing.Write(prompt) + "\nLinux recipient plan:\n" + raw);
+        var json = raw!.Trim();
+        if (PackText.TryUnwrapSingleFence(json, out var inner))
+            json = inner;
+        using var plan = JsonDocument.Parse(json);
+        Assert.False(plan.RootElement.GetProperty("canProceed").GetBoolean());
+        Assert.False(plan.RootElement.GetProperty("needsWindows").GetBoolean());
+        Assert.Contains("openpyxl", plan.RootElement.GetProperty("approach").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(plan.RootElement.GetProperty("missingInputs").EnumerateArray(),
+            input => input.GetString()?.Contains("csv", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    [SkippableFact]
+    public async Task PromptSharing_RealModelRetainsFormatsFromRedactedFileLocations()
+    {
+        SkipIfDisabled();
+        var result = new Lumi.Models.ChatMessage
+        {
+            Role = "assistant",
+            Content = @"Created D:\PrivateExports\private-slides.pptx. One slide per section, three short bullets per slide."
+        };
+        var chat = new Chat
+        {
+            Messages =
+            [
+                new() { Content = """Convert "C:\Users\Sender\private-source.md" to "D:\PrivateExports\private-slides.pptx". Use one slide per section and at most three short bullets per slide.""" },
+                result
+            ]
+        };
+        var source = PromptDraftBuilder.Create(chat, result.Id, "Windows");
+        var prompt = await _service.GenerateSharedPromptAsync(source);
+        _output.WriteLine(PromptSharing.Write(prompt));
+        Assert.Contains(prompt.Inputs, input => input.Kind == PromptInputKind.File);
+        Assert.Matches(@"(?i)(markdown|\.md)", prompt.Content + string.Join(' ', prompt.Requirements));
+        Assert.Contains(".pptx", prompt.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches("(?i)(slide[^\\n]*section|section[^\\n]*slide)", prompt.Content);
+        Assert.False(PromptDraftBuilder.HasPersonalLocation(prompt));
+        Assert.DoesNotContain("private-source", prompt.Content);
+        Assert.DoesNotContain("private-slides", prompt.Content);
+    }
+
     public async Task InitializeAsync()
     {
         if (!IsEnabled) return;
         _service = new CopilotService();
         await _service.ConnectAsync();
     }
+
+#pragma warning disable GHCP001 // Deterministic native permission pipeline; no model inference.
+    /// <summary>
+    /// Lumi's approval choices, applied by its own policy code, are what the native runtime enforces:
+    /// a Never rule even in Full access, an Always-ask layer even in Full access, Ask first, and an
+    /// Allow rule, on a created session and again after resume (the runtime keeps no rules across it).
+    /// </summary>
+    [SkippableFact]
+    public async Task Permissions_LumisPolicy_IsEnforcedNatively_OnCreateAndResume()
+    {
+        SkipIfDisabled();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
+        var ct = timeout.Token;
+        var executions = 0;
+        var tool = AIFunctionFactory.Create((string receipt) =>
+        {
+            Interlocked.Increment(ref executions);
+            return receipt;
+        }, "permission_probe", "Return the isolated permission-test receipt.");
+        ApprovalRule ProbeRule(ApprovalRuleAction action)
+            => new() { Action = action, Kind = ApprovalRuleKind.LumiTool, Target = "permission_probe" };
+
+        var data = new AppData();
+        var chat = new Chat();
+        data.Chats.Add(chat);
+        data.Settings.ApprovalRules.Add(ProbeRule(ApprovalRuleAction.Never));
+        using var vm = new ChatViewModel(new DataStore(data), _service);
+        var handler = SessionConfigBuilder.BuildPermissionHandler(() => ApprovalPolicy.ResolveMode(chat, null, data.Settings).Mode);
+
+        var created = await _service.CreateSessionAsync(SessionConfigBuilder.Build(
+            "Permission integration fixture. No inference is needed.", null, null, null,
+            [], [], [tool], null, null, handler, ChatViewModel.BuildSessionHooks(),
+            enableCapabilityDiscovery: false), ct);
+        var sessionId = created.SessionId;
+        try
+        {
+            // Full access, the default, still refuses what the user said Never to, without asking.
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.Equal(PermissionMode.AllowAll, (await created.Rpc.Permissions.GetModeAsync(ct)).Mode);
+            Assert.Null(await RunAsync(created, chat, "never", answer: null));
+            Assert.Equal(0, executions);
+
+            // Auto-review is the runtime's native assisted mode, which Lumi's CLI environment turns on.
+            chat.ApprovalMode = ApprovalMode.AutoReview;
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.Equal(PermissionMode.Assisted, (await created.Rpc.Permissions.GetModeAsync(ct)).Mode);
+
+            // Ask first: the request waits for a person, and runs once allowed.
+            data.Settings.ApprovalRules.Clear();
+            chat.ApprovalMode = ApprovalMode.AskFirst;
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.Equal(PermissionMode.Manual, (await created.Rpc.Permissions.GetModeAsync(ct)).Mode);
+            Assert.NotNull(await RunAsync(created, chat, "ask-allow", ApproveOnce()));
+            Assert.Equal(1, executions);
+            Assert.NotNull(await RunAsync(created, chat, "ask-deny", Deny()));
+            Assert.Equal(1, executions);
+
+            // "Allow for this chat" is a native session approval, kept apart from the rules: replacing
+            // the rules alone leaves it, and Lumi's policy apply clears it, so a forgotten one asks again.
+            Assert.NotNull(await RunAsync(created, chat, "session-allow", ApproveForSession()));
+            Assert.Equal(2, executions);
+            Assert.True((await created.Rpc.Permissions.ConfigureAsync(rules: ApprovalPolicy.BuildSessionRules([]), cancellationToken: ct)).Success);
+            Assert.Null(await RunAsync(created, chat, "session-remembered", answer: null));
+            Assert.Equal(3, executions);
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.NotNull(await RunAsync(created, chat, "session-forgotten", Deny()));
+            Assert.Equal(3, executions);
+
+            // A remembered Allow rule runs it without asking.
+            chat.ApprovalRules.Add(ProbeRule(ApprovalRuleAction.Allow));
+            await vm.PrepareSessionPermissionsAsync(created, chat, null, ct);
+            Assert.Null(await RunAsync(created, chat, "allowed", answer: null));
+            Assert.Equal(4, executions);
+        }
+        finally
+        {
+            await created.DisposeAsync();
+        }
+
+        // After a resume Lumi installs the chat's mode and rules again.
+        await using var resumed = await _service.ResumeSessionAsync(sessionId, SessionConfigBuilder.BuildForResume(
+            "Permission integration fixture. No inference is needed.", null, null, null,
+            [], [], [tool], null, null, handler, ChatViewModel.BuildSessionHooks(),
+            enableCapabilityDiscovery: false), ct);
+        await vm.PrepareSessionPermissionsAsync(resumed, chat, null, ct);
+        Assert.Equal(PermissionMode.Manual, (await resumed.Rpc.Permissions.GetModeAsync(ct)).Mode);
+        Assert.Null(await RunAsync(resumed, chat, "resume-allowed", answer: null));
+        Assert.Equal(5, executions);
+        chat.ApprovalRules.Clear();
+        await vm.PrepareSessionPermissionsAsync(resumed, chat, null, ct);
+        Assert.NotNull(await RunAsync(resumed, chat, "resume-deny", Deny()));
+        Assert.Equal(5, executions);
+
+        // Stop: native Abort retires a waiting request without running it.
+        var stoppingRequest = new TaskCompletionSource<PermissionRequestedData>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using (resumed.On<PermissionRequestedEvent>(evt => stoppingRequest.TrySetResult(evt.Data)))
+        {
+            var stoppingArguments = JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["receipt"] = "must-not-execute" });
+            var stoppingExecution = resumed.Rpc.Tools.ExecuteAsync("permission_probe", stoppingArguments, "stop-pending", ct);
+            var stoppingPermission = await stoppingRequest.Task.WaitAsync(TimeSpan.FromSeconds(20), ct);
+            await resumed.AbortAsync(ct);
+            var stopError = await Record.ExceptionAsync(() => stoppingExecution.WaitAsync(TimeSpan.FromSeconds(10), ct));
+            Assert.False(stopError is TimeoutException, "Native Abort must release the blocked tool call.");
+            Assert.DoesNotContain((await resumed.Rpc.Permissions.PendingRequestsAsync(ct)).Items,
+                item => item.RequestId == stoppingPermission.RequestId);
+            Assert.Equal(5, executions);
+        }
+
+        // An Always-ask rule is a startup layer that requires a person even in Full access.
+        var alwaysAsk = new Chat();
+        data.Chats.Add(alwaysAsk);
+        alwaysAsk.ApprovalRules.Add(ProbeRule(ApprovalRuleAction.Ask));
+        var askLayer = ApprovalPolicy.BuildAskLayer(alwaysAsk.ApprovalRules);
+        var askConfig = SessionConfigBuilder.Build(
+            "Permission integration fixture. No inference is needed.", null, null, null,
+            [], [], [tool], null, null,
+            SessionConfigBuilder.BuildPermissionHandler(() => ApprovalPolicy.ResolveMode(alwaysAsk, null, data.Settings).Mode),
+            ChatViewModel.BuildSessionHooks(), enableCapabilityDiscovery: false);
+        askConfig.ManagedSettings = askLayer;
+        await using var asking = await _service.CreateSessionAsync(askConfig, ct);
+        await vm.PrepareSessionPermissionsAsync(asking, alwaysAsk, askLayer, ct);
+        Assert.Equal(PermissionMode.AllowAll, (await asking.Rpc.Permissions.GetModeAsync(ct)).Mode);
+        var managed = await RunAsync(asking, alwaysAsk, "always-ask", ApproveOnce());
+        Assert.True(managed?.PermissionRequest?.ManagedApprovalRequired);
+        Assert.Equal(6, executions);
+
+        static GitHub.Copilot.Rpc.PermissionDecision ApproveOnce()
+            => new GitHub.Copilot.Rpc.PermissionDecisionApproveOnce { ApprovedInteractively = true };
+
+        static GitHub.Copilot.Rpc.PermissionDecision ApproveForSession()
+            => new GitHub.Copilot.Rpc.PermissionDecisionApproveForSession
+            {
+                Approval = new GitHub.Copilot.Rpc.PermissionDecisionApproveForSessionApprovalCustomTool { ToolName = "permission_probe" }
+            };
+
+        static GitHub.Copilot.Rpc.PermissionDecision Deny()
+            => GitHub.Copilot.Rpc.PermissionDecision.Reject("Denied by the isolated test user.");
+
+        // Runs the probe; answers the request it raises, or returns null when none needed a person.
+        async Task<PermissionRequestedData?> RunAsync(
+            CopilotSession session, Chat owner, string toolCallId, GitHub.Copilot.Rpc.PermissionDecision? answer)
+        {
+            var requested = new TaskCompletionSource<PermissionRequestedData>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var subscription = session.On<PermissionRequestedEvent>(evt =>
+            {
+                if (evt.Data.ResolvedByHook != true
+                    && evt.Data.PermissionRequest is PermissionRequestCustomTool { ToolName: "permission_probe" } request
+                    && SessionConfigBuilder.NeedsPerson(ApprovalPolicy.ResolveMode(owner, null, data.Settings).Mode, request))
+                    requested.TrySetResult(evt.Data);
+            });
+            var arguments = JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["receipt"] = toolCallId });
+            var execution = session.Rpc.Tools.ExecuteAsync("permission_probe", arguments, toolCallId, ct);
+            if (await Task.WhenAny(execution, requested.Task).WaitAsync(TimeSpan.FromSeconds(30), ct) == execution)
+            {
+                await execution;
+                Assert.Null(answer);
+                _output.WriteLine($"{toolCallId}: settled without asking");
+                return null;
+            }
+
+            var permission = await requested.Task;
+            Assert.NotNull(answer);
+            Assert.False(execution.IsCompleted);
+            Assert.True((await session.Rpc.Permissions.HandlePendingPermissionRequestAsync(
+                permission.RequestId, answer!, cancellationToken: ct)).Success);
+            await execution.WaitAsync(TimeSpan.FromSeconds(20), ct);
+            Assert.False((await session.Rpc.Permissions.HandlePendingPermissionRequestAsync(
+                permission.RequestId, answer!, cancellationToken: ct)).Success);
+            _output.WriteLine($"{toolCallId}: native request {permission.RequestId} answered {answer!.Kind}");
+            return permission;
+        }
+    }
+#pragma warning restore GHCP001
 
     public async Task DisposeAsync()
     {
@@ -85,6 +413,103 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
     private void SkipIfDisabled() =>
         Skip.If(!IsEnabled, "Set LUMI_INTEGRATION_TESTS=1 to run SDK integration tests.");
+
+    [SkippableFact]
+    public async Task Authentication_RefreshUpdatesSharedLoginPanel()
+    {
+        SkipIfDisabled();
+        var status = await _service.GetAuthStatusAsync();
+        Skip.If(status.IsAuthenticated != true, "Requires an already authenticated Copilot account.");
+
+        await using var browser = new BrowserService();
+        using var settings = new SettingsViewModel(
+            new DataStore(new AppData()), _service, browser, new UpdateService());
+        var login = new GitHubLoginViewModel(_service);
+        settings.LoginVM = login;
+
+        await settings.RefreshAuthStatusAsync();
+
+        Assert.True(settings.IsAuthenticated);
+        Assert.True(login.IsAuthenticated);
+        Assert.Equal(settings.GitHubLogin, login.GitHubLogin);
+        Assert.NotEmpty(login.GitHubLogin);
+    }
+
+    [SkippableFact]
+    public async Task Authentication_DisconnectInvalidatesOwnedSessions()
+    {
+        SkipIfDisabled();
+        var before = await _service.GetAuthStatusAsync();
+        var notifications = 0;
+        _service.Reconnected += OnReconnected;
+        try
+        {
+            await _service.DisconnectAsync();
+            Assert.Equal(1, notifications);
+            var refreshed = await _service.GetAuthStatusAsync();
+            Assert.True(_service.IsConnected);
+            Assert.Equal(before.IsAuthenticated, refreshed.IsAuthenticated);
+            Assert.Equal(1, notifications);
+        }
+        finally
+        {
+            _service.Reconnected -= OnReconnected;
+        }
+
+        void OnReconnected() => notifications++;
+    }
+
+#pragma warning disable GHCP001 // Vault-disabled SDK fixture never targets a real user.
+    [SkippableFact]
+    public async Task Authentication_SdkLogoutWorksWithoutAccessToTheOsVault()
+    {
+        SkipIfDisabled();
+        var profile = Directory.CreateTempSubdirectory("Lumi-logout-fixture-");
+        try
+        {
+            var environment = Environment.GetEnvironmentVariables()
+                .Cast<System.Collections.DictionaryEntry>()
+                .Where(entry => entry.Key is string key
+                    && !key.Contains("TOKEN", StringComparison.OrdinalIgnoreCase)
+                    && !key.StartsWith("COPILOT_", StringComparison.OrdinalIgnoreCase)
+                    && !key.StartsWith("GITHUB_", StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(entry => (string)entry.Key, entry => (string)entry.Value!,
+                    OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+            environment["PATH"] = "";
+            var binary = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+            var cli = Path.Combine(AppContext.BaseDirectory, "runtimes",
+                System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier, "native", binary);
+            await using var client = new CopilotClient(new CopilotClientOptions
+            {
+                Mode = CopilotClientMode.Empty,
+                Connection = RuntimeConnection.ForStdio(cli),
+                BaseDirectory = profile.FullName,
+                Environment = environment,
+                UseLoggedInUser = false
+            });
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await client.StartAsync(timeout.Token);
+            Assert.False((await client.GetAuthStatusAsync(timeout.Token)).IsAuthenticated);
+            Assert.Empty((await client.Rpc.Account.GetAllUsersAsync(timeout.Token))!);
+
+            var result = await client.Rpc.Account.LogoutAsync(
+                authInfo: new GitHub.Copilot.Rpc.AuthInfoUser
+                {
+                    Host = "https://github.com",
+                    Login = $"lumi-fixture-{Guid.NewGuid():N}"
+                },
+                cancellationToken: timeout.Token);
+
+            Assert.NotNull(result);
+            Assert.False(result.HasMoreUsers);
+            Assert.False((await client.GetAuthStatusAsync(timeout.Token)).IsAuthenticated);
+        }
+        finally
+        {
+            profile.Delete(recursive: true);
+        }
+    }
+#pragma warning restore GHCP001
 
     // ═══════════════════════════════════════════════════════════════════════
     //  Helpers
@@ -592,6 +1017,72 @@ public class CopilotIntegrationTests : IAsyncLifetime
     // ═══════════════════════════════════════════════════════════════════════
 
     [SkippableFact]
+    public async Task ChatPause_EmptyBatchContinuesAfterAbort_WithoutAnotherUserMessage()
+    {
+        SkipIfDisabled();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var tool = AIFunctionFactory.Create(async (CancellationToken cancellationToken) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                started.TrySetResult();
+                try { await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken); }
+                catch (OperationCanceledException)
+                {
+                    canceled.TrySetResult();
+                    throw;
+                }
+            }
+            return "NATIVE_RESUME_COMPLETE";
+        }, "resume_probe", "Get the completion marker. Retry this tool if it was interrupted.");
+        var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            Model = "gpt-5-mini",
+            SystemPrompt = "Call resume_probe and reply with its returned marker. Retry if interrupted.",
+            Tools = [tool],
+            Streaming = true
+        });
+        var session = await _service.CreateSessionAsync(config);
+        var userMessages = 0;
+        var assistantMessages = new List<string>();
+        using var subscription = session.On<SessionEvent>(evt =>
+        {
+            if (evt is UserMessageEvent)
+                Interlocked.Increment(ref userMessages);
+            else if (evt is AssistantMessageEvent message)
+                assistantMessages.Add(message.Data.Content ?? "");
+        });
+        try
+        {
+            await session.SendAsync(new MessageOptions { Prompt = "Run the tool and report its marker." });
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(60));
+#pragma warning disable GHCP001
+            await session.Rpc.Queue.SetDrainPausedAsync(true);
+            var abort = await session.Rpc.AbortAsync();
+            Assert.True(abort.Success, abort.Error);
+            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            _output.WriteLine("Abort accepted.");
+            Assert.Equal(1, calls);
+            await session.Rpc.Queue.SetDrainPausedAsync(false);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            await session.Rpc.SendMessagesAsync([], wait: true, cancellationToken: timeout.Token);
+#pragma warning restore GHCP001
+            _output.WriteLine($"Calls: {calls}; user messages: {userMessages}; assistant responses: " +
+                              string.Join(" | ", assistantMessages));
+            Assert.True(calls >= 2);
+            Assert.Equal(1, userMessages);
+            Assert.Contains(assistantMessages, message => message.Contains("NATIVE_RESUME_COMPLETE"));
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(session.SessionId);
+        }
+    }
+
+    [SkippableFact]
     public async Task CustomTool_IsInvoked_WithEventsAndHook()
     {
         SkipIfDisabled();
@@ -754,6 +1245,96 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var session = await _service.CreateSessionAsync(config);
         Assert.NotEmpty(session.SessionId);
         await session.DisposeAsync();
+    }
+
+    [SkippableFact]
+    public async Task NativeMcpSessionLoss_RealCliRestartKeepsSessionAndDoesNotReplay()
+    {
+        SkipIfDisabled();
+        using var failedServer = new LazyMcpRuntimeTests.FakeMcp("call-session-stuck");
+        using var unaffectedServer = new LazyMcpRuntimeTests.FakeMcp();
+        const string serverName = "native-session-loss";
+        var configDirectory = Directory.CreateDirectory(Path.Combine(failedServer.Root, "cli-config")).FullName;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var session = await _service.CreateSessionAsync(new SessionConfig
+        {
+            WorkingDirectory = failedServer.Root,
+            ConfigDirectory = configDirectory,
+            EnableConfigDiscovery = false,
+            EnableSessionStore = false,
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            McpServers = new Dictionary<string, McpServerConfig>
+            {
+                [serverName] = failedServer.Definition(lazy: false).Config,
+                ["unaffected-server"] = unaffectedServer.Definition(lazy: false).Config
+            }
+        }, timeout.Token);
+        var sessionId = session.SessionId;
+        var nativeCalls = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var restartTimes = new Dictionary<string, long>(StringComparer.Ordinal);
+        var restartCount = 0;
+        try
+        {
+            await session.Rpc.Mcp.ListAsync(timeout.Token);
+            await session.Rpc.Tools.InitializeAndValidateAsync(timeout.Token);
+            var metadata = await session.Rpc.Tools.GetCurrentMetadataAsync(timeout.Token);
+            Assert.NotNull(metadata.Tools);
+            var tool = Assert.Single(metadata.Tools,
+                item => item.McpServerName == serverName && item.McpToolName == "echo");
+            var marker = Guid.NewGuid().ToString("N");
+            var arguments = JsonSerializer.SerializeToElement(new { value = marker });
+            Assert.Contains("MCP error -32001: Session not found",
+                (await session.Rpc.Tools.ExecuteAsync(
+                    tool.Name, arguments, "baseline-first", timeout.Token)).GetRawText(), StringComparison.Ordinal);
+            Assert.Contains("MCP error -32001: Session not found",
+                (await session.Rpc.Tools.ExecuteAsync(
+                    tool.Name, arguments, "baseline-second", timeout.Token)).GetRawText(), StringComparison.Ordinal);
+            Assert.Single(failedServer.Starts);
+            Assert.Equal(2, failedServer.Messages("tools/call").Length);
+
+            var failure = await session.Rpc.Tools.ExecuteAsync(
+                tool.Name, arguments, "expired-call", timeout.Token);
+            Assert.NotEqual("success", failure.GetProperty("resultType").GetString());
+            var completion = new ToolExecutionCompleteData
+            {
+                ToolCallId = "expired-call",
+                Success = false,
+                Error = new ToolExecutionCompleteError { Message = failure.GetProperty("error").GetString() }
+            };
+            Assert.True(McpStdioServerConnection.IsRecoverableSessionLossMessage(completion.Error.Message));
+            nativeCalls[completion.ToolCallId] = serverName;
+            // Direct tool RPCs do not emit assistant-turn events. Feed their actual failure
+            // through the subscription's helper; unit tests cover event provenance separately.
+            await ChatViewModel.RestartNativeMcpServerAfterSessionLossAsync(
+                completion, nativeCalls, restartTimes, async name =>
+                {
+                    Assert.Equal(serverName, name);
+                    Interlocked.Increment(ref restartCount);
+                    await session.Rpc.Mcp.RestartServerAsync(name, null, timeout.Token);
+                });
+
+            Assert.Equal(1, restartCount);
+            Assert.Equal(2, failedServer.Starts.Length);
+            Assert.Single(unaffectedServer.Starts);
+            Assert.Equal(3, failedServer.Messages("tools/call").Length);
+            Assert.Equal(sessionId, session.SessionId);
+            Assert.Contains((await session.Rpc.Mcp.ListToolsAsync(serverName, timeout.Token)).Tools,
+                item => item.Name == "echo");
+
+            // Direct RPC calls must refresh the offered set before their next invocation.
+            await session.Rpc.Tools.InitializeAndValidateAsync(timeout.Token);
+            var result = await session.Rpc.Tools.ExecuteAsync(tool.Name, arguments, "explicit-next-call", timeout.Token);
+            _output.WriteLine("Post-restart synthetic tool result: " + result.GetRawText());
+            Assert.Contains(marker, result.GetRawText(), StringComparison.Ordinal);
+            Assert.Equal(4, failedServer.Messages("tools/call").Length);
+            Assert.Equal(1, restartCount);
+            Assert.Equal(sessionId, session.SessionId);
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await _service.DeleteSessionAsync(sessionId);
+        }
     }
 
     [SkippableFact]
@@ -1103,6 +1684,177 @@ public class CopilotIntegrationTests : IAsyncLifetime
     // ═══════════════════════════════════════════════════════════════════════
     // 15. Title generation — lightweight session
     // ═══════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task BackgroundModel_HelperConfigPreservesExplicitOverridesAndIsolation()
+    {
+        await using var service = new CopilotService();
+        var config = await service.BuildLightweightSessionConfigAsync(new LightweightSessionOptions
+        {
+            SystemPrompt = "Isolated fixture helper.",
+            Model = "explicit-fixture-model",
+            Streaming = false
+        });
+
+        Assert.Equal("explicit-fixture-model", config.Model);
+        Assert.False(config.EnableConfigDiscovery);
+        Assert.False(config.EnableSessionStore);
+        Assert.Empty(config.AvailableTools!);
+        Assert.Equal("Isolated fixture helper.", config.SystemMessage?.Content);
+    }
+
+    [Fact]
+    public async Task BackgroundModel_ByokOnlyTogglePreservesCredentialStoreRouting()
+    {
+        await using var service = new CopilotService();
+        var keyStore = new FakeSecureKeyStore();
+        var endpoint = new ByokEndpoint
+        {
+            Id = "background-credential-endpoint",
+            Name = "Credential fixture",
+            ProviderType = "openai",
+            BaseUrl = "http://127.0.0.1:1/v1",
+            WireApi = "completions",
+            ApiKeyMode = ByokApiKeyMode.CredentialStore
+        };
+        var model = new ByokModel
+        {
+            Id = "background-credential-model",
+            EndpointId = endpoint.Id,
+            ModelId = "private-wire-model",
+            DisplayName = "Private background model"
+        };
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                BackgroundModel = ByokConfigHelper.BuildModelToken(model),
+                ByokEndpoints = [endpoint],
+                ByokModels = [model]
+            }
+        };
+        await keyStore.SetAsync(
+            Lumi.Services.Byok.SecureKeyStoreFactory.EndpointKey(endpoint.Id), "fixture-credential");
+        service.SetSettingsProvider(() => data.Settings, keyStore);
+        await using var browser = new BrowserService();
+        using var settingsVm = new SettingsViewModel(
+            new DataStore(data), service, browser, new UpdateService(), keyStore);
+        var options = new LightweightSessionOptions { SystemPrompt = "Credential fixture helper." };
+        Assert.Equal("fixture-credential",
+            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+
+        settingsVm.UseBYOKOnly = true;
+        Assert.Equal("fixture-credential",
+            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+        settingsVm.UseBYOKOnly = false;
+        Assert.Equal("fixture-credential",
+            (await service.BuildLightweightSessionConfigAsync(options)).Provider?.ApiKey);
+    }
+
+    [SkippableFact]
+    public async Task BackgroundModel_UsesLivePreferenceForHelpersAndRefreshesCachedSuggestions()
+    {
+        SkipIfDisabled();
+        var settings = new UserSettings { PreferredModel = "not-the-background-model" };
+        _service.SetSettingsProvider(() => settings);
+        var catalog = await _service.GetModelsAsync();
+        var automatic = await _service.GetBackgroundModelIdAsync();
+        Assert.Equal(CopilotService.SelectCheapestModelId(catalog), automatic);
+        _output.WriteLine($"BACKGROUND_MODEL_AUTO={automatic}");
+        foreach (var model in catalog.Where(CopilotService.IsModelEnabled))
+        {
+            _output.WriteLine(
+                $"{model.Id}: tokenSampleCredits={CopilotService.GetModelTokenCost(model)?.ToString("R", CultureInfo.InvariantCulture) ?? "unknown"}, " +
+                $"multiplier={model.Billing?.Multiplier?.ToString("R", CultureInfo.InvariantCulture) ?? "unknown"}");
+        }
+
+        var usedModel = await _service.UseLightweightSessionAsync(
+            new LightweightSessionOptions { SystemPrompt = "Reply exactly BACKGROUND_MODEL_OK." },
+            async (session, ct) =>
+            {
+                var usage = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var subscription = session.On<AssistantUsageEvent>(evt =>
+                {
+                    if (evt.Data?.Model is { } model)
+                        usage.TrySetResult(model);
+                });
+                var reply = await session.SendAndWaitAsync(
+                    new MessageOptions { Prompt = "Reply exactly BACKGROUND_MODEL_OK." },
+                    TimeSpan.FromSeconds(60), ct);
+                Assert.Equal("BACKGROUND_MODEL_OK", reply?.Data?.Content?.Trim());
+                return await usage.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+            });
+        Assert.Equal(automatic, usedModel);
+
+        settings.BackgroundModel = automatic;
+        Assert.False(string.IsNullOrWhiteSpace(
+            await _service.GenerateTitleAsync("Find cozy anime for a rainy evening.")));
+        var suggestions = await _service.GenerateSuggestionsAsync(
+            "Try a cozy slice-of-life anime with short episodes.", "Find a cozy anime.");
+        Assert.NotEmpty(suggestions!);
+        var sessionField = typeof(CopilotService).GetField("_suggestionSession", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var first = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
+
+        var secondModel = CopilotService.SelectCheapestModelId(catalog.Where(model => model.Id != automatic));
+        Assert.NotNull(secondModel);
+        settings.BackgroundModel = secondModel!;
+        suggestions = await _service.GenerateSuggestionsAsync(
+            "You can watch one short episode this evening.", "What can I watch tonight?");
+        Assert.NotEmpty(suggestions!);
+        var second = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
+        Assert.NotEqual(first.SessionId, second.SessionId);
+        var secondUsage = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var secondSubscription = second.On<AssistantUsageEvent>(evt =>
+        {
+            if (evt.Data?.Model is { } model)
+                secondUsage.TrySetResult(model);
+        });
+        await _service.GenerateSuggestionsAsync("It is available with subtitles.", "Does it have subtitles?");
+        Assert.Same(second, sessionField.GetValue(_service));
+        Assert.Equal(secondModel, await secondUsage.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        _output.WriteLine($"BACKGROUND_MODEL_OVERRIDE={secondModel}");
+
+        settings.UseBYOKOnly = true;
+        Assert.Null(await _service.GenerateTitleAsync("This must not reach Copilot."));
+        Assert.Null(await _service.GenerateSuggestionsAsync("Private exchange.", "Private message."));
+        await Assert.ThrowsAsync<ByokOnlyRequestBlockedException>(() =>
+            _service.BuildLightweightSessionConfigAsync(
+                new LightweightSessionOptions { SystemPrompt = "Blocked helper." }));
+
+        var endpoint = new ByokEndpoint
+        {
+            Id = "background-fixture-endpoint",
+            Name = "Background fixture",
+            ProviderType = "openai",
+            BaseUrl = "http://127.0.0.1:1/v1",
+            WireApi = "completions",
+            ApiKeyMode = ByokApiKeyMode.None
+        };
+        var byokModel = new ByokModel
+        {
+            Id = "background-fixture-model",
+            EndpointId = endpoint.Id,
+            ModelId = "private-wire-model",
+            DisplayName = "Private background model",
+            DefaultContextWindowTokens = 128_000,
+            MaxRequestsPerMinute = 10
+        };
+        settings.ByokEndpoints.Add(endpoint);
+        settings.ByokModels.Add(byokModel);
+        Assert.Null(ByokConfigHelper.ValidateEndpoint(endpoint));
+        Assert.Null(ByokConfigHelper.ValidateModel(byokModel, endpoint));
+        settings.BackgroundModel = ByokConfigHelper.BuildModelToken(byokModel);
+        var config = await _service.BuildLightweightSessionConfigAsync(
+            new LightweightSessionOptions { SystemPrompt = "BYOK helper." });
+        Assert.Equal(byokModel.ModelId, config.Model);
+        Assert.Equal(endpoint.BaseUrl, config.Provider?.BaseUrl);
+        Assert.Equal(128_000, config.ModelCapabilities?.Limits?.MaxContextWindowTokens);
+        Assert.True(_service.ByokRateLimiter.IsRateLimited(byokModel.Id));
+        settings.BackgroundModel = "byok:missing";
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.BuildLightweightSessionConfigAsync(
+                new LightweightSessionOptions { SystemPrompt = "Invalid BYOK helper." }));
+    }
 
     [SkippableFact]
     public async Task TitleGeneration_ProducesTitle()

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using GitHub.Copilot;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
@@ -105,6 +106,7 @@ public partial class ChatViewModel
             if (changed)
             {
                 InvalidateProjectSession();
+                _ = ApplyApprovalPolicyAsync(CurrentChat);
             }
         }
         else
@@ -113,6 +115,7 @@ public partial class ChatViewModel
             _pendingProjectId = projectId;
             ApplyDraftProjectWorkspaceDefault(projectId);
             OnPropertyChanged(nameof(CurrentChat));
+            NotifyPermissionPropertiesChanged();
         }
 
         SyncComposerProjectSelectionFromState();
@@ -138,6 +141,7 @@ public partial class ChatViewModel
                 return;
 
             _activeProjectFilterId = value;
+            NotifyPermissionPropertiesChanged();
             RefreshCapabilities();
             RefreshActiveSkillChipsFromState();
             QueueRefreshCodingProjectState();
@@ -164,6 +168,7 @@ public partial class ChatViewModel
             if (changed)
             {
                 InvalidateProjectSession();
+                _ = ApplyApprovalPolicyAsync(CurrentChat);
             }
         }
         else
@@ -171,6 +176,7 @@ public partial class ChatViewModel
             _pendingProjectId = null;
             ApplyDraftProjectWorkspaceDefault(null);
             OnPropertyChanged(nameof(CurrentChat));
+            NotifyPermissionPropertiesChanged();
         }
 
         SyncComposerProjectSelectionFromState();
@@ -402,7 +408,7 @@ public partial class ChatViewModel
             foreach (var server in GetCapabilities().UserInvocable(CapabilityKind.McpServer))
             {
                 ActiveMcpServerNames.Add(server.Name);
-                ActiveMcpChips.Add(ToMcpChip(server));
+                ActiveMcpChips.Add(WithMcpIssue(ToMcpChip(server)));
             }
         }
         finally
@@ -411,16 +417,54 @@ public partial class ChatViewModel
         }
     }
 
-    private static StrataTheme.Controls.StrataComposerChip ToMcpChip(CapabilityDescriptor server)
+    private StrataTheme.Controls.StrataComposerChip ToMcpChip(CapabilityDescriptor server)
         => ToMcpChip(server.Name, server);
 
-    /// <summary>Builds an MCP chip, carrying the source hint whenever the capability is known.</summary>
-    private static StrataTheme.Controls.StrataComposerChip ToMcpChip(string name, CapabilityDescriptor? server)
+    /// <summary>
+    /// Builds an MCP chip, carrying the source hint whenever the capability is known. For the composer's
+    /// connector list it also says what the connector is and groups it as the connectors page does: the
+    /// user's own connectors, then those from plugins and Copilot.
+    /// </summary>
+    private StrataTheme.Controls.StrataComposerChip ToMcpChip(string name, CapabilityDescriptor? server)
         => new(
             name,
             string.IsNullOrWhiteSpace(server?.Glyph) ? CopilotSdkCapabilityProvider.McpGlyph : server!.Glyph!,
-            SecondaryText: server?.Description,
-            SourceLabel: server?.SourceLabel);
+            SecondaryText: DescribeConnector(server),
+            Value: server?.LumiId?.ToString(),
+            SourceLabel: server?.SourceLabel,
+            Group: server is null ? null : server.Origin.IsLumi ? Loc.External_SectionYours : Loc.External_SidebarHeading);
+
+    /// <summary>
+    /// One line about what a connector is: the user's own description when there is one, otherwise where
+    /// it comes from or how it runs. Never a raw command line or address, which is all some sources offer.
+    /// </summary>
+    internal string? DescribeConnector(CapabilityDescriptor? server)
+    {
+        if (server is null)
+            return null;
+
+        if (server.Origin.IsLumi)
+        {
+            if (BuildChipSearchText(server.Description, null) is { } description)
+                return description;
+
+            var definition = server.LumiId is Guid id ? _dataStore.Data.McpServers.FirstOrDefault(candidate => candidate.Id == id) : null;
+            return definition is null
+                ? null
+                : string.Equals(definition.ServerType, "remote", StringComparison.OrdinalIgnoreCase)
+                    ? Loc.ConnectorCaption_Remote
+                    : Loc.ConnectorCaption_Local;
+        }
+
+        return server.Origin.Id switch
+        {
+            CapabilityOrigin.PluginId when !string.IsNullOrWhiteSpace(server.PluginName)
+                => string.Format(System.Globalization.CultureInfo.CurrentCulture, Loc.ConnectorCaption_Plugin, server.PluginName.Trim()),
+            CapabilityOrigin.ProjectId or CapabilityOrigin.WorkspaceId => Loc.ConnectorCaption_Project,
+            CapabilityOrigin.PersonalId => Loc.ConnectorCaption_Personal,
+            _ => Loc.ConnectorCaption_Copilot,
+        };
+    }
 
     /// <summary>Selects a project by name (called from composer autocomplete).</summary>
     public void SelectProjectByName(string name)

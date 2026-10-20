@@ -121,13 +121,14 @@ public sealed class WorkspaceMcpCapabilityProvider : ICapabilityProvider
                 Origin = CapabilityOrigin.Workspace,
                 Description = server.ServerType == "remote" ? server.Url : server.Command,
                 SourcePath = contextDirectory,
+                ConfigFilePath = path,
                 Glyph = CopilotSdkCapabilityProvider.McpGlyph,
                 McpDefinition = server,
             });
         }
     }
 
-    private static McpServer? ToServer(string name, JsonElement element, string contextDirectory)
+    internal static McpServer? ToServer(string name, JsonElement element, string contextDirectory)
     {
         var declaredType = GetString(element, "type")?.Trim().ToLowerInvariant();
         var url = Expand(GetString(element, "url"), contextDirectory);
@@ -241,7 +242,11 @@ public sealed class WorkspaceMcpCapabilityProvider : ICapabilityProvider
             return variable switch
             {
                 var v when v.Equals("workspaceFolder", StringComparison.OrdinalIgnoreCase)
-                           || v.Equals("cwd", StringComparison.OrdinalIgnoreCase) => contextDirectory,
+                           || v.Equals("cwd", StringComparison.OrdinalIgnoreCase)
+                           // A plugin's own config refers to the folder it was installed in.
+                           || v.Equals("PLUGIN_ROOT", StringComparison.Ordinal)
+                           || v.Equals("COPILOT_PLUGIN_ROOT", StringComparison.Ordinal)
+                           || v.Equals("CLAUDE_PLUGIN_ROOT", StringComparison.Ordinal) => contextDirectory,
                 var v when v.Equals("workspaceFolderBasename", StringComparison.OrdinalIgnoreCase)
                     => new DirectoryInfo(contextDirectory).Name,
                 var v when v.Equals("userHome", StringComparison.OrdinalIgnoreCase)

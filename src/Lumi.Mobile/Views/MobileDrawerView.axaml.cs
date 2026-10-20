@@ -48,4 +48,19 @@ public partial class MobileDrawerView : UserControl
             e.Handled = true;
         }
     }
+
+    /// <summary>
+    /// A mouse or trackpad on a tablet asks for the same actions with a secondary click. Long press
+    /// stays the touch gesture; this only adds the pointer's own way of asking.
+    /// </summary>
+    private void OnChatRowContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (sender is Control { DataContext: ChatListItemViewModel chat }
+            && DataContext is MobileShellViewModel { IsChatActionsOpen: false } shell)
+        {
+            shell.OpenChatActionsCommand.Execute(chat);
+        }
+
+        e.Handled = true;
+    }
 }

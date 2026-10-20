@@ -150,62 +150,111 @@ public sealed class PopulatedTemplateRenderTests
                         "chat selection must snap; a background transition leaves the previous row lit briefly");
 
                 Assert.Contains("running", rows[0].Classes);
-                var title = Assert.Single(rows[0].GetVisualDescendants().OfType<TextBlock>(),
-                    text => text.Classes.Contains("conversation-title"));
+                T Part<T>(string cssClass) where T : Control =>
+                    Assert.Single(rows[0].GetVisualDescendants().OfType<T>(), part => part.Classes.Contains(cssClass));
+                var title = Part<TextBlock>("conversation-title");
                 Assert.Equal("Pinned chat", title.Text);
-                var background = Assert.Single(rows[0].GetVisualDescendants().OfType<PathIcon>(),
-                    icon => icon.Name == "BackgroundActivityIndicator");
+                // The desktop's row marks: one dot before the title (pulsing while Lumi works, steady
+                // while a reply waits), a ring while background work runs, and no time: the date
+                // groups already say when.
+                var dot = Part<Border>("chat-row-dot");
+                var background = Part<Border>("chat-row-background");
+                Assert.Equal("BackgroundActivityIndicator", background.Name);
                 Assert.False(background.IsEffectivelyVisible);
-                var running = Assert.Single(rows[0].GetVisualDescendants().OfType<Border>(),
-                    border => border.Classes.Contains("chat-list-status"));
-                Assert.True(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
-                Assert.True(running.IsEffectivelyVisible);
-                Assert.Equal(6, running.Bounds.Width);
-                Assert.Equal(6, running.Bounds.Height);
-                Assert.Equal(0, running.BorderThickness.Left);
-                Assert.Equal(1, StrataTheme.Animation.LifecycleOpacityPulse.GetFromOpacity(running));
-                Assert.Equal(0.3, StrataTheme.Animation.LifecycleOpacityPulse.GetToOpacity(running));
-                Assert.Equal(TimeSpan.FromSeconds(1.2), StrataTheme.Animation.LifecycleOpacityPulse.GetDuration(running));
+                Assert.DoesNotContain(rows[0].GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Text is { Length: > 0 } value && (value.EndsWith('m') || value.EndsWith('h') || value == "now")
+                            && text.IsEffectivelyVisible && !ReferenceEquals(text, title));
+                Assert.True(dot.TranslatePoint(new Point(dot.Bounds.Width, 0), rows[0])!.Value.X
+                            <= title.TranslatePoint(default, rows[0])!.Value.X);
+                // Search keeps a second line (where the chat lives and its last reply) to recognise a
+                // match by; the chat list is one line.
+                TextBlock? preview = search ? Part<TextBlock>("conversation-preview") : null;
+                Border? project = search ? Part<Border>("project-chip") : null;
+                TextBlock? working = search ? Part<TextBlock>("conversation-working") : null;
+                if (!search)
+                {
+                    Assert.DoesNotContain(rows[0].GetVisualDescendants().OfType<Control>(),
+                        part => part.Classes.Contains("conversation-preview") || part.Classes.Contains("project-chip")
+                                || part.Classes.Contains("conversation-working"));
+                    Assert.InRange(rows[0].Bounds.Height, 48, 52);
+                    var titleCentre = title.TranslatePoint(new Point(0, title.Bounds.Height / 2), rows[0])!.Value.Y;
+                    var dotCentre = dot.TranslatePoint(new Point(0, dot.Bounds.Height / 2), rows[0])!.Value.Y;
+                    Assert.InRange(dotCentre - titleCentre, -1, 1);
+                    // The pinned chat carries the desktop's quiet pin at the row's end.
+                    var pin = Assert.Single(rows[0].GetVisualDescendants().OfType<PathIcon>(),
+                        icon => icon.Name == "ChatRowPin");
+                    Assert.True(pin.IsEffectivelyVisible);
+                    Assert.False(Assert.Single(rows[1].GetVisualDescendants().OfType<PathIcon>(),
+                        icon => icon.Name == "ChatRowPin").IsEffectivelyVisible);
+                }
+
+                // Working: the dot pulses as the desktop's running marker does; search also says so in
+                // place of the last reply.
+                Assert.True(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(dot));
+                Assert.True(dot.IsEffectivelyVisible);
+                if (search)
+                {
+                    Assert.True(working!.IsEffectivelyVisible);
+                    Assert.False(preview!.IsEffectivelyVisible);
+                    Assert.True(project!.IsEffectivelyVisible);
+                }
+                Assert.Equal(6, dot.Bounds.Width);
+                Assert.Equal(6, dot.Bounds.Height);
+                Assert.Equal(0, dot.BorderThickness.Left);
+                Assert.Equal(1, StrataTheme.Animation.LifecycleOpacityPulse.GetFromOpacity(dot));
+                Assert.Equal(0.3, StrataTheme.Animation.LifecycleOpacityPulse.GetToOpacity(dot));
+                Assert.Equal(TimeSpan.FromSeconds(1.2), StrataTheme.Animation.LifecycleOpacityPulse.GetDuration(dot));
                 Assert.Equal(Avalonia.Animation.PlaybackDirection.Alternate,
-                    StrataTheme.Animation.LifecycleOpacityPulse.GetPlaybackDirection(running));
+                    StrataTheme.Animation.LifecycleOpacityPulse.GetPlaybackDirection(dot));
                 Assert.Equal(StrataTheme.Animation.LifecycleOpacityPulseEasing.Linear,
-                    StrataTheme.Animation.LifecycleOpacityPulse.GetEasing(running));
-                var dotEnd = running.TranslatePoint(new Point(running.Bounds.Width, 0), rows[0])!.Value.X;
-                Assert.Equal(7, title.TranslatePoint(default, rows[0])!.Value.X - dotEnd, precision: 1);
-                Assert.Single(rows[0].GetVisualDescendants().OfType<TextBlock>());
+                    StrataTheme.Animation.LifecycleOpacityPulse.GetEasing(dot));
+
+                // Rows without a mark share one text axis; a marked title steps past its dot, as on the desktop.
+                var plainTitle = Assert.Single(rows[1].GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Classes.Contains("conversation-title"));
+                var olderTitle = Assert.Single(rows[2].GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Classes.Contains("conversation-title"));
+                Assert.Equal(plainTitle.TranslatePoint(default, rows[1])!.Value.X,
+                    olderTitle.TranslatePoint(default, rows[2])!.Value.X, precision: 1);
+                Assert.InRange(title.TranslatePoint(default, rows[0])!.Value.X
+                               - plainTitle.TranslatePoint(default, rows[1])!.Value.X, 12, 18);
                 var vm = Assert.IsType<ChatListItemViewModel>(rows[0].DataContext);
                 Assert.Equal(vm.AccessibilityName, Avalonia.Automation.AutomationProperties.GetName(rows[0]));
+
+                // Read while still working: the dot keeps pulsing.
                 vm.HasUnreadMessages = false;
                 Dispatcher.UIThread.RunJobs();
-                Assert.True(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
-                Assert.True(running.IsEffectivelyVisible);
+                Assert.True(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(dot));
+                Assert.True(dot.IsEffectivelyVisible);
+
+                // Done with a reply waiting: the dot stays, steady.
                 vm.HasUnreadMessages = true;
                 vm.IsSessionActive = false;
                 vm.IsRunning = false;
                 Dispatcher.UIThread.RunJobs();
-                Assert.False(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
-                Assert.True(running.IsEffectivelyVisible);
-                Assert.Equal(7, title.TranslatePoint(default, rows[0])!.Value.X - dotEnd, precision: 1);
-                vm.HasUnreadMessages = false;
-                Dispatcher.UIThread.RunJobs();
-                Assert.False(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
-                Assert.False(running.IsEffectivelyVisible);
+                Assert.False(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(dot));
+                Assert.True(dot.IsEffectivelyVisible);
+                if (search)
+                {
+                    Assert.False(working!.IsEffectivelyVisible);
+                    Assert.True(preview!.IsEffectivelyVisible);
+                    Assert.Equal("last thing said", preview.Text);
+                }
 
+                // Background work after the reply: the desktop's ring at the row's end.
                 vm.IsSessionActive = true;
                 Dispatcher.UIThread.RunJobs();
                 Assert.True(background.IsEffectivelyVisible);
-                Assert.Equal(10, background.Bounds.Width);
-                Assert.Equal(10, background.Bounds.Height);
-                Assert.False(running.IsEffectivelyVisible);
-                vm.HasUnreadMessages = true;
-                Dispatcher.UIThread.RunJobs();
-                Assert.True(background.IsEffectivelyVisible);
-                Assert.True(running.IsEffectivelyVisible);
-                Assert.False(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
+                Assert.Equal(8, background.Bounds.Width);
+                Assert.Equal(8, background.Bounds.Height);
                 vm.IsSessionActive = false;
                 Dispatcher.UIThread.RunJobs();
                 Assert.False(background.IsEffectivelyVisible);
-                Assert.True(running.IsEffectivelyVisible);
+
+                // Read and idle: no mark at all.
+                vm.HasUnreadMessages = false;
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(dot.IsEffectivelyVisible);
             });
     }
 
@@ -228,7 +277,7 @@ public sealed class PopulatedTemplateRenderTests
     }
 
     [Fact]
-    public async Task LibraryRowsRenderAndBindTheEditCommand()
+    public async Task LibraryRowsRenderAndBindTheOpenCommand()
     {
         await Run(
             shell => shell.Library.Apply(new RemoteLibrary
@@ -242,8 +291,8 @@ public sealed class PopulatedTemplateRenderTests
             (window, shell) =>
             {
                 var row = Assert.Single(Rows(window, "LibraryEntries"),
-                    button => ReferenceEquals(button.Command, shell.Library.BeginEditCommand));
-                Assert.Same(shell.Library.BeginEditCommand, row.Command);
+                    button => ReferenceEquals(button.Command, shell.Library.OpenEntryCommand));
+                Assert.Same(shell.Library.OpenEntryCommand, row.Command);
             });
     }
 
@@ -270,17 +319,21 @@ public sealed class PopulatedTemplateRenderTests
                 var preambleIds = new[] { "88b852c448e7447d854bb511ed8c9529", "7341167d7b874750aec8e2b7bc1093ec" };
                 var turn = shell.Chat.Turns[0];
                 var work = Assert.IsType<WorkSummaryItemViewModel>(turn.DisplayItems[1]);
-                var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(),
-                    button => ReferenceEquals(button.DataContext, work));
-                Assert.Same(work.ToggleCommand, button.Command);
-                AssertChatCardSurface(button, "PART_Surface");
-                Assert.Equal("Work 58s", work.Label);
+                // The desktop's turn summary: one quiet line that opens the folded work in place.
+                var summary = Assert.Single(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataTurnSummary>(),
+                    control => ReferenceEquals(control.DataContext, work));
+                Assert.Equal("Worked for 58s · 2 actions", summary.Label);
+                Assert.Contains("touch", summary.Classes);
+                var label = Assert.Single(summary.GetVisualDescendants().OfType<TextBlock>(), text => text.Name == "PART_Label");
+                // The meta rung: quieter than the answer, still phone-readable.
+                Assert.Equal(14.5, label.FontSize);
                 Assert.Equal(new[] { finalId }, VisibleAnswers());
 
-                button.Command!.Execute(null);
+                work.ToggleCommand.Execute(null);
                 Dispatcher.UIThread.RunJobs();
                 Assert.Equal(preambleIds.Append(finalId), VisibleAnswers());
                 Assert.True(work.IsExpanded);
+                Assert.True(summary.IsExpanded);
                 var workItems = Assert.Single(window.GetVisualDescendants().OfType<ItemsControl>(),
                     control => control.Name == "WorkItems");
                 Assert.Same(work.Items, workItems.ItemsSource);
@@ -295,8 +348,9 @@ public sealed class PopulatedTemplateRenderTests
                              .Where(control => control.DataContext is ActivitySummaryItemViewModel))
                     AssertChatCardSurface(activity, "PART_Surface");
 
-                button.Command.Execute(null);
+                work.ToggleCommand.Execute(null);
                 Dispatcher.UIThread.RunJobs();
+                Assert.False(summary.IsExpanded);
                 Assert.Equal(new[] { finalId }, VisibleAnswers());
 
                 string[] VisibleAnswers() => window.GetVisualDescendants()
@@ -304,6 +358,151 @@ public sealed class PopulatedTemplateRenderTests
                     .Where(control => control.IsEffectivelyVisible && control.DataContext is AssistantItemViewModel)
                     .Select(control => ((AssistantItemViewModel)control.DataContext!).Id)
                     .ToArray();
+            });
+    }
+
+    /// <summary>
+    /// The phone's transcript wears the desktop's: a bubble keeps the width its words need instead of
+    /// leaving room for a hover toolbar no phone shows, "You · time" sits over it, the files a turn made
+    /// sit inside the answer that closes it ahead of its sources and the footer that names the model
+    /// and time, finished work folds behind one line, and live work is a glass chip with the Strata line.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TranscriptWearsTheDesktopsGlassAtTouchSize(bool dark)
+    {
+        var asked = new DateTimeOffset(2026, 10, 18, 6, 41, 0, TimeSpan.Zero);
+        var answered = asked.AddMinutes(3);
+        static string Time(DateTimeOffset value) =>
+            value.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+        await Run(
+            shell =>
+            {
+                shell.IsPaired = true;
+                shell.Chat.ApplyCatalogs(new RemoteSettings
+                {
+                    PreferredModel = "claude-opus-5.5",
+                    AvailableModels = ["claude-opus-5.5"],
+                    ModelDisplayNames = ["claude-opus-5.5=Claude Opus 5.5"]
+                });
+                shell.Chat.Reset(Guid.NewGuid(), "Glass");
+                shell.Chat.ApplyTranscript(new RemoteTranscript
+                {
+                    ChatId = shell.Chat.ChatId, Title = "Glass", Revision = 1,
+                    Turns =
+                    [
+                        new RemoteTranscriptTurn
+                        {
+                            Id = "t1", FinalAnswerId = "a1", WorkDurationMs = 12_000,
+                            Items =
+                            [
+                                new RemoteTranscriptItem
+                                {
+                                    Id = "u1", Kind = RemoteProtocol.ItemKinds.User, Timestamp = asked,
+                                    Text = "The composer jumps to the top when I come back from the file picker with the keyboard open. Fix it and run the tests.",
+                                    Attachments = [new RemoteAttachment { FileName = "before.png", Extension = ".png" }]
+                                },
+                                new RemoteTranscriptItem
+                                {
+                                    Id = "w1", Kind = RemoteProtocol.ItemKinds.Activity, ActivityId = "w1", Status = "Completed",
+                                    ActionCount = 3, DurationMs = 12_000, Icon = "edit", FileChangeCount = 1,
+                                    FileChanges = [new RemoteFileChange { Path = "src/A.cs", FileName = "A.cs", Operation = "Modified", LinesAdded = 14, LinesRemoved = 5 }]
+                                },
+                                new RemoteTranscriptItem
+                                {
+                                    Id = "a1", Kind = RemoteProtocol.ItemKinds.Assistant, Model = "claude-opus-5.5", Timestamp = answered,
+                                    Text = "Fixed.", Sources = [new RemoteSource { Title = "Docs", Url = "https://learn.example.com/insets" }]
+                                },
+                                new RemoteTranscriptItem
+                                {
+                                    Id = "f1", Kind = RemoteProtocol.ItemKinds.File,
+                                    Attachments = [new RemoteAttachment { MessageId = Guid.NewGuid(), FileName = "after.png", Extension = ".png" }]
+                                }
+                            ]
+                        },
+                        new RemoteTranscriptTurn
+                        {
+                            Id = "t2",
+                            Items =
+                            [
+                                new RemoteTranscriptItem { Id = "u2", Kind = RemoteProtocol.ItemKinds.User, Timestamp = answered, Text = "Run them on my Fold." },
+                                new RemoteTranscriptItem
+                                {
+                                    Id = "w2", Kind = RemoteProtocol.ItemKinds.Activity, ActivityId = "w2", Status = "InProgress",
+                                    ActionCount = 2, Label = "Running device tests...", Icon = "terminal"
+                                }
+                            ]
+                        }
+                    ]
+                });
+            },
+            shell => new ChatDetailView { DataContext = shell },
+            (window, shell) =>
+            {
+                window.RequestedThemeVariant = dark
+                    ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light;
+                Thread.Sleep(250);
+                Dispatcher.UIThread.RunJobs();
+                double Top(Visual visual) => visual.TranslatePoint(default, window)!.Value.Y;
+                double Bottom(Visual visual) => visual.TranslatePoint(new Point(0, visual.Bounds.Height), window)!.Value.Y;
+                T Named<T>(Visual root, string name) where T : Control =>
+                    root.GetVisualDescendants().OfType<T>().Single(control => control.Name == name && control.IsEffectivelyVisible);
+
+                // The user's bubble: "You · time" over it, the attachment inside it, and the width its words
+                // need: no column kept for the desktop's hover toolbar.
+                var user = window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataChatMessage>()
+                    .Single(message => message.DataContext is UserTurnItemViewModel { Id: "u1" });
+                Assert.Equal("You", user.Author);
+                Assert.Equal(Time(asked), user.Timestamp);
+                Assert.False(user.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "PART_ActionLayer").IsVisible);
+                var bubble = user.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "PART_Bubble");
+                Assert.True(bubble.Bounds.Width >= 300, $"The bubble is {bubble.Bounds.Width:0} dp wide in a 412 dp window.");
+                Assert.Contains(bubble.GetVisualDescendants().OfType<StrataTheme.Controls.StrataFileAttachment>(),
+                    file => file.Classes.Contains("transcript-file"));
+
+                // The closing answer carries the turn's files, then its sources, then the footer.
+                Assert.DoesNotContain(shell.Chat.Turns[0].DisplayItems, item => item is FileItemViewModel);
+                var answer = window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataMarkdown>()
+                    .Single(markdown => markdown.DataContext is AssistantItemViewModel { Id: "a1" });
+                var files = Named<ItemsControl>(window, "AnswerFiles");
+                var sources = Named<Button>(window, "SourcesChip");
+                var footer = Named<TextBlock>(window, "AnswerFooter");
+                Assert.Single(files.GetVisualDescendants().OfType<StrataTheme.Controls.StrataFileAttachment>());
+                Assert.True(Top(files) >= Bottom(answer) - 0.5);
+                Assert.True(Top(sources) >= Bottom(files) - 0.5);
+                Assert.True(Top(footer) >= Bottom(sources) - 0.5);
+                Assert.Equal($"Claude Opus 5.5 · {Time(answered)}", footer.Text);
+                AssertChatCardSurface(sources, "PART_Surface");
+
+                // Finished work folds behind one line; live work is a glass chip in a full touch band,
+                // in the accent, with the Strata line under it.
+                var fold = Assert.Single(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataTurnSummary>());
+                Assert.Equal("Worked for 12s · 3 actions", fold.Label);
+                var live = window.GetVisualDescendants().OfType<Button>()
+                    .Single(button => button.Name == "ActivityChip" && button.DataContext is ActivitySummaryItemViewModel { ActivityId: "w2" });
+                Assert.Contains("live", live.Classes);
+                Assert.Equal(48, live.Bounds.Height, 1);
+                var chip = live.GetVisualDescendants().OfType<Border>().First(border => border.Name == "PART_Surface");
+                Assert.Equal(38, chip.Bounds.Height, 1);
+                AssertChatCardSurface(live, "PART_Surface");
+                Assert.Contains(live.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Running device tests...");
+                Assert.Contains(live.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "2 actions");
+                Assert.True(((Panel)live.Parent!).Children.OfType<Border>()
+                    .Single(border => border.Classes.Contains("single-step-line")).IsEffectivelyVisible);
+
+                // Opened, the fold shows the finished chip with the lines it changed, and no Strata line.
+                fold.IsExpanded = true;
+                Thread.Sleep(100);
+                Dispatcher.UIThread.RunJobs();
+                var done = window.GetVisualDescendants().OfType<Button>()
+                    .Single(button => button.Name == "ActivityChip" && button.DataContext is ActivitySummaryItemViewModel { ActivityId: "w1" });
+                Assert.DoesNotContain("live", done.Classes);
+                Assert.Contains(done.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "+14" && text.IsEffectivelyVisible);
+                Assert.Contains(done.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "\u22125" && text.IsEffectivelyVisible);
+                Assert.Contains(done.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "Worked for 12s");
+                Assert.False(((Panel)done.Parent!).Children.OfType<Border>()
+                    .Single(border => border.Classes.Contains("single-step-line")).IsVisible);
             });
     }
 
@@ -465,14 +664,18 @@ public sealed class PopulatedTemplateRenderTests
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataQuestionCard>());
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataFileAttachment>());
                 var deliverable = Assert.Single(window.GetVisualDescendants()
-                    .OfType<StrataTheme.Controls.StrataFileAttachment>(), file => file.Classes.Contains("produced-file"));
+                    .OfType<StrataTheme.Controls.StrataFileAttachment>(), file => file.Classes.Contains("transcript-file"));
                 Assert.False(deliverable.IsCompact);
                 Assert.False(deliverable.IsRemovable);
-                Assert.True(deliverable.Bounds.Height >= 64);
-                Assert.True(deliverable.Bounds.Width >= 300);
+                // The desktop's file chip at touch size: a full target, sized to its name rather than
+                // stretched into a row, with the file's type drawn as an icon rather than an emoji.
+                Assert.True(deliverable.Bounds.Height >= 48);
+                Assert.True(deliverable.Bounds.Width < 320);
+                Assert.NotNull(deliverable.IconImage);
+                AssertChatCardSurface(deliverable, "PART_Root");
                 var fileName = Assert.Single(deliverable.GetVisualDescendants().OfType<TextBlock>(),
                     text => text.Name == "PART_FileName");
-                Assert.Equal(16, fileName.FontSize);
+                Assert.Equal(14.5, fileName.FontSize);
                 var fileOrigin = deliverable.TranslatePoint(default, window)!.Value;
                 var answer = window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataMarkdown>()
                     .Single(markdown => markdown.DataContext is AssistantItemViewModel);
@@ -483,9 +686,9 @@ public sealed class PopulatedTemplateRenderTests
                     AssertChatCardSurface(card, "PART_Root");
                 foreach (var reasoning in window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataThink>())
                     AssertChatCardSurface(reasoning, "PART_Pill");
-                foreach (var source in window.GetVisualDescendants().OfType<Button>()
-                             .Where(button => button.Classes.Contains("source-card")))
-                    AssertChatCardSurface(source, "PART_Surface");
+                var sourcesChip = Assert.Single(window.GetVisualDescendants().OfType<Button>(),
+                    button => button.Name == "SourcesChip" && button.IsEffectivelyVisible);
+                AssertChatCardSurface(sourcesChip, "PART_Surface");
 
                 var sourceAnswer = Assert.IsType<AssistantItemViewModel>(
                     shell.Chat.Turns[0].Items.Single(item =>

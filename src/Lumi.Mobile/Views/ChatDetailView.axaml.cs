@@ -25,6 +25,10 @@ namespace Lumi.Mobile.Views;
 
 public partial class ChatDetailView : UserControl
 {
+    /// <summary>Latest copy confirmation per button, so an earlier tap's timer cannot cut a newer one short.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Button, object> CopyFeedback = new();
+
+    public Panel? InteractivePickerHost => this.FindControl<Panel>("ChatRoot");
     private MobilePresenceController? _presence;
     private MobileShellViewModel? _shell;
     private StrataChatComposer? _composer;
@@ -52,15 +56,31 @@ public partial class ChatDetailView : UserControl
     private bool _transcriptContentChanged;
     private MobileEntrance? _transcriptEntrance;
     private MobileEntrance? _welcomeEntrance;
+    private MobileEntrance? _workingEntrance;
+    private bool _wasWorking;
     private int _chatEntranceVersion;
     private bool _awaitingChatEntrance;
+    private bool _chatEntranceQueued;
     private IDisposable? _loadingDelay;
     private bool _transcriptWidthHeld;
+    private StrataInteractiveBlock? _pickerOwner;
+    private readonly List<TranscriptTurnView> _pendingRealizations = [];
+    private bool _realizationQueued;
+    private bool _awaitingRealizationLayout;
+    private int _realizationVersion;
 
     public ChatDetailView()
     {
         InitializeComponent();
+        AddHandler(StrataInteractiveBlock.RequestedEvent, OnInteractiveRequest);
+        AddHandler(StrataActionReceipt.SourceRequestedEvent, OnInteractionSourceRequested);
+        AddHandler(StrataInteractiveBlock.PickerPresentationChangedEvent, OnPickerPresentationChanged);
         AddHandler(PointerPressedEvent, OnSurfacePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        LayoutUpdated += (_, _) =>
+        {
+            if (_awaitingChatEntrance)
+                QueueChatEntrance();
+        };
 
         // The ambient field is created in code rather than XAML because the controller owns it: it
         // has to insert it as the bottom-most child and keep it out of the hit-test path.
@@ -71,6 +91,7 @@ public partial class ChatDetailView : UserControl
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        _wasWorking = _shell?.Chat.IsWorking == true;
         Dispatcher.UIThread.Post(AttachComposerChipObserver, DispatcherPriority.Loaded);
         Dispatcher.UIThread.Post(AttachNativeComposerEditor, DispatcherPriority.Loaded);
         if (_shell?.Chat.IsInitialLoading == true)
@@ -89,11 +110,73 @@ public partial class ChatDetailView : UserControl
         _transcriptEntrance = null;
         _welcomeEntrance?.Dispose();
         _welcomeEntrance = null;
+        _workingEntrance?.Dispose();
+        _workingEntrance = null;
         _awaitingChatEntrance = false;
+        _chatEntranceQueued = false;
         _transcriptContentChanged = false;
+        ResetRealizations();
         if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
             transcript.IsHitTestVisible = true;
         base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnInteractiveRequest(object? sender, InteractiveRequestEventArgs request)
+    {
+        if (_shell is null || request.Source is not Control { DataContext: TranscriptItemViewModel item }
+            || item is not (AssistantItemViewModel or InputRequestItemViewModel))
+        {
+            request.Completion = Task.FromResult(new InteractiveActionResult(false, "That answer is no longer open."));
+            request.Handled = true;
+            return;
+        }
+        if (!_shell.Chat.SupportsInteractiveResponses && request.Action is null)
+        {
+            request.Handled = true;
+            return;
+        }
+        request.Completion = _shell.Chat.RequestInteractionAsync(
+            item.Id, request.Definition.Id, request.StateJson, request.Action);
+        request.Handled = true;
+    }
+
+    private async void OnInteractionSourceRequested(object? sender, RoutedEventArgs args)
+    {
+        if (_shell is null || args.Source is not Control { DataContext: InteractionReceiptItemViewModel item })
+            return;
+        args.Handled = true;
+        var shell = _shell;
+        var chatId = shell.Chat.ChatId;
+        var sourceId = item.Receipt.SourceMessageId.ToString("N");
+        while (!shell.Chat.Turns.SelectMany(turn => turn.Items).Any(item => item.Id == sourceId)
+            && shell.Chat.HasEarlierMessages && shell.Chat.CanNavigateTranscript)
+        {
+            var start = shell.Chat.WindowStartMessageIndex;
+            await shell.LoadEarlierActivityCommand.ExecuteAsync(null);
+            if (_shell != shell || shell.Chat.ChatId != chatId || shell.Chat.WindowStartMessageIndex >= start)
+                break;
+        }
+        if (shell.Chat.ChatId != chatId) return;
+        var source = shell.Chat.Turns.SelectMany(turn => turn.Items).FirstOrDefault(item => item.Id == sourceId);
+        if (source is null)
+        {
+            shell.Chat.ErrorText = InteractiveLabels.ForLanguage(item.Language)["sourceUnavailable"];
+            return;
+        }
+        var turn = shell.Chat.Turns.First(turn => turn.Items.Contains(source));
+        if (this.FindControl<ItemsControl>("Transcript") is { } transcript)
+        {
+            transcript.GetVisualDescendants().OfType<TranscriptTurnView>()
+                .FirstOrDefault(view => ReferenceEquals(view.DataContext, turn))?.BringIntoView();
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        }
+        var target = this.GetVisualDescendants().OfType<StrataInteractiveBlock>()
+            .FirstOrDefault(control => control.DataContext is AssistantItemViewModel answer && answer.Id == sourceId
+                && control.Definition?.Id == item.Receipt.BlockId);
+        if (target is null)
+            shell.Chat.ErrorText = InteractiveLabels.ForLanguage(item.Language)["sourceUnavailable"];
+        target?.BringIntoView();
+        target?.Focus();
     }
 
     private void AttachNativeComposerEditor()
@@ -241,7 +324,10 @@ public partial class ChatDetailView : UserControl
             && _composer?.TranslatePoint(default, this) is { } origin
             && this.FindControl<Border>("WelcomeSideInset") is { } welcome)
         {
-            welcome.Margin = new Thickness(0, 0, 0, Math.Max(0, Bounds.Height - origin.Y + 8));
+            var header = this.FindControl<Border>("ChatHeaderSideInset");
+            var headerBottom = header?.TranslatePoint(new Point(0, header.Bounds.Height), this)?.Y ?? 0;
+            welcome.Margin = new Thickness(
+                0, Math.Max(0, headerBottom), 0, Math.Max(0, Bounds.Height - origin.Y + 8));
         }
     }
 
@@ -353,7 +439,10 @@ public partial class ChatDetailView : UserControl
     {
         if (_shell is not { } shell || TopLevel.GetTopLevel(this) is not { StorageProvider: { } storage })
             return;
+        if (shell.Chat.IsPickingAttachment)
+            return;
 
+        shell.Chat.IsPickingAttachment = true;
         ReleaseComposerFocus();
         try
         {
@@ -399,6 +488,10 @@ public partial class ChatDetailView : UserControl
                 ? "That file is too large for this phone to send."
                 : "That file could not be attached.";
             Trace.TraceWarning($"[Mobile] Attach failed: {ex}");
+        }
+        finally
+        {
+            shell.Chat.IsPickingAttachment = false;
         }
     }
 
@@ -534,6 +627,15 @@ public partial class ChatDetailView : UserControl
 
     private StrataChatShell? Shell => this.FindControl<StrataChatShell>("ChatShell");
 
+    internal bool CanAnimateArrival =>
+        !_awaitingChatEntrance && IsEffectivelyVisible
+        && _shell is { IsChatPage: true, HasPageOverlay: false }
+        && _shell.Chat.IsLatestWindow;
+
+    internal bool ShouldDeferTranscriptRealization =>
+        _awaitingChatEntrance && _shell is not null
+        && (_shell.IsDrawerMoving || (!_shell.CanDockDrawer && _shell.IsDrawerPresented));
+
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
@@ -549,6 +651,7 @@ public partial class ChatDetailView : UserControl
         _presence?.Attach(shell);
 
         _shell = shell;
+        _wasWorking = shell.Chat.IsWorking;
         shell.PropertyChanged += OnShellPropertyChanged;
         shell.Chat.Turns.CollectionChanged += OnTurnsChanged;
         shell.Chat.PropertyChanged += OnChatPropertyChanged;
@@ -579,11 +682,14 @@ public partial class ChatDetailView : UserControl
         _loadingDelay = null;
         _chatEntranceVersion++;
         _awaitingChatEntrance = false;
+        _chatEntranceQueued = false;
         _transcriptContentChanged = false;
         _transcriptEntrance?.Dispose();
         _transcriptEntrance = null;
         _welcomeEntrance?.Dispose();
         _welcomeEntrance = null;
+        _workingEntrance?.Dispose();
+        _workingEntrance = null;
 
         _shell = null;
         UpdateNativeComposerVisibility();
@@ -593,11 +699,49 @@ public partial class ChatDetailView : UserControl
         object? sender,
         PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileShellViewModel.HasPageOverlay))
+        {
+            if (_shell?.HasPageOverlay == true)
+            {
+                _transcriptEntrance?.Stop();
+                _welcomeEntrance?.Stop();
+                _workingEntrance?.Stop();
+            }
+            else
+                PlayMountedChatEntrance();
+        }
+
+        if (e.PropertyName == nameof(MobileShellViewModel.IsWelcomeVisible))
+        {
+            if (_shell?.IsWelcomeVisible == true && !_awaitingChatEntrance)
+                PlayWelcomeEntrance();
+            else if (_shell?.IsWelcomeVisible != true)
+                _welcomeEntrance?.Stop();
+        }
+
         if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
             or nameof(MobileShellViewModel.CanDockDrawer)
             or nameof(MobileShellViewModel.HasHingeGap))
         {
             SetTranscriptMotionWidth(_shell is { IsDrawerMoving: true, CanDockDrawer: true, HasHingeGap: false });
+        }
+
+        if (e.PropertyName == nameof(MobileShellViewModel.IsDrawerMoving)
+            && _shell?.IsDrawerMoving == false && _pendingRealizations.Count > 0 && !_awaitingRealizationLayout)
+        {
+            QueueRealization();
+        }
+
+        if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
+            or nameof(MobileShellViewModel.IsDrawerPresented)
+            or nameof(MobileShellViewModel.HasPageOverlay))
+        {
+            if (_awaitingChatEntrance && !ShouldDeferTranscriptRealization)
+            {
+                foreach (var turn in this.GetVisualDescendants().OfType<TranscriptTurnView>())
+                    turn.QueueUpdate();
+            }
+            QueueChatEntrance();
         }
 
         if (e.PropertyName == nameof(MobileShellViewModel.IsKeyboardOpen))
@@ -674,6 +818,7 @@ public partial class ChatDetailView : UserControl
         ReleaseComposerFocus();
         var version = ++_chatEntranceVersion;
         _awaitingChatEntrance = true;
+        _chatEntranceQueued = false;
         _loadingDelay?.Dispose();
         if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
         {
@@ -710,38 +855,152 @@ public partial class ChatDetailView : UserControl
         }
     }
 
-    private void QueueChatEntrance()
+    internal void QueueChatEntrance()
     {
-        if (!_awaitingChatEntrance)
+        if (!_awaitingChatEntrance || _chatEntranceQueued)
             return;
 
+        _chatEntranceQueued = true;
         var version = _chatEntranceVersion;
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_awaitingChatEntrance || version != _chatEntranceVersion || _shell?.Chat.IsLoading != false)
+            if (version != _chatEntranceVersion)
+                return;
+            _chatEntranceQueued = false;
+            if (!IsChatReadyForEntrance())
                 return;
 
-            // The shell lands the initial viewport at Render/Loaded priority. Reveal after that
-            // layout, rather than showing the top of the transcript and jumping to its bottom.
-            Dispatcher.UIThread.Post(() =>
+            _awaitingChatEntrance = false;
+            _loadingDelay?.Dispose();
+            _loadingDelay = null;
+            if (this.FindControl<Border>("ChatLoadingOverlay") is { } loading)
+                loading.IsVisible = false;
+            if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
+                transcript.IsHitTestVisible = true;
+            _transcriptEntrance?.Reveal();
+            PlayWelcomeEntrance();
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Prepares a transcript turn ahead of the viewport, one turn per frame and nearest first.
+    /// Several turns built together are measured in one pass, which is what made a fling stall for a
+    /// long frame.
+    /// </summary>
+    internal void RequestRealization(TranscriptTurnView turn)
+    {
+        if (!_pendingRealizations.Contains(turn))
+            _pendingRealizations.Add(turn);
+        if (!_awaitingRealizationLayout)
+            QueueRealization();
+    }
+
+    internal void CancelRealization(TranscriptTurnView turn) => _pendingRealizations.Remove(turn);
+
+    private void QueueRealization()
+    {
+        if (_realizationQueued)
+            return;
+        _realizationQueued = true;
+        Dispatcher.UIThread.Post(RealizeNextTurn, DispatcherPriority.Background);
+    }
+
+    private void RealizeNextTurn()
+    {
+        _realizationQueued = false;
+        // Preparing turns ahead can wait for the drawer to settle (see OnShellPropertyChanged).
+        if (_shell?.IsDrawerMoving == true)
+            return;
+
+        while (_pendingRealizations.Count > 0)
+        {
+            var next = _pendingRealizations[0];
+            foreach (var turn in _pendingRealizations)
             {
-                if (!_awaitingChatEntrance || version != _chatEntranceVersion || _shell?.Chat.IsLoading != false)
-                    return;
-                _awaitingChatEntrance = false;
-                _loadingDelay?.Dispose();
-                _loadingDelay = null;
-                if (this.FindControl<Border>("ChatLoadingOverlay") is { } loading)
-                    loading.IsVisible = false;
-                if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
-                    transcript.IsHitTestVisible = true;
-                _transcriptEntrance?.Reveal();
-                if (_shell.IsWelcomeVisible && this.FindControl<StackPanel>("NoChatPlaceholder") is { } welcome)
-                {
-                    _welcomeEntrance ??= new MobileEntrance(welcome);
-                    _welcomeEntrance.Play();
-                }
-            }, DispatcherPriority.Loaded);
-        }, DispatcherPriority.Loaded);
+                if (turn.ViewportDistance < next.ViewportDistance)
+                    next = turn;
+            }
+
+            _pendingRealizations.Remove(next);
+            if (!next.Realize())
+                continue;
+
+            if (_pendingRealizations.Count > 0)
+            {
+                // The next turn waits until this one has been measured, and for the next frame:
+                // layout passes are not frames, and a quick turn would otherwise share one.
+                _awaitingRealizationLayout = true;
+                LayoutUpdated += OnRealizationLayoutUpdated;
+            }
+            return;
+        }
+    }
+
+    private void OnRealizationLayoutUpdated(object? sender, EventArgs e)
+    {
+        LayoutUpdated -= OnRealizationLayoutUpdated;
+        var version = _realizationVersion;
+        if (TopLevel.GetTopLevel(this) is { } topLevel)
+            topLevel.RequestAnimationFrame(_ => OnRealizationFrame(version));
+        else
+            OnRealizationFrame(version);
+    }
+
+    private void OnRealizationFrame(int version)
+    {
+        if (version != _realizationVersion || !_awaitingRealizationLayout)
+            return;
+        _awaitingRealizationLayout = false;
+        if (_pendingRealizations.Count > 0)
+            QueueRealization();
+    }
+
+    private void ResetRealizations()
+    {
+        _pendingRealizations.Clear();
+        if (_awaitingRealizationLayout)
+            LayoutUpdated -= OnRealizationLayoutUpdated;
+        _awaitingRealizationLayout = false;
+        _realizationVersion++;
+    }
+
+    private bool IsChatReadyForEntrance()
+    {
+        if (!_awaitingChatEntrance || !this.IsAttachedToVisualTree()
+            || _shell is not { IsChatPage: true, HasPageOverlay: false, IsDrawerMoving: false }
+            || _shell.Chat.IsLoading || (!_shell.CanDockDrawer && _shell.IsDrawerPresented)
+            || this.FindControl<Border>("ChatTranscriptSideInset") is not { } transcript
+            || !transcript.IsMeasureValid || !transcript.IsArrangeValid
+            || (Shell is { IsFollowingTail: true, CurrentDistanceFromBottom: >= 1 }))
+            return false;
+
+        return transcript.GetVisualDescendants().OfType<TranscriptTurnView>()
+            .All(turn => turn.IsReadyForEntrance);
+    }
+
+    private void PlayWelcomeEntrance()
+    {
+        if (_shell?.IsWelcomeVisible == true && _shell.HasPageOverlay == false
+            && this.FindControl<StackPanel>("NoChatPlaceholder") is { } welcome)
+        {
+            _welcomeEntrance ??= new MobileEntrance(welcome);
+            _welcomeEntrance.Play();
+        }
+    }
+
+    private void PlayMountedChatEntrance()
+    {
+        if (_awaitingChatEntrance || !IsEffectivelyVisible
+            || _shell is not { IsChatPage: true, HasPageOverlay: false }
+            || _shell.Chat.IsLoading)
+            return;
+
+        if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
+        {
+            _transcriptEntrance ??= new MobileEntrance(transcript);
+            _transcriptEntrance.Play();
+        }
+        PlayWelcomeEntrance();
     }
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -761,6 +1020,13 @@ public partial class ChatDetailView : UserControl
 
     private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (sender is QuestionItemViewModel
+            && e.PropertyName is nameof(QuestionItemViewModel.HasAnswerDraft)
+                or nameof(QuestionItemViewModel.IsAnswered))
+        {
+            _shell?.Chat.NotifyUnsentWorkChanged();
+        }
+
         if (_shell?.Chat.IsLatestWindow != true)
             return;
 
@@ -773,13 +1039,61 @@ public partial class ChatDetailView : UserControl
             RequestFollow(newContent: false);
     }
 
+    private void OnPickerPresentationChanged(object? sender, InteractivePickerEventArgs args) =>
+        SetPickerOwner(args.IsPresented ? args.Source as StrataInteractiveBlock : null);
+
+    // Tracking the owner lets system Back close its sheet, and a removed owner (chat switch, reset)
+    // cannot leave the chat believing a sheet still covers it.
+    private void SetPickerOwner(StrataInteractiveBlock? owner)
+    {
+        if (_pickerOwner is not null)
+            _pickerOwner.DetachedFromVisualTree -= OnPickerOwnerDetached;
+        _pickerOwner = owner;
+        if (owner is not null)
+            owner.DetachedFromVisualTree += OnPickerOwnerDetached;
+        if (_shell is not null)
+            _shell.Chat.IsInteractivePickerOpen = owner is not null;
+    }
+
+    private void OnPickerOwnerDetached(object? sender, VisualTreeAttachmentEventArgs e) => SetPickerOwner(null);
+
     private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileChatViewModel.IsWorking))
+        {
+            var isWorking = _shell?.Chat.IsWorking == true;
+            var started = isWorking && !_wasWorking;
+            _wasWorking = isWorking;
+            if (started && this.IsAttachedToVisualTree() && IsEffectivelyVisible
+                && _shell is { IsChatPage: true, HasPageOverlay: false }
+                && this.FindControl<StrataTypingIndicator>("ChatTyping") is { } working)
+            {
+                _workingEntrance ??= new MobileEntrance(
+                    working, offsetY: 6, duration: TimeSpan.FromMilliseconds(180));
+                _workingEntrance.Play();
+            }
+            else if (!isWorking)
+                _workingEntrance?.Stop();
+        }
+
+        if (e.PropertyName == nameof(MobileChatViewModel.IsGitChangesOpen))
+        {
+            if (_shell?.Chat.IsGitChangesOpen == false)
+                PlayMountedChatEntrance();
+        }
+
         if (e.PropertyName == nameof(MobileChatViewModel.HasAttachments))
             UpdateComposerFocus();
 
         if (e.PropertyName == nameof(MobileChatViewModel.IsLoading) && _awaitingChatEntrance)
             QueueChatEntrance();
+
+        if (e.PropertyName == nameof(MobileChatViewModel.IsInteractivePickerOpen)
+            && _shell?.Chat.IsInteractivePickerOpen == false && _pickerOwner is { } pickerOwner)
+        {
+            pickerOwner.ClosePicker();
+            return;
+        }
 
         if (e.PropertyName == nameof(MobileChatViewModel.HasOpenSheet))
         {
@@ -887,6 +1201,7 @@ public partial class ChatDetailView : UserControl
                 .SelectMany(turn => turn.Items)
                 .Where(item => item is AssistantItemViewModel
                     or ReasoningItemViewModel
+                    or QuestionItemViewModel
                     or ActivitySummaryItemViewModel),
             ReferenceEqualityComparer.Instance);
 
@@ -921,6 +1236,52 @@ public partial class ChatDetailView : UserControl
 
         if (DataContext is MobileShellViewModel shell)
             _ = shell.Chat.AnswerQuestionAsync(question.QuestionId, answer);
+    }
+
+    private async void OnCopyAnswerClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AssistantItemViewModel answer } button
+            || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+        {
+            return;
+        }
+
+        // Confirm on tap: a platform clipboard can take a moment, and the check must not lag the finger.
+        var feedback = new object();
+        CopyFeedback.AddOrUpdate(button, feedback);
+        button.Classes.Set("copied", true);
+        try
+        {
+            var data = new DataTransfer();
+            data.Add(DataTransferItem.CreateText(answer.SelectionText));
+            await clipboard.SetDataAsync(data);
+        }
+        catch (Exception ex)
+        {
+            button.Classes.Set("copied", false);
+            if (_shell is { } shell)
+                shell.Chat.ErrorText = "The answer could not be copied.";
+            Trace.TraceWarning($"[Mobile] Answer copy failed: {ex}");
+            return;
+        }
+
+        DispatcherTimer.RunOnce(() =>
+        {
+            if (CopyFeedback.TryGetValue(button, out var current) && ReferenceEquals(current, feedback))
+                button.Classes.Set("copied", false);
+        }, TimeSpan.FromSeconds(1.6));
+    }
+
+    private void OnShareAnswerClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AssistantItemViewModel answer })
+            return;
+
+        if (!MobilePlatformServices.TextShare.TryShare(answer.SelectionText, _shell?.Chat.Title)
+            && _shell is { } shell)
+        {
+            shell.Chat.ErrorText = "The answer could not be shared.";
+        }
     }
 
     private async void OnSourceClick(object? sender, RoutedEventArgs e)
@@ -964,6 +1325,7 @@ public partial class ChatDetailView : UserControl
         }
 
         string? downloadedPath = null;
+        shell.BeginPendingRemoteAction();
         try
         {
             downloadedPath = await shell.DownloadProducedFileAsync(shell.Chat.ChatId, messageId, fileName);
@@ -1006,8 +1368,15 @@ public partial class ChatDetailView : UserControl
         }
         finally
         {
-            if (downloadedPath is not null && File.Exists(downloadedPath))
-                File.Delete(downloadedPath);
+            try
+            {
+                if (downloadedPath is not null && File.Exists(downloadedPath))
+                    File.Delete(downloadedPath);
+            }
+            finally
+            {
+                shell.EndPendingRemoteAction();
+            }
         }
     }
 }

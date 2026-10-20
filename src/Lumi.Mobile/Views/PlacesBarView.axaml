@@ -1,0 +1,70 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
+             xmlns:sc="using:StrataTheme.Controls"
+             x:Class="Lumi.Mobile.Views.PlacesBarView"
+             x:DataType="vm:MobileShellViewModel"
+             HorizontalAlignment="Center"
+             ClipToBounds="False">
+
+  <!--
+    The desktop's places, in its order, on one glass pill centred in the thumb zone of its column.
+    The place you are in always wears its name, as on the desktop; the others are glyphs. Every
+    place is a 48 dp target, and the pill with its longest name fits a 320 dp column.
+  -->
+  <!-- A glass pill: it frosts what passes beneath it inside its own outline only, so the list stays
+       sharp all around it, under the desktop's light surface tint and hairline. The view does not clip,
+       so the pill's shadow falls whole and its frost can take in what lies just around it. One highlight
+       glides between the places and the open place's name slides across, as on the desktop. -->
+  <Panel x:Name="PlacesPill" Classes="places-pill">
+    <sc:StrataBackdropBlur x:Name="PlacesFrost" Classes="places-frost" />
+    <Border x:Name="PlacesSurface" Classes="places-surface">
+      <Panel x:Name="PlacesTrack">
+        <Border x:Name="PlacesSelection" Classes="places-selection" />
+        <StackPanel x:Name="PlacesRow" Orientation="Horizontal" Spacing="2">
+          <Button x:Name="PlacesChatsButton" Classes="place"
+                  Classes.active="{Binding IsChatsPlace}"
+                  AutomationProperties.Name="Chats"
+                  Command="{Binding SelectPlaceCommand}" CommandParameter="Chats">
+            <StackPanel Orientation="Horizontal">
+              <PathIcon Data="{DynamicResource Mobile.Icon.Chat}" />
+              <TextBlock Classes="place-label" Text="Chats" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="PlacesJobsButton" Classes="place"
+                  Classes.active="{Binding IsJobsPlace}"
+                  AutomationProperties.Name="Jobs"
+                  Command="{Binding SelectPlaceCommand}" CommandParameter="Jobs">
+            <StackPanel Orientation="Horizontal">
+              <PathIcon Data="{DynamicResource Mobile.Icon.Clock}" />
+              <TextBlock Classes="place-label" Text="Jobs" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="PlacesCustomizeButton" Classes="place"
+                  Classes.active="{Binding IsCustomizePlace}"
+                  AutomationProperties.Name="Customize"
+                  Command="{Binding SelectPlaceCommand}" CommandParameter="Customize">
+            <StackPanel Orientation="Horizontal">
+              <Panel Classes="place-tune">
+                <PathIcon Data="{DynamicResource Mobile.Icon.CustomizeTracks}" />
+                <PathIcon Data="{DynamicResource Mobile.Icon.CustomizeKnobTop}" />
+                <PathIcon Data="{DynamicResource Mobile.Icon.CustomizeKnobBottom}" />
+              </Panel>
+              <TextBlock Classes="place-label" Text="Customize" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="PlacesSettingsButton" Classes="place"
+                  Classes.active="{Binding IsSettingsPlace}"
+                  AutomationProperties.Name="Settings"
+                  Command="{Binding SelectPlaceCommand}" CommandParameter="Settings">
+            <StackPanel Orientation="Horizontal">
+              <PathIcon Data="{DynamicResource Mobile.Icon.Gear}" />
+              <TextBlock Classes="place-label" Text="Settings" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+      </Panel>
+    </Border>
+  </Panel>
+</UserControl>

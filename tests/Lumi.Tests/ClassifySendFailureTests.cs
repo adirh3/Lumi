@@ -95,11 +95,63 @@ public sealed class ClassifySendFailureTests
     }
 
     [Theory]
+    [InlineData(400, "query", "input item ID does not belong to this connection")]
+    [InlineData(400, "invalid_request_error", "Input item ID does not belong to this connection")]
+    [InlineData(null, null, "Execution failed: 400 input item ID does not belong to this connection (Request ID: 00000-2b5adeb9-a84d-4d5e-aeca-be99b3f80467)")]
+    public void ForeignConnectionInputItem_RebuildsWithoutImageCopy(int? status, string? type, string message)
+    {
+        var result = CopilotService.ClassifySendFailure(status, type, message, hasTerminalOverride: false);
+
+        Assert.True(result.Recoverable);
+        Assert.False(result.IsImageError);
+        Assert.True(result.RequiresSessionRebuild);
+        Assert.Equal(SessionFailureDisposition.RebuildSession, result.Disposition);
+    }
+
+    [Theory]
+    [InlineData(401, "authentication")]
+    [InlineData(403, "authorization")]
+    [InlineData(400, "content_policy")]
+    [InlineData(429, "rate_limit")]
+    public void ForeignConnectionInputItem_FatalCategoryStillWins(int status, string type)
+    {
+        var result = CopilotService.ClassifySendFailure(
+            status, type, "input item ID does not belong to this connection", hasTerminalOverride: false);
+
+        Assert.Equal(SessionFailureDisposition.Fatal, result.Disposition);
+    }
+
+    [Theory]
+    [InlineData(null, SessionFailureDisposition.RebuildSession)]
+    [InlineData(SessionFailureDisposition.RetrySameSession, SessionFailureDisposition.RebuildSession)]
+    [InlineData(SessionFailureDisposition.RebuildSession, SessionFailureDisposition.RebuildSession)]
+    [InlineData(SessionFailureDisposition.Fatal, SessionFailureDisposition.Fatal)]
+    public void PersistedForeignConnectionInputItem_UpgradesOnlyRetryableDecision(
+        SessionFailureDisposition? stored, SessionFailureDisposition expected)
+    {
+        var result = CopilotService.ClassifyPersistedSendFailure(
+            stored, "Error: Execution failed: 400 input item ID does not belong to this connection");
+
+        Assert.Equal(expected, result.Disposition);
+        Assert.False(result.IsImageError);
+    }
+
+    [Theory]
+    [InlineData(SessionFailureDisposition.Fatal, "The request could not be completed")]
+    [InlineData(SessionFailureDisposition.RebuildSession, "Localized recovery text")]
+    [InlineData(SessionFailureDisposition.RetrySameSession, "Error: Bad request")]
+    public void PersistedOtherError_PreservesAuthoritativeDecision(SessionFailureDisposition stored, string message)
+        => Assert.Equal(stored, CopilotService.ClassifyPersistedSendFailure(stored, message).Disposition);
+
+    [Theory]
     [InlineData(500, "query", "internal server error")]
     [InlineData(null, null, "The JSON-RPC connection with the remote party was lost")]
     [InlineData(null, "query", "The request is too large to send through CAPI Responses. (5.5 MB request; 5.0 MB limit)")]
     [InlineData(null, null, "Failed to persist session events: There is not enough space on the disk. (os error 112)")]
     [InlineData(null, null, "The CancellationTokenSource has been disposed.")]
+    [InlineData(400, "query", "Invalid input item ID")]
+    [InlineData(400, "query", "Bad request")]
+    [InlineData(null, null, "Connection lost (Request ID: 400)")]
     public void NonPoisoningRecoverableError_RetriesSameSession(int? status, string? type, string? message)
     {
         var result = CopilotService.ClassifySendFailure(status, type, message, hasTerminalOverride: false);

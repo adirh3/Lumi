@@ -58,6 +58,27 @@ public class ModelCatalogRefreshTests
     }
 
     [Fact]
+    public void Signature_Changes_WhenBackgroundTokenPricesOrBatchSizesChange()
+    {
+        var model = Model("gpt-6-luna");
+        model.Billing = new ModelBilling
+        {
+            TokenPrices = new() { BatchSize = 1000, InputPrice = 0.1, OutputPrice = 0.3 }
+        };
+        var before = ModelCatalogCache.BuildSignature([model], Catalog());
+        model.Billing.TokenPrices.InputPrice = 0.2;
+        var repriced = ModelCatalogCache.BuildSignature([model], Catalog());
+        model.Billing.TokenPrices.BatchSize = 10000;
+        var newBatchSize = ModelCatalogCache.BuildSignature([model], Catalog());
+        model.Billing.TokenPrices.OutputPrice = 0.4;
+        var newOutputPrice = ModelCatalogCache.BuildSignature([model], Catalog());
+
+        Assert.NotEqual(before, repriced);
+        Assert.NotEqual(repriced, newBatchSize);
+        Assert.NotEqual(newBatchSize, newOutputPrice);
+    }
+
+    [Fact]
     public void Signature_Changes_WhenCapabilitiesChangeForSameModel()
     {
         var before = ModelCatalogCache.BuildSignature(

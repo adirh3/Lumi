@@ -18,6 +18,7 @@ public partial class GitHubLoginViewModel : ObservableObject
 {
     private readonly CopilotService _copilotService;
     private CancellationTokenSource? _signInCts;
+    private int _authStateVersion;
 
     // ── State ──
     [ObservableProperty] private bool _isSigningIn;
@@ -45,20 +46,30 @@ public partial class GitHubLoginViewModel : ObservableObject
     partial void OnIsAuthenticatedChanged(bool value) => AuthenticationChanged?.Invoke(value);
 
     /// <summary>Refreshes auth status from the CopilotService without triggering a new login flow.</summary>
-    public async Task RefreshAsync()
+    public async Task<bool> RefreshAsync()
     {
+        var version = ++_authStateVersion;
         try
         {
             var status = await _copilotService.GetAuthStatusAsync();
-            IsAuthenticated = status.IsAuthenticated == true;
-            GitHubLogin = status.Login ?? _copilotService.GetStoredLogin() ?? "";
-            if (IsAuthenticated)
+            if (version != _authStateVersion)
+                return false;
+
+            var isAuthenticated = status.IsAuthenticated == true;
+            GitHubLogin = isAuthenticated ? status.Login ?? _copilotService.GetStoredLogin() ?? "" : "";
+            IsAuthenticated = isAuthenticated;
+            if (isAuthenticated || ErrorText == Loc.Status_GitHubAuthCheckFailed)
                 ErrorText = null;
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
-            IsAuthenticated = false;
-            GitHubLogin = "";
+            if (version != _authStateVersion)
+                return false;
+
+            Debug.WriteLine($"[Lumi] Could not check GitHub authentication ({ex.GetType().Name}).");
+            ErrorText = Loc.Status_GitHubAuthCheckFailed;
+            return false;
         }
     }
 
@@ -67,6 +78,7 @@ public partial class GitHubLoginViewModel : ObservableObject
     {
         if (IsSigningIn || IsAuthenticated) return;
 
+        _authStateVersion++;
         IsSigningIn = true;
         ErrorText = null;
         HasDeviceCode = false;
@@ -74,7 +86,7 @@ public partial class GitHubLoginViewModel : ObservableObject
         VerificationUrl = "";
         DeviceCodeCopied = false;
         _signInCts?.Dispose();
-        _signInCts = new CancellationTokenSource();
+        var signInCts = _signInCts = new CancellationTokenSource();
 
         try
         {
@@ -83,12 +95,16 @@ public partial class GitHubLoginViewModel : ObservableObject
                 {
                     Dispatcher.UIThread.Post(() =>
                     {
+                        if (!ReferenceEquals(_signInCts, signInCts)
+                            || signInCts.IsCancellationRequested || !IsSigningIn)
+                            return;
+
                         DeviceCode = code;
                         VerificationUrl = url;
                         HasDeviceCode = true;
                     });
                 },
-                ct: _signInCts.Token);
+                ct: signInCts.Token);
 
             if (result != CopilotSignInResult.Success)
             {
@@ -114,6 +130,12 @@ public partial class GitHubLoginViewModel : ObservableObject
         {
             IsSigningIn = false;
             HasDeviceCode = false;
+            DeviceCode = "";
+            VerificationUrl = "";
+            DeviceCodeCopied = false;
+            if (ReferenceEquals(_signInCts, signInCts))
+                _signInCts = null;
+            signInCts.Dispose();
         }
     }
 
@@ -141,6 +163,7 @@ public partial class GitHubLoginViewModel : ObservableObject
     {
         if (!IsAuthenticated) return;
 
+        _authStateVersion++;
         ErrorText = null;
         try
         {
@@ -152,6 +175,7 @@ public partial class GitHubLoginViewModel : ObservableObject
                 ErrorText = Loc.Status_GitHubSignOutFailed;
                 return;
             }
+            _authStateVersion++;
             IsAuthenticated = false;
             GitHubLogin = "";
         }

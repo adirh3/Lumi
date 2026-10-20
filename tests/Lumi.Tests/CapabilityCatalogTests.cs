@@ -76,9 +76,9 @@ public sealed class CapabilityCatalogTests
         Assert.Contains("pdf", snapshot.NativeSkillInvocationNames);
         var provider = new LumiSkillProvider(
             _ => Task.FromResult<IReadOnlyList<Skill>>(store.Data.Skills), snapshot);
-        var descriptor = Assert.Single(await provider.ListAsync());
+        var descriptor = Assert.Single(await provider.ListSkillsAsync());
         Assert.Equal($"pdf-{skill.Id:N}", descriptor.Name);
-        Assert.Contains(skill.Content, await provider.ReadAsync(descriptor.Name));
+        Assert.Contains(skill.Content, await provider.ReadSkillAsync(descriptor.Name));
     }
 
     [Fact]

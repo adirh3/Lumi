@@ -20,10 +20,19 @@ namespace Lumi.Services;
 /// requested a whole-chat duplicate and <c>sessions.fork</c> should run without resolving a cut
 /// point.
 /// </param>
+/// <param name="ComposerReply">
+/// The reply that goes with <see cref="ComposerPrefill"/> when the forked user message was a reply,
+/// pointing at the fork's copy of the quoted answer.
+/// </param>
+/// <param name="ComposerReferencedChats">
+/// The other chats the forked user message brought in, so the draft brings them in again.
+/// </param>
 public readonly record struct ForkPlan(
     Chat Chat,
     string? ComposerPrefill,
-    int? SessionForkCutUserTurns);
+    int? SessionForkCutUserTurns,
+    MessageReply? ComposerReply = null,
+    IReadOnlyList<ChatReference>? ComposerReferencedChats = null);
 
 /// <summary>
 /// Builds a forked copy of a <see cref="Chat"/> — an independent chat that carries the source
@@ -96,6 +105,8 @@ public static class ChatForkFactory
             ActiveExternalSkillNames = [..source.ActiveExternalSkillNames],
             ActiveMcpServerNames = [..source.ActiveMcpServerNames],
             HasExplicitMcpServerSelection = source.HasExplicitMcpServerSelection,
+            ApprovalMode = source.ApprovalMode,
+            ApprovalRules = AppDataSnapshotFactory.CloneApprovalRules(source.ApprovalRules),
             SdkAgentName = source.SdkAgentName,
             WorktreePath = source.WorktreePath,
             LastModelUsed = source.LastModelUsed,
@@ -117,14 +128,20 @@ public static class ChatForkFactory
             // - IsPinned: a fork starts unpinned so it doesn't displace the original.
         };
 
-        var (take, prefill) = ResolveCut(sourceMessages, throughMessageId);
-        fork.Messages.AddRange(CopyMessages(sourceMessages, take));
+        var (take, draft) = ResolveCut(sourceMessages, throughMessageId);
+        var copiedIds = new Dictionary<Guid, Guid>(take);
+        fork.Messages.AddRange(CopyMessages(sourceMessages, take, copiedIds));
         fork.MessageCount = fork.Messages.Count;
 
         int? sessionForkCutUserTurns = throughMessageId is null
             ? null
             : fork.Messages.Count(static m => m.Role == "user");
-        return new ForkPlan(fork, prefill, sessionForkCutUserTurns);
+        return new ForkPlan(
+            fork,
+            draft?.Content,
+            sessionForkCutUserTurns,
+            RepointReply(draft?.ReplyTo, copiedIds),
+            draft?.ReferencedChats?.Select(static reference => reference.Clone()).ToList());
     }
 
     internal static void ReconcileTag(Chat fork, IReadOnlyList<ChatTag> currentTags)
@@ -143,7 +160,7 @@ public static class ChatForkFactory
     /// Works out how many leading messages the fork keeps, and whether the fork point should become
     /// a composer draft instead of a copied message.
     /// </summary>
-    private static (int Take, string? Prefill) ResolveCut(
+    private static (int Take, ChatMessage? Draft) ResolveCut(
         IReadOnlyList<ChatMessage> sourceMessages,
         Guid? throughMessageId)
     {
@@ -168,7 +185,7 @@ public static class ChatForkFactory
         // Forking from your own turn means "I want to ask this differently", so the branch stops at
         // the previous answer and the prompt comes back as an editable draft. Keeping it would end
         // the transcript on an unanswered question the model has no matching state for.
-        return (index, target.Content);
+        return (index, target);
     }
 
     /// <summary>
@@ -203,7 +220,10 @@ public static class ChatForkFactory
         return title + suffix;
     }
 
-    private static List<ChatMessage> CopyMessages(IReadOnlyList<ChatMessage> sourceMessages, int take)
+    private static List<ChatMessage> CopyMessages(
+        IReadOnlyList<ChatMessage> sourceMessages,
+        int take,
+        Dictionary<Guid, Guid> copiedIds)
     {
         var copies = new List<ChatMessage>(take);
         for (var i = 0; i < take; i++)
@@ -215,10 +235,31 @@ public static class ChatForkFactory
             if (source.IsStreaming && string.IsNullOrWhiteSpace(source.Content))
                 continue;
 
-            copies.Add(CopyMessage(source));
+            var copy = CopyMessage(source);
+            copiedIds[source.Id] = copy.Id;
+            copy.ReplyTo = RepointReply(source.ReplyTo, copiedIds);
+            if (copy.InteractionReceipt is { } receipt
+                && copiedIds.TryGetValue(receipt.SourceMessageId, out var copiedSourceId))
+                receipt.SourceMessageId = copiedSourceId;
+            copies.Add(copy);
         }
 
         return copies;
+    }
+
+    /// <summary>
+    /// Copies a reply so it points at the fork's copy of the answer it quotes. Copies get fresh ids,
+    /// and a quoted answer always precedes its reply, so it has been copied by then.
+    /// </summary>
+    private static MessageReply? RepointReply(MessageReply? reply, IReadOnlyDictionary<Guid, Guid> copiedIds)
+    {
+        if (reply is null)
+            return null;
+
+        var copy = reply.Clone();
+        if (copiedIds.TryGetValue(reply.MessageId, out var copiedSourceId))
+            copy.MessageId = copiedSourceId;
+        return copy;
     }
 
     /// <summary>
@@ -235,7 +276,10 @@ public static class ChatForkFactory
         // tool left "InProgress" would spin forever, and an unanswered ask_question card would stay
         // clickable while wired to a session that no longer exists.
         copy.IsStreaming = false;
+        copy.IsPendingPausedSend = false;
         copy.ToolStatus = NormalizeToolStatus(copy.ToolStatus);
+        if (copy.InteractionReceipt is { Status: "Submitted" or "Working" } receipt)
+            receipt.Status = "Stopped";
         return copy;
     }
 
