@@ -6,9 +6,10 @@ using System.Threading.Tasks;
 
 namespace Lumi.Services;
 
-internal enum FilePreviewKind { Text, Markdown, Image, Native }
+internal enum FilePreviewKind { Text, Markdown, Image, Native, Csv }
 
-internal sealed record FilePreviewContent(FilePreviewKind Kind, string? Text = null, bool IsTruncated = false)
+internal sealed record FilePreviewContent(FilePreviewKind Kind, string? Text = null, bool IsTruncated = false,
+    CsvPreviewData? Csv = null)
 {
     internal const int MaxCharacters = 100_000;
 
@@ -57,9 +58,16 @@ internal sealed record FilePreviewContent(FilePreviewKind Kind, string? Text = n
         var count = Math.Min(length, MaxCharacters);
         if (count > 0 && char.IsHighSurrogate(buffer[count - 1]))
             count--;
+        var text = new string(buffer, 0, count);
+        var isTruncated = length > MaxCharacters;
+        if (extension is ".csv" or ".tsv")
+        {
+            var csv = await Task.Run(() => CsvPreviewData.Parse(text, isTruncated,
+                extension == ".tsv" ? '\t' : null, cancellationToken), cancellationToken).ConfigureAwait(false);
+            return new(FilePreviewKind.Csv, IsTruncated: isTruncated, Csv: csv);
+        }
         return new(
             extension is ".md" or ".markdown" or ".mdown" ? FilePreviewKind.Markdown : FilePreviewKind.Text,
-            new string(buffer, 0, count),
-            length > MaxCharacters);
+            text, isTruncated);
     }
 }

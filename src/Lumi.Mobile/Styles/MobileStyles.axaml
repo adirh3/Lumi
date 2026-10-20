@@ -3,8 +3,18 @@
         xmlns:behaviors="using:Lumi.Mobile.Behaviors"
         xmlns:views="using:Lumi.Mobile.Views"
         xmlns:sa="using:StrataTheme.Animation"
+        xmlns:primitives="using:Avalonia.Controls.Primitives"
         xmlns:textInput="using:Avalonia.Input.TextInput"
         xmlns:sc="using:StrataTheme.Controls">
+
+  <!--
+    Every root the phone draws in (Android's view, the browser's canvas, the simulator's window) starts
+    text at the body rung, as the desktop's window does, so text no style sizes reads at the phone's
+    body size on every host rather than Avalonia's default 12, and follows the phone's font size.
+  -->
+  <Style Selector=":is(TopLevel)">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+  </Style>
 
   <!--
     Touch ergonomics. Strata reveals several affordances on :pointerover, which a finger never
@@ -13,6 +23,21 @@
   <Style Selector="Button">
     <Setter Property="behaviors:TouchScrollClickGuard.IsEnabled" Value="True" />
     <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <!-- Animate the visual, not the 48dp hit target. History selection must remain instantaneous. -->
+  <Style Selector="Button /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(1)" />
+  </Style>
+  <Style Selector="Button:not(.drawer-chat) /template/ Border#PART_Surface">
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.12" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.16" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
   </Style>
 
   <Style Selector="TextBox">
@@ -46,8 +71,8 @@
     </Setter>
   </Style>
 
-  <Style Selector="Button.nav-item:pressed">
-    <Setter Property="RenderTransform" Value="scale(0.94)" />
+  <Style Selector="Button.nav-item:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.96)" />
   </Style>
 
   <Style Selector="Button.nav-item.selected">
@@ -63,31 +88,6 @@
     <Setter Property="BoxShadow" Value="none" />
   </Style>
 
-  <!-- Chat rows are the primary touch target of the whole app: big, obvious, and press-animated. -->
-  <Style Selector="Button.chat-row">
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="14" />
-    <Setter Property="Padding" Value="14,12" />
-    <Setter Property="MinHeight" Value="64" />
-    <Setter Property="HorizontalAlignment" Value="Stretch" />
-    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-    <Setter Property="Transitions">
-      <Transitions>
-        <BrushTransition Property="Background" Duration="0:0:0.14" />
-      </Transitions>
-    </Setter>
-  </Style>
-
-  <Style Selector="Button.chat-row:pressed">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-    <Setter Property="RenderTransform" Value="scale(0.985)" />
-  </Style>
-
-  <Style Selector="Button.chat-row.selected">
-    <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-  </Style>
-
   <Style Selector="Button.setup-host-row">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
@@ -101,6 +101,8 @@
 
   <Style Selector="Button.setup-host-row:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+  </Style>
+  <Style Selector="Button.setup-host-row:pressed /template/ Border#PART_Surface">
     <Setter Property="RenderTransform" Value="scale(0.99)" />
   </Style>
 
@@ -111,6 +113,32 @@
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden" />
+  </Style>
+
+  <!-- A place's filter field is the chat list's quiet search field: a soft fill led by its magnifier. -->
+  <Style Selector="TextBox.mobile.list-filter">
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="10,12,16,12" />
+    <Setter Property="Background" Value="{DynamicResource Brush.ListSearchField}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="TextBox.list-filter:pointerover /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="TextBox.list-filter:focus-within /template/ Border#PART_Border,
+                   TextBox.list-filter.native-input-focused /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorderStrong}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="sc|StrataLineIcon.list-filter-icon">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="StrokeThickness" Value="2" />
+    <Setter Property="Margin" Value="14,0,0,0" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
 
   <Style Selector="TextBox.native-input-focused /template/ Border#PART_Border">
@@ -184,7 +212,7 @@
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
     <Setter Property="TextWrapping" Value="Wrap" />
-    <Setter Property="LineHeight" Value="21" />
+    <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
   </Style>
 
   <Style Selector="TextBlock.field-label">
@@ -247,25 +275,6 @@
 
   <!-- ══ Navigation drawer ══ -->
 
-  <!--
-    Search field on the full-screen page. ClipToBounds keeps the selection highlight inside the
-    rounded capsule — without it the highlight paints square corners over the rounding, which is
-    what made the old inline field look broken.
-  -->
-  <Style Selector="TextBox.search-field">
-    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="Padding" Value="14,10" />
-    <Setter Property="CornerRadius" Value="22" />
-    <Setter Property="FontSize" Value="{DynamicResource Font.SizeSubtitle}" />
-    <Setter Property="ClipToBounds" Value="True" />
-    <Setter Property="BorderThickness" Value="0" />
-  </Style>
-
-  <Style Selector="TextBox.search-field /template/ Border#PART_Border">
-    <Setter Property="ClipToBounds" Value="True" />
-    <Setter Property="CornerRadius" Value="22" />
-  </Style>
-
   <!-- Result rows are generous: search is a reading task, and the row is the only target. -->
   <Style Selector="Button.search-result">
     <Setter Property="Background" Value="Transparent" />
@@ -311,43 +320,37 @@
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="BorderBrush" Value="Transparent" />
-    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="CornerRadius" Value="12" />
     <Setter Property="Margin" Value="{DynamicResource Mobile.Drawer.RowMargin}" />
-    <Setter Property="Padding" Value="{DynamicResource Mobile.Drawer.ChatRowPadding}" />
-    <Setter Property="MinHeight" Value="52" />
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
     <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
   </Style>
 
   <Style Selector="Button.drawer-chat:pressed">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.ChatRowSelected}" />
   </Style>
 
-  <!-- One status position: pulsing while running, steady for an unread reply, hidden once read. -->
+  <!-- The open chat, as the desktop's list marks it: a neutral wash and the slim accent pipe. -->
   <Style Selector="Button.drawer-chat.selected">
-    <Setter Property="Background" Value="{DynamicResource Brush.NavigationSelected}" />
-    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Background" Value="{DynamicResource Brush.ChatRowSelected}" />
   </Style>
 
-  <Style Selector="Button.drawer-conversation">
-    <Setter Property="MinHeight" Value="52" />
-    <Setter Property="Padding" Value="12,12" />
-  </Style>
   <Style Selector="TextBlock.conversation-title">
-    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="FontWeight" Value="Normal" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
   </Style>
-  <Style Selector="Button.drawer-conversation.selected TextBlock.conversation-title,
-                   Button.drawer-conversation.unread TextBlock.conversation-title,
+  <Style Selector="Button.drawer-conversation.unread TextBlock.conversation-title,
                    Button.search-result.unread TextBlock.conversation-title">
     <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
-  <Style Selector="Border.chat-list-status">
+  <!-- The desktop's row marks: a dot that pulses while Lumi works and stays while a reply waits to be
+       read, a ring while background work still runs, and a quiet pin. -->
+  <Style Selector="Border.chat-row-dot">
     <Setter Property="Width" Value="6" />
     <Setter Property="Height" Value="6" />
-    <Setter Property="Margin" Value="0,0,7,0" />
     <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Margin" Value="0,0,9,0" />
     <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
     <Setter Property="VerticalAlignment" Value="Center" />
     <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
@@ -355,20 +358,19 @@
     <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
     <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
   </Style>
-  <Style Selector="PathIcon.chat-list-background">
-    <Setter Property="Width" Value="10" />
-    <Setter Property="Height" Value="10" />
-    <Setter Property="Margin" Value="0,0,7,0" />
+  <Style Selector="Border.chat-row-background">
+    <Setter Property="Width" Value="8" />
+    <Setter Property="Height" Value="8" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="BorderThickness" Value="1.5" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="PathIcon.chat-row-pin">
+    <Setter Property="Width" Value="14" />
+    <Setter Property="Height" Value="14" />
     <Setter Property="VerticalAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    <Setter Property="Data" Value="M4 4h16v12H4V4zm2 2v8h12V6H6zm2 12h8v2H8v-2z" />
-  </Style>
-  <Style Selector="Border.navigation-icon-tile">
-    <Setter Property="Width" Value="32" />
-    <Setter Property="Height" Value="32" />
-    <Setter Property="CornerRadius" Value="10" />
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
   <Style Selector="Button.navigation-icon-button, Button.chat-header-action">
     <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
@@ -385,6 +387,37 @@
   </Style>
   <Style Selector="Button.chat-header-action.new-conversation">
     <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+
+  <!-- The desktop's sidebar toggle at touch size: a rounded frame holding the list's column, which
+       empties out while the chats are hidden. -->
+  <Style Selector="Panel.sidebar-glyph">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Panel.sidebar-glyph Border.sidebar-glyph-frame">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="BorderThickness" Value="1.7" />
+    <Setter Property="CornerRadius" Value="5" />
+  </Style>
+  <Style Selector="Panel.sidebar-glyph Border.sidebar-glyph-column">
+    <Setter Property="Width" Value="6" />
+    <Setter Property="Margin" Value="1.7" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="CornerRadius" Value="3,0,0,3" />
+    <Setter Property="Background" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.24" Easing="CubicEaseOut" />
+        <DoubleTransition Property="Width" Duration="0:0:0.24" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Panel.sidebar-glyph.collapsed Border.sidebar-glyph-column">
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Width" Value="2" />
   </Style>
 
   <!-- Experience chips: the library, one tap away, without spending a permanent tab on it. -->
@@ -404,32 +437,23 @@
 
   <Style Selector="Button.experience:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    <Setter Property="RenderTransform" Value="scale(0.96)" />
+  </Style>
+  <Style Selector="Button.experience:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.97)" />
   </Style>
 
+  <!-- The title pill fills the bar between its buttons, so the bar is symmetrical; on a wide screen it
+       stops at a comfortable width, centred between them. The chevron sits at its far end. -->
   <Style Selector="Button.chat-controls">
-    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="Padding" Value="8,0,15,0" />
     <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="MaxWidth" Value="260" />
-    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="MaxWidth" Value="600" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
   </Style>
-
-  <!-- Page headers on the pushed Library / Settings pages. -->
-  <Style Selector="Button.page-back">
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="12" />
-    <Setter Property="Padding" Value="0" />
-    <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="HorizontalContentAlignment" Value="Center" />
-    <Setter Property="VerticalContentAlignment" Value="Center" />
-  </Style>
-
-  <Style Selector="Button.page-back:pressed">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+  <Style Selector="Button.chat-controls.no-mark">
+    <Setter Property="Padding" Value="16,0,14,0" />
   </Style>
 
   <!--
@@ -485,6 +509,11 @@
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Composer}" />
   </Style>
+  <Style Selector="sc|StrataChatComposer.mobile /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Setter Property="IsVisible" Value="True" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ComposerBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.ComposerSaturation}" />
+  </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_Root:pointerover">
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorderStrong}" />
@@ -518,153 +547,607 @@
     <Setter Property="behaviors:NativeTextInputOverlay.IsEnabled" Value="False" />
   </Style>
 
+  <!-- The model sits beside send, as on the desktop; the row's other desktop tools are sheets here. -->
+  <Style Selector="sc|StrataChatComposer.mobile /template/ WrapPanel#PART_SecondaryActions">
+    <Setter Property="HorizontalAlignment" Value="Right" />
+  </Style>
+
+  <!--
+    Send: the desktop's orb in the composer's line glyphs. Lumi's gradient when there is something to
+    send, a quiet disc when there isn't, and to stop while Lumi works the quiet disc a shade stronger,
+    with its square in the theme's own ink, ringed by a slow breath. Strata's touch default is a
+    dimmed accent disc with filled glyphs.
+  -->
+  <Style Selector="sc|StrataChatComposer.mobile /template/ Viewbox#PART_SendGlyphs">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile /template/ Panel#PART_OrbGlyphs">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile:busy:not(:steer) /template/ sc|StrataLineIcon#PART_OrbSendIcon">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile:busy:not(:steer):not(:stop-send) /template/ Border#PART_OrbStopIcon">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile:stop-send /template/ sc|StrataLineIcon#PART_OrbStopSendIcon">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile /template/ Button#PART_SendButton /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbReady}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.ComposerOrbReady}" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile /template/ Button#PART_SendButton:pointerover /template/ Border#PART_Surface,
+                   sc|StrataChatComposer.mobile /template/ Button#PART_SendButton:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbReadyHover}" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile:empty:not(:busy):not(:can-send-without-prompt) /template/ Button#PART_SendButton">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile:empty:not(:busy):not(:can-send-without-prompt) /template/ Button#PART_SendButton /template/ Border#PART_Surface,
+                   sc|StrataChatComposer.mobile:empty:not(:busy):not(:can-send-without-prompt) /template/ Button#PART_SendButton:pointerover /template/ Border#PART_Surface,
+                   sc|StrataChatComposer.mobile:empty:not(:busy):not(:can-send-without-prompt) /template/ Button#PART_SendButton:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbIdle}" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile:busy:not(:steer):not(:stop-send) /template/ Button#PART_SendButton">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile:busy:not(:steer):not(:stop-send) /template/ Button#PART_SendButton /template/ Border#PART_Surface,
+                   sc|StrataChatComposer.mobile:busy:not(:steer):not(:stop-send) /template/ Button#PART_SendButton:pointerover /template/ Border#PART_Surface,
+                   sc|StrataChatComposer.mobile:busy:not(:steer):not(:stop-send) /template/ Button#PART_SendButton:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbStop}" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <!-- The breath sits just outside the 38dp disc, not around the whole 48dp target. -->
+  <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_SendHalo">
+    <Setter Property="Margin" Value="2" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile:busy:not(:steer):not(:stop-send) /template/ Border#PART_SendHalo">
+    <Setter Property="IsVisible" Value="True" />
+    <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+  </Style>
+
   <Style Selector="sc|StrataTypingIndicator.mobile-working /template/ TextBlock">
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
     <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
-  <Style Selector="sc|StrataChatComposer.mobile /template/ WrapPanel#PART_ChipsRow">
-    <Setter Property="Margin" Value="12,7,12,0" />
+  <!--
+    ══ What the message carries ══
+    The desktop's context chips, in the desktop's proportions: a quiet neutral pill (30 dp, the
+    desktop's 28 at touch scale) with a small tile in the kind's hue (lavender agents, steel-blue
+    projects, ochre skills) and the name. A phone has no hover to reveal a remove button, so the whole
+    chip is one 48 dp target that opens its picker, where it can be changed or taken off. The chips are
+    the host's (ComposerContext) rather than the composer's own row, whose remove button is desktop-size.
+  -->
+  <Style Selector="sc|StrataChatComposer.mobile /template/ ScrollViewer#PART_ContextScroll">
+    <Setter Property="IsVisible" Value="False" />
   </Style>
 
-  <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_ProjectChip,
-                   sc|StrataChatComposer.mobile /template/ Border#PART_AgentChip,
-                   sc|StrataChatComposer.mobile Border.composer-skill-chip">
+  <Style Selector="ScrollViewer.composer-context">
+    <Setter Property="Margin" Value="2,0,0,0" />
+  </Style>
+
+  <Style Selector="Button.context-chip">
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="Padding" Value="10,0,0,0" />
-    <Setter Property="Margin" Value="0,0,6,0" />
-    <Setter Property="MaxWidth" Value="268" />
-  </Style>
-
-  <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_ProjectChipSurface,
-                   sc|StrataChatComposer.mobile /template/ Border#PART_AgentChipSurface,
-                   sc|StrataChatComposer.mobile Border.composer-chip-surface">
-    <Setter Property="IsVisible" Value="True" />
-    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
-    <Setter Property="CornerRadius" Value="10" />
-    <Setter Property="Height" Value="32" />
-    <Setter Property="VerticalAlignment" Value="Center" />
-    <Setter Property="Margin" Value="-10,0,0,0" />
-  </Style>
-
-  <Style Selector="sc|StrataChatComposer.mobile /template/ TextBlock#PART_ProjectName,
-                   sc|StrataChatComposer.mobile /template/ TextBlock#PART_AgentName,
-                   sc|StrataChatComposer.mobile /template/ TextBlock#PART_AgentGlyph,
-                   sc|StrataChatComposer.mobile Border.composer-skill-chip TextBlock.chip-name,
-                   sc|StrataChatComposer.mobile Border.composer-skill-chip TextBlock.chip-glyph">
-    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
-    <Setter Property="FontWeight" Value="Medium" />
-    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-  </Style>
-
-  <Style Selector="sc|StrataChatComposer.mobile /template/ Button#PART_AgentRemoveButton,
-                   sc|StrataChatComposer.mobile /template/ Button#PART_ProjectRemoveButton,
-                   sc|StrataChatComposer.mobile Button.chip-remove">
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="CornerRadius" Value="24" />
     <Setter Property="Padding" Value="0" />
-  </Style>
-
-  <Style Selector="sc|StrataChatComposer.mobile /template/ TextBlock#PART_AgentRemoveGlyph,
-                   sc|StrataChatComposer.mobile TextBlock.chip-remove-icon">
-    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-  </Style>
-  <Style Selector="sc|StrataChatComposer.mobile Border.composer-skill-chip TextBlock.chip-error">
-    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
-  </Style>
-
-  <!-- The picker pill: a control ON the composer, so one step further up and fully rounded. -->
-  <Style Selector="Button.composer-pill">
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
-    <Setter Property="Padding" Value="12,0" />
-    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="Margin" Value="0,0,6,0" />
-    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
-    <Setter Property="FontWeight" Value="Medium" />
-    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.context-chip /template/ Border#PART_Surface,
+                   Button.context-chip:pointerover /template/ Border#PART_Surface,
+                   Button.context-chip:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BoxShadow" Value="none" />
+    <Setter Property="RenderTransform" Value="none" />
+  </Style>
+  <Style Selector="Border.context-chip-surface">
+    <Setter Property="Height" Value="32" />
+    <Setter Property="CornerRadius" Value="11" />
+    <Setter Property="Padding" Value="4,0,11,0" />
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerChipFill}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.ComposerChipBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="RenderTransform" Value="scale(1)" />
     <Setter Property="Transitions">
       <Transitions>
         <BrushTransition Property="Background" Duration="0:0:0.12" />
-        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1" Easing="CubicEaseOut" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" Easing="CubicEaseOut" />
       </Transitions>
     </Setter>
   </Style>
-  <Style Selector="Button.composer-pill:pressed">
-    <Setter Property="Background" Value="{DynamicResource Brush.ControlPressed}" />
+  <Style Selector="Button.context-chip:pressed Border.context-chip-surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
     <Setter Property="RenderTransform" Value="scale(0.96)" />
   </Style>
+  <Style Selector="Border.context-chip-tile">
+    <Setter Property="Width" Value="24" />
+    <Setter Property="Height" Value="24" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.context-chip-tile sc|StrataLineIcon">
+    <Setter Property="Width" Value="13" />
+    <Setter Property="Height" Value="13" />
+    <Setter Property="StrokeThickness" Value="2.1" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.context-chip-tile TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Agent}" />
+  </Style>
+  <Style Selector="Button.context-chip.project Border.context-chip-tile">
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerProjectTile}" />
+  </Style>
+  <Style Selector="Button.context-chip.project sc|StrataLineIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Project}" />
+  </Style>
+  <Style Selector="Button.context-chip.agent Border.context-chip-tile">
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerAgentTile}" />
+  </Style>
+  <Style Selector="Button.context-chip.skill Border.context-chip-tile">
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerSkillTile}" />
+  </Style>
+  <Style Selector="Button.context-chip.skill sc|StrataLineIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Skill}" />
+  </Style>
+  <Style Selector="TextBlock.context-chip-name">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="MaxWidth" Value="160" />
+  </Style>
 
-  <Style Selector="Button.composer-toolbar-icon">
+  <!-- Picker rows: a context option's own words under its name. -->
+  <Style Selector="sc|StrataBottomSheet TextBlock.sheet-detail">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+
+  <!-- The model, as on the desktop: quiet words and a chevron beside send, opening the model picker. -->
+  <Style Selector="Button.composer-model">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="10,0,8,0" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.composer-model TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Button.composer-model sc|StrataLineIcon">
+    <Setter Property="Width" Value="15" />
+    <Setter Property="Height" Value="15" />
+    <Setter Property="StrokeThickness" Value="2" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.composer-model /template/ Border#PART_Surface,
+                   Button.composer-model:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.composer-model:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+  </Style>
+  <Style Selector="Button.composer-model /template/ Border#PART_Aurora,
+                   Button.composer-add /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+
+  <!-- The desktop's +, on a quiet disc the size of the send orb across from it. The whole 48dp square
+       takes the tap; only the disc is drawn. -->
+  <Style Selector="Button.composer-add">
     <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="Padding" Value="0" />
-    <Setter Property="CornerRadius" Value="24" />
-    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="19" />
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbIdle}" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
-
-  <Style Selector="Button.composer-toolbar-icon:pressed">
-    <Setter Property="Background" Value="{DynamicResource Brush.ControlPressed}" />
+  <Style Selector="Button.composer-add /template/ Panel">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.composer-add /template/ Border#PART_Surface,
+                   Button.composer-add:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Margin" Value="5" />
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbIdle}" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.composer-add /template/ Border#PART_FocusRing">
+    <Setter Property="Margin" Value="3" />
+  </Style>
+  <Style Selector="Button.composer-add:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerOrbIdleHover}" />
     <Setter Property="RenderTransform" Value="scale(0.94)" />
   </Style>
-
-  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_SheetMotion">
-    <Setter Property="MaxWidth" Value="640" />
+  <Style Selector="Button.composer-add sc|StrataLineIcon">
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="StrokeThickness" Value="2" />
   </Style>
 
-  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Sheet">
-    <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level2}" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="24" />
+  <Style Selector="Button.chat-header-action:pressed /template/ Border#PART_Surface,
+                   Button.navigation-icon-button:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.96)" />
   </Style>
 
-  <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Title">
-    <Setter Property="FontSize" Value="{DynamicResource Font.SizeSubtitle}" />
+  <!--
+    ══ Popups ══
+    Every popup is a floating glass sheet. Only the content beneath the sheet is frosted; the page
+    around it stays sharp behind a light dim. Rows stay calm: an optional leading icon, a trailing
+    check for the current choice, a chevron for navigation, and red only for destructive actions.
+    The sheet parts are declared in the Strata template, so these selectors carry a class to win.
+  -->
+  <Style Selector="sc|StrataBottomSheet">
+    <Setter Property="ShowCloseButton" Value="True" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet /template/ Border#PART_SheetMotion">
+    <Setter Property="MaxWidth" Value="{DynamicResource Mobile.Sheet.MaxWidth}" />
+  </Style>
+
+  <!-- Long sheet content scrolls inside a bounded sheet; beside the chat it uses the full height. -->
+  <Style Selector="ScrollViewer.plan-scroll">
+    <Setter Property="MaxHeight" Value="440" />
+  </Style>
+  <Style Selector="ScrollViewer.sheet-scroll">
+    <Setter Property="MaxHeight" Value="560" />
+  </Style>
+
+  <!--
+    With two panes the plan, sources and activity are a glass panel beside the chat: full height on
+    the trailing edge, no dimming, and the conversation stays live beside it.
+  -->
+  <Style Selector="sc|StrataBottomSheet.side-panel /template/ Border#PART_SheetMotion">
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="Width" Value="{DynamicResource Mobile.SidePanel.Width}" />
+    <Setter Property="MaxWidth" Value="{DynamicResource Mobile.SidePanel.Width}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.side-panel /template/ Border#PART_Grip">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.side-panel ScrollViewer.plan-scroll,
+                   sc|StrataBottomSheet.side-panel ScrollViewer.sheet-scroll">
+    <Setter Property="MaxHeight" Value="Infinity" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Scrim,
+                   sc|StrataBottomSheet.touch-picker /template/ Border#PART_Scrim">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetScrim}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ sc|StrataBackdropBlur#PART_Backdrop,
+                   sc|StrataBottomSheet.touch-picker /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Setter Property="IsVisible" Value="True" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.SheetBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.SheetSaturation}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Sheet,
+                   sc|StrataBottomSheet.touch-picker /template/ Border#PART_Sheet">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetSurface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.SheetBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mobile.Sheet.CornerRadius}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Sheet}" />
+    <!-- Scrollers clip their own content; the sheet must not clip away its own shadow. -->
+    <Setter Property="ClipToBounds" Value="False" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Grip,
+                   sc|StrataBottomSheet.touch-picker /template/ Border#PART_Grip">
+    <Setter Property="Width" Value="36" />
+    <Setter Property="Margin" Value="0,8,0,12" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetGrip}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Grid#PART_HeaderContent,
+                   sc|StrataBottomSheet.touch-picker /template/ Grid#PART_HeaderContent">
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Sheet.HeaderMargin}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Title,
+                   sc|StrataBottomSheet.touch-picker /template/ TextBlock#PART_Title">
+    <Setter Property="FontSize" Value="{DynamicResource Mobile.Sheet.TitleSize}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     <Setter Property="TextWrapping" Value="Wrap" />
     <Setter Property="MaxLines" Value="2" />
     <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
-  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Scrim">
-    <Setter Property="Background" Value="{DynamicResource Brush.OverlayScrim}" />
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Description,
+                   sc|StrataBottomSheet.touch-picker /template/ TextBlock#PART_Description">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
+    <Setter Property="MaxLines" Value="3" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
+  <!-- A side panel leaves the chat beside it undimmed and live. -->
+  <Style Selector="sc|StrataBottomSheet.side-panel /template/ Border#PART_Scrim">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.side-panel:open /template/ Border#PART_Scrim">
+    <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+
+  <!-- A quiet 32 DIP close circle inside a full 48 DIP target, centred on the title's first line. -->
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close">
+    <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Margin" Value="8,-11,0,0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close /template/ Panel">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close /template/ Border#PART_Surface">
+    <Setter Property="Margin" Value="8" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close /template/ Border#PART_FocusRing">
+    <Setter Property="Margin" Value="6" />
+    <Setter Property="CornerRadius" Value="18" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close:pointerover /template/ Border#PART_Surface,
+                   sc|StrataBottomSheet Button.sheet-close:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-close:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.9)" />
+  </Style>
+
+  <!-- Rows are full-width thumb targets with a soft, inset press and selection state. -->
   <Style Selector="sc|StrataBottomSheet Button.sheet-item">
-    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
-    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-  </Style>
-
-  <Style Selector="sc|StrataBottomSheet Button.sheet-item.model-option">
-    <Setter Property="CornerRadius" Value="14" />
-    <Setter Property="Padding" Value="14,14" />
-  </Style>
-
-  <Style Selector="sc|StrataBottomSheet Button.sheet-item.model-option.selected">
-    <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    <Setter Property="FontWeight" Value="SemiBold" />
-  </Style>
-
-  <Style Selector="sc|StrataSettingGroup.mobile /template/ Border#PART_Card">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Sheet.ItemMargin}" />
+    <Setter Property="Padding" Value="{DynamicResource Mobile.Sheet.ItemPadding}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Mobile.Sheet.RowHeight}" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item /template/ Border#PART_Surface">
     <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowHover}" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item.selected /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowSelected}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+    <Setter Property="BoxShadow" Value="none" />
+    <Setter Property="RenderTransform" Value="scale(0.985)" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item:disabled">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet PathIcon.sheet-leading">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item.destructive,
+                   sc|StrataBottomSheet Button.sheet-item.destructive PathIcon.sheet-leading">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet PathIcon.sheet-check">
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet PathIcon.sheet-chevron">
+    <Setter Property="Width" Value="13" />
+    <Setter Property="Height" Value="13" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet TextBlock.sheet-value">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <!-- The row's name keeps its words; its value gives way, against the chevron. -->
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="TextAlignment" Value="Right" />
+    <Setter Property="MaxWidth" Value="180" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet TextBlock.sheet-label">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Margin" Value="{DynamicResource Mobile.Sheet.LabelMargin}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet TextBlock.sheet-body">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Border.sheet-card">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+    <Setter Property="CornerRadius" Value="18" />
+    <Setter Property="Padding" Value="16,14" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Border.context-meter:not(.critical)">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+  </Style>
+
+  <!-- Confirmations use pill actions: neutral, primary and destructive. -->
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action">
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="CornerRadius" Value="24" />
+    <Setter Property="Padding" Value="20,0" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action:pointerover /template/ Border#PART_Surface,
+                   sc|StrataBottomSheet Button.sheet-action:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.primary">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.primary:pointerover /template/ Border#PART_Surface,
+                   sc|StrataBottomSheet Button.sheet-action.primary:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentGradientPressed}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.destructive">
+    <Setter Property="Background" Value="{DynamicResource Brush.DangerDefault}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnDanger}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action.destructive:pointerover /template/ Border#PART_Surface,
+                   sc|StrataBottomSheet Button.sheet-action.destructive:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.DangerPressed}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action:pressed /template/ Border#PART_Surface">
+    <Setter Property="RenderTransform" Value="scale(0.98)" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.sheet-action:disabled">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.touch-picker Calendar">
+    <Setter Property="MaxWidth" Value="392" />
+    <Setter Property="Margin" Value="0,0,0,16" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker Calendar /template/ StackPanel#PART_Root">
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem /template/ Border">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem /template/ Grid > Rectangle">
+    <Setter Property="Fill" Value="Transparent" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem /template/ Grid#PART_MonthView">
+    <Setter Property="Margin" Value="0,8,0,8" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarItem /template/ Grid#PART_MonthView > TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Margin" Value="0,4,0,8" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker Button.CalendarNavigation">
+    <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker Button.CalendarHeader">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton">
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <!-- Seven columns stay inside compact cover displays; rows retain the full touch height. -->
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton">
+    <Setter Property="MinWidth" Value="40" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton:inactive">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton:selected,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton:selected">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton /template/ Rectangle,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton /template/ Rectangle">
+    <Setter Property="RadiusX" Value="14" />
+    <Setter Property="RadiusY" Value="14" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton /template/ Rectangle#SelectedBackground,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton /template/ Rectangle#SelectedBackground">
+    <Setter Property="Fill" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton /template/ Rectangle#TodayBackground">
+    <Setter Property="Fill" Value="{DynamicResource Brush.AccentSubtle}" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet.touch-picker primitives|CalendarDayButton /template/ Rectangle#Background,
+                   sc|StrataBottomSheet.touch-picker primitives|CalendarButton /template/ Rectangle#Background">
+    <Setter Property="Fill" Value="{DynamicResource Brush.SheetControl}" />
+  </Style>
+
+  <!-- Settings groups are the same graphite cards as the desktop's Settings pages. -->
+  <Style Selector="sc|StrataSettingGroup.mobile /template/ Border#PART_Card">
+    <Setter Property="Background" Value="{DynamicResource Brush.GroupSurface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GroupBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="16,14,16,6" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Group}" />
+  </Style>
+  <Style Selector="sc|StrataSettingGroup.mobile:focus-within /template/ Border#PART_Card">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GroupBorder}" />
+  </Style>
+  <Style Selector="sc|StrataSettingGroup.mobile /template/ StackPanel#PART_HeaderSection">
+    <Setter Property="Margin" Value="0,0,0,2" />
+  </Style>
+  <Style Selector="sc|StrataSettingGroup.mobile /template/ StackPanel#PART_HeaderSection > TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
   </Style>
 
   <Style Selector="sc|StrataSetting.mobile /template/ Border#PART_RowBorder">
@@ -672,8 +1155,7 @@
   </Style>
 
   <Style Selector="sc|StrataSetting.mobile /template/ Border#PART_Separator">
-    <Setter Property="IsVisible" Value="False" />
-    <Setter Property="Height" Value="0" />
+    <Setter Property="Background" Value="{DynamicResource Brush.RowDivider}" />
     <Setter Property="Margin" Value="0" />
   </Style>
 
@@ -683,7 +1165,7 @@
 
   <Style Selector="sc|StrataSetting.mobile /template/ TextBlock#PART_Description">
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
-    <Setter Property="LineHeight" Value="21" />
+    <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
   </Style>
 
   <!-- Suggestions and headings belong to the canvas rather than another stack of cards. -->
@@ -698,6 +1180,33 @@
   <Style Selector="Border#TopBarInset">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <!--
+    ══ Scroll-edge glass ══
+    Content runs underneath floating chrome. A chrome-edge band frosts and tints it only while content
+    is actually behind the chrome (the chat shell's :content-under-* states or ScrollEdgeChrome's
+    content-under class), so at rest it costs nothing and the canvas stays clean.
+  -->
+  <Style Selector="Panel.chrome-edge">
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Panel.content-under > Panel.chrome-edge">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="sc|StrataBackdropBlur.chrome-frost">
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.BlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.Saturation}" />
+  </Style>
+  <Style Selector="sc|StrataBackdropBlur.control-frost">
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
   </Style>
 
   <!-- Attachment chips: a file staged for the next message, with its own removal target. -->
@@ -764,7 +1273,9 @@
     <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
   </Style>
 
+  <!-- Floating controls are glass: each frosts the content moving beneath it inside its own surface. -->
   <Style Selector="Button.floating-action">
+    <Setter Property="Theme" Value="{DynamicResource StrataGlassButton}" />
     <Setter Property="ClipToBounds" Value="False" />
     <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
@@ -773,11 +1284,16 @@
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
   </Style>
+  <Style Selector="Button.floating-action /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+  </Style>
   <Style Selector="Button.floating-action /template/ Panel">
     <Setter Property="Background" Value="Transparent" />
   </Style>
   <Style Selector="Button.floating-action /template/ Border#PART_FocusRing">
     <Setter Property="Margin" Value="0" />
+    <Setter Property="CornerRadius" Value="24" />
   </Style>
   <Style Selector="Button.floating-action /template/ Border#PART_Surface">
     <Setter Property="Margin" Value="2" />
@@ -790,9 +1306,530 @@
   </Style>
   <Style Selector="Button.floating-action:pressed /template/ Border#PART_Surface">
     <Setter Property="Background" Value="{DynamicResource Brush.FloatingControlPressed}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level1}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControlPressed}" />
   </Style>
   <Style Selector="Button.floating-action:pointerover /template/ Border#PART_Aurora">
     <Setter Property="Opacity" Value="0" />
+  </Style>
+
+  <!-- Segmented choices inside a glass popup share the popup's translucent selection tint. -->
+  <Style Selector="sc|StrataBottomSheet Button.theme-option">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="sc|StrataBottomSheet Button.theme-option.selected">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowSelected}" />
+  </Style>
+
+  <!--
+    The desktop picker's segments, in a sheet: a quiet track with the chosen segment raised in a
+    neutral fill. Every segment keeps a full 48dp target.
+  -->
+  <Style Selector="Border.segment-track">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetControl}" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="2" />
+    <Setter Property="Margin" Value="16,0,16,8" />
+  </Style>
+  <Style Selector="Button.segment">
+    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Padding" Value="4,0" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Button.segment /template/ Border#PART_Surface,
+                   Button.segment:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.segment /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Button.segment:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SheetRowPressed}" />
+  </Style>
+  <Style Selector="Button.segment TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="Button.segment.selected TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Button.segment.selected /template/ Border#PART_Surface,
+                   Button.segment.selected:pointerover /template/ Border#PART_Surface,
+                   Button.segment.selected:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SegmentSelected}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Segment}" />
+  </Style>
+
+  <!--
+    ══ Places ═══════════════════════════════════════════════════════════════════════════════════════════
+    The desktop's navigation pill (MainWindow's nav-pill) at touch size, in its own materials: the
+    surface at 40% and a hairline of text at 6% all round and a small shadow, over a frost of its own
+    (places-frost) as the floating controls have, so only what passes beneath the pill softens and the
+    list stays sharp all around it. The pill's 4 dp inset
+    keeps the open place's highlight concentric with it, as on the desktop. The desktop's accent glow
+    marks the open place and glides between places (PlacesBarView). Four 48 dp places and the longest
+    name fit a 320 dp column.
+  -->
+  <Style Selector="Border.places-surface">
+    <Setter Property="CornerRadius" Value="31" />
+    <Setter Property="Padding" Value="4" />
+    <Setter Property="Background" Value="{DynamicResource Brush.PlacesFill}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.PlacesBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Places}" />
+  </Style>
+  <!-- The floating controls' glass, clipped to the pill. It takes in what lies just around the pill too, as
+       glass does, so rows crossing its rim blur into it smoothly instead of lighting the rim up. -->
+  <Style Selector="sc|StrataBackdropBlur.places-frost">
+    <Setter Property="CornerRadius" Value="31" />
+    <Setter Property="SamplesBeyondEdges" Value="True" />
+    <Setter Property="BlurRadius" Value="{DynamicResource Glass.ControlBlurRadius}" />
+    <Setter Property="Saturation" Value="{DynamicResource Glass.ControlSaturation}" />
+  </Style>
+  <!-- The open place, as the desktop marks it: the accent's soft glow inside a brighter rim. -->
+  <Style Selector="Border.places-selection">
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="CornerRadius" Value="26" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+  <Style Selector="Button.place">
+    <Setter Property="Height" Value="52" />
+    <Setter Property="MinHeight" Value="52" />
+    <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Padding" Value="13,0" />
+    <Setter Property="CornerRadius" Value="26" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.place /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.place /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Button.place:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.place:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+  </Style>
+  <!-- As on the desktop, the places you are not in are quiet glyphs, and the open one takes the accent. -->
+  <Style Selector="Button.place PathIcon">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="Opacity" Value="0.6" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Foreground" Duration="0:0:0.24" Easing="CubicEaseOut" />
+        <DoubleTransition Property="Opacity" Duration="0:0:0.24" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.place:pressed PathIcon">
+    <Setter Property="Opacity" Value="0.75" />
+  </Style>
+  <Style Selector="Button.place.active PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <!-- The Customize glyph is three layers, dimmed as one as on the desktop. Skia applies an opacity to each
+       layer's paint, which would show a brighter knob where it overlaps its track, so the group is dimmed
+       by an opacity mask, which composites it as a single layer. -->
+  <Style Selector="Button.place Panel.place-tune">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="OpacityMask" Value="#99FFFFFF" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="OpacityMask" Duration="0:0:0.24" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.place:pressed Panel.place-tune">
+    <Setter Property="OpacityMask" Value="#BFFFFFFF" />
+  </Style>
+  <Style Selector="Button.place.active Panel.place-tune">
+    <Setter Property="OpacityMask" Value="#FFFFFFFF" />
+  </Style>
+  <Style Selector="Button.place Panel.place-tune > PathIcon">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <!-- The open place's name, in the desktop's ink: PlacesBarView opens and closes the room for it and
+       fades it as it moves. -->
+  <Style Selector="Button.place TextBlock.place-label">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+    <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+
+  <!--
+    ══ List-pane chrome ════════════════════════════════════════════════════════════════════════
+    The top of the chat list: Lumi's name as the place's title, the title bar's glass search and New chat
+    buttons beside it in the composer's line family, and below them the project switcher, a glass pill
+    that names what the list shows.
+  -->
+  <Style Selector="sc|StrataLineIcon.header-glyph">
+    <Setter Property="Width" Value="23" />
+    <Setter Property="Height" Value="23" />
+    <Setter Property="StrokeThickness" Value="1.9" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="sc|StrataLineIcon.header-glyph.accent">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+  </Style>
+  <!-- The project lens is the title bar's glass, a pill as wide as the list built as the chat's title
+       pill is (floating-action supplies the glass, its frost, rim and press). -->
+  <Style Selector="Button.project-switcher">
+    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Padding" Value="8,0,15,0" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <!-- All chats wears the accent's glow and the desktop's line glyph for chats, where a project wears
+       its own mark. -->
+  <Style Selector="Border.chat-mark.project-switcher-all">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+  </Style>
+  <Style Selector="Border.project-switcher-all sc|StrataLineIcon">
+    <Setter Property="Width" Value="17" />
+    <Setter Property="Height" Value="17" />
+    <Setter Property="StrokeThickness" Value="1.9" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.project-switcher-title">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <!-- How many projects there are, at the far end beside the chevron, as on the desktop. -->
+  <Style Selector="TextBlock.project-switcher-meta">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Margin" Value="10,1,0,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+
+  <!-- A place's own title over its list: the desktop sidebar's heading at phone size. -->
+  <Style Selector="TextBlock.place-title">
+    <Setter Property="FontSize" Value="{DynamicResource Mobile.Place.TitleSize}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="-0.3" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+
+  <!--
+    ══ Chat rows ═══════════════════════════════════════════════════════════════════════════════
+    One line, as the desktop's sidebar rows: a dot while Lumi works or a reply waits, the title, and
+    a quiet pin. The date groups already say when; a list of titles scans like the desktop's.
+  -->
+  <Style Selector="Button.drawer-conversation">
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Padding" Value="14,6,14,6" />
+  </Style>
+  <!-- The desktop's selection pipe: short and centred on the row, not a full-height bar. -->
+  <Style Selector="Border.row-marker.chat-pipe">
+    <Setter Property="Height" Value="16" />
+    <Setter Property="CornerRadius" Value="1.5" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.conversation-preview">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+  <Style Selector="TextBlock.conversation-working">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- Where a search result lives: quiet words before its reply, not a box competing with them. -->
+  <Style Selector="Border.project-chip">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.project-chip PathIcon">
+    <Setter Property="Width" Value="13" />
+    <Setter Property="Height" Value="13" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Project}" />
+  </Style>
+  <Style Selector="Border.project-chip TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="MaxWidth" Value="140" />
+  </Style>
+
+
+  <!-- The open chat's identity in its title pill: mark, title, and where and how it runs. -->
+  <Style Selector="Border.chat-mark">
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.chat-mark TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.chat-header-title">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+  <Style Selector="TextBlock.chat-header-project">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Margin" Value="8,1,0,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+  <Style Selector="PathIcon.chat-header-chevron">
+    <Setter Property="Width" Value="13" />
+    <Setter Property="Height" Value="13" />
+    <Setter Property="Margin" Value="8,1,0,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+
+  <!-- The empty side of a two-pane place before anything is open. -->
+  <Style Selector="StackPanel.detail-placeholder TextBlock">
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="TextAlignment" Value="Center" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <!--
+    ══ Grouped rows ════════════════════════════════════════════════════════════════════════════
+    The desktop's management and settings lists at touch size: rows grouped on a raised graphite
+    card with a hairline rim and dividers, each led by its icon in a neutral tile that carries the
+    section's hue. Lists of things you open (chats, agents, skills) are plain rows, and what you
+    switch on and off (jobs, connectors) sits on cards like settings; the open row is tinted and
+    marked with the desktop's slim accent marker.
+  -->
+  <Style Selector="Border.group-card">
+    <Setter Property="Background" Value="{DynamicResource Brush.GroupSurface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GroupBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Group}" />
+  </Style>
+  <Style Selector="TextBlock.section-label">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Margin" Value="6,20,6,8" />
+  </Style>
+  <Style Selector="Border.row-divider">
+    <Setter Property="Height" Value="1" />
+    <Setter Property="Background" Value="{DynamicResource Brush.RowDivider}" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+  </Style>
+  <Style Selector="Button.list-row">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="14,10" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.RowHeight}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.list-row.free">
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="12,10" />
+  </Style>
+  <Style Selector="Button.list-row /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.list-row /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Button.list-row:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.list-row:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
+  </Style>
+  <Style Selector="Button.list-row.selected /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.NavigationSelected}" />
+  </Style>
+  <Style Selector="Border.row-tile">
+    <Setter Property="Width" Value="36" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.row-tile PathIcon">
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Border.row-tile TextBlock">
+    <Setter Property="FontSize" Value="18.5" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.row-tile sc|StrataLineIcon">
+    <Setter Property="Width" Value="19" />
+    <Setter Property="Height" Value="19" />
+    <Setter Property="StrokeThickness" Value="1.9" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <!-- Each kind's hue marks its icon, as on the desktop's Customize rows and composer chips. -->
+  <Style Selector="Border.row-tile.agent PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Agent}" />
+  </Style>
+  <Style Selector="Border.row-tile.skill PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Skill}" />
+  </Style>
+  <Style Selector="Border.row-tile.connector PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Connector}" />
+  </Style>
+  <Style Selector="Border.row-tile.project PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Project}" />
+  </Style>
+  <Style Selector="Border.row-tile.memory PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Memory}" />
+  </Style>
+  <Style Selector="Border.row-tile.job PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.Hue.Job}" />
+  </Style>
+  <Style Selector="TextBlock.row-title">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.row-meta">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.row-value">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="PathIcon.row-chevron">
+    <Setter Property="Width" Value="17" />
+    <Setter Property="Height" Value="17" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <!-- The desktop's slim marker beside the open row. -->
+  <Style Selector="Border.row-marker">
+    <Setter Property="Width" Value="3" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+  <!-- A connection's state as a small dot: green while the PC answers, grey otherwise. -->
+  <Style Selector="Border.status-dot">
+    <Setter Property="Width" Value="7" />
+    <Setter Property="Height" Value="7" />
+    <Setter Property="CornerRadius" Value="3.5" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Background" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+  <Style Selector="Border.status-dot.live">
+    <Setter Property="Background" Value="{DynamicResource Brush.Status.Ok}" />
+  </Style>
+  <!-- A page's quiet text action in its header, such as New or Save. -->
+  <Style Selector="Button.header-action">
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Padding" Value="14,0" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentText}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.header-action /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.header-action /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Button.header-action:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+  </Style>
+  <Style Selector="Button.header-action.primary">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentSolid}" />
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Button.header-action.primary /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentSolid}" />
+  </Style>
+  <Style Selector="Button.header-action.primary:disabled /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
+  </Style>
+  <Style Selector="Button.header-action.primary:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <!-- Read-only text the user may want to copy, such as a built-in agent's instructions. -->
+  <Style Selector="SelectableTextBlock.detail-body">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
   </Style>
 </Styles>

@@ -27,7 +27,7 @@
     <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Themes.Simple" Version="$(AvaloniaVersion)" />
-    <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaDataGridVersion)" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
   </ItemGroup>
 
@@ -42,6 +42,10 @@
     <AvaloniaResource Include="Assets\Fonts\NotoSansHebrew-OFL.txt" />
     <AvaloniaResource Include="Assets\Fonts\NotoColorEmoji-Regular.ttf" />
     <AvaloniaResource Include="Assets\Fonts\NotoEmoji-OFL.txt" />
+    <AvaloniaResource Include="Assets\Fonts\Inter-Regular.ttf" />
+    <AvaloniaResource Include="Assets\Fonts\Inter-SemiBold.ttf" />
+    <AvaloniaResource Include="Assets\Fonts\Inter-Bold.ttf" />
+    <AvaloniaResource Include="Assets\Fonts\Inter-OFL.txt" />
   </ItemGroup>
 
 </Project>

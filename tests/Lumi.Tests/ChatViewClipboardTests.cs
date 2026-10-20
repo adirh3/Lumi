@@ -1,12 +1,17 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
+using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.Text.Json;
 using Lumi.Models;
+using Lumi.Localization;
 using Lumi.Services;
+using Lumi.Services.Sharing;
 using Lumi.ViewModels;
 using Lumi.Views;
 using StrataTheme.Controls;
@@ -17,6 +22,258 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatViewClipboardTests
 {
+    [Fact]
+    public async Task CrossBlockRightClick_KeepsTheHighlight_AndCopiesTheWholeSelection()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var first = new SelectableTextBlock { Text = "Alpha bravo" };
+            var last = new SelectableTextBlock { Text = "Charlie delta" };
+            var bubble = new StrataChatMessage
+            {
+                Content = new StackPanel { Spacing = 12, Children = { first, last } }
+            };
+            var view = new ChatView();
+            Assert.IsAssignableFrom<Panel>(view.Content).Children.Add(bubble);
+            var window = new Window { Width = 800, Height = 480, Content = view };
+            window.Show();
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                first.Focus();
+                Point At(SelectableTextBlock text, int index)
+                {
+                    var caret = text.TextLayout.HitTestTextPosition(index);
+                    return text.TranslatePoint(new Point(caret.X + 0.1, caret.Center.Y), window)!.Value;
+                }
+                var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+                first.RaiseEvent(new PointerPressedEventArgs(first, pointer, window, At(first, 6), 0,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+                    KeyModifiers.None));
+                first.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, first, pointer, window, At(last, 7), 1,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
+                first.RaiseEvent(new PointerReleasedEventArgs(first, pointer, window, At(last, 7), 2,
+                    new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased),
+                    KeyModifiers.None, MouseButton.Left));
+                last.RaiseEvent(new PointerPressedEventArgs(last, pointer, window, At(last, 3), 3,
+                    new PointerPointProperties(RawInputModifiers.RightMouseButton, PointerUpdateKind.RightButtonPressed),
+                    KeyModifiers.None));
+                last.RaiseEvent(new PointerReleasedEventArgs(last, pointer, window, At(last, 3), 4,
+                    new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.RightButtonReleased),
+                    KeyModifiers.None, MouseButton.Right));
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+
+                Assert.Equal("bravo", first.SelectedText);
+                Assert.Equal("Charlie", last.SelectedText);
+                var menu = Assert.IsType<ContextMenu>(bubble.ContextMenu);
+                Assert.True(menu.IsOpen);
+                var copyAs = menu.ItemsSource!.OfType<MenuItem>().Single(item => Equals(item.Header, Loc.Chat_CopyAs));
+                Assert.Equal(3, copyAs.Items.Count);
+                Assert.DoesNotContain(menu.ItemsSource.OfType<MenuItem>(), item => Equals(item.Header, Loc.Chat_CopySelection));
+                Assert.DoesNotContain(menu.ItemsSource.OfType<MenuItem>(), item => Equals(item.Header, Loc.Chat_CopyTurn));
+                var copy = copyAs.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Loc.Chat_CopyRichText));
+                copy.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                Assert.Equal("bravo\n\nCharlie", await window.Clipboard!.TryGetTextAsync());
+                Assert.Equal("bravo", first.SelectedText);
+                Assert.Equal("Charlie", last.SelectedText);
+                menu.Close();
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [SkippableFact]
+    public async Task RichCopy_ExportsARenderedMermaidImageAndReadableTextFallback()
+    {
+        using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        await session.Dispatch(async () =>
+        {
+            const string content = "```mermaid\nflowchart LR\n A[Start] --> B[Finish]\n```";
+            var markdown = new StrataMarkdown { Markdown = content, IsInline = true };
+            var window = new Window { Width = 800, Height = 480, Content = markdown };
+            window.Show();
+            try
+            {
+                await Task.Delay(100);
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                window.UpdateLayout();
+                Assert.True(Assert.Single(markdown.GetVisualDescendants().OfType<StrataMermaid>()).Bounds.Width > 0);
+                DataTransfer data;
+                try
+                {
+                    data = ChatClipboardData.CreateRichText(content, markdown);
+                }
+                catch (InvalidCastException error) when (error.Message.Contains("HeadlessGlyphRunStub", StringComparison.Ordinal))
+                {
+                    Skip.If(true, "The drawing-free font cache is already initialized. Run this Skia test in a fresh test process.");
+                    return;
+                }
+                using (data)
+                {
+                    var item = Assert.Single(data.Items);
+                    var html = Assert.IsType<string>(item.TryGetRaw(DataFormat.CreateStringPlatformFormat("text/html")));
+                    Assert.Contains("data:image/png;base64,", html);
+                    Assert.DoesNotContain("<pre", html);
+                    Assert.Contains("A[Start] --> B[Finish]", Assert.IsType<string>(item.TryGetRaw(DataFormat.Text)));
+                }
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(StrataCopyFormat.Text)]
+    [InlineData(StrataCopyFormat.Markdown)]
+    [InlineData(StrataCopyFormat.RichText)]
+    public async Task MessageCopy_ConvertsSpecialBlocks_WithoutASecondClipboardWrite(StrataCopyFormat format)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            const string content = "```card\n{\"header\":\"Report\",\"summary\":\"A **bold** result.\",\"detail\":\"Full details.\"}\n```";
+            var item = new AssistantMessageItem(
+                new ChatMessageViewModel(new ChatMessage
+                {
+                    Role = "assistant", Content = content,
+                    ActiveSkills = [new SkillReference { Name = "Example skill" }]
+                }), showTimestamps: false);
+            item.ApplyExtras(null);
+            var bubble = new StrataChatMessage { DataContext = item, Content = new SelectableTextBlock { Text = content } };
+            var view = new ChatView();
+            Assert.IsAssignableFrom<Panel>(view.Content).Children.Add(bubble);
+            var window = new Window { Width = 800, Height = 480, Content = view };
+            window.Show();
+            try
+            {
+                var request = new StrataCopyRequestedEventArgs(StrataChatMessage.CopyRequestedEvent, content, false, format);
+                bubble.RaiseEvent(request);
+                Assert.NotNull(request.ClipboardWriteTask);
+                await request.ClipboardWriteTask!;
+                var text = await window.Clipboard!.TryGetTextAsync();
+                Assert.Contains("Report", text);
+                Assert.Contains("Full details.", text);
+                Assert.DoesNotContain("```card", text);
+                Assert.DoesNotContain("\"header\"", text);
+                using var data = await window.Clipboard.TryGetDataAsync();
+                Assert.Equal(format == StrataCopyFormat.RichText, data!.Formats.Any(item => item.Identifier == "text/html"));
+                Assert.Equal(format == StrataCopyFormat.Markdown, data.Formats.Any(item => item.Identifier == "text/markdown"));
+                var context = await data.TryGetValueAsync(DataFormat.CreateStringApplicationFormat("lumi-chat-context-v1"));
+                using var json = JsonDocument.Parse(Assert.IsType<string>(context));
+                Assert.DoesNotContain("```card", json.RootElement.GetProperty("Text").GetString());
+                Assert.Equal("Example skill", json.RootElement.GetProperty("SkillNames")[0].GetString());
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SelectedTextCopy_LeavesTheSharedRangeAndFormattingToStrata()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var item = new AssistantMessageItem(
+                new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "Whole answer" }), showTimestamps: false);
+            var bubble = new StrataChatMessage { DataContext = item, Content = "Whole answer" };
+            var view = new ChatView();
+            Assert.IsAssignableFrom<Panel>(view.Content).Children.Add(bubble);
+            var window = new Window { Width = 800, Height = 480, Content = view };
+            window.Show();
+            try
+            {
+                var request = new StrataCopyRequestedEventArgs(
+                    StrataChatMessage.CopyRequestedEvent, "Selected **range**", true, StrataCopyFormat.RichText);
+                bubble.RaiseEvent(request);
+                Assert.True(request.Handled);
+                Assert.Null(request.ClipboardWriteTask);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SharedPromptCode_PasteOpensReviewWithoutChangingTheCurrentDraft()
+    {
+        using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        var reviewOpened = false;
+        string? draft = null;
+        var inputCount = 0;
+        await session.Dispatch(async () =>
+        {
+            using var main = new MainViewModel(new DataStore(new AppData
+            {
+                Settings = new UserSettings
+                {
+                    IsOnboarded = true, AutoSaveChats = false, EnableMemoryAutoSave = false, OfferCopiedCapabilities = false
+                }
+            }), TestCopilot.Shared, new UpdateService(), startBackgroundJobs: false);
+            Assert.True(main.IsOnboarded);
+            var view = new ChatView { DataContext = main.ChatVM };
+            var window = new Window { Width = 1100, Height = 820, Content = view };
+            window.Show();
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                var prompt = new SharedPrompt
+                {
+                    Name = "Create a report", Description = "A portable report task.",
+                    Content = "Create a report from {{source_file}} without changing the source.",
+                    Inputs = [new("source_file", "Source file", "Your own file.", PromptInputKind.File)]
+                };
+                var pack = CapabilityPackWriter.ForPrompt(prompt);
+                var snippet = ShareSheetViewModel.ComposeChatSnippet(pack.Pack, ShareCode.Encode(CapabilityPackWriter.WriteCompact(pack)));
+                using var clipboard = new DataTransfer();
+                clipboard.Add(DataTransferItem.CreateText(snippet.Text));
+                await window.Clipboard!.SetDataAsync(clipboard);
+
+                var composer = view.FindControl<StrataChatComposer>("Composer")!;
+                var input = composer.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "PART_Input");
+                input.Text = "My unsent draft";
+                input.Focus();
+                input.RaiseEvent(new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent, Key = Key.V,
+                    KeyModifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control
+                });
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while (!main.ImportVM.IsOpen)
+                    await Task.Delay(10, timeout.Token);
+                reviewOpened = main.ImportVM.IsPrompt && main.ImportVM.IsReviewing;
+                inputCount = main.ImportVM.PromptInputs.Count;
+                draft = input.Text;
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+        Assert.True(reviewOpened);
+        Assert.Equal(1, inputCount);
+        Assert.Equal("My unsent draft", draft);
+    }
+
+    [Fact]
+    public async Task SharedPromptCopy_ReportsAnUnavailableClipboardInsteadOfSuccess()
+    {
+        using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        var error = false;
+        var copied = false;
+        await session.Dispatch(async () =>
+        {
+            var sheet = new ShareSheetViewModel(new DataStore(new AppData()), static () => []);
+            await sheet.OpenForPromptAsync(new PromptShareSource("Visible context", 2, false), (_, _) =>
+                Task.FromResult(new SharedPrompt { Name = "Task", Description = "", Content = "Create a useful report." }));
+            await sheet.CopyForChatCommand.ExecuteAsync(null);
+            error = sheet.IsStatusError;
+            copied = sheet.IsChatCopied;
+            sheet.CloseCommand.Execute(null);
+        }, CancellationToken.None);
+        Assert.True(error);
+        Assert.False(copied);
+    }
+
     [Theory]
     [InlineData("Text copied from PowerPoint", true, false)]
     [InlineData("Plain text", false, false)]

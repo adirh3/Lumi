@@ -39,6 +39,43 @@ public sealed class CopilotProcessEnvironmentTests
         Assert.Equal("1", options.Environment["MSBUILDDISABLENODEREUSE"]);
         Assert.Equal("0", options.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"]);
         Assert.Equal("false", options.Environment["UseSharedCompilation"]);
+        Assert.False(string.IsNullOrWhiteSpace(options.Environment[CopilotService.SkillListingBudgetVariable]));
+        Assert.Contains(CopilotService.AutoReviewFeatureFlag,
+            options.Environment[CopilotService.FeatureFlagsVariable].Split(','));
+    }
+
+    [Fact]
+    public void AutoReviewFeature_IsTurnedOn_KeepingTheUsersOwnFlags()
+    {
+        var defaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        CopilotService.ApplyAutoReviewFeature(defaults);
+        Assert.Equal("AUTO_APPROVAL", defaults[CopilotService.FeatureFlagsVariable]);
+
+        var chosen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [CopilotService.FeatureFlagsVariable] = "SANDBOX, WORKTREE,"
+        };
+        CopilotService.ApplyAutoReviewFeature(chosen);
+        Assert.Equal("SANDBOX, WORKTREE,AUTO_APPROVAL", chosen[CopilotService.FeatureFlagsVariable]);
+
+        var already = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [CopilotService.FeatureFlagsVariable] = "sandbox, auto_approval"
+        };
+        CopilotService.ApplyAutoReviewFeature(already);
+        Assert.Equal("sandbox, auto_approval", already[CopilotService.FeatureFlagsVariable]);
+    }
+
+    [Fact]
+    public void SkillListingBudget_IsRaisedUnlessTheUserChoseOne()
+    {
+        var defaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        CopilotService.ApplySkillListingBudget(defaults);
+        Assert.Equal("40000", defaults[CopilotService.SkillListingBudgetVariable]);
+
+        var chosen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["skill_char_budget"] = "90000" };
+        CopilotService.ApplySkillListingBudget(chosen);
+        Assert.Equal("90000", Assert.Single(chosen).Value);
     }
 
 #pragma warning disable GHCP001 // Match the SDK account identity used by the logout RPC.

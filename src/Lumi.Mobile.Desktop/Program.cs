@@ -19,7 +19,7 @@ public static class Program
     public static int Main(string[] args)
     {
         // An isolated data dir keeps simulator runs from clobbering a real phone pairing on this box.
-        if (args.Contains("--isolated"))
+        if (args.Contains("--isolated") || args.Contains("--popup-preview") || args.Contains("--design-preview"))
         {
             var dir = Path.Combine(Path.GetTempPath(), "Lumi-mobile-sim", Guid.NewGuid().ToString("n"));
             Directory.CreateDirectory(dir);
@@ -28,12 +28,25 @@ public static class Program
 
         var device = ReadOption(args, "--device");
         var host = ReadOption(args, "--host");
+#if DEBUG
+        var interactiveProfile = ReadOption(args, "--interactive-controls");
+        var popupPreview = args.Contains("--popup-preview");
+        var designPreview = args.Contains("--design-preview");
+#endif
 
         App.DesktopWindowFactory = () =>
         {
             var window = new SimulatorWindow();
             if (device is { Length: > 0 })
                 window.Opened += (_, _) => window.SelectDevice(device);
+#if DEBUG
+            if (interactiveProfile is { Length: > 0 })
+                window.Opened += (_, _) => window.OpenInteractiveControls(interactiveProfile);
+            if (popupPreview)
+                window.Opened += (_, _) => window.OpenPopupPreview();
+            if (designPreview)
+                window.Opened += (_, _) => window.OpenDesignPreview();
+#endif
             return window;
         };
 

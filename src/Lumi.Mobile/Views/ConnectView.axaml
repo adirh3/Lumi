@@ -178,7 +178,7 @@
                             <Border Grid.Column="0"
                                     Width="40" Height="40"
                                     VerticalAlignment="Center">
-                              <PathIcon Width="20" Height="20"
+                              <PathIcon Width="22" Height="22"
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Center"
                                         Foreground="{DynamicResource Brush.AccentDefault}"

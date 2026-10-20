@@ -696,6 +696,131 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
+    public async Task UpdateSafetyKeepsUploadsUnsafeAcrossChatSwitchesUntilTheirAttachmentIsCleared()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var original = Guid.NewGuid();
+        var safetySignals = 0;
+        chat.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(chat.HasUnsentWork))
+                safetySignals++;
+        };
+        chat.Reset(original, "Original");
+        var upload = chat.AttachFileAsync("notes.txt", new byte[] { 1, 2, 3 });
+        await sink.UploadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        chat.Reset(Guid.NewGuid(), "Other chat");
+        Assert.False(chat.IsUploading);
+        Assert.True(chat.HasUnsentWork);
+        sink.UploadResult.SetResult(new RemoteUploadResponse
+        {
+            Ok = true, FileName = "notes.txt", Path = @"C:\uploads\notes.txt"
+        });
+        await upload;
+        Assert.True(chat.HasUnsentWork);
+        Assert.Empty(chat.Attachments);
+        chat.Reset(original, "Original");
+        chat.RemoveAttachmentCommand.Execute(Assert.Single(chat.Attachments));
+        Assert.False(chat.HasUnsentWork);
+        Assert.True(safetySignals >= 4);
+    }
+
+    [Fact]
+    public async Task UpdateSafetyTracksStopAndSendUntilFailureRestoresItsDraft()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(Guid.NewGuid(), "Existing chat");
+        chat.IsBusy = true;
+        chat.PromptText = "Keep this replacement";
+        chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\uploads\notes.txt"));
+        var safetySignals = new List<bool>();
+        chat.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(chat.HasUnsentWork))
+                safetySignals.Add(chat.HasUnsentWork);
+        };
+
+        var send = chat.StopAndSendCommand.ExecuteAsync(null);
+        await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        try
+        {
+            Assert.True(chat.StopAndSendCommand.IsRunning);
+            Assert.False(chat.SendCommand.IsRunning);
+            Assert.Empty(chat.PromptText);
+            Assert.Empty(chat.Attachments);
+            Assert.True(chat.HasUnsentWork);
+        }
+        finally
+        {
+            sink.CommandResult.TrySetResult(new RemoteCommandResult
+            {
+                Ok = false, Error = "Microsoft sign-in is required."
+            });
+            await send;
+        }
+
+        Assert.Equal("Keep this replacement", chat.PromptText);
+        Assert.Equal("notes.txt", Assert.Single(chat.Attachments).FileName);
+        Assert.True(chat.HasUnsentWork);
+        chat.PromptText = "";
+        chat.RemoveAttachmentCommand.Execute(Assert.Single(chat.Attachments));
+        Assert.False(chat.HasUnsentWork);
+        Assert.False(safetySignals[^1]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateSafetyIgnoresErrorOnlyInactiveUploadsButKeepsActualDrafts(bool hasDraft)
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var original = Guid.NewGuid();
+        chat.Reset(original, "Original");
+        if (hasDraft)
+            chat.PromptText = "Keep my actual draft";
+        var upload = chat.AttachFileAsync("notes.txt", new byte[] { 1, 2, 3 });
+        await sink.UploadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        chat.Reset(Guid.NewGuid(), "Other chat");
+        Assert.True(chat.HasUnsentWork);
+        sink.UploadResult.SetResult(new RemoteUploadResponse
+        {
+            Ok = false, Error = "The upload failed."
+        });
+        await upload;
+
+        Assert.Equal(hasDraft, chat.HasUnsentWork);
+        chat.Reset(original, "Original");
+        Assert.Equal("The upload failed.", chat.ErrorText);
+        Assert.Equal(hasDraft ? "Keep my actual draft" : "", chat.PromptText);
+        Assert.Equal(hasDraft, chat.HasUnsentWork);
+    }
+
+    [Fact]
+    public async Task UpdateSafetyNotifiesWhenPendingConfigurationIsConfirmed()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var signals = new List<bool>();
+        chat.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(chat.HasUnsentWork))
+                signals.Add(chat.HasUnsentWork);
+        };
+        chat.Reset(Guid.NewGuid(), "Existing chat");
+        chat.Model = "model-b";
+        await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(chat.HasUnsentWork);
+        sink.CommandResult.SetResult(new RemoteCommandResult { Ok = true });
+        await chat.FlushPendingConfigurationAsync();
+        Assert.False(chat.HasUnsentWork);
+        Assert.Contains(true, signals);
+        Assert.False(signals[^1]);
+    }
+
+    [Fact]
     public async Task BlankChatAdoption_KeepsAnInFlightUploadOnTheSameSurface()
     {
         var sink = new ControllableSink();
@@ -2716,26 +2841,20 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
-    public async Task BackDismissesTheDrawerThenEveryChatSheetBeforeExit()
+    public async Task BackDismissesEveryChatSheetThenReturnsToTheChatListOnAPhone()
     {
         await using var scope = new ShellScope();
         var shell = scope.Shell;
+        shell.IsPaired = true;
         shell.UpdateLayout(393, 852);
-        shell.IsDrawerOpen = true;
+        shell.Chat.Reset(Guid.NewGuid(), "Reading");
         shell.Chat.IsRunSettingsSheetOpen = true;
         shell.Chat.IsModelSheetOpen = true;
         shell.Chat.IsContextSheetOpen = true;
         shell.Chat.IsEffortSheetOpen = true;
         shell.Chat.IsPlanOpen = true;
 
-        shell.GoBackCommand.Execute(null);
-        Assert.False(shell.IsDrawerOpen);
-        Assert.True(shell.Chat.IsPlanOpen);
-
-        shell.GoBackCommand.Execute(null);
-        Assert.False(shell.Chat.IsPlanOpen);
-        Assert.True(shell.Chat.IsEffortSheetOpen);
-
+        // The pickers draw over the plan (beside a wide chat it is a panel they open over).
         shell.GoBackCommand.Execute(null);
         Assert.False(shell.Chat.IsEffortSheetOpen);
         Assert.True(shell.Chat.IsContextSheetOpen);
@@ -2750,6 +2869,44 @@ public sealed class MobileStateCorrectnessTests
 
         shell.GoBackCommand.Execute(null);
         Assert.False(shell.Chat.IsRunSettingsSheetOpen);
+        Assert.True(shell.Chat.IsPlanOpen);
+
+        shell.GoBackCommand.Execute(null);
+        Assert.False(shell.Chat.IsPlanOpen);
+        Assert.False(shell.IsDrawerOpen);
+
+        // The chat list is home: back returns to it, and from it the system takes over.
+        Assert.True(shell.CanGoBack);
+        shell.GoBackCommand.Execute(null);
+        Assert.True(shell.IsDrawerOpen);
+        Assert.False(shell.CanGoBack);
+    }
+
+    /// <summary>
+    /// However wide a single pane is (a phone or the Fold cover held sideways, a small tablet), the
+    /// list is home: Back from a chat returns to it, and Back from it leaves the app instead of
+    /// trading places with the chat forever.
+    /// </summary>
+    [Theory]
+    [InlineData(640, 900)]
+    [InlineData(852, 393)]
+    [InlineData(968, 412)]
+    public async Task BackOnAWiderSinglePaneReturnsToTheListThenLeaves(double width, double height)
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Shell;
+        shell.IsPaired = true;
+        shell.UpdateLayout(width, height);
+        Assert.False(shell.IsTwoPane);
+        Assert.False(shell.IsPhoneLayout);
+        shell.Chat.Reset(Guid.NewGuid(), "Reading");
+        shell.IsDrawerOpen = false;
+
+        Assert.True(shell.CanGoBack);
+        shell.GoBackCommand.Execute(null);
+        Assert.True(shell.IsDrawerOpen);
+        Assert.True(shell.IsChatPage);
+
         Assert.False(shell.CanGoBack);
     }
 
@@ -2792,27 +2949,46 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
-    public async Task BackDismissesChatActionsThenDrawerThenPageThenFallsThrough()
+    public async Task BackDismissesChatActionsThenLeavesThePlaceForTheChatListThenFallsThrough()
     {
         await using var scope = new ShellScope();
         var shell = scope.Shell;
+        shell.IsPaired = true;
         shell.UpdateLayout(393, 852);
         shell.Page = MobilePage.Settings;
-        shell.IsDrawerOpen = true;
         shell.IsChatActionsOpen = true;
 
         shell.GoBackCommand.Execute(null);
         Assert.False(shell.IsChatActionsOpen);
-        Assert.True(shell.IsDrawerOpen);
         Assert.Equal(MobilePage.Settings, shell.Page);
 
+        shell.OpenSettingsSectionCommand.Execute("Connection");
         shell.GoBackCommand.Execute(null);
-        Assert.False(shell.IsDrawerOpen);
+        Assert.Equal(SettingsSection.None, shell.SettingsSection);
         Assert.Equal(MobilePage.Settings, shell.Page);
 
         shell.GoBackCommand.Execute(null);
         Assert.Equal(MobilePage.Chat, shell.Page);
+        Assert.True(shell.IsDrawerOpen);
         Assert.False(shell.CanGoBack);
+    }
+
+    [Fact]
+    public async Task MemoriesIsASettingsPageAndBackReturnsToSettings()
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Shell;
+        shell.IsPaired = true;
+        shell.UpdateLayout(393, 852);
+        shell.SelectPlace(MobilePlace.Settings);
+        shell.ShowMemoriesCommand.Execute(null);
+        Assert.Equal(MobilePage.Library, shell.Page);
+        Assert.Equal(LibraryScope.Memories, shell.Library.Scope);
+        Assert.Equal(MobilePlace.Settings, shell.Place);
+        Assert.Equal(LibrarySection.Memories, shell.Library.Section);
+
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePage.Settings, shell.Page);
     }
 
     [Fact]

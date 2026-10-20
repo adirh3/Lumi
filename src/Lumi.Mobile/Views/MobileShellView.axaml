@@ -13,6 +13,11 @@
       <Setter Property="SheetMargin"
               Value="{Binding #SheetMarginProxy.Padding}" />
     </Style>
+    <!-- A side panel floats beside the chat, clear of the bars, instead of rising from the bottom. -->
+    <Style Selector="sc|StrataBottomSheet.safe-area.side-panel">
+      <Setter Property="SheetMargin"
+              Value="{Binding #SidePanelMarginProxy.Padding}" />
+    </Style>
   </UserControl.Styles>
 
   <Panel x:Name="Root">
@@ -21,6 +26,9 @@
     <Border x:Name="SheetMarginProxy" Width="0" Height="0"
             HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"
             Padding="{Binding SafeAreaSheetMargin}" />
+    <Border x:Name="SidePanelMarginProxy" Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"
+            Padding="{Binding SidePanelSheetMargin}" />
 
     <!-- ═══ Onboarding: not paired with any PC yet ═══ -->
     <Grid x:Name="ConnectLayout"
@@ -82,7 +90,7 @@
                 Background="{DynamicResource Brush.ChatCanvas}"
                 ClipToBounds="True">
         <Panel>
-          <views:ChatDetailView x:Name="ChatSurface" />
+          <views:ChatDetailView x:Name="ChatSurface" IsVisible="{Binding IsChatPage}" />
           <!-- Pages stack OVER the chat rather than replacing it, so coming back never costs a
                transcript rebuild. -->
           <Panel x:Name="LibraryHost" IsVisible="{Binding IsLibraryPage}"
@@ -118,14 +126,16 @@
                           SheetMargin="{Binding ProjectPickerSheetMargin}"
                           IsOpen="{Binding IsProjectPickerOpen, Mode=TwoWay}"
                           Title="Projects">
-      <Grid RowDefinitions="Auto,*" MaxHeight="440" Margin="12,0,12,12"
+      <Grid RowDefinitions="Auto,*" MaxHeight="440" Margin="0,0,0,4"
             IsEnabled="{Binding CanChangeProjectScope}">
         <Button x:Name="AllProjectsButton" Classes="sheet-item"
+                Classes.selected="{Binding !HasActiveProject}"
                 Command="{Binding ClearProjectCommand}">
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <TextBlock Text="All projects" VerticalAlignment="Center" />
-            <PathIcon Grid.Column="1" Width="18" Height="18" VerticalAlignment="Center"
-                      IsVisible="{Binding !HasActiveProject}" Foreground="{DynamicResource Brush.AccentDefault}"
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+            <PathIcon Classes="sheet-leading"
+                      Data="M4 4h7v7H4V4zm2 2v3h3V6H6zm7-2h7v7h-7V4zm2 2v3h3V6h-3zM4 13h7v7H4v-7zm2 2v3h3v-3H6zm7-2h7v7h-7v-7zm2 2v3h3v-3h-3z" />
+            <TextBlock Grid.Column="1" Text="All projects" VerticalAlignment="Center" />
+            <PathIcon Grid.Column="2" Classes="sheet-check" IsVisible="{Binding !HasActiveProject}"
                       Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
           </Grid>
         </Button>
@@ -139,13 +149,16 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:ProjectPickViewModel">
                 <Button Classes="sheet-item project-scope-option"
+                        Classes.selected="{Binding IsActive}"
                         AutomationProperties.Name="{Binding Name}"
                         Command="{Binding $parent[views:MobileShellView].((vm:MobileShellViewModel)DataContext).SelectProjectCommand}"
                         CommandParameter="{Binding}">
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                    <PathIcon Grid.Column="1" Width="18" Height="18" VerticalAlignment="Center"
-                              IsVisible="{Binding IsActive}" Foreground="{DynamicResource Brush.AccentDefault}"
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                    <PathIcon Classes="sheet-leading"
+                              Data="M10.6 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-7.4l-2-2zM4 9h16v9H4V9z" />
+                    <TextBlock Grid.Column="1" Text="{Binding Name}" TextWrapping="Wrap"
+                               MaxLines="2" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <PathIcon Grid.Column="2" Classes="sheet-check" IsVisible="{Binding IsActive}"
                               Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                   </Grid>
                 </Button>
@@ -160,74 +173,68 @@
     <sc:StrataBottomSheet x:Name="ChatActionsSheet"
                           Classes="safe-area"
                           IsOpen="{Binding IsChatActionsOpen, Mode=TwoWay}"
-                          Title="{Binding ChatActionsTitle}">
+                          Title="{Binding ChatActionsTitle}"
+                          Description="{Binding ActionChatTitle}">
       <Border x:Name="ChatActionsSideInset">
         <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel>
-          <TextBlock Text="{Binding ActionChatTitle}" Margin="20,4,20,16"
-                     FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
-                     TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+        <StackPanel Margin="0,0,0,4">
           <StackPanel IsVisible="{Binding ShowChatActionList}">
           <Button x:Name="SheetPinButton" Classes="sheet-item"
                   Command="{Binding PinActionChatCommand}">
-            <StackPanel Orientation="Horizontal" Spacing="16">
-              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
-                        Data="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
-              <TextBlock Text="{Binding PinActionLabel}" VerticalAlignment="Center" />
-            </StackPanel>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+              <PathIcon Classes="sheet-leading"
+                        Data="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2zm-7.17 2L10 12.83V4h4v8.83L15.17 14H8.83z" />
+              <TextBlock Grid.Column="1" Text="{Binding PinActionLabel}" VerticalAlignment="Center" />
+            </Grid>
           </Button>
 
           <Button x:Name="SheetRenameButton" Classes="sheet-item"
                   Command="{Binding RenameActionChatCommand}">
-            <StackPanel Orientation="Horizontal" Spacing="16">
-              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
-                        VerticalAlignment="Center"
-                        Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
-              <TextBlock Text="Rename chat" VerticalAlignment="Center" />
-            </StackPanel>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+              <PathIcon Classes="sheet-leading"
+                        Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM5.92 19H5v-.92l9.06-9.06.92.92L5.92 19zM20.71 5.63l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83a1 1 0 0 0 0-1.41z" />
+              <TextBlock Grid.Column="1" Text="Rename chat" VerticalAlignment="Center" />
+            </Grid>
           </Button>
 
-          <Button x:Name="SheetDeleteButton" Classes="sheet-item danger"
+          <Button x:Name="SheetDeleteButton" Classes="sheet-item destructive"
                   Command="{Binding DeleteActionChatCommand}">
-            <StackPanel Orientation="Horizontal" Spacing="16">
-              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
-                        Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-              <TextBlock Text="Delete chat" VerticalAlignment="Center" />
-            </StackPanel>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+              <PathIcon Classes="sheet-leading"
+                        Data="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z" />
+              <TextBlock Grid.Column="1" Text="Delete chat" VerticalAlignment="Center" />
+            </Grid>
           </Button>
-          <Button Classes="touch subtle" Content="Done" Margin="20,8,20,12"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                  Command="{Binding CloseChatActionsCommand}" />
           </StackPanel>
 
-          <StackPanel IsVisible="{Binding IsRenamingChat}" Margin="20,0,20,16" Spacing="12">
-            <TextBlock Text="Chat name" Classes="field-label" />
+          <StackPanel IsVisible="{Binding IsRenamingChat}" Margin="16,0,16,8" Spacing="16">
             <TextBox x:Name="RenameChatBox" Classes="mobile" Text="{Binding ChatNameDraft}"
                      IsVisible="{Binding IsRenamingChat}"
+                     PlaceholderText="Chat name"
                      AutomationProperties.Name="Chat name"
                      textInput:TextInputOptions.ReturnKeyType="Done"
                      IsEnabled="{Binding !IsChatActionBusy}"
                      KeyDown="OnChatRenameKeyDown" />
-            <Button x:Name="SaveChatNameButton" Classes="touch accent" Content="Save name"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                    Command="{Binding SaveChatNameCommand}" />
-            <Button Classes="touch subtle" Content="Cancel"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                    Command="{Binding CancelChatActionCommand}" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+              <Button Classes="sheet-action" Content="Cancel"
+                      Command="{Binding CancelChatActionCommand}" />
+              <Button x:Name="SaveChatNameButton" Grid.Column="1" Classes="sheet-action primary" Content="Save"
+                      Command="{Binding SaveChatNameCommand}" />
+            </Grid>
           </StackPanel>
 
-          <StackPanel IsVisible="{Binding IsConfirmingChatDelete}" Margin="20,0,20,16" Spacing="16">
+          <StackPanel IsVisible="{Binding IsConfirmingChatDelete}" Margin="16,0,16,8" Spacing="18">
             <TextBlock Text="This conversation will be deleted from your phone and PC. This can't be undone."
-                       Classes="supporting" />
-            <Button x:Name="ConfirmChatDeleteButton" Classes="touch danger" Content="Delete chat"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                    Command="{Binding ConfirmDeleteActionChatCommand}" />
-            <Button x:Name="CancelChatDeleteButton" Classes="touch" Content="Keep chat"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                    Command="{Binding CancelChatActionCommand}" />
+                       Classes="sheet-body" Margin="8,0" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+              <Button x:Name="CancelChatDeleteButton" Classes="sheet-action" Content="Cancel"
+                      Command="{Binding CancelChatActionCommand}" />
+              <Button x:Name="ConfirmChatDeleteButton" Grid.Column="1" Classes="sheet-action destructive" Content="Delete"
+                      Command="{Binding ConfirmDeleteActionChatCommand}" />
+            </Grid>
           </StackPanel>
-          <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsChatActionBusy}" Height="3" Margin="20,0,20,12" />
-          <TextBlock Text="{Binding ChatActionError}" Classes="supporting" Margin="20,0,20,16"
+          <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsChatActionBusy}" Height="3" Margin="24,4,24,8" />
+          <TextBlock Text="{Binding ChatActionError}" Classes="sheet-body" Margin="24,4,24,8"
                      Foreground="{DynamicResource Brush.DangerDefault}"
                      IsVisible="{Binding ChatActionError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>

@@ -62,7 +62,7 @@ public sealed class SubagentRunTranscriptTests
     }
 
     [Fact]
-    public void RunTranscript_RendersPromptLogAndToolCallsAsARealTranscript()
+    public void RunTranscript_RendersTheRunLogAndToolCallsInOrderWithoutThePrompt()
     {
         var builder = CreateBuilder();
         var start = DateTimeOffset.Now.AddMinutes(-2);
@@ -93,13 +93,17 @@ public sealed class SubagentRunTranscriptTests
         Assert.Equal("Map the transcript pipeline", subagent.Prompt);
         Assert.True(subagent.HasPrompt);
 
-        // Prompt → reasoning → tool call → final answer, ordered by when each happened, and rendered
-        // with the chat's own item types rather than a bespoke timeline.
+        // The instruction is the page's Task card, not a message. The agent's thinking and its step
+        // lead to its answer in the order they happened, rendered with the chat's own item types and
+        // — the run being finished — folded into one summary line before the answer, like the chat.
+        var items = RunItems(subagent, messages);
+        Assert.DoesNotContain(items, static item => item is UserMessageItem);
         Assert.Collection(
-            RunItems(subagent, messages),
-            item => Assert.Equal("Map the transcript pipeline", Assert.IsType<UserMessageItem>(item).Content),
-            item => Assert.Equal("thinking", Assert.IsType<ReasoningItem>(item).Content),
-            item => Assert.IsType<ToolCallItem>(Assert.IsType<SingleToolItem>(item).Inner),
+            items,
+            item => Assert.Collection(
+                Assert.IsType<TurnSummaryItem>(item).InnerItems,
+                inner => Assert.Equal("thinking", Assert.IsType<ReasoningItem>(inner).Content),
+                inner => Assert.IsType<ToolCallItem>(Assert.IsType<SingleToolItem>(inner).Inner)),
             item => Assert.Equal("final answer", Assert.IsType<AssistantMessageItem>(item).Content));
     }
 
@@ -130,9 +134,8 @@ public sealed class SubagentRunTranscriptTests
 
         var items = RunItems(subagent, messages);
 
-        Assert.IsType<UserMessageItem>(items[0]);
         // Three back-to-back steps read as one collapsible group, not three loose cards.
-        var group = Assert.IsType<ToolGroupItem>(items[1]);
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(items));
         Assert.Equal(3, group.ToolCalls.Count);
     }
 
@@ -154,12 +157,11 @@ public sealed class SubagentRunTranscriptTests
         var subagent = Assert.IsType<SubagentToolCallItem>(
             Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
 
-        // The run must never open with an empty request.
+        // The run must never open with an empty request: the task label fills the Task card, and
+        // the transcript holds only what the agent did (nothing yet).
         Assert.True(subagent.HasPrompt);
         Assert.Equal("Benchmark the Sony Bravia 8", subagent.Prompt);
-        Assert.Equal(
-            "Benchmark the Sony Bravia 8",
-            Assert.IsType<UserMessageItem>(RunItems(subagent, messages)[0]).Content);
+        Assert.Empty(RunItems(subagent, messages));
     }
 
     [Fact]
@@ -265,38 +267,52 @@ public sealed class SubagentRunTranscriptTests
     [Fact]
     public void RunTranscript_KeepsTheReadersDisclosureStateAcrossRebuilds()
     {
-        var builder = CreateBuilder();
-        var entries = SubagentRunLog.Append(null, SubagentRunEntryKind.Reasoning, "why", DateTimeOffset.Now);
+        // A finished stretch folds into a summary before the answer, and the reader opens it and the
+        // thinking inside. A rebuild (here, a settings change) re-creates every item; none of it may
+        // re-fold what the reader deliberately opened.
+        var dataStore = CreateDataStore();
+        var builder = CreateBuilder(dataStore);
+        var start = DateTimeOffset.Now.AddMinutes(-1);
+        var entries = SubagentRunLog.Append(null, SubagentRunEntryKind.Reasoning, "why", start.AddSeconds(1));
+        entries = SubagentRunLog.Append(entries, SubagentRunEntryKind.Assistant, "Done.", start.AddSeconds(10));
         var messages = new[]
         {
             CreateToolVm(
                 "agent-1",
                 "task",
-                "InProgress",
-                "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"entries\":" + entries + "}"),
+                "Completed",
+                "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"entries\":" + entries + "}",
+                timestamp: start),
+            CreateToolVm(
+                "child-1", "view", "Completed", "{\"path\":\"a.txt\"}",
+                parentToolCallId: "agent-1", timestamp: start.AddSeconds(5)),
         };
 
         var run = Assert.IsType<SubagentToolCallItem>(
             Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
 
-        var transcript = CreateRunTranscript();
+        var transcript = CreateRunTranscript(dataStore);
         transcript.Sync(run, messages);
-        var reasoning = transcript.Turns.SelectMany(static turn => turn.Items).OfType<ReasoningItem>().Single();
+        var turnsBefore = transcript.Turns;
+        var summary = Assert.IsType<TurnSummaryItem>(RunItems(transcript)[0]);
+        var reasoning = Assert.Single(summary.InnerItems.OfType<ReasoningItem>());
 
-        // Finalized reasoning starts folded, and the reader opens it to inspect.
+        Assert.False(summary.IsExpanded);
         Assert.False(reasoning.IsExpanded);
+        summary.IsExpanded = true;
         reasoning.IsExpanded = true;
 
-        // The agent keeps streaming. Every token rebuilds the run, and none of those rebuilds may
-        // re-fold a card the reader deliberately opened.
-        run.TranscriptText = "still working";
-        transcript.Sync(run, messages);
-        run.TranscriptText = "still working more";
+        dataStore.Data.Settings.ShowTimestamps = !dataStore.Data.Settings.ShowTimestamps;
         transcript.Sync(run, messages);
 
-        var rebuilt = transcript.Turns.SelectMany(static turn => turn.Items).OfType<ReasoningItem>().Single();
-        Assert.True(rebuilt.IsExpanded);
-        Assert.Equal("why", rebuilt.Content);
+        Assert.NotSame(turnsBefore, transcript.Turns);
+        var rebuiltSummary = Assert.IsType<TurnSummaryItem>(RunItems(transcript)[0]);
+        var rebuiltReasoning = Assert.Single(rebuiltSummary.InnerItems.OfType<ReasoningItem>());
+        Assert.NotSame(summary, rebuiltSummary);
+        Assert.NotSame(reasoning, rebuiltReasoning);
+        Assert.True(rebuiltSummary.IsExpanded);
+        Assert.True(rebuiltReasoning.IsExpanded);
+        Assert.Equal("why", rebuiltReasoning.Content);
     }
 
     [Fact]
@@ -316,10 +332,10 @@ public sealed class SubagentRunTranscriptTests
         var subagent = Assert.IsType<SubagentToolCallItem>(
             Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
 
+        // The task label stands in for the missing prompt on the Task card.
+        Assert.Equal("Inspect repo", subagent.Prompt);
         Assert.Collection(
             RunItems(subagent, messages),
-            // The task label stands in for the missing prompt so the run still opens with its request.
-            item => Assert.Equal("Inspect repo", Assert.IsType<UserMessageItem>(item).Content),
             item => Assert.Equal("legacy reasoning", Assert.IsType<ReasoningItem>(item).Content),
             item => Assert.Equal("legacy answer", Assert.IsType<AssistantMessageItem>(item).Content));
     }
@@ -344,25 +360,25 @@ public sealed class SubagentRunTranscriptTests
         var transcript = CreateRunTranscript();
         transcript.Sync(run, messages);
 
-        // The request plus the one finalized message.
-        Assert.Equal(2, RunItems(transcript).Count);
+        // The one finalized message.
+        Assert.Single(RunItems(transcript));
 
         run.TranscriptText = "still writ";
         transcript.Sync(run, messages);
         var items = RunItems(transcript);
-        Assert.Equal(3, items.Count);
-        Assert.Equal("still writ", Assert.IsType<AssistantMessageItem>(items[2]).Content);
+        Assert.Equal(2, items.Count);
+        Assert.Equal("still writ", Assert.IsType<AssistantMessageItem>(items[1]).Content);
 
         run.TranscriptText = "still writing";
         transcript.Sync(run, messages);
         items = RunItems(transcript);
-        Assert.Equal(3, items.Count);
-        Assert.Equal("still writing", Assert.IsType<AssistantMessageItem>(items[2]).Content);
+        Assert.Equal(2, items.Count);
+        Assert.Equal("still writing", Assert.IsType<AssistantMessageItem>(items[1]).Content);
 
-        // Clearing the live field (the message finalized into the run log) removes the tail.
+        // A live field that clears without a new run-log entry leaves no stale tail behind.
         run.TranscriptText = "";
         transcript.Sync(run, messages);
-        Assert.Equal(2, RunItems(transcript).Count);
+        Assert.Single(RunItems(transcript));
     }
 
     [Fact]
@@ -483,9 +499,9 @@ public sealed class SubagentRunTranscriptTests
     [Fact]
     public void RunTranscript_StreamingTailUpdatesInPlaceWithoutRebuildingTheTree()
     {
-        // A streaming agent changes its tail many times a second. Rebuilding for each of those would
-        // re-create every item and defeat the incremental transcript machinery, so only a structural
-        // change (a new step, a finalized message, a status flip) may rebuild.
+        // A streaming agent changes its tail many times a second, and runs tools in between. None of
+        // that may re-create the transcript: the tail updates its own bubble, and a new step extends
+        // the transcript the reader is looking at.
         var builder = CreateBuilder();
         var messages = new[]
         {
@@ -518,30 +534,210 @@ public sealed class SubagentRunTranscriptTests
         Assert.Same(tail, RunItems(transcript).OfType<AssistantMessageItem>().Single());
         Assert.Equal("Partially done", tail.Content);
 
-        // A structural change (the agent ran a tool) does rebuild.
+        // The agent runs a tool: the step is appended to the same transcript.
         var withTool = messages.Append(CreateToolVm(
             "child-1", "view", "Completed", "{\"path\":\"a.txt\"}", parentToolCallId: "agent-1")).ToArray();
         transcript.Sync(run, withTool);
 
-        Assert.NotSame(turnsBefore, transcript.Turns);
+        Assert.Same(turnsBefore, transcript.Turns);
         Assert.Contains(RunItems(transcript), item => item is SingleToolItem or ToolGroupItem);
 
-        // The replacement item must be re-subscribed and continue taking the in-place fast path.
-        var replacementTail = RunItems(transcript).OfType<AssistantMessageItem>().Single();
-        Assert.NotSame(tail, replacementTail);
-        Assert.True(replacementTail.IsStreaming);
-        run.TranscriptText = "Finished after structural rebuild";
+        // ...and the tail keeps taking the in-place path.
+        Assert.Same(tail, RunItems(transcript).OfType<AssistantMessageItem>().Single());
+        Assert.True(tail.IsStreaming);
+        run.TranscriptText = "Finished after the step";
         transcript.Sync(run, withTool);
-        Assert.Same(replacementTail, RunItems(transcript).OfType<AssistantMessageItem>().Single());
-        Assert.Equal("Finished after structural rebuild", replacementTail.Content);
+        Assert.Same(tail, RunItems(transcript).OfType<AssistantMessageItem>().Single());
+        Assert.Equal("Finished after the step", tail.Content);
+    }
+
+    [Fact]
+    public void RunTranscript_NewStepsExtendTheTranscriptAndFollowTheirOwnStatus()
+    {
+        var builder = CreateBuilder();
+        var start = DateTimeOffset.Now.AddMinutes(-1);
+        var entries = SubagentRunLog.Append(null, SubagentRunEntryKind.Assistant, "Looking around.", start.AddSeconds(1));
+        var messages = new List<ChatMessageViewModel>
+        {
+            CreateToolVm(
+                "agent-1",
+                "task",
+                "InProgress",
+                "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"entries\":" + entries + "}",
+                timestamp: start),
+        };
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
+
+        var transcript = CreateRunTranscript();
+        transcript.Sync(run, messages);
+        var turnsBefore = transcript.Turns;
+        var update = Assert.IsType<AssistantMessageItem>(Assert.Single(RunItems(transcript)));
+
+        var step = CreateToolVm(
+            "child-1", "view", "InProgress", "{\"path\":\"a.txt\"}",
+            parentToolCallId: "agent-1", timestamp: start.AddSeconds(5));
+        messages.Add(step);
+        transcript.Sync(run, messages);
+
+        Assert.Same(turnsBefore, transcript.Turns);
+        Assert.Same(update, RunItems(transcript)[0]);
+        var card = Assert.Single(AllToolCards(transcript).OfType<ToolCallItem>());
+        Assert.Equal(StrataTheme.Controls.StrataAiToolCallStatus.InProgress, card.Status);
+
+        // A step appended live follows its own message: finishing it needs no rebuild.
+        step.Message.ToolStatus = "Completed";
+        step.NotifyToolStatusChanged();
+        transcript.Sync(run, messages);
+
+        Assert.Same(turnsBefore, transcript.Turns);
+        Assert.Same(card, Assert.Single(AllToolCards(transcript).OfType<ToolCallItem>()));
+        Assert.Equal(StrataTheme.Controls.StrataAiToolCallStatus.Completed, card.Status);
+    }
+
+    [Fact]
+    public void RunTranscript_AStepRunningWhenThePageOpenedIsRefreshedOnceItFinishes()
+    {
+        // Cards built by a rebuild don't follow their messages, so a step that was mid-flight when
+        // the page opened is refreshed when it ends — instead of showing "running" forever — and the
+        // page then goes back to extending in place.
+        var builder = CreateBuilder();
+        var step = CreateToolVm("child-1", "view", "InProgress", "{\"path\":\"a.txt\"}", parentToolCallId: "agent-1");
+        var messages = new List<ChatMessageViewModel>
+        {
+            CreateToolVm("agent-1", "task", "InProgress", "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\"}"),
+            step,
+        };
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
+
+        var transcript = CreateRunTranscript();
+        transcript.Sync(run, messages);
+        var turnsBefore = transcript.Turns;
+
+        step.Message.ToolStatus = "Completed";
+        step.NotifyToolStatusChanged();
+        transcript.Sync(run, messages);
+
+        Assert.NotSame(turnsBefore, transcript.Turns);
+        Assert.Equal(
+            StrataTheme.Controls.StrataAiToolCallStatus.Completed,
+            Assert.Single(AllToolCards(transcript).OfType<ToolCallItem>()).Status);
+
+        var settled = transcript.Turns;
+        messages.Add(CreateToolVm("child-2", "view", "InProgress", "{\"path\":\"b.txt\"}", parentToolCallId: "agent-1"));
+        transcript.Sync(run, messages);
+        Assert.Same(settled, transcript.Turns);
+        Assert.Equal(2, AllToolCards(transcript).OfType<ToolCallItem>().Count());
+    }
+
+    [Fact]
+    public void RunTranscript_FinalizedTailBecomesItsRunLogEntryInPlace()
+    {
+        // A message finalizes in one payload update: the live field clears and the text is appended
+        // to the run log. The bubble that streamed it must simply settle, not be swapped for a new one.
+        var builder = CreateBuilder();
+        var messages = new[]
+        {
+            CreateToolVm("agent-1", "task", "InProgress", "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\"}"),
+        };
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
+
+        var transcript = CreateRunTranscript();
+        run.TranscriptText = "Hello wor";
+        transcript.Sync(run, messages);
+        var turnsBefore = transcript.Turns;
+        var bubble = Assert.IsType<AssistantMessageItem>(Assert.Single(RunItems(transcript)));
+        Assert.True(bubble.IsStreaming);
+
+        run.TranscriptText = "";
+        run.SyncRunEntries(SubagentRunLog.Append(null, SubagentRunEntryKind.Assistant, "Hello world.", DateTimeOffset.Now));
+        transcript.Sync(run, messages);
+
+        Assert.Same(turnsBefore, transcript.Turns);
+        Assert.Same(bubble, Assert.Single(RunItems(transcript)));
+        Assert.False(bubble.IsStreaming);
+        Assert.Equal("Hello world.", bubble.Content);
+
+        // The next message streams as a tail of its own beside the settled one.
+        run.TranscriptText = "Next";
+        transcript.Sync(run, messages);
+        Assert.Same(turnsBefore, transcript.Turns);
+        Assert.Equal(2, RunItems(transcript).OfType<AssistantMessageItem>().Count());
+    }
+
+    [Fact]
+    public void RunTranscript_AMessageThatFinishesAsTheNextStartsKeepsItsPlace()
+    {
+        // Message N finalizes and message N+1 starts streaming before the page syncs again. The bubble
+        // that showed N must settle as N, and N+1 must follow it — not take N's place above it.
+        var builder = CreateBuilder();
+        var messages = new[]
+        {
+            CreateToolVm("agent-1", "task", "InProgress", "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\"}"),
+        };
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
+
+        var transcript = CreateRunTranscript();
+        run.TranscriptText = "First mess";
+        transcript.Sync(run, messages);
+        var turnsBefore = transcript.Turns;
+        var first = Assert.IsType<AssistantMessageItem>(Assert.Single(RunItems(transcript)));
+
+        run.SyncRunEntries(SubagentRunLog.Append(null, SubagentRunEntryKind.Assistant, "First message.", DateTimeOffset.Now));
+        run.TranscriptText = "Second mes";
+        transcript.Sync(run, messages);
+
+        Assert.Same(turnsBefore, transcript.Turns);
+        var bubbles = RunItems(transcript).OfType<AssistantMessageItem>().ToList();
+        Assert.Equal(2, bubbles.Count);
+        Assert.Same(first, bubbles[0]);
+        Assert.Equal("First message.", first.Content);
+        Assert.False(first.IsStreaming);
+        Assert.Equal("Second mes", bubbles[1].Content);
+        Assert.True(bubbles[1].IsStreaming);
+    }
+
+    [Fact]
+    public void RunTranscript_FoldsFinishedActivityBetweenTheAgentsMessagesLikeTheChat()
+    {
+        // A long run alternates thinking, steps and short updates. Each finished stretch folds into
+        // one line between the agent's messages, as the chat does, instead of a ladder of pills.
+        var start = DateTimeOffset.Now.AddMinutes(-5);
+        var entries = SubagentRunLog.Append(null, SubagentRunEntryKind.Reasoning, "plan", start.AddSeconds(1));
+        entries = SubagentRunLog.Append(entries, SubagentRunEntryKind.Assistant, "Found the builder.", start.AddSeconds(10));
+        entries = SubagentRunLog.Append(entries, SubagentRunEntryKind.Reasoning, "check the view", start.AddSeconds(11));
+        entries = SubagentRunLog.Append(entries, SubagentRunEntryKind.Assistant, "Done.", start.AddSeconds(30));
+        var messages = new[]
+        {
+            CreateToolVm(
+                "agent-1", "task", "Completed",
+                "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"entries\":" + entries + "}",
+                timestamp: start),
+            CreateToolVm("child-1", "view", "Completed", "{\"path\":\"a.txt\"}", parentToolCallId: "agent-1", timestamp: start.AddSeconds(5)),
+            CreateToolVm("child-2", "view", "Completed", "{\"path\":\"b.txt\"}", parentToolCallId: "agent-1", timestamp: start.AddSeconds(6)),
+            CreateToolVm("child-3", "powershell", "Completed", "{\"command\":\"dotnet build\"}", parentToolCallId: "agent-1", timestamp: start.AddSeconds(20)),
+        };
+        var builder = CreateBuilder();
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
+
+        Assert.Collection(
+            RunItems(run, messages),
+            item => Assert.Contains(Assert.IsType<TurnSummaryItem>(item).InnerItems, static inner => inner is ReasoningItem),
+            item => Assert.Equal("Found the builder.", Assert.IsType<AssistantMessageItem>(item).Content),
+            item => Assert.Contains(Assert.IsType<TurnSummaryItem>(item).InnerItems, static inner => inner is SingleToolItem or ToolGroupItem),
+            item => Assert.Equal("Done.", Assert.IsType<AssistantMessageItem>(item).Content));
     }
 
     [Fact]
     public void RunTranscript_DirectRunSwitchDoesNotReuseThePreviousRunsMessages()
     {
-        // The main chat remains visible beside the island, so clicking another agent row switches
-        // A → B directly without first returning to the index. Both runs deliberately have the same
-        // old shape signature: one prompt, one finalized entry, no tools or live tail.
+        // The main chat remains visible beside the Workspace, so clicking another agent row switches
+        // A → B directly without first returning to the index. Both runs have the same structure —
+        // one finalized entry, no tools or live tail — so only the run's identity tells them apart.
         var entriesA = SubagentRunLog.Append(
             null,
             SubagentRunEntryKind.Reasoning,
@@ -589,12 +785,11 @@ public sealed class SubagentRunTranscriptTests
         var runBItems = RunItems(transcript);
 
         Assert.NotSame(runATurns, transcript.Turns);
-        Assert.Equal("Prompt B", Assert.IsType<UserMessageItem>(runBItems[0]).Content);
         Assert.DoesNotContain(runBItems, static item => item is ReasoningItem);
-        var answer = Assert.IsType<AssistantMessageItem>(runBItems[1]);
+        var answer = Assert.IsType<AssistantMessageItem>(Assert.Single(runBItems));
         Assert.Equal("B answered", answer.Content);
         Assert.Equal("Research", answer.Author);
-        Assert.NotEqual(runAStableId, runBItems[0].StableId);
+        Assert.NotEqual(runAStableId, answer.StableId);
     }
 
     [Fact]
@@ -729,21 +924,23 @@ public sealed class SubagentRunTranscriptTests
         var transcript = CreateRunTranscript(dataStore);
         transcript.Sync(run, messages);
         var turnsBefore = transcript.Turns;
-        Assert.Contains(RunItems(transcript), static item => item is ReasoningItem);
-        Assert.Contains(RunItems(transcript), static item => item is SingleToolItem or ToolGroupItem);
+        Assert.Contains(AllRunItems(transcript), static item => item is ReasoningItem);
+        Assert.Contains(AllRunItems(transcript), static item => item is SingleToolItem or ToolGroupItem);
 
         dataStore.Data.Settings.ShowReasoning = false;
         dataStore.Data.Settings.ShowToolCalls = false;
         transcript.Sync(run, messages);
 
         Assert.NotSame(turnsBefore, transcript.Turns);
-        Assert.DoesNotContain(RunItems(transcript), static item => item is ReasoningItem);
-        Assert.DoesNotContain(RunItems(transcript), static item => item is SingleToolItem or ToolGroupItem);
+        Assert.DoesNotContain(AllRunItems(transcript), static item => item is ReasoningItem);
+        Assert.DoesNotContain(AllRunItems(transcript), static item => item is SingleToolItem or ToolGroupItem);
     }
 
     [Fact]
-    public void RunTranscript_ToolPresentationRevisionRebuildsMutableDetails()
+    public void RunTranscript_TerminalOutputUpdatesTheCardInPlace()
     {
+        // Shell output keeps arriving after a step starts (and is replaced when it ends). Like the
+        // main chat, the run page pushes it into the card on screen instead of rebuilding.
         var builder = CreateBuilder();
         var child = CreateToolVm(
             "child-1",
@@ -767,18 +964,16 @@ public sealed class SubagentRunTranscriptTests
         var transcript = CreateRunTranscript();
         transcript.Sync(run, messages);
         var turnsBefore = transcript.Turns;
-        var firstCard = Assert.IsType<TerminalPreviewItem>(
+        var card = Assert.IsType<TerminalPreviewItem>(
             Assert.IsType<SingleToolItem>(RunItems(transcript).Single(item => item is SingleToolItem)).Inner);
-        Assert.Equal("first output", firstCard.Output);
+        Assert.Equal("first output", card.Output);
 
         child.Message.ToolOutput = "final output";
         child.NotifyToolDetailsChanged();
         transcript.Sync(run, messages);
 
-        Assert.NotSame(turnsBefore, transcript.Turns);
-        var rebuiltCard = Assert.IsType<TerminalPreviewItem>(
-            Assert.IsType<SingleToolItem>(RunItems(transcript).Single(item => item is SingleToolItem)).Inner);
-        Assert.Equal("final output", rebuiltCard.Output);
+        Assert.Same(turnsBefore, transcript.Turns);
+        Assert.Equal("final output", card.Output);
     }
 
     private static TranscriptBuilder CreateBuilder(
@@ -810,6 +1005,24 @@ public sealed class SubagentRunTranscriptTests
 
     private static IReadOnlyList<TranscriptItem> RunItems(SubagentRunTranscript transcript)
         => transcript.Turns.SelectMany(static turn => turn.Items).ToList();
+
+    /// <summary>Every item the run renders, with folded summaries opened up.</summary>
+    private static IReadOnlyList<TranscriptItem> AllRunItems(SubagentRunTranscript transcript)
+        => RunItems(transcript).SelectMany(Unfold).ToList();
+
+    private static IEnumerable<TranscriptItem> Unfold(TranscriptItem item)
+        => item is TurnSummaryItem summary ? summary.InnerItems.SelectMany(Unfold) : [item];
+
+    /// <summary>Every tool card the run renders, whether grouped, single or folded away.</summary>
+    private static IReadOnlyList<ToolCallItemBase> AllToolCards(SubagentRunTranscript transcript)
+        => AllRunItems(transcript)
+            .SelectMany(static item => item switch
+            {
+                ToolGroupItem group => group.ToolCalls.AsEnumerable(),
+                SingleToolItem single => [single.Inner],
+                _ => [],
+            })
+            .ToList();
 
     private static ChatMessageViewModel CreateToolVm(
         string toolCallId,

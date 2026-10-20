@@ -9,6 +9,7 @@ using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Remote;
 using Lumi.ViewModels;
 using Lumi.Views;
 using Lumi.Views.Controls;
@@ -68,7 +69,11 @@ public sealed class SettingsMobileNavigationTests
                         .Text)
                     .ToArray();
 
-                Assert.Equal(viewModel.SettingsVM.Pages, labels);
+                // Rows follow the sidebar's order: Memories sits under Profile but has the last page index.
+                Assert.Equal(
+                    Enumerable.Range(0, viewModel.SettingsVM.Pages.Count)
+                        .Select(row => viewModel.SettingsVM.Pages[SettingsViewModel.PageForSidebarPosition(row)]),
+                    labels);
 
                 viewModel.SettingsVM.SelectedPageIndex = 2;
                 await PumpAsync();
@@ -76,16 +81,16 @@ public sealed class SettingsMobileNavigationTests
                 var settingsView = window.GetVisualDescendants()
                     .OfType<SettingsView>()
                     .Single();
-                Assert.True(settingsView.FindControl<Control>("PageMobile")?.IsVisible);
-                Assert.False(settingsView.FindControl<Control>("PageGeneral")?.IsVisible);
-                Assert.False(settingsView.FindControl<Control>("PageAppearance")?.IsVisible);
-                Assert.NotNull(settingsView.FindControl<Button>("MobileWebSetupButton"));
-                Assert.NotNull(settingsView.FindControl<Button>("MobileAndroidSetupButton"));
-                Assert.NotNull(settingsView.FindControl<Button>("MobileUseTailscaleButton"));
-                Assert.NotNull(settingsView.FindControl<Button>("MobileUseDevTunnelButton"));
-                Assert.NotNull(settingsView.FindControl<Button>("MobileUseLocalNetworkButton"));
-                Assert.Null(settingsView.FindControl<ToggleSwitch>("RemoteInsecureLanToggle"));
-                Assert.NotNull(settingsView.FindControl<QrCodeControl>("MobileSetupQrCode"));
+                Assert.True(settingsView.FindSettingsControl<Control>("PageMobile")?.IsVisible);
+                Assert.Null(settingsView.FindSettingsControl<Control>("PageGeneral"));
+                Assert.Null(settingsView.FindSettingsControl<Control>("PageAppearance"));
+                Assert.NotNull(settingsView.FindSettingsControl<Button>("MobileWebSetupButton"));
+                Assert.NotNull(settingsView.FindSettingsControl<Button>("MobileAndroidSetupButton"));
+                Assert.NotNull(settingsView.FindSettingsControl<Button>("MobileUseTailscaleButton"));
+                Assert.NotNull(settingsView.FindSettingsControl<Button>("MobileUseDevTunnelButton"));
+                Assert.NotNull(settingsView.FindSettingsControl<Button>("MobileUseLocalNetworkButton"));
+                Assert.Null(settingsView.FindSettingsControl<ToggleSwitch>("RemoteInsecureLanToggle"));
+                Assert.NotNull(settingsView.FindSettingsControl<QrCodeControl>("MobileSetupQrCode"));
             }
             finally
             {
@@ -139,12 +144,12 @@ public sealed class SettingsMobileNavigationTests
                 await PumpAsync();
 
                 var view = window.GetVisualDescendants().OfType<SettingsView>().Single();
-                var choices = view.FindControl<Grid>("MobileTransportChoices")!;
+                var choices = view.FindSettingsControl<Grid>("MobileTransportChoices")!;
                 var buttons = choices.Children.OfType<Button>().ToArray();
                 Assert.Equal(3, buttons.Length);
                 Assert.True(expectedColumns == choices.ColumnDefinitions.Count,
                     $"Expected {expectedColumns} columns; window={window.Bounds}, " +
-                    $"page={view.FindControl<Control>("PageMobile")!.Bounds}, choices={choices.Bounds}, " +
+                    $"page={view.FindSettingsControl<Control>("PageMobile")!.Bounds}, choices={choices.Bounds}, " +
                     $"actualColumns={choices.ColumnDefinitions.Count}.");
                 Assert.Equal(
                     ["MobileUseTailscaleButton", "MobileUseDevTunnelButton", "MobileUseLocalNetworkButton"],
@@ -186,11 +191,10 @@ public sealed class SettingsMobileNavigationTests
 
                 viewModel.SettingsVM.IsMobileSetupChoiceEnabled = true;
                 await PumpAsync();
-                Assert.True(view.FindControl<Button>("MobileWebSetupButton")!.IsEffectivelyEnabled);
-                Assert.False(view.FindControl<Button>("MobileAndroidSetupButton")!.IsEffectivelyEnabled);
-                Assert.False(view.FindControl<Button>("MobileDevTunnelRetryButton")!.IsVisible);
-                Assert.Equal(Loc.Get("Remote_SetupWebOnlyDescription"),
-                    viewModel.SettingsVM.MobileExperienceDescription);
+                Assert.True(view.FindSettingsControl<Button>("MobileWebSetupButton")!.IsEffectivelyEnabled);
+                Assert.False(view.FindSettingsControl<Button>("MobileAndroidSetupButton")!.IsEffectivelyEnabled);
+                Assert.False(view.FindSettingsControl<Button>("MobileDevTunnelRetryButton")!.IsVisible);
+                Assert.Empty(viewModel.SettingsVM.MobileExperienceDescription);
             }
             finally
             {
@@ -262,6 +266,158 @@ public sealed class SettingsMobileNavigationTests
                 window.Close();
             }
         }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DevTunnelSetupShowsOnlyTheCurrentStepAndKeepsFallbacksCollapsed()
+    {
+        using var session = HeadlessTestSession.Start();
+        var root = Path.Combine(Path.GetTempPath(), "LumiTunnelSetupUiTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "index.html"), "<html>Fixture</html>");
+        var previousRoot = Environment.GetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT");
+        Environment.SetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT", root);
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                Loc.Load("en");
+                var data = new AppData
+                {
+                    Settings = new UserSettings
+                    {
+                        IsOnboarded = true,
+                        AutoSaveChats = false,
+                        EnableMemoryAutoSave = false,
+                        RemoteAccessEnabled = true,
+                        RemoteUseDevTunnel = true
+                    }
+                };
+                var store = new DataStore(data);
+                using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+                    initializeCopilotOnStartup: false, startBackgroundJobs: false);
+                var server = new LumiRemoteServer(store, main);
+                typeof(LumiRemoteServer).GetProperty(nameof(LumiRemoteServer.IsRunning))!.SetValue(server, true);
+                var host = (RemoteDevTunnelHost)typeof(LumiRemoteServer)
+                    .GetField("_devTunnel", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                    .GetValue(server)!;
+                var stateField = typeof(RemoteDevTunnelHost).GetField("_state",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                var settings = main.SettingsVM;
+                settings.AttachRemoteServer(server);
+                var window = new MainWindow { DataContext = main, Width = 1100, Height = 860 };
+                window.Show();
+                try
+                {
+                    main.SelectedNavIndex = 7;
+                    settings.SelectedPageIndex = 2;
+                    Dispatcher.UIThread.RunJobs();
+                    var view = window.GetVisualDescendants().OfType<SettingsView>().Single();
+
+                    void SetState(RemoteDevTunnelState state)
+                    {
+                        stateField.SetValue(host, state);
+                        settings.RefreshRemoteState(DateTimeOffset.UtcNow);
+                        window.UpdateLayout();
+                        Dispatcher.UIThread.RunJobs();
+                    }
+
+                    SetState(new RemoteDevTunnelState(RequiresSignIn: true,
+                        SetupMessage: Loc.Get("Remote_DevTunnelSignInRequired")));
+                    Assert.True(settings.UseDevTunnelForMobile);
+                    Assert.Same(settings, view.DataContext);
+                    Assert.False(settings.IsMobileExperienceSectionVisible);
+                    Assert.True(view.FindSettingsControl<Border>("MobileDevTunnelSetupCard")!.IsVisible);
+                    var appChoices = view.FindSettingsControl<Grid>("MobileAppChoices")!;
+                    Assert.DoesNotContain(appChoices, window.GetVisualDescendants());
+                    Assert.True(view.FindSettingsControl<Button>("MobileDevTunnelSignInButton")!.IsVisible);
+                    Assert.False(view.FindSettingsControl<Expander>("MobileDevTunnelSignInHelp")!.IsExpanded);
+                    Assert.True(settings.DevTunnelStatusText.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 12);
+
+                    SetState(new RemoteDevTunnelState(IsStarting: true, IsSigningIn: true,
+                        SetupMessage: Loc.Get("Remote_DevTunnelDesktopSigningIn")));
+                    Assert.True(view.FindSettingsControl<ProgressBar>("MobileDevTunnelProgress")!.IsVisible);
+                    Assert.True(view.FindSettingsControl<Button>("MobileDevTunnelCancelSetupButton")!.IsVisible);
+                    Assert.False(view.FindSettingsControl<StackPanel>("MobileDevTunnelSignInPanel")!.IsVisible);
+                    Assert.False(view.FindSettingsControl<Expander>("MobileDevTunnelSignInHelp")!.IsExpanded);
+
+                    const string code = "TEST12345";
+                    typeof(SettingsViewModel).GetField("_openedDevTunnelSignInCode",
+                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                        .SetValue(settings, code);
+                    SetState(new RemoteDevTunnelState(IsStarting: true, IsSigningIn: true,
+                        SignIn: new RemoteDevTunnelSignIn("https://login.microsoft.com/device", code),
+                        SetupMessage: Loc.Get("Remote_DevTunnelSigningIn")));
+                    Assert.True(view.FindSettingsControl<StackPanel>("MobileDevTunnelSignInPanel")!.IsVisible);
+                    Assert.False(view.FindSettingsControl<Expander>("MobileDevTunnelSignInHelp")!.IsVisible);
+                    Assert.Equal(code, view.FindSettingsControl<SelectableTextBlock>("MobileDevTunnelSignInCode")!.Text);
+
+                    SetState(new RemoteDevTunnelState(Account: "fixture@example.test",
+                        Origin: "https://bright-river-47653.uks1.devtunnels.ms"));
+                    Assert.False(view.FindSettingsControl<Border>("MobileDevTunnelSetupCard")!.IsVisible);
+                    Assert.True(settings.IsMobileExperienceSectionVisible);
+                    Assert.True(settings.IsMobileSetupReady);
+                    Assert.False(view.FindSettingsControl<Grid>("MobileAppChoices")!.IsVisible);
+                    Assert.False(view.FindSettingsControl<Expander>("MobileDevTunnelPhoneTips")!.IsExpanded);
+                    Assert.True(settings.MobileSetupInstructions.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 15);
+                    Assert.True(settings.IsRemotePairing);
+                    var scroller = view.FindControl<ScrollViewer>("MainScrollViewer")!;
+                    var pairingText = view.FindSettingsControl<TextBlock>("RemotePairCodeText")!;
+                    var pairingOrigin = pairingText.TranslatePoint(default, scroller)!.Value;
+                    Assert.InRange(pairingOrigin.Y, 0, scroller.Bounds.Height);
+                    Assert.True(pairingOrigin.Y + pairingText.Bounds.Height <= scroller.Bounds.Height + 1);
+                    var setupUrl = settings.MobileSetupUrl;
+                    settings.RemoteAccessEnabled = false;
+                    Assert.False(settings.IsMobileSetupActive);
+                    Assert.False(settings.IsMobileSetupReady);
+                    Assert.Empty(settings.MobileSetupQrValue);
+                    typeof(LumiRemoteServer).GetProperty(nameof(LumiRemoteServer.IsRunning))!.SetValue(server, true);
+                    settings.RemoteAccessEnabled = true;
+                    SetState(new RemoteDevTunnelState(Account: "fixture@example.test",
+                        Origin: "https://bright-river-47653.uks1.devtunnels.ms"));
+                    Assert.True(settings.IsMobileSetupActive);
+                    Assert.True(settings.IsMobileSetupReady);
+                    Assert.False(settings.IsDevTunnelSetupVisible);
+                    Assert.Equal(setupUrl, settings.MobileSetupQrValue);
+                    Assert.Equal(setupUrl, view.FindSettingsControl<QrCodeControl>("MobileSetupQrCode")!.Value);
+
+                    Environment.SetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT", Path.Combine(root, "not-installed"));
+                    var missingAssetsServer = new LumiRemoteServer(store, main);
+                    try
+                    {
+                        typeof(LumiRemoteServer).GetProperty(nameof(LumiRemoteServer.IsRunning))!
+                            .SetValue(missingAssetsServer, true);
+                        var missingAssetsHost = typeof(LumiRemoteServer).GetField("_devTunnel",
+                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                            .GetValue(missingAssetsServer);
+                        stateField.SetValue(missingAssetsHost, new RemoteDevTunnelState(
+                            Account: "fixture@example.test", Origin: "https://bright-river-47653.uks1.devtunnels.ms"));
+                        settings.AttachRemoteServer(missingAssetsServer);
+                        window.UpdateLayout();
+                        Dispatcher.UIThread.RunJobs();
+                        Assert.False(settings.IsMobileSetupReady);
+                        Assert.True(settings.IsDevTunnelSetupVisible);
+                        Assert.Equal(Loc.Get("Remote_WebAppUnavailable"), settings.DevTunnelStatusText);
+                        Assert.Empty(settings.MobileSetupQrValue);
+                    }
+                    finally
+                    {
+                        missingAssetsServer.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                        Environment.SetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT", root);
+                    }
+                }
+                finally
+                {
+                    window.Close();
+                    server.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LUMI_REMOTE_WEB_ROOT", previousRoot);
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     private static async Task PumpAsync()

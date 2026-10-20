@@ -23,6 +23,20 @@ public sealed class RemoteTransportTests
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
 
     [Fact]
+    public async Task PairingErrorResponsesIdentifyLumiRatherThanItsGateway()
+    {
+        using var listener = new RemoteHttpListener((context, token) =>
+            context.WriteJsonAsync("""{"ok":false,"error":"Pair this device with Lumi first."}""", token, 401));
+        listener.Start(0, loopbackOnly: true);
+        using var http = new HttpClient(new HttpClientHandler { UseProxy = false });
+        using var deadline = new CancellationTokenSource(TestTimeout);
+        using var response = await http.GetAsync($"http://127.0.0.1:{listener.Port}/api/snapshot", deadline.Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(RemoteProtocol.ServerResponseValue,
+            Assert.Single(response.Headers.GetValues(RemoteProtocol.ServerResponseHeader)));
+    }
+
+    [Fact]
     public async Task DiscoveryResponderAdvertisesItsSelectedLocalAddress()
     {
         int discoveryPort;

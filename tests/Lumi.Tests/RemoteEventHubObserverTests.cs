@@ -399,6 +399,8 @@ public sealed class RemoteEventHubObserverTests
                     detachedStream.Text,
                     StringComparison.Ordinal);
 
+                // A running chat's agent steps move its activity time and preview, but they do not
+                // wake a phone that shows the list...
                 var chatFramesBeforeHiddenContent = CountEvent(
                     mainStream.Text,
                     RemoteProtocol.Events.Chats);
@@ -411,6 +413,25 @@ public sealed class RemoteEventHubObserverTests
                 WriteBarrierAndWait(hub, mainStream);
                 Assert.Equal(
                     chatFramesBeforeHiddenContent,
+                    CountEvent(mainStream.Text, RemoteProtocol.Events.Chats));
+
+                // ...its finish does, once...
+                detached.IsBusy = false;
+                detached.IsStreaming = false;
+                Flush(hub);
+                WriteBarrierAndWait(hub, mainStream);
+                Assert.Equal(
+                    chatFramesBeforeHiddenContent + 1,
+                    CountEvent(mainStream.Text, RemoteProtocol.Events.Chats));
+
+                // ...and a preview-only change of an idle chat is not a list change either.
+                detachedChat.Preview = "another streaming preview";
+                typeof(RemoteEventHub)
+                    .GetMethod("OnChatContentChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(hub, [detachedChat.Id]);
+                Flush(hub);
+                WriteBarrierAndWait(hub, mainStream);
+                Assert.Equal(chatFramesBeforeHiddenContent + 1,
                     CountEvent(mainStream.Text, RemoteProtocol.Events.Chats));
             }
             catch (Exception ex)
@@ -734,6 +755,526 @@ public sealed class RemoteEventHubObserverTests
             {
                 cancellation?.Cancel();
                 if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task BackgroundSubscriptionStaysQuietAndForegroundReturnPings()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            Task? writer = null;
+            MainViewModel? main = null;
+            try
+            {
+                var chat = Chat("Resume on the same stream");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = chat;
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                var stream = new RecordingStream();
+                var client = hub.AddClient(
+                    stream,
+                    "phone",
+                    subscription: new RemoteEventSubscription
+                    {
+                        Generation = 1,
+                        ChatId = chat.Id,
+                        IsForeground = true
+                    });
+                cancellation = new CancellationTokenSource();
+                writer = client.RunAsync(cancellation.Token);
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+
+                Pump(hub.UpdateSubscriptionAsync("phone", new RemoteEventSubscription
+                {
+                    Generation = 2,
+                    ChatId = chat.Id,
+                    IsForeground = false
+                }));
+                var background = stream.Text.Length;
+                main.ChatVM.StatusText = "Working while the phone is away";
+                main.ChatVM.IsBusy = true;
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var quiet = stream.Text[background..];
+                Assert.Equal(0, CountEvent(quiet, RemoteProtocol.Events.ChatStatus));
+                Assert.Equal(0, CountEvent(quiet, RemoteProtocol.Events.Ping));
+
+                var returned = stream.Text.Length;
+                Pump(hub.UpdateSubscriptionAsync("phone", new RemoteEventSubscription
+                {
+                    Generation = 3,
+                    ChatId = chat.Id,
+                    IsForeground = true
+                }));
+                WriteBarrierAndWait(hub, stream);
+                var resumed = stream.Text[returned..];
+                Assert.Equal(1, CountEvent(resumed, RemoteProtocol.Events.Ping));
+                Assert.Equal(1, CountEvent(resumed, RemoteProtocol.Events.ChatStatus));
+                Assert.Contains("Working while the phone is away", resumed);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task APhoneReturningOnItsKeptStreamCatchesUpOnWhatItMissed()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            Task? writer = null;
+            MainViewModel? main = null;
+            try
+            {
+                var chat = Chat("Away and back");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = chat;
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                var stream = new RecordingStream();
+                var phone = hub.AddClient(stream, "phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    ChatId = chat.Id,
+                    IsForeground = true
+                });
+                // Another phone on the new-chat screen keeps catalog pushes flowing.
+                hub.AddClient(new RecordingStream(), "other-phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    IsForeground = true
+                });
+                cancellation = new CancellationTokenSource();
+                writer = phone.RunAsync(cancellation.Token);
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+
+                Pump(hub.UpdateSubscriptionAsync("phone", new RemoteEventSubscription
+                {
+                    Generation = 2,
+                    ChatId = chat.Id,
+                    IsForeground = false
+                }));
+                var away = stream.Text.Length;
+                main.ConnectionStatus = "Copilot is ready";
+                hub.MarkLibraryDirty();
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var quiet = stream.Text[away..];
+                Assert.Equal(0, CountEvent(quiet, RemoteProtocol.Events.Connection));
+                Assert.Equal(0, CountEvent(quiet, RemoteProtocol.Events.Snapshot));
+
+                var back = stream.Text.Length;
+                Pump(hub.UpdateSubscriptionAsync("phone", new RemoteEventSubscription
+                {
+                    Generation = 3,
+                    ChatId = chat.Id,
+                    IsForeground = true
+                }));
+                WriteBarrierAndWait(hub, stream);
+                var resumed = stream.Text[back..];
+                Assert.Equal(1, CountEvent(resumed, RemoteProtocol.Events.Connection));
+                Assert.Contains("Copilot is ready", resumed);
+                Assert.Equal(1, CountEvent(resumed, RemoteProtocol.Events.Snapshot));
+
+                // A return with nothing missed costs only the tiny connection state.
+                Pump(hub.UpdateSubscriptionAsync("phone", new RemoteEventSubscription
+                {
+                    Generation = 4,
+                    ChatId = chat.Id,
+                    IsForeground = false
+                }));
+                var again = stream.Text.Length;
+                Pump(hub.UpdateSubscriptionAsync("phone", new RemoteEventSubscription
+                {
+                    Generation = 5,
+                    ChatId = chat.Id,
+                    IsForeground = true
+                }));
+                WriteBarrierAndWait(hub, stream);
+                var quickReturn = stream.Text[again..];
+                Assert.Equal(1, CountEvent(quickReturn, RemoteProtocol.Events.Connection));
+                Assert.Equal(0, CountEvent(quickReturn, RemoteProtocol.Events.Snapshot));
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task ALibraryChangeWhileEveryPhoneIsAwayIsCaughtUpOnReturn()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            Task? writer = null;
+            MainViewModel? main = null;
+            try
+            {
+                // The desktop has a chat open; that is independent of the phone's screen.
+                var chat = Chat("Open on the desktop");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = chat;
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                // The only phone sits on the new-chat screen, whose setups come from the library.
+                var stream = new RecordingStream();
+                var phone = hub.AddClient(stream, "phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    IsForeground = true
+                });
+                cancellation = new CancellationTokenSource();
+                writer = phone.RunAsync(cancellation.Token);
+                Pump(hub.UpdateSubscriptionAsync("phone", new RemoteEventSubscription
+                {
+                    Generation = 2,
+                    IsForeground = false
+                }));
+
+                hub.MarkLibraryDirty();
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var back = stream.Text.Length;
+                Pump(hub.UpdateSubscriptionAsync("phone", new RemoteEventSubscription
+                {
+                    Generation = 3,
+                    IsForeground = true
+                }));
+                WriteBarrierAndWait(hub, stream);
+
+                Assert.Equal(1, CountEvent(stream.Text[back..], RemoteProtocol.Events.Snapshot));
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task KeepAliveClosesBackgroundStreamsThePhoneAbandoned()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            MainViewModel? main = null;
+            try
+            {
+                var time = new ManualTimeProvider();
+                var dataStore = new DataStore(new AppData());
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                using var hub = new RemoteEventHub(dataStore, main, () => [], time: time);
+                Dispatcher.UIThread.RunJobs();
+
+                var live = hub.AddClient(new RecordingStream(), "phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    IsForeground = true
+                });
+                hub.AddClient(new RecordingStream(), "killed-phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    IsForeground = true
+                });
+                // The app went to the background, then was killed before it closed its stream. The
+                // desktop writes nothing to background streams, so no failed write will ever reveal it.
+                Pump(hub.UpdateSubscriptionAsync("killed-phone", new RemoteEventSubscription
+                {
+                    Generation = 2,
+                    IsForeground = false
+                }));
+
+                time.Advance(TimeSpan.FromMinutes(1));
+                Assert.Equal(2, hub.ClientCount);
+                Assert.Equal(1, live.QueuedFrames);
+
+                time.Advance(TimeSpan.FromMinutes(1));
+                Assert.Equal(1, hub.ClientCount);
+                Assert.Equal(1, live.QueuedFrames);
+                Dispatcher.UIThread.RunJobs();
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task ARunningChatsAgentStepsDoNotWakeAPhoneThatShowsTheList()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            var writers = new List<Task>();
+            MainViewModel? main = null;
+            try
+            {
+                var open = Chat("Open on the PC");
+                var background = Chat("Agent working in the background");
+                var dataStore = new DataStore(new AppData { Chats = [open, background] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = open;
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                var phoneStream = new RecordingStream();
+                var olderStream = new RecordingStream();
+                var phone = hub.AddClient(phoneStream, "phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    IncludeChatList = true,
+                    IsForeground = true,
+                    ChatRowPatches = true,
+                    CompactStatus = true
+                });
+                var older = hub.AddClient(olderStream, "older-phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    IncludeChatList = true,
+                    IsForeground = true
+                });
+                cancellation = new CancellationTokenSource();
+                writers.Add(phone.RunAsync(cancellation.Token));
+                writers.Add(older.RunAsync(cancellation.Token));
+                Flush(hub);
+                WriteBarrierAndWait(hub, phoneStream);
+                WriteBarrierAndWait(hub, olderStream);
+
+                (string Phone, string Older) Since((int Phone, int Older) mark)
+                {
+                    Flush(hub);
+                    WriteBarrierAndWait(hub, phoneStream);
+                    WriteBarrierAndWait(hub, olderStream);
+                    return (phoneStream.Text[mark.Phone..], olderStream.Text[mark.Older..]);
+                }
+
+                // The run starts: both phones hear about it once.
+                var mark = (phoneStream.Text.Length, olderStream.Text.Length);
+                background.UpdatedAt = DateTimeOffset.Now;
+                background.IsRunning = true;
+                var started = Since(mark);
+                Assert.Equal(1, CountEvent(started.Phone, RemoteProtocol.Events.Chats));
+                Assert.Equal(1, CountEvent(started.Phone, RemoteProtocol.Events.ChatStatus));
+                Assert.Equal(1, CountEvent(started.Older, RemoteProtocol.Events.Chats));
+
+                // Every agent step drops and restores the running flag and saves the chat, which
+                // moves its activity time, preview and message count. None of it reaches a phone.
+                for (var step = 1; step <= 3; step++)
+                {
+                    mark = (phoneStream.Text.Length, olderStream.Text.Length);
+                    background.IsRunning = false;
+                    background.IsRunning = true;
+                    background.Messages.Add(new ChatMessage { Role = "assistant", Content = $"Step {step} done" });
+                    background.UpdatedAt = DateTimeOffset.Now.AddSeconds(step);
+                    typeof(RemoteEventHub)
+                        .GetMethod("OnChatContentChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .Invoke(hub, [background.Id]);
+                    var quiet = Since(mark);
+                    Assert.Equal(0, CountEvent(quiet.Phone, RemoteProtocol.Events.Chats));
+                    Assert.Equal(0, CountEvent(quiet.Phone, RemoteProtocol.Events.ChatStatus));
+                    Assert.Equal(0, CountEvent(quiet.Older, RemoteProtocol.Events.Chats));
+                    Assert.Equal(0, CountEvent(quiet.Older, RemoteProtocol.Events.ChatStatus));
+                }
+
+                // The run finishes with an unread reply: one update each, showing where it ended.
+                mark = (phoneStream.Text.Length, olderStream.Text.Length);
+                background.IsRunning = false;
+                background.HasUnreadMessages = true;
+                var finished = Since(mark);
+                Assert.Equal(1, CountEvent(finished.Phone, RemoteProtocol.Events.Chats));
+                Assert.Equal(1, CountEvent(finished.Phone, RemoteProtocol.Events.ChatStatus));
+                Assert.Contains("Step 3 done", finished.Phone);
+                Assert.Equal(1, CountEvent(finished.Older, RemoteProtocol.Events.Chats));
+                Assert.Contains("Step 3 done", finished.Older);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                foreach (var writer in writers)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task CompactStatusPhonesStopReceivingAnUnchangedPlan()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            var writers = new List<Task>();
+            MainViewModel? main = null;
+            try
+            {
+                var chat = Chat("Plan heavy chat");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = chat;
+                main.ChatVM.PlanContent = "1. Read the code\n2. Fix the race\n3. Prove it";
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                var compactStream = new RecordingStream();
+                var legacyStream = new RecordingStream();
+                cancellation = new CancellationTokenSource();
+                writers.Add(hub.AddClient(compactStream, "new-phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    ChatId = chat.Id,
+                    IsForeground = true,
+                    CompactStatus = true
+                }).RunAsync(cancellation.Token));
+                writers.Add(hub.AddClient(legacyStream, "old-phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    ChatId = chat.Id,
+                    IsForeground = true
+                }).RunAsync(cancellation.Token));
+                Flush(hub);
+                WriteBarrierAndWait(hub, compactStream);
+
+                RemoteChatStatus LastStatus(RecordingStream stream)
+                {
+                    WriteBarrierAndWait(hub, stream);
+                    var json = stream.Text.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+                        .Last(frame => frame.StartsWith($"event: {RemoteProtocol.Events.ChatStatus}\n", StringComparison.Ordinal))
+                        .Split('\n').Single(line => line.StartsWith("data: ", StringComparison.Ordinal))[6..];
+                    return JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteChatStatus)!;
+                }
+
+                main.ChatVM.StatusText = "First";
+                Flush(hub);
+                var first = LastStatus(compactStream);
+                Assert.Contains("Fix the race", first.PlanContent);
+                Assert.False(first.IsPlanOmitted);
+
+                main.ChatVM.StatusText = "Second";
+                Flush(hub);
+                var second = LastStatus(compactStream);
+                Assert.Equal("Second", second.StatusText);
+                Assert.Null(second.PlanContent);
+                Assert.True(second.IsPlanOmitted);
+                Assert.False(second.HasComposerCatalogs);
+                var legacy = LastStatus(legacyStream);
+                Assert.Equal("Second", legacy.StatusText);
+                Assert.Contains("Fix the race", legacy.PlanContent);
+
+                main.ChatVM.PlanContent = "1. Ship it";
+                Flush(hub);
+                var changed = LastStatus(compactStream);
+                Assert.Equal("1. Ship it", changed.PlanContent);
+                Assert.False(changed.IsPlanOmitted);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                foreach (var writer in writers)
                     Pump(writer);
                 cancellation?.Dispose();
                 main?.Dispose();

@@ -76,11 +76,14 @@ public partial class UserMessageItem : TranscriptItem
     private readonly Action<ChatMessage, bool>? _resendAction;
 
     [ObservableProperty] private string _content;
-    [ObservableProperty] private string _timestampText;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TimestampToolTip))]
+    private string _timestampText;
     [ObservableProperty] private bool _isBeingEdited;
     [ObservableProperty] private bool _isEditEnabled = true;
 
     public string? Author => _source.Author;
+    public string? TimestampToolTip => string.IsNullOrEmpty(TimestampText) ? null : _source.TimestampToolTip;
     public ChatMessage Message => _source.Message;
 
     /// <summary>The backing message view-model, exposed so the transcript template can bind live
@@ -107,6 +110,23 @@ public partial class UserMessageItem : TranscriptItem
     /// steering badge — forces the still-pending message through as a fresh turn.</summary>
     public IAsyncRelayCommand SendNowCommand { get; }
 
+    /// <summary>What this message replies to, when it was sent as a reply.</summary>
+    public MessageReply? Reply => _source.Message.ReplyTo;
+    public bool HasReply => Reply is { Quote.Length: > 0 };
+    public string ReplyAuthor => Reply?.Author ?? Loc.Author_Lumi;
+    public string ReplyPreview => MessageReplyFormatter.BuildPreview(Reply);
+
+    /// <summary>Non-null only for replies, so the quote block is built only for messages that have one.</summary>
+    public UserMessageItem? DisplayReply => HasReply ? this : null;
+
+    /// <summary>Scrolls to the replied-to message and highlights the quoted text.</summary>
+    public IRelayCommand OpenReplySourceCommand { get; }
+
+    /// <summary>Other chats this message brought in. Each pill opens its chat.</summary>
+    public List<LinkedChatChipItem> ReferencedChats { get; }
+    public bool HasReferencedChats => ReferencedChats.Count > 0;
+    public List<LinkedChatChipItem>? DisplayReferencedChats => HasReferencedChats ? ReferencedChats : null;
+
     public UserMessageItem(
         ChatMessageViewModel source,
         bool showTimestamps,
@@ -114,7 +134,9 @@ public partial class UserMessageItem : TranscriptItem
         Action<ChatMessage>? beginEditAction = null,
         Action<ChatMessage, bool>? resendAction = null,
         Action<SkillReference>? openSkillAction = null,
-        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null)
+        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null,
+        Action<MessageReply>? openReplySourceAction = null,
+        Action<Guid>? openChatAction = null)
         : base($"message:user:{source.Message.Id}")
     {
         _source = source;
@@ -125,6 +147,12 @@ public partial class UserMessageItem : TranscriptItem
         Attachments = source.Message.Attachments.Select(fp => new FileAttachmentItem(fp)).ToList();
         Skills = filteredSkills ?? source.Message.ActiveSkills.ToList();
         SkillChips = Skills.Select(s => new SkillChipItem(s, () => openSkillAction?.Invoke(s))).ToList();
+        ReferencedChats = source.Message.ReferencedChats?
+            .Select(reference => new LinkedChatChipItem(
+                reference.ChatId,
+                reference.Title,
+                () => openChatAction?.Invoke(reference.ChatId)))
+            .ToList() ?? [];
 
         BeginEditCommand = new RelayCommand(
             () => _beginEditAction?.Invoke(_source.Message),
@@ -133,6 +161,11 @@ public partial class UserMessageItem : TranscriptItem
         ResendCommand = new RelayCommand(ResendFromMessage);
         SendNowCommand = new AsyncRelayCommand(
             () => sendSteeredNowAsync?.Invoke(_source) ?? Task.CompletedTask);
+        OpenReplySourceCommand = new RelayCommand(() =>
+        {
+            if (Reply is { } reply)
+                openReplySourceAction?.Invoke(reply);
+        });
     }
 
     public void ResendFromMessage() => _resendAction?.Invoke(_source.Message, false);
@@ -263,22 +296,20 @@ public sealed class JobWakeItem : TranscriptItem
     public JobWakeItem(ChatMessageViewModel source, bool showTimestamps)
         : base($"message:job-wake:{source.Message.Id}")
     {
-        var content = source.Content;
-        JobName = ExtractJobName(source, content);
+        var details = Lumi.Remote.Protocol.RemoteJobWake.Parse(source.Author, source.Content);
+        JobName = details.JobName;
         TimestampText = showTimestamps ? source.TimestampText : "";
-        Instructions = ExtractSection(content, "Job instructions:", "Trigger context:");
-        var triggerContext = ExtractSection(content, "Trigger context:", "Respond as Lumi");
-        WakeSignal = ExtractWakeSignal(triggerContext);
-        ExitCode = ExtractExitCode(triggerContext);
-        StartedText = ExtractLineValue(triggerContext, "Started:");
-        CompletedText = ExtractLineValue(triggerContext, "Completed:");
-        OutputText = ExtractSection(triggerContext, "Full script output:", null);
+        Instructions = details.Instructions;
+        WakeSignal = details.WakeSignal;
+        ExitCode = details.ExitCode;
+        StartedText = details.StartedText;
+        CompletedText = details.CompletedText;
+        OutputText = details.OutputText;
     }
 
     public static bool IsJobWakeMessage(ChatMessageViewModel source)
         => source.Role == "user"
-           && (source.Author?.StartsWith("Lumi Job - ", StringComparison.OrdinalIgnoreCase) ?? false)
-           && source.Content.StartsWith("Background job triggered:", StringComparison.OrdinalIgnoreCase);
+           && Lumi.Remote.Protocol.RemoteJobWake.IsJobWake(source.Author, source.Content);
 
     public string SearchText => string.Join('\n', new[]
         {
@@ -292,83 +323,6 @@ public sealed class JobWakeItem : TranscriptItem
         }
         .Where(static value => !string.IsNullOrWhiteSpace(value)));
 
-    private static string ExtractJobName(ChatMessageViewModel source, string content)
-    {
-        const string authorPrefix = "Lumi Job - ";
-        if (source.Author?.StartsWith(authorPrefix, StringComparison.OrdinalIgnoreCase) == true)
-            return source.Author[authorPrefix.Length..].Trim();
-
-        var firstLine = content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
-        const string contentPrefix = "Background job triggered:";
-        return firstLine.StartsWith(contentPrefix, StringComparison.OrdinalIgnoreCase)
-            ? firstLine[contentPrefix.Length..].Trim()
-            : "Background job";
-    }
-
-    private static string ExtractSection(string content, string startMarker, string? endMarker)
-    {
-        var start = content.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
-        if (start < 0)
-            return "";
-
-        start += startMarker.Length;
-        var end = endMarker is null
-            ? content.Length
-            : content.IndexOf(endMarker, start, StringComparison.OrdinalIgnoreCase);
-        if (end < 0)
-            end = content.Length;
-
-        return content[start..end].Trim();
-    }
-
-    private static string ExtractWakeSignal(string triggerContext)
-    {
-        var signalSource = ExtractBefore(triggerContext, "Full script output:");
-        var line = signalSource
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault(static value =>
-                !value.StartsWith("Wake script exited", StringComparison.OrdinalIgnoreCase)
-                && !value.StartsWith("Started:", StringComparison.OrdinalIgnoreCase)
-                && !value.StartsWith("Completed:", StringComparison.OrdinalIgnoreCase));
-
-        return string.IsNullOrWhiteSpace(line) ? "Wake signal received." : Preview(line, 260);
-    }
-
-    private static string ExtractBefore(string content, string marker)
-    {
-        var index = content.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        return index < 0 ? content : content[..index];
-    }
-
-    private static string ExtractExitCode(string content)
-    {
-        var wakeLine = content
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault(static value => value.StartsWith("Wake script exited with code", StringComparison.OrdinalIgnoreCase));
-        if (wakeLine is not null)
-        {
-            const string prefix = "Wake script exited with code";
-            return wakeLine[prefix.Length..].Trim().TrimEnd('.');
-        }
-
-        return ExtractLineValue(content, "Exit code:");
-    }
-
-    private static string ExtractLineValue(string content, string prefix)
-    {
-        var line = content
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault(value => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-        return line is null ? "" : line[prefix.Length..].Trim();
-    }
-
-    private static string Preview(string text, int maxLength)
-    {
-        var normalized = text.Trim();
-        return normalized.Length <= maxLength
-            ? normalized
-            : normalized[..Math.Max(0, maxLength - 1)].TrimEnd() + "...";
-    }
 }
 
 // ── Assistant message ────────────────────────────────
@@ -378,15 +332,44 @@ public partial class AssistantMessageItem : TranscriptItem
     private readonly ChatMessageViewModel _source;
     private readonly Action<SkillReference>? _openSkillAction;
 
-    [ObservableProperty] private string _content;
-    [ObservableProperty] private string _timestampText;
-    [ObservableProperty] private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanReply))]
+    [NotifyPropertyChangedFor(nameof(CanSharePrompt))]
+    private string _content;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TimestampToolTip))]
+    private string _timestampText;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSharePrompt))]
+    private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HeaderLabel))]
+    private string? _modelName;
+
+    /// <summary>True while the composer holds a reply to this message.</summary>
+    [ObservableProperty] private bool _isReplySource;
+
+    /// <summary>
+    /// True when this message is a progress update written while working rather than part of the
+    /// answer. It never carries the answer's actions. It stays in view while Lumi works, and folds into
+    /// the turn's work, where it reads quieter, once the answer arrives or the turn ends; the last word
+    /// of a turn that ends without an answer stays in view.
+    /// </summary>
+    [ObservableProperty] private bool _isProgress;
+
+    /// <summary>Only an answer with text can be quoted; a bubble that just carries files cannot.</summary>
+    public bool CanReply => !string.IsNullOrWhiteSpace(Content);
+    public bool CanSharePrompt => !IsStreaming && !string.IsNullOrWhiteSpace(Content)
+        && _source.Message.ParentToolCallId is null;
 
     // Extras — populated when streaming ends
     [ObservableProperty] private bool _hasSkills;
     [ObservableProperty] private bool _hasFileAttachments;
     [ObservableProperty] private bool _hasSources;
     [ObservableProperty] private string _sourcesLabel = "";
+
+    /// <summary>The sites the sources came from, at a glance: "rtings.com, lg.com +5".</summary>
+    [ObservableProperty] private string? _sourcesDomains;
 
     partial void OnContentChanged(string value) => IsItemVisible = HasFileAttachments || !string.IsNullOrWhiteSpace(value);
 
@@ -399,8 +382,14 @@ public partial class AssistantMessageItem : TranscriptItem
     partial void OnHasSourcesChanged(bool value) => OnPropertyChanged(nameof(DisplaySourcesSection));
 
     public string? Author => _source.Author;
-    public string? ModelName => _source.ModelName;
+    public string HeaderLabel => string.IsNullOrWhiteSpace(ModelName) ? Loc.Chat_ModelNotRecorded : ModelName;
+    public string? TimestampToolTip => string.IsNullOrEmpty(TimestampText) ? null : _source.TimestampToolTip;
     internal Guid MessageId => _source.Message.Id;
+    internal DateTimeOffset Timestamp => _source.Message.Timestamp;
+    /// <summary>The SDK's verdict on this message; null when it gave none (older history, or a message cut off mid-stream).</summary>
+    internal bool? RecordedProgress => _source.Message.IsProgress;
+    public IReadOnlyDictionary<string, string>? InteractionStates => _source.Message.InteractionStates;
+    internal void RefreshInteractionState() => OnPropertyChanged(nameof(InteractionStates));
     public ObservableCollection<SkillReference> Skills { get; } = [];
     public ObservableCollection<SkillChipItem> SkillChips { get; } = [];
     public ObservableCollection<FileAttachmentItem> FileAttachments { get; } = [];
@@ -417,6 +406,8 @@ public partial class AssistantMessageItem : TranscriptItem
         _content = source.Content;
         _timestampText = showTimestamps ? source.TimestampText : "";
         _isStreaming = source.IsStreaming;
+        _modelName = source.ModelName;
+        _isProgress = source.Message.IsProgress == true;
 
         // Hide the bubble when content is only whitespace (e.g. the SDK sends "\n\n"
         // before tool calls / reasoning). Shows automatically when real content arrives.
@@ -439,8 +430,17 @@ public partial class AssistantMessageItem : TranscriptItem
         else if (e.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && !_source.IsStreaming)
         {
             IsStreaming = false;
+            ModelName = _source.ModelName ?? ModelName;
+            RefreshProgress();
             _source.PropertyChanged -= OnSourcePropertyChanged;
         }
+    }
+
+    /// <summary>Adopts the recorded role once the SDK has classified the finished message.</summary>
+    internal void RefreshProgress()
+    {
+        if (_source.Message.IsProgress is { } recorded)
+            IsProgress = recorded;
     }
 
     /// <summary>
@@ -474,11 +474,7 @@ public partial class AssistantMessageItem : TranscriptItem
             AddFileAttachments(fileChips);
 
         // Sources come from the persisted model
-        Sources.Clear();
-        foreach (var src in _source.Message.Sources)
-            Sources.Add(new SourceItem(src));
-        HasSources = Sources.Count > 0;
-        SourcesLabel = Sources.Count == 1 ? Loc.Sources_One : string.Format(Loc.Sources_N, Sources.Count);
+        RefreshSources();
     }
 
     internal void AddFileAttachments(IEnumerable<FileAttachmentItem> files)
@@ -500,6 +496,20 @@ public partial class AssistantMessageItem : TranscriptItem
             Sources.Add(new SourceItem(src));
         HasSources = Sources.Count > 0;
         SourcesLabel = Sources.Count == 1 ? Loc.Sources_One : string.Format(Loc.Sources_N, Sources.Count);
+        SourcesDomains = SummarizeDomains(Sources.Select(static source => source.Domain));
+    }
+
+    /// <summary>The first two distinct sites, and how many more there are.</summary>
+    internal static string? SummarizeDomains(IEnumerable<string> domains)
+    {
+        var distinct = domains.Where(static domain => !string.IsNullOrWhiteSpace(domain))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (distinct.Count == 0)
+            return null;
+
+        var shown = string.Join(", ", distinct.Take(2));
+        return distinct.Count > 2 ? $"{shown} +{distinct.Count - 2}" : shown;
     }
 }
 
@@ -539,9 +549,17 @@ public partial class ErrorMessageItem : TranscriptItem
 
 public partial class ReasoningItem : TranscriptItem
 {
+    private const int SummaryMaxLength = 180;
+
     [ObservableProperty] private string _content = "";
     [ObservableProperty] private bool _isActive;
     [ObservableProperty] private bool _isExpanded;
+
+    /// <summary>
+    /// The reasoning at a glance, for the collapsed row: the line it is writing while it thinks, then the
+    /// line it opened with. Hidden while the row is open, where the full text shows.
+    /// </summary>
+    [ObservableProperty] private string? _summary;
 
     private readonly List<string> _parts = [];
     private readonly Dictionary<ChatMessageViewModel, int> _streamingSources = [];
@@ -553,6 +571,10 @@ public partial class ReasoningItem : TranscriptItem
         _expandWhileStreaming = expandWhileStreaming;
         AppendSource(source);
     }
+
+    partial void OnIsActiveChanged(bool value) => RefreshSummary();
+
+    partial void OnIsExpandedChanged(bool value) => RefreshSummary();
 
     public void AppendSource(ChatMessageViewModel source)
     {
@@ -591,7 +613,57 @@ public partial class ReasoningItem : TranscriptItem
     }
 
     private void RefreshContent()
-        => Content = string.Join("\n\n", _parts.Where(static part => !string.IsNullOrWhiteSpace(part)));
+    {
+        Content = string.Join("\n\n", _parts.Where(static part => !string.IsNullOrWhiteSpace(part)));
+        RefreshSummary();
+    }
+
+    private void RefreshSummary()
+        => Summary = IsExpanded ? null : SummarizeReasoning(Content, fromEnd: IsActive);
+
+    /// <summary>
+    /// The first (or, while streaming, the last) line with words in it, without its markdown. Reasoning
+    /// summaries open each section with a bold heading, which makes a good glance line. Scans only as far as
+    /// that line, so a long trace stays cheap to summarize on every streamed token.
+    /// </summary>
+    internal static string? SummarizeReasoning(string content, bool fromEnd)
+    {
+        var text = content.AsSpan();
+        while (!text.IsEmpty)
+        {
+            ReadOnlySpan<char> line;
+            if (fromEnd)
+            {
+                var start = text.LastIndexOf('\n');
+                line = text[(start + 1)..];
+                text = start < 0 ? [] : text[..start];
+            }
+            else
+            {
+                var end = text.IndexOf('\n');
+                line = end < 0 ? text : text[..end];
+                text = end < 0 ? [] : text[(end + 1)..];
+            }
+
+            var cleaned = CleanSummaryLine(line);
+            if (cleaned.Length > 0)
+                return cleaned.Length > SummaryMaxLength ? cleaned[..SummaryMaxLength] : cleaned;
+        }
+
+        return null;
+    }
+
+    private static string CleanSummaryLine(ReadOnlySpan<char> line)
+    {
+        line = line.Trim().TrimStart("#>-*+ \t");
+        if (line.IsEmpty)
+            return "";
+
+        return line.ToString().Replace("**", "", StringComparison.Ordinal)
+            .Replace("__", "", StringComparison.Ordinal)
+            .Replace("`", "", StringComparison.Ordinal)
+            .Trim();
+    }
 
     internal void DetachSources()
     {
@@ -612,6 +684,14 @@ public partial class ToolGroupItem : TranscriptItem
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private IReadOnlyList<ToolActivityPreviewItem> _activityPreview = [];
     [ObservableProperty] private int _additionalActivityCount;
+
+    /// <summary>What the group is doing: its plan while the plan has steps to go, the running step's kind
+    /// while it works, then its plan or the kind its steps share, or mixed work. Drawn as the group's line
+    /// icon.</summary>
+    [ObservableProperty] private string _iconKey = TranscriptIcons.Mixed;
+
+    /// <summary>True when a step in the group failed: its icon turns the danger colour.</summary>
+    [ObservableProperty] private bool _hasFailures;
 
     public ObservableCollection<ToolCallItemBase> ToolCalls { get; } = [];
     // A plan's header represents its steps, not a single tool invocation.
@@ -687,7 +767,19 @@ public partial class ToolGroupItem : TranscriptItem
         => OnPropertyChanged(nameof(AdditionalActivityLabel));
 }
 
-public sealed record ToolActivityPreviewItem(string Label, string? Detail);
+public sealed record ToolActivityPreviewItem(
+    string Label,
+    string? Detail,
+    string IconKey = TranscriptIcons.Tool,
+    IReadOnlyList<PlanStepItem>? Steps = null,
+    DateTimeOffset? RunningSince = null)
+{
+    /// <summary>The detail is a command line, set in the console's typeface.</summary>
+    public bool IsCommand => IconKey == TranscriptIcons.Terminal;
+
+    /// <summary>A plan at work, shown as its steps rather than a row.</summary>
+    public bool HasSteps => Steps is { Count: > 0 };
+}
 
 // ── Single tool (flattened — rendered as StrataThink pill) ─
 
@@ -714,34 +806,82 @@ public partial class SingleToolItem : TranscriptItem
         _ => false
     };
 
+    /// <summary>What kind of work this step is, drawn as its line icon.</summary>
+    public string IconKey => Inner.IconKey;
+
+    /// <summary>True when the step failed: its icon turns the danger colour.</summary>
+    public bool HasError => Inner switch
+    {
+        ToolCallItem tc => tc.Status == StrataAiToolCallStatus.Failed,
+        TerminalPreviewItem tp => tp.Status == StrataAiToolCallStatus.Failed,
+        TodoProgressItem todo => todo.Status == StrataAiToolCallStatus.Failed,
+        _ => false
+    };
+
+    /// <summary>The step's glance line: what it worked on (the file, query or command) and how long it took.</summary>
     public string? Meta
     {
         get
         {
+            // A lone plan says how far it got, as its card does.
+            if (Inner is TodoProgressItem { Steps.Count: > 0 } plan)
+            {
+                var done = plan.Steps.Count(static step => step.IsDone);
+                var failed = plan.Steps.Count(static step => step.IsFailed);
+                return failed > 0
+                    ? string.Format(Loc.ToolTodo_MetaWithFailed, done, plan.Steps.Count, failed)
+                    : string.Format(Loc.ToolTodo_Meta, done, plan.Steps.Count);
+            }
+
+            var detail = Inner switch
+            {
+                ToolCallItem tc => tc.Detail,
+                TerminalPreviewItem tp => FirstLine(tp.Command),
+                _ => null
+            };
             double ms = Inner switch
             {
                 ToolCallItem tc => tc.DurationMs,
                 TerminalPreviewItem tp => tp.DurationMs,
                 _ => 0
             };
-            if (ms <= 0) return null;
-            return ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0} ms";
+            var duration = ms <= 0 ? null : ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0} ms";
+            var meta = string.IsNullOrWhiteSpace(detail)
+                ? duration
+                : duration is null ? detail : $"{detail} · {duration}";
+            // A command named by its purpose keeps that name when stopped, and the chip has no status
+            // of its own to say so (a failed one turns its icon the danger colour).
+            if (Inner is TerminalPreviewItem { HasTitle: true, Status: StrataAiToolCallStatus.Stopped })
+                meta = meta is null ? Loc.Status_Stopped : $"{Loc.Status_Stopped} · {meta}";
+            return meta;
         }
     }
 
-    public string? InputParameters => Inner switch
+    private static string? FirstLine(string? text)
     {
-        ToolCallItem tc => tc.InputParameters,
-        TodoProgressItem todo => todo.InputParameters,
-        _ => null
-    };
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
 
-    public string? MoreInfo => Inner switch
-    {
-        ToolCallItem tc => tc.MoreInfo,
-        _ when _source?.Message.ToolStatus == "Failed" => _source.Message.ToolOutput,
-        _ => null
-    };
+        var trimmed = text.Trim();
+        var newline = trimmed.IndexOfAny(['\r', '\n']);
+        return newline < 0 ? trimmed : trimmed[..newline].TrimEnd() + " …";
+    }
+
+    public string? InputParameters => Inner is ToolCallItem tc ? tc.InputParameters : null;
+
+    /// <summary>
+    /// What the step reported beyond its glance line, for its opened details. A command's output shows
+    /// in its console and a plan shows its steps instead.
+    /// </summary>
+    public string? ResultText => Inner is ToolCallItem tc ? tc.ResultText : null;
+
+    /// <summary>A lone plan: opened, it lists its steps.</summary>
+    public TodoProgressItem? Plan => Inner as TodoProgressItem;
+    public bool IsPlan => Inner is TodoProgressItem;
+
+    /// <summary>The step has fields or a result to show when opened (a command and a plan show their own).</summary>
+    public bool HasDetails => !IsTerminal && !IsPlan
+        && (!string.IsNullOrWhiteSpace(InputParameters) || !string.IsNullOrWhiteSpace(ResultText));
 
     // Terminal-specific
     public string? TerminalCommand => Inner is TerminalPreviewItem tp ? tp.Command : null;
@@ -750,8 +890,6 @@ public partial class SingleToolItem : TranscriptItem
 
     /// <summary>The message this flattened tool came from (needed to re-wrap it in a tool group).</summary>
     public ChatMessageViewModel? Source => _source;
-
-    public bool HasContent => !string.IsNullOrWhiteSpace(InputParameters) || !string.IsNullOrWhiteSpace(MoreInfo);
 
     public bool HasDiff => Inner is ToolCallItem { HasDiff: true };
     public ICommand? ShowDiffCommand => Inner is ToolCallItem tc ? tc.ShowDiffCommand : null;
@@ -767,6 +905,14 @@ public partial class SingleToolItem : TranscriptItem
     {
         _source = source;
     }
+
+    internal void NotifyTerminalPresentationChanged()
+    {
+        OnPropertyChanged(nameof(Label));
+        OnPropertyChanged(nameof(IsActive));
+        OnPropertyChanged(nameof(HasError));
+        OnPropertyChanged(nameof(Meta));
+    }
 }
 
 // ── Base for items inside a tool group ───────────────
@@ -780,6 +926,9 @@ public abstract partial class ToolCallItemBase : ObservableObject
 
     public string StableId { get; }
 
+    /// <summary>What kind of work this step is (a <see cref="TranscriptIcons"/> key), drawn as its line icon.</summary>
+    public string IconKey { get; init; } = TranscriptIcons.Tool;
+
     /// <summary>When the underlying tool message was recorded. Used to order a sub-agent's tool
     /// activity against its assistant/reasoning messages in the read-only run transcript.</summary>
     public DateTimeOffset Timestamp { get; set; }
@@ -788,7 +937,13 @@ public abstract partial class ToolCallItemBase : ObservableObject
 // ── Subagent card (standalone turn-level item) ─────────
 
 public partial class SubagentToolCallItem : TranscriptItem
-{    [ObservableProperty] private string _displayName;
+{
+    /// <summary>A task longer than this folds to its opening lines on the run page.</summary>
+    private const int PromptFoldLength = 320;
+    private const int PromptFoldLines = 5;
+    private const int PromptPreviewMaxLength = 1200;
+
+    [ObservableProperty] private string _displayName;
     [ObservableProperty] private string? _taskDescription;
     [ObservableProperty] private string? _agentDescription;
     [ObservableProperty] private string? _currentIntent;
@@ -804,6 +959,14 @@ public partial class SubagentToolCallItem : TranscriptItem
     [ObservableProperty] private int _accentIndex = 1;
     [ObservableProperty] private DateTimeOffset? _startedAt;
     [ObservableProperty] private string? _latestActivityText;
+
+    /// <summary>Whether the run page shows the whole task rather than its opening lines.</summary>
+    [ObservableProperty] private bool _isPromptExpanded;
+
+    /// <summary>Why a failed run failed (the error the SDK reported), shown on its run page.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasError))]
+    private string? _errorText;
 
     internal TodoProgressItem? TodoItem { get; set; }
     internal string TodoToolStatus { get; set; } = "InProgress";
@@ -850,7 +1013,50 @@ public partial class SubagentToolCallItem : TranscriptItem
     public bool IsInProgress => Status == StrataAiToolCallStatus.InProgress;
     public bool IsCompleted => Status == StrataAiToolCallStatus.Completed;
     public bool IsFailed => Status == StrataAiToolCallStatus.Failed;
-    public string? DurationText => DurationMs <= 0 ? null : DurationMs >= 1000 ? $"{DurationMs / 1000:F1}s" : $"{DurationMs:F0} ms";
+    public bool HasError => IsFailed && !string.IsNullOrWhiteSpace(ErrorText);
+    public string? DurationText => StrataAgentRun.FormatDuration(DurationMs) is { Length: > 0 } text ? text : null;
+
+    /// <summary>
+    /// The task with its markdown markers removed, for the run page's folded preview. Bounded, so a
+    /// multi-page prompt costs a few lines of plain text until the reader asks for the rest.
+    /// </summary>
+    public string PromptPreview => _promptPreview ??= BuildPromptPreview(Prompt);
+
+    /// <summary>True when the task is long enough that the run page folds it.</summary>
+    public bool IsPromptLong
+        => Prompt is { } prompt
+           && (prompt.Length > PromptFoldLength || prompt.AsSpan().Count('\n') >= PromptFoldLines);
+
+    /// <summary>
+    /// The task rendered as markdown: always for a short task, and for a long one only once it is
+    /// expanded, so a folded prompt is never parsed or laid out.
+    /// </summary>
+    public string? ExpandedPrompt => IsPromptLong && !IsPromptExpanded ? null : Prompt;
+
+    public string PromptToggleLabel => IsPromptExpanded ? Loc.Subagent_ShowLessTask : Loc.Subagent_ShowFullTask;
+
+    /// <summary>How many steps (tool calls) the run has taken so far.</summary>
+    public int StepCount => Activities.Count;
+
+    /// <summary>"53 steps · Started 14:48" under the run page's headline.</summary>
+    public string RunMetaText
+    {
+        get
+        {
+            var parts = new List<string>(2);
+            if (StepCount > 0)
+                parts.Add(StepCount == 1
+                    ? Loc.Subagent_OneStep
+                    : string.Format(Loc.Culture, Loc.Subagent_Steps, StepCount));
+            if (StartedAt is { } startedAt)
+                parts.Add(string.Format(Loc.Culture, Loc.Subagent_StartedAt, FormatStartedAt(startedAt)));
+            return string.Join(" · ", parts);
+        }
+    }
+
+    public bool HasRunMeta => StepCount > 0 || StartedAt is not null;
+
+    private string? _promptPreview;
 
     /// <summary>Short status word shown in the card's state pill.</summary>
     public string StatusText => Status switch
@@ -890,6 +1096,56 @@ public partial class SubagentToolCallItem : TranscriptItem
     {
         _displayName = displayName;
         _status = status;
+        _accentIndex = AccentIndexFor(displayName);
+        Activities.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(StepCount));
+            OnPropertyChanged(nameof(RunMetaText));
+            OnPropertyChanged(nameof(HasRunMeta));
+        };
+    }
+
+    /// <summary>
+    /// A stable colour per kind of agent (a 1-based chart palette slot). Every "Code Review Agent"
+    /// wears the same colour in the chat, the Workspace and on its run page, so kinds of agent are
+    /// recognisable at a glance instead of being coloured by their position in a batch.
+    /// </summary>
+    internal static int AccentIndexFor(string? agentName)
+    {
+        if (string.IsNullOrWhiteSpace(agentName))
+            return 1;
+
+        // FNV-1a over the case-folded name: deterministic across runs and processes.
+        var hash = 2166136261u;
+        foreach (var ch in agentName.Trim())
+        {
+            hash ^= char.ToLowerInvariant(ch);
+            hash *= 16777619u;
+        }
+
+        return (int)(hash % 6) + 1;
+    }
+
+    private static string FormatStartedAt(DateTimeOffset startedAt)
+    {
+        var local = startedAt.ToLocalTime();
+        return local.Date == DateTime.Today
+            ? local.ToString("HH:mm", Loc.Culture)
+            : local.ToString("MMM d, HH:mm", Loc.Culture);
+    }
+
+    private static string BuildPromptPreview(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return "";
+
+        var source = prompt.Length > PromptPreviewMaxLength * 2 ? prompt[..(PromptPreviewMaxLength * 2)] : prompt;
+        var lines = MessageReplyFormatter.StripMarkdown(source)
+            .Split('\n')
+            .Select(static line => line.Trim())
+            .Where(static line => line.Length > 0);
+        var preview = string.Join("\n", lines);
+        return preview.Length > PromptPreviewMaxLength ? preview[..PromptPreviewMaxLength] : preview;
     }
 
     partial void OnDisplayNameChanged(string value)
@@ -897,6 +1153,7 @@ public partial class SubagentToolCallItem : TranscriptItem
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Initial));
         OnPropertyChanged(nameof(AgentSubtitle));
+        AccentIndex = AccentIndexFor(value);
     }
     partial void OnTaskDescriptionChanged(string? value) => OnPropertyChanged(nameof(Title));
     partial void OnCurrentIntentChanged(string? value) => OnPropertyChanged(nameof(Title));
@@ -904,8 +1161,21 @@ public partial class SubagentToolCallItem : TranscriptItem
     partial void OnModeLabelChanged(string? value) => OnPropertyChanged(nameof(HasModeLabel));
     partial void OnPromptChanged(string? value)
     {
+        _promptPreview = null;
         OnPropertyChanged(nameof(HasPrompt));
-        RunContentChanged?.Invoke();
+        OnPropertyChanged(nameof(PromptPreview));
+        OnPropertyChanged(nameof(IsPromptLong));
+        OnPropertyChanged(nameof(ExpandedPrompt));
+    }
+    partial void OnIsPromptExpandedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ExpandedPrompt));
+        OnPropertyChanged(nameof(PromptToggleLabel));
+    }
+    partial void OnStartedAtChanged(DateTimeOffset? value)
+    {
+        OnPropertyChanged(nameof(RunMetaText));
+        OnPropertyChanged(nameof(HasRunMeta));
     }
     partial void OnProgressValueChanged(double value) => OnPropertyChanged(nameof(HasProgressValue));
     partial void OnDurationMsChanged(double value) => OnPropertyChanged(nameof(DurationText));
@@ -916,6 +1186,7 @@ public partial class SubagentToolCallItem : TranscriptItem
         OnPropertyChanged(nameof(IsInProgress));
         OnPropertyChanged(nameof(IsCompleted));
         OnPropertyChanged(nameof(IsFailed));
+        OnPropertyChanged(nameof(HasError));
         OnPropertyChanged(nameof(StatusText));
 
         // The live tail is only a streaming message while the run is in flight, and a run can reach a
@@ -928,6 +1199,9 @@ public partial class SubagentToolCallItem : TranscriptItem
 
     [RelayCommand]
     private void OpenRun() => OpenRunAction?.Invoke(this);
+
+    [RelayCommand]
+    private void TogglePrompt() => IsPromptExpanded = !IsPromptExpanded;
 
     // ── Run content ───────────────────────────────────────
 
@@ -1063,13 +1337,63 @@ public partial class SubagentGroupItem : TranscriptItem
 public partial class ToolCallItem : ToolCallItemBase
 {
     [ObservableProperty] private string _toolName;
-    [ObservableProperty] private StrataAiToolCallStatus _status;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LiveDetail))]
+    private StrataAiToolCallStatus _status;
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string? _inputParameters;
-    [ObservableProperty] private string? _moreInfo;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ResultText))]
+    private string? _moreInfo;
     [ObservableProperty] private double _durationMs;
     [ObservableProperty] private bool _hasDiff;
     [ObservableProperty] private bool _isCompact;
+
+    /// <summary>The one fact worth seeing at a glance beside the tool's name: the file, query or page.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ResultText))]
+    [NotifyPropertyChangedFor(nameof(LiveDetail))]
+    private string? _detail;
+
+    /// <summary>
+    /// The latest progress message the tool reported while running (the SDK's
+    /// <c>tool.execution_progress</c>, e.g. an MCP server's "Indexing 120 of 400 files"). Transient: it is
+    /// not persisted, and the row returns to its <see cref="Detail"/> once the step ends.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(LiveDetail))]
+    private string? _progressText;
+
+    /// <summary>The row's glance detail: the tool's progress while it runs and reports one, else its detail.</summary>
+    public string? LiveDetail => Status == StrataAiToolCallStatus.InProgress && !string.IsNullOrWhiteSpace(ProgressText)
+        ? ProgressText
+        : Detail;
+
+    /// <summary>
+    /// What the step reported beyond its glance detail, for its opened details: an error or other output.
+    /// The detail is already in the row, so it is not repeated there.
+    /// </summary>
+    public string? ResultText => WithoutGlanceDetail(MoreInfo, Detail);
+
+    internal static string? WithoutGlanceDetail(string? info, string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(info))
+            return null;
+
+        var text = info.Trim();
+        if (string.IsNullOrWhiteSpace(detail))
+            return text;
+
+        var glance = detail.Trim();
+        if (string.Equals(text, glance, StringComparison.Ordinal))
+            return null;
+
+        // A failure is reported as the detail, a blank line and the error: keep only the error.
+        if (text.StartsWith(glance, StringComparison.Ordinal) && text[glance.Length] is '\r' or '\n')
+            return text[glance.Length..].Trim();
+
+        return text;
+    }
 
     /// <summary>The call's authoritative start instant (<see cref="Models.ChatMessage.ToolStartedAt"/>).
     /// Bound to the card's <c>RunningSince</c> so the live elapsed readout is derived from a fixed
@@ -1110,6 +1434,7 @@ public partial class ToolCallItem : ToolCallItemBase
 
 public partial class TerminalPreviewItem : ToolCallItemBase
 {
+    private readonly string _runningToolName;
     [ObservableProperty] private string _toolName;
     [ObservableProperty] private string _command;
     [ObservableProperty] private string _output = "";
@@ -1130,12 +1455,36 @@ public partial class TerminalPreviewItem : ToolCallItemBase
     /// than restarting from zero each time the control loads.</summary>
     [ObservableProperty] private DateTimeOffset? _runningSince;
 
-    public TerminalPreviewItem(string toolName, string command, StrataAiToolCallStatus status, string? stableId = null)
+    /// <param name="title">The purpose the agent gave the command (<see cref="Services.ToolDisplayHelper.GetCommandTitle"/>).
+    /// When set it names the card in every state, and the row's status says how it ended.</param>
+    public TerminalPreviewItem(string toolName, string command, StrataAiToolCallStatus status, string? stableId = null, string? title = null)
         : base(stableId ?? TranscriptIds.Create("terminal"))
     {
-        _toolName = toolName;
+        HasTitle = !string.IsNullOrWhiteSpace(title);
+        _runningToolName = HasTitle ? title! : toolName;
+        _toolName = _runningToolName;
         _command = command;
         _status = status;
+        IconKey = TranscriptIcons.Terminal;
+        UpdateToolName();
+    }
+
+    /// <summary>The command is named by the purpose the agent gave it rather than by how it ended.</summary>
+    internal bool HasTitle { get; }
+
+    partial void OnStatusChanged(StrataAiToolCallStatus value) => UpdateToolName();
+    partial void OnIsRunningInBackgroundChanged(bool value) => UpdateToolName();
+
+    private void UpdateToolName()
+    {
+        var key = Status switch
+        {
+            StrataAiToolCallStatus.Stopped => "Chat_CommandInterrupted",
+            StrataAiToolCallStatus.Failed => "Chat_CommandFailed",
+            StrataAiToolCallStatus.Completed when !IsRunningInBackground => "Chat_CommandCompleted",
+            _ => null
+        };
+        ToolName = key is null || HasTitle ? _runningToolName : Loc.Get(key);
     }
 }
 
@@ -1146,16 +1495,65 @@ public partial class TodoProgressItem : ToolCallItemBase
     [ObservableProperty] private string _toolName;
     [ObservableProperty] private StrataAiToolCallStatus _status;
     [ObservableProperty] private bool _isExpanded;
-    [ObservableProperty] private string? _inputParameters;
-    [ObservableProperty] private string? _moreInfo;
+
+    /// <summary>The plan's steps, as its card lists them.</summary>
+    [ObservableProperty] private IReadOnlyList<PlanStepItem> _steps = [];
 
     public TodoProgressItem(string toolName, StrataAiToolCallStatus status, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("todo"))
     {
         _toolName = toolName;
         _status = status;
+        IconKey = TranscriptIcons.Plan;
+    }
+
+    /// <summary>The step being worked on, if any.</summary>
+    public string? CurrentStepTitle => Steps.FirstOrDefault(static step => step.IsCurrent)?.Title;
+
+    /// <summary>
+    /// The steps a live card shows at a glance: all of a short plan, or four around the step at work
+    /// (the one before it and those after). Kept as one list until the steps change.
+    /// </summary>
+    public IReadOnlyList<PlanStepItem> GlanceSteps { get; private set; } = [];
+
+    private const int GlanceStepCount = 4;
+
+    partial void OnStepsChanged(IReadOnlyList<PlanStepItem> value)
+    {
+        GlanceSteps = BuildGlanceSteps(value);
+        OnPropertyChanged(nameof(GlanceSteps));
+        OnPropertyChanged(nameof(CurrentStepTitle));
+    }
+
+    private static IReadOnlyList<PlanStepItem> BuildGlanceSteps(IReadOnlyList<PlanStepItem> steps)
+    {
+        if (steps.Count <= GlanceStepCount)
+            return steps;
+
+        var focus = IndexOf(steps, static step => step.IsCurrent);
+        if (focus < 0)
+            focus = IndexOf(steps, static step => !step.IsDone);
+        if (focus < 0)
+            focus = steps.Count - 1;
+
+        var start = Math.Clamp(focus - 1, 0, steps.Count - GlanceStepCount);
+        return steps.Skip(start).Take(GlanceStepCount).ToList();
+    }
+
+    private static int IndexOf(IReadOnlyList<PlanStepItem> steps, Func<PlanStepItem, bool> match)
+    {
+        for (var i = 0; i < steps.Count; i++)
+        {
+            if (match(steps[i]))
+                return i;
+        }
+
+        return -1;
     }
 }
+
+/// <summary>One step of a plan: done, being worked on, failed, blocked, or still to come.</summary>
+public sealed record PlanStepItem(string Title, bool IsDone, bool IsCurrent, bool IsFailed, bool IsBlocked = false);
 
 // ── Question card ────────────────────────────────────
 
@@ -1205,6 +1603,38 @@ public partial class QuestionItem : TranscriptItem
         _submitAction?.Invoke(QuestionId, answer);
         _isSubmitting = false;
     }
+
+    public void ApplyAnswer(string answer)
+    {
+        var wasSubmitting = _isSubmitting;
+        _isSubmitting = true;
+        try
+        {
+            SelectedAnswer = answer;
+            IsAnswered = true;
+        }
+        finally
+        {
+            _isSubmitting = wasSubmitting;
+        }
+    }
+}
+
+// ── Approval card ────────────────────────────────────
+
+/// <summary>
+/// A native permission request shown where the work waits for it. Once answered it stays as a
+/// receipt of the decision.
+/// </summary>
+public sealed class ApprovalItem : TranscriptItem
+{
+    public PermissionRequestViewModel Request { get; }
+
+    public ApprovalItem(PermissionRequestViewModel request)
+        : base($"approval:{request.SessionId}:{request.RequestId}")
+    {
+        Request = request;
+    }
 }
 
 // ── Typing indicator ─────────────────────────────────
@@ -1213,6 +1643,10 @@ public partial class TypingIndicatorItem : TranscriptItem
 {
     [ObservableProperty] private string _label;
     [ObservableProperty] private bool _isActive;
+
+    /// <summary>An optional action offered beside the indicator, such as sending without a connector sign-in.</summary>
+    [ObservableProperty] private string? _actionLabel;
+    [ObservableProperty] private ICommand? _actionCommand;
 
     public TypingIndicatorItem(string label)
         : base("typing-indicator")
@@ -1226,16 +1660,38 @@ public partial class TypingIndicatorItem : TranscriptItem
 
 public partial class TurnSummaryItem : TranscriptItem
 {
+    private bool _isSettingAutoExpanded;
+
     [ObservableProperty] private string _label;
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _hasFailures;
 
     public ObservableCollection<TranscriptItem> InnerItems { get; } = [];
 
+    /// <summary>
+    /// True while Lumi itself holds the row open, to keep a live plan in view as it works. The
+    /// reader's own toggle clears it, so their choice is never overridden.
+    /// </summary>
+    internal bool IsAutoExpanded { get; private set; }
+
     public TurnSummaryItem(string label, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("turn-summary"))
     {
         _label = label;
+    }
+
+    internal void SetAutoExpanded(bool expanded)
+    {
+        _isSettingAutoExpanded = true;
+        IsExpanded = expanded;
+        _isSettingAutoExpanded = false;
+        IsAutoExpanded = expanded;
+    }
+
+    partial void OnIsExpandedChanged(bool value)
+    {
+        if (!_isSettingAutoExpanded)
+            IsAutoExpanded = false;
     }
 }
 
@@ -1386,7 +1842,7 @@ public partial class SourceItem : ObservableObject
         return url;
     }
 
-    private static string ComputeInitial(string domain, string title)
+    internal static string ComputeInitial(string domain, string title)
     {
         var basis = !string.IsNullOrWhiteSpace(domain) ? domain : title;
         foreach (var ch in basis)
@@ -1409,7 +1865,7 @@ public partial class SourceItem : ObservableObject
         Avalonia.Media.Color.FromRgb(0xFF, 0x8A, 0x5C),
     ];
 
-    private static Avalonia.Media.IBrush ComputeAccent(string key)
+    internal static Avalonia.Media.IBrush ComputeAccent(string key)
     {
         // FNV-1a over the domain → stable index (process-independent, unlike GetHashCode).
         uint hash = 2166136261;
@@ -1429,7 +1885,6 @@ public partial class FileChangeItem : ObservableObject
 {
     public string FilePath { get; }
     public string FileName { get; }
-    public string ActionIcon { get; }
     public string ActionLabel { get; }
     public string? Directory { get; }
     public bool IsCreate { get; }
@@ -1455,9 +1910,27 @@ public partial class FileChangeItem : ObservableObject
         IsCreate = isCreate;
         _showDiffAction = showDiffAction;
 
-        ActionIcon = isCreate ? "📄" : "📝";
         ActionLabel = isCreate ? Loc.FileChange_Created : Loc.FileChange_Modified;
     }
+
+    /// <summary>The folder, shortened to its last two levels for the row; the row's tooltip has the full path.</summary>
+    public string? DirectoryHint => CompactDirectory(Directory);
+
+    internal static string? CompactDirectory(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            return null;
+
+        var parts = directory.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length <= 2)
+            return directory;
+
+        var separator = directory.Contains('\\') ? "\\" : "/";
+        return "\u2026" + separator + string.Join(separator, parts[^2..]);
+    }
+
+    /// <summary>Created or edited, drawn as the row's line icon.</summary>
+    public string IconKey => IsCreate ? TranscriptIcons.Create : TranscriptIcons.Edit;
 
     /// <summary>Adds an edit and updates line stats.</summary>
     public void AddEdit(string? oldText, string? newText)

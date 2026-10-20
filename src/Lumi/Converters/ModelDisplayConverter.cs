@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using Avalonia.Data.Converters;
+using Lumi.Localization;
+using Lumi.Models;
 using Lumi.ViewModels;
 
 namespace Lumi.Converters;
@@ -14,7 +16,9 @@ public class ModelDisplayConverter : IValueConverter
     public static readonly ModelDisplayConverter Instance = new();
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => ChatViewModel.FormatModelDisplay(value as string) ?? value;
+        => value is string model && model == UserSettings.AutomaticBackgroundModel
+            ? Loc.Setting_BackgroundModelAuto
+            : ChatViewModel.FormatModelDisplay(value as string) ?? value;
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

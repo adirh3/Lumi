@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -13,6 +14,8 @@ namespace Lumi.Mobile.ViewModels;
 /// </summary>
 public abstract partial class TranscriptItemViewModel : ObservableObject, IDisposable
 {
+    private long? _entranceRequestedAt;
+
     protected TranscriptItemViewModel(RemoteTranscriptItem item)
     {
         Id = item.Id;
@@ -22,6 +25,16 @@ public abstract partial class TranscriptItemViewModel : ObservableObject, IDispo
     public string Id { get; }
 
     public string Kind { get; }
+
+    internal void RequestEntranceAnimation() => _entranceRequestedAt = Stopwatch.GetTimestamp();
+
+    internal bool TryConsumeEntranceAnimation()
+    {
+        var requestedAt = _entranceRequestedAt;
+        _entranceRequestedAt = null;
+        return requestedAt is { } timestamp
+               && Stopwatch.GetElapsedTime(timestamp) <= TimeSpan.FromSeconds(2);
+    }
 
     /// <summary>Applies a newer server projection of the same row in place, keeping the control alive.</summary>
     public abstract void Update(RemoteTranscriptItem item);
@@ -42,6 +55,9 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 
     public bool HasAttachments => Attachments.Count > 0;
 
+    /// <summary>The time beside "You" over the bubble, as the desktop shows it.</summary>
+    public string TimestampText => TranscriptTime.Format(Timestamp);
+
     public bool HasSteerStatus => SteerState is "Queued" or "Steering" or "Steered" or "Failed";
 
     public string SteerStatusText => SteerState switch
@@ -57,13 +73,15 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 
     public override void Update(RemoteTranscriptItem item)
     {
-        Text = item.Text ?? "";
+        var content = RemoteUserMessageContent.Parse(item.Text, item.Author);
+        Text = content.Text;
         Author = string.IsNullOrWhiteSpace(item.Author) ? "You" : item.Author!;
         Timestamp = item.Timestamp;
         SteerState = item.SteerState;
 
         Attachments.Clear();
-        foreach (var attachment in item.Attachments ?? [])
+        foreach (var attachment in (item.Attachments ?? []).Concat(content.Attachments.Where(file =>
+                     item.Attachments?.Any(existing => existing.Path == file.Path) != true)))
             Attachments.Add(attachment);
 
         OnPropertyChanged(nameof(HasAttachments));
@@ -74,11 +92,78 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
         OnPropertyChanged(nameof(HasSteerStatus));
         OnPropertyChanged(nameof(SteerStatusText));
     }
+
+    partial void OnTimestampChanged(DateTimeOffset? value) => OnPropertyChanged(nameof(TimestampText));
+}
+
+/// <summary>A message's time as the desktop transcript writes it.</summary>
+internal static class TranscriptTime
+{
+    public static string Format(DateTimeOffset? timestamp) =>
+        timestamp?.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture) ?? "";
+}
+
+public sealed partial class JobWakeItemViewModel : TranscriptItemViewModel
+{
+    private readonly Action<JobWakeItemViewModel>? _open;
+    [ObservableProperty] private RemoteJobWake _details = RemoteJobWake.Parse(null, "");
+    [ObservableProperty] private string _timestampText = "";
+
+    public string Summary => Details.WakeSignal.StartsWith('{') || Details.WakeSignal.StartsWith('[')
+        ? "The job woke this chat."
+        : Details.WakeSignal;
+    public bool HasInstructions => Details.Instructions.Length > 0;
+    public bool HasOutput => Details.OutputText.Length > 0;
+    public bool HasExitCode => Details.ExitCode.Length > 0;
+    public bool HasStarted => Details.StartedText.Length > 0;
+    public bool HasCompleted => Details.CompletedText.Length > 0;
+
+    public JobWakeItemViewModel(RemoteTranscriptItem item, Action<JobWakeItemViewModel>? open = null)
+        : base(item)
+    {
+        _open = open;
+        Update(item);
+    }
+
+    public override void Update(RemoteTranscriptItem item)
+    {
+        Details = RemoteJobWake.Parse(item.Author, item.Text ?? "");
+        TimestampText = item.Timestamp?.ToLocalTime().ToString("t") ?? "";
+        OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(HasInstructions));
+        OnPropertyChanged(nameof(HasOutput));
+        OnPropertyChanged(nameof(HasExitCode));
+        OnPropertyChanged(nameof(HasStarted));
+        OnPropertyChanged(nameof(HasCompleted));
+    }
+
+    [RelayCommand]
+    private void Open() => _open?.Invoke(this);
 }
 
 public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
 {
+    private readonly Dictionary<string, string> _pendingInteractionStates = [];
+    [ObservableProperty] private IReadOnlyDictionary<string, string>? _interactionStates;
+    [ObservableProperty] private string _interactionLanguage = "en";
+
+    internal void StageInteractionState(string blockId, string json)
+    {
+        _pendingInteractionStates[blockId] = json;
+        var values = InteractionStates is null ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(InteractionStates);
+        values[blockId] = json;
+        InteractionStates = values;
+    }
+
+    internal void ConfirmInteractionState(string blockId, string json)
+    {
+        if (_pendingInteractionStates.GetValueOrDefault(blockId) == json)
+            _pendingInteractionStates.Remove(blockId);
+    }
+
     private readonly Action<AssistantItemViewModel>? _openSources;
+    private readonly Func<string, string?>? _displayModel;
     private readonly Func<
         string,
         string,
@@ -87,33 +172,70 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         Task<string>>? _resolveInlineImages;
     private readonly Action<string, IReadOnlyList<RemoteInlineImage>>? _releaseInlineImages;
     private CancellationTokenSource? _imageResolutionCts;
+    private IReadOnlyList<RemoteInlineImage>? _inlineImages;
     private IReadOnlyList<RemoteInlineImage>? _leasedInlineImages;
     private long _imageResolutionVersion;
 
-    [ObservableProperty] private string _text = "";
-    [ObservableProperty] private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAnswerActions))]
+    private string _text = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAnswerActions))]
+    private bool _isStreaming;
     [ObservableProperty] private string? _model;
+    [ObservableProperty] private DateTimeOffset? _timestamp;
+
+    /// <summary>The settled reply that closes its turn; only it carries Copy and Share.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAnswerActions))]
+    private bool _isFinalAnswer;
 
     internal string SourceText { get; private set; } = "";
 
     public ObservableCollection<RemoteSource> Sources { get; } = [];
 
+    /// <summary>Files Lumi made in the turn this answer closes, shown with it as on the desktop.</summary>
+    public ObservableCollection<RemoteAttachment> Files { get; } = [];
+
+    public bool HasFiles => Files.Count > 0;
+
+    internal void ShowFiles(IReadOnlyList<RemoteAttachment> files)
+    {
+        if (Files.Count == files.Count
+            && Files.Zip(files).All(static pair => pair.First.MessageId == pair.Second.MessageId
+                                                   && pair.First.FileName == pair.Second.FileName))
+            return;
+
+        Files.Clear();
+        foreach (var file in files)
+            Files.Add(file);
+        OnPropertyChanged(nameof(HasFiles));
+    }
+
     public bool HasSources => Sources.Count > 0;
-    public string SelectionText => RemoteMarkdownImages.ToSelectionText(Text);
-    public string SourceCountText => Sources.Count == 1 ? "1 source" : $"{Sources.Count} sources";
-    public string SourceSummary
+    public bool ShowAnswerActions => IsFinalAnswer && !IsStreaming && !string.IsNullOrWhiteSpace(Text);
+
+    /// <summary>Which model answered and when, beside the answer's actions: "Claude Opus 5.5 · 16:41".</summary>
+    public string FooterText
     {
         get
         {
-            var hosts = Sources
-                .Select(source => SourceHost(source.Url))
-                .Where(static host => host.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(3)
-                .ToArray();
-            return hosts.Length > 0 ? string.Join(" · ", hosts) : SourceCountText;
+            var model = string.IsNullOrWhiteSpace(Model) ? null : _displayModel?.Invoke(Model) ?? Model;
+            var time = TranscriptTime.Format(Timestamp);
+            return string.Join(" · ", new[] { model, time }.Where(static part => !string.IsNullOrWhiteSpace(part)));
         }
     }
+
+    public bool CanShare => Services.MobilePlatformServices.TextShare.IsAvailable;
+    public string SelectionText => RemoteMarkdownImages.ToSelectionText(Text);
+    public string SourceCountText => Sources.Count == 1 ? "1 source" : $"{Sources.Count} sources";
+
+    /// <summary>The sites the sources come from, beside the sources chip's count.</summary>
+    public string SourceDomains => string.Join(" · ", Sources
+        .Select(source => SourceHost(source.Url))
+        .Where(static host => host.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Take(3));
 
     public AssistantItemViewModel(
         RemoteTranscriptItem item,
@@ -124,43 +246,86 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
             IReadOnlyList<RemoteInlineImage>,
             CancellationToken,
             Task<string>>? resolveInlineImages = null,
-        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null)
+        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null,
+        Func<string, string?>? displayModel = null)
         : base(item)
     {
         _openSources = openSources;
         _resolveInlineImages = resolveInlineImages;
         _releaseInlineImages = releaseInlineImages;
+        _displayModel = displayModel;
         Update(item);
     }
 
     public override void Update(RemoteTranscriptItem item)
     {
-        CancelImageResolution();
-        ReleaseInlineImages();
         var sourceText = item.Text ?? "";
-        SourceText = sourceText;
-        Text = sourceText;
+        // A transcript captured before deltas this phone already applied must not shorten a
+        // still-streaming answer: what the phone shows is a strict extension of it.
+        if (IsStreaming
+            && item.IsStreaming
+            && SourceText.Length > sourceText.Length
+            && SourceText.StartsWith(sourceText, StringComparison.Ordinal))
+        {
+            sourceText = SourceText;
+        }
+
+        var images = !item.IsStreaming && item.InlineImages is { Count: > 0 }
+            ? item.InlineImages
+            : null;
+        var retainImages = string.Equals(SourceText, sourceText, StringComparison.Ordinal)
+                           && IsStreaming == item.IsStreaming
+                           && HaveSameInlineImages(_inlineImages, images);
+        if (!retainImages)
+        {
+            CancelImageResolution();
+            ReleaseInlineImages();
+            SourceText = sourceText;
+            Text = sourceText;
+            _inlineImages = images?.Select(image => new RemoteInlineImage
+            {
+                Index = image.Index,
+                FileName = image.FileName
+            }).ToArray();
+        }
         IsStreaming = item.IsStreaming;
         Model = item.Model;
+        Timestamp = item.Timestamp;
+        // The chat may learn its models' names after the answer arrived.
+        OnPropertyChanged(nameof(FooterText));
+        InteractionLanguage = item.InteractionLanguage ?? "en";
+        var states = item.InteractionStates is null ? new Dictionary<string, string>()
+            : new Dictionary<string, string>(item.InteractionStates);
+        foreach (var pending in _pendingInteractionStates.ToArray())
+        {
+            if (states.GetValueOrDefault(pending.Key) == pending.Value)
+                _pendingInteractionStates.Remove(pending.Key);
+            else
+                states[pending.Key] = pending.Value;
+        }
+        InteractionStates = states;
 
         Sources.Clear();
         foreach (var source in item.Sources ?? [])
             Sources.Add(source);
         OnPropertyChanged(nameof(HasSources));
         OnPropertyChanged(nameof(SourceCountText));
-        OnPropertyChanged(nameof(SourceSummary));
+        OnPropertyChanged(nameof(SourceDomains));
 
-        if (!item.IsStreaming
-            && item.InlineImages is { Count: > 0 }
-            && _resolveInlineImages is not null)
+        if (_inlineImages is { Count: > 0 }
+            && _resolveInlineImages is not null
+            && _imageResolutionCts is null
+            && (_leasedInlineImages?.Count ?? 0) < _inlineImages.Count)
         {
-            var images = item.InlineImages.ToArray();
+            var pendingImages = _inlineImages.Where(image =>
+                _leasedInlineImages?.Any(leased => leased.Index == image.Index) != true).ToArray();
             var version = Interlocked.Increment(ref _imageResolutionVersion);
             var current = new CancellationTokenSource();
             _imageResolutionCts = current;
             _ = ResolveInlineImagesAsync(
                 sourceText,
-                images,
+                Text,
+                pendingImages,
                 version,
                 current);
         }
@@ -170,6 +335,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     {
         CancelImageResolution();
         ReleaseInlineImages();
+        _inlineImages = null;
         SourceText = sourceText;
         Text = sourceText;
         IsStreaming = true;
@@ -179,6 +345,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     {
         CancelImageResolution();
         ReleaseInlineImages();
+        _inlineImages = null;
     }
 
     partial void OnTextChanged(string value) =>
@@ -191,8 +358,26 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         previous?.Cancel();
     }
 
+    private static bool HaveSameInlineImages(
+        IReadOnlyList<RemoteInlineImage>? current,
+        IReadOnlyList<RemoteInlineImage>? incoming)
+    {
+        if (current is null || incoming is null)
+            return current is null && incoming is null;
+        if (current.Count != incoming.Count)
+            return false;
+        for (var index = 0; index < current.Count; index++)
+        {
+            if (current[index].Index != incoming[index].Index
+                || !string.Equals(current[index].FileName, incoming[index].FileName, StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
     private async Task ResolveInlineImagesAsync(
         string sourceText,
+        string renderText,
         IReadOnlyList<RemoteInlineImage> images,
         long version,
         CancellationTokenSource cancellation)
@@ -203,11 +388,24 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         {
             var resolved = await _resolveInlineImages!(
                 Id,
-                sourceText,
+                renderText,
                 images,
                 cancellationToken);
             if (cancellationToken.IsCancellationRequested)
                 return;
+            var previousTargets = RemoteMarkdownImages.Find(renderText)
+                .ToDictionary(image => image.Index, image => image.Target);
+            var resolvedTargets = RemoteMarkdownImages.Find(resolved)
+                .ToDictionary(image => image.Index, image => image.Target);
+            var resolvedImages = images.Where(image =>
+                previousTargets.TryGetValue(image.Index, out var previousTarget)
+                && resolvedTargets.TryGetValue(image.Index, out var resolvedTarget)
+                && !string.Equals(previousTarget, resolvedTarget, StringComparison.Ordinal)).ToArray();
+            if (resolvedImages.Length == 0)
+            {
+                Trace.TraceWarning($"[Mobile] No inline images could be resolved for message {Id}.");
+                return;
+            }
 
             void ApplyResolvedText()
             {
@@ -215,7 +413,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
                     && string.Equals(SourceText, sourceText, StringComparison.Ordinal))
                 {
                     Text = resolved;
-                    _leasedInlineImages = images;
+                    _leasedInlineImages = (_leasedInlineImages ?? []).Concat(resolvedImages).ToArray();
                     leaseTransferred = true;
                 }
             }
@@ -273,15 +471,39 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
 
 public sealed partial class ReasoningItemViewModel : TranscriptItemViewModel
 {
-    [ObservableProperty] private string _text = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Summary))]
+    private string _text = "";
     [ObservableProperty] private string _label = "Thinking";
     [ObservableProperty] private bool _isStreaming;
+
+    /// <summary>The thought's first line, beside the chip's label as on the desktop.</summary>
+    public string Summary
+    {
+        get
+        {
+            var text = Text.TrimStart();
+            var end = text.IndexOfAny(['\r', '\n']);
+            var first = (end >= 0 ? text[..end] : text).Trim().TrimStart('#', '*', '-', ' ');
+            return first.Length > 120 ? first[..120] : first;
+        }
+    }
 
     public ReasoningItemViewModel(RemoteTranscriptItem item) : base(item) => Update(item);
 
     public override void Update(RemoteTranscriptItem item)
     {
-        Text = item.Text ?? "";
+        var text = item.Text ?? "";
+        // Same rule as answers: an older capture never shortens reasoning that is still streaming.
+        if (IsStreaming
+            && item.IsStreaming
+            && Text.Length > text.Length
+            && Text.StartsWith(text, StringComparison.Ordinal))
+        {
+            text = Text;
+        }
+
+        Text = text;
         Label = string.IsNullOrWhiteSpace(item.Label) ? "Thinking" : item.Label!;
         IsStreaming = item.IsStreaming;
     }
@@ -291,6 +513,7 @@ public sealed partial class ToolCallViewModel : ObservableObject
 {
     [ObservableProperty] private string _name = "";
     [ObservableProperty] private string _displayName = "";
+    [ObservableProperty] private string? _iconKey;
     [ObservableProperty] private string? _input;
     [ObservableProperty] private string? _output;
     [ObservableProperty] private string _status = "Completed";
@@ -310,6 +533,7 @@ public sealed partial class ToolCallViewModel : ObservableObject
         Id = tool.Id;
         Name = tool.Name;
         DisplayName = string.IsNullOrWhiteSpace(tool.DisplayName) ? tool.Name : tool.DisplayName!;
+        IconKey = tool.Icon;
         Input = tool.Input;
         Output = tool.Output;
         Status = tool.Status;
@@ -324,6 +548,7 @@ public sealed partial class ToolCallViewModel : ObservableObject
 public sealed partial class ActivityStepViewModel : ObservableObject
 {
     [ObservableProperty] private string _displayName = "";
+    [ObservableProperty] private string? _iconKey;
     [ObservableProperty] private string _status = "Completed";
     [ObservableProperty] private string? _input;
     [ObservableProperty] private string? _output;
@@ -348,6 +573,7 @@ public sealed partial class ActivityStepViewModel : ObservableObject
         Id = tool.Id;
         Category = string.IsNullOrWhiteSpace(tool.Category) ? "other" : tool.Category;
         DisplayName = string.IsNullOrWhiteSpace(tool.DisplayName) ? tool.Name : tool.DisplayName!;
+        IconKey = tool.Icon;
         Status = tool.Status;
         Input = tool.Input;
         Output = tool.Output;
@@ -409,18 +635,29 @@ public sealed class ActivityFileChangeViewModel
     public string Operation { get; }
     public int LinesAdded { get; }
     public int LinesRemoved { get; }
-    public string StatsText
+
+    /// <summary>The folder the file lives in, quieter beside its name.</summary>
+    public string Directory
     {
         get
         {
-            var parts = new List<string>(2);
-            if (LinesAdded > 0)
-                parts.Add($"+{LinesAdded}");
-            if (LinesRemoved > 0)
-                parts.Add($"-{LinesRemoved}");
-            return string.Join(" ", parts);
+            var separator = Path.LastIndexOfAny(['/', '\\']);
+            return separator > 0 ? Path[..separator] : "";
         }
     }
+
+    /// <summary>The desktop's icon for what happened to the file.</summary>
+    public string IconKey => Operation switch
+    {
+        "Created" => "create",
+        "Deleted" => "deleted",
+        _ => "edit"
+    };
+
+    public bool HasLinesAdded => LinesAdded > 0;
+    public bool HasLinesRemoved => LinesRemoved > 0;
+    public string LinesAddedText => $"+{LinesAdded}";
+    public string LinesRemovedText => $"\u2212{LinesRemoved}";
     public bool HasStats => LinesAdded > 0 || LinesRemoved > 0;
 }
 
@@ -434,6 +671,7 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
 
     [ObservableProperty] private string _activityId = "";
     [ObservableProperty] private string _label = "Working...";
+    [ObservableProperty] private string? _iconKey;
     [ObservableProperty] private string _status = "Completed";
     [ObservableProperty] private int _actionCount;
     [ObservableProperty] private double? _durationMs;
@@ -445,7 +683,6 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     [ObservableProperty] private bool _isTechnicalDetailsVisible;
 
     public ObservableCollection<ActivityFileChangeViewModel> FileChanges { get; } = [];
-    public ObservableCollection<ActivityFileChangeViewModel> PreviewFileChanges { get; } = [];
     public ObservableCollection<ActivitySectionViewModel> Sections { get; } = [];
     internal long DetailsVersion => Volatile.Read(ref _detailsVersion);
 
@@ -459,11 +696,6 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
         Sections.SelectMany(section => section.Steps).Any(step => step.HasTechnicalDetails);
     public string FileSummary =>
         TotalFileChangeCount == 1 ? "1 file changed" : $"{TotalFileChangeCount} files changed";
-    public bool HasAdditionalFileChanges => TotalFileChangeCount > PreviewFileChanges.Count;
-    public string AdditionalFileChangesText =>
-        HasAdditionalFileChanges
-            ? $"+{TotalFileChangeCount - PreviewFileChanges.Count} more"
-            : "";
     public string SummaryText
     {
         get
@@ -498,6 +730,47 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     public string TechnicalDetailsLabel =>
         IsTechnicalDetailsVisible ? "Hide technical details" : "Show technical details";
 
+    /// <summary>The chip's label: what is happening now, or how the work went.</summary>
+    public string ChipLabel
+    {
+        get
+        {
+            if (IsRunning)
+                return string.IsNullOrWhiteSpace(Label) ? "Working..." : Label;
+
+            var duration = ActivityStepViewModel.FormatDuration(DurationMs);
+            var prefix = Status switch
+            {
+                "Failed" => "Finished with an issue",
+                "Stopped" => "Stopped",
+                _ => "Worked"
+            };
+            if (duration.Length > 0)
+                return $"{prefix} for {duration}";
+            if (ActionCount <= 0 && HasFileChanges)
+                return FileSummary;
+            // Work without steps is the model thinking; the desktop names it ("Thought through the response").
+            return ActionCount <= 0 && Label is { Length: > 0 } label && label != "Activity" && !label.EndsWith("...", StringComparison.Ordinal)
+                ? label
+                : prefix;
+        }
+    }
+
+    /// <summary>How many steps, in the chip's quieter voice beside its label.</summary>
+    public string? ChipMeta => ActionCount switch
+    {
+        <= 0 => null,
+        1 => "1 action",
+        _ => $"{ActionCount} actions"
+    };
+
+    public int LinesAdded => FileChanges.Sum(static change => change.LinesAdded);
+    public int LinesRemoved => FileChanges.Sum(static change => change.LinesRemoved);
+    public bool HasLineStats => LinesAdded > 0 || LinesRemoved > 0;
+    public bool HasLinesRemoved => LinesRemoved > 0;
+    public string LinesAddedText => $"+{LinesAdded}";
+    public string LinesRemovedText => $"\u2212{LinesRemoved}";
+
     public ActivitySummaryItemViewModel(
         RemoteTranscriptItem item,
         Func<ActivitySummaryItemViewModel, Task>? openAction = null)
@@ -519,6 +792,8 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
 
         ActivityId = item.ActivityId ?? item.Id;
         Label = string.IsNullOrWhiteSpace(item.Label) ? "Working..." : item.Label!;
+        // Work without steps is the model thinking; a host predating icons sends none.
+        IconKey = item.Icon ?? (item.ActionCount is null or <= 0 ? "think" : null);
         Status = item.Status ?? "Completed";
         ActionCount = Math.Max(0, item.ActionCount ?? 0);
         DurationMs = item.DurationMs;
@@ -530,9 +805,6 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
         FileChanges.Clear();
         foreach (var change in item.FileChanges ?? [])
             FileChanges.Add(new ActivityFileChangeViewModel(change));
-        PreviewFileChanges.Clear();
-        foreach (var change in FileChanges.Take(3))
-            PreviewFileChanges.Add(change);
 
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(IsSucceeded));
@@ -540,9 +812,15 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
         OnPropertyChanged(nameof(IsStopped));
         OnPropertyChanged(nameof(HasFileChanges));
         OnPropertyChanged(nameof(FileSummary));
-        OnPropertyChanged(nameof(HasAdditionalFileChanges));
-        OnPropertyChanged(nameof(AdditionalFileChangesText));
         OnPropertyChanged(nameof(SummaryText));
+        OnPropertyChanged(nameof(ChipLabel));
+        OnPropertyChanged(nameof(ChipMeta));
+        OnPropertyChanged(nameof(LinesAdded));
+        OnPropertyChanged(nameof(LinesRemoved));
+        OnPropertyChanged(nameof(HasLineStats));
+        OnPropertyChanged(nameof(HasLinesRemoved));
+        OnPropertyChanged(nameof(LinesAddedText));
+        OnPropertyChanged(nameof(LinesRemovedText));
 
         if (detailsChanged && DetailsLoaded)
         {
@@ -624,11 +902,27 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
         OnPropertyChanged(nameof(IsFailed));
         OnPropertyChanged(nameof(IsStopped));
         OnPropertyChanged(nameof(SummaryText));
+        OnPropertyChanged(nameof(ChipLabel));
     }
 
-    partial void OnLabelChanged(string value) => OnPropertyChanged(nameof(SummaryText));
-    partial void OnActionCountChanged(int value) => OnPropertyChanged(nameof(SummaryText));
-    partial void OnDurationMsChanged(double? value) => OnPropertyChanged(nameof(SummaryText));
+    partial void OnLabelChanged(string value)
+    {
+        OnPropertyChanged(nameof(SummaryText));
+        OnPropertyChanged(nameof(ChipLabel));
+    }
+
+    partial void OnActionCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(SummaryText));
+        OnPropertyChanged(nameof(ChipLabel));
+        OnPropertyChanged(nameof(ChipMeta));
+    }
+
+    partial void OnDurationMsChanged(double? value)
+    {
+        OnPropertyChanged(nameof(SummaryText));
+        OnPropertyChanged(nameof(ChipLabel));
+    }
     partial void OnIsTechnicalDetailsVisibleChanged(bool value) =>
         OnPropertyChanged(nameof(TechnicalDetailsLabel));
 }
@@ -690,6 +984,7 @@ public sealed partial class QuestionItemViewModel : TranscriptItemViewModel
     [ObservableProperty] private bool _allowMultiSelect;
     [ObservableProperty] private bool _isAnswered;
     [ObservableProperty] private string? _answer;
+    [ObservableProperty] private bool _hasAnswerDraft;
 
     public string QuestionId { get; private set; } = "";
 
@@ -750,14 +1045,20 @@ public static class TranscriptItemFactory
             IReadOnlyList<RemoteInlineImage>,
             CancellationToken,
             Task<string>>? resolveInlineImages = null,
-        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null) => item.Kind switch
+        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null,
+        Action<JobWakeItemViewModel>? openJobWake = null,
+        Func<string, string?>? displayModel = null) => item.Kind switch
     {
+        RemoteProtocol.ItemKinds.User when RemoteJobWake.IsJobWake(item.Author, item.Text) =>
+            new JobWakeItemViewModel(item, openJobWake),
+        RemoteProtocol.ItemKinds.User when item.InteractionReceipt is not null => new InteractionReceiptItemViewModel(item),
         RemoteProtocol.ItemKinds.User => new UserTurnItemViewModel(item),
         RemoteProtocol.ItemKinds.Activity => new ActivitySummaryItemViewModel(item, openActivity),
         RemoteProtocol.ItemKinds.Reasoning => new ReasoningItemViewModel(item),
         RemoteProtocol.ItemKinds.ToolGroup or RemoteProtocol.ItemKinds.Tool => new ToolGroupItemViewModel(item),
         RemoteProtocol.ItemKinds.Terminal => new TerminalItemViewModel(item),
         RemoteProtocol.ItemKinds.Question => new QuestionItemViewModel(item),
+        RemoteProtocol.ItemKinds.Input => new InputRequestItemViewModel(item),
         RemoteProtocol.ItemKinds.Error => new ErrorItemViewModel(item),
         RemoteProtocol.ItemKinds.File => new FileItemViewModel(item),
 
@@ -766,40 +1067,54 @@ public static class TranscriptItemFactory
             item,
             openSources,
             resolveInlineImages,
-            releaseInlineImages)
+            releaseInlineImages,
+            displayModel)
     };
 
     /// <summary>True when an existing row can be updated in place instead of being replaced.</summary>
     public static bool CanReuse(TranscriptItemViewModel existing, RemoteTranscriptItem item) =>
-        existing.Id == item.Id && existing.Kind == item.Kind;
+        existing.Id == item.Id && existing.Kind == item.Kind
+        && (existing is InteractionReceiptItemViewModel) == (item.InteractionReceipt is not null)
+        && (existing is JobWakeItemViewModel) == (item.Kind == RemoteProtocol.ItemKinds.User
+            && RemoteJobWake.IsJobWake(item.Author, item.Text));
 }
 
-/// <summary>A local disclosure; the wire and canonical items remain flat for streaming and paging.</summary>
+/// <summary>
+/// Finished work folded behind one line, Strata's turn summary: "Worked for 2m 14s · 6 actions". A
+/// local disclosure; the wire and canonical items remain flat for streaming and paging.
+/// </summary>
 public sealed partial class WorkSummaryItemViewModel : TranscriptItemViewModel
 {
-    private readonly Action _toggle;
-    [ObservableProperty] private string _label = "Work";
+    private readonly Action _expansionChanged;
+    [ObservableProperty] private string _label = "Worked";
     [ObservableProperty] private bool _isExpanded;
+    [ObservableProperty] private bool _hasFailures;
 
     public ObservableCollection<TranscriptItemViewModel> Items { get; } = [];
-    public string DisclosurePath => IsExpanded ? "M1 3 L6 8 L11 3 Z" : "M3 1 L8 6 L3 11 Z";
 
-    public WorkSummaryItemViewModel(RemoteTranscriptItem item, Action toggle) : base(item)
+    public WorkSummaryItemViewModel(RemoteTranscriptItem item, Action expansionChanged) : base(item)
     {
-        _toggle = toggle;
+        _expansionChanged = expansionChanged;
         Update(item);
     }
 
     public override void Update(RemoteTranscriptItem item)
     {
         var duration = ActivityStepViewModel.FormatDuration(item.DurationMs);
-        Label = duration.Length > 0 ? $"Work {duration}" : item.DurationMs is null ? "Work" : "Work 0s";
+        var label = duration.Length > 0 ? $"Worked for {duration}" : item.DurationMs is null ? "Worked" : "Worked for 0s";
+        Label = item.ActionCount switch
+        {
+            null or <= 0 => label,
+            1 => $"{label} · 1 action",
+            var count => $"{label} · {count} actions"
+        };
+        HasFailures = item.Status == "Failed";
     }
 
-    partial void OnIsExpandedChanged(bool value) => OnPropertyChanged(nameof(DisclosurePath));
+    partial void OnIsExpandedChanged(bool value) => _expansionChanged();
 
     [RelayCommand]
-    private void Toggle() => _toggle();
+    private void Toggle() => IsExpanded = !IsExpanded;
 }
 
 /// <summary>One user turn plus everything the assistant produced in response.</summary>
@@ -807,6 +1122,7 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
 {
     private readonly Func<ActivitySummaryItemViewModel, Task>? _openActivity;
     private readonly Action<AssistantItemViewModel>? _openSources;
+    private readonly Action<JobWakeItemViewModel>? _openJobWake;
     private readonly Func<
         string,
         string,
@@ -814,6 +1130,7 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         CancellationToken,
         Task<string>>? _resolveInlineImages;
     private readonly Action<string, IReadOnlyList<RemoteInlineImage>>? _releaseInlineImages;
+    private readonly Func<string, string?>? _displayModel;
     private WorkSummaryItemViewModel? _workSummary;
     private readonly HashSet<string> _workItemIds = new(StringComparer.Ordinal);
 
@@ -827,13 +1144,17 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
             IReadOnlyList<RemoteInlineImage>,
             CancellationToken,
             Task<string>>? resolveInlineImages = null,
-        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null)
+        Action<string, IReadOnlyList<RemoteInlineImage>>? releaseInlineImages = null,
+        Action<JobWakeItemViewModel>? openJobWake = null,
+        Func<string, string?>? displayModel = null)
     {
         Id = id;
         _openActivity = openActivity;
         _openSources = openSources;
         _resolveInlineImages = resolveInlineImages;
         _releaseInlineImages = releaseInlineImages;
+        _openJobWake = openJobWake;
+        _displayModel = displayModel;
         Items.CollectionChanged += (_, _) =>
         {
             if (!_applying)
@@ -866,7 +1187,9 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
                 _openActivity,
                 _openSources,
                 _resolveInlineImages,
-                _releaseInlineImages);
+                _releaseInlineImages,
+                _openJobWake,
+                _displayModel);
             if (i < Items.Count)
             {
                 var replaced = Items[i];
@@ -890,33 +1213,72 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
             ? turn.Items.FindIndex(item => item.Id == finalId
                 && item.Kind == RemoteProtocol.ItemKinds.Assistant && !item.IsStreaming)
             : -1;
-        for (var index = 0; index < finalAnswerIndex; index++)
+        for (var index = 0; index < Items.Count; index++)
+        {
+            if (Items[index] is AssistantItemViewModel answer)
+                answer.IsFinalAnswer = index == finalAnswerIndex;
+        }
+        // Once Lumi stops, its work folds up to its last word even when that is no answer (a steered,
+        // stopped or cut-off turn), as on the desktop; until then each update stays in view.
+        var foldEnd = finalAnswerIndex >= 0 || turn.IsSettled != true
+            ? finalAnswerIndex
+            : turn.Items.FindLastIndex(static item => item.Kind == RemoteProtocol.ItemKinds.Assistant
+                && !item.IsStreaming && !string.IsNullOrWhiteSpace(item.Text));
+        for (var index = 0; index < foldEnd; index++)
         {
             var item = turn.Items[index];
-            // Keep questions, errors, attachments and generated files accessible even when collapsed.
+            // Keep questions, errors, attachments and generated files accessible even when collapsed,
+            // and work still running in the background in view, as the desktop does.
             if (item.Kind is RemoteProtocol.ItemKinds.Assistant
                 or RemoteProtocol.ItemKinds.Activity
                 or RemoteProtocol.ItemKinds.Reasoning
                 or RemoteProtocol.ItemKinds.ToolGroup
                 or RemoteProtocol.ItemKinds.Tool
-                or RemoteProtocol.ItemKinds.Terminal)
+                or RemoteProtocol.ItemKinds.Terminal
+                && !IsStillWorking(item))
             {
                 _workItemIds.Add(item.Id);
             }
         }
+        // The thinking behind the answer can be recorded just after it; it folds with the work it ended.
+        if (finalAnswerIndex >= 0)
+        {
+            for (var index = finalAnswerIndex + 1; index < turn.Items.Count; index++)
+            {
+                var item = turn.Items[index];
+                if (item is { Kind: RemoteProtocol.ItemKinds.Reasoning, IsStreaming: false }
+                    || item.Kind == RemoteProtocol.ItemKinds.Activity
+                    && item.ActionCount is null or <= 0
+                    && (item.FileChangeCount ?? item.FileChanges?.Count ?? 0) == 0
+                    && !IsStillWorking(item))
+                {
+                    _workItemIds.Add(item.Id);
+                }
+            }
+        }
+        // Without an answer, a lone step already reads as one line of its own, as on the desktop.
+        else if (_workItemIds.Count < 2)
+            _workItemIds.Clear();
 
         if (_workItemIds.Count > 0)
         {
+            var folded = Items.Where(item => _workItemIds.Contains(item.Id)).ToArray();
             var summary = new RemoteTranscriptItem
             {
-                Id = $"work-{Items.First(item => _workItemIds.Contains(item.Id)).Id}",
+                Id = $"work-{folded[0].Id}",
                 Kind = "work",
-                DurationMs = turn.WorkDurationMs
+                DurationMs = turn.WorkDurationMs,
+                ActionCount = folded.OfType<ActivitySummaryItemViewModel>().Sum(static activity => activity.ActionCount)
+                              + folded.OfType<ToolGroupItemViewModel>().Sum(static group => group.Tools.Count)
+                              + folded.Count(static item => item is TerminalItemViewModel),
+                Status = folded.Any(static item => item is ActivitySummaryItemViewModel { IsFailed: true })
+                    ? "Failed"
+                    : "Completed"
             };
             if (_workSummary?.Id == summary.Id)
                 _workSummary.Update(summary);
             else
-                _workSummary = new WorkSummaryItemViewModel(summary, ToggleWork);
+                _workSummary = new WorkSummaryItemViewModel(summary, RefreshDisplayItems);
         }
         else
             _workSummary = null;
@@ -934,16 +1296,20 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         RefreshDisplayItems();
     }
 
-    private void ToggleWork()
-    {
-        if (_workSummary is null)
-            return;
-        _workSummary.IsExpanded = !_workSummary.IsExpanded;
-        RefreshDisplayItems();
-    }
+    private static bool IsStillWorking(RemoteTranscriptItem item) =>
+        item.IsStreaming
+        || string.Equals(item.Status, "InProgress", StringComparison.Ordinal)
+        || item.Tools?.Any(static tool => string.Equals(tool.Status, "InProgress", StringComparison.Ordinal)) == true;
 
     private void RefreshDisplayItems()
     {
+        // Files the turn made belong to the answer that closes it, as on the desktop; until there is
+        // one they follow the work.
+        var closing = Items.OfType<AssistantItemViewModel>().FirstOrDefault(static answer => answer.IsFinalAnswer);
+        var files = Items.OfType<FileItemViewModel>().ToArray();
+        foreach (var answer in Items.OfType<AssistantItemViewModel>())
+            answer.ShowFiles(ReferenceEquals(answer, closing) ? files.SelectMany(static item => item.Files).ToArray() : []);
+
         var desired = new List<TranscriptItemViewModel>();
         var workItems = new List<TranscriptItemViewModel>();
         var addedSummary = false;
@@ -958,8 +1324,7 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
                     desired.Add(_workSummary);
                     addedSummary = true;
                 }
-                if (_workSummary.IsExpanded)
-                    workItems.Add(item);
+                workItems.Add(item);
                 continue;
             }
 
@@ -967,13 +1332,16 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         }
 
         // Keep deliverables below the reply while preserving canonical order for streaming and paging.
-        desired.AddRange(Items.OfType<FileItemViewModel>());
-        if (_workSummary is not null)
+        if (closing is null)
+            desired.AddRange(files);
+        // Folded work is built the first time it is opened, then kept in step so it can close with
+        // its content rather than emptying first.
+        if (_workSummary is not null && (_workSummary.IsExpanded || _workSummary.Items.Count > 0))
             SynchronizeDisplayItems(_workSummary.Items, workItems);
         SynchronizeDisplayItems(DisplayItems, desired);
     }
 
-    private static void SynchronizeDisplayItems(
+    internal static void SynchronizeDisplayItems(
         ObservableCollection<TranscriptItemViewModel> target,
         IReadOnlyList<TranscriptItemViewModel> desired)
     {

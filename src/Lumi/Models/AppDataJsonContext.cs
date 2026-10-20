@@ -19,6 +19,8 @@ namespace Lumi.Models;
 [JsonSerializable(typeof(List<BackgroundJob>))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(Services.UIAutomationStep[]))]
+[JsonSerializable(typeof(GitHub.Copilot.ToolResultAIContent))]
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(ByokEndpoint))]
 [JsonSerializable(typeof(List<ByokEndpoint>))]

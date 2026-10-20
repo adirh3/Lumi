@@ -36,6 +36,44 @@ public sealed class TranscriptTurn : ObservableObject
         set => SetProperty(ref _measuredHeight, value);
     }
 
+    /// <summary>When the message that started this turn's work was sent; "Worked for" counts from here.</summary>
+    internal DateTimeOffset? RequestedAt { get; set; }
+
+    /// <summary>
+    /// True once the run that produced the turn has ended and its work is folded. New work in the turn
+    /// clears it, so the end of the next run folds the turn again.
+    /// </summary>
+    internal bool IsSettled { get; set; }
+
+    /// <summary>The turn's items in order, including those folded into a history row.</summary>
+    internal IEnumerable<TranscriptItem> EnumerateItems()
+    {
+        foreach (var item in Items)
+        {
+            yield return item;
+            if (item is TurnSummaryItem summary)
+            {
+                foreach (var inner in summary.InnerItems)
+                    yield return inner;
+            }
+        }
+    }
+
+    /// <summary>Opens the history row that folds <paramref name="item"/>. Returns false when it was not folded.</summary>
+    internal bool RevealFoldedItem(TranscriptItem item)
+    {
+        foreach (var summary in Items.OfType<TurnSummaryItem>())
+        {
+            if (!summary.InnerItems.Contains(item))
+                continue;
+
+            summary.IsExpanded = true;
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// The realized item-host for this turn, cached on the stable turn object so switching away
     /// from and back within the same window reuses the already-built and parsed transcript controls.
@@ -892,18 +930,21 @@ public sealed class TranscriptItemsControl : ItemsControl
         var viewportHeight = scrollViewer.Viewport.Height;
         if (!double.IsFinite(viewportHeight) || viewportHeight <= 0)
         {
-            QueueViewportRealizationUpdate();
+            // A hidden or not-yet-arranged scroller can stay at zero. Reposting at Loaded
+            // starves layout and input; wait for the existing size/scroll notifications instead.
             return;
         }
 
         SetRegisteredAnchor(FindLeadingVisibleContainer());
         var cachePixels = viewportHeight * RealizationCacheViewportMultiplier;
+        var hasSelection = StrataTextSelection.HasActiveSelection(this);
         foreach (var control in EnumerateTurnControls())
         {
             var point = control.TranslatePoint(default, scrollViewer);
-            var isActive = point is not null
+            var isActive = (point is not null
                 && point.Value.Y + control.Bounds.Height >= -cachePixels
-                && point.Value.Y <= viewportHeight + cachePixels;
+                && point.Value.Y <= viewportHeight + cachePixels)
+                || (hasSelection && StrataTextSelection.ContainsSelection(control));
 
             var wasActive = control.IsViewportActive;
             if (isActive)

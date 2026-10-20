@@ -1,10 +1,12 @@
 using System;
-using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
 using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.ViewModels;
@@ -12,15 +14,19 @@ using Lumi.ViewModels;
 namespace Lumi.Views;
 
 /// <summary>
-/// Read-only transcript of a delegated sub-agent's run, hosted in the right-hand split-view island.
-/// Shows either the index of every agent in the chat or one agent's full run rendered like a normal
-/// chat, and follows the tail while that agent is still working.
+/// The Workspace's Agents page: the index of every agent in the chat, or one agent's run rendered
+/// like a normal chat. Opening a run starts where the reader wants to be — the newest work for a live
+/// agent, the headline and task for a finished one — and a live run keeps following its newest step
+/// while the reader stays at the bottom.
 /// </summary>
 public partial class SubagentRunView : UserControl
 {
-    private INotifyCollectionChanged? _observedTurns;
+    /// <summary>How far from the bottom still counts as "following" a live run.</summary>
+    private const double BottomFollowThreshold = 48;
+
     private ChatViewModel? _observedViewModel;
     private string? _observedRunId;
+    private ScrollViewer? _runScroller;
 
     public SubagentRunView()
     {
@@ -32,6 +38,15 @@ public partial class SubagentRunView : UserControl
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
+        _observedRunId = null; // another chat's runs start fresh
+        Rebind();
+    }
+
+    // The Workspace re-hosts the same page each time the Agents page opens; coming back to the
+    // same run keeps the reader's place.
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
         Rebind();
     }
 
@@ -50,7 +65,7 @@ public partial class SubagentRunView : UserControl
 
         _observedViewModel = viewModel;
         _observedViewModel.PropertyChanged += OnViewModelPropertyChanged;
-        ObserveSelectedRun();
+        OnSelectedRunChanged();
     }
 
     private void Unbind()
@@ -61,86 +76,113 @@ public partial class SubagentRunView : UserControl
             _observedViewModel = null;
         }
 
-        UnobserveTurns();
-        _observedRunId = null;
+        AttachRunScroller(null);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ChatViewModel.SelectedSubagentRun)
-            or nameof(ChatViewModel.SubagentRunTurns))
+        switch (e.PropertyName)
         {
-            ObserveSelectedRun();
+            case nameof(ChatViewModel.SelectedSubagentRun):
+                OnSelectedRunChanged();
+                break;
+            case nameof(ChatViewModel.SubagentIndexRows):
+                // A wholesale new list is another chat's (or a rebuilt) index: start at its top.
+                this.FindControl<ScrollViewer>("RunIndexScroller")?.ScrollToHome();
+                break;
         }
     }
 
-    private void ObserveSelectedRun()
+    private void OnSelectedRunChanged()
     {
-        UnobserveTurns();
-
         var run = _observedViewModel?.SelectedSubagentRun;
         // A transcript rebuild swaps in a fresh instance of the SAME run; only a genuinely
-        // different run starts the reader back at the top.
+        // different run moves the reader.
+        var wasShowingRun = _observedRunId is not null;
         var isDifferentRun = !string.Equals(_observedRunId, run?.StableId, StringComparison.Ordinal);
         _observedRunId = run?.StableId;
 
-        if (run is null || _observedViewModel is null)
+        if (run is null)
             return;
 
-        _observedTurns = _observedViewModel.SubagentRunTurns;
-        _observedTurns.CollectionChanged += OnTurnsChanged;
+        var reposition = isDifferentRun;
+        // Paging from one run to the next keeps the page on screen, so the new run fades in rather
+        // than snapping; arriving from the index already slides the whole page in.
+        var crossfade = isDifferentRun && wasShowingRun;
+        var followTail = run.IsInProgress;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!ReferenceEquals(_observedViewModel?.SelectedSubagentRun, run))
+                return;
 
-        if (isDifferentRun)
-            ResetScroll();
-        else
-            FollowTail();
+            // Re-attached on every showing: the page is re-hosted each time the Agents page opens.
+            AttachRunScroller(FindRunScroller());
+            if (!reposition || _runScroller is null)
+                return;
+
+            if (followTail)
+                _runScroller.ScrollToEnd();
+            else
+                _runScroller.ScrollToHome();
+
+            if (crossfade)
+                _ = (_runCrossfade ??= CreateCrossfade()).RunAsync(_runScroller);
+        }, DispatcherPriority.Background);
     }
 
-    private void UnobserveTurns()
+    // Per view rather than static: Avalonia animations belong to the dispatcher that created them.
+    private Animation? _runCrossfade;
+
+    private static Animation CreateCrossfade() => new()
     {
-        if (_observedTurns is null)
-            return;
-
-        _observedTurns.CollectionChanged -= OnTurnsChanged;
-        _observedTurns = null;
-    }
-
-    /// <summary>Keeps a running agent's transcript pinned to its newest step.</summary>
-    private void OnTurnsChanged(object? sender, NotifyCollectionChangedEventArgs e) => FollowTail();
+        Duration = TimeSpan.FromMilliseconds(160),
+        Easing = new CubicEaseOut(),
+        FillMode = FillMode.Forward,
+        Children =
+        {
+            new KeyFrame { Cue = new Cue(0d), Setters = { new Setter(OpacityProperty, 0d) } },
+            new KeyFrame { Cue = new Cue(1d), Setters = { new Setter(OpacityProperty, 1d) } },
+        },
+    };
 
     /// <summary>
-    /// Follows a live run's tail, but only while the reader is already at the bottom. A running
-    /// agent rebuilds this transcript continuously, and yanking the view back down on every rebuild
-    /// would make a busy agent impossible to read.
+    /// The run page lives inside a data template (so nothing binds against a null selection), so its
+    /// scroller is resolved from the visual tree rather than cached at load time.
     /// </summary>
-    private void FollowTail()
-    {
-        if (_observedViewModel?.SelectedSubagentRun?.IsInProgress != true)
-            return;
-
-        var scroller = FindScroller();
-        if (scroller is not null && !IsAtBottom(scroller))
-            return;
-
-        Dispatcher.UIThread.Post(() => FindScroller()?.ScrollToEnd(), DispatcherPriority.Background);
-    }
-
-    private static bool IsAtBottom(ScrollViewer scroller)
-        => scroller.Offset.Y >= scroller.Extent.Height - scroller.Viewport.Height - BottomFollowThreshold;
-
-    /// <summary>How far from the bottom still counts as "following" the run.</summary>
-    private const double BottomFollowThreshold = 48;
-
-    /// <summary>Resets the view to the top when a different run is opened.</summary>
-    private void ResetScroll()
-        => Dispatcher.UIThread.Post(() => FindScroller()?.ScrollToHome(), DispatcherPriority.Background);
-
-    /// <summary>
-    /// The run transcript lives inside a data template (so nothing binds against a null selection),
-    /// so its scroller is resolved from the visual tree rather than cached at load time.
-    /// </summary>
-    private ScrollViewer? FindScroller()
+    private ScrollViewer? FindRunScroller()
         => this.GetVisualDescendants()
             .OfType<ScrollViewer>()
             .FirstOrDefault(static viewer => viewer.Name == "RunTranscriptScroller");
+
+    private void AttachRunScroller(ScrollViewer? scroller)
+    {
+        if (ReferenceEquals(_runScroller, scroller))
+            return;
+
+        if (_runScroller is not null)
+            _runScroller.ScrollChanged -= OnRunScrollChanged;
+        _runScroller = scroller;
+        if (_runScroller is not null)
+            _runScroller.ScrollChanged += OnRunScrollChanged;
+    }
+
+    /// <summary>
+    /// Keeps a live run pinned to its newest step, but only while the reader was already at the
+    /// bottom when it grew: a busy agent extends the page constantly, and pulling the view down on
+    /// every step would make anything above impossible to read.
+    /// </summary>
+    private void OnRunScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is not ScrollViewer scroller
+            || e.ExtentDelta.Y <= 0
+            || _observedViewModel?.SelectedSubagentRun?.IsInProgress != true)
+        {
+            return;
+        }
+
+        var previousBottom = scroller.Offset.Y - e.OffsetDelta.Y + scroller.Viewport.Height - e.ViewportDelta.Y;
+        var previousExtent = scroller.Extent.Height - e.ExtentDelta.Y;
+        if (previousBottom >= previousExtent - BottomFollowThreshold)
+            scroller.ScrollToEnd();
+    }
 }

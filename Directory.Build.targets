@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- DataGrid is released independently of the Avalonia package family. -->
+    <AvaloniaDataGridVersion>12.1.2</AvaloniaDataGridVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Update="Avalonia.Controls.DataGrid" Version="[$(AvaloniaDataGridVersion)]" />
+  </ItemGroup>
+</Project>

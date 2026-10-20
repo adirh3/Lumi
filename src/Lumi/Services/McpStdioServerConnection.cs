@@ -400,6 +400,15 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
         }
     }
 
+    internal static bool IsRecoverableSessionLossMessage(string? error)
+    {
+        var trimmed = error?.TrimEnd();
+        return !string.IsNullOrEmpty(trimmed)
+            && RecoverableSessionLossErrors.Any(signature => trimmed.EndsWith(
+                $"MCP error {signature.Code}: {signature.Message}",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     internal static bool IsRecoverableSessionLossResponse(JsonElement response)
     {
         if (!response.TryGetProperty("error", out var error)

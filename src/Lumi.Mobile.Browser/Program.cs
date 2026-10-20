@@ -1,6 +1,9 @@
 using Avalonia;
 using Avalonia.Browser;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using System.Runtime.InteropServices.JavaScript;
@@ -12,9 +15,11 @@ internal static class Program
     private static async Task Main(string[] args)
     {
         await JSHost.ImportAsync("./browserHost.js", "/app/browserHost.js");
+        await JSHost.ImportAsync("./pwaHost.js", "/app/pwaHost.js");
         var host = new BrowserHostEnvironment(BrowserInterop.GetOrigin());
         var nativeTextInputOverlayPresenter = new BrowserNativeTextInputOverlayPresenter();
         MobilePlatformServices.HostEnvironment = host;
+        MobilePlatformServices.NetworkMonitor = BrowserInterop.NetworkMonitor;
         MobilePlatformServices.ProducedFileOpener = new BrowserProducedFileOpener();
         MobilePlatformServices.TextSelectionPresenter = new BrowserTextSelectionPresenter();
         MobilePlatformServices.TextInputOverlayPresenter = nativeTextInputOverlayPresenter;
@@ -32,10 +37,33 @@ internal static class Program
                     new Uri(host.FixedBaseUrl!),
                     new HttpClientHandler { AllowAutoRedirect = false }),
                 downloads);
-            return new MobileShellViewModel(
+            var shell = new MobileShellViewModel(
                 client,
                 new BrowserDiscoveryClient(),
                 store);
+            BrowserInterop.SetTheme(shell.Theme.ToString());
+            shell.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MobileShellViewModel.Theme))
+                    BrowserInterop.SetTheme(shell.Theme.ToString());
+                else if (e.PropertyName is nameof(MobileShellViewModel.IsGatewaySignInRequired)
+                    or nameof(MobileShellViewModel.CanAutomaticallyRecoverGatewaySignIn)
+                    && shell.IsGatewaySignInRequired
+                    && shell.CanAutomaticallyRecoverGatewaySignIn)
+                {
+                    BrowserInterop.RecoverGatewaySignIn();
+                }
+                else if (e.PropertyName == nameof(MobileShellViewModel.IsConnected) && shell.IsConnected)
+                {
+                    BrowserInterop.ConfirmGatewaySignIn();
+                    BrowserInterop.CheckAppUpdate();
+                }
+                else if (e.PropertyName == nameof(MobileShellViewModel.CanApplyWebAppUpdate))
+                {
+                    BrowserInterop.TryApplyAppUpdate();
+                }
+            };
+            return shell;
         };
 
         await AppBuilder.Configure<App>()
@@ -70,5 +98,23 @@ internal static class Program
                     RegisterAvaloniaServiceWorker = false,
                     PreferFileDialogPolyfill = true
                 });
+
+        // Resolve Avalonia's lazy storage import before a tap; no folder is opened or permission requested.
+        if (Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime { MainView: { } view }
+            && TopLevel.GetTopLevel(view)?.StorageProvider is { } storage)
+        {
+            try
+            {
+                using var folder = await storage.TryGetWellKnownFolderAsync(WellKnownFolder.Documents);
+            }
+            catch (JSException error)
+            {
+                Console.Error.WriteLine($"[Lumi PWA] The attachment picker could not be initialized: {error}");
+            }
+        }
+        else
+        {
+            Console.Error.WriteLine("[Lumi PWA] The browser storage provider was unavailable during picker initialization.");
+        }
     }
 }

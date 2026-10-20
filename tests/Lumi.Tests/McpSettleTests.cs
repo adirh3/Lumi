@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GitHub.Copilot;
 using Lumi.Localization;
+using Lumi.Services;
 using Lumi.ViewModels;
 using Xunit;
 using RpcMcpServer = GitHub.Copilot.Rpc.McpServer;
@@ -100,8 +101,8 @@ public sealed class McpSettleTests
 
     [Theory]
     [InlineData(false, 180)]
-    [InlineData(true, 60)]
-    public void ResolveMcpSessionSetupTimeout_ExtendsOnlyProxyMode(bool usesProxy, int expectedSeconds)
+    [InlineData(true, 180)]
+    public void ResolveMcpSessionSetupTimeout_AllowsThreeMinutesForBothModes(bool usesProxy, int expectedSeconds)
         => Assert.Equal(
             TimeSpan.FromSeconds(expectedSeconds),
             ChatViewModel.ResolveMcpSessionSetupTimeout(usesProxy));
@@ -113,6 +114,47 @@ public sealed class McpSettleTests
         => Assert.Equal(
             TimeSpan.FromSeconds(expectedSeconds),
             ChatViewModel.ResolveMcpSettleBudget(usesProxy));
+
+    [Fact]
+    public void McpSignInWaitLimit_MatchesTheRuntimesMicrosoftSignInWindow()
+        => Assert.Equal(TimeSpan.FromMinutes(5), ChatViewModel.McpSignInWaitLimit);
+
+    private static IReadOnlyList<string> AwaitingSignIn(
+        string status,
+        McpConnectorIssueKind? outcome,
+        bool handedOff = true)
+        => ChatViewModel.SelectMcpSignInsAwaitingUser(
+            [Server("workiq", status), Server("github-mcp-server", "connected")],
+            handedOff
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "workiq" }
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            name => name == "workiq" ? outcome : null);
+
+    [Theory]
+    [InlineData("needs-auth")]
+    [InlineData("pending")]
+    [InlineData("not_configured")]
+    [InlineData("starting")]
+    public void SelectMcpSignInsAwaitingUser_WaitsWhileAnOpenSignInIsFinishing(string status)
+        // Signing in reconnects the server, and sending before it connects would still leave out its tools.
+        => Assert.Equal(["workiq"], AwaitingSignIn(status, McpConnectorIssueKind.SignInOpened));
+
+    [Theory]
+    [InlineData("connected")]
+    [InlineData("failed")]
+    public void SelectMcpSignInsAwaitingUser_StopsOnceTheServerConnectsOrFails(string status)
+        => Assert.Empty(AwaitingSignIn(status, McpConnectorIssueKind.SignInOpened));
+
+    [Fact]
+    public void SelectMcpSignInsAwaitingUser_WaitsOnlyForASignInOpenInFrontOfTheUser()
+    {
+        // Closing the Microsoft sign-in window, or a sign-in that couldn't start, leaves nothing to wait for.
+        Assert.Empty(AwaitingSignIn("needs-auth", McpConnectorIssueKind.SignInFailed));
+        // A chat the user navigated away from hands its servers off without opening a sign-in.
+        Assert.Empty(AwaitingSignIn("needs-auth", outcome: null));
+        // Until a server is handed off, the settle loop is still driving its sign-in itself.
+        Assert.Empty(AwaitingSignIn("needs-auth", McpConnectorIssueKind.SignInOpened, handedOff: false));
+    }
 
     private static ChatViewModel.McpSettleEvaluation Evaluate(
         IEnumerable<RpcMcpServer> servers,
@@ -200,7 +242,8 @@ public sealed class McpSettleTests
 
         var evaluation = Evaluate([Server("azure-arm", "needs-auth")], handedOff: handedOff);
 
-        // Only the user can finish an interactive sign-in, so the first prompt must not block on it.
+        // Nothing the loop does can finish an interactive sign-in, so it stops waiting for it here.
+        // Whether a message waits for the user to finish is SelectMcpSignInsAwaitingUser's decision.
         Assert.False(evaluation.KeepWaiting);
         Assert.Empty(evaluation.ToHandle);
     }

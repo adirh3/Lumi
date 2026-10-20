@@ -1,4 +1,8 @@
+using Avalonia.Headless;
 using Lumi;
+
+[assembly: AvaloniaTestApplication(typeof(Lumi.Tests.HeadlessTestApp))]
+[assembly: AvaloniaTestIsolation(AvaloniaTestIsolationLevel.PerTest)]
 
 namespace Lumi.Tests;
 

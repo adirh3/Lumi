@@ -5,10 +5,9 @@ namespace Lumi.Services.Byok;
 
 /// <summary>
 /// Operating-system backed credential store for BYOK API keys. Stores secrets outside the
-/// app's <c>data.json</c> so nothing sensitive reaches disk. On Windows this is the
-/// Credential Manager (<c>advapi32!CredWrite/CredRead/CredDelete</c>); other platforms return
-/// <see cref="IsSupported"/> = <c>false</c> for now (the UI hides the mode there and the
-/// runtime falls back to env vars).
+/// app's <c>data.json</c>. Uses Windows Credential Manager, macOS Keychain, or Linux Secret
+/// Service. Missing native tooling reports <see cref="IsSupported"/> = <c>false</c>;
+/// callers must offer an explicit alternative rather than claiming secure storage.
 /// </summary>
 /// <remarks>
 /// Implementations must be safe to call from any thread. Read operations never throw for

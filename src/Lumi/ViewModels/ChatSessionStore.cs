@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,7 +37,7 @@ public sealed class ChatSessionStore : IDisposable
     private readonly ChatEventHub _chatEvents;
     private readonly CapabilityCatalog _capabilityCatalog;
     private readonly bool _ownsCapabilityCatalog;
-    private readonly ByokRateLimiter _byokRateLimiter = new();
+    private readonly ByokRateLimiter _byokRateLimiter;
     private readonly Func<ChatViewModel, Chat, Task> _loadChatAsync;
     private readonly int _maxIdleCachedSurfaces;
     private readonly int _maxWarmIdleSessions;
@@ -46,6 +48,8 @@ public sealed class ChatSessionStore : IDisposable
     private readonly HashSet<ChatViewModel> _surfaces = [];
     private readonly LinkedList<ChatViewModel> _idleSurfacesLru = new();
     private readonly SemaphoreSlim _acquireChatLock = new(1, 1);
+    private readonly Dictionary<Guid, object> _pendingMessageReleases = [];
+    private Task _evictedMessagesRelease = Task.CompletedTask;
     private bool _isDisposed;
 
     public ChatSessionStore(
@@ -91,6 +95,7 @@ public sealed class ChatSessionStore : IDisposable
         _registry = registry;
         _globalSearchService = globalSearchService;
         _secureKeyStore = secureKeyStore;
+        _byokRateLimiter = copilotService.ByokRateLimiter;
         _chatEvents = chatEvents ?? new ChatEventHub();
         _ownsCapabilityCatalog = capabilityCatalog is null;
         _capabilityCatalog = capabilityCatalog ?? CapabilityCatalog.CreateDefault(dataStore, copilotService);
@@ -101,6 +106,7 @@ public sealed class ChatSessionStore : IDisposable
         _orchestrationService = new ChatOrchestrationService(dataStore, registry, this);
         OrchestrationService = _orchestrationService;
         _copilotService.Reconnected += OnCopilotReconnected;
+        _copilotService.PluginsChanged += OnPluginsChanged;
     }
 
     /// <summary>
@@ -112,6 +118,9 @@ public sealed class ChatSessionStore : IDisposable
     /// </summary>
     public event Action? SurfaceFeatureManagementStateChanged;
 
+    /// <summary>Raised when an approval card in any surface remembered an approval for a chat or project.</summary>
+    public event Action? SurfaceApprovalsRemembered;
+
     /// <summary>
     /// The chat-orchestration backend shared with every surface this store creates, so any chat
     /// (foreground, background, or detached) can drive the <c>manage_chats</c> tool. Created and
@@ -120,6 +129,9 @@ public sealed class ChatSessionStore : IDisposable
     /// </summary>
     public ChatOrchestrationService OrchestrationService { get; set; }
     internal ChatEventHub ChatEvents => _chatEvents;
+
+    /// <summary>The capability catalog every surface reads; Customize lists external items from it too.</summary>
+    internal CapabilityCatalog CapabilityCatalog => _capabilityCatalog;
 
     public ChatViewModel AcquireDraft(Guid? projectId, Action<ChatViewModel>? configure = null)
     {
@@ -146,6 +158,7 @@ public sealed class ChatSessionStore : IDisposable
         try
         {
             ThrowIfDisposed();
+            _pendingMessageReleases.Remove(chat.Id);
 
             if (!_sessionsByChatId.TryGetValue(chat.Id, out var surface))
             {
@@ -230,6 +243,27 @@ public sealed class ChatSessionStore : IDisposable
 
     public IReadOnlyList<ChatViewModel> SnapshotSurfaces() => _surfaces.ToArray();
 
+    public async Task<string?> SetChatPausedAsync(Chat chat, bool paused)
+    {
+        ThrowIfDisposed();
+        if (_sessionsByChatId.TryGetValue(chat.Id, out var owner))
+            return await owner.TrySetChatPausedAsync(chat, paused);
+
+        if (!paused && chat.IsPaused)
+        {
+            var surface = await AcquireChatAsync(chat);
+            try { return await surface.TrySetChatPausedAsync(chat, false); }
+            finally { Release(surface); }
+        }
+
+        chat.IsPaused = paused;
+        chat.IsPausePending = false;
+        _dataStore.MarkChatChanged(chat);
+        if (_dataStore.Data.Settings.AutoSaveChats)
+            _ = _dataStore.SaveAsync();
+        return null;
+    }
+
     public void ApplyToSurfaces(Action<ChatViewModel> action)
     {
         foreach (var surface in _surfaces.ToArray())
@@ -266,10 +300,12 @@ public sealed class ChatSessionStore : IDisposable
 
         _isDisposed = true;
         _copilotService.Reconnected -= OnCopilotReconnected;
+        _copilotService.PluginsChanged -= OnPluginsChanged;
         if (_ownsCapabilityCatalog)
             _capabilityCatalog.Dispose();
         foreach (var surface in _surfaces.ToArray())
             UntrackSurface(surface, dispose: true);
+        _pendingMessageReleases.Clear();
         lock (_mcpProxyReleaseGate)
             _mcpProxyReleaseTasks.Clear();
         _orchestrationService.Dispose();
@@ -314,6 +350,32 @@ public sealed class ChatSessionStore : IDisposable
 
     private void OnCopilotReconnected() => _capabilityCatalog.Reset();
 
+    /// <summary>
+    /// A plugin was added, updated or removed: rediscover what the runtime offers, and rebuild each
+    /// chat's session configuration before its next message so the plugin's parts load (or stop
+    /// loading) without disturbing a turn already running.
+    /// </summary>
+    private void OnPluginsChanged()
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            ApplyPluginsChange();
+        else
+            Avalonia.Threading.Dispatcher.UIThread.Post(ApplyPluginsChange);
+    }
+
+    private void ApplyPluginsChange()
+    {
+        if (_isDisposed)
+            return;
+
+        _capabilityCatalog.Reset();
+        ApplyToSurfaces(static surface =>
+        {
+            surface.InvalidateMcpSession();
+            surface.RefreshCapabilities();
+        });
+    }
+
     private void TrackSurface(ChatViewModel surface)
     {
         if (!_surfaces.Add(surface))
@@ -324,18 +386,21 @@ public sealed class ChatSessionStore : IDisposable
         surface.PropertyChanged += OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged += OnSurfaceFeatureManagementStateChanged;
         surface.FeatureCatalogChanged += OnSurfaceFeatureCatalogChanged;
+        surface.ApprovalsRemembered += OnSurfaceApprovalsRemembered;
         surface.McpProxyReleaseStarted += OnMcpProxyReleaseStarted;
         if (surface.CurrentChat is { } chat)
             RegisterChatOwner(surface, chat.Id);
     }
 
-    private void UntrackSurface(ChatViewModel surface, bool dispose)
+    private void UntrackSurface(ChatViewModel surface, bool dispose, bool releaseMessages = false)
     {
         if (!_surfaces.Remove(surface))
             return;
+        var chat = surface.CurrentChat;
         surface.PropertyChanged -= OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged -= OnSurfaceFeatureManagementStateChanged;
         surface.FeatureCatalogChanged -= OnSurfaceFeatureCatalogChanged;
+        surface.ApprovalsRemembered -= OnSurfaceApprovalsRemembered;
         _registry.Detach(surface);
         _hostCounts.Remove(surface);
         RemoveFromIdleCache(surface);
@@ -344,9 +409,64 @@ public sealed class ChatSessionStore : IDisposable
         if (dispose)
             surface.Dispose();
         surface.McpProxyReleaseStarted -= OnMcpProxyReleaseStarted;
+
+        if (releaseMessages && chat is not null)
+        {
+            var release = new object();
+            _pendingMessageReleases[chat.Id] = release;
+            _evictedMessagesRelease = PersistAndUnloadEvictedMessagesAsync(chat, release, _evictedMessagesRelease);
+        }
     }
 
+    private async Task PersistAndUnloadEvictedMessagesAsync(Chat chat, object release, Task previousRelease)
+    {
+        try
+        {
+            // Navigation can outrun disk writes. Clone only one evicted history at a time.
+            await previousRelease;
+            if (!CanUnloadEvictedMessages(chat, release)
+                || !_dataStore.Data.Settings.AutoSaveChats
+                || chat.Messages.Count == 0
+                || !_dataStore.UsesPersistentStorage)
+                return;
+
+            var messageCount = chat.Messages.Count;
+            await _dataStore.SaveChatAsync(chat);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // Reopening invalidates this attempt even if the new owner has already left again.
+                if (!CanUnloadEvictedMessages(chat, release)
+                    || !_dataStore.Data.Settings.AutoSaveChats
+                    || chat.Messages.Count != messageCount
+                    || !_dataStore.HasStoredMessages(chat.Id))
+                    return;
+
+                chat.MessageCount = messageCount;
+                chat.Messages.Clear();
+                chat.Messages.TrimExcess();
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            Trace.TraceWarning("[Chat] Could not persist evicted chat {0}; keeping its messages in memory: {1}", chat.Id, ex);
+        }
+        finally
+        {
+            if (ReferenceEquals(_pendingMessageReleases.GetValueOrDefault(chat.Id), release))
+                _pendingMessageReleases.Remove(chat.Id);
+        }
+    }
+
+    private bool CanUnloadEvictedMessages(Chat chat, object release)
+        => !_isDisposed
+           && ReferenceEquals(_pendingMessageReleases.GetValueOrDefault(chat.Id), release)
+           && _dataStore.Data.Chats.Contains(chat)
+           && !_sessionsByChatId.ContainsKey(chat.Id)
+           && !_surfaces.Any(surface => surface.CurrentChat?.Id == chat.Id || surface.OwnsLiveChat(chat.Id));
+
     private void OnSurfaceFeatureManagementStateChanged() => SurfaceFeatureManagementStateChanged?.Invoke();
+
+    private void OnSurfaceApprovalsRemembered() => SurfaceApprovalsRemembered?.Invoke();
 
     private void OnMcpProxyReleaseStarted(Guid chatId, Task releaseTask)
     {
@@ -454,7 +574,7 @@ public sealed class ChatSessionStore : IDisposable
             return;
         }
 
-        UntrackSurface(surface, dispose: true);
+        UntrackSurface(surface, dispose: true, releaseMessages: true);
     }
 
     private bool CanCacheIdleSurface(ChatViewModel surface)
@@ -487,7 +607,7 @@ public sealed class ChatSessionStore : IDisposable
                 continue;
             }
 
-            UntrackSurface(surface, dispose: true);
+            UntrackSurface(surface, dispose: true, releaseMessages: true);
         }
     }
 

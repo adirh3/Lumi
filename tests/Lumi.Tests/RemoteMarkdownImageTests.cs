@@ -66,6 +66,66 @@ public sealed class RemoteMarkdownImageTests
             authorizedPaths));
     }
 
+    [Theory]
+    [InlineData("Completed", true)]
+    [InlineData("Failed", false)]
+    [InlineData("InProgress", false)]
+    [InlineData("Stopped", false)]
+    [InlineData(null, false)]
+    public void ViewedInlineImagesRequireASuccessfulToolRead(string? status, bool authorized)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "lumi-viewed-image.png");
+        var paths = RemoteMarkdownImageFiles.BuildAuthorizedPaths(
+        [
+            new ChatMessage
+            {
+                Role = "tool", ToolName = "view", ToolStatus = status,
+                Content = JsonSerializer.Serialize(new { path })
+            }
+        ]);
+        var descriptors = RemoteMarkdownImageFiles.BuildDescriptors($"![Screenshot]({path})", paths);
+        if (authorized)
+            Assert.Equal("lumi-viewed-image.png", Assert.Single(descriptors!).FileName);
+        else
+            Assert.Null(descriptors);
+    }
+
+    [Fact]
+    public void ImageReadsDoNotAuthorizeUserClaimsToolOutputOrOtherPaths()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "lumi-viewed-image.png");
+        var other = Path.Combine(Path.GetTempPath(), "other-image.png");
+        var paths = RemoteMarkdownImageFiles.BuildAuthorizedPaths(
+        [
+            new ChatMessage
+            {
+                Role = "user", ToolName = "view", ToolStatus = "Completed",
+                Content = JsonSerializer.Serialize(new { path })
+            },
+            new ChatMessage
+            {
+                Role = "tool", ToolName = "powershell", ToolStatus = "Completed",
+                Content = JsonSerializer.Serialize(new { path })
+            },
+            new ChatMessage
+            {
+                Role = "tool", ToolName = "view", ToolStatus = "Completed",
+                Content = JsonSerializer.Serialize(new { path = Path.Combine(Path.GetTempPath(), "notes.txt") })
+            }
+        ]);
+        Assert.Null(RemoteMarkdownImageFiles.BuildDescriptors($"![Image]({path})", paths));
+
+        paths = RemoteMarkdownImageFiles.BuildAuthorizedPaths(
+        [
+            new ChatMessage
+            {
+                Role = "tool", ToolName = "view", ToolStatus = "Completed",
+                Content = JsonSerializer.Serialize(new { path })
+            }
+        ]);
+        Assert.Null(RemoteMarkdownImageFiles.BuildDescriptors($"![Unrelated]({other})", paths));
+    }
+
     [Fact]
     public void ImageScannerLeavesCodeAndEscapedLiteralsUntouched()
     {

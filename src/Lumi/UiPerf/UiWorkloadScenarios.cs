@@ -31,6 +31,10 @@ internal sealed class UiWorkloadScenarios
     public Guid CodeHeavyChatId { get; private set; }
     public Guid DocHeavyChatId { get; private set; }
     public Guid ProjectId { get; private set; }
+    public Guid OtherProjectId { get; private set; }
+    public Guid ProjectChatId { get; private set; }
+    public Guid OtherProjectChatId { get; private set; }
+    public Guid UnreadChatId { get; private set; }
     public int TotalChats => _dataStore.Data.Chats.Count;
 
     private readonly List<Guid> _activeWorkChatIds = new();
@@ -42,8 +46,23 @@ internal sealed class UiWorkloadScenarios
     {
         EnsureSkills();
         ProjectId = EnsureProject();
+        var otherProject = new Project { Name = "Personal Lab" };
+        _dataStore.Data.Projects.Add(otherProject);
+        OtherProjectId = otherProject.Id;
+        for (var i = 0; i < 10; i++)
+            _dataStore.Data.Projects.Add(new Project
+            {
+                Name = $"Workload project #{i + 1}",
+                CreatedAt = DateTimeOffset.Now.AddDays(-10 - i),
+            });
 
         var now = DateTimeOffset.Now;
+        ProjectChatId = AddChat("Project selection target", now.AddSeconds(-30),
+            BuildConversation(seed: 31, turns: 32, assistantParagraphs: 2, withRichBlocks: true, toolHeavy: false), ProjectId);
+        OtherProjectChatId = AddChat("Other project chat", now.AddMinutes(-1),
+            BuildConversation(seed: 32, turns: 6, assistantParagraphs: 2, withRichBlocks: false, toolHeavy: false), OtherProjectId);
+        UnreadChatId = AddChat("Unread reply in another project", now.AddMinutes(-2),
+            BuildConversation(seed: 33, turns: 32, assistantParagraphs: 2, withRichBlocks: true, toolHeavy: false), ProjectId);
         TinyChatId = AddChat("Tiny chat (quick question)", now.AddMinutes(-3),
             BuildConversation(seed: 1, turns: 1, assistantParagraphs: 1, withRichBlocks: false, toolHeavy: false));
         SmallChatId = AddChat("Small chat (short thread)", now.AddMinutes(-30),
@@ -95,7 +114,7 @@ internal sealed class UiWorkloadScenarios
                     assistantParagraphs: 2,
                     withRichBlocks: i % 2 == 0,
                     toolHeavy: i % 3 == 0),
-                i % 2 == 0 ? ProjectId : (Guid?)null);
+                i % 2 == 0 ? OtherProjectId : (Guid?)null);
             _activeWorkChatIds.Add(id);
         }
 

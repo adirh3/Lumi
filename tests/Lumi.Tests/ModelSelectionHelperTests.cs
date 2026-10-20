@@ -54,6 +54,31 @@ public class ModelSelectionHelperTests
     }
 
     [Fact]
+    public void NormalizeEffort_PreservesExplicitChoiceAndUsesByokDefaultBeforeNativeFallback()
+    {
+        var helperType = typeof(Chat).Assembly.GetType("Lumi.ViewModels.ModelSelectionHelper")
+            ?? throw new InvalidOperationException("ModelSelectionHelper type was not found.");
+        var normalizeMethod = helperType.GetMethod(
+            "NormalizeEffort",
+            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("NormalizeEffort method was not found.");
+        var reasoningEfforts = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["byok:model-1"] = ["low", "high"]
+        };
+        var defaultEfforts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["byok:model-1"] = "low"
+        };
+
+        var defaultResult = (string?)normalizeMethod.Invoke(null, [null, "byok:model-1", reasoningEfforts, defaultEfforts]);
+        var explicitResult = (string?)normalizeMethod.Invoke(null, ["high", "byok:model-1", reasoningEfforts, defaultEfforts]);
+
+        Assert.Equal("low", defaultResult);
+        Assert.Equal("high", explicitResult);
+    }
+
+    [Fact]
     public void ApplyModelCapabilities_MergeKeepsPreviouslyLearnedCapabilities()
     {
         var reasoningEfforts = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);

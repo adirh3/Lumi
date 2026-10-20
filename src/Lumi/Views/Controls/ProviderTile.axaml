@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             x:Class="Lumi.Views.Controls.ProviderTile"
+             x:DataType="vm:ProviderBadge"
+             x:CompileBindings="True"
+             Width="40" Height="40"
+             VerticalAlignment="Center">
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Controls/EasyConnectIcons.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+  <Panel>
+    <Border x:Name="TileFill" CornerRadius="11" Background="{Binding Fill}" IsVisible="{Binding IsFilled}"
+            BorderBrush="#24FFFFFF" BorderThickness="1" BoxShadow="0 1 2 0 #33000000" />
+    <Border x:Name="TileOutline" CornerRadius="11" IsVisible="{Binding !IsFilled}"
+            Background="{DynamicResource Brush.Surface2}" BorderBrush="{DynamicResource Brush.BorderDefault}" BorderThickness="1" />
+    <TextBlock x:Name="TileMonogram" Text="{Binding Monogram}" IsVisible="{Binding ShowMonogram}"
+               Foreground="#FFFFFFFF" FontWeight="SemiBold" FontSize="15" LetterSpacing="-0.2"
+               HorizontalAlignment="Center" VerticalAlignment="Center" />
+    <PathIcon x:Name="TileGitHub" Data="{StaticResource Ec.GitHub}" IsVisible="{Binding IsGitHub}"
+              Foreground="#FFFFFFFF" Width="20" Height="20" />
+    <PathIcon x:Name="TileChatGpt" Data="{StaticResource Ec.ChatGpt}" IsVisible="{Binding IsChatGpt}"
+              Foreground="#FFFFFFFF" Width="21" Height="21" />
+    <PathIcon x:Name="TileCustom" Data="{StaticResource Ec.Plug}" IsVisible="{Binding IsCustom}"
+              Foreground="{DynamicResource Brush.TextSecondary}" Width="17" Height="17" />
+  </Panel>
+</UserControl>

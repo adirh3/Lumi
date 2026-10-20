@@ -15,7 +15,7 @@ namespace Lumi.Generators;
 /// a partial <c>Loc</c> class with:
 /// <list type="bullet">
 ///   <item>One <c>{ get; private set; }</c> property per key, initialized with the English value.</item>
-///   <item>Per-language string arrays for <c>SelectLanguage</c> to copy from at startup.</item>
+///   <item>Per-language string arrays, English included, for <c>SelectLanguage</c> to copy from.</item>
 ///   <item>A <c>FrozenDictionary&lt;string, int&gt;</c> for dynamic XAML key lookup.</item>
 /// </list>
 /// Properties are direct field reads — zero indirection at the call site.
@@ -83,11 +83,9 @@ public sealed class LocalizationGenerator : IIncrementalGenerator
         sb.AppendLine("partial class Loc");
         sb.AppendLine("{");
 
-        // ── Non-English language arrays (English values are in the properties) ──
+        // ── Language arrays, English included so it can be selected again after another language ──
         foreach (var lang in languages)
         {
-            if (lang.Code.Equals("en", StringComparison.OrdinalIgnoreCase)) continue;
-
             var id = SanitizeIdentifier(lang.Code);
             var dict = new Dictionary<string, string>(lang.Entries.Count);
             foreach (var kv in lang.Entries)
@@ -113,10 +111,7 @@ public sealed class LocalizationGenerator : IIncrementalGenerator
         sb.AppendLine("        new Dictionary<string, string[]>");
         sb.AppendLine("        {");
         foreach (var lang in languages)
-        {
-            if (lang.Code.Equals("en", StringComparison.OrdinalIgnoreCase)) continue;
             sb.Append("            [\"").Append(lang.Code).Append("\"] = _lang_").Append(SanitizeIdentifier(lang.Code)).AppendLine(",");
-        }
         sb.AppendLine("        }.ToFrozenDictionary();");
         sb.AppendLine();
 

@@ -300,6 +300,7 @@ public sealed class UnreadInboxTests
             var hidden = vm.UnreadChats.Single(entry => entry.Chat.Id == inHome.Id);
             Assert.True(hidden.IsOutsideActiveFilter);
             Assert.Equal("Home", hidden.ProjectName);
+            Assert.Equal(LaunchpadProjectBadge.HueFor(home.Id).ToString(), hidden.ProjectColor);
 
             var visible = vm.UnreadChats.Single(entry => entry.Chat.Id == inWork.Id);
             Assert.False(visible.IsOutsideActiveFilter);
@@ -529,6 +530,78 @@ public sealed class UnreadInboxTests
 
             Assert.False(vm.HasUnreadChats);
             Assert.Empty(vm.UnreadChats);
+        });
+    }
+
+    [Fact]
+    public async Task RefreshingUnchangedUnreadStateKeepsEntriesWithoutCollectionNotifications()
+    {
+        await RunAsync(() =>
+        {
+            var first = new Chat { Title = "First", HasUnreadMessages = true };
+            var second = new Chat
+            {
+                Title = "Second",
+                HasUnreadMessages = true,
+                UpdatedAt = first.UpdatedAt.AddMinutes(-10),
+            };
+            using var vm = CreateViewModel([], first, second);
+            var entries = vm.UnreadChats.ToArray();
+            var changes = 0;
+            vm.UnreadChats.CollectionChanged += (_, _) => changes++;
+
+            vm.RefreshUnreadState();
+            vm.RefreshChatList();
+
+            Assert.Equal(0, changes);
+            Assert.Same(entries[0], vm.UnreadChats[0]);
+            Assert.Same(entries[1], vm.UnreadChats[1]);
+        });
+    }
+
+    [Fact]
+    public async Task ReadingOneReplyKeepsTheOtherUnreadEntries()
+    {
+        await RunAsync(() =>
+        {
+            var first = new Chat { Title = "First", HasUnreadMessages = true };
+            var second = new Chat
+            {
+                Title = "Second",
+                HasUnreadMessages = true,
+                UpdatedAt = first.UpdatedAt.AddMinutes(-10),
+            };
+            using var vm = CreateViewModel([], first, second);
+            var retained = vm.UnreadChats.Single(entry => ReferenceEquals(entry.Chat, second));
+
+            first.HasUnreadMessages = false;
+
+            Assert.Same(retained, Assert.Single(vm.UnreadChats));
+            Assert.Equal(1, vm.UnreadChatCount);
+        });
+    }
+
+    [Fact]
+    public async Task RefreshingUnreadStateUpdatesChangedMetadataWithTheSameCounts()
+    {
+        await RunAsync(() =>
+        {
+            var project = new Project { Name = "Before" };
+            var chat = new Chat { Title = "Before", ProjectId = project.Id, HasUnreadMessages = true };
+            using var vm = CreateViewModel([project], chat);
+            var entry = Assert.Single(vm.UnreadChats);
+            project.Name = "After";
+            chat.Title = "New title";
+            chat.UpdatedAt = chat.UpdatedAt.AddHours(-2);
+
+            vm.RefreshUnreadState();
+
+            var updated = Assert.Single(vm.UnreadChats);
+            Assert.NotSame(entry, updated);
+            Assert.Equal("New title", updated.Title);
+            Assert.Equal("After", updated.ProjectName);
+            Assert.Equal(LibraryViewModel.FormatRelativeTime(chat.UpdatedAt), updated.TimeLabel);
+            Assert.Equal(1, vm.UnreadChatCount);
         });
     }
 

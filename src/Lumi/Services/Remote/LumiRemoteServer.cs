@@ -14,6 +14,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
@@ -87,7 +88,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         long Revision,
         string RevisionEpoch,
         string WorkingDirectory,
-        IReadOnlySet<string> RunningBackgroundToolCallIds);
+        IReadOnlySet<string> RunningBackgroundToolCallIds,
+        string? TranscriptVersion = null,
+        bool IsUnchanged = false);
 
     private sealed record ActivityCapture(
         Chat Chat,
@@ -127,11 +130,17 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     internal RemoteEventHub? EventHub => _hub;
 
     public bool IsRunning { get; private set; }
+    public string? StartError { get; private set; }
 
     public bool CanManageSecurityState => _ownsPersistentSecurityState;
     public bool IsSecurityStateReady => _securityStateReady;
     public bool IsWebAppAvailable => _webApp.IsAvailable;
     public bool IsDevTunnelStarting => _devTunnel.State.IsStarting;
+    public bool IsDevTunnelSigningIn => _devTunnel.State.IsSigningIn;
+    public bool IsDevTunnelReconnecting => _devTunnel.State.IsReconnecting;
+    public bool RequiresDevTunnelSignIn => _devTunnel.State.RequiresSignIn;
+    public string? DevTunnelSignInUrl => _devTunnel.State.SignIn?.Url;
+    public string? DevTunnelSignInCode => _devTunnel.State.SignIn?.Code;
     public string? DevTunnelAccount => _devTunnel.State.Account;
     public string? DevTunnelOrigin => _devTunnel.State.Origin;
     public string? DevTunnelError => _devTunnel.State.Error;
@@ -140,6 +149,18 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
     public void RespondToDevTunnelInstallConfirmation(bool approved) =>
         _devTunnel.RespondToInstallConfirmation(approved);
+
+    public void RestartDevTunnel(bool signIn = false, bool useDeviceCode = false)
+    {
+        if (!IsRunning || _disposed || !_dataStore.Data.Settings.RemoteUseDevTunnel)
+            return;
+        var port = Port;
+        _devTunnel.Start(port, EnsureDevTunnelId(),
+            (id, ct) => PersistDevTunnelRouteAsync(id, port, ct), signIn, useDeviceCode);
+    }
+
+    public void CancelDevTunnelSetup() => _devTunnel.CancelSetup();
+
     public bool IsTailscaleAvailable => VerifiedTailscaleAddresses.Count > 0;
     internal IReadOnlySet<IPAddress> VerifiedTailscaleAddresses => Volatile.Read(ref _tailscaleAddresses);
 
@@ -202,6 +223,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
 
         await _dataStore.RefreshRemoteSecurityFromDiskAsync(cancellationToken).ConfigureAwait(false);
+        if (_dataStore.Data.Settings is { RemoteAccessEnabled: true, RemoteUseDevTunnel: true }
+            && !RemoteDevTunnelHost.IsValidProfileTunnelId(_dataStore.Data.Settings.RemoteDevTunnelId))
+        {
+            EnsureDevTunnelId();
+            await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
         _securityStateReady = true;
         StateChanged?.Invoke();
 
@@ -219,6 +246,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         if (!_securityStateReady)
             return;
 
+        StartError = null;
         _instanceId = Guid.NewGuid().ToString("N");
         var configured = _dataStore.Data.Settings.RemoteAccessPort;
         var port = configured > 0 ? configured : RemoteProtocol.DefaultPort;
@@ -237,9 +265,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 _listener.Start(0, _dataStore.Data.Settings.RemoteUseDevTunnel);
             }
         }
-        catch
+        catch (SocketException ex)
         {
-            throw;
+            Trace.TraceWarning($"[Remote] Could not listen on the saved Lumi port {port}: {ex.Message}");
+            StartError = Loc.Get("Remote_ListenerPortInUse", port);
+            StateChanged?.Invoke();
+            return;
         }
 
         Port = _listener.Port;
@@ -252,16 +283,56 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         RefreshDiscovery();
         IsRunning = true;
         if (_dataStore.Data.Settings.RemoteUseDevTunnel)
-            _devTunnel.Start(Port);
+            RestartDevTunnel();
         WatchNetworkChanges();
         StateChanged?.Invoke();
         _ = InitializeRuntimeStateAsync();
     }
 
+    internal string EnsureDevTunnelId()
+    {
+        if (RemoteDevTunnelHost.IsValidProfileTunnelId(_dataStore.Data.Settings.RemoteDevTunnelId))
+            return _dataStore.Data.Settings.RemoteDevTunnelId;
+
+        _dataStore.Data.Settings.RemoteDevTunnelId = RemoteDevTunnelHost.CreateProfileTunnelId();
+        _dataStore.MarkRemoteSecurityChanged();
+        return _dataStore.Data.Settings.RemoteDevTunnelId;
+    }
+
+    internal async Task PersistDevTunnelRouteAsync(
+        string tunnelId, int port, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!string.Equals(
+                _dataStore.Data.Settings.RemoteDevTunnelId,
+                tunnelId,
+                StringComparison.Ordinal)
+            || _dataStore.Data.Settings.RemoteAccessPort != port)
+        {
+            _dataStore.Data.Settings.RemoteDevTunnelId = tunnelId;
+            _dataStore.Data.Settings.RemoteAccessPort = port;
+            _dataStore.MarkRemoteSecurityChanged();
+        }
+
+        try
+        {
+            await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Trace.TraceWarning($"[Remote] Could not save the Dev Tunnel route: {ex.Message}");
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelSaveFailed", ex.Message), ex);
+        }
+    }
+
     public void Stop()
     {
+        StartError = null;
         if (!IsRunning)
+        {
+            StateChanged?.Invoke();
             return;
+        }
         IsRunning = false;
         _devTunnel.Stop();
         StopWatchingNetworkChanges();
@@ -351,6 +422,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         {
             var tailscaleChanged = await RefreshTailscaleAddressesAsync(cancellationToken).ConfigureAwait(false);
             var localChanged = RefreshSelectedLocalNetworkAddress();
+            if (IsRunning && !_disposed && _dataStore.Data.Settings.RemoteUseDevTunnel
+                && DevTunnelOrigin is not null)
+            {
+                RestartDevTunnel();
+                return;
+            }
             if ((!tailscaleChanged && !localChanged) || !IsRunning || _disposed)
                 return;
 
@@ -878,6 +955,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         var snapshot = await Dispatcher.UIThread.InvokeAsync(() =>
             RemoteProjector.BuildSnapshot(_dataStore, _main, _main.ChatVM.AvailableModels.ToList()));
+        RemoteContentVersions.ApplySectionVersions(
+            snapshot,
+            RemoteProtocol.SnapshotSections.ParseKnown(context.Request.QueryValue("known")));
         var json = JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot);
         if (Encoding.UTF8.GetByteCount(json) > RemoteProtocol.MaxSnapshotJsonBytes)
         {
@@ -1451,6 +1531,10 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             context.Request.QueryValue("limit"),
             beforeMessageIndex,
             compact);
+        var knownVersion = beforeMessageIndex is null
+                           && context.Request.QueryValue("known") is { Length: > 0 and <= RemoteProtocol.MaxTranscriptVersionLength } known
+            ? known
+            : null;
 
         // Capture mutable desktop state on the UI thread, then do the potentially large persisted
         // read and bounded projection away from it. A live/detached owner still wins so streaming and
@@ -1463,11 +1547,6 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
             var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
             var isActive = owner?.CurrentChat?.Id == chatId;
-            IReadOnlyList<ChatMessage>? loadedMessages = isActive
-                ? owner!.Messages.Select(message => CloneMessageForRemote(message.Message)).ToList()
-                : chat.Messages.Count > 0
-                    ? chat.Messages.Select(CloneMessageForRemote).ToList()
-                    : null;
             var settings = _dataStore.Data.Settings;
             var workingDirectory = ChatViewModel.ResolveEffectiveWorkingDirectory(
                 _dataStore,
@@ -1475,22 +1554,89 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 chat.WorktreePath);
             var runningBackgroundToolCallIds =
                 (owner ?? _main.ChatVM).GetRunningBackgroundShellIds(chatId);
+            var status = RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat);
+
+            // Only the latest window is versioned; history pages are immutable reads by cursor.
+            string? version = null;
+            if (beforeMessageIndex is null && _hub is { } hub)
+            {
+                version = RemoteContentVersions.ComputeTranscriptVersion(
+                    _instanceId,
+                    hub.GetChatVersion(chatId),
+                    chat,
+                    isActive
+                        ? owner!.Messages.Select(static message => message.Message)
+                        : chat.Messages.Count > 0 ? chat.Messages : null,
+                    compact,
+                    maxMessages,
+                    settings.ShowReasoning,
+                    settings.ShowToolCalls,
+                    workingDirectory,
+                    runningBackgroundToolCallIds,
+                    status);
+                if (string.Equals(version, knownVersion, StringComparison.Ordinal))
+                {
+                    // The phone already renders exactly this projection: skip the clone, the
+                    // projection and the body, and send only what moves independently.
+                    return new TranscriptCapture(
+                        new Chat { Id = chat.Id, Title = chat.Title },
+                        null,
+                        status,
+                        settings.ShowReasoning,
+                        settings.ShowToolCalls,
+                        _hub?.Revision ?? 0,
+                        _instanceId,
+                        workingDirectory,
+                        runningBackgroundToolCallIds,
+                        version,
+                        IsUnchanged: true);
+                }
+            }
+
+            IReadOnlyList<ChatMessage>? loadedMessages = isActive
+                ? owner!.Messages.Select(message => CloneMessageForRemote(message.Message)).ToList()
+                : chat.Messages.Count > 0
+                    ? chat.Messages.Select(CloneMessageForRemote).ToList()
+                    : null;
 
             return new TranscriptCapture(
                 new Chat { Id = chat.Id, Title = chat.Title },
                 loadedMessages,
-                RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat),
+                status,
                 settings.ShowReasoning,
                 settings.ShowToolCalls,
                 _hub?.Revision ?? 0,
                 _instanceId,
                 workingDirectory,
-                runningBackgroundToolCallIds);
+                runningBackgroundToolCallIds,
+                version);
         });
 
         if (capture is null)
         {
             await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (capture.IsUnchanged)
+        {
+            await context.WriteJsonAsync(
+                JsonSerializer.Serialize(
+                    new RemoteTranscript
+                    {
+                        ChatId = capture.Chat.Id,
+                        Title = RemoteProtocol.TruncateForMobile(
+                            capture.Chat.Title,
+                            RemoteProtocol.MobileTranscriptTitleLimit) ?? "",
+                        RevisionEpoch = capture.RevisionEpoch,
+                        Revision = capture.Revision,
+                        IsLatestWindow = true,
+                        IsUnchanged = true,
+                        TranscriptVersion = capture.TranscriptVersion,
+                        Status = capture.Status
+                    },
+                    RemoteJsonContext.Default.RemoteTranscript),
+                cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -1504,7 +1650,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             ? RemoteProjector.SelectCompactTranscriptWindow(
                 messages,
                 beforeMessageIndex,
-                maxMessages)
+                maxMessages,
+                latestStatus: capture.Status,
+                runningBackgroundToolCallIds: capture.RunningBackgroundToolCallIds)
             : RemoteProjector.SelectTranscriptWindow(
                 messages,
                 beforeMessageIndex,
@@ -1521,6 +1669,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             capture.WorkingDirectory,
             messages,
             capture.RunningBackgroundToolCallIds);
+        if (transcript.IsLatestWindow)
+            transcript.TranscriptVersion = capture.TranscriptVersion;
 
         await context.WriteJsonAsync(
             JsonSerializer.Serialize(transcript, RemoteJsonContext.Default.RemoteTranscript),
@@ -2039,6 +2189,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 _main,
                 _main.ChatVM.AvailableModels.ToList(),
                 includeChatList: true));
+        RemoteContentVersions.ApplySectionVersions(
+            snapshot,
+            RemoteProtocol.SnapshotSections.ParseKnown(context.Request.QueryValue("known")));
         var snapshotJson = JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot);
         if (Encoding.UTF8.GetByteCount(snapshotJson) > RemoteProtocol.MaxSnapshotJsonBytes)
         {
@@ -2132,6 +2285,15 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         }
         if (Guid.TryParse(request.QueryValue("chatId"), out var chatId))
             subscription.ChatId = chatId;
+        subscription.StreamIntervalMs = ParseBoundedInt(
+            request.QueryValue("streamMs"),
+            0,
+            0,
+            RemoteProtocol.MaxStreamIntervalMs);
+        subscription.CompactStatus =
+            bool.TryParse(request.QueryValue("compactStatus"), out var compactStatus) && compactStatus;
+        subscription.ChatRowPatches =
+            bool.TryParse(request.QueryValue("rowPatches"), out var rowPatches) && rowPatches;
         return subscription;
     }
 
@@ -2202,7 +2364,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     }
 
     private static string GetMobileUploadRoot() =>
-        Path.Combine(
+        DataStore.UsesIsolatedProfile
+        ? Path.Combine(DataStore.AppDirectory, "mobile-uploads")
+        : Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Lumi",
             "mobile-uploads");
@@ -2661,7 +2825,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _serverOwnershipLock = null;
     }
 
-    private static ChatMessage CloneMessageForRemote(ChatMessage message) =>
+    internal static ChatMessage CloneMessageForRemote(ChatMessage message) =>
         new()
         {
             Id = message.Id,
@@ -2683,6 +2847,11 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             QuestionOptions = message.QuestionOptions,
             QuestionAllowFreeText = message.QuestionAllowFreeText,
             QuestionAllowMultiSelect = message.QuestionAllowMultiSelect,
+            InputKind = message.InputKind, InputDefinition = message.InputDefinition,
+            InputAnswer = message.InputAnswer, InputCanceled = message.InputCanceled,
+            InteractionReceipt = message.InteractionReceipt?.Clone(),
+            InteractionStates = message.InteractionStates is null
+                ? null : new Dictionary<string, string>(message.InteractionStates, StringComparer.Ordinal),
             IsStreaming = message.IsStreaming,
             Model = message.Model,
             ReasoningEffort = message.ReasoningEffort,

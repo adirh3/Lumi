@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -27,8 +28,13 @@ public static partial class ToolDisplayHelper
         ".py", ".ps1", ".bat", ".cmd", ".sh", ".bash", ".vbs", ".wsf", ".js", ".mjs", ".ts"
     };
 
-    /// <summary>Formats a tool name into a standalone live-status phrase (e.g. "Reading file" or "Running command").</summary>
-    public static string FormatToolStatusName(string toolName, string? argsJson = null, string? displaySkillName = null)
+    /// <summary>
+    /// Formats a tool name into a standalone live-status phrase (e.g. "Reading file" or "Running command").
+    /// A shell command reads as the purpose the agent gave it, and a tool Lumi has no wording for uses
+    /// <paramref name="toolTitle"/>, the display title its server provides (see <see cref="GetToolTitle"/>).
+    /// </summary>
+    public static string FormatToolStatusName(
+        string toolName, string? argsJson = null, string? displaySkillName = null, string? toolTitle = null)
     {
         if (toolName.StartsWith("agent:", StringComparison.Ordinal))
             return string.Format(Loc.Tool_RunningAgent, toolName["agent:".Length..]);
@@ -44,7 +50,7 @@ public static partial class ToolDisplayHelper
             "apply_patch" => Loc.Tool_EditingFiles,
             "multi_replace_string_in_file" => fileName is not null ? string.Format(Loc.Tool_EditingNamed, fileName) : Loc.Tool_EditingFiles,
             "list_dir" or "list_directory" or "ls" => Loc.Tool_ListingDirectory,
-            "bash" or "shell" or "powershell" or "run_command" or "execute_command" or "run_terminal" or "run_in_terminal" => Loc.Tool_RunningCommand,
+            "bash" or "shell" or "powershell" or "run_command" or "execute_command" or "run_terminal" or "run_in_terminal" => GetCommandTitle(argsJson) ?? Loc.Tool_RunningCommand,
             "read_powershell" => Loc.Tool_ReadingTerminal,
             "write_powershell" => Loc.Tool_WritingTerminal,
             "stop_powershell" => Loc.Tool_StoppingTerminal,
@@ -60,6 +66,8 @@ public static partial class ToolDisplayHelper
             "browser_find" or BrowserFindToolName => Loc.Tool_FindingElement,
             "browser_do" or BrowserDoToolName => Loc.Tool_Action,
             "browser_js" or BrowserJsToolName => Loc.Tool_BrowserEvaluate,
+            BrowserTabsToolName => "Managing browser tabs",
+            BrowserScreenshotToolName => "Taking browser screenshot",
             "save_memory" => Loc.Tool_Remembering,
             "update_memory" => Loc.Tool_UpdatingMemory,
             "delete_memory" => Loc.Tool_Forgetting,
@@ -73,10 +81,11 @@ public static partial class ToolDisplayHelper
                 : Loc.Tool_FetchingSkill,
             "manage_projects" => "Managing Lumi projects",
             "manage_skills" => "Managing Lumi skills",
-            "manage_lumis" => "Managing Lumis",
-            "manage_mcps" => "Managing MCP servers",
+            "manage_lumis" => "Managing agents",
+            "manage_mcps" => "Managing connectors",
             "manage_memories" => "Managing memories",
             "ask_question" => Loc.Tool_AskingQuestion,
+            "ask_input" => Loc.Tool_AskingQuestion,
             "code_review" => Loc.Tool_ReviewingCode,
             "generate_tests" => Loc.Tool_GeneratingTests,
             "explain_code" => Loc.Tool_ExplainingCode,
@@ -84,14 +93,48 @@ public static partial class ToolDisplayHelper
             "ui_list_windows" => Loc.Tool_ListingWindows,
             "ui_press_keys" => Loc.Tool_PressingKeys,
             "ui_inspect" => Loc.Tool_InspectingWindow,
+            "ui_do" => Loc.Tool_AutomatingWindow,
+            "ui_screenshot" => Loc.Tool_TakingScreenshot,
+            "ui_click_at" => Loc.Tool_ClickingControl,
             "ui_find" => Loc.Tool_FindingElement,
             "ui_click" => Loc.Tool_ClickingControl,
             "ui_type" => Loc.Tool_TypingInControl,
             "ui_read" => Loc.Tool_ReadingControl,
-            "sql" => Loc.Tool_RunningQuery,
+            "sql" => GetCommandTitle(argsJson) ?? Loc.Tool_RunningQuery,
             "task" => string.Format(Loc.Tool_RunningAgent, ExtractJsonField(argsJson, "agent_type") ?? "agent"),
-            _ => FormatSnakeCaseToTitle(toolName)
+            _ => !string.IsNullOrWhiteSpace(toolTitle) ? toolTitle.Trim() : FormatSnakeCaseToTitle(toolName)
         };
+    }
+
+    /// <summary>
+    /// The purpose the agent gave a shell command or a query (its <c>description</c> argument, e.g. "Run
+    /// the focused tests"), so it reads as what it is for rather than as "Running command". Null without one.
+    /// </summary>
+    public static string? GetCommandTitle(string? argsJson)
+    {
+        var description = ExtractJsonField(argsJson, "description");
+        if (string.IsNullOrWhiteSpace(description))
+            return null;
+
+        var line = description.Trim().Split('\n', 2)[0].Trim();
+        if (line.Length > 80)
+            line = line[..79].TrimEnd() + "\u2026";
+        return line.Length == 0 ? null : char.ToUpper(line[0], CultureInfo.CurrentCulture) + line[1..];
+    }
+
+    /// <summary>
+    /// A display title for a tool Lumi has no wording for: the title its descriptor provides (MCP tools
+    /// may carry one), else the server's tool name without the connector prefix ("search_issues" reads
+    /// "Search issues"). Null when neither is known.
+    /// </summary>
+    public static string? GetToolTitle(string? descriptorTitle, string? mcpToolName)
+    {
+        if (!string.IsNullOrWhiteSpace(descriptorTitle))
+            return descriptorTitle.Trim();
+
+        return string.IsNullOrWhiteSpace(mcpToolName)
+            ? null
+            : FormatSnakeCaseToTitle(mcpToolName.Trim().Replace('-', '_'));
     }
 
     /// <summary>Appends an ellipsis to a live status label unless it already has one.</summary>
@@ -408,7 +451,7 @@ public static partial class ToolDisplayHelper
         return result;
     }
 
-    private static string? NormalizeDisplayText(string? value)
+    internal static string? NormalizeDisplayText(string? value)
     {
         if (string.IsNullOrEmpty(value))
             return value;
@@ -436,7 +479,7 @@ public static partial class ToolDisplayHelper
             or '\u2066' or '\u2067' or '\u2068' or '\u2069');
     }
 
-    private static string? RedactCommonSecrets(string? value)
+    internal static string? RedactCommonSecrets(string? value)
     {
         if (string.IsNullOrEmpty(value))
             return value;

@@ -25,6 +25,39 @@
     <ProjectReference Include="..\Lumi.Mobile\Lumi.Mobile.csproj" />
   </ItemGroup>
 
+  <Target Name="GeneratePwaAssetManifest" AfterTargets="Publish">
+    <PropertyGroup>
+      <_PwaWebRoot>$([System.IO.Path]::Combine('$(PublishDir)', 'wwwroot'))</_PwaWebRoot>
+      <_PwaAssetManifest>$(_PwaWebRoot)\service-worker-assets.js</_PwaAssetManifest>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_PwaWebRoot)\index.html')"
+           Text="The PWA publish is missing its app shell." />
+    <ItemGroup>
+      <_PwaAsset Include="$(_PwaWebRoot)\**\*"
+                 Exclude="$(_PwaWebRoot)\**\*.br;$(_PwaWebRoot)\**\*.gz;$(_PwaWebRoot)\**\*.map;$(_PwaAssetManifest);$(_PwaWebRoot)\cache-recovery.html;$(_PwaWebRoot)\cache-recovery.js" />
+    </ItemGroup>
+    <GetFileHash Files="@(_PwaAsset)" Algorithm="SHA256" HashEncoding="base64">
+      <Output TaskParameter="Items" ItemName="_HashedPwaAsset" />
+    </GetFileHash>
+    <ItemGroup>
+      <_PwaAssetEntry Include="@(_HashedPwaAsset)">
+        <Url>$([MSBuild]::MakeRelative('$(_PwaWebRoot)', '%(FullPath)').Replace('\', '/'))</Url>
+      </_PwaAssetEntry>
+    </ItemGroup>
+    <PropertyGroup>
+      <_PwaManifestContent>self.lumiAssets = [@(_PwaAssetEntry->'{ &quot;url&quot;: &quot;%(Url)&quot;, &quot;hash&quot;: &quot;sha256-%(FileHash)&quot; }', ',')]%3B</_PwaManifestContent>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_PwaAssetManifest)"
+                      Lines="$(_PwaManifestContent)"
+                      Overwrite="true" Encoding="UTF-8" />
+    <GetFileHash Files="$(_PwaAssetManifest)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_PwaAssetVersion" />
+    </GetFileHash>
+    <WriteLinesToFile File="$(_PwaAssetManifest)"
+                      Lines="self.lumiAssetVersion = &quot;$(_PwaAssetVersion)&quot;%3B"
+                      Overwrite="false" Encoding="UTF-8" />
+  </Target>
+
   <!-- Mobile browsers support Brotli; gzip duplicates and source maps only inflate desktop installers. -->
   <Target Name="RemoveRedundantReleaseAssets"
           AfterTargets="Publish"

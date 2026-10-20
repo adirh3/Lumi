@@ -41,9 +41,43 @@ if ($classes.Count -eq 0) {
 
 $isolatedClasses = @(
     "Lumi.Tests.AnimationLifecycleRegressionTests",
+    # These use a separate Skia dispatcher; delayed callbacks from drawing-free tests
+    # must not run on it and access controls owned by the assembly UI thread.
+    "Lumi.Tests.AvaloniaTextInputTests",
+    "Lumi.Tests.AvaloniaTextLayoutTests",
+    # Its native STA dispatcher must not reset dispatcher state owned by earlier headless tests.
+    "Lumi.Tests.BrowserServiceIntegrationTests",
     "Lumi.Tests.ChatViewClipboardTests",
     "Lumi.Tests.ChatViewScrollBehaviorTests",
-    "Lumi.Tests.SearchOverlayLayoutTests"
+    "Lumi.Tests.DesktopPreviewUiTests",
+    "Lumi.Tests.SearchOverlayLayoutTests",
+    # Capability sharing tests. They need no isolation themselves; running them in their own hosts
+    # keeps every existing class in the batch it had, since regrouping batches makes CI flaky.
+    "Lumi.Tests.CapabilityChatShareTests",
+    "Lumi.Tests.CapabilitySharingTests",
+    "Lumi.Tests.CapabilitySharingViewModelTests",
+    # Keep the existing batch boundaries unchanged when adding the management-page tests.
+    "Lumi.Tests.ManagementPagesViewModelTests",
+    "Lumi.Tests.ManagementPagesUiTests",
+    # Windows computer-use tests run in their own hosts for the same reason.
+    "Lumi.Tests.BattleNetAutomationTests",
+    "Lumi.Tests.DesktopPreviewTests",
+    "Lumi.Tests.UIAutomationCaptureTests",
+    "Lumi.Tests.UIAutomationDesktopTests",
+    "Lumi.Tests.UIAutomationTests",
+    # New-chat launchpad tests run in their own hosts for the same reason.
+    "Lumi.Tests.LaunchpadPlannerTests",
+    "Lumi.Tests.LaunchpadViewModelTests",
+    # Onboarding and localization tests run in their own hosts for the same reason.
+    "Lumi.Tests.LocLanguageTests",
+    "Lumi.Tests.OnboardingPersonalizerTests",
+    "Lumi.Tests.OnboardingTests",
+    "Lumi.Tests.WorkspaceDiscoveryTests",
+    # Connector issue and picker tests run in their own hosts for the same reason.
+    "Lumi.Tests.ChatViewModelConnectorTests",
+    "Lumi.Tests.McpConnectorIssuesTests",
+    # Chat reference tests run in their own hosts for the same reason.
+    "Lumi.Tests.ChatReferenceTests"
 ) | Where-Object { $classes -contains $_ }
 $batchedClasses = @($classes | Where-Object { $_ -notin $isolatedClasses })
 $batchCount = [Math]::Ceiling($batchedClasses.Count / $BatchSize)

@@ -103,6 +103,8 @@ public partial class ChatViewModel
                 Author = author,
                 Content = content,
                 IsStreaming = false,
+                IsProgress = assistantMessage.IsProgress,
+                ApiCallId = assistantMessage.ApiCallId,
                 Model = ResolveSelectedModelForChat(chat)
             };
             chat.Messages.Add(recoveredMessage);
@@ -124,6 +126,7 @@ public partial class ChatViewModel
             var runtime = GetOrCreateRuntimeState(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Completed");
             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
+            SetInteractionReceiptStatus(runtime, runtime.ManualStopRequested ? "Stopped" : "ReplyReady");
             MarkRuntimeTerminal(runtime);
             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Idle);
             if (CurrentChat?.Id == chat.Id)
@@ -544,12 +547,13 @@ public partial class ChatViewModel
     /// the wrapping <c>task</c> tool completes immediately, so <see cref="ChatRuntimeState.ActiveToolCount"/>
     /// alone does not reflect sub-agent work and would otherwise let recovery mark the turn terminal early.</summary>
     private static bool IsPostToolReconciliationEligible(ChatRuntimeState runtime, bool treatCompletedTurnAsIdle)
-        => treatCompletedTurnAsIdle
+        => runtime.Chat?.IsPaused != true
+           && (treatCompletedTurnAsIdle
             ? ShouldRecoverCompletedTurnIfIdleIsMissing(runtime)
             : runtime.PendingSessionUserMessageCount > 0
               && runtime.ActiveToolCount == 0
               && runtime.ActiveSubagentExecutionDepth == 0
-              && !runtime.IsStreaming;
+              && !runtime.IsStreaming);
 
     private static bool CanTreatCompletedTurnAsIdle(PendingTurnRecoveryAnalysis analysis)
         => analysis.UserMessageObserved
@@ -641,6 +645,7 @@ public partial class ChatViewModel
             ResolvePendingSteersAsDelivered(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Completed");
             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
+            SetInteractionReceiptStatus(runtime, "ReplyReady");
             MarkRuntimeTerminal(runtime);
             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Idle);
 

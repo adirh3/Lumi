@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -31,8 +30,6 @@ public partial class FilePreviewView : UserControl, IDisposable
     {
         Clear();
         _filePath = filePath;
-        PreviewFileName.Text = Path.GetFileName(filePath);
-        ToolTip.SetTip(PreviewFileName, filePath);
         ShowStatus(Loc.Preview_Loading);
         var cts = _loadCts = new CancellationTokenSource();
 
@@ -45,6 +42,13 @@ public partial class FilePreviewView : UserControl, IDisposable
             PreviewTruncationNotice.IsVisible = content.IsTruncated;
             switch (content.Kind)
             {
+                case FilePreviewKind.Csv:
+                    FilePreviewContentHost.Content = new CsvPreviewView
+                    {
+                        DataContext = new CsvPreviewViewModel(
+                            content.Csv ?? throw new ArgumentException("CSV preview data is missing."), content.IsTruncated)
+                    };
+                    break;
                 case FilePreviewKind.Markdown:
                     FilePreviewContentHost.Content = WrapContent(new StrataMarkdown
                     {
@@ -109,7 +113,7 @@ public partial class FilePreviewView : UserControl, IDisposable
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
-                                   or NotSupportedException)
+                                   or NotSupportedException or FormatException)
         {
             if (ReferenceEquals(_loadCts, cts))
                 ShowStatus(Loc.Preview_Unavailable, ex.Message);
@@ -134,8 +138,6 @@ public partial class FilePreviewView : UserControl, IDisposable
     {
         Clear();
         _filePath = filePath;
-        PreviewFileName.Text = Path.GetFileName(filePath);
-        ToolTip.SetTip(PreviewFileName, filePath);
         ShowStatus(Loc.Preview_Unavailable, message);
     }
 
@@ -169,18 +171,8 @@ public partial class FilePreviewView : UserControl, IDisposable
         FilePreviewContentHost.Content = panel;
     }
 
-    private async void OnRefreshClick(object? sender, RoutedEventArgs e)
-    {
-        if (_filePath is { } path)
-        {
-            if (DataContext is ChatViewModel viewModel)
-                viewModel.OpenFilePreview(path);
-            else
-                await ShowFileAsync(path);
-        }
-    }
-
-    private void OnOpenClick(object? sender, RoutedEventArgs e)
+    /// <summary>Opens the previewed file in its default app (the Workspace header's "Open" action).</summary>
+    public void OpenInDefaultApp()
     {
         if (_filePath is not { } path)
             return;

@@ -193,6 +193,10 @@ public sealed class ModelCatalogCache
             builder.Append(model.Billing?.Multiplier is { } multiplier
                 ? multiplier.ToString("R", CultureInfo.InvariantCulture)
                 : string.Empty).Append('|');
+            var tokenPrices = model.Billing?.TokenPrices;
+            builder.Append(tokenPrices?.BatchSize?.ToString(CultureInfo.InvariantCulture)).Append('|');
+            builder.Append(tokenPrices?.InputPrice?.ToString("R", CultureInfo.InvariantCulture)).Append('|');
+            builder.Append(tokenPrices?.OutputPrice?.ToString("R", CultureInfo.InvariantCulture)).Append('|');
             builder.Append(model.Policy?.State).Append('|');
 
             if (contextWindows.Limits.TryGetValue(model.Id, out var limits))
