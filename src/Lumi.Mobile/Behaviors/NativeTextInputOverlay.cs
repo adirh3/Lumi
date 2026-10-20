@@ -135,6 +135,9 @@ public sealed class NativeTextInputOverlay
 
     private static bool IsOccludedByModal(Control control, TopLevel topLevel)
     {
+        if (StrataFullScreenOverlay.IsPresented(topLevel))
+            return true;
+
         var ancestors = control.GetVisualAncestors().ToArray();
         var shell = ancestors.OfType<MobileShellView>().FirstOrDefault()?.DataContext
             as MobileShellViewModel;

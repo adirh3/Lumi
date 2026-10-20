@@ -848,6 +848,14 @@ project lists remain virtualized. Date pickers use readable, rounded day cells w
 height; their seven-column layout adapts to compact cover displays instead of clipping the
 last days.
 
+Android Back dismisses the topmost full-screen viewer or sheet before navigating. Settings,
+Search, Jobs and Customize return to the screen that opened them, including an open conversation;
+the chat list remains the app's home. Library editors still confirm before discarding a draft.
+Full-screen images and diagrams support pinch-to-zoom and drag-to-pan. Double-tap an image
+to zoom or fit it; double-tap a diagram, or use **Fit**, to reset its view. Viewer actions have
+48-DIP touch targets and stay clear of the system bars, and native text editors step aside
+while a viewer is open.
+
 Preview every popup without pairing, network calls or real chat data:
 
 ```powershell
@@ -868,6 +876,8 @@ dotnet run --project src\Lumi.Mobile.Desktop\Lumi.Mobile.Desktop.csproj -- --des
 The device selector includes the Fold7's cover (412×960 dp), its unfolded screen at the default
 and a larger display size (984×1092 and 750×832 dp), book and tabletop postures, and a large
 landscape tablet; the readout shows how many panes the layout uses.
+Open the fixture chat's **Plan** to try a local image and diagram in the production full-screen
+viewers without pairing or downloading anything.
 
 A Debug Android build opens the same preview on Android's own renderer (where the glass and the
 typeface can differ from the simulator's), for example on an emulator:

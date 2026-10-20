@@ -155,6 +155,96 @@ public sealed class MobilePlacesNavigationTests
     }
 
     [Fact]
+    public async Task BackFromSearchRestoresItsSettingsPageThenTheConversation()
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Paired(393, 852);
+        var chatId = Guid.NewGuid();
+        shell.Chat.Reset(chatId, "Still reading");
+        shell.IsDrawerOpen = false;
+        shell.SelectPlace(MobilePlace.Settings);
+        shell.OpenSettingsSectionCommand.Execute("Appearance");
+        shell.OpenSearchCommand.Execute(null);
+
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePage.Settings, shell.Page);
+        Assert.Equal(SettingsSection.Appearance, shell.SettingsSection);
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(SettingsSection.None, shell.SettingsSection);
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePage.Chat, shell.Page);
+        Assert.False(shell.IsDrawerOpen);
+        Assert.Equal(chatId, shell.Chat.ChatId);
+
+        shell.GoBackCommand.Execute(null);
+        Assert.True(shell.IsDrawerOpen);
+        Assert.False(shell.CanGoBack, "Back at home belongs to Android, not a navigation loop.");
+    }
+
+    [Fact]
+    public async Task BackRetracesPlacesIncludingTheirLibraryScope()
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Paired(393, 852);
+        shell.ShowLaunchHome();
+        shell.SelectPlace(MobilePlace.Customize);
+        shell.SelectPlace(MobilePlace.Jobs);
+        shell.SelectPlace(MobilePlace.Settings);
+
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePlace.Jobs, shell.Place);
+        Assert.Equal(LibraryScope.Jobs, shell.Library.Scope);
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePlace.Customize, shell.Place);
+        Assert.Equal(LibraryScope.Customize, shell.Library.Scope);
+        shell.GoBackCommand.Execute(null);
+        Assert.True(shell.IsDrawerOpen);
+        Assert.False(shell.CanGoBack);
+    }
+
+    [Fact]
+    public async Task ExplicitlyChoosingChatsClearsPageHistory()
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Paired(393, 852);
+        shell.SelectPlace(MobilePlace.Settings);
+        shell.SelectPlace(MobilePlace.Jobs);
+        shell.SelectPlace(MobilePlace.Chats);
+
+        Assert.True(shell.IsDrawerOpen);
+        Assert.False(shell.CanGoBack);
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePlace.Chats, shell.Place);
+    }
+
+    [Fact]
+    public async Task BackFromASearchResultRestoresSearchThenItsOriginalChat()
+    {
+        await using var scope = new ShellScope();
+        var shell = scope.Paired(393, 852);
+        var original = Guid.NewGuid();
+        var found = Guid.NewGuid();
+        shell.Chat.Reset(original, "Original conversation");
+        shell.IsDrawerOpen = false;
+        shell.OpenSearchCommand.Execute(null);
+        shell.SearchChatList.SearchText = "A search to return to";
+        shell.SearchChatList.OpenChatCommand.Execute(new ChatListItemViewModel(new RemoteChat
+        {
+            Id = found, Title = "Found conversation"
+        }));
+        Assert.Equal(found, shell.Chat.ChatId);
+
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePage.Search, shell.Page);
+        Assert.Equal("A search to return to", shell.SearchChatList.SearchText);
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePage.Chat, shell.Page);
+        Assert.Equal(original, shell.Chat.ChatId);
+        Assert.Equal(original, shell.ChatList.SelectedChatId);
+        Assert.False(shell.IsDrawerOpen);
+    }
+
+    [Fact]
     public async Task UnfoldingKeepsTheOpenChatAndFoldingWithNothingOpenLandsOnTheList()
     {
         await using var scope = new ShellScope();

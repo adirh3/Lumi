@@ -1,4 +1,5 @@
 #if DEBUG
+using Avalonia.Platform;
 using Avalonia.Threading;
 using Lumi.Mobile.ViewModels;
 using Lumi.Remote.Protocol;
@@ -204,6 +205,9 @@ public static class DesignPreview
         shell.Chat.ProjectValue = lumi.Id.ToString();
         shell.Chat.ProjectName = lumi.Name;
         shell.Chat.PlanContent = "## Fix the keyboard gap\n\n- [x] Reproduce on the Fold cover screen\n- [x] Clear cached insets on deactivate\n- [x] Read fresh IME insets on resume\n- [ ] Verify on the unfolded screen";
+        shell.Chat.PlanContent += "\n\n## Touch viewers\n\nOpen either visual full screen to try pinch-to-zoom, panning and Back.\n\n"
+            + "```mermaid\nflowchart LR\n    Phone[Phone or Fold] --> Viewer[Full-screen viewer]\n    Viewer --> Zoom[Pinch and pan]\n    Zoom --> Back[Back to the same screen]\n```\n\n"
+            + $"![Lumi artwork](<{CreateViewerImage()}>)";
         shell.ShowLaunchHome();
 
         // The fixture has no PC behind it, so the refreshes the app starts fail; a preview of the
@@ -216,6 +220,17 @@ public static class DesignPreview
             shell.Library.ViewStatus = null;
             return true;
         }, TimeSpan.FromMilliseconds(200));
+    }
+
+    private static string CreateViewerImage()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"Lumi-mobile-preview-{Environment.ProcessId}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "viewer.png");
+        using var asset = AssetLoader.Open(new Uri("avares://Lumi.Mobile/Assets/lumi-icon.png"));
+        using (var output = File.Create(path))
+            asset.CopyTo(output);
+        return new Uri(path).AbsoluteUri;
     }
 
     /// <summary>

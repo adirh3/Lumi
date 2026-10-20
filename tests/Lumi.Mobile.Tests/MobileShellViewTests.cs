@@ -1112,7 +1112,7 @@ public sealed class MobileShellViewTests
     /// it, and back from the list itself leaves the app.
     /// </summary>
     [Fact]
-    public async Task BackReturnsToTheChatListThenStops()
+    public async Task SystemBackReturnsToThePreviousScreenThenTheChatListThenStops()
     {
         await RunAsync(async (shell, window) =>
         {
@@ -1126,24 +1126,25 @@ public sealed class MobileShellViewTests
             Assert.True(Named(window, "SettingsPage").IsVisible);
 
             Assert.True(shell.CanGoBack);
-            shell.GoBackCommand.Execute(null);
+            var back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            window.RaiseEvent(back);
             await Task.Delay(260);
             Pump(window);
             Assert.True(shell.IsChatPage);
-            Assert.True(DrawerOpen(window));
-            Assert.False(shell.CanGoBack);
-
-            // Reading the chat again, back returns to the list rather than leaving the app.
-            shell.IsDrawerOpen = false;
-            await Task.Delay(260);
-            Pump(window);
+            Assert.True(back.Handled);
+            Assert.False(DrawerOpen(window));
             Assert.True(shell.CanGoBack);
-            shell.GoBackCommand.Execute(null);
+
+            back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            window.RaiseEvent(back);
             Pump(window);
             Assert.True(DrawerOpen(window));
 
             // Nothing left of ours: the system back must fall through and leave the app.
             Assert.False(shell.CanGoBack);
+            back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            window.RaiseEvent(back);
+            Assert.False(back.Handled);
         });
     }
 

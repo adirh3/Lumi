@@ -34,6 +34,7 @@ public partial class ChatDetailView : UserControl
     private StrataChatComposer? _composer;
     private NativeComposerEditorHost? _nativeComposerEditor;
     private TextBox? _sharedComposerInput;
+    private bool _isFullScreenPresented;
 
     /// <summary>Every collection and item we have hooked, so detach is exact and nothing leaks.</summary>
     private readonly HashSet<TranscriptTurnViewModel> _observedTurns =
@@ -81,6 +82,12 @@ public partial class ChatDetailView : UserControl
             if (_awaitingChatEntrance)
                 QueueChatEntrance();
             UpdateWelcomeInsets();
+            var fullScreen = StrataFullScreenOverlay.IsPresented(this);
+            if (_isFullScreenPresented != fullScreen)
+            {
+                _isFullScreenPresented = fullScreen;
+                UpdateNativeComposerVisibility();
+            }
         };
 
         // The ambient field is created in code rather than XAML because the controller owns it: it
@@ -360,7 +367,7 @@ public partial class ChatDetailView : UserControl
 
     private void UpdateNativeComposerVisibility()
     {
-        var visible = ShouldShowNativeComposerEditor(_shell);
+        var visible = ShouldShowNativeComposerEditor(_shell) && !StrataFullScreenOverlay.IsPresented(this);
         if (!visible)
             ReleaseComposerFocus();
         if (_nativeComposerEditor is not null)

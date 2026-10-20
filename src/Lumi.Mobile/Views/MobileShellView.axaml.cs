@@ -203,7 +203,7 @@ public partial class MobileShellView : UserControl
         }
         else if (e.Key == Key.Escape)
         {
-            // Android delivers Back as Escape: step back to the actions, as GoBack does, before the sheet can close.
+            // Escape steps back to the actions, matching system Back, before the sheet can close.
             shell.CancelChatActionCommand.Execute(null);
             e.Handled = true;
         }
@@ -215,6 +215,14 @@ public partial class MobileShellView : UserControl
     /// </summary>
     private void OnShellKeyDown(object? sender, KeyEventArgs e)
     {
+        if (!e.Handled && e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None && _topLevel is not null)
+        {
+            var back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            _topLevel.RaiseEvent(back);
+            e.Handled = back.Handled;
+            return;
+        }
+
         if (e.Handled
             || e.KeyModifiers is not (KeyModifiers.Control or KeyModifiers.Meta)
             || DataContext is not MobileShellViewModel { IsPaired: true } shell)
@@ -510,7 +518,7 @@ public partial class MobileShellView : UserControl
     private void OnBackRequested(object? sender, RoutedEventArgs e)
     {
         // The Android system back gesture must dismiss our own overlays before leaving the app.
-        if (DataContext is MobileShellViewModel { CanGoBack: true } shell)
+        if (!e.Handled && DataContext is MobileShellViewModel { CanGoBack: true } shell)
         {
             shell.GoBackCommand.Execute(null);
             e.Handled = true;

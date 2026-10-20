@@ -7,6 +7,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.Platform;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -3054,12 +3056,11 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Pump(window);
             Assert.True(SlideFadeEntrance.IsCompositedRunning(Required<StackPanel>(view, "SettingsContent")));
 
-            // Back from a place lands on the chat list, the app's home, with the chat kept beneath it.
+            // Returning to the conversation keeps its controls and reading position.
             shell.GoBackCommand.Execute(null);
             Pump(window);
             Assert.True(shell.IsChatPage);
-            Assert.True(shell.IsDrawerOpen);
-            shell.IsDrawerOpen = false;
+            Assert.False(shell.IsDrawerOpen);
             await Task.Delay(240);
             Pump(window);
             Assert.Same(answer, view.GetVisualDescendants().OfType<StrataMarkdown>()
@@ -3263,6 +3264,59 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(shell.IsChatActionsOpen);
         });
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task AndroidBackClosesTheViewerBeforeTheChatAndNativeEditorStaysBehindIt(bool native) =>
+        RunUiAsync(360, (shell, view, window) =>
+        {
+            shell.IsDrawerOpen = false;
+            var diagram = new StrataMermaid
+            {
+                Source = "flowchart LR\nA[Phone] --> B[Desktop]",
+                Height = 250,
+                VerticalAlignment = VerticalAlignment.Center,
+                Focusable = true
+            };
+            Required<Panel>(view, "Root").Children.Add(diagram);
+            PumpFrame(window);
+            var composer = Required<TextBox>(view, "PART_Input");
+            var nativeEditor = view.GetVisualDescendants().OfType<NativeComposerEditorHost>().FirstOrDefault();
+            if (native)
+                Assert.True(nativeEditor?.IsVisible);
+            else
+                Assert.NotNull(NativeTextInputOverlay.GetVisiblePlacement(composer, window));
+            var expand = Required<Button>(diagram, "PART_Expand");
+            Assert.True(expand.Bounds.Width >= 48 && expand.Bounds.Height >= 48);
+            Tap(window, expand);
+            PumpFrame(window);
+            Assert.True(StrataFullScreenOverlay.IsPresented(view));
+            Assert.Null(NativeTextInputOverlay.GetVisiblePlacement(composer, window));
+            if (native)
+                Assert.False(nativeEditor!.IsVisible);
+
+            // Android raises Back on the top level, not an Escape key on the focused viewer.
+            diagram.Focus();
+            var back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            window.RaiseEvent(back);
+            PumpFrame(window);
+            Assert.True(back.Handled);
+            Assert.False(StrataFullScreenOverlay.IsPresented(view));
+            Assert.Equal(MobilePage.Chat, shell.Page);
+            Assert.False(shell.IsDrawerOpen);
+            if (native)
+                Assert.True(nativeEditor!.IsVisible);
+            else
+                Assert.NotNull(NativeTextInputOverlay.GetVisiblePlacement(composer, window));
+
+            PressAndroidBack(window, shell);
+            Assert.True(shell.IsDrawerOpen);
+            back = new RoutedEventArgs(TopLevel.BackRequestedEvent);
+            window.RaiseEvent(back);
+            Assert.False(back.Handled, "Android can leave the app only after returning home.");
+            return Task.CompletedTask;
+        }, nativeFactory: native ? new FocusEditorFactory() : null);
+
     private static async Task PairAsync(MobileShellViewModel shell, FakeLumiDesktop desktop)
     {
         shell.Connect.ManualAddress = desktop.BaseUrl;
@@ -3350,14 +3404,10 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         Pump(window);
     }
 
-    // Android delivers Back as Escape to the focused element and raises BackRequested only when nothing handled it.
+    // The Android navigation manager raises this event directly on the top level.
     private static void PressAndroidBack(Window window, MobileShellViewModel shell)
     {
-        var target = window.FocusManager?.GetFocusedElement() as InputElement ?? window;
-        var args = new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape };
-        target.RaiseEvent(args);
-        if (!args.Handled && shell.CanGoBack)
-            shell.GoBackCommand.Execute(null);
+        window.RaiseEvent(new RoutedEventArgs(TopLevel.BackRequestedEvent));
         PumpFrame(window);
     }
 

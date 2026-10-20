@@ -54,6 +54,18 @@
     <Setter Property="Padding" Value="14,12" />
   </Style>
 
+  <Style Selector="sc|StrataMermaid /template/ Button,
+                   :is(sc|StrataMarkdown) Button.strata-md-image-expand,
+                   Button.strata-md-image-viewer-close,
+                   Button.strata-md-image-viewer-action">
+    <Setter Property="MinWidth" Value="48" />
+    <Setter Property="MinHeight" Value="48" />
+  </Style>
+
+  <Style Selector="sc|StrataMermaid /template/ TextBlock#PART_ZoomLabel">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+  </Style>
+
   <Style Selector="Button.nav-item">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />

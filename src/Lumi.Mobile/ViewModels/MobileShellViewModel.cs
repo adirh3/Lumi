@@ -151,6 +151,7 @@ public sealed partial class MobileShellViewModel :
     private long _lifecycleGeneration;
     private bool _isApplicationActive = true;
     private MobilePage _lastObservedPage = MobilePage.Chat;
+    private readonly Stack<PageNavigation> _pageHistory = new();
     private bool _chatActivationOwnsSubscription;
     private int _commandsInFlight;
 
@@ -497,14 +498,7 @@ public sealed partial class MobileShellViewModel :
                 });
         };
 
-        Library.CloseRequested += () =>
-        {
-            // Memories is a Settings page; the places' own lists step back to the chat list.
-            if (Library.Scope == LibraryScope.Memories)
-                Page = MobilePage.Settings;
-            else
-                ShowHome();
-        };
+        Library.CloseRequested += GoBack;
         Library.ScopeChanged += NotifyPlaceChanged;
         // A job's page opens the chat it runs in, as the desktop's job page does.
         Library.ChatRequested += (chatId, title) =>
@@ -1189,11 +1183,13 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void OpenSearch()
     {
+        var previous = CaptureNavigation();
         SearchChatList.ProjectFilterId = ChatList.ProjectFilterId;
         SearchChatList.SearchText = "";
         SearchChatList.Apply(ChatList.SnapshotLoadedGroups());
         Page = MobilePage.Search;
         IsDrawerOpen = false;
+        RememberNavigation(previous);
     }
 
     /// <summary>True only when the phone can actually reach a ready Lumi: link up AND host ready.</summary>
@@ -1403,13 +1399,15 @@ public sealed partial class MobileShellViewModel :
 
     /// <summary>
     /// Shows the chat list: docked beside the chat on a wide window, as the whole screen otherwise.
-    /// This is where the app opens and where Back from any other place returns.
+    /// This is where the app opens and where Back returns when there is no previous page.
     /// </summary>
     public void ShowHome()
     {
+        _pageHistory.Clear();
         Page = MobilePage.Chat;
         if (!CanDockDrawer && IsPaired)
             IsDrawerOpen = true;
+        OnPropertyChanged(nameof(CanGoBack));
     }
 
     private bool _isOpeningAtLaunch;
@@ -1454,9 +1452,11 @@ public sealed partial class MobileShellViewModel :
                 ShowLibraryScope(LibraryScope.Customize);
                 break;
             case MobilePlace.Settings:
+                var previous = CaptureNavigation();
                 SettingsSection = SettingsSection.None;
                 Page = MobilePage.Settings;
                 IsDrawerOpen = false;
+                RememberNavigation(previous);
                 break;
         }
     }
@@ -1467,10 +1467,12 @@ public sealed partial class MobileShellViewModel :
     /// </summary>
     private void ShowLibraryScope(LibraryScope scope)
     {
+        var previous = CaptureNavigation();
         Library.RequestScope(scope);
         Page = MobilePage.Library;
         IsDrawerOpen = false;
         NotifyPlaceChanged();
+        RememberNavigation(previous);
     }
 
     /// <summary>Memories is a page of Settings, kept with the Library editor that already serves it.</summary>
@@ -1670,11 +1672,51 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void ShowPage(string? page)
     {
+        var previous = CaptureNavigation();
         if (Enum.TryParse<MobilePage>(page, ignoreCase: true, out var parsed))
             Page = parsed;
 
         // Opening a page from the drawer must dismiss it, or the page arrives behind the drawer.
         IsDrawerOpen = false;
+        RememberNavigation(previous);
+    }
+
+    private readonly record struct PageNavigation(
+        MobilePage Page, LibraryScope Scope, SettingsSection SettingsSection, bool IsDrawerOpen,
+        Guid ChatId, string ChatTitle, string? Model);
+
+    private PageNavigation CaptureNavigation() =>
+        new(Page, Library.Scope, SettingsSection, IsDrawerOpen, Chat.ChatId, Chat.Title, Chat.Model);
+
+    private void RememberNavigation(PageNavigation previous)
+    {
+        if (previous.Page == Page && (Page != MobilePage.Library || previous.Scope == Library.Scope))
+            return;
+        _pageHistory.Push(previous);
+        OnPropertyChanged(nameof(CanGoBack));
+    }
+
+    private bool ReturnToPreviousPage()
+    {
+        if (!_pageHistory.TryPeek(out var previous))
+            return false;
+        if (previous.Page == MobilePage.Library && !Library.RequestScope(previous.Scope))
+            return true;
+
+        _pageHistory.Pop();
+        if (previous.Page == MobilePage.Chat && previous.ChatId != Chat.ChatId)
+        {
+            ChatList.SelectedChatId = previous.ChatId;
+            SearchChatList.SelectedChatId = previous.ChatId;
+            _ = ActivateChatAsync(previous.ChatId, previous.ChatTitle, previous.Model, rememberPage: false);
+        }
+        else
+            Page = previous.Page;
+        if (previous.Page == MobilePage.Settings)
+            SettingsSection = previous.SettingsSection;
+        IsDrawerOpen = previous.IsDrawerOpen && !CanDockDrawer;
+        OnPropertyChanged(nameof(CanGoBack));
+        return true;
     }
 
     /// <summary>Dismisses whatever is stacked over the conversation.</summary>
@@ -1714,15 +1756,18 @@ public sealed partial class MobileShellViewModel :
         if (Page == MobilePage.Chat && Chat.DismissTopmostSheet())
             return;
 
-        if (Page == MobilePage.Library && Library.Scope == LibraryScope.Memories)
-        {
-            Page = MobilePage.Settings;
-            return;
-        }
-
         if (Page == MobilePage.Settings && SettingsSection != SettingsSection.None && IsSinglePane)
         {
             SettingsSection = SettingsSection.None;
+            return;
+        }
+
+        if (ReturnToPreviousPage())
+            return;
+
+        if (Page == MobilePage.Library && Library.Scope == LibraryScope.Memories)
+        {
+            Page = MobilePage.Settings;
             return;
         }
 
@@ -1749,6 +1794,7 @@ public sealed partial class MobileShellViewModel :
         IsDisconnectConfirmationOpen ||
         IsChatActionsOpen ||
         IsProjectPickerOpen ||
+        _pageHistory.Count > 0 ||
         (Page == MobilePage.Library && Library.HasOpenSurface) ||
         (Page == MobilePage.Chat && (Chat.HasOpenSheet || Chat.HasSidePanelOpen)) ||
         HasPageOverlay ||
@@ -1791,6 +1837,8 @@ public sealed partial class MobileShellViewModel :
 
     partial void OnIsDrawerOpenChanged(bool value)
     {
+        if (value && Page == MobilePage.Chat)
+            _pageHistory.Clear();
         OnPropertyChanged(nameof(IsNavigationOpen));
         OnPropertyChanged(nameof(NavigationToggleLabel));
         OnPropertyChanged(nameof(IsDrawerOverlay));
@@ -2363,6 +2411,7 @@ public sealed partial class MobileShellViewModel :
         _sendReconciliationCandidates = [];
         Interlocked.Increment(ref _sendReconciliationVersion);
         _readWatermarks.Clear();
+        _pageHistory.Clear();
         ClearSnapshotSections();
         Client.Stats.Reset();
         // A new PC starts a fresh retry streak instead of inheriting the previous PC's give-up.
@@ -2806,8 +2855,10 @@ public sealed partial class MobileShellViewModel :
     private async Task ActivateChatAsync(
         Guid chatId,
         string title,
-        string? model)
+        string? model,
+        bool rememberPage = true)
     {
+        var previous = CaptureNavigation();
         // From this point on the phone owns navigation. A delayed/reconnect snapshot must not jump
         // away from either the selected chat or a deliberately blank New Chat surface.
         _canAdoptDesktopActiveChat = false;
@@ -2815,6 +2866,8 @@ public sealed partial class MobileShellViewModel :
         {
             Page = MobilePage.Chat;
             IsDrawerOpen = false;
+            if (rememberPage)
+                RememberNavigation(previous);
             await RefreshTranscriptAsync();
             return;
         }
@@ -2835,6 +2888,8 @@ public sealed partial class MobileShellViewModel :
             _chatActivationOwnsSubscription = false;
         }
         IsDrawerOpen = false;
+        if (rememberPage)
+            RememberNavigation(previous);
 
         // A blank chat has nothing on the PC yet — it is created on first send. Asking the desktop
         // to open Guid.Empty would fail, and flagging it as loading would spin forever.
