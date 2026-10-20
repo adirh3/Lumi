@@ -27,6 +27,49 @@ public sealed class RemoteEventSubscription
     public bool IncludeLibrary { get; set; }
     public bool CompactTranscript { get; set; }
     public bool IsForeground { get; set; } = true;
+
+    /// <summary>
+    /// Minimum time between event batches for this phone, in milliseconds. Zero keeps the desktop's
+    /// own cadence. Every batch is written with one flush, so a phone wakes once per batch rather
+    /// than once per frame.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int StreamIntervalMs { get; set; }
+
+    /// <summary>
+    /// The phone accepts chat-status frames that omit an unchanged plan
+    /// (<see cref="RemoteChatStatus.IsPlanOmitted"/>) or unchanged composer catalogs.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CompactStatus { get; set; }
+
+    /// <summary>The phone merges chat-list pushes, so the desktop may send only changed rows.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ChatRowPatches { get; set; }
+
+    /// <summary>True when every scope that decides what the desktop pushes matches.</summary>
+    public bool HasSameScope(RemoteEventSubscription other) =>
+        ChatId == other.ChatId
+        && IncludeChatList == other.IncludeChatList
+        && IncludeLibrary == other.IncludeLibrary
+        && CompactTranscript == other.CompactTranscript
+        && IsForeground == other.IsForeground
+        && StreamIntervalMs == other.StreamIntervalMs
+        && CompactStatus == other.CompactStatus
+        && ChatRowPatches == other.ChatRowPatches;
+
+    public RemoteEventSubscription Copy() => new()
+    {
+        Generation = Generation,
+        ChatId = ChatId,
+        IncludeChatList = IncludeChatList,
+        IncludeLibrary = IncludeLibrary,
+        CompactTranscript = CompactTranscript,
+        IsForeground = IsForeground,
+        StreamIntervalMs = StreamIntervalMs,
+        CompactStatus = CompactStatus,
+        ChatRowPatches = ChatRowPatches
+    };
 }
 
 /// <summary>What a Lumi desktop broadcasts over UDP so phones can find it.</summary>

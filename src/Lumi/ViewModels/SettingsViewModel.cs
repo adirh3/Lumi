@@ -23,6 +23,23 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public const int AiModelsPageIndex = 5;
     public const int AboutPageIndex = 7;
 
+    /// <summary>
+    /// Memories, listed under Profile in the Settings sidebar but shown by its own page (nav 5). It
+    /// takes the next free index so every existing page keeps the index other code relies on.
+    /// </summary>
+    public const int MemoriesPageIndex = 8;
+
+    // The Settings sidebar, top to bottom, as page indices: you, the app, then intelligence and
+    // connections, then data and Lumi itself.
+    private static readonly int[] SidebarPageOrder = [0, MemoriesPageIndex, 1, 3, 4, PermissionsPageIndex, AiModelsPageIndex, 2, 6, AboutPageIndex];
+
+    /// <summary>Row of a page in the Settings sidebar; -1 when it has none.</summary>
+    public static int SidebarPositionForPage(int pageIndex) => Array.IndexOf(SidebarPageOrder, pageIndex);
+
+    /// <summary>Page shown by a row of the Settings sidebar; -1 for no row.</summary>
+    public static int PageForSidebarPosition(int position)
+        => position >= 0 && position < SidebarPageOrder.Length ? SidebarPageOrder[position] : -1;
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
@@ -54,12 +71,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (IsSearching)
             SearchQuery = "";
 
+        PendingDangerAction = null;
+
         if (value == AboutPageIndex)
             ShouldAutoNavigateToUpdateCenter = false;
         else if (value == AiModelsPageIndex)
             _ = RefreshAuthStatusAsync();
+        else if (value == PermissionsPageIndex)
+            RefreshApprovalRules();
     }
 
+    // Indexed by page, so Memories (MemoriesPageIndex) and Permissions (PermissionsPageIndex) come
+    // last although the sidebar lists them under Profile and after Chat.
     public ObservableCollection<string> Pages { get; } =
     [
         Loc.Settings_Profile,
@@ -69,7 +92,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         Loc.Settings_Chat,
         Loc.Settings_AIModels,
         Loc.Settings_PrivacyData,
-        Loc.Settings_About
+        Loc.Settings_About,
+        Loc.Settings_Memories,
+        Loc.Get("Settings_Permissions")
     ];
 
     // ── General ──
@@ -80,6 +105,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _minimizeToTray;
     [ObservableProperty] private string _globalHotkey;
     [ObservableProperty] private bool _notificationsEnabled;
+    [ObservableProperty] private bool _offerCopiedCapabilities;
 
     // ── Appearance ──
     [ObservableProperty] private bool _isDarkTheme;
@@ -88,11 +114,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(UiScalePreviewPercent))]
     private int _uiScalePreviewLevelIndex;
-    [ObservableProperty] private bool _showAmbientPresence;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PreviewGlowOpacity))]
+    private bool _showAmbientPresence;
     [ObservableProperty] private bool _animatePresenceWhileWorking;
     [ObservableProperty] private bool _showAnimations;
     private bool _isSynchronizingUiScaleFromApplication;
-    private bool _isSynchronizingPresenceSettings;
+    private bool _isSynchronizingAppearance;
 
     public int UiScalePreviewPercent
         => UiScaleService.GetScalePercentAtLevelIndex(UiScalePreviewLevelIndex);
@@ -115,9 +143,15 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _showReasoning;
     [ObservableProperty] private bool _expandReasoningWhileStreaming;
     [ObservableProperty] private bool _autoGenerateTitles;
+    [ObservableProperty] private bool _suggestFollowUps;
 
     // ── AI & Models ──
-    [ObservableProperty] private string _preferredModel;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BackgroundModelStatus))]
+    private string _preferredModel;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BackgroundModelStatus))]
+    private string _backgroundModel;
     [ObservableProperty] private string _reasoningEffort;
     [ObservableProperty] private string[]? _qualityLevels;
     [ObservableProperty] private string? _selectedQuality;
@@ -131,13 +165,48 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, string> _modelDefaultEfforts = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
     public ObservableCollection<string> AvailableModels { get; } = [];
+    public ObservableCollection<string> AvailableBackgroundModels { get; } = [];
+    private GitHub.Copilot.ModelInfo? _automaticBackgroundModel;
+
+    public string? BackgroundModelStatus
+        => BackgroundModel != UserSettings.AutomaticBackgroundModel
+            ? null
+            : _copilotService.UsesExternalModel
+                ? string.Format(Loc.SettingStatus_BackgroundModelAuto,
+                    ChatViewModel.FormatModelDisplay(PreferredModel), "BYOK")
+            : UseBYOKOnly
+                ? Loc.SettingStatus_BackgroundModelByokOnly
+                : _automaticBackgroundModel is not { } model
+                    ? Loc.SettingStatus_BackgroundModelWaiting
+                    : string.Format(
+                        Loc.SettingStatus_BackgroundModelAuto,
+                        ChatViewModel.FormatModelDisplay(model.Id),
+                        CopilotService.GetModelTokenCost(model) is { } tokenCost
+                            ? string.Format(Loc.SettingStatus_BackgroundModelTokenCost, tokenCost)
+                            : ModelOptionCatalog.FormatCostMultiplier(CopilotService.GetModelCostMultiplier(model))
+                                ?? Loc.SettingStatus_BackgroundModelUnknownCost);
+    public ObservableCollection<ModelOption> ModelOptions { get; } = [];
+    private readonly Dictionary<string, ModelOptionMetadata> _modelOptionMetadata = new(StringComparer.OrdinalIgnoreCase);
 
     // ── BYOK (Bring Your Own Key) ──
     public ObservableCollection<ByokEndpoint> ByokEndpoints { get; } = [];
     public ObservableCollection<ByokModel> ByokModels { get; } = [];
+    public EasyConnectViewModel EasyConnect { get; }
 
     [ObservableProperty] private ByokEndpoint? _selectedByokEndpoint;
+    private readonly ByokEndpoint _emptyByokEditorEndpoint = new();
+    public ByokEndpoint ByokEditorEndpoint => SelectedByokEndpoint ?? _emptyByokEditorEndpoint;
     [ObservableProperty] private ByokModel? _selectedByokModel;
+    [ObservableProperty] private ByokModel? _editingByokModel = new();
+    [ObservableProperty] private bool _isByokModelEditorOpen;
+    [ObservableProperty] private bool _isEditingExistingByokModel;
+    [ObservableProperty] private string _editingByokSupportedReasoningEffortsText = "";
+    [ObservableProperty] private string[] _editingByokReasoningEffortOptions = [];
+    private bool _suppressByokModelEditorOpen;
+
+    public string ByokModelTokenLimitWarning => string.Join(
+        Environment.NewLine,
+        ByokConfigHelper.GetTokenLimitWarnings(EditingByokModel).Select(FormatByokTokenLimitWarning));
 
     [ObservableProperty] private string? _byokValidationMessage;
     [ObservableProperty] private bool _isByokValidationVisible;
@@ -186,7 +255,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     /// When on, Lumi only uses configured BYOK providers, disabling built-in Copilot
     /// authentication so no conversation content reaches GitHub's internal Copilot endpoints.
     /// </summary>
-    [ObservableProperty] private bool _useBYOKOnly;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BackgroundModelStatus))]
+    private bool _useBYOKOnly;
 
     // ── MCP ──
     [ObservableProperty]
@@ -239,6 +310,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             if (_loginVM is not null)
                 _loginVM.AuthenticationChanged -= OnLoginAuthChanged;
             _loginVM = value;
+            EasyConnect.LoginVM = value;
             if (_loginVM is not null)
                 _loginVM.AuthenticationChanged += OnLoginAuthChanged;
         }
@@ -259,6 +331,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _memoryCleanupStatus = "Memory cleanup has not run yet.";
     [ObservableProperty] private bool _autoSaveChats;
     [ObservableProperty] private string _browserCookieStatus = "";
+    [ObservableProperty] private BrowserCookieService.BrowserProfile? _cookieImportProfile;
+    [ObservableProperty] private string _cookieImportStatus = "";
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ImportBrowserCookiesCommand))]
+    private bool _isCookieImportInProgress;
+    [ObservableProperty] private bool _cookieImportSucceeded;
 
     // ── Language ──
     public ObservableCollection<string> LanguageOptions { get; } = new(
@@ -484,15 +562,20 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     /// <summary>Raised when the BYOK endpoint/model configuration changes. Consumers re-inject picker tokens and clear stale selections.</summary>
     public event Action? ByokConfigurationChanged;
 
+    /// <summary>Raised when the user asks to go through the welcome again; the shell opens it.</summary>
+    public event Action? ReplayWelcomeRequested;
+
+    [RelayCommand]
+    private void ReplayWelcome() => ReplayWelcomeRequested?.Invoke();
+
     public BrowserService BrowserService => _browserService;
 
     /// <summary>Global hotkey registration is Windows-only (Win32 RegisterHotKey), so the
     /// keyboard-shortcut settings group is hidden on Linux/macOS.</summary>
     public bool IsGlobalHotkeyAvailable => OperatingSystem.IsWindows();
 
-    /// <summary>The embedded WebView2 browser (and its cookie import) is Windows-only, so the
-    /// browser settings group is hidden on Linux/macOS.</summary>
-    public bool IsEmbeddedBrowserAvailable => OperatingSystem.IsWindows();
+    /// <summary>The embedded browser needs macOS 14+ for an isolated persistent profile.</summary>
+    public bool IsEmbeddedBrowserAvailable => NativeBrowserLogic.IsEmbeddedBrowserAvailable;
 
     public SettingsViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService, UpdateService updateService, Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null, McpProxyRuntime? mcpProxyRuntime = null)
     {
@@ -521,9 +604,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _minimizeToTray = s.MinimizeToTray;
         _globalHotkey = s.GlobalHotkey;
         _notificationsEnabled = s.NotificationsEnabled;
+        _offerCopiedCapabilities = s.OfferCopiedCapabilities;
 
         // Appearance
         _isDarkTheme = s.IsDarkTheme;
+        _followSystemTheme = s.FollowSystemTheme;
+        _accentColor = Lumi.Services.Appearance.AccentPalettes.Normalize(s.AccentColor);
+        _windowMaterial = Lumi.Services.Appearance.WindowMaterials.Normalize(s.WindowMaterial);
+        _presenceBrightness = NormalizePresenceBrightness(s.PresenceBrightness);
         _isCompactDensity = s.IsCompactDensity;
         _uiScalePercent = s.LegacyFontSize > 0
             ? UiScaleService.MigrateLegacyFontSize(s.LegacyFontSize)
@@ -542,9 +630,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _showReasoning = s.ShowReasoning;
         _expandReasoningWhileStreaming = s.ExpandReasoningWhileStreaming;
         _autoGenerateTitles = s.AutoGenerateTitles;
+        _suggestFollowUps = s.SuggestFollowUps;
+        InitializePermissions(s);
+        InitializeAppearanceOptions();
 
         // AI
         _preferredModel = s.PreferredModel;
+        _backgroundModel = CopilotService.NormalizeBackgroundModel(s.BackgroundModel);
         _reasoningEffort = s.ReasoningEffort;
         _contextWindowTier = string.IsNullOrWhiteSpace(s.ContextWindowTier)
             ? ModelContextWindowTiers.Default
@@ -562,6 +654,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         {
             AvailableModels.Add(byokToken);
         }
+        SyncAvailableBackgroundModels(AvailableModels.ToList());
         UpdateQualityLevels(_preferredModel);
         UpdateContextWindowTiers(_preferredModel);
 
@@ -613,41 +706,77 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         // Wire update status changes
         _updateService.StatusChanged += OnUpdateStatusChanged;
-        _dataStore.PresenceSettingsChanged += OnPresenceSettingsChanged;
+        _dataStore.AppearanceSettingsChanged += OnAppearanceSettingsChanged;
         ApplyUpdateStatus(_updateService.CurrentStatus);
+        EasyConnect = new EasyConnectViewModel(dataStore, copilotService,
+            _secureKeyStore ?? Lumi.Services.Byok.SecureKeyStoreFactory.Instance, OnEasyConnectSaved)
+        {
+            CopilotModels = () => AvailableModels.ToList()
+        };
+        AvailableModels.CollectionChanged += (_, _) =>
+        {
+            EasyConnect.NotifyCopilotModelsChanged();
+            RebuildModelOptions();
+        };
+        RebuildModelOptions();
+    }
+
+    partial void OnQuotaDisplayTextChanged(string? value)
+    {
+        if (EasyConnect is not null)
+            EasyConnect.GitHubUsage = value;
     }
 
     public void Dispose()
     {
+        EasyConnect.Dispose();
         _updateService.StatusChanged -= OnUpdateStatusChanged;
-        _dataStore.PresenceSettingsChanged -= OnPresenceSettingsChanged;
+        _dataStore.AppearanceSettingsChanged -= OnAppearanceSettingsChanged;
         DisposeRemoteState();
     }
 
-    private void OnPresenceSettingsChanged(
-        object? source,
-        bool showAmbientPresence,
-        bool animatePresenceWhileWorking)
+    private void OnEasyConnectSaved()
+    {
+        var settings = _dataStore.Data.Settings;
+        SelectedByokEndpoint = null;
+        SelectedByokModel = null;
+        ByokEndpoints.Clear();
+        foreach (var endpoint in settings.ByokEndpoints)
+            ByokEndpoints.Add(endpoint);
+        ByokModels.Clear();
+        foreach (var model in settings.ByokModels)
+            ByokModels.Add(model);
+        PreferredModel = settings.PreferredModel;
+        UseBYOKOnly = settings.UseBYOKOnly;
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
+
+    // Another Settings window changed a look setting that every window shares; this one shows it.
+    private void OnAppearanceSettingsChanged(object? source)
     {
         if (ReferenceEquals(source, this))
             return;
 
         if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                OnPresenceSettingsChanged(source, showAmbientPresence, animatePresenceWhileWorking));
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => OnAppearanceSettingsChanged(source));
             return;
         }
 
-        _isSynchronizingPresenceSettings = true;
+        var settings = _dataStore.Data.Settings;
+        _isSynchronizingAppearance = true;
         try
         {
-            ShowAmbientPresence = showAmbientPresence;
-            AnimatePresenceWhileWorking = animatePresenceWhileWorking;
+            ShowAmbientPresence = settings.ShowAmbientPresence;
+            AnimatePresenceWhileWorking = settings.AnimatePresenceWhileWorking;
+            PresenceBrightness = settings.PresenceBrightness;
+            AccentColor = settings.AccentColor;
+            WindowMaterial = settings.WindowMaterial;
         }
         finally
         {
-            _isSynchronizingPresenceSettings = false;
+            _isSynchronizingAppearance = false;
         }
         NotifyModified();
     }
@@ -813,8 +942,15 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     // ── Auto-save on every property change + notify IsModified ──
 
-    partial void OnUserNameChanged(string value) { _dataStore.Data.Settings.UserName = value.Trim(); Save(); }
-    partial void OnUserSexIndexChanged(int value) { _dataStore.Data.Settings.UserSex = value switch { 0 => "male", 1 => "female", _ => null }; Save(); }
+    partial void OnUserNameChanged(string value) { _dataStore.Data.Settings.UserName = value.Trim(); Save(); NotifyProfileChanged(); }
+    partial void OnUserSexIndexChanged(int value)
+    {
+        _dataStore.Data.Settings.UserSex = value switch { 0 => "male", 1 => "female", _ => null };
+        Save();
+        OnPropertyChanged(nameof(IsSexMale));
+        OnPropertyChanged(nameof(IsSexFemale));
+        OnPropertyChanged(nameof(IsSexUnspecified));
+    }
     partial void OnLaunchAtStartupChanged(bool value) { _dataStore.Data.Settings.LaunchAtStartup = value; Save(); Views.MainWindow.ApplyLaunchAtStartup(value); NotifyModified(); }
     partial void OnStartMinimizedChanged(bool value) { _dataStore.Data.Settings.StartMinimized = value; Save(); NotifyModified(); }
     partial void OnMinimizeToTrayChanged(bool value)
@@ -834,9 +970,26 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             app.UpdateGlobalHotkey(value);
     }
     partial void OnNotificationsEnabledChanged(bool value) { _dataStore.Data.Settings.NotificationsEnabled = value; Save(); NotifyModified(); }
+    partial void OnOfferCopiedCapabilitiesChanged(bool value) { _dataStore.Data.Settings.OfferCopiedCapabilities = value; Save(); NotifyModified(); }
 
-    partial void OnIsDarkThemeChanged(bool value) { _dataStore.Data.Settings.IsDarkTheme = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
-    partial void OnIsCompactDensityChanged(bool value) { _dataStore.Data.Settings.IsCompactDensity = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+    partial void OnIsDarkThemeChanged(bool value)
+    {
+        // Choosing light or dark anywhere (Settings, the welcome tour) stops following the system.
+        if (!_isApplyingSystemTheme)
+        {
+            _dataStore.Data.Settings.FollowSystemTheme = false;
+            if (FollowSystemTheme)
+                FollowSystemTheme = false;
+        }
+
+        _dataStore.Data.Settings.IsDarkTheme = value;
+        Save();
+        SettingsChanged?.Invoke();
+        RefreshAccentSwatches();
+        NotifyThemeSelectionChanged();
+        NotifyModified();
+    }
+    partial void OnIsCompactDensityChanged(bool value) { _dataStore.Data.Settings.IsCompactDensity = value; Save(); SettingsChanged?.Invoke(); OnPropertyChanged(nameof(IsComfortableDensity)); NotifyModified(); }
     partial void OnUiScalePercentChanged(int value)
     {
         if (_isSynchronizingUiScaleFromApplication)
@@ -876,36 +1029,37 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnShowAmbientPresenceChanged(bool value)
     {
-        if (_isSynchronizingPresenceSettings)
+        if (_isSynchronizingAppearance)
             return;
 
         AmbientPresenceChanged?.Invoke(value);
         _dataStore.Data.Settings.ShowAmbientPresence = value;
-        _dataStore.NotifyPresenceSettingsChanged(this);
+        _dataStore.NotifyAppearanceSettingsChanged(this);
         Save();
         SettingsChanged?.Invoke();
         NotifyModified();
     }
     partial void OnAnimatePresenceWhileWorkingChanged(bool value)
     {
-        if (_isSynchronizingPresenceSettings)
+        if (_isSynchronizingAppearance)
             return;
 
         PresenceAnimationChanged?.Invoke(value);
         _dataStore.Data.Settings.AnimatePresenceWhileWorking = value;
-        _dataStore.NotifyPresenceSettingsChanged(this);
+        _dataStore.NotifyAppearanceSettingsChanged(this);
         Save();
         SettingsChanged?.Invoke();
         NotifyModified();
     }
     partial void OnShowAnimationsChanged(bool value) { _dataStore.Data.Settings.ShowAnimations = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); NeedsRestart = true; }
 
-    partial void OnSendWithEnterChanged(bool value) { _dataStore.Data.Settings.SendWithEnter = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+    partial void OnSendWithEnterChanged(bool value) { _dataStore.Data.Settings.SendWithEnter = value; Save(); SettingsChanged?.Invoke(); OnPropertyChanged(nameof(IsSendWithCtrlEnter)); NotifyModified(); }
     partial void OnShowTimestampsChanged(bool value) { _dataStore.Data.Settings.ShowTimestamps = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnShowToolCallsChanged(bool value) { _dataStore.Data.Settings.ShowToolCalls = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnShowReasoningChanged(bool value) { _dataStore.Data.Settings.ShowReasoning = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnExpandReasoningWhileStreamingChanged(bool value) { _dataStore.Data.Settings.ExpandReasoningWhileStreaming = value; Save(); NotifyModified(); }
     partial void OnAutoGenerateTitlesChanged(bool value) { _dataStore.Data.Settings.AutoGenerateTitles = value; Save(); NotifyModified(); }
+    partial void OnSuggestFollowUpsChanged(bool value) { _dataStore.Data.Settings.SuggestFollowUps = value; Save(); NotifyModified(); }
     partial void OnGlobalCustomInstructionsChanged(string value)
     {
         _dataStore.Data.Settings.GlobalCustomInstructions = value;
@@ -965,9 +1119,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var selectedModelId = modelId ?? PreferredModel;
+        var effectiveEffort = preferredEffort;
+        if (string.IsNullOrWhiteSpace(effectiveEffort)
+            && Lumi.Services.ByokConfigHelper.IsByokModel(selectedModelId)
+            && _modelDefaultEfforts.TryGetValue(selectedModelId!, out var byokDefaultEffort))
+        {
+            effectiveEffort = byokDefaultEffort;
+        }
+
         var display = ModelSelectionHelper.ResolveSelectedQualityDisplay(
-            preferredEffort ?? (string.IsNullOrWhiteSpace(ReasoningEffort) ? null : ReasoningEffort),
-            modelId ?? PreferredModel,
+            effectiveEffort ?? (string.IsNullOrWhiteSpace(ReasoningEffort) ? null : ReasoningEffort),
+            selectedModelId,
             _modelReasoningEfforts,
             _modelDefaultEfforts);
 
@@ -1019,12 +1182,28 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         UpdateQualityLevels(value);
         UpdateContextWindowTiers(value);
         var resolvedEffort = GetSelectedReasoningEffort() ?? string.Empty;
-        if (ReasoningEffort != resolvedEffort)
+        if (!Lumi.Services.ByokConfigHelper.IsByokModel(value) && ReasoningEffort != resolvedEffort)
         {
             ReasoningEffort = resolvedEffort;
             return;
         }
 
+        Save();
+        NotifyModified();
+    }
+
+    partial void OnBackgroundModelChanged(string value)
+    {
+        var normalized = CopilotService.NormalizeBackgroundModel(value);
+        if (value != normalized)
+        {
+            BackgroundModel = normalized;
+            return;
+        }
+
+        _dataStore.Data.Settings.BackgroundModel = normalized;
+        if (!AvailableBackgroundModels.Contains(normalized))
+            AvailableBackgroundModels.Add(normalized);
         Save();
         NotifyModified();
     }
@@ -1099,7 +1278,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         _dataStore.Data.Settings.UseBYOKOnly = value;
         // Keep the CopilotService chokepoint in sync with the live flag.
-        _copilotService.SetSettingsProvider(() => _dataStore.Data.Settings);
+        _copilotService.SetSettingsProvider(() => _dataStore.Data.Settings, _secureKeyStore);
         Save();
         NotifyModified();
     }
@@ -1118,11 +1297,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(model))
             return;
 
-        var normalizedEffort = ModelSelectionHelper.NormalizeEffort(
-            reasoningEffort,
-            model,
-            _modelReasoningEfforts,
-            _modelDefaultEfforts) ?? string.Empty;
+        var normalizedEffort = Lumi.Services.ByokConfigHelper.IsByokModel(model)
+            ? reasoningEffort ?? string.Empty
+            : ModelSelectionHelper.NormalizeEffort(
+                reasoningEffort,
+                model,
+                _modelReasoningEfforts,
+                _modelDefaultEfforts) ?? string.Empty;
 
         if (PreferredModel != model)
             PreferredModel = model;
@@ -1137,9 +1318,20 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public void UpdateAvailableModels(System.Collections.Generic.List<string> models)
     {
         ModelSelectionHelper.SyncAvailableModels(AvailableModels, models, PreferredModel);
+        SyncAvailableBackgroundModels(models);
         UpdateQualityLevels(PreferredModel);
         UpdateContextWindowTiers(PreferredModel);
+        RebuildModelOptions();
     }
+
+    private void SyncAvailableBackgroundModels(IReadOnlyList<string> models)
+        => ModelSelectionHelper.SyncAvailableModels(
+            AvailableBackgroundModels,
+            [UserSettings.AutomaticBackgroundModel, .. models],
+            BackgroundModel);
+
+    private void RebuildModelOptions()
+        => ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
 
     /// <summary>
     /// Asks the Copilot service for a fresher model catalog. Bound to the preferred-model picker so
@@ -1149,6 +1341,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task RefreshModelCatalogAsync()
     {
+        RebuildModelOptions();
         try
         {
             await _copilotService.RefreshModelCatalogAsync().ConfigureAwait(false);
@@ -1161,12 +1354,55 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     public void UpdateModelCapabilities(
         List<GitHub.Copilot.ModelInfo> models,
-        IReadOnlySet<string>? longContextModelIds = null)
+        IReadOnlySet<string>? longContextModelIds = null,
+        bool merge = false)
     {
-        ModelSelectionHelper.ApplyModelCapabilities(models, _modelReasoningEfforts, _modelDefaultEfforts);
-        _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+        if (!merge)
+        {
+            var automaticModelId = CopilotService.SelectCheapestModelId(models);
+            _automaticBackgroundModel = models.FirstOrDefault(model => model.Id == automaticModelId);
+            OnPropertyChanged(nameof(BackgroundModelStatus));
+        }
+
+        if (merge)
+        {
+            foreach (var id in _modelOptionMetadata.Keys.Where(ByokConfigHelper.IsByokModel).ToList())
+                _modelOptionMetadata.Remove(id);
+        }
+        else
+            _modelOptionMetadata.Clear();
+        foreach (var (id, metadata) in ModelOptionCatalog.BuildMetadata(models))
+            _modelOptionMetadata[id] = metadata;
+        if (merge)
+        {
+            foreach (var modelId in _modelReasoningEfforts.Keys
+                         .Where(Lumi.Services.ByokConfigHelper.IsByokModel)
+                         .ToList())
+                _modelReasoningEfforts.Remove(modelId);
+            foreach (var modelId in _modelDefaultEfforts.Keys
+                         .Where(Lumi.Services.ByokConfigHelper.IsByokModel)
+                         .ToList())
+                _modelDefaultEfforts.Remove(modelId);
+
+            var mergedLongContextIds = CopyModelIdSet(
+                _modelsWithLongContext.Where(static id => !Lumi.Services.ByokConfigHelper.IsByokModel(id)));
+            if (longContextModelIds is not null)
+                mergedLongContextIds.UnionWith(longContextModelIds);
+            _modelsWithLongContext = mergedLongContextIds;
+        }
+        else
+        {
+            _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+        }
+
+        ModelSelectionHelper.ApplyModelCapabilities(
+            models,
+            _modelReasoningEfforts,
+            _modelDefaultEfforts,
+            replaceExisting: !merge);
         UpdateQualityLevels(PreferredModel);
         UpdateContextWindowTiers(PreferredModel);
+        RebuildModelOptions();
     }
 
     private static HashSet<string> CopyModelIdSet(IEnumerable<string>? modelIds)
@@ -1247,6 +1483,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         var copy = new ByokEndpoint
         {
             Id = Guid.NewGuid().ToString("N"),
+            ConnectionProviderId = source.ConnectionProviderId,
+            CredentialExpiresAt = source.CredentialExpiresAt,
+            Account = source.Account?.Clone(),
             Name = source.Name + " (copy)",
             ProviderType = source.ProviderType,
             BaseUrl = source.BaseUrl,
@@ -1280,13 +1519,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Closes the model editor without deleting the model: simply deselects it so the
-    /// detail panel collapses. Pending edits are already persisted to the data store.
+    /// Discards the model draft and closes the editor without changing persisted settings.
     /// </summary>
     [RelayCommand]
     private void CloseByokModel()
     {
-        SelectedByokModel = null;
+        IsByokModelEditorOpen = false;
+        EditingByokModel = new ByokModel();
+        EditingByokSupportedReasoningEffortsText = "";
+        EditingByokReasoningEffortOptions = [];
+        IsEditingExistingByokModel = false;
+        if (SelectedByokModel is not null)
+            SelectedByokModel = null;
     }
 
     [RelayCommand]
@@ -1318,21 +1562,16 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             DisplayName = Loc.Settings_Byok_ModelName,
             IsEnabled = true,
         };
-        ByokModels.Add(model);
-        SelectedByokModel = model;
-        SyncByokToDataStore();
-        Save();
-        NotifyModified();
-        ByokConfigurationChanged?.Invoke();
+        BeginByokModelEdit(model, isNew: true);
     }
 
     [RelayCommand]
     private void DeleteByokModel()
     {
         var model = SelectedByokModel;
-        if (model is null) return;
+        if (!IsEditingExistingByokModel || model is null) return;
         ByokModels.Remove(model);
-        SelectedByokModel = null;
+        CloseByokModel();
         SyncByokToDataStore();
         Save();
         NotifyModified();
@@ -1342,27 +1581,146 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void DuplicateByokModel()
     {
-        var source = SelectedByokModel;
+        var source = EditingByokModel ?? SelectedByokModel;
         if (source is null) return;
 
-        var copy = new ByokModel
+        var copy = CloneByokModel(source);
+        copy.SupportedReasoningEfforts = ParseReasoningEfforts(EditingByokSupportedReasoningEffortsText);
+        copy.Id = Guid.NewGuid().ToString("N");
+        copy.DisplayName += " (copy)";
+        BeginByokModelEdit(copy, isNew: true);
+    }
+
+    [RelayCommand]
+    private void SaveByokModel()
+    {
+        var draft = EditingByokModel;
+        if (draft is null)
+            return;
+
+        draft.SupportedReasoningEfforts = ParseReasoningEfforts(EditingByokSupportedReasoningEffortsText);
+        ByokConfigHelper.NormalizeModel(draft);
+
+        if (IsEditingExistingByokModel
+            && SelectedByokModel is { } existing
+            && string.Equals(existing.Id, draft.Id, StringComparison.Ordinal))
         {
-            Id = Guid.NewGuid().ToString("N"),
-            EndpointId = source.EndpointId,
-            ModelId = source.ModelId,
-            DisplayName = source.DisplayName + " (copy)",
-            IsEnabled = source.IsEnabled,
-            // Carry over advanced inference/rate-limit settings so a duplicate is a true clone.
-            MaxOutputTokens = source.MaxOutputTokens,
-            MaxPromptTokens = source.MaxPromptTokens,
-            MaxRequestsPerMinute = source.MaxRequestsPerMinute,
-        };
-        ByokModels.Add(copy);
-        SelectedByokModel = copy;
+            CopyByokModel(existing, draft);
+        }
+        else
+        {
+            ByokModels.Add(draft);
+            _suppressByokModelEditorOpen = true;
+            try
+            {
+                SelectedByokModel = draft;
+            }
+            finally
+            {
+                _suppressByokModelEditorOpen = false;
+            }
+        }
+
         SyncByokToDataStore();
         Save();
         NotifyModified();
+        IsByokModelEditorOpen = false;
+        EditingByokModel = new ByokModel();
+        EditingByokSupportedReasoningEffortsText = "";
+        EditingByokReasoningEffortOptions = [];
+        IsEditingExistingByokModel = false;
+        SelectedByokModel = null;
         ByokConfigurationChanged?.Invoke();
+    }
+
+    partial void OnEditingByokSupportedReasoningEffortsTextChanged(string value)
+        => EditingByokReasoningEffortOptions = ParseReasoningEfforts(value).ToArray();
+
+    private void BeginByokModelEdit(ByokModel model, bool isNew)
+    {
+        EditingByokModel = CloneByokModel(model);
+        IsEditingExistingByokModel = !isNew;
+        EditingByokSupportedReasoningEffortsText = string.Join(", ", EditingByokModel.SupportedReasoningEfforts);
+        SelectedByokEndpoint = null;
+        IsByokModelEditorOpen = true;
+    }
+
+    partial void OnEditingByokModelChanging(ByokModel? oldValue, ByokModel? newValue)
+    {
+        if (oldValue is not null)
+            oldValue.PropertyChanged -= OnEditingByokModelPropertyChanged;
+        if (newValue is not null)
+            newValue.PropertyChanged += OnEditingByokModelPropertyChanged;
+    }
+
+    partial void OnEditingByokModelChanged(ByokModel? value)
+        => OnPropertyChanged(nameof(ByokModelTokenLimitWarning));
+
+    private void OnEditingByokModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ByokModel.DefaultContextWindowTokens)
+            or nameof(ByokModel.LongContextWindowTokens)
+            or nameof(ByokModel.MaxPromptTokens)
+            or nameof(ByokModel.MaxOutputTokens))
+        {
+            OnPropertyChanged(nameof(ByokModelTokenLimitWarning));
+        }
+    }
+
+    private static string FormatByokTokenLimitWarning(ByokTokenLimitWarning warning)
+        => warning.Kind switch
+        {
+            ByokTokenLimitWarningKind.LongContextWindowBelowDefault =>
+                Loc.Get("Settings_Byok_WarningLongContextBelowDefault"),
+            ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow =>
+                Loc.Get(
+                    "Settings_Byok_WarningTokenBudgetExceedsContextWindow",
+                    warning.ConfiguredTokenBudget ?? 0,
+                    string.Equals(warning.ContextTier, ModelContextWindowTiers.LongContext, StringComparison.Ordinal)
+                        ? Loc.Get("Settings_Byok_LongContextTier")
+                        : Loc.Get("Settings_Byok_DefaultContextTier"),
+                    warning.ContextWindowTokens ?? 0),
+            _ => string.Empty
+        };
+
+    private static List<string> ParseReasoningEfforts(string? value)
+        => (value ?? "")
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static ByokModel CloneByokModel(ByokModel model)
+        => new()
+        {
+            Id = model.Id,
+            EndpointId = model.EndpointId,
+            ModelId = model.ModelId,
+            DisplayName = model.DisplayName,
+            IsEnabled = model.IsEnabled,
+            SupportsReasoningEffort = model.SupportsReasoningEffort,
+            SupportedReasoningEfforts = model.SupportedReasoningEfforts?.ToList() ?? [],
+            DefaultReasoningEffort = model.DefaultReasoningEffort,
+            DefaultContextWindowTokens = model.DefaultContextWindowTokens,
+            LongContextWindowTokens = model.LongContextWindowTokens,
+            MaxOutputTokens = model.MaxOutputTokens,
+            MaxPromptTokens = model.MaxPromptTokens,
+            MaxRequestsPerMinute = model.MaxRequestsPerMinute,
+        };
+
+    private static void CopyByokModel(ByokModel target, ByokModel source)
+    {
+        target.EndpointId = source.EndpointId;
+        target.ModelId = source.ModelId;
+        target.DisplayName = source.DisplayName;
+        target.IsEnabled = source.IsEnabled;
+        target.SupportsReasoningEffort = source.SupportsReasoningEffort;
+        target.SupportedReasoningEfforts = source.SupportedReasoningEfforts.ToList();
+        target.DefaultReasoningEffort = source.DefaultReasoningEffort;
+        target.DefaultContextWindowTokens = source.DefaultContextWindowTokens;
+        target.LongContextWindowTokens = source.LongContextWindowTokens;
+        target.MaxOutputTokens = source.MaxOutputTokens;
+        target.MaxPromptTokens = source.MaxPromptTokens;
+        target.MaxRequestsPerMinute = source.MaxRequestsPerMinute;
     }
 
     /// <summary>
@@ -1380,6 +1738,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedByokEndpointChanged(ByokEndpoint? value)
     {
+        OnPropertyChanged(nameof(ByokEditorEndpoint));
         // Unsubscribe from the old endpoint's property changes.
         if (_subscribedByokEndpoint is not null)
             _subscribedByokEndpoint.PropertyChanged -= OnSelectedByokEndpointPropertyChanged;
@@ -1585,35 +1944,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ByokConfigurationChanged?.Invoke();
     }
 
-    private ByokModel? _subscribedByokModel;
-
     partial void OnSelectedByokModelChanged(ByokModel? value)
     {
-        if (_subscribedByokModel is not null)
-            _subscribedByokModel.PropertyChanged -= OnSelectedByokModelPropertyChanged;
-
-        _subscribedByokModel = value;
-
-        if (_subscribedByokModel is not null)
-            _subscribedByokModel.PropertyChanged += OnSelectedByokModelPropertyChanged;
-
-        // Keep the endpoint dropdown in sync with the selected model so editing a model in the
-        // UI immediately shows which endpoint it belongs to. Without this, the dropdown keeps
-        // showing the previously-selected endpoint, which is confusing when you open a model
-        // belonging to a different endpoint.
-        var desiredEndpoint = value is null
-            ? null
-            : ByokEndpoints.FirstOrDefault(e => e.Id == value.EndpointId);
-        if (!ReferenceEquals(desiredEndpoint, SelectedByokEndpoint))
-            SelectedByokEndpoint = desiredEndpoint;
-    }
-
-    private void OnSelectedByokModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        SyncByokToDataStore();
-        Save();
-        NotifyModified();
-        ByokConfigurationChanged?.Invoke();
+        if (value is not null && !_suppressByokModelEditorOpen)
+            BeginByokModelEdit(value, isNew: false);
     }
 
     [RelayCommand]
@@ -1713,9 +2047,11 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             var remaining = snapshot.RemainingPercentage;
 
             if (total > 0)
-                QuotaDisplayText = $"{used:N0} / {total:N0} requests ({remaining:N0}% remaining)";
+                QuotaDisplayText = string.Format(System.Globalization.CultureInfo.CurrentCulture,
+                    Loc.Get("Settings_QuotaRequests"), used, total, remaining);
             else
-                QuotaDisplayText = $"{remaining:N0}% remaining";
+                QuotaDisplayText = string.Format(System.Globalization.CultureInfo.CurrentCulture,
+                    Loc.Get("Settings_QuotaRemaining"), remaining);
         }
         catch
         {
@@ -1735,7 +2071,11 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsMinimizeToTrayModified => MinimizeToTray != _defaults.MinimizeToTray;
     public bool IsGlobalHotkeyModified => GlobalHotkey != _defaults.GlobalHotkey;
     public bool IsNotificationsEnabledModified => NotificationsEnabled != _defaults.NotificationsEnabled;
-    public bool IsDarkThemeModified => IsDarkTheme != _defaults.IsDarkTheme;
+    public bool IsOfferCopiedCapabilitiesModified => OfferCopiedCapabilities != _defaults.OfferCopiedCapabilities;
+    public bool IsThemeModified => IsDarkTheme != _defaults.IsDarkTheme || FollowSystemTheme != _defaults.FollowSystemTheme;
+    public bool IsAccentColorModified => AccentColor != _defaults.AccentColor;
+    public bool IsWindowMaterialModified => WindowMaterial != _defaults.WindowMaterial;
+    public bool IsPresenceBrightnessModified => PresenceBrightness != _defaults.PresenceBrightness;
     public bool IsCompactDensityModified => IsCompactDensity != _defaults.IsCompactDensity;
     public bool IsUiScaleModified => UiScalePercent != _defaults.UiScalePercent;
     public bool IsShowAmbientPresenceModified => ShowAmbientPresence != _defaults.ShowAmbientPresence;
@@ -1747,10 +2087,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsShowReasoningModified => ShowReasoning != _defaults.ShowReasoning;
     public bool IsExpandReasoningWhileStreamingModified => ExpandReasoningWhileStreaming != _defaults.ExpandReasoningWhileStreaming;
     public bool IsAutoGenerateTitlesModified => AutoGenerateTitles != _defaults.AutoGenerateTitles;
+    public bool IsSuggestFollowUpsModified => SuggestFollowUps != _defaults.SuggestFollowUps;
+
     public bool IsDefaultModelSelectionModified => PreferredModel != _defaults.PreferredModel
         || ReasoningEffort != _defaults.ReasoningEffort
         || ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsPreferredModelModified=> PreferredModel != _defaults.PreferredModel;
+    public bool IsBackgroundModelModified => BackgroundModel != _defaults.BackgroundModel;
     public bool IsReasoningEffortModified => ReasoningEffort != _defaults.ReasoningEffort;
     public bool IsGlobalCustomInstructionsModified => GlobalCustomInstructions != _defaults.GlobalCustomInstructions;
     public bool IsUseMcpProxyModified => UseMcpProxy != _defaults.UseMcpProxy;
@@ -1768,7 +2111,11 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsMinimizeToTrayModified));
         OnPropertyChanged(nameof(IsGlobalHotkeyModified));
         OnPropertyChanged(nameof(IsNotificationsEnabledModified));
-        OnPropertyChanged(nameof(IsDarkThemeModified));
+        OnPropertyChanged(nameof(IsOfferCopiedCapabilitiesModified));
+        OnPropertyChanged(nameof(IsThemeModified));
+        OnPropertyChanged(nameof(IsAccentColorModified));
+        OnPropertyChanged(nameof(IsWindowMaterialModified));
+        OnPropertyChanged(nameof(IsPresenceBrightnessModified));
         OnPropertyChanged(nameof(IsCompactDensityModified));
         OnPropertyChanged(nameof(IsUiScaleModified));
         OnPropertyChanged(nameof(IsShowAmbientPresenceModified));
@@ -1780,8 +2127,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsShowReasoningModified));
         OnPropertyChanged(nameof(IsExpandReasoningWhileStreamingModified));
         OnPropertyChanged(nameof(IsAutoGenerateTitlesModified));
+        OnPropertyChanged(nameof(IsSuggestFollowUpsModified));
+        OnPropertyChanged(nameof(IsDefaultApprovalModeModified));
+        OnPropertyChanged(nameof(IsAwayApprovalBehaviorModified));
+        OnPropertyChanged(nameof(IsAppearanceCustomized));
         OnPropertyChanged(nameof(IsDefaultModelSelectionModified));
         OnPropertyChanged(nameof(IsPreferredModelModified));
+        OnPropertyChanged(nameof(IsBackgroundModelModified));
         OnPropertyChanged(nameof(IsReasoningEffortModified));
         OnPropertyChanged(nameof(IsGlobalCustomInstructionsModified));
         OnPropertyChanged(nameof(IsUseMcpProxyModified));
@@ -1816,7 +2168,11 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertMinimizeToTray() => MinimizeToTray = _defaults.MinimizeToTray;
     [RelayCommand] private void RevertGlobalHotkey() => GlobalHotkey = _defaults.GlobalHotkey;
     [RelayCommand] private void RevertNotificationsEnabled() => NotificationsEnabled = _defaults.NotificationsEnabled;
-    [RelayCommand] private void RevertIsDarkTheme() => IsDarkTheme = _defaults.IsDarkTheme;
+    [RelayCommand] private void RevertOfferCopiedCapabilities() => OfferCopiedCapabilities = _defaults.OfferCopiedCapabilities;
+    [RelayCommand] private void RevertTheme() => SelectTheme(_defaults.IsDarkTheme ? "dark" : "light");
+    [RelayCommand] private void RevertAccentColor() => AccentColor = _defaults.AccentColor;
+    [RelayCommand] private void RevertWindowMaterial() => WindowMaterial = _defaults.WindowMaterial;
+    [RelayCommand] private void RevertPresenceBrightness() => PresenceBrightness = _defaults.PresenceBrightness;
     [RelayCommand] private void RevertIsCompactDensity() => IsCompactDensity = _defaults.IsCompactDensity;
     [RelayCommand] private void RevertUiScale() => UiScalePercent = _defaults.UiScalePercent;
     [RelayCommand] private void RevertShowAmbientPresence() => ShowAmbientPresence = _defaults.ShowAmbientPresence;
@@ -1828,6 +2184,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertShowReasoning() => ShowReasoning = _defaults.ShowReasoning;
     [RelayCommand] private void RevertExpandReasoningWhileStreaming() => ExpandReasoningWhileStreaming = _defaults.ExpandReasoningWhileStreaming;
     [RelayCommand] private void RevertAutoGenerateTitles() => AutoGenerateTitles = _defaults.AutoGenerateTitles;
+    [RelayCommand] private void RevertSuggestFollowUps() => SuggestFollowUps = _defaults.SuggestFollowUps;
+
     [RelayCommand]
     private void RevertDefaultModelSelection()
     {
@@ -1835,6 +2193,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ReasoningEffort = _defaults.ReasoningEffort;
         ContextWindowTier = _defaults.ContextWindowTier;
     }
+    [RelayCommand] private void RevertBackgroundModel() => BackgroundModel = _defaults.BackgroundModel;
     [RelayCommand] private void RevertGlobalCustomInstructions() => GlobalCustomInstructions = _defaults.GlobalCustomInstructions;
     [RelayCommand] private void RevertUseMcpProxy() => UseMcpProxy = _defaults.UseMcpProxy;
     [RelayCommand] private void RevertUseLazyMcpInitialization() => UseLazyMcpInitialization = _defaults.UseLazyMcpInitialization;
@@ -1868,7 +2227,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private void Save() => _ = _dataStore.SaveAsync();
 
-    [RelayCommand]
+    // Destructive: only reached through ConfirmDangerAction, after the user confirms.
     private void ClearAllChats()
     {
         _dataStore.Data.Chats.Clear();
@@ -1877,7 +2236,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         SettingsChanged?.Invoke();
     }
 
-    [RelayCommand]
     private void ClearAllMemories()
     {
         _dataStore.Data.Memories.Clear();
@@ -1911,6 +2269,47 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private void ImportBrowserCookiesAgain()
     {
         CookieImportDialogRequested?.Invoke();
+    }
+
+    private bool CanImportBrowserCookies(BrowserCookieService.BrowserProfile? profile)
+        => profile is not null && !IsCookieImportInProgress;
+
+    [RelayCommand(CanExecute = nameof(CanImportBrowserCookies))]
+    private async Task ImportBrowserCookiesAsync(BrowserCookieService.BrowserProfile? profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        CookieImportSucceeded = false;
+        IsCookieImportInProgress = true;
+        CookieImportStatus = "Importing cookies...";
+        try
+        {
+            var count = await BrowserService.ImportCookiesAsync(profile).WaitAsync(TimeSpan.FromSeconds(45));
+            if (count <= 0)
+            {
+                CookieImportStatus = "No cookies imported. Close the selected browser and try again.";
+                BrowserCookieStatus = CookieImportStatus;
+                return;
+            }
+
+            CookieImportStatus = $"Imported {count:N0} cookies!";
+            MarkCookiesImported();
+            await Task.Delay(1000);
+            CookieImportSucceeded = true;
+        }
+        catch (TimeoutException)
+        {
+            CookieImportStatus = "Cookie import timed out. Close the browser and try again.";
+            BrowserCookieStatus = CookieImportStatus;
+        }
+        catch (Exception ex)
+        {
+            CookieImportStatus = $"Error: {ex.Message}";
+            BrowserCookieStatus = CookieImportStatus;
+        }
+        finally
+        {
+            IsCookieImportInProgress = false;
+        }
     }
 
     public void MarkCookiesImported()
@@ -1960,18 +2359,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         MinimizeToTray = defaults.MinimizeToTray;
         GlobalHotkey = defaults.GlobalHotkey;
         NotificationsEnabled = defaults.NotificationsEnabled;
-        IsDarkTheme = defaults.IsDarkTheme;
-        IsCompactDensity = defaults.IsCompactDensity;
-        UiScalePercent = defaults.UiScalePercent;
-        ShowAmbientPresence = defaults.ShowAmbientPresence;
-        AnimatePresenceWhileWorking = defaults.AnimatePresenceWhileWorking;
-        ShowAnimations = defaults.ShowAnimations;
+        OfferCopiedCapabilities = defaults.OfferCopiedCapabilities;
+        ResetAppearance();
         SendWithEnter = defaults.SendWithEnter;
         ShowTimestamps = defaults.ShowTimestamps;
         ShowToolCalls = defaults.ShowToolCalls;
         ShowReasoning = defaults.ShowReasoning;
+        ExpandReasoningWhileStreaming = defaults.ExpandReasoningWhileStreaming;
         AutoGenerateTitles = defaults.AutoGenerateTitles;
+        SuggestFollowUps = defaults.SuggestFollowUps;
+        ResetPermissions(defaults);
         PreferredModel = defaults.PreferredModel;
+        BackgroundModel = defaults.BackgroundModel;
         ReasoningEffort = defaults.ReasoningEffort;
         UseMcpProxy = defaults.UseMcpProxy;
         UseLazyMcpInitialization = defaults.UseLazyMcpInitialization;

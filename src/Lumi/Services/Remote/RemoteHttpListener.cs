@@ -543,7 +543,11 @@ internal sealed class RemoteHttpContext
             Encoding.UTF8.GetBytes(json),
             cancellationToken,
             allowCompression: true,
-            new Dictionary<string, string> { ["Cache-Control"] = "no-store" });
+            new Dictionary<string, string>
+            {
+                ["Cache-Control"] = "no-store",
+                [RemoteProtocol.ServerResponseHeader] = RemoteProtocol.ServerResponseValue
+            });
 
     public Task WriteTextAsync(string text, CancellationToken cancellationToken, int status = 200) =>
         WriteAsync(

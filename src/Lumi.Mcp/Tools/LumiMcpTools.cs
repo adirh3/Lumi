@@ -58,11 +58,11 @@ public sealed class LumiMcpTools
             ("targetAppDataDir", targetAppDataDir ?? appDataDir)));
 
     [McpServerTool(Name = "lumi_navigate")]
-    [Description("Navigate Lumi to a top-level page such as chat, jobs, projects, skills, lumis, memories, mcp, or settings.")]
+    [Description("Navigate Lumi to a top-level page such as chat, jobs, projects, settings, memories (a Settings page), library, or a Customize section: discover, lumis, skills, mcp.")]
     public Task<string> Navigate(
         [Description("Page name to navigate to.")] string? page = null,
         [Description("Optional numeric page index from the debug map.")] int? index = null,
-        [Description("Optional settings subpage: profile, general, appearance, chat, models, privacy, about.")] string? settingsPage = null,
+        [Description("Optional settings subpage: profile, memories, general, appearance, chat, models, privacy, about.")] string? settingsPage = null,
         [Description("Optional debug bridge instance id to target.")] string? targetInstanceId = null,
         [Description("Optional Lumi app/debug bridge process id to target.")] int? targetProcessId = null)
         => InvokeAsync("lumi_navigate", Args(

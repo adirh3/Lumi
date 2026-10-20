@@ -12,6 +12,63 @@ namespace Lumi.Tests;
 public sealed class LumiFeatureManagerTests
 {
     [Fact]
+    public void UpdateMcp_RedactedPlaceholderKeepsTheSavedCredential()
+    {
+        var server = new McpServer
+        {
+            Name = "GitHub",
+            Command = "npx",
+            Env = new() { ["GITHUB_TOKEN"] = "saved-credential", ["LOG_LEVEL"] = "info" },
+        };
+        var data = new AppData { McpServers = [server] };
+        var manager = new LumiFeatureManager(new DataStore(data));
+
+        var updated = manager.ManageMcps(
+            "update",
+            identifier: "GitHub",
+            envEntries: ["github_token=[REDACTED]", "LOG_LEVEL=debug", "NODE_OPTIONS=--max-old-space-size=4096"]);
+
+        Assert.True(updated.DataChanged);
+        // Kept under its saved name: environment variable names are case-sensitive on Linux and macOS.
+        Assert.Equal("saved-credential", server.Env["GITHUB_TOKEN"]);
+        Assert.DoesNotContain("github_token", server.Env.Keys);
+        Assert.Equal("debug", server.Env["LOG_LEVEL"]);
+        Assert.Equal("--max-old-space-size=4096", server.Env["NODE_OPTIONS"]);
+
+        var rejected = manager.ManageMcps("update", identifier: "GitHub", envEntries: ["MISSING_KEY=<REDACTED>"]);
+
+        Assert.False(rejected.DataChanged);
+        Assert.Contains("MISSING_KEY", rejected.Message, StringComparison.Ordinal);
+        Assert.Equal("saved-credential", server.Env["GITHUB_TOKEN"]);
+    }
+
+    [Fact]
+    public void UpdateMcp_RefusesAPlaceholderThatWouldReplaceASavedValue()
+    {
+        var server = new McpServer
+        {
+            Name = "Docs",
+            Command = "npx",
+            Args = ["-y", "docs-mcp", "--token", "saved-argument-credential"],
+            Env = new() { ["API_KEY"] = "saved-credential" },
+        };
+        var manager = new LumiFeatureManager(new DataStore(new AppData { McpServers = [server] }));
+
+        foreach (var update in new[]
+                 {
+                     manager.ManageMcps("update", identifier: "Docs", args: ["-y", "docs-mcp@2", "--token", "<REDACTED>"]),
+                     manager.ManageMcps("update", identifier: "Docs", envEntries: ["API_KEY=Bearer [REDACTED]"]),
+                 })
+        {
+            Assert.False(update.DataChanged);
+            Assert.Contains("placeholder", update.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.Equal(["-y", "docs-mcp", "--token", "saved-argument-credential"], server.Args);
+        Assert.Equal("saved-credential", server.Env["API_KEY"]);
+    }
+
+    [Fact]
     public void SkillResults_IdentifyOnlyTheCreatedUpdatedOrListedSkills()
     {
         var data = new AppData();

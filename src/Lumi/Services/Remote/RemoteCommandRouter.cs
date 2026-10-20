@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
+using StrataTheme.Controls;
 using Lumi.Models;
 using Lumi.Localization;
 using Lumi.Remote.Protocol;
@@ -66,6 +68,7 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.SendMessage => await SendMessageAsync(command, cancellationToken),
             RemoteProtocol.Actions.StopGeneration => await StopGenerationAsync(command),
             RemoteProtocol.Actions.AnswerQuestion => await AnswerQuestionAsync(command),
+            RemoteProtocol.Actions.UpdateInteraction => await UpdateInteractionAsync(command, cancellationToken),
             RemoteProtocol.Actions.ConfigureChat => await ConfigureChatAsync(command),
             RemoteProtocol.Actions.ConfigureFeature => await ConfigureFeatureAsync(command),
             _ => Fail($"Unknown remote action '{command.Action}'.")
@@ -244,7 +247,7 @@ internal sealed class RemoteCommandRouter
         return Success(chat.IsPinned ? "Chat pinned." : "Chat unpinned.", chat.Id);
     }
 
-    private async Task<RemoteCommandResult> SendMessageAsync(RemoteCommand command, CancellationToken cancellationToken)
+    private async Task<RemoteCommandResult> SendMessageAsync(RemoteCommand command, CancellationToken cancellationToken, InteractionReceipt? interactionReceipt = null)
     {
         if (command.Get("message") is not { Length: > 0 } message)
             return Fail("message is required.");
@@ -300,6 +303,9 @@ internal sealed class RemoteCommandRouter
                 return Fail("Lumi could not open that chat.", chat.Id);
             if (owner.CurrentChat?.Id != chat.Id)
                 return Fail("Lumi could not activate that chat's surface.", chat.Id);
+
+            if (chat.IsPaused)
+                return Fail(Loc.Get("Chat_PausedSendBlocked"), chat.Id);
 
             if (owner.IsExternalSendReserved(chat.Id))
                 return Fail("That chat is already starting a turn.", chat.Id);
@@ -465,7 +471,8 @@ internal sealed class RemoteCommandRouter
                         reservedProjectId,
                         reservedProjectDirectory,
                         command.AuthenticatedDeviceId,
-                        command.RequestId)
+                        command.RequestId,
+                        interactionReceipt)
                     .ConfigureAwait(true)
                 : await StartInjectedMessageAsync().ConfigureAwait(true);
 
@@ -576,6 +583,62 @@ internal sealed class RemoteCommandRouter
             : Fail(error, chat.Id);
     }
 
+    private async Task<RemoteCommandResult> UpdateInteractionAsync(RemoteCommand command, CancellationToken cancellationToken)
+    {
+        if (ResolveExplicitChat(command) is not { } chat)
+            return Fail("chatId must identify an existing chat.");
+        if (!Guid.TryParse(command.Get("messageId"), out var messageId)
+            || command.Get("blockId") is not { Length: > 0 } blockId
+            || command.Get("state") is not { Length: > 0 } stateJson)
+            return Fail("messageId, blockId, and state are required.", chat.Id);
+
+        try
+        {
+            await _dataStore.LoadChatMessagesAsync(chat, cancellationToken).ConfigureAwait(true);
+            var owner = TryResolveRegisteredOwner(chat.Id);
+            if ((owner?.FindInteractionMessage(chat, messageId) ?? chat.Messages.FirstOrDefault(message => message.Id == messageId))
+                is not { } message)
+                return Fail("That answer is no longer in this chat.", chat.Id);
+            if (message.ToolName == "ask_input")
+            {
+                if (owner is null)
+                    return Fail("This input request has ended. Ask Lumi again to continue.", chat.Id);
+                var inputResult = await owner.RequestInputInteractionAsync(
+                    chat, message, blockId, stateJson, command.Get("action")).ConfigureAwait(true);
+                return inputResult.Accepted ? Success("Inputs received.", chat.Id) : Fail(inputResult.Error!, chat.Id);
+            }
+            var updated = InteractiveResponseState.Update(message, blockId, stateJson);
+            _dataStore.MarkChatChanged(chat);
+            owner?.RefreshInteractionState(messageId);
+            await SaveInteractionChatAsync(chat, cancellationToken).ConfigureAwait(true);
+            var action = command.Get("action");
+            if (string.IsNullOrEmpty(action))
+                return Success("Interaction saved.", chat.Id);
+            var text = InteractiveSubmission.Build(updated.Definition, updated.State, action);
+            var receipt = InteractiveResponseState.CreateReceipt(message, updated.Definition, updated.State, action, Loc.Culture.Name);
+            var result = await SendMessageAsync(
+                command.With("message", text).With("newChat", "false").With("steer", "false").With("stopAndSend", "false"),
+                cancellationToken, receipt).ConfigureAwait(true);
+            if (result.Ok)
+            {
+                InteractiveResponseState.Acknowledge(message, blockId, action, updated.State);
+                _dataStore.MarkChatChanged(chat);
+                TryResolveRegisteredOwner(chat.Id)?.RefreshInteractionState(messageId);
+                await SaveInteractionChatAsync(chat, cancellationToken).ConfigureAwait(true);
+            }
+            return result;
+        }
+        catch (Exception error) when (error is FormatException or JsonException or IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("[RemoteInteractiveResponse] {0}", error);
+            return Fail(error.Message, chat.Id);
+        }
+    }
+
+    /// <summary>Interaction edits follow the desktop's Auto-Save Chats setting.</summary>
+    private Task SaveInteractionChatAsync(Chat chat, CancellationToken cancellationToken) =>
+        _dataStore.Data.Settings.AutoSaveChats ? _dataStore.SaveChatAsync(chat, cancellationToken) : Task.CompletedTask;
+
     private async Task<RemoteCommandResult> AnswerQuestionAsync(RemoteCommand command)
     {
         if (command.Get("questionId") is not { Length: > 0 } questionId)
@@ -641,10 +704,24 @@ internal sealed class RemoteCommandRouter
         AgentSelection agentSelection)
     {
         var applied = new List<string>();
+        var setupChat = command.GetBool("useChatSetup") == true
+                        && chatVm.CurrentChat is { Messages.Count: 0 } emptyChat
+            ? emptyChat
+            : null;
+        if (setupChat is not null)
+        {
+            chatVm.ApplyModelSelection(
+                command.Get("model") ?? chatVm.SelectedModel,
+                command.Get("quality") ?? command.Get("reasoningEffort") ?? chatVm.SelectedQuality,
+                command.Get("contextWindowTier") ?? chatVm.SelectedContextWindowTier);
+        }
 
         if (command.Get("model") is { Length: > 0 } model)
         {
-            chatVm.SelectedModel = model;
+            if (setupChat is not null)
+                setupChat.LastModelUsed = model;
+            else
+                chatVm.SelectedModel = model;
             applied.Add("model");
         }
 
@@ -652,13 +729,21 @@ internal sealed class RemoteCommandRouter
         // catalogs, which would otherwise clobber a value applied in the same request.
         if ((command.Get("quality") ?? command.Get("reasoningEffort")) is { Length: > 0 } quality)
         {
-            chatVm.SelectedQuality = quality;
+            if (setupChat is not null)
+                setupChat.LastReasoningEffortUsed =
+                    chatVm.NormalizeReasoningEffortFor(chatVm.SelectedModel, quality);
+            else
+                chatVm.SelectedQuality = quality;
             applied.Add("quality");
         }
 
         if (command.Get("contextWindowTier") is { Length: > 0 } tier)
         {
-            chatVm.SelectedContextWindowTier = tier;
+            if (setupChat is not null)
+                setupChat.LastContextWindowTierUsed =
+                    chatVm.NormalizeContextWindowTierFor(chatVm.SelectedModel, tier);
+            else
+                chatVm.SelectedContextWindowTier = tier;
             applied.Add("context window");
         }
 
@@ -676,7 +761,7 @@ internal sealed class RemoteCommandRouter
 
         if (projectSelection.IsSpecified)
         {
-            if (chatVm.CurrentChat is { } chat)
+            if (chatVm.CurrentChat is { } chat && chat.ProjectId != projectSelection.ProjectId)
             {
                 chat.ProjectId = projectSelection.ProjectId;
                 _dataStore.MarkChatChanged(chat);

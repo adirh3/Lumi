@@ -13,11 +13,6 @@ using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
-public sealed record SessionActivityItem(string Id, string Title, string Kind, string Detail, string Elapsed)
-{
-    public bool HasDetail => !string.IsNullOrEmpty(Detail);
-}
-
 /// <summary>
 /// Honest UI for background shells. When the agent launches an <c>async</c> shell and ends its turn,
 /// the SDK reports the <em>tool call</em> as completed within a fraction of a second while the OS
@@ -28,8 +23,9 @@ public sealed record SessionActivityItem(string Id, string Title, string Kind, s
 /// This monitor keeps the picture truthful: it polls the authoritative Tasks API for the displayed
 /// chat's session, marks the matching terminal card as "Running in background" (live pulse + elapsed
 /// clock), streams the live output tail onto the card, and replaces the bottom status line with a
-/// specific "Running in background · elapsed" readout. The same task snapshot supplies the compact
-/// activity list, including agents and client-owned tasks. Cards resolve when their shell finishes.
+/// specific "Running in background · elapsed" readout. The same task snapshot supplies the activity
+/// list — commands, agents and client-owned tasks, each with what it is doing right now — and links
+/// each agent to its run so the list can open it. Cards resolve when their shell finishes.
 /// </summary>
 public partial class ChatViewModel
 {
@@ -44,17 +40,72 @@ public partial class ChatViewModel
 
     private void ResetBackgroundActivityItems()
     {
-        RunningSessionActivities = [];
+        if (RunningSessionActivities.Count > 0)
+        {
+            RunningSessionActivities.Clear();
+            OnPropertyChanged(nameof(HasRunningSessionActivities));
+        }
+
         BackgroundActivityNotice = Loc.Get("Chat_BackgroundActivityLoading");
     }
 
     internal void ApplyBackgroundActivitySnapshot(IEnumerable<TaskInfo> tasks, DateTimeOffset now)
     {
-        var items = BuildBackgroundActivityItems(tasks, now);
-        if (!RunningSessionActivities.SequenceEqual(items))
-            RunningSessionActivities = items;
-        BackgroundActivityNotice = items.Count == 0 ? Loc.Get("Chat_BackgroundActivityEmpty") : null;
+        SyncRunningSessionActivities(BuildBackgroundActivityItems(tasks, now));
+
+        // Re-linked on every snapshot: a run can appear after its task does, and a transcript rebuild
+        // replaces every run instance.
+        foreach (var item in RunningSessionActivities)
+        {
+            if (item.Kind == SessionActivityKind.Agent)
+                item.Run = _transcriptBuilder.FindSubagentRun(item.ToolCallId);
+        }
+
+        BackgroundActivityNotice = RunningSessionActivities.Count == 0 ? Loc.Get("Chat_BackgroundActivityEmpty") : null;
     }
+
+    /// <summary>Patches the list to the snapshot's tasks and order, keeping each task's row instance.</summary>
+    private void SyncRunningSessionActivities(IReadOnlyList<SessionActivityItem> snapshot)
+    {
+        var items = RunningSessionActivities;
+        var hadItems = items.Count > 0;
+        var wanted = new HashSet<string>(snapshot.Select(item => item.Id), StringComparer.Ordinal);
+        for (var i = items.Count - 1; i >= 0; i--)
+        {
+            if (!wanted.Contains(items[i].Id))
+                items.RemoveAt(i);
+        }
+
+        for (var i = 0; i < snapshot.Count; i++)
+        {
+            var next = snapshot[i];
+            var existing = -1;
+            for (var j = i; j < items.Count; j++)
+            {
+                if (string.Equals(items[j].Id, next.Id, StringComparison.Ordinal))
+                {
+                    existing = j;
+                    break;
+                }
+            }
+
+            if (existing < 0)
+            {
+                items.Insert(i, next);
+                continue;
+            }
+
+            if (existing != i)
+                items.Move(existing, i);
+            items[i].UpdateFrom(next);
+        }
+
+        if (hadItems != items.Count > 0)
+            OnPropertyChanged(nameof(HasRunningSessionActivities));
+    }
+
+    private SessionActivityItem? FindSessionActivity(string id)
+        => RunningSessionActivities.FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.Ordinal));
 
     internal static IReadOnlyList<SessionActivityItem> BuildBackgroundActivityItems(
         IEnumerable<TaskInfo> tasks,
@@ -62,32 +113,62 @@ public partial class ChatViewModel
     {
         return tasks.Select(task => task switch
         {
-            TaskInfoShell shell when IsRunningBackgroundShell(shell) => Create(
-                shell.Id, Loc.Get("Chat_BackgroundCommand"),
-                string.IsNullOrWhiteSpace(shell.Description) ? shell.Command : shell.Description,
-                shell.Command, shell.StartedAt),
-            TaskInfoAgent agent when agent.Status == GitHub.Copilot.Rpc.TaskStatus.Running => Create(
-                agent.Id, Loc.Get("Chat_BackgroundAgent"),
-                string.IsNullOrWhiteSpace(agent.DisplayName) ? agent.Description : agent.DisplayName,
-                agent.Description, agent.ActiveStartedAt ?? agent.StartedAt),
-            TaskInfoClient client when client.Status == TaskClientStatus.Running => Create(
-                client.Id, Loc.Get("Chat_BackgroundTask"),
-                string.IsNullOrWhiteSpace(client.DisplayName) ? client.Description : client.DisplayName,
-                client.Description, client.ActiveStartedAt ?? client.StartedAt),
+            TaskInfoShell shell when IsRunningBackgroundShell(shell) => CreateCommandActivity(shell, now),
+            TaskInfoAgent agent when agent.Status == GitHub.Copilot.Rpc.TaskStatus.Running => CreateAgentActivity(agent, now),
+            TaskInfoClient client when client.Status == TaskClientStatus.Running => CreateClientActivity(client, now),
             _ => null
         }).OfType<SessionActivityItem>().ToArray();
-
-        SessionActivityItem Create(string id, string kind, string? title, string? detail, DateTimeOffset startedAt)
-        {
-            title = string.IsNullOrWhiteSpace(title) ? kind : title.Trim();
-            detail = detail?.Trim() ?? string.Empty;
-            return new SessionActivityItem(
-                id, title, kind, detail == title ? string.Empty : detail,
-                FormatCompactElapsed(now - startedAt));
-        }
     }
 
-    private static async Task StopRemainingSessionTasksAsync(CopilotSession session, ChatRuntimeState runtime)
+    private static SessionActivityItem CreateCommandActivity(TaskInfoShell shell, DateTimeOffset now)
+    {
+        var kind = Loc.Get("Chat_BackgroundCommand");
+        var command = TrimmedOrNull(shell.Command);
+        var title = TrimmedOrNull(shell.Description) ?? command ?? kind;
+        return new SessionActivityItem(shell.Id, SessionActivityKind.Command)
+        {
+            Title = title,
+            Owner = kind,
+            Detail = command is not null && command != title ? command : "",
+            StartedAt = ClampActivityStart(shell.StartedAt, now),
+        };
+    }
+
+    private static SessionActivityItem CreateAgentActivity(TaskInfoAgent agent, DateTimeOffset now)
+    {
+        var owner = TrimmedOrNull(agent.DisplayName) ?? TrimmedOrNull(agent.AgentType) ?? Loc.Get("Chat_BackgroundAgent");
+        return new SessionActivityItem(agent.Id, SessionActivityKind.Agent)
+        {
+            ToolCallId = TrimmedOrNull(agent.ToolCallId),
+            Title = TrimmedOrNull(agent.Description) ?? owner,
+            Owner = owner,
+            Detail = FormatModelDisplay(TrimmedOrNull(agent.ResolvedModel) ?? TrimmedOrNull(agent.Model)) ?? "",
+            StartedAt = ClampActivityStart(agent.ActiveStartedAt ?? agent.StartedAt, now),
+        };
+    }
+
+    private static SessionActivityItem CreateClientActivity(TaskInfoClient client, DateTimeOffset now)
+    {
+        var kind = Loc.Get("Chat_BackgroundTask");
+        var description = TrimmedOrNull(client.Description);
+        var title = TrimmedOrNull(client.DisplayName) ?? description ?? kind;
+        return new SessionActivityItem(client.Id, SessionActivityKind.Task)
+        {
+            Title = title,
+            Owner = kind,
+            Detail = description is not null && description != title ? description : "",
+            StartedAt = ClampActivityStart(client.ActiveStartedAt ?? client.StartedAt, now),
+        };
+    }
+
+    private static string? TrimmedOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>A start reported slightly ahead of this clock reads as just started, never negative.</summary>
+    private static DateTimeOffset ClampActivityStart(DateTimeOffset startedAt, DateTimeOffset now)
+        => startedAt > now ? now : startedAt;
+
+    private static async Task StopRemainingSessionTasksAsync(
+        CopilotSession session, ChatRuntimeState runtime, bool confirmStopped = false)
     {
         // session.abort stops the agent loop, but intentionally leaves attached shells alive.
         var tasks = await session.Rpc.Tasks.ListAsync();
@@ -102,6 +183,13 @@ public partial class ChatViewModel
                 if (remaining.Tasks.Any(task => GetRunningTaskId(task) == id))
                     throw new InvalidOperationException($"Copilot could not stop background task {id}.");
             }
+        }
+
+        if (confirmStopped)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while ((await session.Rpc.Tasks.ListAsync(timeout.Token)).Tasks.Any(task => GetRunningTaskId(task) is not null))
+                await Task.Delay(100, timeout.Token);
         }
 
         static string? GetRunningTaskId(TaskInfo task) => task switch
@@ -339,29 +427,55 @@ public partial class ChatViewModel
                     toolCallId = _trackedBackgroundShells.Values
                         .FirstOrDefault(t => t.ShellId == shell.Id)?.RootToolCallId;
                 toolCallId ??= _transcriptBuilder.FindTerminalToolCallIdByCommand(command, claimedToolCallIds);
-                if (toolCallId is null)
-                    continue;
 
-                claimedToolCallIds.Add(toolCallId);
-
-                if (!_trackedBackgroundShells.TryGetValue(toolCallId, out var tracked))
+                if (toolCallId is not null)
                 {
-                    tracked = new TrackedBackgroundShell
-                    {
-                        RootToolCallId = toolCallId,
-                        Command = command,
-                        StartedUtc = shell.StartedAt.UtcDateTime,
-                    };
-                    _trackedBackgroundShells[toolCallId] = tracked;
-                }
-                tracked.ShellId = shell.Id;
+                    claimedToolCallIds.Add(toolCallId);
 
-                RememberRunningBackgroundShell(toolCallId, shell.StartedAt);
-                _transcriptBuilder.SetTerminalRunningInBackground(toolCallId, true, startedUtc: shell.StartedAt);
-                await UpdateBackgroundShellOutputAsync(session, chat, shell, toolCallId);
+                    if (!_trackedBackgroundShells.TryGetValue(toolCallId, out var tracked))
+                    {
+                        tracked = new TrackedBackgroundShell
+                        {
+                            RootToolCallId = toolCallId,
+                            Command = command,
+                            StartedUtc = shell.StartedAt.UtcDateTime,
+                        };
+                        _trackedBackgroundShells[toolCallId] = tracked;
+                    }
+                    tracked.ShellId = shell.Id;
+
+                    RememberRunningBackgroundShell(toolCallId, shell.StartedAt);
+                    _transcriptBuilder.SetTerminalRunningInBackground(toolCallId, true, startedUtc: shell.StartedAt);
+                }
+
+                // One progress read feeds both the shell's activity row and its terminal card.
+                var progress = await TryGetTaskProgressAsync(session, shell.Id);
+                if (!ReferenceEquals(_activeSession, session) || CurrentChat?.Id != chat.Id)
+                    return;
+
+                FindSessionActivity(shell.Id)?.ApplyProgress(progress);
+                if (toolCallId is not null
+                    && progress is TaskProgressShell { RecentOutput: { } recentOutput }
+                    && !string.IsNullOrWhiteSpace(recentOutput))
+                {
+                    var output = recentOutput.TrimEnd();
+                    ApplyTerminalOutputAndNotify(chat, toolCallId, output, replaceExistingOutput: true);
+                    _transcriptBuilder.UpdateTerminalOutput(toolCallId, output, true);
+                }
             }
 
-            // The final per-shell await may also have spanned a chat switch; re-check before mutating
+            // Agents and client-owned tasks report what they are doing through the same progress API. A
+            // linked agent's row is its run, which session events already keep live.
+            foreach (var item in RunningSessionActivities.Where(item => !item.IsCommand && !item.HasRun).ToList())
+            {
+                var progress = await TryGetTaskProgressAsync(session, item.Id);
+                if (!ReferenceEquals(_activeSession, session) || CurrentChat?.Id != chat.Id)
+                    return;
+
+                item.ApplyProgress(progress);
+            }
+
+            // The final per-task await may also have spanned a chat switch; re-check before mutating
             // completion / status state so a stale poll cannot complete or restyle another chat's cards.
             if (!ReferenceEquals(_activeSession, session) || CurrentChat?.Id != chat.Id)
                 return;
@@ -375,7 +489,7 @@ public partial class ChatViewModel
                     CompleteBackgroundShell(tracked);
             }
 
-            UpdateBackgroundStatusLine(chat.Id, runningShells);
+            UpdateBackgroundStatusLine(chat.Id);
 
             var runtime = GetOrCreateRuntimeState(chat.Id);
             if (_trackedBackgroundShells.Count == 0 && !HasRunningSessionActivities && !runtime.HasPendingBackgroundWork)
@@ -392,26 +506,19 @@ public partial class ChatViewModel
            && shell.ExecutionMode is { } mode
            && mode == TaskExecutionMode.Background;
 
-    private async Task UpdateBackgroundShellOutputAsync(
-        CopilotSession session,
-        Chat chat,
-        TaskInfoShell shell,
-        string toolCallId)
+    /// <summary>
+    /// Best-effort live progress: a transient failure returns null so rows and cards keep their last
+    /// known state instead of blanking between polls.
+    /// </summary>
+    private static async Task<TaskProgress?> TryGetTaskProgressAsync(CopilotSession session, string taskId)
     {
         try
         {
-            var progress = await session.Rpc.Tasks.GetProgressAsync(shell.Id, CancellationToken.None);
-            if (progress.Progress is TaskProgressShell shellProgress
-                && !string.IsNullOrWhiteSpace(shellProgress.RecentOutput))
-            {
-                var output = shellProgress.RecentOutput.TrimEnd();
-                ApplyTerminalOutputAndNotify(chat, toolCallId, output, replaceExistingOutput: true);
-                _transcriptBuilder.UpdateTerminalOutput(toolCallId, output, true);
-            }
+            return (await session.Rpc.Tasks.GetProgressAsync(taskId, CancellationToken.None)).Progress;
         }
         catch
         {
-            // Best-effort live tail; ignore transient progress failures.
+            return null;
         }
     }
 
@@ -437,21 +544,16 @@ public partial class ChatViewModel
     }
 
     /// <summary>Background lifetime is shown independently of the assistant's typing status.</summary>
-    private void UpdateBackgroundStatusLine(Guid chatId, IReadOnlyList<TaskInfoShell> runningShells)
+    private void UpdateBackgroundStatusLine(Guid chatId)
     {
-        if (runningShells.Count == 0)
-        {
-            if (CurrentChat?.Id == chatId)
-                BackgroundActivityText = Loc.Get("Chat_BackgroundActivity");
+        if (CurrentChat?.Id != chatId)
             return;
-        }
 
-        var earliest = runningShells.Min(static s => s.StartedAt.UtcDateTime);
-        var elapsed = DateTime.UtcNow - earliest;
-        var text = string.Format(Loc.Status_BackgroundRunning, FormatCompactElapsed(elapsed));
-
-        if (CurrentChat?.Id == chatId)
-            BackgroundActivityText = text;
+        BackgroundActivityText = RunningSessionActivities.Count == 0
+            ? Loc.Get("Chat_BackgroundActivity")
+            : string.Format(
+                Loc.Status_BackgroundRunning,
+                FormatCompactElapsed(DateTimeOffset.UtcNow - RunningSessionActivities.Min(static item => item.StartedAt)));
     }
 
     /// <summary>Compact, human-friendly elapsed readout: "8s", "1m 04s", "1h 12m".</summary>

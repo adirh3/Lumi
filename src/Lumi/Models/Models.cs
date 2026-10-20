@@ -59,6 +59,14 @@ public class ChatMessage
     /// status. Null while it is still running, or when its start was never observed.
     /// </summary>
     public double? ToolDurationMs { get; set; }
+
+    /// <summary>
+    /// The agent's plan right after this <c>sql</c> call changed it, read back from the session's todos
+    /// table (<c>session.todos_changed</c>), as a <c>todoList</c> JSON array of titles and statuses. Null
+    /// for every other message; a call that carries it shows as a plan update instead of a query.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PlanSnapshot { get; set; }
     public Guid? LinkedChatId { get; set; }
     public string? LinkedChatTitle { get; set; }
     public string? QuestionId { get; set; }
@@ -66,7 +74,37 @@ public class ChatMessage
     public string? QuestionOptions { get; set; }
     public bool? QuestionAllowFreeText { get; set; }
     public bool? QuestionAllowMultiSelect { get; set; }
+    /// <summary>User-owned UI state keyed by a response block's stable id.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? InteractionStates { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputKind { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputDefinition { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputAnswer { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool InputCanceled { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public InteractionReceipt? InteractionReceipt { get; set; }
     public bool IsStreaming { get; set; }
+
+    /// <summary>
+    /// Whether this assistant message was a progress update written while working (true) or part of
+    /// the answer (false), decided from the SDK's evidence when the message arrived. Null when there was
+    /// no such evidence — history recorded before Lumi kept this, or a message cut off before it
+    /// finished — whose role is then inferred from what followed it.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsProgress { get; set; }
+
+    /// <summary>
+    /// Session-only id of the model call that produced this assistant message. A reply split around
+    /// reasoning arrives as several messages sharing it, which are classified together.
+    /// </summary>
+    [JsonIgnore]
+    internal string? ApiCallId { get; set; }
+
     public string? Model { get; set; }
     public string? ReasoningEffort { get; set; }
     public string? ContextWindowTier { get; set; }
@@ -79,15 +117,41 @@ public class ChatMessage
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
     /// <summary>
+    /// The earlier assistant message (or the excerpt of it) this user message replies to, or null for
+    /// an ordinary message. The quote travels with the message so the model receives it on every
+    /// send, resend, and transcript replay.
+    /// </summary>
+    public MessageReply? ReplyTo { get; set; }
+    /// <summary>
+    /// Other chats the user brought into this message, or null for none. Their transcripts are read
+    /// into the prompt when the message is sent (and on resend), so the model sees what they hold.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ChatReference>? ReferencedChats { get; set; }
+    /// <summary>
     /// Recovery decision captured from a structured session error. Persisted so reopening a chat
     /// does not have to infer behavior from localized display text.
     /// </summary>
     public SessionFailureDisposition? FailureDisposition { get; set; }
 
+    /// <summary>A local send held by Pause, restored to the FIFO when this chat is loaded.</summary>
+    public bool IsPendingPausedSend { get; set; }
+
+    private MessageSteerState _steerDelivery;
+
     /// <summary>Session-only steer delivery status (not serialized). Set when this message is steered
     /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
     [JsonIgnore]
-    public MessageSteerState SteerDelivery { get; set; }
+    public MessageSteerState SteerDelivery
+    {
+        get => _steerDelivery;
+        set
+        {
+            _steerDelivery = value;
+            if (value != MessageSteerState.Queued)
+                IsPendingPausedSend = false;
+        }
+    }
 
     /// <summary>
     /// Session-only availability for requesting immediate delivery of a locally queued message.
@@ -96,6 +160,10 @@ public class ChatMessage
     /// </summary>
     [JsonIgnore]
     public bool CanSendNowWhenQueued { get; set; }
+
+    /// <summary>An explicit external send selection belongs to its queued message, not later composer edits.</summary>
+    [JsonIgnore]
+    internal bool HasExternalModelSelection { get; set; }
 
     /// <summary>
     /// Deep-copies this message, including its mutable collections, so the copy can be mutated or
@@ -122,6 +190,7 @@ public class ChatMessage
         ToolOutput = ToolOutput,
         ToolStartedAt = ToolStartedAt,
         ToolDurationMs = ToolDurationMs,
+        PlanSnapshot = PlanSnapshot,
         LinkedChatId = LinkedChatId,
         LinkedChatTitle = LinkedChatTitle,
         QuestionId = QuestionId,
@@ -129,10 +198,19 @@ public class ChatMessage
         QuestionOptions = QuestionOptions,
         QuestionAllowFreeText = QuestionAllowFreeText,
         QuestionAllowMultiSelect = QuestionAllowMultiSelect,
+        InteractionStates = InteractionStates is null ? null : new Dictionary<string, string>(InteractionStates, StringComparer.Ordinal),
+        InputKind = InputKind,
+        InputDefinition = InputDefinition,
+        InputAnswer = InputAnswer,
+        InputCanceled = InputCanceled,
+        InteractionReceipt = InteractionReceipt?.Clone(),
         IsStreaming = IsStreaming,
+        IsProgress = IsProgress,
+        ApiCallId = ApiCallId,
         Model = Model,
         ReasoningEffort = ReasoningEffort,
         ContextWindowTier = ContextWindowTier,
+        HasExternalModelSelection = HasExternalModelSelection,
         AgentId = AgentId,
         SdkAgentName = SdkAgentName,
         HasAgentSelection = HasAgentSelection,
@@ -140,6 +218,9 @@ public class ChatMessage
         HasMcpSelection = HasMcpSelection,
         Attachments = [..Attachments],
         FailureDisposition = FailureDisposition,
+        IsPendingPausedSend = IsPendingPausedSend,
+        ReplyTo = ReplyTo?.Clone(),
+        ReferencedChats = ReferencedChats?.Select(static reference => reference.Clone()).ToList(),
         ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
         {
             Name = s.Name,
@@ -170,6 +251,90 @@ public class ChatMessage
         ToolDurationMs = Math.Max(0, (finishedAt - startedAt).TotalMilliseconds);
         return true;
     }
+}
+
+/// <summary>
+/// Links a user message to the earlier assistant message it replies to. <see cref="Quote"/> is the
+/// excerpt the user selected (<see cref="IsSelection"/>), or the opening of the whole message when
+/// the reply targets the message itself.
+/// </summary>
+public sealed class MessageReply
+{
+    /// <summary>Id of the assistant message being replied to.</summary>
+    public Guid MessageId { get; set; }
+
+    /// <summary>The quoted text shown with the reply and sent to the model.</summary>
+    public string Quote { get; set; } = "";
+
+    /// <summary>True when <see cref="Quote"/> is a user-selected excerpt rather than the whole message.</summary>
+    public bool IsSelection { get; set; }
+
+    /// <summary>Display name of the replied-to message's author (e.g. "Lumi" or an agent name).</summary>
+    public string? Author { get; set; }
+
+    public MessageReply Clone() => new()
+    {
+        MessageId = MessageId,
+        Quote = Quote,
+        IsSelection = IsSelection,
+        Author = Author
+    };
+}
+
+/// <summary>
+/// Another chat brought into a message as context. <see cref="Title"/> is the title when it was
+/// referenced, so the message still reads sensibly after the chat is renamed or deleted.
+/// </summary>
+public sealed class ChatReference
+{
+    public Guid ChatId { get; set; }
+    public string Title { get; set; } = "";
+
+    public ChatReference Clone() => new() { ChatId = ChatId, Title = Title };
+}
+
+/// <summary>The immutable selection submitted by a user action, with independent reply lifecycle state.</summary>
+public sealed class InteractionReceipt : INotifyPropertyChanged
+{
+    public Guid SourceMessageId { get; set; }
+    public string BlockId { get; init; } = "";
+    public string Title { get; init; } = "";
+    public string Summary { get; init; } = "";
+    public string Detail { get; init; } = "";
+    public string Action { get; init; } = "";
+    private string _status = "Submitted";
+    private string? _error;
+
+    public string Status
+    {
+        get => _status;
+        set
+        {
+            if (_status == value) return;
+            _status = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Status)));
+        }
+    }
+
+    public string? Error
+    {
+        get => _error;
+        set
+        {
+            if (_error == value) return;
+            _error = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Error)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public InteractionReceipt Clone() => new()
+    {
+        SourceMessageId = SourceMessageId, BlockId = BlockId,
+        Title = Title, Summary = Summary, Detail = Detail,
+        Action = Action, Status = Status, Error = Error
+    };
 }
 
 public class SkillReference
@@ -204,11 +369,28 @@ public enum ByokApiKeyMode
     /// <summary>Use a plaintext key stored in data.json. Insecure — UI must warn.</summary>
     Stored = 2,
     /// <summary>
-    /// Store the key in the OS credential store (Windows Credential Manager). Nothing
+    /// Store the key in the OS credential store (Credential Manager, Keychain, or Secret Service). Nothing
     /// sensitive reaches <c>data.json</c>. Default mode on platforms that support it; the
     /// UI hides this option where <c>ISecureKeyStore.IsSupported</c> is false.
     /// </summary>
     CredentialStore = 3,
+}
+
+/// <summary>
+/// The account an OAuth-connected endpoint signed in with. Identifies the account and the client
+/// it authorized; never holds a token (those stay in the OS credential store).
+/// </summary>
+public sealed class ByokAccount
+{
+    /// <summary>The OAuth client issued to Lumi for this account, reused when signing in again.</summary>
+    public string ClientId { get; set; } = "";
+
+    /// <summary>The account's stable identifier from its validated ID token.</summary>
+    public string Subject { get; set; } = "";
+
+    public string? Email { get; set; }
+
+    public ByokAccount Clone() => new() { ClientId = ClientId, Subject = Subject, Email = Email };
 }
 
 /// <summary>
@@ -237,6 +419,12 @@ public sealed class ByokEndpoint : INotifyPropertyChanged
         get => _id;
         set { if (_id != value) { _id = value; OnPropertyChanged(nameof(Id)); } }
     }
+
+    public string? ConnectionProviderId { get; set; }
+    public DateTimeOffset? CredentialExpiresAt { get; set; }
+
+    /// <summary>The account an OAuth sign-in connected (ChatGPT). Null for key-based endpoints.</summary>
+    public ByokAccount? Account { get; set; }
 
     public string Name
     {
@@ -341,6 +529,11 @@ public sealed class ByokModel : INotifyPropertyChanged
     private string _modelId = "";
     private string _displayName = "";
     private bool _isEnabled = true;
+    private bool _supportsReasoningEffort;
+    private List<string> _supportedReasoningEfforts = [];
+    private string? _defaultReasoningEffort;
+    private int? _defaultContextWindowTokens;
+    private int? _longContextWindowTokens;
     private int? _maxOutputTokens;
     private int? _maxPromptTokens;
     private int? _maxRequestsPerMinute;
@@ -377,6 +570,38 @@ public sealed class ByokModel : INotifyPropertyChanged
         set { if (_isEnabled != value) { _isEnabled = value; OnPropertyChanged(nameof(IsEnabled)); } }
     }
 
+    public bool SupportsReasoningEffort
+    {
+        get => _supportsReasoningEffort;
+        set { if (_supportsReasoningEffort != value) { _supportsReasoningEffort = value; OnPropertyChanged(nameof(SupportsReasoningEffort)); } }
+    }
+
+    public List<string> SupportedReasoningEfforts
+    {
+        get => _supportedReasoningEfforts;
+        set { _supportedReasoningEfforts = value ?? []; OnPropertyChanged(nameof(SupportedReasoningEfforts)); }
+    }
+
+    public string? DefaultReasoningEffort
+    {
+        get => _defaultReasoningEffort;
+        set { if (_defaultReasoningEffort != value) { _defaultReasoningEffort = value; OnPropertyChanged(nameof(DefaultReasoningEffort)); } }
+    }
+
+    /// <summary>Total context-window capacity for the Default tier, not the prompt/compaction cap.</summary>
+    public int? DefaultContextWindowTokens
+    {
+        get => _defaultContextWindowTokens;
+        set { if (!Nullable.Equals(_defaultContextWindowTokens, value)) { _defaultContextWindowTokens = value; OnPropertyChanged(nameof(DefaultContextWindowTokens)); } }
+    }
+
+    /// <summary>Total context-window capacity for the Long tier, not the prompt/compaction cap.</summary>
+    public int? LongContextWindowTokens
+    {
+        get => _longContextWindowTokens;
+        set { if (!Nullable.Equals(_longContextWindowTokens, value)) { _longContextWindowTokens = value; OnPropertyChanged(nameof(LongContextWindowTokens)); } }
+    }
+
     /// <summary>
     /// Maximum number of output (completion) tokens the provider may generate per turn.
     /// <c>null</c> (the default) means "inherit the provider/SDK default" — Lumi does not
@@ -391,7 +616,8 @@ public sealed class ByokModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Maximum number of input (prompt) tokens allowed for a turn — caps the context window.
+    /// Maximum number of input (prompt) tokens used as the prompt/input and compaction cap,
+    /// distinct from the total context capacity in <c>ModelCapabilities.Limits.MaxContextWindowTokens</c>.
     /// <c>null</c> (the default) means "inherit the provider/SDK default". Applied through
     /// <c>ProviderConfig.MaxPromptTokens</c>.
     /// </summary>
@@ -460,6 +686,59 @@ public class ChatTag : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
+/// <summary>How much a chat may do on its own. Each value is a native Copilot permission mode.</summary>
+public enum ApprovalMode
+{
+    /// <summary>Native allow-all: acts without asking. Lumi's default and its behavior before approvals existed.</summary>
+    FullAccess = 0,
+    /// <summary>Native manual mode: asks before commands, edits, connectors and Lumi's actions.</summary>
+    AskFirst = 1,
+    /// <summary>Native assisted mode: Copilot's reviewer approves routine requests; the rest ask.</summary>
+    AutoReview = 2
+}
+
+public enum ApprovalRuleAction
+{
+    Allow = 0,
+    Ask = 1,
+    Never = 2
+}
+
+/// <summary>What a rule covers. Each kind maps onto a native Copilot permission rule family.</summary>
+public enum ApprovalRuleKind
+{
+    Command = 0,
+    EditFiles = 1,
+    ReadFiles = 2,
+    Connector = 3,
+    LumiTool = 4
+}
+
+/// <summary>What a stricter chat does with an approval Lumi needs while nobody is there to give it.</summary>
+public enum AwayApprovalBehavior
+{
+    Wait = 0,
+    Skip = 1
+}
+
+public sealed class ApprovalRule
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public ApprovalRuleAction Action { get; set; }
+    public ApprovalRuleKind Kind { get; set; }
+
+    /// <summary>
+    /// The command a request starts with, a file path, a connector ("server" or "server/tool"), or a
+    /// Lumi tool or tool group. Empty covers every request of the kind.
+    /// </summary>
+    public string? Target { get; set; }
+
+    /// <summary>True when an approval card remembered it, rather than the user adding it as a rule.</summary>
+    public bool Remembered { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+}
+
 public class Chat : INotifyPropertyChanged
 {
     private string _title = "New Chat";
@@ -467,12 +746,18 @@ public class Chat : INotifyPropertyChanged
     private ChatTag? _tag;
     private bool _isRunning;
     private bool _isSessionActive;
+    private bool _isAwaitingInput;
+    private bool _isAwaitingApproval;
+    private bool _isPaused;
+    private bool _isPausePending;
     private bool _hasUnreadMessages;
     private bool _isPinned;
     private bool _showProjectBadge;
     private string? _projectBadgeText;
+    private string? _projectBadgeColor;
     private List<string> _activeExternalSkillNames = [];
     private List<string> _followUpSuggestions = [];
+    private List<ApprovalRule> _approvalRules = [];
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Title
@@ -526,6 +811,13 @@ public class Chat : INotifyPropertyChanged
     }
 
     public string? CopilotSessionId { get; set; }
+
+    /// <summary>The chat's own approval mode; null follows its project, then the user's default.</summary>
+    public ApprovalMode? ApprovalMode { get; set; }
+
+    /// <summary>Approvals remembered for this chat only.</summary>
+    public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
+    public bool PauseNeedsContinuation { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     /// <summary>
@@ -649,6 +941,8 @@ public class Chat : INotifyPropertyChanged
             _isRunning = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowRunningIndicator)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
         }
     }
 
@@ -663,11 +957,71 @@ public class Chat : INotifyPropertyChanged
             _isSessionActive = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSessionActive)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
         }
     }
 
     [JsonIgnore]
-    public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
+    public bool HasBackgroundActivity => IsSessionActive && !IsRunning && !IsPaused;
+
+    /// <summary>User intent to hold the next safe session step, retained across app restarts.</summary>
+    public bool IsPaused
+    {
+        get => _isPaused;
+        set
+        {
+            if (_isPaused == value) return;
+            _isPaused = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsPaused)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowRunningIndicator)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsPausePending
+    {
+        get => _isPausePending;
+        set
+        {
+            if (_isPausePending == value) return;
+            _isPausePending = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsPausePending)));
+        }
+    }
+
+    [JsonIgnore]
+    public bool ShowRunningIndicator => IsRunning && !IsPaused;
+
+    [JsonIgnore]
+    public bool CanPause => (IsRunning || IsSessionActive) && !IsPaused;
+
+    /// <summary>Runtime-only: the assistant is blocked on a question it asked the user.</summary>
+    [JsonIgnore]
+    public bool IsAwaitingInput
+    {
+        get => _isAwaitingInput;
+        set
+        {
+            if (_isAwaitingInput == value) return;
+            _isAwaitingInput = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsAwaitingInput)));
+        }
+    }
+
+    /// <summary>Runtime-only: an action waits for the user's approval.</summary>
+    [JsonIgnore]
+    public bool IsAwaitingApproval
+    {
+        get => _isAwaitingApproval;
+        set
+        {
+            if (_isAwaitingApproval == value) return;
+            _isAwaitingApproval = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsAwaitingApproval)));
+        }
+    }
 
     /// <summary>Runtime-only flag for an unseen reply or a chat manually marked as unread.</summary>
     [JsonIgnore]
@@ -693,13 +1047,23 @@ public class Chat : INotifyPropertyChanged
         set { if (_projectBadgeText == value) return; _projectBadgeText = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProjectBadgeText))); }
     }
 
+    /// <summary>Runtime-only: the project's identity hue (#AARRGGBB) that tints the sidebar folder badge.</summary>
+    [JsonIgnore]
+    public string? ProjectBadgeColor
+    {
+        get => _projectBadgeColor;
+        set { if (_projectBadgeColor == value) return; _projectBadgeColor = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProjectBadgeColor))); }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public class Project : INotifyPropertyChanged
 {
     private bool _isRunning;
+    private int _chatCount;
     private List<string> _additionalContextDirectories = [];
+    private List<ApprovalRule> _approvalRules = [];
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
@@ -717,12 +1081,26 @@ public class Project : INotifyPropertyChanged
     }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 
+    /// <summary>The approval mode for the project's chats; null follows the user's default.</summary>
+    public ApprovalMode? ApprovalMode { get; set; }
+
+    /// <summary>Approval rules for the project's chats, added here or remembered from approval cards.</summary>
+    public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
+
     /// <summary>Runtime-only flag indicating at least one chat in this project is actively generating a response.</summary>
     [JsonIgnore]
     public bool IsRunning
     {
         get => _isRunning;
         set { if (_isRunning == value) return; _isRunning = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning))); }
+    }
+
+    /// <summary>Runtime-only number of chats in this project, shown next to it in the Projects sidebar.</summary>
+    [JsonIgnore]
+    public int ChatCount
+    {
+        get => _chatCount;
+        set { if (_chatCount == value) return; _chatCount = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ChatCount))); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -777,6 +1155,9 @@ public class McpServer
     public int? Timeout { get; set; }
     public bool IsEnabled { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>The MCP registry name (for example <c>io.github.owner/server</c>) this server was added from in Discover.</summary>
+    public string? CatalogId { get; set; }
 }
 
 public static class BackgroundJobTriggerTypes
@@ -1128,12 +1509,19 @@ public static class MemoryStatuses
 
 public class UserSettings
 {
+    private List<ApprovalRule> _approvalRules = [];
+
     // ── General ──
     public string? UserName { get; set; }
     public string? UserSex { get; set; } // "male", "female", or null (prefer not to say)
     public bool IsOnboarded { get; set; }
+    /// <summary>Setup suggestions (<c>SetupScenario.Id</c>) the user set up or dismissed; they aren't suggested again.</summary>
+    public List<string> HandledSetupSuggestions { get; set; } = [];
+    /// <summary>Whether Lumi may check app names at startup for setup suggestions (off when welcome wasn't allowed to).</summary>
+    public bool AllowAppSetupSuggestions { get; set; } = true;
     public bool DefaultsSeeded { get; set; }
     public bool CodingLumiSeeded { get; set; }
+    public bool CodingLumiBrowserToolsSeeded { get; set; }
     public bool CurrentChatManagementToolSeeded { get; set; }
     public string Language { get; set; } = "en";
     public bool LaunchAtStartup { get; set; }
@@ -1141,10 +1529,40 @@ public class UserSettings
     public bool MinimizeToTray { get; set; }
     public string GlobalHotkey { get; set; } = "";
     public bool NotificationsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Look on the clipboard for something to import when Lumi is activated (Lumi codes and packs) or
+    /// the Import sheet opens, and offer a preview. Off by default on macOS, which can warn the user
+    /// whenever an app reads the clipboard on its own.
+    /// </summary>
+    public bool OfferCopiedCapabilities { get; set; } = !OperatingSystem.IsMacOS();
     public string DismissedUpdateBannerToken { get; set; } = "";
 
     // ── Appearance ──
     public bool IsDarkTheme { get; set; } = true;
+
+    /// <summary>Follow the operating system's light or dark mode; <see cref="IsDarkTheme"/> then mirrors it.</summary>
+    public bool FollowSystemTheme { get; set; }
+
+    public const string DefaultAccentColor = "lumi";
+
+    /// <summary>Accent palette id (see <c>AccentPalettes</c>); "lumi" keeps Strata's own indigo.</summary>
+    public string AccentColor { get; set; } = DefaultAccentColor;
+
+    public const string WindowMaterialAuto = "auto";
+    public const string WindowMaterialMica = "mica";
+    public const string WindowMaterialSolid = "solid";
+
+    /// <summary>Window backdrop: "auto" (acrylic, or the platform's blur), "mica" (Windows 11) or "solid".</summary>
+    public string WindowMaterial { get; set; } = WindowMaterialAuto;
+
+    public const string PresenceBrightnessSubtle = "subtle";
+    public const string PresenceBrightnessBalanced = "balanced";
+    public const string PresenceBrightnessVivid = "vivid";
+
+    /// <summary>How bright the ambient presence glows: "subtle", "balanced" or "vivid".</summary>
+    public string PresenceBrightness { get; set; } = PresenceBrightnessBalanced;
+
     public bool IsCompactDensity { get; set; }
     public int UiScalePercent { get; set; } = 100;
     [JsonPropertyName("fontSize")]
@@ -1162,6 +1580,21 @@ public class UserSettings
     public bool ExpandReasoningWhileStreaming { get; set; } = true;
     public bool AutoGenerateTitles { get; set; } = true;
 
+    /// <summary>Suggest follow-up prompts after Lumi replies. Each suggestion uses the background model.</summary>
+    public bool SuggestFollowUps { get; set; } = true;
+
+    // ── Permissions ──
+    /// <summary>
+    /// How much chats may do without asking. Full access was Lumi's only behavior before approvals
+    /// existed, so it stays the default for new and existing users alike.
+    /// </summary>
+    public ApprovalMode DefaultApprovalMode { get; set; } = ApprovalMode.FullAccess;
+
+    /// <summary>Approval rules for every chat.</summary>
+    public List<ApprovalRule> ApprovalRules { get => _approvalRules; set => _approvalRules = value ?? []; }
+
+    public AwayApprovalBehavior AwayApprovalBehavior { get; set; } = AwayApprovalBehavior.Wait;
+
     /// <summary>
     /// User preference for the companion Workspace panel. null = automatic (shows only on wide
     /// layouts when the chat has artifacts); true = always open; false = always closed. Set by the
@@ -1171,6 +1604,11 @@ public class UserSettings
 
     // ── AI & Models ──
     public string PreferredModel { get; set; } = "";
+
+    public const string AutomaticBackgroundModel = "auto";
+
+    /// <summary>Model for Lumi's internal AI helpers, independent of chat and agent model choices.</summary>
+    public string BackgroundModel { get; set; } = AutomaticBackgroundModel;
 
     /// <summary>
     /// Model ids the user pinned in the composer's model picker, in pin order. Pinned models are
@@ -1185,6 +1623,12 @@ public class UserSettings
     // ── BYOK (Bring Your Own Key) ──
     public List<ByokEndpoint> ByokEndpoints { get; set; } = [];
     public List<ByokModel> ByokModels { get; set; } = [];
+
+    /// <summary>
+    /// This computer's stable, opaque identifier for ChatGPT sign-in (<c>ext_agent_host_id</c>),
+    /// created before the first sign-in and reused for every later one. Not a credential.
+    /// </summary>
+    public string? ChatGptHostId { get; set; }
 
     /// <summary>
     /// When true, Lumi routes all conversation/inference traffic to configured BYOK providers
@@ -1214,6 +1658,11 @@ public class UserSettings
 
     // Applied to session configurations only; explicit server timeouts still take precedence.
     public int McpToolTimeoutSeconds { get; set; } = DefaultMcpToolTimeoutSeconds;
+
+    public const string DefaultMcpRegistryUrl = "https://api.mcp.github.com";
+
+    /// <summary>MCP registries (the official registry API) that Customize → Discover lists servers from.</summary>
+    public List<string> McpRegistryUrls { get; set; } = [DefaultMcpRegistryUrl];
 
     // ── Privacy & Data ──
     public bool EnableMemoryAutoSave { get; set; } = true;
@@ -1251,7 +1700,11 @@ public class UserSettings
     /// <summary>Use an owner-only Microsoft Dev Tunnel with a loopback-only listener instead of LAN/Tailscale.</summary>
     public bool RemoteUseDevTunnel { get; set; }
 
-    public RemoteDevTunnelRegistration? RemoteDevTunnel { get; set; }
+    /// <summary>
+    /// Stable, random Dev Tunnel route for this Lumi profile. Once assigned, the cluster-qualified
+    /// ID keeps the web-app URL unchanged while the tunnel itself remains short-lived.
+    /// </summary>
+    public string RemoteDevTunnelId { get; set; } = "";
 
     /// <summary>Devices that completed pairing and hold a long-lived token.</summary>
     public List<RemotePairedDevice> RemotePairedDevices { get; set; } = [];
@@ -1261,14 +1714,6 @@ public class UserSettings
     [JsonIgnore] public double? QuotaUsedRequests { get; set; }
     [JsonIgnore] public double? QuotaEntitlementRequests { get; set; }
     [JsonIgnore] public string? QuotaResetDate { get; set; }
-}
-
-public sealed record RemoteDevTunnelRegistration
-{
-    public string TunnelId { get; init; } = "";
-    public string OwnerObjectId { get; init; } = "";
-    public string OwnerTenantId { get; init; } = "";
-    public int Port { get; init; }
 }
 
 /// <summary>A phone or tablet that has been authorized to control this Lumi desktop.</summary>

@@ -186,14 +186,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Test browser runtime cache and recovery
-        run: node --test tests/Lumi.Mobile.Tests/BrowserRuntimeCache.test.mjs tests/Lumi.Mobile.Tests/BrowserRecovery.test.mjs
-
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
@@ -224,7 +216,11 @@ jobs:
             "$root/android-install.css",
             "$root/android-install.js",
             "$root/manifest.webmanifest",
-            "$root/runtimeResourceCache.js",
+            "$root/service-worker.js",
+            "$root/service-worker-assets.js",
+            "$root/pwaHost.js",
+            "$root/workerFrames.js",
+            "$root/workerFramePresenter.js",
             "$root/_framework/dotnet.js"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
@@ -245,6 +241,11 @@ jobs:
               $installerScript -match "parameters\.get\(['`"]apk") {
             throw "Android installer must use the package-scoped official release flow."
           }
+
+      - name: Test PWA caching, lifecycle and worker rendering
+        env:
+          LUMI_PWA_PUBLISH_ROOT: BrowserPublish\wwwroot
+        run: node --test tests/Lumi.Mobile.Tests/PwaHostTests.mjs tests/Lumi.Mobile.Tests/WorkerFramesTests.mjs tests/Lumi.Mobile.Tests/BrowserRecovery.test.mjs
 
       - name: Upload browser validation artifact
         uses: actions/upload-artifact@v4

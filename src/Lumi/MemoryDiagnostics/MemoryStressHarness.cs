@@ -10,6 +10,11 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Primitives;
+using Avalonia.Media;
+using Avalonia.Rendering.Composition;
+using Avalonia.Rendering.SceneGraph;
+using Avalonia.Skia;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Services;
@@ -28,6 +33,11 @@ internal sealed class MemoryStressHarness
 {
     private const int GateFailureExitCode = 3;
     private const int MinimumSurfaceChurnActions = 10;
+    private const int MinimumGlassRepaints = 10;
+    // Far below what a chat keeps on the GPU, so every frost texture released during the glass scenario is
+    // freed at once instead of being kept in Skia's cache.
+    private const long GlassScenarioGpuCacheBytes = 1024 * 1024;
+    private static readonly TimeSpan GlassRepaintRenderTimeout = TimeSpan.FromSeconds(10);
 
     private readonly MainViewModel _mainVm;
     private readonly DataStore _dataStore;
@@ -250,6 +260,15 @@ internal sealed class MemoryStressHarness
             PrepareAsync: () => OpenChatAsync(workloads.CodeHeavyChatId),
             Note: "Production-managed closed window graphs must stay bounded; Avalonia may transiently retain up to two recent TopLevels."));
 
+        scenarios.Add(new MemoryScenario(
+            "glass-frost",
+            "Glass frost repaint churn",
+            AllowedRetainedCount: 0,
+            RunCycleAsync: RunGlassRepaintCycleAsync,
+            // The debug transcript fixture shows every kind of glass, over animated content.
+            PrepareAsync: () => OnUiAsync(() => _mainVm.OpenAgentDebugHarnessCommand.Execute(null)),
+            Note: "Every repaint replaces each glass's draw operation; the replaced frost's GPU textures must be freed, not orphaned in the driver."));
+
         return scenarios;
     }
 
@@ -458,6 +477,118 @@ internal sealed class MemoryStressHarness
         await DrainAsync(DispatcherPriority.Background);
 
         return references;
+    }
+
+    private async Task<IReadOnlyList<TrackedReference>> RunGlassRepaintCycleAsync(int cycle)
+    {
+        var glasses = await OnUiAsync(FindVisibleGlasses);
+        if (glasses.Count == 0)
+            throw new InvalidOperationException("No visible StrataBackdropBlur was found to repaint.");
+
+        var (compositor, adorners) = await OnUiAsync(() => (
+            ElementComposition.GetElementVisual(glasses[0])?.Compositor,
+            AdornerLayer.GetAdornerLayer(glasses[0])));
+        if (compositor is null || adorners is null)
+            throw new InvalidOperationException("The glass is not attached to a compositor and adorner layer.");
+
+        var budget = await OnUiAsync(() =>
+        {
+            var control = new GpuCacheBudget(GlassScenarioGpuCacheBytes);
+            adorners.Children.Add(control);
+            return control;
+        });
+        try
+        {
+            // A repaint gives every glass a new draw operation, so the compositor disposes the previous one,
+            // which has rendered and holds GPU textures.
+            var repaints = Math.Max(MinimumGlassRepaints, _options.ActionsPerCycle);
+            for (var repaint = 0; repaint < repaints; repaint++)
+                await RenderAsync(compositor, [.. glasses, budget], $"Glass repaint {repaint} of cycle {cycle}");
+
+            // A rendered batch does not prove the window drew: a minimized or unready target draws nothing.
+            if (budget.GpuFrames < repaints)
+            {
+                throw new InvalidOperationException(
+                    $"Only {budget.GpuFrames} of {repaints} glass repaints were drawn on the GPU in cycle {cycle}.");
+            }
+
+            await OnUiAsync(() => budget.Limit = null);
+            await RenderAsync(compositor, [budget], $"Restoring the GPU cache budget in cycle {cycle}");
+        }
+        finally
+        {
+            await OnUiAsync(() => adorners.Children.Remove(budget));
+        }
+
+        return Array.Empty<TrackedReference>();
+    }
+
+    private static async Task RenderAsync(Compositor compositor, IReadOnlyList<Visual> visuals, string description)
+    {
+        var rendered = await OnUiAsync<Task>(() =>
+        {
+            foreach (var visual in visuals)
+                visual.InvalidateVisual();
+            return compositor.RequestCompositionBatchCommitAsync().Rendered;
+        });
+        if (await Task.WhenAny(rendered, Task.Delay(GlassRepaintRenderTimeout)) != rendered)
+        {
+            throw new InvalidOperationException(
+                $"{description} was not rendered within {GlassRepaintRenderTimeout.TotalSeconds:0} s.");
+        }
+    }
+
+    /// <summary>
+    /// Holds Skia's GPU cache to <see cref="Limit"/> and counts the frames it is drawn on the GPU. Heavy real use
+    /// keeps the cache over budget, which is when a texture released without a current context was lost rather
+    /// than cached, so the glass scenario sets that state instead of depending on what a window happens to draw.
+    /// </summary>
+    private sealed class GpuCacheBudget : Control
+    {
+        private long? _appLimit;
+        private int _gpuFrames;
+
+        public GpuCacheBudget(long limit)
+        {
+            Limit = limit;
+            Width = 1;
+            Height = 1;
+            IsHitTestVisible = false;
+        }
+
+        /// <summary>The budget to hold, or null to give the app its own budget back.</summary>
+        public long? Limit { get; set; }
+
+        public int GpuFrames => Volatile.Read(ref _gpuFrames);
+
+        public override void Render(DrawingContext context) => context.Custom(new Operation(this, Limit));
+
+        private sealed class Operation(GpuCacheBudget owner, long? limit) : ICustomDrawOperation
+        {
+            public Rect Bounds => new(0, 0, 1, 1);
+
+            public bool HitTest(Point p) => false;
+
+            public bool Equals(ICustomDrawOperation? other) => ReferenceEquals(this, other);
+
+            public void Render(ImmediateDrawingContext context)
+            {
+                if (context.TryGetFeature<ISkiaSharpApiLeaseFeature>() is not { } feature)
+                    return;
+
+                using var lease = feature.Lease();
+                if (lease.GrContext is not { } gpu)
+                    return;
+
+                owner._appLimit ??= gpu.GetResourceCacheLimit();
+                gpu.SetResourceCacheLimit(limit ?? owner._appLimit.Value);
+                Interlocked.Increment(ref owner._gpuFrames);
+            }
+
+            public void Dispose()
+            {
+            }
+        }
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -674,6 +805,20 @@ internal sealed class MemoryStressHarness
             .OfType<StrataChatShell>()
             .FirstOrDefault(static shell => shell.IsVisible)
             ?.TranscriptScrollViewer;
+    }
+
+    private static IReadOnlyList<StrataBackdropBlur> FindVisibleGlasses()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return Array.Empty<StrataBackdropBlur>();
+
+        return desktop.Windows
+            .Where(static window => window.IsVisible)
+            .SelectMany(static window => window.GetVisualDescendants())
+            .OfType<StrataBackdropBlur>()
+            .Where(static glass => glass.IsEffectivelyVisible && glass.BlurRadius > 0
+                && glass.Bounds.Width > 0 && glass.Bounds.Height > 0)
+            .ToList();
     }
 
     private static async Task SettleStoppedTranscriptViewportAsync()

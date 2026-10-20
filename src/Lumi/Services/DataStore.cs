@@ -19,17 +19,37 @@ public sealed record UserPromptHistoryItem(
 
 public class DataStore
 {
+    internal const int SuggestionHistoryScanLimit = 1000;
+    private static readonly TimeSpan SuggestionHistoryCacheTtl = TimeSpan.FromMinutes(2);
     private static readonly string AppDir = Path.Combine(
         ResolveAppDataRoot(), "Lumi");
     private static readonly string DataFile = Path.Combine(AppDir, "data.json");
     private static readonly string IndexLockFile = Path.Combine(AppDir, "data.lock");
     private static readonly TimeSpan StartupIndexLockTimeout = TimeSpan.FromSeconds(10);
+    private static readonly string[] CodingLumiBrowserTools =
+    [
+        ToolDisplayHelper.BrowserOpenToolName,
+        ToolDisplayHelper.BrowserTabsToolName,
+        ToolDisplayHelper.BrowserScreenshotToolName,
+        ToolDisplayHelper.BrowserLookToolName,
+        ToolDisplayHelper.BrowserFindToolName,
+        ToolDisplayHelper.BrowserDoToolName,
+        ToolDisplayHelper.BrowserJsToolName
+    ];
 
     public static string SkillsDir { get; } = Path.Combine(AppDir, "skills");
     public static string ChatsDir { get; } = Path.Combine(AppDir, "chats");
     public static string CopilotConfigDir { get; } = Path.Combine(AppDir, "copilot");
     public static string SearchContentIndexFile { get; } = Path.Combine(AppDir, "search-content-index.bin");
     internal static string AppDirectory => AppDir;
+
+    /// <summary>
+    /// True when <c>LUMI_APPDATA_DIR</c> gives this process its own profile (tests, isolated debug
+    /// runs). Such a run leaves alone what belongs to the installed Lumi outside its profile, such
+    /// as the launch-at-login registration.
+    /// </summary>
+    internal static bool UsesIsolatedProfile { get; } =
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR"));
 
     /// <summary>Raised when a chat's persisted content changes (saved or deleted) so search indexes can refresh.</summary>
     public event Action<Guid>? ChatContentChanged;
@@ -51,9 +71,10 @@ public class DataStore
     /// </summary>
     public event Action<object?>? ChatTagCatalogChanged;
 
-    /// <summary>Synchronizes the two ambient-presence preferences across every Settings window that
-    /// shares this store. Raised on the caller's thread; UI callers raise it on the UI thread.</summary>
-    public event Action<object?, bool, bool>? PresenceSettingsChanged;
+    /// <summary>Tells every Settings window that shares this store that a look setting every window
+    /// shares changed (the ambient presence, the accent colour or the window material), so each shows
+    /// what is saved. Raised on the caller's thread; UI callers raise it on the UI thread.</summary>
+    public event Action<object?>? AppearanceSettingsChanged;
 
     private AppData _data;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -63,6 +84,11 @@ public class DataStore
     private readonly HashSet<Guid> _deletedChatFiles = [];
     private readonly object _chatSearchCacheSync = new();
     private readonly Dictionary<Guid, CachedChatSearchSnapshot> _chatSearchCache = [];
+    private readonly object _suggestionHistorySync = new();
+    private IReadOnlyList<UserPromptHistoryItem>? _suggestionHistory;
+    private DateTimeOffset _suggestionHistoryAt = DateTimeOffset.MinValue;
+    private Task<IReadOnlyList<UserPromptHistoryItem>>? _suggestionHistoryRefresh;
+    private int _suggestionHistoryGeneration;
     private readonly object _chatChangeSync = new();
     private readonly object _backgroundJobsSync = new();
     private readonly object _remoteSecuritySync = new();
@@ -110,6 +136,10 @@ public class DataStore
         SeedDefaults();
         SeedCodingLumi();
         EnsureCurrentChatManagementTool();
+        if (MigrateCodingLumiBrowserTools(_data))
+        {
+            Save();
+        }
         if (RemoveRetiredFeatureManagerSkill(_data))
         {
             Save();
@@ -139,11 +169,8 @@ public class DataStore
             return _worktreeCleanupReservations.Contains(normalized);
     }
 
-    public void NotifyPresenceSettingsChanged(object? source = null)
-        => PresenceSettingsChanged?.Invoke(
-            source,
-            Data.Settings.ShowAmbientPresence,
-            Data.Settings.AnimatePresenceWhileWorking);
+    public void NotifyAppearanceSettingsChanged(object? source = null)
+        => AppearanceSettingsChanged?.Invoke(source);
 
     internal bool TrySetChatWorktreePath(Chat chat, string? path)
     {
@@ -313,7 +340,7 @@ public class DataStore
             _data.Settings.RemoteAccessPort = persisted.RemoteAccessPort;
             _data.Settings.RemoteAllowInsecureLan = persisted.RemoteAllowInsecureLan;
             _data.Settings.RemoteUseDevTunnel = persisted.RemoteUseDevTunnel;
-            _data.Settings.RemoteDevTunnel = persisted.RemoteDevTunnel;
+            _data.Settings.RemoteDevTunnelId = persisted.RemoteDevTunnelId;
             _data.Settings.RemotePairedDevices = persisted.RemotePairedDevices
                 .Select(CloneRemotePairedDevice)
                 .ToList();
@@ -366,20 +393,6 @@ public class DataStore
     }
 
     public void MarkRemotePairedDevicesChanged() => MarkRemoteSecurityChanged();
-
-    internal RemoteDevTunnelRegistration? SnapshotRemoteDevTunnel()
-    {
-        lock (_remoteSecuritySync)
-            return _data.Settings.RemoteDevTunnel;
-    }
-
-    internal void SetRemoteDevTunnel(RemoteDevTunnelRegistration registration)
-    {
-        ArgumentNullException.ThrowIfNull(registration);
-        lock (_remoteSecuritySync)
-            _data.Settings.RemoteDevTunnel = registration;
-        MarkRemoteSecurityChanged();
-    }
 
     public IReadOnlyList<RemotePairedDevice> SnapshotRemotePairedDevices()
     {
@@ -700,6 +713,52 @@ public class DataStore
         finally
         {
             loadLock.Release();
+        }
+    }
+
+    /// <summary>Shares the frequent-request history across chat surfaces; stale data is refreshed
+    /// once in the background. Rejected prompts never need to stay cached for the ranker.</summary>
+    internal Task<IReadOnlyList<UserPromptHistoryItem>> GetSuggestionHistoryAsync(
+        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
+    {
+        ArgumentNullException.ThrowIfNull(loadedMessageSnapshots);
+        lock (_suggestionHistorySync)
+        {
+            var cached = _suggestionHistory;
+            if (cached is not null && DateTimeOffset.UtcNow - _suggestionHistoryAt < SuggestionHistoryCacheTtl)
+                return Task.FromResult(cached);
+
+            var refresh = _suggestionHistoryRefresh;
+            if (refresh is null || refresh.IsCompleted)
+            {
+                var generation = _suggestionHistoryGeneration;
+                refresh = Task.Run(async () =>
+                {
+                    var history = await GetUserPromptHistoryAsync(
+                        SuggestionHistoryScanLimit, loadedMessageSnapshots).ConfigureAwait(false);
+                    IReadOnlyList<UserPromptHistoryItem> candidates = history
+                        .Where(static item => SuggestionHistoryRanker.IsCandidate(item.Content))
+                        .ToArray();
+                    lock (_suggestionHistorySync)
+                    {
+                        if (generation != _suggestionHistoryGeneration)
+                            return Array.Empty<UserPromptHistoryItem>();
+
+                        _suggestionHistory = candidates;
+                        _suggestionHistoryAt = DateTimeOffset.UtcNow;
+                    }
+
+                    return candidates;
+                });
+                _suggestionHistoryRefresh = refresh;
+                _ = refresh.ContinueWith(
+                    task => Trace.TraceWarning("[Chat] Suggestion history refresh failed: {0}", task.Exception),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
+
+            return cached is null ? refresh : Task.FromResult(cached);
         }
     }
 
@@ -1126,13 +1185,21 @@ public class DataStore
         ChatContentChanged?.Invoke(chatId);
     }
 
-    /// <summary>Deletes all per-chat files.</summary>
+    /// <summary>Deletes all per-chat files. A store that only lives in memory owns no files, so it
+    /// leaves the saved profile's chats alone.</summary>
     public void DeleteAllChatFiles()
     {
         lock (_chatSearchCacheSync)
             _chatSearchCache.Clear();
+        lock (_suggestionHistorySync)
+        {
+            _suggestionHistoryGeneration++;
+            _suggestionHistory = null;
+            _suggestionHistoryRefresh = null;
+            _suggestionHistoryAt = DateTimeOffset.MinValue;
+        }
 
-        if (Directory.Exists(ChatsDir))
+        if (_usesPersistentStorage && Directory.Exists(ChatsDir))
         {
             foreach (var file in Directory.GetFiles(ChatsDir, "*.json"))
                 File.Delete(file);
@@ -1216,6 +1283,30 @@ public class DataStore
 
     /// <summary>Directory holding rolling per-skill content backups.</summary>
     public string SkillBackupsDirectory => Path.Combine(SkillsDirectory, ".backups");
+
+    /// <summary>
+    /// Folder for the files a skill added from a catalog brought with it (scripts, references,
+    /// templates). Keyed by id so renaming the skill never orphans them.
+    /// </summary>
+    public string GetSkillBundleDirectory(Guid skillId)
+        => Path.Combine(SkillsDirectory, ".files", skillId.ToString("N"));
+
+    /// <summary>Removes a deleted skill's bundled files. Best effort: a locked file is left behind.</summary>
+    public void DeleteSkillBundle(Guid skillId)
+    {
+        var folder = GetSkillBundleDirectory(skillId);
+        try
+        {
+            if (Directory.Exists(folder))
+                Directory.Delete(folder, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
 
     private const int MaxSkillBackupsPerSkill = 10;
 
@@ -1930,6 +2021,7 @@ public class DataStore
                 "code_review", "generate_tests", "explain_code", "analyze_project",
                 "lumi_fetch",
                 "announce_file", "skill", "recall_memory", "manage_current_chat",
+                .. CodingLumiBrowserTools
             ],
             SystemPrompt = """
                 You are **Coding Lumi** — an elite software engineering agent. You combine deep technical expertise with practical engineering wisdom to produce exceptional code and solve hard problems.
@@ -2038,8 +2130,31 @@ public class DataStore
         });
 
         _data.Settings.CodingLumiSeeded = true;
+        _data.Settings.CodingLumiBrowserToolsSeeded = true;
         Save();
         SyncSkillFiles();
+    }
+
+    internal static bool MigrateCodingLumiBrowserTools(AppData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (data.Settings.CodingLumiBrowserToolsSeeded)
+            return false;
+
+        var codingLumi = data.Agents.FirstOrDefault(agent =>
+            agent.IsBuiltIn
+            && string.Equals(agent.Name, "Coding Lumi", StringComparison.OrdinalIgnoreCase));
+        if (codingLumi is { HasToolRestrictions: true })
+        {
+            foreach (var toolName in CodingLumiBrowserTools)
+            {
+                if (!codingLumi.ToolNames.Contains(toolName, StringComparer.Ordinal))
+                    codingLumi.ToolNames.Add(toolName);
+            }
+        }
+
+        data.Settings.CodingLumiBrowserToolsSeeded = true;
+        return true;
     }
 
     private void EnsureCurrentChatManagementTool()

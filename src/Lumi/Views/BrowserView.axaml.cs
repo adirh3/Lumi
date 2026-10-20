@@ -1,8 +1,14 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Interactivity;
+#if !WINDOWS
+using Avalonia.LogicalTree;
+using Lumi.Localization;
+#endif
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Lumi.Services;
@@ -26,7 +32,15 @@ public partial class BrowserView : UserControl
     private TextBlock? _importStatusText;
     private StackPanel? _onboardingActions;
     private TextBlock? _urlText;
+    private Run? _urlHostRun;
+    private Run? _urlRestRun;
+    private PathIcon? _urlIcon;
     private Border? _urlBar;
+    private StackPanel? _tabsPanel;
+    private ScrollViewer? _tabsScroller;
+    private Grid? _tabStripRow;
+    private Button? _newTabButton;
+    private TextBlock? _browserErrorText;
     private BrowserService? _browserService;
     private DataStore? _dataStore;
     private bool _isInitialized;
@@ -49,17 +63,63 @@ public partial class BrowserView : UserControl
         _importStatusText = this.FindControl<TextBlock>("ImportStatusText");
         _onboardingActions = this.FindControl<StackPanel>("OnboardingActions");
         _urlText = this.FindControl<TextBlock>("UrlText");
+        _urlHostRun = _urlText?.Inlines?.ElementAtOrDefault(0) as Run;
+        _urlRestRun = _urlText?.Inlines?.ElementAtOrDefault(1) as Run;
+        _urlIcon = this.FindControl<PathIcon>("UrlIcon");
         _urlBar = this.FindControl<Border>("UrlBar");
+        _tabsPanel = this.FindControl<StackPanel>("BrowserTabs");
+        _tabsScroller = this.FindControl<ScrollViewer>("BrowserTabsScroller");
+        _tabStripRow = this.FindControl<Grid>("TabStripRow");
+        _newTabButton = this.FindControl<Button>("NewBrowserTab");
+        _browserErrorText = this.FindControl<TextBlock>("BrowserErrorText");
+        _tabHitTheme = this.TryFindResource("BrowserTabHitTheme", out var theme) ? theme as Avalonia.Styling.ControlTheme : null;
+
+        if (_tabStripRow is not null)
+            _tabStripRow.SizeChanged += (_, e) =>
+            {
+                if (e.WidthChanged)
+                    UpdateTabWidths();
+            };
+        _tabsScroller?.AddHandler(PointerWheelChangedEvent, OnTabStripWheel, RoutingStrategies.Tunnel);
+        if (_tabsScroller is not null)
+            _tabsScroller.ScrollChanged += (_, _) => UpdateTabStripFades();
+
+#if !WINDOWS
+        if (OperatingSystem.IsLinux() && _cookieOnboardingOverlay is not null)
+        {
+            foreach (var hint in _cookieOnboardingOverlay.GetLogicalDescendants().OfType<TextBlock>())
+            {
+                if (hint.Text == "• Your cookies will be copied into Lumi's browser")
+                    hint.Text = Loc.Browser_LinuxTabSessionHint;
+            }
+        }
+#endif
     }
 
     /// <summary>Binds a BrowserService and DataStore to this view. Can be called multiple times to switch between per-chat services.</summary>
     public void SetBrowserService(BrowserService browserService, DataStore dataStore)
     {
-        ClearBrowserService();
+        // Each agent browser action shows the browser again; for the same browser the tabs then
+        // update in place rather than being rebuilt under the pointer.
+        ReleaseBrowserService(clearTabs: !ReferenceEquals(browserService, _browserService));
         _browserService = browserService;
+#if !WINDOWS
+        _browserService.UseHostLayerFor(this);
+#endif
         _dataStore = dataStore;
         _isInitialized = false;
+        _urlBar?.Classes.Set("motion-disabled", !AnimationsEnabled);
         _browserService.BrowserReady += OnBrowserReady;
+        _browserService.TabsChanged += OnTabsChanged;
+        _browserService.BrowserError += OnBrowserError;
+        _urlChangedHandler = () => Dispatcher.UIThread.Post(() =>
+        {
+            if (ReferenceEquals(_browserService, browserService))
+                UpdateUrl();
+        });
+        _browserService.UrlChanged += _urlChangedHandler;
+        UpdateTabs();
+        ShowBrowserError(null);
 
         // Pre-set the HWND so tools can trigger lazy initialization
         var topLevel = TopLevel.GetTopLevel(this);
@@ -81,17 +141,20 @@ public partial class BrowserView : UserControl
             // Show loading overlay while initializing
             if (_loadingOverlay is not null)
                 _loadingOverlay.IsVisible = true;
-            if (_urlText is not null)
-                _urlText.Text = "about:blank";
+            ShowLocation("about:blank");
             TryInitialize();
         }
     }
 
-    public void ClearBrowserService()
+    public void ClearBrowserService() => ReleaseBrowserService(clearTabs: true);
+
+    private void ReleaseBrowserService(bool clearTabs)
     {
         if (_browserService is not null)
         {
             _browserService.BrowserReady -= OnBrowserReady;
+            _browserService.TabsChanged -= OnTabsChanged;
+            _browserService.BrowserError -= OnBrowserError;
             _browserService.SetControllerVisible(false);
             if (_urlChangedHandler is not null)
                 _browserService.UrlChanged -= _urlChangedHandler;
@@ -101,6 +164,8 @@ public partial class BrowserView : UserControl
         _browserService = null;
         _dataStore = null;
         _isInitialized = false;
+        if (clearTabs)
+            ClearTabChips();
     }
 
     /// <summary>Hides the current browser service's controller overlay.</summary>
@@ -112,6 +177,9 @@ public partial class BrowserView : UserControl
     /// <summary>Shows the current browser service's controller overlay.</summary>
     public void ShowCurrentController()
     {
+#if !WINDOWS
+        _browserService?.UseHostLayerFor(this);
+#endif
         _browserService?.SetControllerVisible(true);
     }
 
@@ -122,6 +190,9 @@ public partial class BrowserView : UserControl
         // Ensure HWND is set for lazy init
         if (_browserService is not null)
         {
+#if !WINDOWS
+            _browserService.UseHostLayerFor(this);
+#endif
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel is not null)
             {
@@ -173,6 +244,7 @@ public partial class BrowserView : UserControl
     private async void TryInitialize()
     {
         if (_isInitialized || _browserService is null || !IsVisible) return;
+        var service = _browserService;
         if (_browserService.IsInitialized)
         {
             OnBrowserReady();
@@ -182,51 +254,106 @@ public partial class BrowserView : UserControl
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel is null) return;
 
+#if WINDOWS
         var platformHandle = topLevel.TryGetPlatformHandle();
         if (platformHandle is null) return;
         var hwnd = platformHandle.Handle;
+#else
+        service.UseHostLayerFor(this);
+        var hwnd = topLevel.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+#endif
 
         try
         {
-            await _browserService.InitializeAsync(hwnd);
-            _isInitialized = true;
+            await service.InitializeAsync(hwnd);
+            if (ReferenceEquals(service, _browserService))
+                _isInitialized = true;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"WebView2 init failed: {ex.Message}");
+            if (ReferenceEquals(service, _browserService))
+                ShowBrowserError($"Browser initialization failed: {ex.Message}");
         }
     }
 
     private void OnBrowserReady()
     {
+        var service = _browserService;
         Dispatcher.UIThread.Post(() =>
         {
+            if (service is null || !ReferenceEquals(service, _browserService))
+                return;
             if (_loadingOverlay is not null)
                 _loadingOverlay.IsVisible = false;
             _isInitialized = true;
-
-            if (_browserService is not null)
-            {
-                // Unsub old handler if switching services
-                if (_urlChangedHandler is not null)
-                    _browserService.UrlChanged -= _urlChangedHandler;
-
-                _urlChangedHandler = () => Dispatcher.UIThread.Post(UpdateUrl);
-                _browserService.UrlChanged += _urlChangedHandler;
-            }
 
             // Show cookie onboarding if user hasn't imported yet
             if (_dataStore is not null && !_dataStore.Data.Settings.HasImportedBrowserCookies)
                 ShowCookieOnboarding();
 
             UpdateWebViewBounds();
+            UpdateTabs();
+            UpdateUrl();
         });
+    }
+
+    private void OnTabsChanged()
+    {
+        var service = _browserService;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (service is null || !ReferenceEquals(service, _browserService))
+                return;
+            UpdateTabs();
+            UpdateUrl();
+            UpdateWebViewBounds();
+        });
+    }
+
+    private async void OnNewTabClick(object? sender, RoutedEventArgs e)
+        => await RunTabActionAsync("new");
+
+    private async Task RunTabActionAsync(string action, string? tabId = null)
+    {
+        var service = _browserService;
+        if (service is null)
+            return;
+        try
+        {
+            var result = await service.ManageTabsAsync(action, tabId);
+            if (ReferenceEquals(service, _browserService))
+                ShowBrowserError(result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase) ? result : null);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            if (ReferenceEquals(service, _browserService))
+                ShowBrowserError(ex.Message);
+        }
+    }
+
+    private void OnBrowserError(string message)
+    {
+        var service = _browserService;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (ReferenceEquals(service, _browserService))
+                ShowBrowserError(message);
+        });
+    }
+
+    private void ShowBrowserError(string? message)
+    {
+        if (_browserErrorText is null)
+            return;
+        _browserErrorText.Text = message;
+        _browserErrorText.IsVisible = !string.IsNullOrEmpty(message);
     }
 
     private void UpdateUrl()
     {
-        if (_urlText is not null && _browserService is not null)
-            _urlText.Text = _browserService.CurrentUrl;
+        if (_browserService is not null)
+            ShowLocation(_browserService.CurrentUrl);
     }
 
     /// <summary>Public method to force a bounds refresh from outside (e.g. after layout changes).</summary>

@@ -69,6 +69,7 @@ public sealed class MobileTransportScopeTests
                 : newChat ? null : new RemoteChat { Id = chatId, Title = "Existing", MessageCount = 5 }
         };
         var responseReading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connectionDropped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         RemoteCommand? submitted = null;
         var receiptReads = 0;
         var handler = new TransportHandler(RemoteProtocol.Version, scopedEvents: true, compactTranscript: true)
@@ -138,7 +139,8 @@ public sealed class MobileTransportScopeTests
                         [],
                         new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
                         socketErrorOnCancellation: true,
-                        readStarted: responseReading))
+                        readStarted: responseReading,
+                        connectionDropped: connectionDropped.Task))
                 };
             }
         };
@@ -160,8 +162,13 @@ public sealed class MobileTransportScopeTests
         if (newerDraft)
             shell.Chat.PromptText = "Keep this next draft";
 
+        // Backgrounding no longer abandons a message the user already sent.
         await shell.NotifyApplicationDeactivatedAsync().WaitAsync(TimeSpan.FromSeconds(2));
-        await send.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(send.IsCompleted);
+
+        // The OS then drops the socket before the response arrives: the outcome is ambiguous.
+        connectionDropped.SetResult();
+        await send.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.NotNull(shell.Chat.ErrorText);
         Assert.Equal(newerDraft ? "Keep this next draft" : "Sent from my phone", shell.Chat.PromptText);
 
@@ -189,7 +196,11 @@ public sealed class MobileTransportScopeTests
             chat => chat.Id == chatId && chat.IsRunning);
         Assert.Single(shell.ChatList.Groups.SelectMany(group => group.Chats), chat => chat.Id == chatId);
         Assert.True(receiptReads > 0, "The receipt is outside the latest transcript window.");
-        Assert.Single(handler.Commands, command => command.Action == RemoteProtocol.Actions.SendMessage);
+        // The confirmation retry reuses the request ID; the phone never sends a second message.
+        Assert.Single(handler.Commands
+            .Where(command => command.Action == RemoteProtocol.Actions.SendMessage)
+            .Select(command => command.RequestId)
+            .Distinct());
         Assert.DoesNotContain(handler.Commands, command => command.Action == RemoteProtocol.Actions.CreateChat);
     }
 
@@ -199,6 +210,7 @@ public sealed class MobileTransportScopeTests
         using var temp = new TempDirectory();
         var unrelatedId = Guid.NewGuid();
         var responseReading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connectionDropped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var handler = new TransportHandler(RemoteProtocol.Version, scopedEvents: true, compactTranscript: true)
         {
             SnapshotFactory = () => new RemoteSnapshot
@@ -233,7 +245,8 @@ public sealed class MobileTransportScopeTests
                     [],
                     new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
                     socketErrorOnCancellation: false,
-                    readStarted: responseReading))
+                    readStarted: responseReading,
+                    connectionDropped: connectionDropped.Task))
             }
         };
         await using var client = CreateClient(handler);
@@ -245,7 +258,9 @@ public sealed class MobileTransportScopeTests
         var send = shell.Chat.SendCommand.ExecuteAsync(null);
         await responseReading.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await shell.NotifyApplicationDeactivatedAsync();
-        await send;
+        Assert.False(send.IsCompleted);
+        connectionDropped.SetResult();
+        await send.WaitAsync(TimeSpan.FromSeconds(5));
 
         await shell.NotifyApplicationActivatedAsync();
         await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 2);
@@ -257,7 +272,10 @@ public sealed class MobileTransportScopeTests
         Assert.NotNull(shell.Chat.ErrorText);
         Assert.True(shell.Chat.SendCommand.CanExecute(null));
         Assert.Single(shell.Chat.GetPendingSendReconciliations());
-        Assert.Single(handler.Commands, command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.Single(handler.Commands
+            .Where(command => command.Action == RemoteProtocol.Actions.SendMessage)
+            .Select(command => command.RequestId)
+            .Distinct());
         Assert.Contains("chats=true", handler.LastEventQuery, StringComparison.Ordinal);
     }
 
@@ -455,11 +473,12 @@ public sealed class MobileTransportScopeTests
         }
         shell.Chat.PromptText = "Keep this unsent draft";
 
-        // The network is unavailable for the launch/resume handshake, then immediately recovers.
+        // The network is unavailable for the launch handshake, then immediately recovers. A resume
+        // skips the handshake entirely: the stream's own bootstrap proves a host it already knows.
         await shell.NotifyApplicationActivatedAsync().WaitAsync(TimeSpan.FromSeconds(5));
         await WaitUntilAsync(() => shell.IsConnected && shell.BootstrapSnapshotCount == (resume ? 2 : 1));
 
-        Assert.Equal(resume ? 3 : 2, handler.HelloRequests);
+        Assert.Equal(resume ? 1 : 2, handler.HelloRequests);
         Assert.Equal("Keep this unsent draft", shell.Chat.PromptText);
         Assert.True(shell.IsPaired);
         Assert.Equal("token", store.Load().Token);
@@ -816,7 +835,8 @@ public sealed class MobileTransportScopeTests
         byte[] prefix,
         TaskCompletionSource cancellationObserved,
         bool socketErrorOnCancellation = false,
-        TaskCompletionSource? readStarted = null) : Stream
+        TaskCompletionSource? readStarted = null,
+        Task? connectionDropped = null) : Stream
     {
         private int _offset;
 
@@ -855,6 +875,13 @@ public sealed class MobileTransportScopeTests
             try
             {
                 readStarted?.TrySetResult();
+                if (connectionDropped is not null)
+                {
+                    // The OS closes the socket under the request, e.g. while the phone is asleep.
+                    await connectionDropped.WaitAsync(cancellationToken);
+                    throw new IOException("Connection reset");
+                }
+
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 return 0;
             }

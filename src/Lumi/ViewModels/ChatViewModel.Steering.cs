@@ -15,6 +15,18 @@ public partial class ChatViewModel
     // UI-thread only. Entries remain pending until the agent consumes the steer or the turn terminates.
     private readonly Dictionary<Guid, List<ChatMessageViewModel>> _pendingSteerConfirmations = new();
 
+    private void RestoreQueuedExternalModelSelection(Chat chat, ChatMessage? message)
+    {
+        if (message is not { HasExternalModelSelection: true } || !chat.Messages.Contains(message))
+            return;
+
+        chat.LastModelUsed = message.Model;
+        chat.LastReasoningEffortUsed = message.ReasoningEffort;
+        chat.LastContextWindowTierUsed = message.ContextWindowTier;
+        if (CurrentChat?.Id == chat.Id)
+            ApplyModelSelection(message.Model, message.ReasoningEffort, message.ContextWindowTier);
+    }
+
     private async Task<bool> SteerActiveTurnAsync(
         Chat activeChat,
         string prompt,
@@ -23,6 +35,7 @@ public partial class ChatViewModel
         string? authorOverride = null,
         IReadOnlyCollection<string>? explicitAttachmentPaths = null)
     {
+        RestoreQueuedExternalModelSelection(activeChat, queuedMessage);
         if (BlockSendForByokOnly(
                 activeChat,
                 ResolveSelectedModelForChat(activeChat),
@@ -59,6 +72,8 @@ public partial class ChatViewModel
         if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime) || sessionProviderMismatch)
         {
             QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths);
+            if (CurrentChat?.Id == chatId && CanStartTurnOnReadySession(activeChat))
+                ScheduleQueuedBusySendDrain(chatId);
             if (consumeComposerPrompt)
             {
                 PromptText = "";
@@ -92,7 +107,9 @@ public partial class ChatViewModel
             Role = "user",
             Content = prompt,
             Author = authorOverride ?? _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
+            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
+            ReplyTo = consumeComposerPrompt ? TakePendingReply(chatId) : null,
+            ReferencedChats = consumeComposerPrompt ? TakeReferencedChats(chatId) : null
         };
 
         if (attachments is { Count: > 0 })
@@ -154,9 +171,10 @@ public partial class ChatViewModel
                 sessionLostHistory: false,
                 token);
 
+            var referencedChats = await BuildReferencedChatsContextAsync(userMsg, token);
             var sendOptions = new MessageOptions
             {
-                Prompt = skillDirectives + prompt + BuildSendPromptAdditions(targetChat: activeChat),
+                Prompt = skillDirectives + ComposeModelPrompt(prompt, userMsg) + referencedChats + BuildSendPromptAdditions(targetChat: activeChat),
                 Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
             };
             ApplyMessageAttachments(sendOptions, attachments);
@@ -272,12 +290,7 @@ public partial class ChatViewModel
             targetChat.LastRemoteRequestId = remoteRequestId;
         }
 
-        var queuedMessage = QueueSteerPrompt(
-            targetChat.Id,
-            prompt,
-            queuedMessage: null,
-            authorOverride: author,
-            explicitAttachmentPaths: []);
+        var queuedMessage = CreateQueuedBusySend(targetChat.Id, prompt, author, explicitAttachmentPaths: []);
         if (queuedMessage is null)
         {
             targetChat.LastRemoteDeviceId = previousDeviceId;
@@ -304,6 +317,11 @@ public partial class ChatViewModel
             }
         }
 
+        // Only make the message eligible for an idle drain after its receipt is durable.
+        if (!_queuedBusySendPrompts.TryGetValue(targetChat.Id, out var pending))
+            _queuedBusySendPrompts[targetChat.Id] = pending = [];
+        pending.Add(queuedMessage);
+
         if (!CanInterruptQueuedSendNowImmediately(targetChat.Id))
         {
             GetOrCreateRuntimeState(targetChat.Id).SendQueuedNowWhenTurnStarts = true;
@@ -328,6 +346,8 @@ public partial class ChatViewModel
         // The message has already been inserted into the transcript and owns the consumed attachment
         // payload. Passing it as `existing` preserves that instance and restores it to the queue front.
         QueueBusySendPrompt(chatId, prompt, userMessage);
+        if (CurrentChat is { } chat && chat.Id == chatId && CanStartTurnOnReadySession(chat))
+            ScheduleQueuedBusySendDrain(chatId);
     }
 
     /// <summary>
@@ -340,9 +360,12 @@ public partial class ChatViewModel
     /// </summary>
     private bool IsCachedSessionProviderConsistentWithSelection(Guid chatId, CopilotSession session)
     {
-        // A pending refresh means the session is already known to be stale and will be recreated or
-        // resumed on the next EnsureSessionAsync. Never steer through the old handle.
-        if (HasPendingSessionRefresh(chatId))
+        // A ready background session can apply a same-ID refresh before the next send.
+        // Busy turns and provider/hard replacements must still wait.
+        if (HasPendingSessionRefresh(chatId)
+            && (_pendingSessionInvalidations.Contains(chatId)
+                || IsAssistantBusy(chatId)
+                || !IsChatRuntimeActive(chatId)))
             return false;
 
         // Resolve the chat for this session, preferring the current chat for the active session.
@@ -356,7 +379,7 @@ public partial class ChatViewModel
             return false;
 
         var selectedRoute = ResolveModelRouteForChat(ResolveSelectedModelForChat(chat), chat);
-        var selectedSignature = ByokConfigHelper.BuildProviderSignature(selectedRoute.Provider);
+        var selectedSignature = ByokConfigHelper.BuildProviderSignature(selectedRoute.Provider, selectedRoute.ByokModel);
 
         // The signature of the session that will actually carry the steer.
         var activeSignature = session == _activeSession
@@ -424,11 +447,14 @@ public partial class ChatViewModel
 
     private static bool CanSteerImmediately(ChatRuntimeState runtime)
         => !runtime.IsStopping
+           && runtime.Chat?.IsPaused != true
            && !runtime.SendQueuedNowWhenTurnStarts
            && HasSubmittedCopilotTurn(runtime);
 
     private static bool HasSubmittedCopilotTurn(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => runtime.IsContinuationTurn
+           || Volatile.Read(ref runtime.AssistantTurnStarted)
+           || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
            || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
            || runtime.HasPendingBackgroundWork;
@@ -480,6 +506,7 @@ public partial class ChatViewModel
             return;
 
         if (CurrentChat is not { } chat
+            || chat.IsPaused
             || !chat.Messages.Contains(message.Message)
             || !IsChatRuntimeActive(chat.Id))
         {

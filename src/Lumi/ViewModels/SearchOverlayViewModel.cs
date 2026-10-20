@@ -82,15 +82,16 @@ public partial class SearchOverlayViewModel : ObservableObject
     private const int AllChatsPreviewLimit = 6;
     private const int AllCategoryPreviewLimit = 3;
 
-    private const string IconSearch = "M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z";
-    private const string IconChat = "M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7l-4 3V6a2 2 0 0 1 2-2z";
-    private const string IconClock = "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 5h-2v6l5 3 .9-1.6-3.9-2.3V7z";
-    private const string IconFolder = "M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z";
-    private const string IconBolt = "M21.64 3.64l-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72z M14 7l3 3 M5 6v4 M19 14v4 M10 2v2 M7 8H3 M21 16h-4 M11 3H9";
-    private const string IconSparkle = "M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z M20 2v4 M22 4h-4 M4 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z";
-    private const string IconMemory = "M9.5 2A1.5 1.5 0 0 0 8 3.5V4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-4v-.5A1.5 1.5 0 0 0 14.5 2h-5zM10 4V3.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4h-4zm-2 5a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm-5 4a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0z";
-    private const string IconPlug = "M17 6.1h3V8h-3v2.1a5 5 0 0 1-4 4.9V18h2v2H9v-2h2v-3a5 5 0 0 1-4-4.9V8H4V6.1h3V4h2v2.1h4V4h2v2.1zM9 8v2.1a3 3 0 0 0 6 0V8H9z";
-    private const string IconGear = "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915z M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z";
+    // Line glyphs on StrataLineIcon's 24-unit grid; the palette strokes them in each category's hue.
+    private const string IconSearch = "M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z M15.5 15.5 20 20";
+    private const string IconChat = "M6 5h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-6.5L7 20.5V17H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z";
+    private const string IconClock = "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z M12 7.5V12l3 1.8";
+    private const string IconFolder = "M4 7.5a2 2 0 0 1 2-2h3.6l2 2.5H18a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z";
+    private const string IconWand = "M4.5 19.5 14 10 M12.5 8.5l3 3 M17.5 3.5v3 M16 5h3 M7 4.5v2 M6 5.5h2 M19 13v2 M18 14h2";
+    private const string IconSparkle = "M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z M20 2v4 M22 4h-4 M4 18a2 2 0 1 0 0 4 2 2 0 0 0 0-4z";
+    private const string IconMemory = "M5.5 6.5h13a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2z M9.5 6.5V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.5 M8 11h.01 M11.5 11H16 M8 14.5h.01 M11.5 14.5H16";
+    private const string IconPlug = "M9 3.5v4 M15 3.5v4 M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0z M12 16v4.5";
+    private const string IconGear = "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z";
 
     [ObservableProperty] private bool _isOpen;
     [ObservableProperty] private string _searchQuery = "";
@@ -665,7 +666,33 @@ public partial class SearchOverlayViewModel : ObservableObject
             IsSelected = SelectedCategory is null
         });
 
-        CategoryFilters = categories;
+        // Every search phase refreshes the filters; an unchanged row keeps its chips instead of rebuilding them.
+        if (!AreEquivalent(CategoryFilters, categories))
+            CategoryFilters = categories;
+    }
+
+    internal static bool AreEquivalent(
+        IReadOnlyList<SearchCategoryFilterItem> current,
+        IReadOnlyList<SearchCategoryFilterItem> next)
+    {
+        if (current.Count != next.Count)
+            return false;
+
+        for (var index = 0; index < current.Count; index++)
+        {
+            var left = current[index];
+            var right = next[index];
+            if (left.CategoryKey != right.CategoryKey
+                || left.Count != right.Count
+                || left.IsSelected != right.IsSelected
+                || !string.Equals(left.Label, right.Label, StringComparison.Ordinal)
+                || !string.Equals(left.Icon, right.Icon, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private bool IsCurrentRequest(string query, long requestId)
@@ -917,9 +944,9 @@ public partial class SearchOverlayViewModel : ObservableObject
         GlobalSearchCategory.BackgroundJobs => "Jobs",
         GlobalSearchCategory.Projects => "Projects",
         GlobalSearchCategory.Skills => "Skills",
-        GlobalSearchCategory.Lumis => "Lumis",
+        GlobalSearchCategory.Lumis => "Agents",
         GlobalSearchCategory.Memories => "Memories",
-        GlobalSearchCategory.McpServers => "MCP Servers",
+        GlobalSearchCategory.McpServers => "Connectors",
         GlobalSearchCategory.Settings => "Settings",
         _ => "Results"
     };
@@ -929,7 +956,7 @@ public partial class SearchOverlayViewModel : ObservableObject
         GlobalSearchCategory.Chats => IconChat,
         GlobalSearchCategory.BackgroundJobs => IconClock,
         GlobalSearchCategory.Projects => IconFolder,
-        GlobalSearchCategory.Skills => IconBolt,
+        GlobalSearchCategory.Skills => IconWand,
         GlobalSearchCategory.Lumis => IconSparkle,
         GlobalSearchCategory.Memories => IconMemory,
         GlobalSearchCategory.McpServers => IconPlug,

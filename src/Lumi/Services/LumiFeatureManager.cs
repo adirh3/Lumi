@@ -1347,6 +1347,7 @@ public sealed class LumiFeatureManager
         }
 
         _dataStore.Data.Skills.Remove(skill);
+        _dataStore.DeleteSkillBundle(skill.Id);
         return Success(
             $"Skill deleted: {skill.Name}. Removed from {removedFromAgents} Lumi(s) and {removedFromChats} chat(s).",
             syncSkillFiles: true);
@@ -1614,6 +1615,12 @@ public sealed class LumiFeatureManager
             return Failure(envError!);
         if (!TryParseKeyValueEntries(headerEntries, out var headers, out var headerError))
             return Failure(headerError!);
+        if (envEntries is not null && !TryKeepSavedValues(env!, server.Env, "Environment variable", out var keepEnvError))
+            return Failure(keepEnvError!);
+        if (headerEntries is not null && !TryKeepSavedValues(headers!, server.Headers, "Header", out var keepHeaderError))
+            return Failure(keepHeaderError!);
+        if (ContainsRedactionMarker(url) || args?.Any(ContainsRedactionMarker) == true)
+            return Failure("An argument or URL contains a placeholder such as <REDACTED>, which would replace the saved value. Leave args or url out to keep them, or ask the user for the real value.");
         if (timeout is < 0)
             return Failure("MCP timeout cannot be negative.");
 
@@ -2125,6 +2132,51 @@ public sealed class LumiFeatureManager
 
         return LookupManyResult.Ok(ids);
     }
+
+    /// <summary>
+    /// Lumi never shows a connector's saved credentials, only a placeholder. Passing that placeholder back
+    /// keeps the saved value, so an update can rewrite the whole list without erasing secrets it can't see.
+    /// </summary>
+    private static bool TryKeepSavedValues(
+        Dictionary<string, string> entries,
+        IReadOnlyDictionary<string, string> saved,
+        string kind,
+        out string? error)
+    {
+        error = null;
+        foreach (var key in entries.Keys.ToList())
+        {
+            if (!IsRedactionPlaceholder(entries[key]))
+            {
+                if (!ContainsRedactionMarker(entries[key]))
+                    continue;
+
+                error = $"{kind} \"{key}\" contains a placeholder, which would replace its saved value. Pass {key}=[REDACTED] alone to keep it, or ask the user for the real value.";
+                return false;
+            }
+
+            var existing = saved.FirstOrDefault(pair => string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(existing.Value))
+            {
+                error = $"{kind} \"{key}\" has no saved value to keep. Ask the user for its value instead of passing a placeholder.";
+                return false;
+            }
+
+            // Kept under its saved name: environment variable names are case-sensitive on Linux and macOS.
+            entries.Remove(key);
+            entries.TryAdd(existing.Key, existing.Value);
+        }
+
+        return true;
+    }
+
+    private static bool IsRedactionPlaceholder(string value)
+        => value.Trim() is "[REDACTED]" or "<REDACTED>" or "[redacted]" or "<redacted>" or "***" or "******";
+
+    private static bool ContainsRedactionMarker(string? value)
+        => value is not null
+           && (value.Contains("[REDACTED]", StringComparison.OrdinalIgnoreCase)
+               || value.Contains("<REDACTED>", StringComparison.OrdinalIgnoreCase));
 
     private static bool TryParseKeyValueEntries(
         IEnumerable<string>? entries,

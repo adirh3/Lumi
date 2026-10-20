@@ -58,6 +58,7 @@ public partial class App : Application
         }
 
         _ = _shell.StartAsync();
+        _shell.ShowLaunchHome();
 
         base.OnFrameworkInitializationCompleted();
     }

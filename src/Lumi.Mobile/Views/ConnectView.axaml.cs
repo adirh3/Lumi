@@ -13,6 +13,7 @@ public partial class ConnectView : UserControl
 {
     private ConnectViewModel? _viewModel;
     private bool _isAttached;
+    private MobileEntrance? _stepEntrance;
 
     public ConnectView()
     {
@@ -35,6 +36,8 @@ public partial class ConnectView : UserControl
         if (_viewModel is not null)
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel = null;
+        _stepEntrance?.Dispose();
+        _stepEntrance = null;
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -61,7 +64,17 @@ public partial class ConnectView : UserControl
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(ConnectViewModel.Step))
+        {
+            _stepEntrance?.Dispose();
+            _stepEntrance = null;
+            if (this.FindControl<StackPanel>(_viewModel?.IsCodeStep == true ? "PairingStep" : "FindStep")
+                is { } step)
+            {
+                _stepEntrance = new MobileEntrance(step, offsetY: 0);
+                _stepEntrance.Play();
+            }
             FocusPairingCodeIfNeeded();
+        }
 
         if (e.PropertyName is nameof(ConnectViewModel.ErrorText) or nameof(ConnectViewModel.Step))
             RevealErrorIfNeeded();

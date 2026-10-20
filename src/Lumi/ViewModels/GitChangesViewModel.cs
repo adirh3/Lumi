@@ -11,12 +11,12 @@ using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
-// ── Git changes island ───────────────────────────────
+// ── Git changes (Workspace page) ─────────────────────
 // Groups the working-tree changes by source repository (the project repo plus every submodule
 // that has changes) and then by folder, so a change set reads as "where did this come from"
 // instead of a flat list of file names.
 
-/// <summary>A single changed file row in the changes island.</summary>
+/// <summary>A single changed file row on the Workspace's Git changes page.</summary>
 public partial class GitFileChangeViewModel : ObservableObject
 {
     public GitFileChange Change { get; }
@@ -132,7 +132,7 @@ public sealed partial class GitChangeSourceGroup : ObservableObject
     private void Toggle() => IsExpanded = !IsExpanded;
 }
 
-/// <summary>Backing model for the changes island: totals, grouping and live filtering.</summary>
+/// <summary>Backing model for the Git changes page: totals, grouping and live filtering.</summary>
 public sealed partial class GitChangesViewModel : ObservableObject
 {
     /// <summary>Total pixel width of the added/removed proportion bar in the summary header.</summary>
@@ -172,6 +172,14 @@ public sealed partial class GitChangesViewModel : ObservableObject
 
     /// <summary>Invoked when a row is activated; the host opens the diff for that file.</summary>
     public Action<GitFileChangeViewModel>? FileActivated { get; set; }
+
+    /// <summary>A file to open straight away when the list is shown (e.g. picked in the Workspace overview).</summary>
+    public string? InitialFilePath { get; init; }
+
+    public GitFileChangeViewModel? FindFile(string? fullPath)
+        => string.IsNullOrEmpty(fullPath)
+            ? null
+            : _allFiles.FirstOrDefault(file => string.Equals(file.FullPath, fullPath, StringComparison.OrdinalIgnoreCase));
 
     public GitChangesViewModel(
         IEnumerable<GitFileChange> changes,

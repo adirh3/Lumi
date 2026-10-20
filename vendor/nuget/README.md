@@ -1,10 +1,32 @@
-# Vendored Copilot SDK package
+# Vendored NuGet packages
+
+## Avalonia dependency
+
+Lumi now consumes official `Avalonia 12.1.4` from NuGet.org. That stable release
+includes both final accepted text fixes from
+[AvaloniaUI/Avalonia#22343](https://github.com/AvaloniaUI/Avalonia/pull/22343) and
+[AvaloniaUI/Avalonia#22344](https://github.com/AvaloniaUI/Avalonia/pull/22344).
+The temporary Avalonia packages, rebuild inputs, checksum rows and exact local
+source mapping have been removed after verifying the official binaries against
+the input and direct empty-bounds regressions.
+
+`Avalonia.Controls.DataGrid` remains independently pinned to published `12.1.2`.
+The Copilot SDK archives below are unchanged and are not active dependencies.
+
+## Archived Copilot SDK packages
+
+Lumi now references official `GitHub.Copilot.SDK 1.0.23-preview.5` from NuGet.org
+and implements its upstream `ISkillProvider` API. The packages below are retained
+only as historical provenance: they are not referenced or source-mapped by Lumi.
+This directory is retained as an archive, not an active package feed.
+Full CLI acquisition has moved to `build/Copilot/CopilotCli.targets`, which uses
+the official SDK's supported binary-path override.
 
 `Lumi.Copilot.SDK` is an **unofficial, temporary prerelease build** of the GitHub
 Copilot .NET SDK with the native in-memory skill provider proposed upstream and
 package-owned full CLI acquisition. It is not an official GitHub release.
 
-## Provenance
+### Provenance
 
 - Package: `Lumi.Copilot.SDK` version `1.0.14-preview.1.lumi.2`
 - Source: [adirh3/copilot-sdk at 4a33b2c](https://github.com/adirh3/copilot-sdk/tree/4a33b2cf5ff7993a58d50aa80a8be008660bf0b7)
@@ -22,7 +44,7 @@ All managed assemblies and XML documentation are byte-for-byte identical to
 and the official SDK package together. `.lumi.2` replaces only package build assets
 and metadata; it does not alter SDK authentication or skill-provider code.
 
-## Consuming and updating
+### Historical consumption and updating
 
 Normal `dotnet restore`, `dotnet build`, and publish use this feed and the package's
 build targets automatically. No separate Lumi acquisition task, import, or opt-out
@@ -36,7 +58,7 @@ The default is full-CLI stdio/TCP hosting, not FFI/in-process hosting. The publi
 The CLI's own extraction-cache and storage behavior is unchanged; no second
 runtime or separate Node.js installation is shipped.
 
-## Reproducing the package
+### Reproducing the package
 
 The package contains all replacement sources in `build/FullCli/`, its
 `build/Lumi.Copilot.SDK.targets`, `tools/repack.py`, and focused package tests.
@@ -55,6 +77,6 @@ Python is needed only for reproduction, never for normal builds. Future changes
 must produce a new package version, with reviewed CLI pins and updated provenance;
 do not replace the bytes of an already-used version.
 
-The upstream API is experimental and currently text-only/pathless. Once an official
-SDK release provides the required API, restore the official package reference and
-remove this package and its local-feed mapping.
+The upstream API remains experimental and text-only/pathless. Lumi's active SDK
+reference and provider integration no longer depend on these packages or their
+custom SDK implementation.

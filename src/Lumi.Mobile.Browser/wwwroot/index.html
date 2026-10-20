@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#111114">
+  <meta name="application-name" content="Lumi">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Lumi">
@@ -18,18 +20,19 @@
     <div class="lumi-splash avalonia-splash">
       <img src="./icons/lumi-192.png" alt="">
       <strong>Lumi</strong>
-      <span>Connecting to your PC...</span>
+      <span role="status">Opening Lumi...</span>
+      <button id="startup-retry" type="button" hidden>Try again</button>
     </div>
   </div>
-  <section id="lumi-recovery" class="lumi-recovery" role="alert"
-           aria-labelledby="lumi-recovery-title" hidden>
+  <dialog id="lumi-recovery" class="lumi-recovery" role="alertdialog"
+          aria-labelledby="lumi-recovery-title" aria-describedby="lumi-recovery-message" hidden>
     <div>
       <h1 id="lumi-recovery-title">Lumi needs to reload</h1>
       <p id="lumi-recovery-message"></p>
       <button id="lumi-reload" type="button">Reload Lumi</button>
-      <p class="lumi-recovery-note">Saved chats stay on your PC. Reloading may discard unsent text.</p>
+      <p class="lumi-recovery-note">Saved chats stay on your computer. Reloading may discard unsent text.</p>
     </div>
-  </section>
+  </dialog>
   <script type="module" src="./main.js"></script>
 </body>
 </html>

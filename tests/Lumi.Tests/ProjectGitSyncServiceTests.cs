@@ -47,8 +47,10 @@ public sealed class ProjectGitSyncServiceTests
         Assert.Equal(now, project.LastMainBranchSyncAt);
     }
 
-    [Fact]
-    public async Task RunDueSyncsAsync_RecordsFailureWithoutMarkingSuccess()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunDueSyncsAsync_RecordsFailureWithoutMarkingSuccess(bool branchUpdated)
     {
         var now = DateTimeOffset.Now;
         var project = new Project
@@ -60,7 +62,7 @@ public sealed class ProjectGitSyncServiceTests
         var store = new DataStore(new AppData { Projects = [project] });
         await using var service = new ProjectGitSyncService(
             store,
-            (_, _) => Task.FromResult(new GitBranchSyncResult(false, "main", false, "dirty branch")),
+            (_, _) => Task.FromResult(new GitBranchSyncResult(false, "main", branchUpdated, "sync failed")),
             () => now,
             TimeSpan.FromHours(1));
 
@@ -68,7 +70,7 @@ public sealed class ProjectGitSyncServiceTests
 
         Assert.Equal(now, project.LastMainBranchSyncAttemptAt);
         Assert.Null(project.LastMainBranchSyncAt);
-        Assert.Equal("dirty branch", project.LastMainBranchSyncError);
+        Assert.Equal("sync failed", project.LastMainBranchSyncError);
     }
 
     [Fact]

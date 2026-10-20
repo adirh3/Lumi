@@ -262,6 +262,20 @@ public class ChatForkFactoryTests
     }
 
     [Fact]
+    public void CreateFork_DoesNotInheritTheSourcesPendingPausedSends()
+    {
+        var source = CreateSourceChat();
+        source.IsPaused = true;
+        var message = new ChatMessage { Role = "user", Content = "pending", IsPendingPausedSend = true };
+
+        var fork = ChatForkFactory.CreateFork(source, [message]).Chat;
+
+        Assert.False(fork.IsPaused);
+        Assert.False(Assert.Single(fork.Messages).IsPendingPausedSend);
+        Assert.True(message.IsPendingPausedSend);
+    }
+
+    [Fact]
     public void CreateFork_DropsEmptyStreamingMessageAndClearsStreamingFlag()
     {
         var source = CreateSourceChat();
@@ -713,14 +727,16 @@ public sealed class ChatViewForkWiringTests
             .ToList();
 
     [Fact]
-    public void ForkIconGeometry_IsRenderable()
+    public async Task ForkIconGeometry_IsRenderable()
     {
-        // The icon fonts have no fork/branch glyph, so the fork affordances draw a vector path.
-        // A malformed path would parse to empty bounds and render as a blank menu icon.
-        var bounds = StrataChatMessage.ForkIconGeometry.Bounds;
-
-        Assert.True(bounds.Width > 0 && bounds.Height > 0, $"Fork icon geometry is empty: {bounds}.");
-        Assert.True(bounds.Right <= 24 && bounds.Bottom <= 24, $"Fork icon must fit a 24x24 box: {bounds}.");
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            // A malformed path would render as a blank menu icon.
+            var bounds = StrataChatMessage.ForkIconGeometry.Bounds;
+            Assert.True(bounds.Width > 0 && bounds.Height > 0, $"Fork icon geometry is empty: {bounds}.");
+            Assert.True(bounds.Right <= 24 && bounds.Bottom <= 24, $"Fork icon must fit a 24x24 box: {bounds}.");
+        }, CancellationToken.None);
     }
 
     private static async Task PumpAsync()

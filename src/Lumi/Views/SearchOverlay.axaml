@@ -3,6 +3,9 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:Lumi.ViewModels"
+             xmlns:views="using:Lumi.Views"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:sa="using:StrataTheme.Animation"
              mc:Ignorable="d"
              d:DesignWidth="1200"
              d:DesignHeight="800"
@@ -12,30 +15,164 @@
              PointerPressed="OnOverlayPointerPressed"
              Focusable="True">
 
+  <!-- ═══ The search palette (Ctrl+K) ═══
+       Only the palette is glass: a translucent overlay surface over its own frost, so what lies beneath it
+       shows through softly, while the rest of Lumi stays exactly as it is. A faint Strata aurora pools
+       behind the field. The Strata line runs under what you type, brightens once there is a query and
+       carries a travelling light while a slow search runs. Categories with results become filter chips;
+       results wear their section's hue (Customize's hues, Lumi's accent for chats); the selected result
+       takes the Strata wash and shows the Enter key that opens it. -->
+
   <UserControl.Resources>
-    <!-- Neutral, hue-free selection so it reads crisp and professional rather than tinted. -->
-    <SolidColorBrush x:Key="Search.RowHover" Color="White" Opacity="0.045" />
-    <SolidColorBrush x:Key="Search.RowSelected" Color="White" Opacity="0.10" />
-    <SolidColorBrush x:Key="Search.RowSelectedBorder" Color="White" Opacity="0.14" />
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <!-- The glass: the overlay surface, see-through over its own frost. -->
+          <SolidColorBrush x:Key="Search.GlassFill" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.6" />
+          <BoxShadows x:Key="Search.GlassShadow">0 40 96 -24 #CC000000, 0 14 32 -10 #73000000, inset 0 1 0 0 #17FFFFFF</BoxShadows>
+          <SolidColorBrush x:Key="Search.RowHover" Color="#FFFFFF" Opacity="0.05" />
+          <LinearGradientBrush x:Key="Search.RowSelected" StartPoint="0%,50%" EndPoint="100%,50%">
+            <GradientStop Offset="0" Color="#30818CF8" />
+            <GradientStop Offset="0.55" Color="#17A78BFA" />
+            <GradientStop Offset="1" Color="#08F472B6" />
+          </LinearGradientBrush>
+          <LinearGradientBrush x:Key="Search.RowSelectedRim" StartPoint="0%,50%" EndPoint="100%,50%">
+            <GradientStop Offset="0" Color="#66818CF8" />
+            <GradientStop Offset="0.55" Color="#38A78BFA" />
+            <GradientStop Offset="1" Color="#1FF472B6" />
+          </LinearGradientBrush>
+          <RadialGradientBrush x:Key="Search.AuroraStart" Center="4%,0%" GradientOrigin="4%,0%" RadiusX="62%" RadiusY="150%">
+            <GradientStop Offset="0" Color="#2B818CF8" />
+            <GradientStop Offset="0.5" Color="#10A78BFA" />
+            <GradientStop Offset="1" Color="#00A78BFA" />
+          </RadialGradientBrush>
+          <RadialGradientBrush x:Key="Search.AuroraEnd" Center="98%,0%" GradientOrigin="98%,0%" RadiusX="44%" RadiusY="120%">
+            <GradientStop Offset="0" Color="#1AF472B6" />
+            <GradientStop Offset="1" Color="#00F472B6" />
+          </RadialGradientBrush>
+          <x:Double x:Key="Search.TileOpacity">0.16</x:Double>
+          <SolidColorBrush x:Key="Search.Hue.Chats" Color="#A5B4FC" />
+          <SolidColorBrush x:Key="Search.Hue.Jobs" Color="#E39A7B" />
+          <SolidColorBrush x:Key="Search.Hue.Projects" Color="#8FB4D4" />
+          <SolidColorBrush x:Key="Search.Hue.Skills" Color="#CDAE70" />
+          <SolidColorBrush x:Key="Search.Hue.Agents" Color="#A59BDD" />
+          <SolidColorBrush x:Key="Search.Hue.Memories" Color="#CC9AB3" />
+          <SolidColorBrush x:Key="Search.Hue.Connectors" Color="#84BDB2" />
+          <SolidColorBrush x:Key="Search.Hue.Settings" Color="#AEB4BE" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="Search.GlassFill" Color="{DynamicResource Color.SurfaceOverlay}" Opacity="0.68" />
+          <BoxShadows x:Key="Search.GlassShadow">0 36 88 -24 #59101828, 0 12 30 -10 #2E101828, inset 0 1 0 0 #FFFFFFFF</BoxShadows>
+          <SolidColorBrush x:Key="Search.RowHover" Color="#000000" Opacity="0.04" />
+          <LinearGradientBrush x:Key="Search.RowSelected" StartPoint="0%,50%" EndPoint="100%,50%">
+            <GradientStop Offset="0" Color="#1F4F46E5" />
+            <GradientStop Offset="0.55" Color="#0F7C3AED" />
+            <GradientStop Offset="1" Color="#05DB2777" />
+          </LinearGradientBrush>
+          <LinearGradientBrush x:Key="Search.RowSelectedRim" StartPoint="0%,50%" EndPoint="100%,50%">
+            <GradientStop Offset="0" Color="#594F46E5" />
+            <GradientStop Offset="0.55" Color="#307C3AED" />
+            <GradientStop Offset="1" Color="#1ADB2777" />
+          </LinearGradientBrush>
+          <RadialGradientBrush x:Key="Search.AuroraStart" Center="4%,0%" GradientOrigin="4%,0%" RadiusX="62%" RadiusY="150%">
+            <GradientStop Offset="0" Color="#1F6366F1" />
+            <GradientStop Offset="0.5" Color="#0C8B5CF6" />
+            <GradientStop Offset="1" Color="#008B5CF6" />
+          </RadialGradientBrush>
+          <RadialGradientBrush x:Key="Search.AuroraEnd" Center="98%,0%" GradientOrigin="98%,0%" RadiusX="44%" RadiusY="120%">
+            <GradientStop Offset="0" Color="#14EC4899" />
+            <GradientStop Offset="1" Color="#00EC4899" />
+          </RadialGradientBrush>
+          <x:Double x:Key="Search.TileOpacity">0.11</x:Double>
+          <SolidColorBrush x:Key="Search.Hue.Chats" Color="#4F46E5" />
+          <SolidColorBrush x:Key="Search.Hue.Jobs" Color="#A4532F" />
+          <SolidColorBrush x:Key="Search.Hue.Projects" Color="#3D6F99" />
+          <SolidColorBrush x:Key="Search.Hue.Skills" Color="#8F6A22" />
+          <SolidColorBrush x:Key="Search.Hue.Agents" Color="#5E50B5" />
+          <SolidColorBrush x:Key="Search.Hue.Memories" Color="#98506F" />
+          <SolidColorBrush x:Key="Search.Hue.Connectors" Color="#33786D" />
+          <SolidColorBrush x:Key="Search.Hue.Settings" Color="#5B6472" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+
+      <!-- Hairlines and keys on the glass, in the text colour of the theme. -->
+      <SolidColorBrush x:Key="Search.GlassRim" Color="{DynamicResource Color.TextPrimary}" Opacity="0.12" />
+      <SolidColorBrush x:Key="Search.Hairline" Color="{DynamicResource Color.TextPrimary}" Opacity="0.07" />
+      <SolidColorBrush x:Key="Search.FooterFill" Color="{DynamicResource Color.TextPrimary}" Opacity="0.025" />
+      <SolidColorBrush x:Key="Search.KeyFill" Color="{DynamicResource Color.TextPrimary}" Opacity="0.07" />
+      <SolidColorBrush x:Key="Search.KeyRim" Color="{DynamicResource Color.TextPrimary}" Opacity="0.1" />
+      <SolidColorBrush x:Key="Search.ChipRim" Color="{DynamicResource Color.TextPrimary}" Opacity="0.1" />
+      <SolidColorBrush x:Key="Search.ChipHover" Color="{DynamicResource Color.TextPrimary}" Opacity="0.06" />
+      <SolidColorBrush x:Key="Search.DiscFill" Color="{DynamicResource Color.TextPrimary}" Opacity="0.04" />
+
+      <!-- The Strata line feathers out at both ends, as it does under the glass composer. -->
+      <LinearGradientBrush x:Key="Search.LineFeather" StartPoint="0%,50%" EndPoint="100%,50%">
+        <GradientStop Offset="0" Color="#00000000" />
+        <GradientStop Offset="0.08" Color="#FF000000" />
+        <GradientStop Offset="0.92" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+      <!-- The light that travels along the line while a search is slow enough to notice. -->
+      <LinearGradientBrush x:Key="Search.Comet" StartPoint="0%,50%" EndPoint="100%,50%">
+        <GradientStop Offset="0" Color="#00FFFFFF" />
+        <GradientStop Offset="0.55" Color="#E6FFFFFF" />
+        <GradientStop Offset="1" Color="#00FFFFFF" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Search.FadeEnd" StartPoint="0%,50%" EndPoint="100%,50%">
+        <GradientStop Offset="0.9" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Search.FadeStart" StartPoint="0%,50%" EndPoint="100%,50%">
+        <GradientStop Offset="0" Color="#00000000" />
+        <GradientStop Offset="0.1" Color="#FF000000" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Search.FadeBoth" StartPoint="0%,50%" EndPoint="100%,50%">
+        <GradientStop Offset="0" Color="#00000000" />
+        <GradientStop Offset="0.1" Color="#FF000000" />
+        <GradientStop Offset="0.9" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Search.FadeBelow" StartPoint="50%,0%" EndPoint="50%,100%">
+        <GradientStop Offset="0.9" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Search.FadeAbove" StartPoint="50%,0%" EndPoint="50%,100%">
+        <GradientStop Offset="0" Color="#00000000" />
+        <GradientStop Offset="0.07" Color="#FF000000" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="Search.FadeAboveBelow" StartPoint="50%,0%" EndPoint="50%,100%">
+        <GradientStop Offset="0" Color="#00000000" />
+        <GradientStop Offset="0.07" Color="#FF000000" />
+        <GradientStop Offset="0.9" Color="#FF000000" />
+        <GradientStop Offset="1" Color="#00000000" />
+      </LinearGradientBrush>
+
+      <!-- Line glyphs on StrataLineIcon's 24-unit grid. -->
+      <StreamGeometry x:Key="Search.Glyph.Find">M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z M15.5 15.5 20 20</StreamGeometry>
+      <StreamGeometry x:Key="Search.Glyph.Clear">M7.5 7.5l9 9 M16.5 7.5l-9 9</StreamGeometry>
+      <StreamGeometry x:Key="Search.Glyph.More">M10 7l5 5-5 5</StreamGeometry>
+    </ResourceDictionary>
   </UserControl.Resources>
 
   <UserControl.Styles>
+    <!-- ── Glass ── -->
     <Style Selector="Border.search-shell">
-      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
-      <Setter Property="BorderThickness" Value="{DynamicResource Stroke.Thin}" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Overlay}" />
-      <Setter Property="BoxShadow" Value="0 24 64 -16 #52000000, 0 8 22 -6 #2E000000" />
-      <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="Background" Value="{DynamicResource Search.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Search.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Search.GlassShadow}" />
     </Style>
 
+    <!-- ── The field ── -->
     <Style Selector="TextBox.search-input">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="0" />
-      <Setter Property="FontSize" Value="15" />
-      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="FontSize" Value="16.5" />
+      <Setter Property="FontWeight" Value="Normal" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="CaretBrush" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="Template">
@@ -74,6 +211,63 @@
       <Setter Property="BorderThickness" Value="0" />
     </Style>
 
+    <!-- The field's glyph takes the accent once there is something to find. -->
+    <Style Selector="sc|StrataLineIcon.search-glyph">
+      <Setter Property="Width" Value="19" />
+      <Setter Property="Height" Value="19" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.2" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="sc|StrataLineIcon.search-glyph.active">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- The Strata line: quiet while the field is empty, full once you type. -->
+    <Style Selector="Border.stratum-line">
+      <Setter Property="Height" Value="1.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource Brush.StratumLine}" />
+      <Setter Property="OpacityMask" Value="{StaticResource Search.LineFeather}" />
+      <Setter Property="Opacity" Value="0.5" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.28" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.stratum-line.active">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <!-- No track (exactly 2px, over the line) and driven by the debounced flag so typing never flashes it. -->
+    <Style Selector="ProgressBar.stratum-comet">
+      <Setter Property="Height" Value="2" />
+      <Setter Property="MinHeight" Value="2" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="CornerRadius" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{StaticResource Search.Comet}" />
+      <Setter Property="OpacityMask" Value="{StaticResource Search.LineFeather}" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+
+    <!-- ── Buttons in the palette ──
+         The shared Strata button chrome (accent "aurora" line, drop shadow) makes palette rows and chips
+         read as heavy buttons and overrides their hover brushes, so they opt out at the template level. -->
+    <Style Selector="Button.icon-button /template/ Border#PART_Aurora, Button.section-more /template/ Border#PART_Aurora, Button.search-chip /template/ Border#PART_Aurora, Button.search-result-item /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.icon-button /template/ Border#PART_Surface, Button.section-more /template/ Border#PART_Surface, Button.search-result-item /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+
     <Style Selector="Button.icon-button">
       <Setter Property="Width" Value="28" />
       <Setter Property="Height" Value="28" />
@@ -82,32 +276,248 @@
       <Setter Property="Padding" Value="0" />
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
       <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.icon-button:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.icon-button:pointerover /template/ Border#PART_Surface, Button.icon-button:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource Search.ChipHover}" />
+    </Style>
+
+    <!-- ── Filter chips: All and every category with results ──
+         Neutral pills with the category's hue on the glyph; the one in use is accent-tinted glass with a
+         hairline ring, like the place you're on in the sidebar bar. -->
+    <Style Selector="ScrollViewer.search-filters.fade-end">
+      <Setter Property="OpacityMask" Value="{StaticResource Search.FadeEnd}" />
+    </Style>
+    <Style Selector="ScrollViewer.search-filters.fade-start">
+      <Setter Property="OpacityMask" Value="{StaticResource Search.FadeStart}" />
+    </Style>
+    <Style Selector="ScrollViewer.search-filters.fade-start.fade-end">
+      <Setter Property="OpacityMask" Value="{StaticResource Search.FadeBoth}" />
+    </Style>
+    <!-- Results fade out under the chips and above the footer while more lies beyond either edge. -->
+    <Style Selector="ScrollViewer.search-results.fade-end">
+      <Setter Property="OpacityMask" Value="{StaticResource Search.FadeBelow}" />
+    </Style>
+    <Style Selector="ScrollViewer.search-results.fade-start">
+      <Setter Property="OpacityMask" Value="{StaticResource Search.FadeAbove}" />
+    </Style>
+    <Style Selector="ScrollViewer.search-results.fade-start.fade-end">
+      <Setter Property="OpacityMask" Value="{StaticResource Search.FadeAboveBelow}" />
+    </Style>
+
+    <Style Selector="Button.search-chip">
+      <Setter Property="Height" Value="28" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="11,0" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{StaticResource Search.ChipRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.search-chip /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="none" />
       <Setter Property="Transitions">
         <Transitions>
-          <BrushTransition Property="Background" Duration="0:0:0.09" />
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="BorderBrush" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.icon-button:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Brush.ControlHover}" />
+    <Style Selector="Button.search-chip:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource Search.ChipHover}" />
+      <Setter Property="BoxShadow" Value="none" />
+    </Style>
+    <Style Selector="Button.search-chip:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource Search.ChipHover}" />
+      <Setter Property="BoxShadow" Value="none" />
+      <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="Button.search-chip:pointerover">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
+    <Style Selector="Button.search-chip.selected">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
+    </Style>
+    <Style Selector="Button.search-chip.selected /template/ Border#PART_Surface, Button.search-chip.selected:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+    </Style>
+    <Style Selector="Button.search-chip sc|StrataLineIcon.chip-icon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.search-chip TextBlock.chip-label">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.search-chip TextBlock.chip-count">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.search-chip.selected TextBlock.chip-count">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
 
+    <!-- ── Results ── -->
+    <Style Selector="TextBlock.section-label">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="LetterSpacing" Value="0.3" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Button.section-more">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="7,3,5,3" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.section-more:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.section-more:pointerover /template/ Border#PART_Surface, Button.section-more:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Search.RowHover}" />
+      <Setter Property="RenderTransform" Value="none" />
+    </Style>
+
+    <Style Selector="Button.search-result-item">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="8,7,12,7" />
+      <Setter Property="Margin" Value="8,1" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="50" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.search-result-item.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource Search.RowSelectedRim}" />
+    </Style>
+    <Style Selector="Button.search-result-item:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Search.RowHover}" />
+    </Style>
+    <Style Selector="Button.search-result-item:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Search.RowHover}" />
+      <Setter Property="RenderTransform" Value="none" />
+    </Style>
+    <Style Selector="Button.search-result-item.selected /template/ Border#PART_Surface, Button.search-result-item.selected:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Search.RowSelected}" />
+    </Style>
+
+    <!-- A result's identity: its category's glyph on a tile of the same hue. -->
+    <Style Selector="Panel.result-tile">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Panel.result-tile > Border.tile-fill">
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Opacity" Value="{DynamicResource Search.TileOpacity}" />
+    </Style>
+    <Style Selector="Panel.result-tile > sc|StrataLineIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Category hues, after the tile's neutral default so they win: a result's tile and a chip's glyph. -->
+    <Style Selector="Panel.result-tile[(views|SearchHue.Category)=Chats], sc|StrataLineIcon.chip-icon[(views|SearchHue.Category)=Chats]">
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Search.Hue.Chats}" />
+    </Style>
+    <Style Selector="Panel.result-tile[(views|SearchHue.Category)=BackgroundJobs], sc|StrataLineIcon.chip-icon[(views|SearchHue.Category)=BackgroundJobs]">
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Search.Hue.Jobs}" />
+    </Style>
+    <Style Selector="Panel.result-tile[(views|SearchHue.Category)=Projects], sc|StrataLineIcon.chip-icon[(views|SearchHue.Category)=Projects]">
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Search.Hue.Projects}" />
+    </Style>
+    <Style Selector="Panel.result-tile[(views|SearchHue.Category)=Skills], sc|StrataLineIcon.chip-icon[(views|SearchHue.Category)=Skills]">
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Search.Hue.Skills}" />
+    </Style>
+    <Style Selector="Panel.result-tile[(views|SearchHue.Category)=Lumis], sc|StrataLineIcon.chip-icon[(views|SearchHue.Category)=Lumis]">
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Search.Hue.Agents}" />
+    </Style>
+    <Style Selector="Panel.result-tile[(views|SearchHue.Category)=Memories], sc|StrataLineIcon.chip-icon[(views|SearchHue.Category)=Memories]">
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Search.Hue.Memories}" />
+    </Style>
+    <Style Selector="Panel.result-tile[(views|SearchHue.Category)=McpServers], sc|StrataLineIcon.chip-icon[(views|SearchHue.Category)=McpServers]">
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Search.Hue.Connectors}" />
+    </Style>
+    <Style Selector="Panel.result-tile[(views|SearchHue.Category)=Settings], sc|StrataLineIcon.chip-icon[(views|SearchHue.Category)=Settings]">
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Search.Hue.Settings}" />
+    </Style>
+
+    <Style Selector="TextBlock.result-title">
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="TextBlock.result-subtitle">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+
+    <!-- The selected result shows the key that opens it. -->
+    <Style Selector="Button.search-result-item Border.row-enter">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.search-result-item.selected Border.row-enter">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- ── Keys and hints ── -->
     <Style Selector="Border.keycap">
       <Setter Property="MinWidth" Value="20" />
-      <Setter Property="Height" Value="19" />
-      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="Padding" Value="5,0" />
       <Setter Property="CornerRadius" Value="5" />
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Background" Value="{StaticResource Search.KeyFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Search.KeyRim}" />
       <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Border.keycap > TextBlock">
-      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontSize" Value="10.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -118,142 +528,52 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-
-    <Style Selector="TextBlock.section-label">
-      <Setter Property="FontSize" Value="11" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="LetterSpacing" Value="0.4" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-
-    <Style Selector="Button.section-more">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Padding" Value="6,3" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Cursor" Value="Hand" />
-    </Style>
-    <Style Selector="Button.section-more:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Search.RowHover}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-
-    <Style Selector="Button.back-row">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Padding" Value="12,7" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="Cursor" Value="Hand" />
-    </Style>
-    <Style Selector="Button.back-row:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Search.RowHover}" />
-    </Style>
-
-    <Style Selector="Button.search-result-item">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="11,7" />
-      <Setter Property="Margin" Value="8,1,8,1" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="MinHeight" Value="44" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="VerticalContentAlignment" Value="Center" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <BrushTransition Property="Background" Duration="0:0:0.09" />
-          <BrushTransition Property="BorderBrush" Duration="0:0:0.09" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Button.search-result-item:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Search.RowHover}" />
-    </Style>
-    <Style Selector="Button.search-result-item.selected">
-      <Setter Property="Background" Value="{DynamicResource Search.RowSelected}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Search.RowSelectedBorder}" />
-    </Style>
-    <Style Selector="Button.search-result-item.selected:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Search.RowSelected}" />
-    </Style>
-
-    <!-- The shared Strata button chrome (accent "aurora" line, drop shadow, press scale) makes palette rows
-         read as heavy buttons and overrides their hover brushes, so opt out at the template level. -->
-    <Style Selector="Button.icon-button /template/ Border#PART_Aurora, Button.section-more /template/ Border#PART_Aurora, Button.back-row /template/ Border#PART_Aurora, Button.search-result-item /template/ Border#PART_Aurora">
-      <Setter Property="IsVisible" Value="False" />
-    </Style>
-    <Style Selector="Button.icon-button /template/ Border#PART_Surface, Button.section-more /template/ Border#PART_Surface, Button.back-row /template/ Border#PART_Surface, Button.search-result-item /template/ Border#PART_Surface">
-      <Setter Property="BoxShadow" Value="none" />
-    </Style>
-    <Style Selector="Button.icon-button:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Search.RowSelected}" />
-    </Style>
-    <Style Selector="Button.section-more:pointerover /template/ Border#PART_Surface, Button.back-row:pointerover /template/ Border#PART_Surface, Button.search-result-item:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Search.RowHover}" />
-    </Style>
-    <Style Selector="Button.section-more:pressed /template/ Border#PART_Surface, Button.back-row:pressed /template/ Border#PART_Surface, Button.search-result-item:pressed /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Search.RowSelected}" />
-      <Setter Property="RenderTransform" Value="none" />
-    </Style>
-    <Style Selector="Button.search-result-item.selected /template/ Border#PART_Surface, Button.search-result-item.selected:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Search.RowSelected}" />
-    </Style>
-
-    <Style Selector="TextBlock.result-title">
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="FontWeight" Value="Medium" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="MaxLines" Value="1" />
-    </Style>
-    <Style Selector="TextBlock.result-subtitle">
-      <Setter Property="FontSize" Value="11" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="MaxLines" Value="1" />
+    <Style Selector="Border.search-footer">
+      <Setter Property="Height" Value="40" />
+      <Setter Property="Padding" Value="18,0,16,0" />
+      <Setter Property="Background" Value="{StaticResource Search.FooterFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Search.Hairline}" />
+      <Setter Property="BorderThickness" Value="0,1,0,0" />
     </Style>
   </UserControl.Styles>
 
   <Grid>
-    <Border x:Name="Scrim"
-            Background="{DynamicResource Brush.OverlayScrim}" />
+    <!-- Lumi stays exactly as it is behind the palette; clicking anywhere outside the palette closes it. -->
+    <Border x:Name="Scrim" Background="Transparent" />
 
     <!-- Stretch + MaxWidth keeps the palette a fixed 640px wide so it never resizes while typing,
          while still shrinking gracefully on narrow windows. -->
-    <Border x:Name="OverlayCard"
-            Classes="search-shell"
-            Height="496"
-            MaxWidth="640"
-            HorizontalAlignment="Stretch"
-            VerticalAlignment="Top"
-            Margin="24,72,24,40"
-            PointerPressed="OnCardPointerPressed"
-            RenderTransformOrigin="50%,0%">
-      <Grid RowDefinitions="Auto,*,Auto">
+    <Panel x:Name="CardHost"
+           TextOptions.TextRenderingMode="Antialias"
+           Height="520"
+           MaxWidth="640"
+           HorizontalAlignment="Stretch"
+           VerticalAlignment="Top"
+           Margin="24,72,24,40">
+      <sc:StrataBackdropBlur CornerRadius="18" BlurRadius="14" Saturation="1.5" />
+      <Border x:Name="OverlayCard"
+              Classes="search-shell"
+              PointerPressed="OnCardPointerPressed">
+        <Border CornerRadius="17" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
 
-        <!-- Header -->
-        <Panel Grid.Row="0">
-          <Border BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                  BorderThickness="0,0,0,1"
-                  Height="52"
-                  Padding="20,0,12,0">
-            <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-              <PathIcon Grid.Column="0"
-                        Data="M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z"
-                        Width="16"
-                        Height="16"
-                        Margin="0,0,12,0"
-                        Foreground="{DynamicResource Brush.TextTertiary}"
-                        VerticalAlignment="Center" />
+            <!-- A faint Strata aurora pooled behind the field. -->
+            <Panel Grid.Row="0" Grid.RowSpan="3" IsHitTestVisible="False">
+              <Border Background="{DynamicResource Search.AuroraStart}" />
+              <Border Background="{DynamicResource Search.AuroraEnd}" />
+            </Panel>
+
+            <!-- Field -->
+            <Grid Grid.Row="0"
+                  Height="60"
+                  Margin="20,0,12,0"
+                  ColumnDefinitions="Auto,*,Auto">
+              <sc:StrataLineIcon Grid.Column="0"
+                                 Classes="search-glyph"
+                                 Classes.active="{Binding HasSearchQuery}"
+                                 Data="{StaticResource Search.Glyph.Find}"
+                                 Margin="0,0,14,0"
+                                 VerticalAlignment="Center" />
 
               <TextBox x:Name="SearchOverlayInput"
                        Grid.Column="1"
@@ -269,198 +589,224 @@
                       Click="OnClearSearchClick"
                       AutomationProperties.Name="Clear search"
                       ToolTip.Tip="Clear search">
-                <PathIcon Data="M6.7 5.3L12 10.6l5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3z"
-                          Width="13"
-                          Height="13"
-                          Foreground="{Binding $parent[Button].Foreground}" />
+                <sc:StrataLineIcon Data="{StaticResource Search.Glyph.Clear}"
+                                   Width="14"
+                                   Height="14"
+                                   StrokeThickness="2" />
               </Button>
             </Grid>
-          </Border>
 
-          <!-- Sits on the header divider: no track fill, exact 2px (the shared theme's MinHeight is 4),
-               and driven by the debounced flag so typing never flashes it. -->
-          <ProgressBar VerticalAlignment="Bottom"
-                       Height="2"
-                       MinHeight="2"
-                       Margin="0"
-                       Background="Transparent"
-                       IsHitTestVisible="False"
-                       IsIndeterminate="True"
-                       IsVisible="{Binding IsSearchIndicatorVisible}"
-                       Foreground="{DynamicResource Brush.AccentDefault}" />
-        </Panel>
+            <!-- The Strata line, and the light that travels along it while a slow search runs. -->
+            <Panel Grid.Row="1" Height="2" Margin="18,0">
+              <Border x:Name="StratumLine"
+                      Classes="stratum-line"
+                      Classes.active="{Binding HasSearchQuery}" />
+              <ProgressBar Classes="stratum-comet"
+                           IsIndeterminate="True"
+                           IsVisible="{Binding IsSearchIndicatorVisible}" />
+            </Panel>
 
-        <!-- Body -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,*">
-          <Button Grid.Row="0"
-                  Classes="back-row"
-                  Margin="8,8,8,0"
-                  IsVisible="{Binding HasSelectedCategory}"
-                  Click="OnBackToAllClick"
-                  AutomationProperties.Name="Back to all results">
-            <Grid ColumnDefinitions="Auto,*,Auto">
-              <PathIcon Grid.Column="0"
-                        Data="M15.4 5.2L8.6 12l6.8 6.8 1.4-1.4-5.4-5.4 5.4-5.4z"
-                        Width="12"
-                        Height="12"
-                        Margin="0,0,9,0"
-                        Foreground="{DynamicResource Brush.TextSecondary}"
-                        VerticalAlignment="Center" />
-              <TextBlock Grid.Column="1"
-                         Text="All results"
-                         FontSize="12.5"
-                         FontWeight="Medium"
-                         Foreground="{DynamicResource Brush.TextSecondary}"
-                         VerticalAlignment="Center" />
-              <TextBlock Grid.Column="2"
-                         Text="{Binding SelectedCategorySummary}"
-                         FontSize="11"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         VerticalAlignment="Center" />
-            </Grid>
-          </Button>
-
-          <Grid Grid.Row="1" MinHeight="200">
-            <StackPanel x:Name="SearchingState"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Spacing="6"
-                        IsVisible="False">
-              <TextBlock Text="Searching…"
-                         FontSize="14"
-                         FontWeight="Medium"
-                         Foreground="{DynamicResource Brush.TextSecondary}"
-                         HorizontalAlignment="Center" />
-              <TextBlock Text="Looking through your chats and saved content"
-                         FontSize="12"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         HorizontalAlignment="Center" />
-            </StackPanel>
-
-            <StackPanel x:Name="EmptyState"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        MaxWidth="340"
-                        Spacing="8"
-                        IsVisible="False">
-              <PathIcon Data="M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z"
-                        Width="26"
-                        Height="26"
-                        Foreground="{DynamicResource Brush.TextDisabled}"
-                        HorizontalAlignment="Center" />
-              <TextBlock Text="{Binding EmptyStateTitle}"
-                         FontSize="14"
-                         FontWeight="Medium"
-                         Foreground="{DynamicResource Brush.TextSecondary}"
-                         HorizontalAlignment="Center" />
-              <TextBlock Text="{Binding EmptyStateHint}"
-                         FontSize="12"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         TextAlignment="Center"
-                         TextWrapping="Wrap"
-                         HorizontalAlignment="Center" />
-            </StackPanel>
-
-            <ScrollViewer x:Name="ResultsScroll"
-                          IsVisible="{Binding HasResults}"
-                          Padding="0,4,0,8"
-                          HorizontalScrollBarVisibility="Disabled"
-                          VerticalScrollBarVisibility="Auto">
-              <ItemsControl x:Name="ResultsList"
-                            ItemsSource="{Binding ResultGroups}">
+            <!-- Filters: All, then every category with results. Ctrl+Tab cycles them. -->
+            <ScrollViewer x:Name="FilterScroll"
+                          Grid.Row="2"
+                          Classes="search-filters"
+                          Margin="0,12,0,2"
+                          Padding="16,0"
+                          HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollBarVisibility="Disabled"
+                          IsVisible="{Binding HasCategoryFilters}">
+              <ItemsControl x:Name="FilterList" ItemsSource="{Binding CategoryFilters}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="6" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:SearchResultGroup">
-                    <StackPanel Margin="0,0,0,2">
-                      <Grid ColumnDefinitions="*,Auto"
-                            Margin="20,10,14,4"
-                            IsVisible="{Binding ShowHeader}">
-                        <TextBlock Grid.Column="0"
-                                   Classes="section-label"
-                                   Text="{Binding Category}" />
-                        <Button Grid.Column="1"
-                                Classes="section-more"
-                                IsVisible="{Binding HasMore}"
-                                Tag="{Binding}"
-                                Click="OnShowAllClick"
-                                AutomationProperties.Name="{Binding ViewAllText}">
-                          <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding ViewAllText}"
-                                       FontSize="11"
-                                       Foreground="{Binding $parent[Button].Foreground}"
-                                       VerticalAlignment="Center" />
-                            <PathIcon Data="M8.6 5.2L15.4 12l-6.8 6.8-1.4-1.4 5.4-5.4-5.4-5.4z"
-                                      Width="9"
-                                      Height="9"
-                                      Foreground="{Binding $parent[Button].Foreground}"
-                                      VerticalAlignment="Center" />
-                          </StackPanel>
-                        </Button>
-                      </Grid>
-
-                      <ItemsControl ItemsSource="{Binding Items}">
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate x:DataType="vm:SearchResultItem">
-                            <Button Classes="search-result-item"
-                                    Tag="{Binding}"
-                                    AutomationProperties.Name="{Binding Title}"
-                                    Click="OnResultClick">
-                              <StackPanel Spacing="2" VerticalAlignment="Center">
-                                <TextBlock Classes="result-title"
-                                           Text="{Binding Title}" />
-                                <TextBlock Classes="result-subtitle"
-                                           Text="{Binding Subtitle}"
-                                           IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                              </StackPanel>
-                            </Button>
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
-                    </StackPanel>
+                  <DataTemplate x:DataType="vm:SearchCategoryFilterItem">
+                    <Button Classes="search-chip"
+                            Classes.selected="{Binding IsSelected}"
+                            Tag="{Binding}"
+                            Click="OnFilterChipClick"
+                            AutomationProperties.Name="{Binding Label}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <sc:StrataLineIcon Classes="chip-icon"
+                                           Data="{Binding IconGeometry}"
+                                           views:SearchHue.Category="{Binding CategoryKey}"
+                                           IsVisible="{Binding CategoryKey, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock Classes="chip-label" Text="{Binding Label}" />
+                        <TextBlock Classes="chip-count" Text="{Binding CountText}" />
+                      </StackPanel>
+                    </Button>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
-          </Grid>
-        </Grid>
 
-        <!-- Footer -->
-        <Border Grid.Row="2"
-                Background="{DynamicResource Brush.Surface1}"
-                BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                BorderThickness="0,1,0,0"
-                Height="38"
-                Padding="20,0,18,0">
-          <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Grid.Column="0"
-                       Text="{Binding SearchStatusText}"
-                       Classes="hint-label"
-                       TextTrimming="CharacterEllipsis" />
-            <StackPanel Grid.Column="1"
-                        Orientation="Horizontal"
-                        Spacing="14"
-                        VerticalAlignment="Center">
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <Border Classes="keycap">
-                  <TextBlock Text="↑↓" />
-                </Border>
-                <TextBlock Classes="hint-label" Text="Navigate" />
+            <!-- Results -->
+            <Grid Grid.Row="3" MinHeight="200">
+              <StackPanel x:Name="SearchingState"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          Spacing="6"
+                          IsVisible="False">
+                <TextBlock Text="Searching…"
+                           FontSize="14"
+                           FontWeight="Medium"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="Looking through your chats and saved content"
+                           FontSize="12"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           HorizontalAlignment="Center" />
               </StackPanel>
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <Border Classes="keycap">
-                  <TextBlock Text="↵" />
-                </Border>
-                <TextBlock Classes="hint-label" Text="Open" />
+
+              <StackPanel x:Name="EmptyState"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          MaxWidth="340"
+                          Spacing="8"
+                          IsVisible="False">
+                <!-- A glass disc ringed by the Strata line. -->
+                <Panel Width="56" Height="56" HorizontalAlignment="Center" Margin="0,0,0,6">
+                  <Border CornerRadius="28" Background="{StaticResource Search.DiscFill}" />
+                  <Border CornerRadius="28"
+                          BorderThickness="1.5"
+                          BorderBrush="{DynamicResource Brush.StratumLine}"
+                          Opacity="0.55" />
+                  <sc:StrataLineIcon Data="{StaticResource Search.Glyph.Find}"
+                                     Width="22"
+                                     Height="22"
+                                     StrokeThickness="1.8"
+                                     Foreground="{DynamicResource Brush.TextTertiary}"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center" />
+                </Panel>
+                <TextBlock Text="{Binding EmptyStateTitle}"
+                           FontSize="14"
+                           FontWeight="Medium"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding EmptyStateHint}"
+                           FontSize="12"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           HorizontalAlignment="Center" />
               </StackPanel>
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <Border Classes="keycap">
-                  <TextBlock Text="Esc" />
-                </Border>
-                <TextBlock Classes="hint-label" Text="Close" />
-              </StackPanel>
-            </StackPanel>
+
+              <ScrollViewer x:Name="ResultsScroll"
+                            Classes="search-results"
+                            IsVisible="{Binding HasResults}"
+                            Padding="0,6,0,8"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="ResultsList"
+                              ItemsSource="{Binding ResultGroups}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SearchResultGroup">
+                      <StackPanel Margin="0,0,0,2">
+                        <Grid ColumnDefinitions="*,Auto"
+                              Margin="22,12,14,5"
+                              IsVisible="{Binding ShowHeader}">
+                          <TextBlock Grid.Column="0"
+                                     Classes="section-label"
+                                     Text="{Binding Category}" />
+                          <Button Grid.Column="1"
+                                  Classes="section-more"
+                                  IsVisible="{Binding HasMore}"
+                                  Tag="{Binding}"
+                                  Click="OnShowAllClick"
+                                  AutomationProperties.Name="{Binding ViewAllText}">
+                            <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding ViewAllText}"
+                                         FontSize="11"
+                                         Foreground="{Binding $parent[Button].Foreground}"
+                                         VerticalAlignment="Center" />
+                              <sc:StrataLineIcon Data="{StaticResource Search.Glyph.More}"
+                                                 Width="12"
+                                                 Height="12"
+                                                 StrokeThickness="2"
+                                                 Foreground="{Binding $parent[Button].Foreground}"
+                                                 VerticalAlignment="Center" />
+                            </StackPanel>
+                          </Button>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding Items}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SearchResultItem">
+                              <Button Classes="search-result-item"
+                                      Tag="{Binding}"
+                                      AutomationProperties.Name="{Binding Title}"
+                                      Click="OnResultClick">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                  <Panel Classes="result-tile"
+                                         views:SearchHue.Category="{Binding CategoryKey}">
+                                    <Border Classes="tile-fill"
+                                            Background="{Binding $parent[Panel].(TextElement.Foreground)}" />
+                                    <sc:StrataLineIcon Data="{Binding CategoryGeometry}" />
+                                  </Panel>
+                                  <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                    <TextBlock Classes="result-title"
+                                               Text="{Binding Title}" />
+                                    <TextBlock Classes="result-subtitle"
+                                               Text="{Binding Subtitle}"
+                                               IsVisible="{Binding Subtitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                  </StackPanel>
+                                  <Border Grid.Column="2" Classes="keycap row-enter">
+                                    <TextBlock Text="↵" />
+                                  </Border>
+                                </Grid>
+                              </Button>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Grid>
+
+            <!-- Footer -->
+            <Border Grid.Row="4" Classes="search-footer">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding SearchStatusText}"
+                           Classes="hint-label"
+                           TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="16"
+                            VerticalAlignment="Center">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="3">
+                      <Border Classes="keycap"><TextBlock Text="↑" /></Border>
+                      <Border Classes="keycap"><TextBlock Text="↓" /></Border>
+                    </StackPanel>
+                    <TextBlock Classes="hint-label" Text="Navigate" />
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Border Classes="keycap"><TextBlock Text="↵" /></Border>
+                    <TextBlock Classes="hint-label" Text="Open" />
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasCategoryFilters}">
+                    <StackPanel Orientation="Horizontal" Spacing="3">
+                      <Border Classes="keycap"><TextBlock Text="Ctrl" /></Border>
+                      <Border Classes="keycap"><TextBlock Text="Tab" /></Border>
+                    </StackPanel>
+                    <TextBlock Classes="hint-label" Text="Filter" />
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Border Classes="keycap"><TextBlock Text="Esc" /></Border>
+                    <TextBlock Classes="hint-label" Text="Close" />
+                  </StackPanel>
+                </StackPanel>
+              </Grid>
+            </Border>
           </Grid>
         </Border>
-      </Grid>
-    </Border>
+      </Border>
+    </Panel>
   </Grid>
 </UserControl>

@@ -3,6 +3,9 @@ using System.ComponentModel;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Models;
@@ -81,6 +84,14 @@ public sealed class PresenceController : IDisposable
     // focus/companion resync (at most one Background post in flight at a time).
     private bool _resyncQueued;
 
+    // The light already resting behind the composer brightens while the user writes there, with the
+    // composer's own focus motion. Only in an existing chat at rest; while Lumi works, or on the welcome
+    // screen, the field keeps its own levels.
+    internal const double RestingIntensity = 1.35;
+    internal const double WritingIntensity = 1.6;
+    private bool _composerFocused;
+    private bool _focusCheckQueued;
+
     public PresenceController(Grid host, bool isEnabled = true)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
@@ -95,12 +106,12 @@ public sealed class PresenceController : IDisposable
             // fine multiplier on top of it. The islands the field sits behind were firmed up (less
             // transparent — see App.axaml's Surface1Glass override) for readability over bright backdrops,
             // so we lift Intensity above neutral to keep the glow blooming clearly through the thicker glass.
-            Intensity = 1.35,
+            Intensity = RestingIntensity,
         };
 
-        // One continuous field spanning every column: behind the chat island, the seam, the
-        // preview island and the workspace rail at once. As columns open/close the same field is
-        // already there to "split" across — no second control, no hand-off illusion.
+        // One continuous field spanning every column: behind the chat island, the splitter and the
+        // Workspace panel at once. As columns open/close the same field is already there to "split"
+        // across — no second control, no hand-off illusion.
         Grid.SetColumn(_presence, 0);
         Grid.SetColumnSpan(_presence, Math.Max(1, host.ColumnDefinitions.Count));
 
@@ -113,6 +124,10 @@ public sealed class PresenceController : IDisposable
         // the field's size changes so the glow re-centres for the new window size instead of clinging to
         // its old-proportion placement.
         _presence.SizeChanged += OnPresenceSizeChanged;
+
+        // Focus moves are routed through the host, which holds the composer.
+        _host.AddHandler(InputElement.GotFocusEvent, OnHostFocusChanged, RoutingStrategies.Bubble, handledEventsToo: true);
+        _host.AddHandler(InputElement.LostFocusEvent, OnHostFocusChanged, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     /// <summary>The glow visual the controller owns (exposed for diagnostics/automation only).</summary>
@@ -185,7 +200,7 @@ public sealed class PresenceController : IDisposable
     /// <summary>
     /// Re-point the SAME persistent field at a different chat surface. The app swaps the entire
     /// <see cref="ChatViewModel"/> instance on a chat open (each chat gets its own surface), so the
-    /// host view re-creates its preview panel — but the glow must NOT be torn down with it. Unlike
+    /// host view re-creates its Workspace panel controller — but the glow must NOT be torn down with it. Unlike
     /// <see cref="Attach"/> this preserves <see cref="_lastObservedChat"/>, so the welcome(null) ->
     /// existing transition is still recognised across the surface swap and the one continuous field
     /// GLIDES from the hero down to the composer, instead of the welcome glow being destroyed and a
@@ -326,6 +341,8 @@ public sealed class PresenceController : IDisposable
     {
         Detach();
         _presence.SizeChanged -= OnPresenceSizeChanged;
+        _host.RemoveHandler(InputElement.GotFocusEvent, OnHostFocusChanged);
+        _host.RemoveHandler(InputElement.LostFocusEvent, OnHostFocusChanged);
         _focusTimer?.Stop();
         _focusTimer = null;
         _armTimer?.Stop();
@@ -376,8 +393,7 @@ public sealed class PresenceController : IDisposable
         }, DispatcherPriority.Background);
     }
 
-    private static bool AnyIslandOpen(ChatViewModel vm)
-        => vm.IsWorkspacePanelOpen || vm.IsBrowserOpen || vm.IsDiffOpen || vm.IsPlanOpen;
+    private static bool AnyIslandOpen(ChatViewModel vm) => vm.IsWorkspacePanelOpen;
 
     // ── View-model observation (one-way) ─────────────────────────────────────────────
 
@@ -425,10 +441,12 @@ public sealed class PresenceController : IDisposable
                 UpdatePresence();
                 break;
 
+            case nameof(ChatViewModel.PresenceBrightness):
+                ApplyWritingGlow();
+                break;
+
             case nameof(ChatViewModel.IsWorkspacePanelOpen):
-            case nameof(ChatViewModel.IsBrowserOpen):
-            case nameof(ChatViewModel.IsDiffOpen):
-            case nameof(ChatViewModel.IsPlanOpen):
+            case nameof(ChatViewModel.WorkspacePage):
                 HandleSplitChanged(vm);
                 break;
 
@@ -564,9 +582,9 @@ public sealed class PresenceController : IDisposable
         if (_vm is not { } vm)
             return;
 
-        var deliverables = vm.WorkspaceDeliverables.Count;
-        var changes = vm.WorkspaceChanges.Count;
-        var sources = vm.WorkspaceSources.Count;
+        var deliverables = vm.WorkspaceFiles.TotalCount;
+        var changes = vm.WorkspaceEdits.TotalCount;
+        var sources = vm.WorkspaceSources.TotalCount;
 
         var newDeliverable = deliverables > _deliverableCount;
         var newChange = changes > _changeCount;
@@ -595,9 +613,9 @@ public sealed class PresenceController : IDisposable
 
     private void SeedWorkspaceBaseline(ChatViewModel vm)
     {
-        _deliverableCount = vm.WorkspaceDeliverables.Count;
-        _changeCount = vm.WorkspaceChanges.Count;
-        _sourceCount = vm.WorkspaceSources.Count;
+        _deliverableCount = vm.WorkspaceFiles.TotalCount;
+        _changeCount = vm.WorkspaceEdits.TotalCount;
+        _sourceCount = vm.WorkspaceSources.TotalCount;
     }
 
     // ── Rendering the field from observed state ──────────────────────────────────────
@@ -618,6 +636,7 @@ public sealed class PresenceController : IDisposable
         // path the deferred arm itself takes once the load drains), so clear it and proceed.
         CancelDeferredArm();
         _presence.State = ResolvePresenceState(vm);
+        ApplyWritingGlow();
         // A soft luminance haloes the Lumi mark on the welcome screen ("new chat"); it clears the
         // instant a real canvas takes over.
         _presence.Halo = vm.CurrentChat is null;
@@ -633,6 +652,47 @@ public sealed class PresenceController : IDisposable
             _focusSettleUntil = DateTime.UtcNow + TimeSpan.FromMilliseconds(1600);
         if (!holdFocus)
             EnsureFocusFollow();
+    }
+
+    /// <summary>
+    /// Reads whether the user is writing in the composer once a focus move settles: a move between two
+    /// controls inside it is a LostFocus and a GotFocus, and must not flicker the light. The composer's own
+    /// lists (the + menu, its pickers) open in the overlay layer, outside its visual tree, so the focused
+    /// control is matched by logical ancestry rather than visual focus-within.
+    /// </summary>
+    private void OnHostFocusChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_focusCheckQueued)
+            return;
+
+        _focusCheckQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _focusCheckQueued = false;
+            var container = ResolveNamed("ComposerContainer");
+            var focusedElement = TopLevel.GetTopLevel(_host)?.FocusManager?.GetFocusedElement() as ILogical;
+            var focused = container is not null && focusedElement is not null
+                          && (ReferenceEquals(container, focusedElement) || container.IsLogicalAncestorOf(focusedElement));
+            if (focused == _composerFocused)
+                return;
+
+            _composerFocused = focused;
+            ApplyWritingGlow();
+        }, DispatcherPriority.Input);
+    }
+
+    /// <summary>
+    /// Brightens the resting light while the user writes; StrataPresence fades the change. The user's
+    /// presence brightness (Settings → Appearance) scales both levels.
+    /// </summary>
+    private void ApplyWritingGlow()
+    {
+        var writing = _composerFocused
+                      && _vm?.CurrentChat is not null
+                      && _presence.State == PresenceState.Idle;
+        var intensity = (writing ? WritingIntensity : RestingIntensity) * (_vm?.PresenceBrightness ?? 1.0);
+        if (Math.Abs(_presence.Intensity - intensity) > 0.001)
+            _presence.Intensity = intensity;
     }
 
     private PresenceState ResolvePresenceState(ChatViewModel vm)
@@ -1062,19 +1122,13 @@ public sealed class PresenceController : IDisposable
     }
 
     /// <summary>
-    /// Returns the normalized (0..1) centre of the currently open island — preferring the specific
-    /// open panel, falling back to the empty region to the right of the chat. Null until the island
-    /// has actually taken its space (so the companion never blooms at a stale spot).
+    /// Returns the normalized (0..1) centre of the open Workspace panel, falling back to the empty
+    /// region to the right of the chat. Null until the panel has actually taken its space (so the
+    /// companion never blooms at a stale spot).
     /// </summary>
     private Point? TryGetIslandFocus(ChatViewModel vm)
     {
-        var name = vm.IsBrowserOpen ? "BrowserIsland"
-            : vm.IsDiffOpen ? "DiffIsland"
-            : vm.IsPlanOpen ? "PlanIsland"
-            : vm.IsWorkspacePanelOpen ? "WorkspaceRail"
-            : null;
-
-        if (name is not null && TryGetControlFocus(name, 0.5, 0.1, 0.9) is { } centre)
+        if (vm.IsWorkspacePanelOpen && TryGetControlFocus("WorkspacePanel", 0.5, 0.1, 0.9) is { } centre)
             return centre;
 
         return TryGetChatRightRegion();

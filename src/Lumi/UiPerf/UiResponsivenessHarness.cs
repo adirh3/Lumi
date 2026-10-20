@@ -7,12 +7,16 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views;
 using StrataTheme.Controls;
 
 namespace Lumi.UiPerf;
@@ -34,6 +38,7 @@ internal sealed class UiResponsivenessHarness
     private readonly Action<int> _requestShutdown;
     private readonly UiResponsivenessProbe _probe;
     private int _exitCode;
+    private bool _reportedModelPickerSurface;
 
     /// <summary>Describes one measurable UX action.</summary>
     private sealed record UiAction(
@@ -44,7 +49,12 @@ internal sealed class UiResponsivenessHarness
         Func<Task>? Prepare = null,
         string? Note = null);
 
-    private readonly record struct RawMeasurement(double RunMs, double PostActionMs, IReadOnlyList<double> Latencies);
+    private readonly record struct RawMeasurement(
+        double RunMs,
+        double PostActionMs,
+        IReadOnlyList<double> Latencies,
+        long UiAllocatedBytes,
+        int Gen2Collections);
 
     public UiResponsivenessHarness(
         MainViewModel mainVm,
@@ -74,6 +84,9 @@ internal sealed class UiResponsivenessHarness
             await OnUiAsync(() =>
             {
                 scenarios.Seed();
+                _mainVm.RefreshProjects();
+                _mainVm.ProjectsVM.RefreshFromStore();
+                _mainVm.SkillsVM.RefreshFromStore();
                 _mainVm.SelectedProjectFilter = null;
                 _mainVm.SelectedNavIndex = 0;
                 _mainVm.RefreshChatList();
@@ -131,7 +144,7 @@ internal sealed class UiResponsivenessHarness
             var ttxDelta = Lumi.Views.Controls.TranscriptTextContent.CaptureDiagnostics() - ttxBefore;
             Console.WriteLine($"[ui-perf][diag] StrataMarkdown instances={mdDelta.InstanceCount} rebuilds={mdDelta.RebuildCount} fullParse={mdDelta.FullParseCount} totalRebuildMs={mdDelta.TotalRebuildMilliseconds:n0} avgRebuildMs={mdDelta.AverageRebuildMilliseconds:n2} | TTX instances={ttxDelta.InstanceCount} mdBranch={ttxDelta.MarkdownBranchCount} | TTC created={ttcAfter.ControlCreateCount - ttcBefore.ControlCreateCount} itemHosts={ttcAfter.ItemHostCreateCount - ttcBefore.ItemHostCreateCount} activeHosts={ttcAfter.ActiveRealizedHostCount} peakHosts={ttcAfter.PeakActiveRealizedHostCount}");
 
-            var report = UiResponsivenessReport.Build(_options, results);
+            var report = UiResponsivenessReport.Build(_options, results, failed);
             Console.WriteLine();
             Console.WriteLine(report.ToConsole());
 
@@ -140,7 +153,9 @@ internal sealed class UiResponsivenessHarness
 
             WriteJsonReport(report);
 
-            if (report.GateFailed)
+            if (!report.IsComplete)
+                _exitCode = 1;
+            else if (report.GateFailed)
                 _exitCode = GateFailureExitCode;
         }
         catch (Exception ex)
@@ -177,28 +192,51 @@ internal sealed class UiResponsivenessHarness
 
     // ---- Action catalogs -------------------------------------------------
 
-    private static readonly (int Index, string Name)[] NavPages =
+    // Customize sections (Projects among them) are reached through the one Customize button, which
+    // reopens the last section used, and Memories through the Settings gear, which reopens the
+    // Settings page last used; preparing that section or page first makes each click land on the
+    // page being measured.
+    private static readonly (int Index, string Name, string ControlName)[] NavPages =
     {
-        (2, "Projects"),
-        (3, "Skills"),
-        (4, "Lumis"),
-        (5, "Memories"),
-        (6, "MCP servers"),
-        (1, "Jobs"),
-        (7, "Settings"),
+        (2, "Projects", "NavCustomize"),
+        (3, "Skills", "NavCustomize"),
+        (4, "Agents", "NavCustomize"),
+        (MainViewModel.MemoriesNavIndex, "Memories", "NavSettings"),
+        (6, "MCP Servers", "NavCustomize"),
+        (MainViewModel.DiscoverNavIndex, "Discover", "NavCustomize"),
+        (1, "Jobs", "NavJobs"),
+        (7, "Settings", "NavSettings"),
+        (MainViewModel.LibraryNavIndex, "Library", "NavLibrary"),
     };
 
     private IEnumerable<UiAction> BuildColdNavigationActions()
     {
-        foreach (var (index, name) in NavPages)
+        foreach (var (index, name, controlName) in NavPages)
         {
             yield return new UiAction(
                 $"nav-cold-{index}",
                 "Navigation",
                 $"Open {name} page (first time)",
-                RunAsync: () => OnUiAsync(() => _mainVm.SelectedNavIndex = index),
+                RunAsync: () => ClickNavigationAsync(index, controlName),
+                Prepare: () => PrepareNavigationAsync(index),
                 Note: "First realization of the page view — heavy XAML/template inflation happens here.");
         }
+    }
+
+    /// <summary>Starts from the chat page with the route to <paramref name="index"/> set up, so the measured click lands on it.</summary>
+    private async Task PrepareNavigationAsync(int index)
+    {
+        await OnUiAsync(() =>
+        {
+            _mainVm.SelectedNavIndex = 0;
+            if (MainViewModel.IsCustomizeIndex(index))
+                _mainVm.LastCustomizeNavIndex = index;
+            if (index == MainViewModel.MemoriesNavIndex)
+                _mainVm.SettingsVM.SelectedPageIndex = SettingsViewModel.MemoriesPageIndex;
+            else if (index == 7 && _mainVm.SettingsVM.SelectedPageIndex == SettingsViewModel.MemoriesPageIndex)
+                _mainVm.SettingsVM.SelectedPageIndex = 0;
+        });
+        await SetProjectSwitcherAsync(false);
     }
 
     /// <summary>
@@ -208,7 +246,7 @@ internal sealed class UiResponsivenessHarness
     /// </summary>
     private static void VerifyNavIndices()
     {
-        foreach (var (index, name) in NavPages)
+        foreach (var (index, name, _) in NavPages)
         {
             var actual = MainViewModel.DescribeNavPage(index);
             if (actual.IndexOf(name, StringComparison.OrdinalIgnoreCase) < 0)
@@ -223,16 +261,76 @@ internal sealed class UiResponsivenessHarness
         // Navigation (warm switching between already-realized pages).
         yield return new UiAction(
             "nav-warm-settings", "Navigation", "Switch to Settings (warm)",
-            RunAsync: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 7),
-            Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 0));
+            RunAsync: () => ClickNavigationAsync(7, "NavSettings"),
+            Prepare: () => PrepareNavigationAsync(7));
         yield return new UiAction(
             "nav-warm-projects", "Navigation", "Switch to Projects (warm)",
-            RunAsync: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 2),
-            Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 0));
+            RunAsync: () => ClickNavigationAsync(2, "NavCustomize"),
+            Prepare: () => PrepareNavigationAsync(2));
         yield return new UiAction(
             "nav-warm-chat", "Navigation", "Return to Chat page (warm)",
-            RunAsync: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 0),
-            Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = 5));
+            RunAsync: () => ClickNavigationAsync(0, "NavChat"),
+            Prepare: () => OnUiAsync(() => _mainVm.SelectedNavIndex = MainViewModel.MemoriesNavIndex));
+
+        yield return new UiAction(
+            "project-switcher-open", "Project selection", "Open the chat project switcher",
+            RunAsync: () => SetProjectSwitcherAsync(true),
+            Prepare: PrepareProjectSelectionAsync,
+            Note: "Invokes the real switcher button and observes layout throughout its drawer animation.");
+        yield return new UiAction(
+            "project-select-draft", "Project selection", "Select a project in a new chat",
+            RunAsync: async () =>
+            {
+                await SelectProjectRowAsync(scenarios.ProjectId);
+                if (await OnUiAsync(() => _mainVm.ChatVM.CurrentChat is { Messages.Count: > 0 }
+                    || _mainVm.ChatVM.ActiveProjectFilterId != scenarios.ProjectId))
+                    throw new InvalidOperationException("Project selection did not preserve the draft context.");
+            },
+            Prepare: async () =>
+            {
+                await PrepareProjectSelectionAsync();
+                await SetProjectSwitcherAsync(true);
+            });
+        yield return new UiAction(
+            "project-select-chat", "Project selection", "Select a project from an existing chat",
+            RunAsync: async () =>
+            {
+                await SelectProjectRowAsync(scenarios.ProjectId);
+                await WaitForUiAsync(() => _mainVm.ActiveChatId == scenarios.ProjectChatId,
+                    "the project's most recent chat to open");
+            },
+            Prepare: async () =>
+            {
+                await PrepareProjectSelectionAsync();
+                await OpenChatAsync(scenarios.LargeChatId);
+                await SetProjectSwitcherAsync(true);
+            },
+            Note: "Includes the fire-and-forget project navigation, not just assigning the filter.");
+
+        yield return new UiAction(
+            "sidebar-chat-select", "Chat open", "Select a chat in the sidebar",
+            RunAsync: () => SelectSidebarChatAsync(scenarios.MediumChatId),
+            Prepare: async () =>
+            {
+                await OnUiAsync(() => _mainVm.SelectedProjectFilter = null);
+                await NewChatAsync();
+            },
+            Note: "Exercises the real ListBox selection handler, command and transcript mount.");
+        yield return new UiAction(
+            "unread-inbox-open", "Unread inbox", "Open the unread inbox drawer",
+            RunAsync: () => SetUnreadDrawerAsync(true),
+            Prepare: () => PrepareUnreadAsync(scenarios, outsideFilter: true, openDrawer: false),
+            Note: "Measures the actual inbox button and animated drawer layout.");
+        foreach (var outsideFilter in new[] { false, true })
+        {
+            yield return new UiAction(
+                outsideFilter ? "unread-select-other-project" : "unread-select-current-project",
+                "Unread inbox",
+                outsideFilter ? "Click an unread chat in another project" : "Click an unread chat in the current project",
+                RunAsync: () => SelectUnreadChatAsync(scenarios.UnreadChatId),
+                Prepare: () => PrepareUnreadAsync(scenarios, outsideFilter, openDrawer: true),
+                Note: "Verifies the chosen reply is opened and marked read, with the correct project filter.");
+        }
 
         // Chat open (cold load + transcript rebuild each time).
         yield return OpenChatAction("chat-open-tiny", "Open tiny chat", scenarios.TinyChatId,
@@ -334,6 +432,27 @@ internal sealed class UiResponsivenessHarness
                 "Hello Lumi, this is a quick composer responsiveness probe message."),
             Prepare: NewChatAsync);
 
+        yield return new UiAction(
+            "model-picker-open", "Model picker", "Open model picker with 64 rich models",
+            RunAsync: () => SetModelPickerOpenAsync(true),
+            Prepare: () => PrepareModelPickerAsync(warm: false),
+            Note: "Real composer picker with provider groups, pins and metadata badges; includes popup layout.");
+        yield return new UiAction(
+            "model-picker-reopen", "Model picker", "Reopen an unchanged model catalog",
+            RunAsync: () => SetModelPickerOpenAsync(true),
+            Prepare: () => PrepareModelPickerAsync(warm: true),
+            Note: "Opening the same catalog again should not rebuild its rows or segmented controls.");
+        yield return new UiAction(
+            "model-picker-search", "Model picker", "Type a model/provider search query",
+            RunAsync: DriveModelPickerSearchAsync,
+            Prepare: PrepareOpenModelPickerAsync,
+            Note: "Types one character at a time through the real search field and verifies the exact matching model.");
+        yield return new UiAction(
+            "model-picker-scroll", "Model picker", "Scroll through the model catalog",
+            RunAsync: DriveModelPickerScrollAsync,
+            Prepare: PrepareOpenModelPickerAsync,
+            Note: "Traverses eight viewports through the real virtualized list, including layout and row recycling.");
+
         // Chat list (sidebar).
         yield return new UiAction(
             "chatlist-refresh", "Chat list", "Rebuild the chat sidebar list",
@@ -381,10 +500,146 @@ internal sealed class UiResponsivenessHarness
     // ---- Action drivers --------------------------------------------------
 
     private Task OpenChatAsync(Guid chatId)
-        => OnUiAsync(async () => await _mainVm.OpenChatByIdAsync(chatId));
+        => OnUiAsync(async () =>
+        {
+            if (!await _mainVm.OpenChatByIdAsync(chatId))
+                throw new InvalidOperationException($"Chat {chatId} did not open.");
+        });
 
     private Task NewChatAsync()
         => OnUiAsync(() => _mainVm.NewChatCommand.Execute(null));
+
+    private MainWindow GetWindow()
+        => (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Windows
+            .OfType<MainWindow>().SingleOrDefault(window => ReferenceEquals(window.DataContext, _mainVm))
+            ?? throw new InvalidOperationException("The harness window was not found.");
+
+    private async Task ClickButtonAsync(Func<MainWindow, Button?> find)
+    {
+        await OnUiAsync(() =>
+        {
+            var button = find(GetWindow())
+                ?? throw new InvalidOperationException("The requested interaction button was not found.");
+            if (!button.IsEffectivelyVisible || !button.IsEffectivelyEnabled)
+                throw new InvalidOperationException($"Button '{button.Name}' is not available for interaction.");
+            new ButtonAutomationPeer(button).Invoke();
+        });
+        await DrainAsync(DispatcherPriority.Background);
+    }
+
+    private async Task ClickNavigationAsync(int index, string controlName)
+    {
+        await ClickButtonAsync(window => window.FindControl<Button>(controlName));
+        await WaitForUiAsync(() => _mainVm.SelectedNavIndex == index, $"navigation to {controlName}");
+        if (index == MainViewModel.LibraryNavIndex)
+            await OnUiAsync(() => _mainVm.LibraryVM.EnsureLoadedAsync());
+    }
+
+    private async Task PrepareProjectSelectionAsync()
+    {
+        await SetProjectSwitcherAsync(false);
+        await OnUiAsync(() => _mainVm.SelectedProjectFilter = null);
+        await NewChatAsync();
+    }
+
+    private async Task SetProjectSwitcherAsync(bool open)
+    {
+        var isOpen = await OnUiAsync(() =>
+            GetWindow().FindControl<Panel>("ProjectSwitcherRoot")!.Classes.Contains("open"));
+        if (isOpen != open)
+            await ClickButtonAsync(window => window.FindControl<Button>("ProjectSwitchButton"));
+        await WaitForUiAsync(() =>
+        {
+            var host = GetWindow().FindControl<Border>("ProjectSwitchRevealHost")!;
+            return open ? host.IsVisible && double.IsNaN(host.Height) : !host.IsVisible;
+        }, open ? "the project drawer to open" : "the project drawer to close");
+    }
+
+    private async Task SelectProjectRowAsync(Guid projectId)
+    {
+        await ClickButtonAsync(window =>
+        {
+            var title = _mainVm.Projects.Single(project => project.Id == projectId).Name;
+            return window.FindControl<StackPanel>("ProjectFilterResults")!.Children.OfType<Button>()
+                .SingleOrDefault(button => button.GetVisualDescendants().OfType<TextBlock>()
+                    .Any(text => text.Text == title));
+        });
+        await WaitForUiAsync(() => _mainVm.SelectedProjectFilter == projectId, "the project filter to change");
+        await SetProjectSwitcherAsync(false);
+    }
+
+    private async Task SelectSidebarChatAsync(Guid chatId)
+    {
+        await OnUiAsync(() =>
+        {
+            var chat = _dataStore.Data.Chats.Single(candidate => candidate.Id == chatId);
+            var list = GetWindow().FindControl<ItemsControl>("ChatGroupsHost")!.GetVisualDescendants()
+                .OfType<ListBox>().SingleOrDefault(list => list.Items.Contains(chat))
+                ?? throw new InvalidOperationException("The requested sidebar chat row was not found.");
+            list.SelectedItem = chat;
+        });
+        await WaitForUiAsync(() => _mainVm.ActiveChatId == chatId, "the selected sidebar chat to open");
+        await OnUiAsync(async () =>
+        {
+            if (_mainVm.OpenChatCommand.ExecutionTask is { } task)
+                await task;
+        });
+    }
+
+    private async Task PrepareUnreadAsync(UiWorkloadScenarios scenarios, bool outsideFilter, bool openDrawer)
+    {
+        await SetProjectSwitcherAsync(false);
+        await SetUnreadDrawerAsync(false);
+        await NewChatAsync();
+        await OnUiAsync(() =>
+            _mainVm.SelectedProjectFilter = outsideFilter ? scenarios.OtherProjectId : scenarios.ProjectId);
+        await OpenChatAsync(outsideFilter ? scenarios.OtherProjectChatId : scenarios.ProjectChatId);
+        await OnUiAsync(() => _mainVm.MarkChatUnreadCommand.Execute(
+            _dataStore.Data.Chats.Single(chat => chat.Id == scenarios.UnreadChatId)));
+        if (openDrawer)
+            await SetUnreadDrawerAsync(true);
+    }
+
+    private async Task SetUnreadDrawerAsync(bool open)
+    {
+        if (await OnUiAsync(() => _mainVm.IsUnreadPanelOpen != open))
+            await ClickButtonAsync(window => window.FindControl<Button>("UnreadInboxToggle"));
+        await WaitForUiAsync(() =>
+        {
+            var host = GetWindow().FindControl<Border>("UnreadRevealHost")!;
+            return open ? _mainVm.IsUnreadPanelOpen && host.IsVisible && double.IsNaN(host.Height) : !host.IsVisible;
+        }, open ? "the unread drawer to open" : "the unread drawer to close");
+    }
+
+    private async Task SelectUnreadChatAsync(Guid chatId)
+    {
+        await ClickButtonAsync(window => window.FindControl<Border>("UnreadPanel")!.GetVisualDescendants()
+            .OfType<Button>().SingleOrDefault(button =>
+                button.CommandParameter is UnreadChatEntry entry && entry.Chat.Id == chatId));
+        await OnUiAsync(async () =>
+        {
+            if (_mainVm.OpenUnreadChatCommand.ExecutionTask is { } task)
+                await task;
+        });
+        await WaitForUiAsync(() =>
+            _mainVm.ActiveChatId == chatId
+            && _mainVm.SelectedProjectFilter == _mainVm.ChatVM.CurrentChat?.ProjectId
+            && _mainVm.ChatVM.CurrentChat is { HasUnreadMessages: false },
+            "the chosen unread chat to open and become read");
+        await SetUnreadDrawerAsync(false);
+    }
+
+    private static async Task WaitForUiAsync(Func<bool> condition, string description)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (!await OnUiAsync(condition))
+        {
+            if (timeout.Elapsed > TimeSpan.FromSeconds(10))
+                throw new TimeoutException($"Timed out waiting for {description}.");
+            await Task.Delay(10);
+        }
+        await DrainAsync(DispatcherPriority.Background);
+    }
 
     private async Task DriveComposerTypingAsync(string text)
     {
@@ -399,6 +654,126 @@ internal sealed class UiResponsivenessHarness
         }
 
         await OnUiAsync(() => _mainVm.ChatVM.PromptText = string.Empty);
+    }
+
+    private StrataModelPicker GetModelPicker()
+        => GetWindow().GetVisualDescendants().OfType<StrataModelPicker>()
+            .FirstOrDefault(picker => picker.IsEffectivelyVisible)
+            ?? throw new InvalidOperationException("The composer's model picker was not found.");
+
+    private Popup GetModelPickerPopup()
+        => GetModelPicker().GetVisualDescendants().OfType<Popup>()
+            .Single(popup => popup.Name == "PART_ModelPickerPopup");
+
+    private void UpdateModelPickerLayout()
+        => GetWindow().UpdateLayout();
+
+    private async Task PrepareModelPickerAsync(bool warm)
+    {
+        await NewChatAsync();
+        await DrainAsync(DispatcherPriority.Loaded);
+        await SetModelPickerOpenAsync(false);
+        await OnUiAsync(() =>
+        {
+            var picker = GetModelPicker();
+            picker.Models = Enumerable.Range(0, 64).Select(index => new ModelOption($"lab-model-{index:00}")
+            {
+                DisplayName = $"Lab model {index:00}",
+                ProviderName = index < 32 ? "GitHub Copilot" : "Personal provider",
+                ContextTokens = 200_000,
+                CostMultiplier = index % 3 == 0 ? 0 : 1,
+                SupportsReasoning = true,
+                SupportsVision = true,
+                IsPinned = index < 4
+            }).ToArray();
+            picker.SelectedModel = "lab-model-00";
+            picker.QualityLevels = new[] { "Low", "Medium", "High", "Extra High" };
+            picker.SelectedQuality = "High";
+            picker.ContextWindowTiers = new[] { "Default", "Long context" };
+            picker.SelectedContextWindowTier = "Default";
+        });
+        if (warm)
+        {
+            await SetModelPickerOpenAsync(true);
+            await OnUiAsync(UpdateModelPickerLayout);
+            await SetModelPickerOpenAsync(false);
+        }
+    }
+
+    private async Task SetModelPickerOpenAsync(bool open)
+    {
+        if (await OnUiAsync(() => GetModelPickerPopup().IsOpen != open))
+            await ClickButtonAsync(_ => GetModelPicker().GetVisualDescendants().OfType<Button>()
+                .Single(button => button.Name == "PART_ModelPickerButton"));
+        await WaitForUiAsync(() => GetModelPickerPopup().IsOpen == open,
+            open ? "the model picker to open" : "the model picker to close");
+        if (open && !_reportedModelPickerSurface)
+        {
+            var surface = await OnUiAsync(() =>
+            {
+                var popup = GetModelPickerPopup();
+                if (!popup.IsUsingOverlayLayer)
+                    throw new InvalidOperationException("The model picker created a native popup instead of an in-window overlay.");
+                var host = popup.Child is { } child ? TopLevel.GetTopLevel(child) : null;
+                return $"host={host?.GetType().Name}, overlay={popup.IsUsingOverlayLayer}";
+            });
+            Console.WriteLine($"[ui-perf] Model picker surface: {surface}");
+            _reportedModelPickerSurface = true;
+        }
+    }
+
+    private async Task PrepareOpenModelPickerAsync()
+    {
+        await PrepareModelPickerAsync(warm: false);
+        await SetModelPickerOpenAsync(true);
+        await OnUiAsync(UpdateModelPickerLayout);
+    }
+
+    private async Task DriveModelPickerSearchAsync()
+    {
+        var search = await OnUiAsync(() => GetModelPickerPopup().Child!.GetSelfAndVisualDescendants()
+            .OfType<TextBox>().Single(box => box.Name == "PART_ModelPickerSearch"));
+        var query = new StringBuilder();
+        foreach (var character in "personal 63")
+        {
+            query.Append(character);
+            var text = query.ToString();
+            // SetCurrentValue is what typing does; a plain assignment would detach the box from the
+            // picker's search text, so the next opening would show a stale query.
+            await OnUiAsync(() => search.SetCurrentValue(TextBox.TextProperty, text));
+            await DrainAsync(DispatcherPriority.Background);
+            await OnUiAsync(UpdateModelPickerLayout);
+        }
+        await OnUiAsync(() =>
+        {
+            var picker = GetModelPicker();
+            if (picker.FilteredModelCount != 1)
+                throw new InvalidOperationException($"Expected one model search result, got {picker.FilteredModelCount}.");
+            var row = GetModelPickerPopup().Child!.GetSelfAndVisualDescendants().OfType<Control>()
+                .Single(control => control.Classes.Contains("model-picker-row"));
+            if (row.Tag as string != "lab-model-63")
+                throw new InvalidOperationException("The model search returned the wrong canonical model id.");
+        });
+    }
+
+    private async Task DriveModelPickerScrollAsync()
+    {
+        var scroll = await OnUiAsync(() => GetModelPickerPopup().Child!.GetSelfAndVisualDescendants()
+            .OfType<ListBox>().Single(list => list.Name == "PART_ModelPickerList")
+            .GetVisualDescendants().OfType<ScrollViewer>().Single());
+        for (var step = 1; step <= 8; step++)
+        {
+            var fraction = step / 8d;
+            await OnUiAsync(() =>
+            {
+                var maximum = scroll.Extent.Height - scroll.Viewport.Height;
+                if (maximum <= 0)
+                    throw new InvalidOperationException("The populated model catalog did not provide a scrollable viewport.");
+                scroll.Offset = scroll.Offset.WithY(maximum * fraction);
+                UpdateModelPickerLayout();
+            });
+            await DrainAsync(DispatcherPriority.Background);
+        }
     }
 
     private async Task DriveScrollToTopAsync()
@@ -545,12 +920,16 @@ internal sealed class UiResponsivenessHarness
                 var measurement = await MeasureOnceAsync(action);
                 samples.RunDurationsMs.Add(measurement.RunMs);
                 samples.PostActionDurationsMs.Add(measurement.PostActionMs);
+                samples.InteractionDurationsMs.Add(measurement.RunMs + measurement.PostActionMs);
                 samples.LatenciesMs.AddRange(measurement.Latencies);
                 samples.IterationMaxMs.Add(measurement.Latencies.Count > 0 ? measurement.Latencies.Max() : 0d);
+                samples.UiAllocatedBytes.Add(measurement.UiAllocatedBytes);
+                samples.Gen2CollectionsByIteration.Add(measurement.Gen2Collections);
                 ok++;
             }
             catch (Exception ex)
             {
+                samples.FailedIterations++;
                 Console.WriteLine($"[ui-perf]   iteration {i + 1} failed: {ex.Message}");
             }
         }
@@ -575,21 +954,48 @@ internal sealed class UiResponsivenessHarness
         await SettleAsync(_options.SettleQuietMs);
 
         var start = _probe.NowMs;
+        var gen2Before = GC.CollectionCount(2);
         var stopwatch = Stopwatch.StartNew();
-        await action.RunAsync();
+        // Arm a probe on the UI thread before starting the action, so even a click shorter than
+        // the periodic sampling interval produces a sample of its synchronous/deferred work.
+        var execution = await OnUiAsync(() =>
+        {
+            var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+            var probe = _probe.SampleAsync();
+            return (Probe: probe, Run: action.RunAsync(), AllocatedBefore: allocatedBefore);
+        });
+        await execution.Run;
         var runMs = stopwatch.Elapsed.TotalMilliseconds;
 
-        // Drain the deferred UI work the action queued. A Background-priority drain only completes once
-        // the UI thread reaches idle, so any in-flight stall fully resolves and is captured by the probe.
-        // The window CLOSES here — before SettleAsync's fixed quiet delay — so that deliberate idle
-        // padding never floods the pool with near-zero samples and dilutes the percentiles.
+        // A dispatcher drain alone can run before deferred layout's next frame is queued.
+        // Flush actual layout without waiting for idle/throttled animation ticks to inflate the window.
         var postStopwatch = Stopwatch.StartNew();
+        await DrainLayoutAsync();
         await DrainAsync(DispatcherPriority.Background);
+        await execution.Probe;
+        var allocatedAfter = await OnUiAsync(GC.GetAllocatedBytesForCurrentThread);
         var postActionMs = postStopwatch.Elapsed.TotalMilliseconds;
         var end = _probe.NowMs;
 
         var latencies = _probe.LatenciesInWindow(start, end);
-        return new RawMeasurement(runMs, postActionMs, latencies);
+        if (latencies.Count == 0)
+            throw new InvalidOperationException("No dispatcher samples were captured for the action.");
+        return new RawMeasurement(runMs, postActionMs, latencies,
+            allocatedAfter - execution.AllocatedBefore, GC.CollectionCount(2) - gen2Before);
+    }
+
+    private async Task DrainLayoutAsync()
+    {
+        for (var pass = 0; pass < 2; pass++)
+        {
+            await OnUiAsync(async () =>
+            {
+                var probe = _probe.SampleAsync();
+                GetWindow().UpdateLayout();
+                await probe;
+            });
+            await DrainAsync(DispatcherPriority.Loaded);
+        }
     }
 
     /// <summary>Waits until the UI thread is quiescent (drains below render, then a quiet gap).</summary>
@@ -608,24 +1014,17 @@ internal sealed class UiResponsivenessHarness
 
     private void WriteJsonReport(UiResponsivenessReport report)
     {
-        try
-        {
-            var json = report.ToJson();
-            var primaryPath = ResolveOutputPath();
-            Directory.CreateDirectory(Path.GetDirectoryName(primaryPath)!);
-            File.WriteAllText(primaryPath, json);
-            Console.WriteLine($"[ui-perf] JSON report written to: {primaryPath}");
+        var json = report.ToJson();
+        var primaryPath = ResolveOutputPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(primaryPath)!);
+        File.WriteAllText(primaryPath, json);
+        Console.WriteLine($"[ui-perf] JSON report written to: {primaryPath}");
 
-            var latestPath = Path.Combine(Path.GetDirectoryName(primaryPath)!, "report-latest.json");
-            if (!string.Equals(latestPath, primaryPath, StringComparison.OrdinalIgnoreCase))
-            {
-                File.WriteAllText(latestPath, json);
-                Console.WriteLine($"[ui-perf] Latest report copied to: {latestPath}");
-            }
-        }
-        catch (Exception ex)
+        var latestPath = Path.Combine(Path.GetDirectoryName(primaryPath)!, "report-latest.json");
+        if (!string.Equals(latestPath, primaryPath, StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine("[ui-perf] Failed to write JSON report: " + ex.Message);
+            File.WriteAllText(latestPath, json);
+            Console.WriteLine($"[ui-perf] Latest report copied to: {latestPath}");
         }
     }
 

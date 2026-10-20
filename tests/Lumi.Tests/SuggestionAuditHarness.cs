@@ -27,7 +27,7 @@ namespace Lumi.Tests;
 /// </summary>
 public class SuggestionAuditHarness
 {
-    private const int ScanLimit = 1000;                     // matches ChatViewModel.SuggestionHistoryScanLimit
+    private const int ScanLimit = DataStore.SuggestionHistoryScanLimit;
     private const int FrequentRequestMaxItems = 8;          // matches ChatViewModel.SuggestionFrequentRequestMaxItems
 
     private static readonly string LumiRoot =
@@ -142,7 +142,7 @@ public class SuggestionAuditHarness
 
         await using var service = new CopilotService();
         await service.ConnectAsync();
-        var judgeModel = await service.GetFastestModelIdAsync();
+        var judgeModel = await service.GetBackgroundModelIdAsync();
 
         var report = new StringBuilder();
         report.AppendLine($"# Suggestion quality eval — {DateTime.Now:yyyy-MM-dd HH:mm}");

@@ -64,37 +64,38 @@ internal sealed class UiResponsivenessProbe : IDisposable
         get { lock (_gate) return _samples.Count; }
     }
 
+    public Task SampleAsync()
+    {
+        var postedAt = NowMs;
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.UIThread.Post(() =>
+        {
+            var ranAt = NowMs;
+            lock (_gate)
+                _samples.Add(new LatencySample(ranAt, ranAt - postedAt));
+            completion.TrySetResult();
+        }, _priority);
+        return completion.Task;
+    }
+
     private async Task SampleLoopAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var postedAt = NowMs;
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            try
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    var ranAt = NowMs;
-                    lock (_gate)
-                        _samples.Add(new LatencySample(ranAt, ranAt - postedAt));
-                    tcs.TrySetResult();
-                }, _priority);
-            }
-            catch
-            {
-                break;
-            }
-
             try
             {
                 // Wait until the probe is serviced (a long freeze yields one large sample once
                 // the UI thread frees up), then pace the next sample.
-                await tcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await SampleAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
                 await Task.Delay(_intervalMs, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
+                break;
+            }
+            catch (InvalidOperationException ex)
+            {
+                Trace.TraceWarning("[ui-perf] Dispatcher probe stopped: {0}", ex.Message);
                 break;
             }
         }

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Lumi.Mobile.ViewModels;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services.Remote;
@@ -16,6 +17,44 @@ public sealed class RemoteTranscriptScaleTests
     private const int TotalMessageCount =
         UserMessageCount + AssistantMessageCount + ReasoningMessageCount + ToolMessageCount;
     private const int LargestToolContentLength = 393_675;
+
+    [Fact]
+    public void CompactDefaultHistoryKeepsRecentConversationInAMultiMegabyteToolHeavyChat()
+    {
+        var messages = CreateReproductionShape();
+        var hiddenOutput = new string('o', 2048);
+        foreach (var message in messages.Where(message => message.Role == "tool"))
+            message.ToolOutput = hiddenOutput;
+        Assert.InRange(JsonSerializer.SerializeToUtf8Bytes(messages).Length,
+            20 * 1024 * 1024, 60 * 1024 * 1024);
+
+        var limit = LumiRemoteServer.ResolveTranscriptWindowLimit(null, null, compact: true);
+        var latest = RemoteProjector.SelectCompactTranscriptWindow(messages, null, limit);
+        var transcript = RemoteProjector.BuildTranscript(
+            new Chat(), latest, new RemoteChatStatus(), true, true, 1,
+            compact: true, activitySourceMessages: messages);
+
+        Assert.Equal(TotalMessageCount, latest.TotalMessageCount);
+        Assert.Equal(16, transcript.Turns.Count);
+        Assert.True(latest.HasEarlierMessages);
+        Assert.InRange(JsonSerializer.SerializeToUtf8Bytes(
+            transcript, RemoteJsonContext.Default.RemoteTranscript).Length,
+            1, RemoteProtocol.MobileTranscriptJsonByteLimit);
+        foreach (var remoteTurn in transcript.Turns)
+        {
+            using var displayed = new TranscriptTurnViewModel(remoteTurn.Id);
+            displayed.Apply(remoteTurn);
+            Assert.Equal(3, displayed.DisplayItems.Count);
+            Assert.IsType<WorkSummaryItemViewModel>(displayed.DisplayItems[1]);
+            Assert.IsType<AssistantItemViewModel>(displayed.DisplayItems[^1]);
+        }
+
+        var earlier = RemoteProjector.SelectCompactTranscriptWindow(
+            messages, latest.StartMessageIndex, RemoteProtocol.CompactTranscriptWindowVisibleItemLimit);
+        Assert.Equal(0, earlier.StartMessageIndex);
+        Assert.Equal(latest.StartMessageIndex, earlier.EndMessageIndex);
+        Assert.False(earlier.HasEarlierMessages);
+    }
 
     [Fact]
     public void ReproductionShape_DefaultWindowIsBoundedAndComfortablyMobileSized()

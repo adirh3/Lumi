@@ -67,6 +67,8 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
         var relative = context.Request.Path[AppPrefix.Length..];
         if (relative.Length == 0)
             relative = "index.html";
+        if (relative == "index.html" && context.Request.QueryValue("lumi-refresh") is not null)
+            relative = "cache-recovery.html";
 
         var fileLike = Path.HasExtension(relative);
         if (!assets.TryGet(relative, context.Request, out var asset))
@@ -78,14 +80,16 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
             }
         }
 
+        var isRecovery = relative is "cache-recovery.html" or "cache-recovery.js";
         var headers = MergeHeaders(
-            ("Cache-Control", asset.CacheControl),
+            ("Cache-Control", isRecovery ? "no-store" : asset.CacheControl),
             ("ETag", asset.ETag),
             ("Vary", "Accept-Encoding"));
         if (asset.ContentEncoding is { Length: > 0 } encoding)
             headers["Content-Encoding"] = encoding;
 
-        if (string.Equals(context.Request.Header("If-None-Match"), asset.ETag, StringComparison.Ordinal))
+        if (!isRecovery
+            && string.Equals(context.Request.Header("If-None-Match"), asset.ETag, StringComparison.Ordinal))
         {
             await context.WriteEmptyAsync(304, headers, cancellationToken).ConfigureAwait(false);
             return;

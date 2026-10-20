@@ -244,9 +244,9 @@ public sealed class ChatMotionTests
                 Assert.True(LifecycleOffsetSweep.GetIsActive(sweep));
                 Assert.True(LifecycleOffsetSweep.IsRunning(sweep));
                 Assert.Equal(2, line.Bounds.Height);
-                Assert.Equal(new Thickness(14, 0), line.Margin);
+                Assert.Equal(new Thickness(18, 0), line.Margin);
                 Assert.Equal(new CornerRadius(1), line.CornerRadius);
-                Assert.Equal(input.Bounds.Width - 28, line.Bounds.Width, 3);
+                Assert.Equal(input.Bounds.Width - 36, line.Bounds.Width, 3);
                 Assert.Equal(input.Bounds.Bottom, line.Bounds.Bottom, 3);
                 Assert.False(line.IsHitTestVisible);
                 var inputAccent = input.GetVisualDescendants().OfType<Border>().Single(x => x.Name == "FocusAccentBar");
@@ -270,6 +270,55 @@ public sealed class ChatMotionTests
                 input.Focus();
                 Dispatcher.UIThread.RunJobs();
                 window.Content = null;
+                Assert.False(LifecycleOffsetSweep.IsRunning(sweep));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task GlassComposer_FocusDrawsAFinerStrataLineAndItsSweep()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var composer = new StrataChatComposer { Width = 400, Classes = { "glass" } };
+            var outside = new Button { Content = "Outside" };
+            var window = new Window
+            {
+                Width = 500, Height = 300,
+                Content = new StackPanel { Children = { composer, outside } },
+            };
+            try
+            {
+                window.Show();
+                await FlushLayoutAsync(window);
+                var input = composer.GetVisualDescendants().OfType<TextBox>().Single(x => x.Name == "PART_Input");
+                var line = composer.GetVisualDescendants().OfType<Border>().Single(x => x.Name == "PART_FocusLine");
+                var sweep = composer.GetVisualDescendants().OfType<Border>().Single(x => x.Name == "PART_FocusSweep");
+
+                Assert.True(outside.Focus());
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(LifecycleOffsetSweep.IsRunning(sweep));
+
+                Assert.True(input.Focus());
+                await Task.Delay(500);
+                Dispatcher.UIThread.RunJobs();
+
+                // The glass composer keeps the Strata line, finer and feathered at its ends, and its sweep.
+                Assert.Contains(":focus-within", composer.Classes);
+                Assert.True(line.IsEffectivelyVisible);
+                Assert.Equal(1.5, line.Height);
+                Assert.NotNull(line.OpacityMask);
+                Assert.Equal(input.Bounds.Bottom, line.Bounds.Bottom, 3);
+                Assert.True(LifecycleOffsetSweep.GetIsActive(sweep));
+                Assert.True(LifecycleOffsetSweep.IsRunning(sweep));
+
+                outside.Focus();
+                Dispatcher.UIThread.RunJobs();
                 Assert.False(LifecycleOffsetSweep.IsRunning(sweep));
             }
             finally
@@ -315,6 +364,37 @@ public sealed class ChatMotionTests
                 panel.Children.Remove(target);
                 panel.Children.Add(target);
                 await FlushLayoutAsync(window);
+                Assert.Equal(1, target.Opacity, 3);
+                Assert.Equal(Matrix.Identity, target.RenderTransform?.Value ?? Matrix.Identity);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Entrance_Delay_HoldsTheHostHiddenUntilItsTurn()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var target = new Border { Width = 180, Height = 60, Background = Brushes.Blue };
+            var window = new Window { Width = 400, Height = 240, Content = new StackPanel { Children = { target } } };
+            try
+            {
+                window.Show();
+                await FlushLayoutAsync(window);
+
+                SlideFadeEntrance.Play(target, duration: TimeSpan.FromMilliseconds(100), delay: TimeSpan.FromMilliseconds(400));
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                await Task.Delay(150);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Assert.Equal(0, target.Opacity, 3);
+
+                await Task.Delay(600);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                 Assert.Equal(1, target.Opacity, 3);
                 Assert.Equal(Matrix.Identity, target.RenderTransform?.Value ?? Matrix.Identity);
             }

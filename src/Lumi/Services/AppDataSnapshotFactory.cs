@@ -17,8 +17,11 @@ internal static class AppDataSnapshotFactory
                 UserName = settings.UserName,
                 UserSex = settings.UserSex,
                 IsOnboarded = settings.IsOnboarded,
+                HandledSetupSuggestions = settings.HandledSetupSuggestions is null ? [] : [.. settings.HandledSetupSuggestions],
+                AllowAppSetupSuggestions = settings.AllowAppSetupSuggestions,
                 DefaultsSeeded = settings.DefaultsSeeded,
                 CodingLumiSeeded = settings.CodingLumiSeeded,
+                CodingLumiBrowserToolsSeeded = settings.CodingLumiBrowserToolsSeeded,
                 CurrentChatManagementToolSeeded = settings.CurrentChatManagementToolSeeded,
                 Language = settings.Language,
                 LaunchAtStartup = settings.LaunchAtStartup,
@@ -26,8 +29,13 @@ internal static class AppDataSnapshotFactory
                 MinimizeToTray = settings.MinimizeToTray,
                 GlobalHotkey = settings.GlobalHotkey,
                 NotificationsEnabled = settings.NotificationsEnabled,
+                OfferCopiedCapabilities = settings.OfferCopiedCapabilities,
                 DismissedUpdateBannerToken = settings.DismissedUpdateBannerToken,
                 IsDarkTheme = settings.IsDarkTheme,
+                FollowSystemTheme = settings.FollowSystemTheme,
+                AccentColor = settings.AccentColor,
+                WindowMaterial = settings.WindowMaterial,
+                PresenceBrightness = settings.PresenceBrightness,
                 IsCompactDensity = settings.IsCompactDensity,
                 UiScalePercent = settings.UiScalePercent,
                 ShowAmbientPresence = settings.ShowAmbientPresence,
@@ -37,19 +45,30 @@ internal static class AppDataSnapshotFactory
                 ShowTimestamps = settings.ShowTimestamps,
                 ShowToolCalls = settings.ShowToolCalls,
                 ShowReasoning = settings.ShowReasoning,
+                ExpandReasoningWhileStreaming = settings.ExpandReasoningWhileStreaming,
                 AutoGenerateTitles = settings.AutoGenerateTitles,
+                SuggestFollowUps = settings.SuggestFollowUps,
+                DefaultApprovalMode = settings.DefaultApprovalMode,
+                ApprovalRules = CloneApprovalRules(settings.ApprovalRules),
+                AwayApprovalBehavior = settings.AwayApprovalBehavior,
                 PreferredModel = settings.PreferredModel,
+                BackgroundModel = settings.BackgroundModel,
                 FavoriteModelIds = settings.FavoriteModelIds is null ? [] : [.. settings.FavoriteModelIds],
                 ReasoningEffort = settings.ReasoningEffort,
                 GlobalCustomInstructions = settings.GlobalCustomInstructions,
                 UseMcpProxy = settings.UseMcpProxy,
                 UseLazyMcpInitialization = settings.UseLazyMcpInitialization,
                 McpToolTimeoutSeconds = settings.McpToolTimeoutSeconds,
+                McpRegistryUrls = settings.McpRegistryUrls is null ? [] : [.. settings.McpRegistryUrls],
                 ContextWindowTier = settings.ContextWindowTier,
+                ChatGptHostId = settings.ChatGptHostId,
                 ByokEndpoints = settings.ByokEndpoints
                     .Select(e => new ByokEndpoint
                     {
                         Id = e.Id,
+                        ConnectionProviderId = e.ConnectionProviderId,
+                        CredentialExpiresAt = e.CredentialExpiresAt,
+                        Account = e.Account?.Clone(),
                         Name = e.Name,
                         ProviderType = e.ProviderType,
                         BaseUrl = e.BaseUrl,
@@ -72,6 +91,11 @@ internal static class AppDataSnapshotFactory
                         ModelId = m.ModelId,
                         DisplayName = m.DisplayName,
                         IsEnabled = m.IsEnabled,
+                        SupportsReasoningEffort = m.SupportsReasoningEffort,
+                        SupportedReasoningEfforts = m.SupportedReasoningEfforts?.ToList() ?? [],
+                        DefaultReasoningEffort = m.DefaultReasoningEffort,
+                        DefaultContextWindowTokens = m.DefaultContextWindowTokens,
+                        LongContextWindowTokens = m.LongContextWindowTokens,
                         // Advanced inference / rate-limit settings must be carried into the
                         // persisted snapshot — omitting them here silently drops the values on
                         // every save, so the in-memory model keeps the value but data.json always
@@ -100,7 +124,7 @@ internal static class AppDataSnapshotFactory
                 RemoteAccessPort = settings.RemoteAccessPort,
                 RemoteAllowInsecureLan = settings.RemoteAllowInsecureLan,
                 RemoteUseDevTunnel = settings.RemoteUseDevTunnel,
-                RemoteDevTunnel = settings.RemoteDevTunnel,
+                RemoteDevTunnelId = settings.RemoteDevTunnelId,
                 RemotePairedDevices = settings.RemotePairedDevices
                     .Select(CloneRemotePairedDevice)
                     .ToList(),
@@ -129,6 +153,8 @@ internal static class AppDataSnapshotFactory
                      LastMainBranchSyncAt = p.LastMainBranchSyncAt,
                      LastMainBranchSyncError = p.LastMainBranchSyncError,
                      AdditionalContextDirectories = [..p.AdditionalContextDirectories],
+                     ApprovalMode = p.ApprovalMode,
+                     ApprovalRules = CloneApprovalRules(p.ApprovalRules),
                      CreatedAt = p.CreatedAt
                  })
                  .ToList(),
@@ -176,7 +202,8 @@ internal static class AppDataSnapshotFactory
                     Tools = [..s.Tools],
                     Timeout = s.Timeout,
                     IsEnabled = s.IsEnabled,
-                    CreatedAt = s.CreatedAt
+                    CreatedAt = s.CreatedAt,
+                    CatalogId = s.CatalogId
                 })
                 .ToList(),
             BackgroundJobs = source.BackgroundJobs
@@ -223,7 +250,7 @@ internal static class AppDataSnapshotFactory
                 currentSnapshot.Settings.RemoteAccessPort = persistedSnapshot.Settings.RemoteAccessPort;
                 currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
                 currentSnapshot.Settings.RemoteUseDevTunnel = persistedSnapshot.Settings.RemoteUseDevTunnel;
-                currentSnapshot.Settings.RemoteDevTunnel = persistedSnapshot.Settings.RemoteDevTunnel;
+                currentSnapshot.Settings.RemoteDevTunnelId = persistedSnapshot.Settings.RemoteDevTunnelId;
                 currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
                     .Select(CloneRemotePairedDevice)
                     .ToList();
@@ -274,7 +301,7 @@ internal static class AppDataSnapshotFactory
             currentSnapshot.Settings.RemoteAccessPort = persistedSnapshot.Settings.RemoteAccessPort;
             currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
             currentSnapshot.Settings.RemoteUseDevTunnel = persistedSnapshot.Settings.RemoteUseDevTunnel;
-            currentSnapshot.Settings.RemoteDevTunnel = persistedSnapshot.Settings.RemoteDevTunnel;
+            currentSnapshot.Settings.RemoteDevTunnelId = persistedSnapshot.Settings.RemoteDevTunnelId;
             currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
                 .Select(CloneRemotePairedDevice)
                 .ToList();
@@ -282,6 +309,17 @@ internal static class AppDataSnapshotFactory
 
         return currentSnapshot;
     }
+
+    internal static List<ApprovalRule> CloneApprovalRules(IEnumerable<ApprovalRule> rules) =>
+        rules.Select(static rule => new ApprovalRule
+        {
+            Id = rule.Id,
+            Action = rule.Action,
+            Kind = rule.Kind,
+            Target = rule.Target,
+            Remembered = rule.Remembered,
+            CreatedAt = rule.CreatedAt
+        }).ToList();
 
     private static RemotePairedDevice CloneRemotePairedDevice(RemotePairedDevice source) =>
         new()
@@ -339,6 +377,8 @@ internal static class AppDataSnapshotFactory
             AgentId = source.AgentId,
             TagId = source.TagId,
             CopilotSessionId = source.CopilotSessionId,
+            ApprovalMode = source.ApprovalMode,
+            ApprovalRules = CloneApprovalRules(source.ApprovalRules),
             SessionProviderSignature = source.SessionProviderSignature,
             CreatedAt = source.CreatedAt,
             UpdatedAt = source.UpdatedAt,
@@ -368,6 +408,8 @@ internal static class AppDataSnapshotFactory
             ForkedFromTitle = source.ForkedFromTitle,
             ForkedFromMessage = source.ForkedFromMessage,
             IsPinned = source.IsPinned,
+            IsPaused = source.IsPaused,
+            PauseNeedsContinuation = source.PauseNeedsContinuation,
         };
     }
 }

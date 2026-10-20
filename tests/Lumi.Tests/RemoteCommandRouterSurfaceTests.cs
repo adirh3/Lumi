@@ -17,6 +17,71 @@ namespace Lumi.Tests;
 public sealed class RemoteCommandRouterSurfaceTests
 {
     [Fact]
+    public Task InteractiveEditsSaveWithoutOpeningAnotherDesktopChat() => RunAsync(async () =>
+    {
+        var current = new Chat { Title = "Current" };
+        var answer = new ChatMessage
+        {
+            Role = "assistant",
+            Content = "```checklist\n{\"id\":\"prep\",\"title\":\"Prep\",\"items\":[{\"id\":\"one\",\"label\":\"First step\"}]}\n```"
+        };
+        var target = new Chat { Title = "Target" };
+        target.Messages.Add(answer);
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [current, target] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(current.Id);
+        var router = new RemoteCommandRouter(store, main);
+        var state = new StrataTheme.Controls.InteractiveState { CheckedIds = ["one"] }.ToJson();
+        var result = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.UpdateInteraction)
+            .With("chatId", target.Id.ToString()).With("messageId", answer.Id.ToString())
+            .With("blockId", "prep").With("state", state), CancellationToken.None);
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(current.Id, main.ChatVM.CurrentChat!.Id);
+        Assert.Equal(state, answer.InteractionStates!["prep"]);
+        Assert.Single(target.Messages);
+    });
+
+    [Fact]
+    public Task InteractiveCommandRejectsUnknownIdsAndDoesNotStartWork() => RunAsync(async () =>
+    {
+        var chat = new Chat();
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        var router = new RemoteCommandRouter(store, main);
+        var result = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.UpdateInteraction)
+            .With("chatId", chat.Id.ToString()).With("messageId", Guid.NewGuid().ToString())
+            .With("blockId", "missing").With("state", "{}").With("action", "execute"), CancellationToken.None);
+        Assert.False(result.Ok);
+        Assert.Empty(chat.Messages);
+    });
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public Task PausedChatRejectsSendSteerAndStopAndSend(bool steer, bool stopAndSend) => RunAsync(async () =>
+    {
+        Loc.Load("en");
+        var chat = new Chat { IsPaused = true };
+        var store = new DataStore(new AppData { Settings = TestSettings(), Chats = [chat] });
+        using var main = new MainViewModel(
+            store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        var router = new RemoteCommandRouter(store, main);
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            .With("chatId", chat.Id.ToString())
+            .With("message", "must wait")
+            .With("steer", steer.ToString())
+            .With("stopAndSend", stopAndSend.ToString());
+
+        var result = await router.ExecuteAsync(command, CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.Equal(Loc.Get("Chat_PausedSendBlocked"), result.Error);
+        Assert.True(chat.IsPaused);
+        Assert.Empty(chat.Messages);
+    });
+
+    [Fact]
     public Task PersistedRemoteReceiptShortCircuitsARetryAfterRestart() => RunAsync(async () =>
     {
         var chat = new Chat
@@ -1345,6 +1410,181 @@ public sealed class RemoteCommandRouterSurfaceTests
         Assert.True(runtime.IsSessionActive);
         Assert.True(runtime.HasPendingBackgroundWork);
         Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
+    [Fact]
+    public Task ReapplyingTheSameProjectDoesNotInvalidateAReadyBackgroundSession() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync(includeProject: true);
+        rig.DetachedChat.ProjectId = rig.ProjectId;
+        var runtime = MarkBackgroundActive(rig.DetachedSurface, rig.DetachedChat);
+        var pending = GetPrivateField<HashSet<Guid>>(rig.DetachedSurface, "_pendingSessionReconfigurations");
+        var router = new RemoteCommandRouter(
+            rig.DataStore,
+            rig.Main,
+            (_, _, _, _, _, _) =>
+            {
+                Assert.DoesNotContain(rig.DetachedChat.Id, pending);
+                return Task.FromResult<string?>(null);
+            });
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                .With("chatId", rig.DetachedChat.Id.ToString())
+                .With("projectId", rig.ProjectId.ToString())
+                .With("message", "Continue with the same setup"),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.DoesNotContain(rig.DetachedChat.Id, pending);
+        Assert.True(runtime.HasPendingBackgroundWork);
+    });
+
+    [Fact]
+    public Task PendingSameSessionRefreshDoesNotBlockMobileSendAdmission() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var runtime = MarkBackgroundActive(rig.DetachedSurface, rig.DetachedChat);
+        GetPrivateField<HashSet<Guid>>(rig.DetachedSurface, "_pendingSessionReconfigurations")
+            .Add(rig.DetachedChat.Id);
+        rig.DetachedSurface.AddAttachment(@"C:\desktop-draft.txt");
+        var started = false;
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main, (owner, chat, _, _, _, _) =>
+        {
+            Assert.Same(rig.DetachedSurface, owner);
+            Assert.Same(rig.DetachedChat, chat);
+            started = true;
+            return Task.FromResult<string?>(null);
+        });
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            .With("chatId", rig.DetachedChat.Id.ToString())
+            .With("message", "Send when this session is ready");
+        command.AuthenticatedDeviceId = "phone";
+        command.RequestId = "pending-refresh-request";
+
+        var result = await router.ExecuteAsync(command, CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.True(started);
+        Assert.Equal([@"C:\desktop-draft.txt"], rig.DetachedSurface.PendingAttachments);
+        Assert.True(runtime.HasPendingBackgroundWork);
+        Assert.False(runtime.IsBusy);
+        Assert.Empty(GetPrivateField<Dictionary<Guid, List<ChatMessage>>>(
+            rig.DetachedSurface, "_queuedBusySendPrompts"));
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task DeferredExternalProviderOverrideStaysSelectedForTheQueuedTurn(bool automaticSteering) => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var endpoint = new ByokEndpoint
+        {
+            Name = "Private fixture provider",
+            BaseUrl = "https://private.example.test/v1",
+            ProviderType = "openai",
+            WireApi = "completions",
+            ApiKeyMode = ByokApiKeyMode.None,
+            IsEnabled = true
+        };
+        var model = new ByokModel
+        {
+            Id = "private-fixture",
+            EndpointId = endpoint.Id,
+            ModelId = "private-model",
+            DisplayName = "Private model",
+            IsEnabled = true
+        };
+        rig.DataStore.Data.Settings.ByokEndpoints.Add(endpoint);
+        rig.DataStore.Data.Settings.ByokModels.Add(model);
+        var runtime = MarkBackgroundActive(rig.DetachedSurface, rig.DetachedChat);
+        rig.DetachedChat.CopilotSessionId = "public-provider-session";
+        rig.DetachedChat.SessionProviderSignature = null;
+        if (!automaticSteering)
+            GetPrivateField<HashSet<Guid>>(rig.DetachedSurface, "_pendingSessionReconfigurations")
+                .Add(rig.DetachedChat.Id);
+        if (automaticSteering)
+        {
+            var session = (CopilotSession)System.Runtime.CompilerServices.RuntimeHelpers
+                .GetUninitializedObject(typeof(CopilotSession));
+            typeof(CopilotSession).GetField("<SessionId>k__BackingField",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, rig.DetachedChat.CopilotSessionId);
+            GC.SuppressFinalize(session);
+            GetPrivateField<Dictionary<Guid, CopilotSession>>(rig.DetachedSurface, "_sessionCache")
+                [rig.DetachedChat.Id] = session;
+        }
+        var privateSelection = ByokConfigHelper.BuildModelToken(model);
+        Assert.NotEqual(privateSelection, rig.DetachedSurface.SelectedModel);
+
+        var result = await rig.DetachedSurface.StartExternalMessageAsync(
+            rig.DetachedChat,
+            "Confidential fixture message",
+            "Manager fixture",
+            modelOverride: privateSelection,
+            remoteDeviceId: "fixture",
+            remoteRequestId: "private-queued-request");
+
+        Assert.True(result.Accepted, result.Error);
+        Assert.Equal(privateSelection, rig.DetachedSurface.SelectedModel);
+        Assert.Equal(privateSelection, rig.DetachedSurface.ResolveSelectedModelForChat(rig.DetachedChat));
+        Assert.Equal(privateSelection, rig.DetachedChat.LastModelUsed);
+        Assert.Equal("public-provider-session", rig.DetachedChat.CopilotSessionId);
+        Assert.Null(rig.DetachedChat.SessionProviderSignature);
+        Assert.True(runtime.HasPendingBackgroundWork);
+        var queued = Assert.Single(GetPrivateField<Dictionary<Guid, List<ChatMessage>>>(
+            rig.DetachedSurface, "_queuedBusySendPrompts")[rig.DetachedChat.Id]);
+        Assert.Equal(MessageSteerState.Queued, queued.SteerDelivery);
+        Assert.Equal("private-queued-request", queued.RemoteRequestId);
+        rig.DetachedSurface.SelectedModel = "initial-model";
+        Assert.NotEqual(privateSelection, rig.DetachedSurface.SelectedModel);
+        var redelivery = Assert.IsAssignableFrom<Task>(typeof(ChatViewModel)
+            .GetMethod(automaticSteering ? "FlushQueuedBusySendsAsSteerAsync" : "SendMessageCore",
+                BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(rig.DetachedSurface, automaticSteering
+                ? [rig.DetachedChat.Id]
+                : [queued.Content, false, queued]));
+        await redelivery;
+        Assert.Equal(privateSelection, rig.DetachedSurface.SelectedModel);
+        Assert.Equal(privateSelection, rig.DetachedSurface.ResolveSelectedModelForChat(rig.DetachedChat));
+        Assert.Equal(privateSelection, queued.Model);
+        Assert.Equal(MessageSteerState.Queued, queued.SteerDelivery);
+        Assert.True(runtime.HasPendingBackgroundWork);
+    });
+
+    [Fact]
+    public Task MobileChatSetupKeepsGlobalModelDefaultsUnchanged() => RunAsync(async () =>
+    {
+        var settings = TestSettings();
+        settings.PreferredModel = "gpt-5.4";
+        settings.ReasoningEffort = "high";
+        settings.ContextWindowTier = ModelContextWindowTiers.Default;
+        var store = new DataStore(new AppData { Settings = settings });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        main.ChatVM.UpdateModelCapabilities(
+            [new ModelInfo { Id = "claude-opus-5", SupportedReasoningEfforts = ["low", "high", "max"] }],
+            new HashSet<string> { "claude-opus-5" },
+            merge: true);
+        var router = new RemoteCommandRouter(store, main, (owner, chat, _, _, _, _) =>
+        {
+            Assert.Equal("claude-opus-5", owner.SelectedModel);
+            Assert.Equal("Max", owner.SelectedQuality);
+            Assert.Equal(Loc.ContextWindow_Long, owner.SelectedContextWindowTier);
+            Assert.Equal("max", chat.LastReasoningEffortUsed);
+            Assert.Equal(ModelContextWindowTiers.LongContext, chat.LastContextWindowTierUsed);
+            return Task.FromResult<string?>(null);
+        });
+        var result = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            .With("newChat", "true")
+            .With("message", "Start with this setup")
+            .With("model", "claude-opus-5")
+            .With("quality", "Max")
+            .With("contextWindowTier", Loc.ContextWindow_Long)
+            .With("useChatSetup", "true"), CancellationToken.None);
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal("gpt-5.4", settings.PreferredModel);
+        Assert.Equal("high", settings.ReasoningEffort);
+        Assert.Equal(ModelContextWindowTiers.Default, settings.ContextWindowTier);
     });
 
     [Fact]

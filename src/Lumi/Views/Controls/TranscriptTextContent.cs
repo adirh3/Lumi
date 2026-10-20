@@ -53,6 +53,10 @@ public sealed class TranscriptTextContent : ContentControl
 
     public static readonly StyledProperty<bool> RenderMarkdownWhileStreamingProperty =
         AvaloniaProperty.Register<TranscriptTextContent, bool>(nameof(RenderMarkdownWhileStreaming));
+    public static readonly StyledProperty<IReadOnlyDictionary<string, string>?> InteractionStatesProperty =
+        AvaloniaProperty.Register<TranscriptTextContent, IReadOnlyDictionary<string, string>?>(nameof(InteractionStates));
+    public static readonly StyledProperty<bool> CanSubmitInteractionsProperty =
+        AvaloniaProperty.Register<TranscriptTextContent, bool>(nameof(CanSubmitInteractions));
 
     private static long _diagnosticInstanceCount;
     private static long _diagnosticMarkdownBranchCount;
@@ -67,6 +71,8 @@ public sealed class TranscriptTextContent : ContentControl
         TextProperty.Changed.AddClassHandler<TranscriptTextContent>((control, _) => control.UpdateContent());
         PreferPlainTextProperty.Changed.AddClassHandler<TranscriptTextContent>((control, _) => control.UpdateContent());
         RenderMarkdownWhileStreamingProperty.Changed.AddClassHandler<TranscriptTextContent>((control, _) => control.UpdateContent());
+        InteractionStatesProperty.Changed.AddClassHandler<TranscriptTextContent>((control, _) => control.UpdateInteractions());
+        CanSubmitInteractionsProperty.Changed.AddClassHandler<TranscriptTextContent>((control, _) => control.UpdateInteractions());
     }
 
     public TranscriptTextContent()
@@ -85,6 +91,7 @@ public sealed class TranscriptTextContent : ContentControl
         {
             IsInline = true,
             RetainContentOnDetach = true,
+            InteractionLanguage = Lumi.Localization.Loc.Culture.Name,
         };
 
         UpdateContent();
@@ -108,6 +115,33 @@ public sealed class TranscriptTextContent : ContentControl
         set => SetValue(RenderMarkdownWhileStreamingProperty, value);
     }
 
+    public IReadOnlyDictionary<string, string>? InteractionStates { get => GetValue(InteractionStatesProperty); set => SetValue(InteractionStatesProperty, value); }
+    public bool CanSubmitInteractions { get => GetValue(CanSubmitInteractionsProperty); set => SetValue(CanSubmitInteractionsProperty, value); }
+
+    private void UpdateInteractions()
+    {
+        // Only an assistant answer owns live interactions. A fence in the user's own message or in
+        // reasoning stays a local preview that never saves or submits.
+        _markdown.InteractionsHosted = DataContext is Lumi.ViewModels.AssistantMessageItem;
+        _markdown.InteractionStates = InteractionStates;
+        _markdown.CanSubmitInteractions = CanSubmitInteractions;
+        _markdown.InteractionLanguage = Lumi.Localization.Loc.Culture.Name;
+    }
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        UpdateInteractions();
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        if (DataContext is Lumi.ViewModels.AssistantMessageItem item)
+            SetCurrentValue(InteractionStatesProperty, item.InteractionStates);
+        UpdateInteractions();
+    }
+
     public static TranscriptTextContentDiagnosticsSnapshot CaptureDiagnostics() => new(
         System.Threading.Interlocked.Read(ref _diagnosticInstanceCount),
         System.Threading.Interlocked.Read(ref _diagnosticMarkdownBranchCount),
@@ -117,6 +151,7 @@ public sealed class TranscriptTextContent : ContentControl
     private void UpdateContent()
     {
         var text = Text ?? string.Empty;
+        UpdateInteractions();
         var direction = StrataTextDirectionDetector.Detect(text);
 
         if (ShouldRenderMarkdown(text) && (!PreferPlainText || RenderMarkdownWhileStreaming))

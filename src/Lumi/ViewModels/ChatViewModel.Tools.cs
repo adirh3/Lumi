@@ -150,15 +150,14 @@ public partial class ChatViewModel
         tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool(chatId));
         tools.Add(BuildAskQuestionTool(chatId));
+        tools.Add(BuildAskInputTool(chatId));
         tools.AddRange(BuildLumiManagementTools(chatId, skillProvider));
         tools.AddRange(BuildWebTools());
-        // The embedded browser is built on WebView2 (Windows-only), so the lumi_browser_* tools
-        // are only offered on Windows. On Linux/macOS the agent uses web_search + lumi_fetch instead.
-        if (OperatingSystem.IsWindows())
+        if (NativeBrowserLogic.IsEmbeddedBrowserAvailable)
             tools.AddRange(BuildBrowserTools(chatId));
         tools.AddRange(_codingToolService.BuildCodingTools());
         if (OperatingSystem.IsWindows())
-            tools.AddRange(BuildUIAutomationTools());
+            tools.AddRange(BuildUIAutomationTools(chatId));
 
         if (activeAgent is not { HasToolRestrictions: true })
             return tools;
@@ -209,10 +208,96 @@ public partial class ChatViewModel
 
     private List<AIFunction> BuildBrowserTools(Guid chatId)
     {
+        const string targetDescription = "Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). For upload: optional locator for the <input type=file> (CSS selector or the upload button/label text) — omit to use the page's only file input. Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').";
+        const string valueDescription = "Value: text to type (for type action), option text (for select), pixels (for scroll), timeout milliseconds for wait (default 10000), JSON object for fill, absolute file path(s) for upload (a JSON array for multiple files, or a single path; multiple paths may also be newline-separated — commas are NOT separators), JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot";
+        const string interactionDescription = "Interact with the active tab. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps. Click/type/select/clear wait up to 2500 ms for their own visible, enabled target, not unrelated page activity. Use wait for a longer target/expected-state wait (value=timeout milliseconds). Select supports native and legacy custom dropdowns. Fill validates coordinated fields after all requested writes; invalid final values block later steps. Read_form includes visible page-level errors and redacts passwords. Use upload for local file(s), never the native file picker. Use steps for known sequences (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]); waits for each target and returns compact completed steps with ONE final snapshot. Stops at the first failure; a partial fill blocks subsequent steps. Completed actions are never retried. Snapshots do not prove delayed application effects; wait for the expected state when needed. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip observation when the next action is known. Set diagnostics=true for phase timings.";
+        const string nativeDownloadHint = "Embedded browser downloads are unsupported on Linux and macOS; use lumi_fetch to read a verified direct URL or curl to save a public file. Shell downloads do not inherit browser login cookies.";
+        var isNativeBrowser = !OperatingSystem.IsWindows();
+
+        Task<string> OpenAsync(
+            [Description("The full URL to navigate to (e.g. https://mail.google.com)")] string url
+#if WINDOWS
+            , [Description("Include phase timings for diagnosing browser latency. Default false keeps the response compact.")] bool diagnostics = false
+#endif
+            )
+        {
+            var svc = GetOrCreateBrowserService(chatId);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
+                BrowserShowRequested?.Invoke(chatId);
+            });
+            return svc.OpenAndSnapshotAsync(url
+#if WINDOWS
+                , diagnostics
+#endif
+                );
+        }
+
+        Task<string> InteractAsync(
+            [Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps")] string action,
+            [Description(targetDescription)] string? target = null,
+            [Description(valueDescription)] string? value = null
+#if WINDOWS
+            , [Description("Include target-readiness, action and observation timings. Default false keeps the response compact.")] bool diagnostics = false
+#endif
+            )
+        {
+            var svc = GetOrCreateBrowserService(chatId);
+            var act = (action ?? "").Trim().ToLowerInvariant();
+            if (act is "click" or "type" or "press" or "select" or "download" or "back" or "clear" or "fill" or "upload" or "steps")
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
+                    BrowserShowRequested?.Invoke(chatId);
+                });
+            }
+            return svc.DoAsync(action ?? "", target, value
+#if WINDOWS
+                , diagnostics
+#endif
+                );
+        }
+
+#if WINDOWS
+        Task<string> EvaluateAsync(
+            [Description("JavaScript code to execute in the page context. Use return for the result; await and returned Promises are supported.")] string script,
+            [Description("Maximum JavaScript execution/wait time in milliseconds (100-30000, default 10000).")] int timeoutMs = 10000)
+            => GetOrCreateBrowserService(chatId).EvaluateAsync(script, timeoutMs);
+
+        Func<string, bool, Task<string>> open = OpenAsync;
+        Func<string, string?, string?, bool, Task<string>> interact = InteractAsync;
+        Func<string, int, Task<string>> evaluate = EvaluateAsync;
+#else
+        Task<string> InteractOnNativeAsync(
+            [Description("Action to perform: click, type, press, select, scroll, back, wait, clear, fill, read_form, upload, steps")] string action,
+            [Description("Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), or direction (for scroll). For upload: optional locator for the <input type=file> (CSS selector or the upload button/label text) — omit to use the page's only file input. Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
+            [Description(valueDescription)] string? value = null)
+            => InteractAsync(action, target, value);
+
+        Task<string> EvaluateAsync(
+            [Description("Synchronous JavaScript code to execute in the page context. Use return for the result; await and returned Promises are not supported.")] string script)
+            => GetOrCreateBrowserService(chatId).EvaluateAsync(script);
+
+        Func<string, Task<string>> open = OpenAsync;
+        Func<string, string?, string?, Task<string>> interact = InteractOnNativeAsync;
+        Func<string, Task<string>> evaluate = EvaluateAsync;
+#endif
+
         return
         [
             AIFunctionFactory.Create(
-                ([Description("The full URL to navigate to (e.g. https://mail.google.com)")] string url) =>
+                open,
+                ToolDisplayHelper.BrowserOpenToolName,
+                isNativeBrowser
+                    ? "Open a URL in the active browser tab and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with lumi_browser_do in that tab. Use lumi_browser_tabs to create or switch tabs. " + nativeDownloadHint
+                    : "Open a URL in the active browser tab and return navigation status, DOM readiness/visibility, numbered interactive elements and a text preview. Does not wait for global network/DOM idle; a dynamic app may still show Loading. Known subsequent actions wait for their own visible, enabled targets without an extra look call. The browser has persistent cookies/sessions — the user may already be logged in. Element numbers belong to that tab. Use lumi_browser_tabs to create or switch tabs. Download URLs report the download instead of a page snapshot. Set diagnostics=true for phase timings."),
+
+            AIFunctionFactory.Create(
+                ([Description("Tab action: list, new, switch, or close.")] string action,
+                 [Description("Stable tab ID returned by list/new for switch/close. Omit to target the active tab; never use a tab's position or title as its ID.")] string? tabId = null,
+                 [Description("Optional URL to open when action is new.")] string? url = null) =>
                 {
                     var svc = GetOrCreateBrowserService(chatId);
                     Dispatcher.UIThread.Post(() =>
@@ -220,10 +305,12 @@ public partial class ChatViewModel
                         if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
                         BrowserShowRequested?.Invoke(chatId);
                     });
-                    return svc.OpenAndSnapshotAsync(url);
+                    return svc.ManageTabsAsync(action, tabId, url);
                 },
-                ToolDisplayHelper.BrowserOpenToolName,
-                "Open a URL in the browser and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with lumi_browser_do. If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot."),
+                ToolDisplayHelper.BrowserTabsToolName,
+                "Manage browser tabs: list tabs with stable IDs, create a new active tab, switch tabs, or close a tab. Existing browser tools operate on the active tab. Use returned tab IDs, not positions or titles; refresh the page state after switching before using element numbers."),
+
+            BuildBrowserScreenshotTool(tabId => GetOrCreateBrowserService(chatId).CaptureScreenshotAsync(tabId)),
 
             AIFunctionFactory.Create(
                 ([Description("Optional text filter to narrow elements (e.g. 'button', 'download', 'search', 'Export'). Omit to see all.")] string? filter = null) =>
@@ -232,7 +319,7 @@ public partial class ChatViewModel
                     return svc.LookAsync(filter);
                 },
                 ToolDisplayHelper.BrowserLookToolName,
-                "Returns the current page state: numbered interactive elements and text preview. Use filter to narrow results."),
+                "Returns the active tab's page state: numbered interactive elements and text preview. Use filter to narrow results. For visual layout, canvas content, or icons, use lumi_browser_screenshot."),
 
             AIFunctionFactory.Create(
                 ([Description("What to find on the page (e.g. 'download', 'export csv', 'save', 'submit').")]
@@ -247,37 +334,66 @@ public partial class ChatViewModel
                 "Find and rank interactive elements by query. Matches against text, aria-label, tooltip, title, and href. Returns stable element indices usable with lumi_browser_do."),
 
             AIFunctionFactory.Create(
-                ([Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps")] string action,
-                 [Description("Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). For upload: optional locator for the <input type=file> (CSS selector or the upload button/label text) — omit to use the page's only file input. Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
-                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill, absolute file path(s) for upload (a JSON array for multiple files, or a single path; multiple paths may also be newline-separated — commas are NOT separators), JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot")] string? value = null) =>
-                {
-                    var svc = GetOrCreateBrowserService(chatId);
-                    var act = (action ?? "").Trim().ToLowerInvariant();
-                    if (act is "click" or "type" or "press" or "select" or "download" or "back" or "clear" or "fill" or "upload" or "steps")
-                    {
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
-                            BrowserShowRequested?.Invoke(chatId);
-                        });
-                    }
-                    return svc.DoAsync(action ?? "", target, value);
-                },
+                interact,
                 ToolDisplayHelper.BrowserDoToolName,
-                "Interact with the page. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps. Use 'upload' to attach local file(s) to a file input WITHOUT the native OS file picker (value = absolute file path(s); target = optional file-input locator) — this is the only way to upload, never try to drive the native dialog. Use 'steps' to batch multiple actions in ONE call (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]) — only snapshots once at end, drastically reducing tokens. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip the auto-snapshot entirely."),
+                isNativeBrowser
+                    ? interactionDescription.Replace("wait, download, clear", "wait, clear", StringComparison.Ordinal)
+                        .Replace(" Set diagnostics=true for phase timings.", "", StringComparison.Ordinal) + " " + nativeDownloadHint
+                    : interactionDescription),
 
             AIFunctionFactory.Create(
-                ([Description("JavaScript code to execute in the page context")] string script) =>
-                {
-                    var svc = GetOrCreateBrowserService(chatId);
-                    return svc.EvaluateAsync(script);
-                },
+                evaluate,
                 ToolDisplayHelper.BrowserJsToolName,
-                "Run JavaScript in the browser page context."),
+                isNativeBrowser
+                    ? "Run synchronous JavaScript in the active browser tab. Use return for the result. Synchronous errors are returned explicitly; await and returned Promises are not supported. Use a callback for asynchronous work, then browser_do wait to verify its visible result."
+                    : "Run JavaScript in the active browser tab. Supports await and returned Promises with a bounded timeout; synchronous/async errors are returned explicitly. Use return to retrieve a value. Hidden/background pages may pause requestAnimationFrame; use bounded setTimeout-based DOM condition checks or browser_do wait instead. A timeout does not cancel or retry a dispatched script; it may still finish."),
         ];
     }
 
-    /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
+    internal static AIFunction BuildBrowserScreenshotTool(Func<string?, Task<BrowserScreenshot>> captureScreenshot)
+        => AIFunctionFactory.Create(
+            async ([Description("Stable tab ID returned by lumi_browser_tabs. Omit to capture the active tab.")] string? tabId = null) =>
+            {
+                try
+                {
+                    var screenshot = await captureScreenshot(tabId).ConfigureAwait(false);
+                    return new ToolResultAIContent(new ToolResultObject
+                    {
+                        ResultType = "success",
+                        TextResultForLlm = $"Browser screenshot — tab {screenshot.TabId}\nURL: {screenshot.Url}\nSize: {screenshot.Width} × {screenshot.Height} pixels.",
+                        BinaryResultsForLlm =
+                        [
+                            new ToolBinaryResult
+                            {
+                                Type = ToolBinaryResultType.Image,
+                                MimeType = "image/png",
+                                Data = Convert.ToBase64String(screenshot.PngBytes)
+                            }
+                        ]
+                    });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // SDK exception handling hides the recovery instructions; keep them in the structured result.
+                    return new ToolResultAIContent(new ToolResultObject
+                    {
+                        ResultType = "failure",
+                        TextResultForLlm = $"Error: Browser screenshot failed. {ex.Message}",
+                        Error = ex.Message
+                    });
+                }
+            },
+            new AIFunctionFactoryOptions
+            {
+                Name = ToolDisplayHelper.BrowserScreenshotToolName,
+                Description = "Capture the browser viewport as an image you can inspect, with tab ID, URL, and delivered pixel dimensions. Images preserve aspect ratio, are never upscaled, and are limited to a 2048-pixel longest edge and 3 MiB PNG (4 MiB base64). These size limits do not bypass model image-count limits; use look/find for exact text and interactive element numbers. Use screenshots for visual layout, canvas content, charts, or icons that DOM/text snapshots cannot explain. Defaults to the active tab; an explicit stable tab ID targets that tab. The target must already be visible and ready: capture does not switch tabs or show the browser. For a hidden tab, switch/show it first, then retry.",
+                SerializerOptions = Lumi.Models.AppDataJsonContext.Default.Options,
+                // The SDK unwraps this binary envelope without JSON serialization. Inferring its
+                // return schema would require reflection metadata unavailable in the shipped app.
+                ExcludeResultSchema = true
+            });
+
+    /// <summary>Raised when a browser tool requests the browser to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
 
     /// <summary>Raised when a transcript chip requests opening its linked chat.</summary>
@@ -286,17 +402,17 @@ public partial class ChatViewModel
     /// <summary>True if browser tools have been used in the current session.</summary>
     [ObservableProperty] bool _hasUsedBrowser;
 
-    /// <summary>True when the browser panel is currently visible.</summary>
+    /// <summary>True when the Workspace is showing the browser page.</summary>
     [ObservableProperty] bool _isBrowserOpen;
 
-    /// <summary>Allows the view to request the browser panel to be shown for the current chat.</summary>
+    /// <summary>Allows the view to request the browser page to be shown for the current chat.</summary>
     public void RequestShowBrowser()
     {
         if (CurrentChat is not null)
             BrowserShowRequested?.Invoke(CurrentChat.Id);
     }
 
-    /// <summary>Toggles the browser panel visibility for the current chat.</summary>
+    /// <summary>Toggles the browser page for the current chat.</summary>
     public void ToggleBrowser()
     {
         if (IsBrowserOpen)
@@ -340,14 +456,11 @@ public partial class ChatViewModel
         }
     }
 
-    /// <summary>True when the diff preview panel is currently visible.</summary>
-    [ObservableProperty] bool _isDiffOpen;
-
-    /// <summary>Shows a file diff in the preview island.</summary>
+    /// <summary>Shows a file diff in the Workspace.</summary>
     public void ShowDiff(FileChangeItem item)
         => DiffShowRequested?.Invoke(item);
 
-    /// <summary>Hides the diff preview island.</summary>
+    /// <summary>Closes the Workspace's diff page.</summary>
     public void HideDiff() => DiffHideRequested?.Invoke();
 
     private CancellationTokenSource? _modelSelectionSaveCts;
@@ -355,6 +468,17 @@ public partial class ChatViewModel
 
     partial void OnSelectedModelChanged(string? value)
     {
+        OnPropertyChanged(nameof(HeaderModelText));
+        OnPropertyChanged(nameof(ModelPlanNote));
+        if (!_suppressModelSelectionSideEffects && !IsEditingMessage
+            && !string.IsNullOrWhiteSpace(value)
+            && CurrentChat is { Messages.Count: 0 } emptyChat
+            && !string.Equals(emptyChat.LastModelUsed, value, StringComparison.Ordinal)
+            && (ByokConfigHelper.IsByokModel(value) || ByokConfigHelper.IsByokModel(emptyChat.LastModelUsed)))
+        {
+            emptyChat.LastReasoningEffortUsed = null;
+        }
+
         UpdateQualityLevels(value);
         UpdateContextWindowTiers(value);
         if (CurrentChat is { } activeChat)
@@ -396,11 +520,12 @@ public partial class ChatViewModel
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
             _dataStore.Data.Settings.PreferredModel = value;
-            _dataStore.Data.Settings.ReasoningEffort = reasoningEffort ?? string.Empty;
+            if (!ByokConfigHelper.IsByokModel(value))
+                _dataStore.Data.Settings.ReasoningEffort = reasoningEffort ?? string.Empty;
             if (contextTier is not null)
                 _dataStore.Data.Settings.ContextWindowTier = contextTier;
             _dataStore.Save();
-            DefaultModelSelectionChanged?.Invoke(value, reasoningEffort, contextTier);
+            DefaultModelSelectionChanged?.Invoke(value, _dataStore.Data.Settings.ReasoningEffort, contextTier);
         }
 
         if (CurrentChat is { } chat)
@@ -409,7 +534,8 @@ public partial class ChatViewModel
             // Null = GitHub default backend; non-null = BYOK endpoint. Different values
             // mean the existing session would route to the wrong backend and must be recreated.
             var previousSignature = chat.SessionProviderSignature;
-            var newSignature = ByokConfigHelper.BuildProviderSignature(ResolveModelRouteForChat(value, chat).Provider);
+            var selectedRoute = ResolveModelRouteForChat(value, chat);
+            var newSignature = ByokConfigHelper.BuildProviderSignature(selectedRoute.Provider, selectedRoute.ByokModel);
 
             chat.LastModelUsed = value;
             chat.LastReasoningEffortUsed = reasoningEffort;
@@ -492,7 +618,7 @@ public partial class ChatViewModel
             return false;
         }
 
-        var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider);
+        var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider, modelRoute.ByokModel);
         if (!string.Equals(newSignature, _activeSessionProviderSignature, StringComparison.Ordinal))
         {
             InvalidateCurrentSessionForModelSwitch();
@@ -507,7 +633,10 @@ public partial class ChatViewModel
                 {
                     ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
                     ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                    ContextTier = SessionConfigBuilder.CreateContextTier(contextTier)
+                    ContextTier = SessionConfigBuilder.CreateContextTier(contextTier),
+                    ModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+                        modelRoute.ByokModel,
+                        contextTier)
                 });
             return true;
         }
@@ -534,57 +663,97 @@ public partial class ChatViewModel
         StatusText = Loc.Status_Reconnecting;
     }
 
-    private List<AIFunction> BuildUIAutomationTools()
+    private List<AIFunction> BuildUIAutomationTools(Guid chatId)
     {
+        DesktopPreviewRefreshAsync = () => RefreshDesktopFrameAsync(chatId);
         return
         [
             AIFunctionFactory.Create(
-                () => _uiAutomation.ListWindows(),
+                () => Task.Run(_uiAutomation.ListWindows),
                 "ui_list_windows",
-                "List all visible windows on the user's desktop. Returns window titles, process names, and PIDs. Call this first to find which window to target."),
+                "List desktop windows with titles, process names, PIDs, minimized state and unambiguous hwnd: selectors. Skip this and inspect the named app directly when its title is known."),
 
             AIFunctionFactory.Create(
-                ([Description("Window title (partial match) to inspect. The window will be auto-focused.")] string title,
-                 [Description("How deep to walk the UI tree (1-5, default 3). Use 2 for overview, 3-4 for detail.")] int depth = 3) =>
-                {
-                    depth = Math.Clamp(depth, 1, 5);
-                    return _uiAutomation.InspectWindow(title, depth);
-                },
+                ([Description("Unique window title (exact or partial match), or hwnd:0x... from ui_list_windows.")] string title,
+                 [Description("Tree depth, 1-8, when compact=false. Compact inspection finds controls at all depths.")] int depth = 5,
+                 [Description("Maximum elements to return, 1-500, default 160. Use ui_find for a missing specific target.")] int maxElements = 160,
+                 [Description("Default true: relevant visible controls at every depth, actions before long text. False: a hierarchical tree for layout/debugging.")] bool compact = true) =>
+                    RunDesktopOperationAsync(chatId, "Inspect window",
+                        () => _uiAutomation.InspectWindow(title, depth, maxElements, compact), title),
                 "ui_inspect",
-                "Inspect the UI element tree of a window (auto-focuses it). Returns numbered elements tagged with [clickable], [editable], [toggleable] etc. Use element numbers with ui_click, ui_type, ui_press_keys, and ui_read. Prefer this over ui_find for first contact with a window."),
+                "First call for a named app: read its current controls and status directly. Automatically restores a minimized target without activating it, so the user need not restore it manually. Returns relevant controls at every depth with stable IDs, values and enabled/selected state. Follows owned dialogs. Use the result to answer status questions or choose actions; avoid redundant listing, searches or screenshots when this already contains the answer."),
 
             AIFunctionFactory.Create(
-                ([Description("Window title (partial match) to search in")] string title,
-                 [Description("Search query — matches against element name, automation ID, control type, class name, and help text")] string query) =>
-                    _uiAutomation.FindElements(title, query),
+                ([Description("Unique window title or hwnd:0x... selector. All steps stay within this window and its owned dialogs.")] string title,
+                 [Description("1-32 ordered actions. Each has action, target and optional value/timeoutMs. Target is an element number as a string, exact visible name, id:AutomationId, name:Exact name, or type:ControlType. Actions: click (value double/right = physical double-click or right-click, needs allowForeground); type (replace text, or a slider position in its range); keys (value=shortcut); read; select (value=option name, reaching virtualized rows; omit value to select the target item itself); toggle (value=on/off); scroll (value=up/down/left/right page, or top/bottom); expand/collapse (tree nodes, expanders); wait (optional value=exact expected text). Offscreen targets need no scrolling. Omit target only for keys.")] UIAutomationStep[] steps,
+                 [Description("Return one compact UI observation after all steps; default true. Set false when the final step already reads/verifies the result.")] bool observe = true,
+                 [Description("Default false: background-safe automation, without activating windows or moving the pointer. Set true only when foreground keyboard/mouse interaction is acceptable to the user.")] bool allowForeground = false,
+                 CancellationToken cancellationToken = default) =>
+                    RunDesktopOperationAsync(chatId, allowForeground ? "Automate window (foreground allowed)" : "Automate window in background",
+                        () => _uiAutomation.ExecuteSteps(title, steps, observe, cancellationToken, allowForeground), title,
+                        cancellationToken: cancellationToken),
+                "ui_do",
+                "Preferred desktop interaction tool: execute known actions in one call. Each action waits up to timeoutMs for its target to exist and become enabled, so batch Load then Apply rather than guessing a future status label. Explicit wait values match exactly. Background-safe by default; keyboard, double/right clicks and pointer-only controls require allowForeground=true. An opened context menu appears in the observation and its items can be targeted. Failures report requiresForeground and completedSteps. Never blindly replay completed actions. Inspect unknown UI, batch known actions, and verify the result.",
+                Lumi.Models.AppDataJsonContext.Default.Options),
+
+            AIFunctionFactory.Create(
+                ([Description("Unique window title or hwnd:0x... selector.")] string title,
+                 [Description("Substring of name, automation ID, value, type, class or help text. Use id:AutomationId, name:Exact name or type:ControlType for targeted native search.")] string query) =>
+                    RunDesktopOperationAsync(chatId, "Find control", () => _uiAutomation.FindElements(title, query), title),
                 "ui_find",
-                "Find UI elements in a window matching a search query. Returns numbered elements you can interact with. Use when you know what you're looking for (e.g. 'Save', 'OK', 'Edit') instead of browsing the whole tree."),
-
-            AIFunctionFactory.Create(
-                ([Description("Element number from ui_inspect or ui_find")] int elementId) =>
-                    _uiAutomation.ClickElement(elementId),
-                "ui_click",
-                "Click a UI element by its number. Uses the best interaction pattern: Invoke for buttons, Toggle for checkboxes, Select for list items/tabs, Expand for combo boxes, or mouse click as fallback. After clicking, the UI may change — re-run ui_inspect to get fresh element numbers if needed."),
+                "Search a window's UI using native provider-side filtering, without reading every control property individually. Matches values too, so grid cells and rows are found by their contents even when scrolled out of view. Returns stable element numbers. Prefer this for a known target or a large/deep tree."),
 
             AIFunctionFactory.Create(
                 ([Description("Element number from ui_inspect or ui_find")] int elementId,
-                 [Description("Text to type or set in the element")] string text) =>
-                    _uiAutomation.TypeText(elementId, text),
+                 [Description("Default false. Allow foreground activation and a physical pointer fallback only when acceptable to the user.")] bool allowForeground = false) =>
+                    RunDesktopOperationAsync(chatId, "Click control",
+                        () => _uiAutomation.ClickElement(elementId, allowForeground), elementId: elementId),
+                "ui_click",
+                "Activate one indexed control using background-safe native patterns. Pointer-only controls report that foreground permission is required instead of stealing focus. Prefer ui_do for multiple actions."),
+
+            AIFunctionFactory.Create(
+                ([Description("Element number from ui_inspect or ui_find")] int elementId,
+                 [Description("Text to type or set in the element")] string text,
+                 [Description("Default false. Permit foreground keyboard fallback only when acceptable to the user.")] bool allowForeground = false) =>
+                    RunDesktopOperationAsync(chatId, "Set control text",
+                        () => _uiAutomation.TypeText(elementId, text, allowForeground), elementId: elementId),
                 "ui_type",
-                "Type or set text in a UI element by its number. Uses the Value pattern for text fields, or falls back to keyboard input."),
+                "Replace an editable control's contents using its Value pattern, native undo-aware edit messages for documents, or focused keyboard input. Empty text clears the field. Target an Edit/Document, not the window. Prefer ui_do for several fields."),
 
             AIFunctionFactory.Create(
                 ([Description("Key combination to send, e.g. 'Ctrl+N', 'Ctrl+S', 'Alt+F4', 'Enter', 'Tab', 'Ctrl+Shift+T'. Single keys: A-Z, 0-9, F1-F12, Enter, Tab, Escape, Delete, Home, End, PageUp, PageDown, Up, Down, Left, Right, Space.")] string keys,
-                 [Description("Optional: element number to focus before sending keys. If omitted, keys go to the currently focused window.")] int? elementId = null) =>
-                    _uiAutomation.SendKeys(keys, elementId),
+                 [Description("Optional element number to focus. If omitted, targets the last inspected window or its active owned dialog.")] int? elementId = null,
+                 [Description("Must be explicitly true for physical keyboard input. Default false leaves the desktop untouched.")] bool allowForeground = false) =>
+                    RunDesktopOperationAsync(chatId, "Send keyboard shortcut",
+                        () => _uiAutomation.SendKeys(keys, elementId, allowForeground), elementId: elementId),
                 "ui_press_keys",
-                "Send keyboard shortcuts or key presses to the focused window. Use for shortcuts like Ctrl+N (new), Ctrl+S (save), Ctrl+Z (undo), Alt+F4 (close), Tab/Enter (navigate forms), arrow keys, etc. Optionally target a specific element by number."),
+                "Send physical keyboard input to a verified target. Requires allowForeground=true; this may interrupt the user. Prefer background-safe UIA actions when possible."),
 
             AIFunctionFactory.Create(
                 ([Description("Element number from ui_inspect or ui_find")] int elementId) =>
-                    _uiAutomation.ReadElement(elementId),
+                    RunDesktopOperationAsync(chatId, "Read control", () => _uiAutomation.ReadElement(elementId), elementId: elementId),
                 "ui_read",
                 "Read detailed information about a UI element: type, name, value, toggle state, selection state, supported interactions, bounds, and more."),
+
+            AIFunctionFactory.Create(
+                ([Description("Unique window title or hwnd:0x... selector.")] string title,
+                 [Description("Maximum image width, 320-4096 pixels; default 1600. Coordinates use the returned image dimensions.")] int maxWidth = 1600) =>
+                    CaptureDesktopToolAsync(chatId, title, maxWidth),
+                "ui_screenshot",
+                "Capture a window without focusing it and return the actual image to the model, with a captureId and image dimensions. Minimized targets are restored automatically without activation. Other windows are not included. Protected or some GPU-rendered windows may not support background capture. Use image-relative coordinates with ui_click_at; never guess coordinates from an old or resized image.",
+                Lumi.Models.AppDataJsonContext.Default.Options),
+
+            AIFunctionFactory.Create(
+                ([Description("captureId from the latest ui_screenshot of this window.")] string captureId,
+                 [Description("Horizontal pixel coordinate in that image, from its left edge.")] double x,
+                 [Description("Vertical pixel coordinate in that image, from its top edge.")] double y,
+                 [Description("left or right; default left.")] string button = "left",
+                 [Description("1 or 2 for left clicks; right clicks require 1.")] int clickCount = 1,
+                 [Description("Must be explicitly true. Coordinate clicks activate the captured window and use the physical mouse.")] bool allowForeground = false) =>
+                    RunDesktopOperationAsync(chatId, "Click screenshot coordinate",
+                        () => _uiAutomation.ClickAt(captureId, x, y, button, clickCount, allowForeground)),
+                "ui_click_at",
+                "Click a point identified in a ui_screenshot image. Explicit foreground permission is required. Rejects expired/superseded captures, changed window identity/geometry/DPI, out-of-image coordinates and covered points. Consumes the capture after clicking. Prefer semantic ui_do actions for non-intrusive background use."),
         ];
     }
 
@@ -713,6 +882,9 @@ public partial class ChatViewModel
         if (chat is null)
             return;
 
+        chat.IsAwaitingInput = true;
+        RefreshInputWaitingState(chat);
+
         var toolMessage = chat.Messages.LastOrDefault(message =>
             message.ToolName == "ask_question"
             && message.ToolStatus == "InProgress"
@@ -758,6 +930,13 @@ public partial class ChatViewModel
             && message.QuestionId == questionId);
         if (toolMessage is not null)
             toolMessage.ToolOutput = $"User answered: {answer}";
+
+        if (CurrentChat?.Id == chatId)
+        {
+            foreach (var card in TranscriptTurns.SelectMany(turn => turn.EnumerateItems())
+                         .OfType<QuestionItem>().Where(card => card.QuestionId == questionId))
+                card.ApplyAnswer(answer);
+        }
     }
 
     private void NotifyQuestionAsked(Guid chatId, string question)
@@ -870,8 +1049,8 @@ public partial class ChatViewModel
                     [Description("Command for a local/stdIO MCP server.")] string? command = null,
                     [Description("Command arguments for a local MCP server.")] string[]? args = null,
                     [Description("URL for a remote MCP server.")] string? url = null,
-                    [Description("Environment variables for local MCP servers in KEY=VALUE format.")] string[]? envEntries = null,
-                    [Description("Headers for remote MCP servers in KEY=VALUE format.")] string[]? headerEntries = null,
+                    [Description("Environment variables for local MCP servers in KEY=VALUE format. An update replaces the whole list; KEY=[REDACTED] keeps that variable's saved value.")] string[]? envEntries = null,
+                    [Description("Headers for remote MCP servers in KEY=VALUE format. An update replaces the whole list; KEY=[REDACTED] keeps that header's saved value.")] string[]? headerEntries = null,
                     [Description("Tool names exposed by this MCP server. Pass an empty array to allow all tools.")] string[]? toolNames = null,
                     [Description("Optional timeout in milliseconds.")] int? timeout = null,
                     [Description("Set to true to clear a previously configured timeout during update.")] bool? clearTimeout = null,
@@ -1702,9 +1881,9 @@ public partial class ChatViewModel
             foreach (var name in activeNames)
             {
                 ActiveMcpServerNames.Add(name);
-                ActiveMcpChips.Add(availableChips.TryGetValue(name, out var chip)
+                ActiveMcpChips.Add(WithMcpIssue(availableChips.TryGetValue(name, out var chip)
                     ? chip
-                    : ToMcpChip(name, capabilities.FindMcpServer(name)));
+                    : ToMcpChip(name, capabilities.FindMcpServer(name))));
             }
         }
         finally

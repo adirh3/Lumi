@@ -73,6 +73,34 @@ public class SearchOverlayViewModelTests
         Assert.Equal(2, vm.SelectedIndex);
     }
 
+    // Each search phase refreshes the filter chips; only a visible change may rebuild them.
+    [Fact]
+    public void CategoryFilters_AreEquivalentOnlyWhileNothingVisibleChanges()
+    {
+        IReadOnlyList<SearchCategoryFilterItem> current =
+            [Filter(null, "All", 3, isSelected: true), Filter(GlobalSearchCategory.Chats, "Chats", 3)];
+
+        Assert.True(SearchOverlayViewModel.AreEquivalent(current,
+            [Filter(null, "All", 3, isSelected: true), Filter(GlobalSearchCategory.Chats, "Chats", 3)]));
+        Assert.False(SearchOverlayViewModel.AreEquivalent(current,
+            [Filter(null, "All", 4, isSelected: true), Filter(GlobalSearchCategory.Chats, "Chats", 4)]));
+        Assert.False(SearchOverlayViewModel.AreEquivalent(current,
+            [Filter(null, "All", 3), Filter(GlobalSearchCategory.Chats, "Chats", 3, isSelected: true)]));
+        Assert.False(SearchOverlayViewModel.AreEquivalent(current,
+            [Filter(null, "All", 4, isSelected: true), Filter(GlobalSearchCategory.Chats, "Chats", 3),
+             Filter(GlobalSearchCategory.Projects, "Projects", 1)]));
+    }
+
+    private static SearchCategoryFilterItem Filter(
+        GlobalSearchCategory? category, string label, int count, bool isSelected = false)
+        => new()
+        {
+            CategoryKey = category,
+            Label = label,
+            Count = count,
+            IsSelected = isSelected
+        };
+
     [Fact]
     public void Close_ClearsResultsAndSearchActivity()
     {

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Platform;
@@ -9,6 +10,7 @@ using Lumi.Mobile.Layout;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Behaviors;
 using StrataTheme.Controls;
+using StrataTheme.Animation;
 
 namespace Lumi.Mobile.Views;
 
@@ -22,8 +24,10 @@ public partial class MobileShellView : UserControl
     private IInputPane? _inputPane;
     private TopLevel? _topLevel;
     private Thickness _safeArea;
+    private bool _hasHostInsets;
     private double _keyboardInset;
     private double _keyboardTop = double.NaN;
+    private bool _isApplicationActive = true;
     private readonly Dictionary<Control, MobileEntrance> _pageEntrances = [];
     private readonly HashSet<StrataBottomSheet> _presentedSheets = [];
     private readonly StrataNavigationDrawer? _navigationDrawer;
@@ -50,6 +54,7 @@ public partial class MobileShellView : UserControl
     {
         InitializeComponent();
         AddHandler(StrataBottomSheet.PresentationChangedEvent, OnSheetPresentationChanged);
+        AddHandler(KeyDownEvent, OnShellKeyDown, RoutingStrategies.Bubble);
         _navigationDrawer = this.FindControl<StrataNavigationDrawer>("NavDrawer");
         _navigationSpacer = this.FindControl<Border>("NavigationSpacer");
         if (_navigationDrawer is { } drawer)
@@ -65,6 +70,12 @@ public partial class MobileShellView : UserControl
 
     private void OnDrawerPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
+        // The drawer has just begun settling toward its new state; a change of place lands it there.
+        if (e.Property == StrataNavigationDrawer.IsOpenProperty
+            && _landPlaceChange
+            && sender is StrataNavigationDrawer landing)
+            landing.CompleteMotion();
+
         if (e.Property == StrataNavigationDrawer.ProgressProperty
             && sender is StrataNavigationDrawer drawer
             && DataContext is MobileShellViewModel shell)
@@ -105,17 +116,34 @@ public partial class MobileShellView : UserControl
     {
         if (e.Source is not StrataBottomSheet sheet)
             return;
-        if (sheet.IsPresented)
-            _presentedSheets.Add(sheet);
-        else
-            _presentedSheets.Remove(sheet);
+        if (!sheet.IsPresented)
+            ForgetSheet(sheet);
+        else if (_presentedSheets.Add(sheet))
+            sheet.DetachedFromVisualTree += OnPresentedSheetDetached;
         UpdateSheetPresentation();
+    }
+
+    // A sheet removed while presented, such as an interactive answer's picker, cannot report its
+    // dismissal from outside the tree, so leaving the tree ends its presentation.
+    private void OnPresentedSheetDetached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is StrataBottomSheet sheet)
+            ForgetSheet(sheet);
+        UpdateSheetPresentation();
+    }
+
+    private void ForgetSheet(StrataBottomSheet sheet)
+    {
+        if (_presentedSheets.Remove(sheet))
+            sheet.DetachedFromVisualTree -= OnPresentedSheetDetached;
     }
 
     private void UpdateSheetPresentation()
     {
+        // A side panel sits beside the chat rather than over it, so it never suspends the page.
         if (DataContext is MobileShellViewModel shell)
-            shell.IsModalSheetPresented = _presentedSheets.Any(sheet => sheet.IsEffectivelyVisible);
+            shell.IsModalSheetPresented = _presentedSheets.Any(sheet =>
+                sheet.IsEffectivelyVisible && !sheet.Classes.Contains("side-panel"));
     }
 
     private void OnPageVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -123,7 +151,7 @@ public partial class MobileShellView : UserControl
         if (e.Property != IsVisibleProperty)
             return;
         UpdateSheetPresentation();
-        if (sender is not Control { IsVisible: true } page)
+        if (sender is not Control page)
             return;
 
         Control? content = page.Name switch
@@ -135,6 +163,13 @@ public partial class MobileShellView : UserControl
         };
         if (content is null)
             return;
+
+        if (!page.IsVisible)
+        {
+            if (_pageEntrances.TryGetValue(content, out var previous))
+                previous.Stop();
+            return;
+        }
 
         if (!_pageEntrances.TryGetValue(content, out var entrance))
             _pageEntrances[content] = entrance = new MobileEntrance(content);
@@ -158,12 +193,67 @@ public partial class MobileShellView : UserControl
 
     private void OnChatRenameKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && DataContext is MobileShellViewModel shell
-            && shell.SaveChatNameCommand.CanExecute(null))
+        if (DataContext is not MobileShellViewModel shell)
+            return;
+
+        if (e.Key == Key.Enter && shell.SaveChatNameCommand.CanExecute(null))
         {
             shell.SaveChatNameCommand.Execute(null);
             e.Handled = true;
         }
+        else if (e.Key == Key.Escape)
+        {
+            // Android delivers Back as Escape: step back to the actions, as GoBack does, before the sheet can close.
+            shell.CancelChatActionCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// A tablet with a keyboard answers the desktop's shortcuts: Ctrl+K search, Ctrl+N new chat,
+    /// Ctrl+B the chat list, Ctrl+, Settings and Ctrl+1–4 the places, in the desktop's order.
+    /// </summary>
+    private void OnShellKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled
+            || e.KeyModifiers is not (KeyModifiers.Control or KeyModifiers.Meta)
+            || DataContext is not MobileShellViewModel { IsPaired: true } shell)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.K:
+                shell.OpenSearchCommand.Execute(null);
+                break;
+            case Key.N:
+                shell.ChatList.NewChatCommand.Execute(null);
+                break;
+            case Key.B:
+                if (shell.Page != MobilePage.Chat)
+                    shell.SelectPlace(MobilePlace.Chats);
+                else
+                    shell.ToggleDrawerCommand.Execute(null);
+                break;
+            case Key.OemComma:
+            case Key.D4:
+                shell.SelectPlace(MobilePlace.Settings);
+                break;
+            case Key.D1:
+                shell.SelectPlace(MobilePlace.Chats);
+                break;
+            case Key.D2:
+                shell.SelectPlace(MobilePlace.Jobs);
+                break;
+            case Key.D3:
+                shell.SelectPlace(MobilePlace.Customize);
+                break;
+            default:
+                return;
+        }
+
+        e.Handled = true;
     }
 
     public FoldPosture Posture
@@ -208,7 +298,8 @@ public partial class MobileShellView : UserControl
             // transcript feel like it belongs to the device rather than sitting in a letterbox.
             _insets.DisplayEdgeToEdgePreference = true;
             _insets.SafeAreaChanged += OnSafeAreaChanged;
-            _safeArea = _insets.SafeAreaPadding;
+            if (!_hasHostInsets)
+                _safeArea = _insets.SafeAreaPadding;
         }
 
         _inputPane = _topLevel.InputPane;
@@ -231,7 +322,8 @@ public partial class MobileShellView : UserControl
         foreach (var entrance in _pageEntrances.Values)
             entrance.Dispose();
         _pageEntrances.Clear();
-        _presentedSheets.Clear();
+        foreach (var sheet in _presentedSheets.ToList())
+            ForgetSheet(sheet);
 
         if (_insets is not null)
             _insets.SafeAreaChanged -= OnSafeAreaChanged;
@@ -263,34 +355,49 @@ public partial class MobileShellView : UserControl
     }
 
     private void OnSafeAreaChanged(object? sender, SafeAreaChangedArgs e)
+        => ApplyNativeInsets(e.SafeAreaPadding);
+
+    internal void ApplyNativeInsets(Thickness safeArea)
     {
-        _safeArea = e.SafeAreaPadding;
+        if (_hasHostInsets)
+            return;
+        _safeArea = safeArea;
         ApplyInsets();
     }
 
     /// <summary>
-    /// The single point where OS insets enter the view. Exposed so tests can stand in for the
-    /// platform, which reports nothing in a headless run.
+    /// Applies host-owned safe-area and viewport geometry. Tests can also supply insets when the
+    /// headless platform reports none.
     /// </summary>
     internal void ApplyPlatformInsets(
         Thickness safeArea,
         double keyboardInset = 0,
         double? viewportHeight = null)
     {
+        // The browser host measures CSS insets correctly. Avalonia.Browser 12.1.4 swaps right and
+        // bottom, so native resize/scaling notifications must not replace the host's geometry.
+        _hasHostInsets = true;
         _safeArea = safeArea;
-        _keyboardInset = keyboardInset;
+        ApplyKeyboardInset(keyboardInset, viewportHeight);
+    }
+
+    private void ApplyKeyboardInset(double keyboardInset, double? viewportHeight = null)
+    {
+        _keyboardInset = _isApplicationActive ? keyboardInset : 0;
         // Browser viewport events can arrive before Avalonia's ResizeObserver. Keep the keyboard
         // edge in the measured host's coordinates rather than combining it with a stale height.
         var fullHeight = viewportHeight ?? (DataContext is MobileShellViewModel shell && shell.Layout.Height > 0
             ? shell.Layout.Height
             : _topLevel?.ClientSize.Height ?? Bounds.Height);
-        _keyboardTop = keyboardInset > 0 ? Math.Max(0, fullHeight - keyboardInset) : double.NaN;
+        _keyboardTop = _keyboardInset > 0 ? Math.Max(0, fullHeight - _keyboardInset) : double.NaN;
         ApplyInsets();
     }
 
     /// <summary>Clears transient IME geometry when the platform backgrounds the app.</summary>
     public void NotifyApplicationDeactivated()
     {
+        _isApplicationActive = false;
+        LifecycleOpacityPulse.SetIsPaused(this, true);
         _keyboardInset = 0;
         _keyboardTop = double.NaN;
         ApplyInsets();
@@ -300,8 +407,11 @@ public partial class MobileShellView : UserControl
 
     public void NotifyApplicationActivated()
     {
-        if (_inputPane is { } pane)
-            ApplyInputPaneGeometry(pane.State, pane.OccludedRect);
+        _isApplicationActive = true;
+        LifecycleOpacityPulse.SetIsPaused(this, false);
+        _keyboardInset = 0;
+        _keyboardTop = double.NaN;
+        ApplyInsets();
 
         if (DataContext is MobileShellViewModel shell)
             _ = shell.NotifyApplicationActivatedAsync();
@@ -310,16 +420,21 @@ public partial class MobileShellView : UserControl
     private void OnScalingChanged(object? sender, EventArgs e)
     {
         if (_insets is not null)
-            _safeArea = _insets.SafeAreaPadding;
-
-        ApplyInsets();
+            ApplyNativeInsets(_insets.SafeAreaPadding);
+        else
+            ApplyInsets();
     }
 
     private void OnInputPaneStateChanged(object? sender, InputPaneStateEventArgs e)
-        => ApplyInputPaneGeometry(e.NewState, e.EndRect);
+    {
+        if (!_hasHostInsets)
+            ApplyInputPaneGeometry(e.NewState, e.EndRect);
+    }
 
     internal void ApplyInputPaneGeometry(InputPaneState state, Rect occludedRect)
     {
+        if (!_isApplicationActive)
+            return;
         // Lift the composer above the keyboard.
         //
         // The rect is NOT a height measured from the bottom: it is a client-space rectangle whose
@@ -329,13 +444,21 @@ public partial class MobileShellView : UserControl
         // the pattern in Avalonia's own SafeAreaDemo. Treating EndRect.Height as the inset — which
         // is what this did — dropped the navigation bar's worth of padding and left the composer
         // partly under the keyboard.
-        var rect = state == InputPaneState.Open ? occludedRect : default;
+        var rect = state == InputPaneState.Open && occludedRect.Top > _safeArea.Top
+            ? occludedRect
+            : default;
         _keyboardInset = rect.Height > 0 && _topLevel is { } top
             ? Math.Max(0, top.ClientSize.Height - rect.Top)
             : 0;
         _keyboardTop = _keyboardInset > 0 ? rect.Top : double.NaN;
 
         ApplyInsets();
+    }
+
+    internal void ApplyPlatformKeyboardInset(double keyboardInset)
+    {
+        if (_isApplicationActive)
+            ApplyKeyboardInset(keyboardInset);
     }
 
     private void ApplyInsets()
@@ -414,12 +537,22 @@ public partial class MobileShellView : UserControl
 
         shell.UpdateLayout(width, height, Posture, HingeSize, HingePosition);
         UpdateNavigationLayout();
+        UpdateSheetPresentation();
         ApplyInsets();
     }
 
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
+
+        if (_placeSource is not null)
+            _placeSource.PropertyChanged -= OnShellPlaceChanged;
+        _placeSource = DataContext as MobileShellViewModel;
+        if (_placeSource is not null)
+        {
+            _lastPlace = _placeSource.Place;
+            _placeSource.PropertyChanged += OnShellPlaceChanged;
+        }
 
         // A fresh view model has no insets yet; re-publish whatever the OS already told us.
         ApplyInsets();
@@ -432,5 +565,29 @@ public partial class MobileShellView : UserControl
         }
         UpdateNavigationLayout();
         UpdateSheetPresentation();
+    }
+
+    private MobileShellViewModel? _placeSource;
+    private MobilePlace _lastPlace;
+    private bool _landPlaceChange;
+
+    /// <summary>
+    /// Moving between places swaps the page in place, as a tab bar does, while the places' highlight
+    /// glides to the new place. On a phone the chat list is the drawer, so going to or from Chats would
+    /// otherwise slide the whole list across the screen; it lands at once instead. Opening a chat from the
+    /// list, search, Back and the swipe keep their movement, since none of them changes the place.
+    /// </summary>
+    private void OnShellPlaceChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MobileShellViewModel.Place)
+            || sender is not MobileShellViewModel shell
+            || shell.Place == _lastPlace)
+            return;
+
+        _lastPlace = shell.Place;
+        // The drawer's open state follows the place later in this same update; it lands the moment it
+        // changes (OnDrawerPropertyChanged), before a frame can show the list sliding.
+        _landPlaceChange = true;
+        Dispatcher.UIThread.Post(() => _landPlaceChange = false);
     }
 }

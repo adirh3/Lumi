@@ -21,6 +21,8 @@ public static partial class ToolDisplayHelper
     public const string BrowserFindToolName = "lumi_browser_find";
     public const string BrowserDoToolName = "lumi_browser_do";
     public const string BrowserJsToolName = "lumi_browser_js";
+    public const string BrowserTabsToolName = "lumi_browser_tabs";
+    public const string BrowserScreenshotToolName = "lumi_browser_screenshot";
 
     public static string ToRuntimeToolName(string toolName) => toolName switch
     {
@@ -47,10 +49,12 @@ public static partial class ToolDisplayHelper
             or "replace_string_in_file" or "multi_replace_string_in_file" or "str_replace_editor" or "apply_patch" => "📝",
         "view" or "read_file" or "read" => "📄",
         "browser" or "browser_navigate" or "browser_do" or "browser_look" or "browser_find" or "browser_js"
-            or BrowserOpenToolName or BrowserLookToolName or BrowserFindToolName or BrowserDoToolName or BrowserJsToolName => "🌐",
+            or BrowserOpenToolName or BrowserLookToolName or BrowserFindToolName or BrowserDoToolName or BrowserJsToolName
+            or BrowserTabsToolName => "🌐",
+        BrowserScreenshotToolName => "📷",
         "web_search" or "search" => "🔎",
         "web_fetch" or "lumi_fetch" => "📚",
-        "ui_inspect" or "ui_find" or "ui_click" or "ui_type" or "ui_read" => "🖥",
+        "ui_inspect" or "ui_do" or "ui_find" or "ui_click" or "ui_type" or "ui_read" or "ui_screenshot" or "ui_click_at" => "🖥",
         "save_memory" or "update_memory" or "recall_memory" or "delete_memory" => "🧠",
         "fetch_skill" or "skill" => "⚡",
         "manage_projects" => "📁",
@@ -69,6 +73,41 @@ public static partial class ToolDisplayHelper
         "sql" => "🗃",
         _ when IsSubagentTool(toolName) => "🤖",
         _ => "⚙"
+    };
+
+    /// <summary>
+    /// The kind of work a tool does, as a <see cref="TranscriptIcons"/> key: the transcript draws it as the
+    /// step's line icon, so a reader can tell reading from editing from running a command at a glance.
+    /// </summary>
+    public static string GetToolIconKey(string toolName) => toolName switch
+    {
+        _ when IsTerminalStreamingTool(toolName) || toolName is "run_in_terminal" or "list_powershell" => TranscriptIcons.Terminal,
+        "create" or "write_file" or "create_file" or "write" or "save_file" or "create_and_write_file" => TranscriptIcons.Create,
+        "edit" or "edit_file" or "str_replace" or "insert" or "replace_string_in_file" or "multi_replace_string_in_file"
+            or "str_replace_editor" or "apply_patch" => TranscriptIcons.Edit,
+        "view" or "read_file" or "read" or "announce_file" => TranscriptIcons.Read,
+        "grep" or "glob" or "rg" or "search" or "web_search" or "code_review" or "search_code" => TranscriptIcons.Search,
+        BrowserScreenshotToolName or "ui_screenshot" => TranscriptIcons.Screenshot,
+        "browser" or "browser_navigate" or "browser_do" or "browser_look" or "browser_find" or "browser_js"
+            or BrowserOpenToolName or BrowserLookToolName or BrowserFindToolName or BrowserDoToolName or BrowserJsToolName
+            or BrowserTabsToolName => TranscriptIcons.Web,
+        "web_fetch" or "lumi_fetch" or "explain_code" => TranscriptIcons.Page,
+        "ui_inspect" or "ui_do" or "ui_find" or "ui_click" or "ui_type" or "ui_read" or "ui_click_at" or "ui_list_windows"
+            or "ui_press_keys" => TranscriptIcons.Desktop,
+        "save_memory" or "update_memory" or "recall_memory" or "delete_memory" or "manage_memories" => TranscriptIcons.Memory,
+        "fetch_skill" or "skill" or "manage_skills" => TranscriptIcons.Skill,
+        "manage_projects" => TranscriptIcons.Project,
+        "manage_lumis" => TranscriptIcons.Agent,
+        "manage_mcps" => TranscriptIcons.Connector,
+        "manage_current_chat" or "search_chats" or "read_chat" => TranscriptIcons.Chat,
+        "manage_chats" => TranscriptIcons.Chats,
+        "generate_tests" => TranscriptIcons.Test,
+        "analyze_project" => TranscriptIcons.Mixed,
+        "update_todo" or "manage_todo_list" => TranscriptIcons.Plan,
+        "sql" => TranscriptIcons.Data,
+        "ask_question" or "ask_input" => TranscriptIcons.Question,
+        _ when IsSubagentTool(toolName) => TranscriptIcons.Agent,
+        _ => TranscriptIcons.Tool
     };
 
     public static bool IsFileEditTool(string toolName)
@@ -139,7 +178,7 @@ public static partial class ToolDisplayHelper
             {
                 var cmd = ExtractJsonField(argsJson, "command");
                 var summary = SummarizeCommand(cmd);
-                return (Loc.Tool_RunningCommand, summary ?? TruncateCommand(cmd));
+                return (GetCommandTitle(argsJson) ?? Loc.Tool_RunningCommand, summary ?? TruncateCommand(cmd));
             }
             case "grep" or "grep_search" or "search_files":
                 return (Loc.Tool_SearchingFiles, ExtractJsonField(argsJson, "query"));
@@ -164,6 +203,14 @@ public static partial class ToolDisplayHelper
             case "browser_js":
             case BrowserJsToolName:
                 return (Loc.Tool_BrowserEvaluate, null);
+            case BrowserTabsToolName:
+            {
+                var action = ExtractJsonField(argsJson, "action");
+                var target = ExtractJsonField(argsJson, "tabId") ?? ExtractJsonField(argsJson, "url");
+                return ("Managing browser tabs", target is null ? action : $"{action}: {target}");
+            }
+            case BrowserScreenshotToolName:
+                return ("Taking browser screenshot", ExtractJsonField(argsJson, "tabId"));
             case "save_memory":
                 return (Loc.Tool_Remembering, ExtractJsonField(argsJson, "key"));
             case "update_memory":
@@ -188,9 +235,9 @@ public static partial class ToolDisplayHelper
             case "manage_skills":
                 return ("Managing Lumi skills", ExtractJsonField(argsJson, "action"));
             case "manage_lumis":
-                return ("Managing Lumis", ExtractJsonField(argsJson, "action"));
+                return ("Managing agents", ExtractJsonField(argsJson, "action"));
             case "manage_mcps":
-                return ("Managing MCP servers", ExtractJsonField(argsJson, "action"));
+                return ("Managing connectors", ExtractJsonField(argsJson, "action"));
             case "manage_memories":
                 return ("Managing memories", ExtractJsonField(argsJson, "action"));
             case "manage_current_chat":
@@ -225,9 +272,16 @@ public static partial class ToolDisplayHelper
             case "read_chat":
                 return ("Reading chat", ExtractJsonField(argsJson, "chat"));
             case "ask_question":
+            case "ask_input":
                 return (Loc.Tool_AskingQuestion, null);
             case "ui_inspect":
                 return (Loc.Tool_InspectingWindow, ExtractJsonField(argsJson, "title"));
+            case "ui_do":
+                return (Loc.Tool_AutomatingWindow, ExtractJsonField(argsJson, "title"));
+            case "ui_screenshot":
+                return (Loc.Tool_TakingScreenshot, ExtractJsonField(argsJson, "title"));
+            case "ui_click_at":
+                return (Loc.Tool_ClickingControl, ExtractJsonField(argsJson, "captureId"));
             case "ui_find":
                 return (Loc.Tool_FindingElement, ExtractJsonField(argsJson, "query"));
             case "ui_click":
@@ -251,7 +305,8 @@ public static partial class ToolDisplayHelper
             case "analyze_project":
                 return (Loc.Tool_AnalyzingProject, null);
             case "sql":
-                return (Loc.Tool_RunningQuery, ExtractJsonField(argsJson, "description"));
+                return (GetCommandTitle(argsJson) ?? Loc.Tool_RunningQuery,
+                    SummarizeQuery(ExtractJsonField(argsJson, "query")));
             case "task":
             {
                 var agentType = FormatAgentName(ExtractJsonField(argsJson, "agent_type")) ?? "Agent";
@@ -734,18 +789,6 @@ public static partial class ToolDisplayHelper
         }
         catch { }
         return result;
-    }
-
-    public static string BuildTodoDetailsMarkdown(IReadOnlyList<TodoStepSnapshot> steps)
-    {
-        if (steps.Count == 0) return string.Empty;
-        var sb = new StringBuilder();
-        foreach (var step in steps)
-        {
-            var isDone = string.Equals(step.Status, "completed", StringComparison.OrdinalIgnoreCase);
-            sb.Append("- ").Append(isDone ? "[x] " : "[ ] ").AppendLine(step.Title);
-        }
-        return sb.ToString().TrimEnd();
     }
 
     public static string FormatFileSize(long bytes) => bytes switch

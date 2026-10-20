@@ -5,12 +5,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using StrataTheme;
 using StrataTheme.Controls;
 using Xunit;
 
@@ -25,14 +27,78 @@ namespace Lumi.Tests;
 public sealed class StrataModelPickerRefreshTests
 {
     [Fact]
+    public async Task OpeningPicker_DefersHostRefreshUntilAfterTheClickAndSearchFocus()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var invocations = 0;
+            var focusedDuringRefresh = false;
+            var picker = new StrataModelPicker { Models = new[] { "gpt-5.4" }, SelectedModel = "gpt-5.4" };
+            picker.PickerOpenedCommand = new DelegateCommand(() =>
+            {
+                invocations++;
+                focusedDuringRefresh = FindPart<TextBox>(picker, "PART_ModelPickerSearch")?.IsFocused == true;
+            });
+            var window = new Window { Width = 600, Height = 720, Content = picker };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                new ButtonAutomationPeer(FindPart<Button>(picker, "PART_ModelPickerButton")!).Invoke();
+                Assert.Equal(0, invocations);
+                await PumpAsync();
+                Assert.Equal(1, invocations);
+                Assert.True(focusedDuringRefresh);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task OpeningPicker_SkipsTheRefreshOfASupersededOpening()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var invocations = 0;
+            var picker = new StrataModelPicker
+            {
+                Models = new[] { "gpt-5.4" },
+                PickerOpenedCommand = new DelegateCommand(() => invocations++)
+            };
+            var window = new Window { Width = 600, Height = 720, Content = picker };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                var popup = FindPart<Popup>(picker, "PART_ModelPickerPopup")!;
+                PopupAnimationHelper.SetEnableOpenAnimation(popup, false);
+                PopupAnimationHelper.SetEnableOverlayAnimation(popup, false);
+                new ButtonAutomationPeer(FindPart<Button>(picker, "PART_ModelPickerButton")!).Invoke();
+                popup.IsOpen = false;
+                new ButtonAutomationPeer(FindPart<Button>(picker, "PART_ModelPickerButton")!).Invoke();
+                Assert.Equal(0, invocations);
+                await PumpAsync();
+                Assert.Equal(1, invocations);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task OpeningPicker_RunsPickerOpenedCommand()
     {
         using var session = HeadlessTestSession.Start();
 
         var invocations = 0;
 
-        // Assertions are captured inside the dispatched body and checked outside it, because
-        // HeadlessUnitTestSession.Dispatch swallows exceptions thrown in an async body.
         await session.Dispatch(async () =>
         {
             var picker = new StrataModelPicker
@@ -95,7 +161,7 @@ public sealed class StrataModelPickerRefreshTests
 
     private static string[] ReadModelRows(StrataModelPicker picker)
     {
-        var list = FindPart<StackPanel>(picker, "PART_ModelPickerList");
+        var list = FindPart<ListBox>(picker, "PART_ModelPickerList");
         return list is null
             ? []
             : list.GetVisualDescendants()
@@ -107,6 +173,8 @@ public sealed class StrataModelPickerRefreshTests
 
     private static void ClickPickerButton(Window window, StrataModelPicker picker)
     {
+        picker.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom;
+        window.UpdateLayout();
         var button = FindPart<Button>(picker, "PART_ModelPickerButton")
             ?? throw new InvalidOperationException("PART_ModelPickerButton was not found.");
 

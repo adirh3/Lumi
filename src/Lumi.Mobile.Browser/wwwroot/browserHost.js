@@ -2,15 +2,30 @@ const safeAreaProbe = document.createElement('div');
 safeAreaProbe.className = 'safe-area-probe';
 document.documentElement.appendChild(safeAreaProbe);
 
+if (navigator.standalone === true)
+    document.documentElement.dataset.lumiStandalone = 'true';
+
+let browserRecoveryActive = false;
+
 export function showBrowserRecovery(message) {
+    browserRecoveryActive = true;
+    dismissTextSelection();
+    for (const input of nativeTextInputs.values()) {
+        input.blur();
+        input.disabled = true;
+    }
+    activeNativeTextInputId = undefined;
     document.getElementById('lumi-recovery-message').textContent = message;
-    document.getElementById('lumi-recovery').hidden = false;
+    const recovery = document.getElementById('lumi-recovery');
+    recovery.hidden = false;
+    if (!recovery.open)
+        recovery.showModal();
+    document.getElementById('lumi-reload').focus();
 }
 
-export function configureBrowserRecovery() {
-    document.getElementById('lumi-reload').addEventListener('click', () => {
-        globalThis.location.reload();
-    });
+export function configureBrowserRecovery(reload = () => globalThis.location.reload()) {
+    document.getElementById('lumi-reload').addEventListener('click', reload);
+    document.getElementById('lumi-recovery').addEventListener('cancel', event => event.preventDefault());
     // Context-loss events do not bubble. Listen on the host before Avalonia creates its canvas.
     document.getElementById('out').addEventListener('webglcontextlost', event => {
         if (event.target.tagName !== 'CANVAS'
@@ -52,6 +67,35 @@ export function revokeObjectUrl(url) {
         URL.revokeObjectURL(url);
 }
 
+export function configureFilePickerCancellation({ StorageProvider }) {
+    const openFileDialog = StorageProvider.openFileDialog;
+    StorageProvider.openFileDialog = async function (...args) {
+        let input;
+        const canceled = () => {
+            // Avalonia's fallback waits for change only; a native cancel must finish that wait too.
+            if (input.files.length === 0)
+                input.dispatchEvent(new Event('change'));
+        };
+        const capturePicker = event => {
+            const target = event.target;
+            if (!input && target?.tagName === 'INPUT' && target.type === 'file') {
+                input = target;
+                input.addEventListener('cancel', canceled);
+            }
+        };
+        document.addEventListener('click', capturePicker, true);
+        try {
+            const operation = openFileDialog.apply(this, args);
+            document.removeEventListener('click', capturePicker, true);
+            return await operation;
+        } finally {
+            document.removeEventListener('click', capturePicker, true);
+            input?.removeEventListener('cancel', canceled);
+            input?.remove();
+        }
+    };
+}
+
 let selectionDialog;
 let nativeTextInputChanged;
 let nativeTextInputKeyPressed;
@@ -61,6 +105,8 @@ const nativeTextInputs = new Map();
 const composingNativeTextInputs = new Set();
 
 function publishNativeTextInput(id, input) {
+    if (browserRecoveryActive)
+        return;
     nativeTextInputChanged?.(
         id,
         input.value,
@@ -91,6 +137,8 @@ document.addEventListener('pointerdown', event => {
 }, true);
 
 export function showTextSelection(text) {
+    if (browserRecoveryActive)
+        return;
     dismissTextSelection();
     selectionDialog = document.createElement('dialog');
     selectionDialog.className = 'lumi-selection-dialog';
@@ -159,6 +207,10 @@ function createNativeTextInput(id, multiline) {
         publishNativeTextInput(id, input);
     });
     input.addEventListener('keydown', event => {
+        if (browserRecoveryActive) {
+            event.preventDefault();
+            return;
+        }
         if (event.isComposing
             || event.keyCode === 229
             || event.key !== 'Enter' && event.key !== 'Escape')
@@ -175,6 +227,8 @@ function createNativeTextInput(id, multiline) {
         }
     });
     input.addEventListener('focus', () => {
+        if (browserRecoveryActive)
+            return;
         activeNativeTextInputId = id;
         input.classList.add('focused');
         nativeTextInputFocusChanged?.(id, true);
@@ -185,7 +239,8 @@ function createNativeTextInput(id, multiline) {
         if (activeNativeTextInputId === id)
             activeNativeTextInputId = undefined;
         input.classList.remove('focused');
-        nativeTextInputFocusChanged?.(id, false);
+        if (!browserRecoveryActive)
+            nativeTextInputFocusChanged?.(id, false);
     });
     document.body.appendChild(input);
     nativeTextInputs.set(id, input);
@@ -225,6 +280,8 @@ export function showNativeTextInput(
     textAlignment,
     direction,
     dark) {
+    if (browserRecoveryActive)
+        return;
     let input = nativeTextInputs.get(id);
     if (input && (input.tagName === 'TEXTAREA') !== multiline) {
         destroyNativeTextInput(id);
@@ -256,7 +313,8 @@ export function showNativeTextInput(
     input.spellcheck = !!showSuggestions;
     input.disabled = !enabled;
     input.style.fontFamily = `"${fontFamily}", system-ui, -apple-system, BlinkMacSystemFont, sans-serif`;
-    input.style.fontSize = `${fontSize}px`;
+    // Safari zooms and pans the page when focusing an editor smaller than 16 CSS pixels.
+    input.style.fontSize = `${Math.max(16, fontSize)}px`;
     input.style.fontWeight = `${fontWeight}`;
     input.style.fontStyle = fontStyle || 'normal';
     input.style.lineHeight = lineHeight > 0 ? `${lineHeight}px` : 'normal';
@@ -308,6 +366,8 @@ export function getNativeTextInputCaretIndex(id) {
 }
 
 export function focusNativeTextInput(id, caretIndex) {
+    if (browserRecoveryActive)
+        return;
     const input = nativeTextInputs.get(id);
     if (!input
         || input.disabled
@@ -342,10 +402,41 @@ export function publishViewportInsets(callback) {
     const left = parseFloat(style.paddingLeft) || 0;
     const bounds = document.getElementById('out').getBoundingClientRect();
     const viewport = window.visualViewport;
+    const active = document.activeElement;
+    const editing = active?.isContentEditable
+        || active && !active.readOnly && !active.disabled
+        && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
     // The dynamic-height canvas can already exclude Safari chrome or a resized keyboard.
     // Only inset what still overlaps it, using the same CSS-pixel coordinates as the editor.
-    const keyboardInset = viewport
+    const overlap = editing && viewport && Math.abs(viewport.scale - 1) < 0.01
         ? Math.max(0, bounds.bottom - viewport.height - viewport.offsetTop)
         : 0;
+    // Standalone Safari can exclude the home indicator from visualViewport, even with no IME.
+    const keyboardInset = overlap > bottom + 1 ? overlap : 0;
     callback(top, right, bottom, left, keyboardInset, bounds.height);
+}
+
+export function configureViewportInsets(callback) {
+    let pendingFrame;
+    const publish = () => publishViewportInsets(callback);
+    const schedule = () => {
+        if (document.hidden || pendingFrame !== undefined)
+            return;
+        pendingFrame = window.requestAnimationFrame(() => {
+            pendingFrame = undefined;
+            publish();
+        });
+    };
+
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', schedule);
+    window.addEventListener('pageshow', schedule);
+    window.visualViewport?.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('scroll', schedule);
+    document.addEventListener('focusin', schedule);
+    document.addEventListener('focusout', schedule);
+    document.addEventListener('visibilitychange', schedule);
+    if (typeof ResizeObserver === 'function')
+        new ResizeObserver(schedule).observe(document.getElementById('out'));
+    publish();
 }
