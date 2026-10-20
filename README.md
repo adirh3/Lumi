@@ -851,6 +851,7 @@ last days.
 Android Back dismisses the topmost full-screen viewer or sheet before navigating. Settings,
 Search, Jobs and Customize return to the screen that opened them, including an open conversation;
 the chat list remains the app's home. Library editors still confirm before discarding a draft.
+Deleted conversations are skipped when returning through Back history.
 Full-screen images and diagrams support pinch-to-zoom and drag-to-pan. Double-tap an image
 to zoom or fit it; double-tap a diagram, or use **Fit**, to reset its view. Viewer actions have
 48-DIP touch targets and stay clear of the system bars, and native text editors step aside

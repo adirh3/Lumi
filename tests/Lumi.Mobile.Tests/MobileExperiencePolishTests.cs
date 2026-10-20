@@ -2073,6 +2073,63 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         await Eventually(() => shell.ChatList.FindLoadedChat(id) is null);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BackDoesNotReopenADeletedChatFromSearchHistory(bool throughSettings)
+    {
+        var original = new RemoteChat { Id = Guid.NewGuid(), Title = "Original conversation" };
+        var found = new RemoteChat { Id = Guid.NewGuid(), Title = "Found conversation" };
+        await using var desktop = new FakeLumiDesktop
+        {
+            Transcript = new RemoteTranscript
+            {
+                ChatId = found.Id,
+                Title = found.Title,
+                Status = new RemoteChatStatus { ChatId = found.Id }
+            }
+        };
+        desktop.Snapshot.Chats.Groups = [new RemoteChatGroup { Label = "Today", Chats = [original, found] }];
+        desktop.CommandResultFactory = command =>
+        {
+            if (command?.Action == RemoteProtocol.Actions.DeleteChat)
+            {
+                desktop.Snapshot.Chats.Groups = [new RemoteChatGroup { Label = "Today", Chats = [found] }];
+                desktop.ChatCatalog = desktop.Snapshot.Chats.Groups;
+            }
+            return new RemoteCommandResult { Ok = true };
+        };
+        desktop.Start();
+        await using var shell = new MobileShellViewModel(store: new MemoryStore(), post: action => action());
+        await PairAsync(shell, desktop);
+        shell.UpdateLayout(393, 852);
+        shell.Chat.Reset(original.Id, original.Title);
+        shell.IsDrawerOpen = false;
+        if (throughSettings)
+            shell.SelectPlace(MobilePlace.Settings);
+        shell.OpenSearchCommand.Execute(null);
+        shell.SearchChatList.OpenChatCommand.Execute(new ChatListItemViewModel(found));
+        await shell.RefreshTranscriptAsync();
+        shell.GoBackCommand.Execute(null);
+        Assert.Equal(MobilePage.Search, shell.Page);
+
+        shell.OpenChatActionsCommand.Execute(new ChatListItemViewModel(original));
+        shell.DeleteActionChatCommand.Execute(null);
+        await shell.ConfirmDeleteActionChatCommand.ExecuteAsync(null);
+        Assert.Equal(found.Id, shell.Chat.ChatId);
+        Assert.Equal(MobilePage.Search, shell.Page);
+
+        shell.GoBackCommand.Execute(null);
+        if (throughSettings)
+        {
+            Assert.Equal(MobilePage.Settings, shell.Page);
+            Assert.Equal(found.Id, shell.Chat.ChatId);
+            shell.GoBackCommand.Execute(null);
+        }
+        Assert.True(shell.IsDrawerOpen, "Back skips the deleted conversation and returns to the chat list.");
+        Assert.Equal(found.Id, shell.Chat.ChatId);
+    }
+
     [Fact]
     public async Task PinningTheOpenChatFlipsItsLabelOnceThePcAgrees()
     {

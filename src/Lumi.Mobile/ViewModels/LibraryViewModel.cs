@@ -480,7 +480,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         ConfirmDeleteActionEntryCommand.NotifyCanExecuteChanged();
     }
 
-    /// <summary>Raised when the user dismisses the library page: Memories steps back to Settings, a place's list to the chats.</summary>
+    /// <summary>Raised when no library-local surface remains and the host should navigate back.</summary>
     public event Action? CloseRequested;
 
     [RelayCommand]

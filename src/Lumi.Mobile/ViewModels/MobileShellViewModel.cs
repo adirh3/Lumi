@@ -710,12 +710,10 @@ public sealed partial class MobileShellViewModel :
             IsChatActionsOpen = false;
             // A list that is not on screen hears of the deletion only when it reloads, so the open chat
             // leaves at once, as on the desktop, and a single pane returns to the list.
-            if (Chat.ChatId == chat.Id)
-            {
-                OnChatRemoved(chat.Id);
-                if (!CanDockDrawer)
-                    ShowHome();
-            }
+            var wasOpen = Chat.ChatId == chat.Id;
+            OnChatRemoved(chat.Id);
+            if (wasOpen && !CanDockDrawer)
+                ShowHome();
         }
     }
 
@@ -2969,6 +2967,19 @@ public sealed partial class MobileShellViewModel :
 
     private void OnChatRemoved(Guid chatId)
     {
+        // The deleted chat may be in Back history without being the current transcript.
+        if (_pageHistory.Count > 0)
+        {
+            var remaining = _pageHistory
+                .Where(page => page.Page != MobilePage.Chat || page.ChatId != chatId)
+                .Reverse()
+                .ToArray();
+            _pageHistory.Clear();
+            foreach (var page in remaining)
+                _pageHistory.Push(page);
+            OnPropertyChanged(nameof(CanGoBack));
+        }
+
         if (Chat.ChatId != chatId)
             return;
 
