@@ -6,6 +6,9 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 
 ## Features
 
+Markdown cards have a separate **Copy card** action that includes collapsed details.
+Message and card actions use the saved UI language for both tooltips and accessible names.
+
 - **AI accounts** — GitHub Copilot is the default. Sign in with your ChatGPT Plus or Pro plan, or add OpenRouter, Poe, other supported plans, API credits, or local models in a few clicks; the Copilot agent runtime stays the same.
 
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators

@@ -977,6 +977,8 @@
   "Chat_EditSourceMarker": "Editing this message",
   "Chat_Reply": "Reply",
   "Chat_CopyMessage": "Copy message",
+  "Chat_CopyCard": "Copy card",
+  "Chat_ToggleCardDetails": "Toggle card details",
   "Chat_ModelNotRecorded": "Model not recorded",
   "Chat_CopySelection": "Copy selected text",
   "Chat_CopyAs": "Copy as",

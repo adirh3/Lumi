@@ -978,6 +978,8 @@
   "Chat_EditSourceMarker": "הודעה זו בעריכה",
   "Chat_Reply": "השב",
   "Chat_CopyMessage": "העתק הודעה",
+  "Chat_CopyCard": "העתק כרטיס",
+  "Chat_ToggleCardDetails": "הצג או הסתר פרטי כרטיס",
   "Chat_ModelNotRecorded": "המודל לא תועד",
   "Chat_CopySelection": "העתק את הטקסט שנבחר",
   "Chat_CopyAs": "העתק בתור",

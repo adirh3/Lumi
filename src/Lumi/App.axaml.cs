@@ -69,6 +69,7 @@ public partial class App : Application
             Styles.Add(CreateModelPickerTextStyle());
             Styles.Add(CreateConnectorPickerTextStyle());
             Styles.Add(CreateComposerPickerTextStyles());
+            Styles.Add(CreateChatActionTextStyles());
             var settings = dataStore.Data.Settings;
             if (settings.FollowSystemTheme && SystemTheme.PrefersDark(this) is { } systemPrefersDark)
                 settings.IsDarkTheme = systemPrefersDark;
@@ -105,6 +106,35 @@ public partial class App : Application
 
         base.OnFrameworkInitializationCompleted();
     }
+
+    // App.axaml loads before the saved language; resolve these labels alongside the picker styles.
+    internal static Styles CreateChatActionTextStyles() =>
+    [
+        new Style(selector => selector.OfType<StrataChatMessage>())
+        {
+            Setters =
+            {
+                new Setter(StrataChatMessage.CopyLabelProperty, Loc.Chat_CopyMessage),
+                new Setter(StrataChatMessage.CopySelectionLabelProperty, Loc.Chat_CopySelection),
+                new Setter(StrataChatMessage.CopyAsLabelProperty, Loc.Chat_CopyAs),
+                new Setter(StrataChatMessage.CopyPlainTextLabelProperty, Loc.Chat_CopyPlainText),
+                new Setter(StrataChatMessage.CopyMarkdownLabelProperty, Loc.Chat_CopyMarkdown),
+                new Setter(StrataChatMessage.CopyRichTextLabelProperty, Loc.Chat_CopyRichText),
+                new Setter(StrataChatMessage.SelectAllLabelProperty, Loc.Chat_SelectMessage),
+                new Setter(StrataChatMessage.CopyTurnLabelProperty, Loc.Chat_CopyTurn),
+                new Setter(StrataChatMessage.CopiedLabelProperty, Loc.Chat_Copied),
+                new Setter(StrataChatMessage.MoreActionsLabelProperty, Loc.Chat_MoreMessageActions),
+            }
+        },
+        new Style(selector => selector.OfType<StrataCard>())
+        {
+            Setters =
+            {
+                new Setter(StrataCard.CopyLabelProperty, Loc.Chat_CopyCard),
+                new Setter(StrataCard.ToggleDetailsLabelProperty, Loc.Chat_ToggleCardDetails),
+            }
+        },
+    ];
 
     /// <summary>
     /// Localized labels for every model picker, in every window. Applied once the saved language is

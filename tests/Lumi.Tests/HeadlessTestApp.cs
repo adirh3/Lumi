@@ -11,5 +11,6 @@ public sealed class HeadlessTestApp : App
     public override void OnFrameworkInitializationCompleted()
     {
         // Tests create their own windows.
+        Styles.Add(CreateChatActionTextStyles());
     }
 }
