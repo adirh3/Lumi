@@ -2,7 +2,9 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -96,7 +98,7 @@ public sealed class MarkdownDuplicateTableHeaderTests
     }
 
     [Fact]
-    public async Task TableCopyButton_OffersMarkdownAndHtmlChoices()
+    public async Task TableCopyButton_OffersPlainTextMarkdownAndRichTextChoices()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -115,38 +117,61 @@ public sealed class MarkdownDuplicateTableHeaderTests
                 Content = md,
             };
             window.Show();
+            try
+            {
+                await Task.Delay(150);
+                await PumpAsync();
 
-            await Task.Delay(150);
-            await PumpAsync();
+                var copyButton = md.GetVisualDescendants()
+                    .OfType<Button>()
+                    .Single(IsTableCopyButton);
 
-            var copyButton = md.GetVisualDescendants()
-                .OfType<Button>()
-                .Single(IsTableCopyButton);
+                Assert.True(copyButton.Opacity > 0, "The copy icon should be visible without requiring a perfect hover target.");
 
-            Assert.True(copyButton.Opacity > 0, "The copy icon should be visible without requiring a perfect hover target.");
+                Assert.NotNull(copyButton.ContextMenu);
+                var menuItems = copyButton.ContextMenu!.Items
+                    .OfType<MenuItem>()
+                    .ToArray();
+                Assert.Equal(["Plain text", "Markdown", "Rich text"],
+                    menuItems.Select(static item => item.Header?.ToString()));
 
-            Assert.NotNull(copyButton.ContextMenu);
-            var menuItems = copyButton.ContextMenu!.Items
-                .OfType<MenuItem>()
-                .ToArray();
-            var markdownItem = Assert.Single(menuItems, static item => string.Equals(item.Header?.ToString(), "Copy as Markdown", StringComparison.Ordinal));
-            var htmlItem = Assert.Single(menuItems, static item => string.Equals(item.Header?.ToString(), "Copy as HTML", StringComparison.Ordinal));
+                var clipboard = TopLevel.GetTopLevel(copyButton)?.Clipboard;
+                Assert.NotNull(clipboard);
+                const string plainText = "Model\tSize\nBosch\t8 kg\nLG\t7 kg";
+                const string markdown = "| Model | Size |\n| --- | --- |\n| Bosch | 8 kg |\n| LG | 7 kg |";
 
-            markdownItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-            await Task.Delay(50);
-            await PumpAsync();
+                menuItems[0].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                await PumpAsync();
+                Assert.Equal(plainText, NormalizeLineEndings(await clipboard.TryGetTextAsync() ?? string.Empty));
 
-            var clipboard = TopLevel.GetTopLevel(copyButton)?.Clipboard;
-            Assert.NotNull(clipboard);
-            Assert.Equal("| Model | Size |\n| --- | --- |\n| Bosch | 8 kg |\n| LG | 7 kg |", NormalizeLineEndings(await clipboard.TryGetTextAsync() ?? string.Empty));
+                menuItems[1].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                await PumpAsync();
+                using (var data = await clipboard.TryGetDataAsync())
+                {
+                    Assert.NotNull(data);
+                    Assert.Equal(markdown, NormalizeLineEndings(await data.TryGetTextAsync() ?? string.Empty));
+                    Assert.Equal(markdown, NormalizeLineEndings(
+                        await data.TryGetValueAsync(DataFormat.CreateStringPlatformFormat("text/markdown")) ?? string.Empty));
+                }
 
-            htmlItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-            await Task.Delay(50);
-            await PumpAsync();
-
-            Assert.Equal("<table><thead><tr><th>Model</th><th>Size</th></tr></thead><tbody><tr><td>Bosch</td><td>8 kg</td></tr><tr><td>LG</td><td>7 kg</td></tr></tbody></table>", await clipboard.TryGetTextAsync());
-
-            window.Close();
+                menuItems[2].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                await PumpAsync();
+                using (var data = await clipboard.TryGetDataAsync())
+                {
+                    Assert.NotNull(data);
+                    Assert.Equal(plainText, NormalizeLineEndings(await data.TryGetTextAsync() ?? string.Empty));
+                    var html = await data.TryGetValueAsync(DataFormat.CreateStringPlatformFormat("text/html"));
+                    Assert.NotNull(html);
+                    var table = Assert.Single(XDocument.Parse(html).Descendants("table"));
+                    Assert.Equal(["Model", "Size"], table.Descendants("th").Select(static cell => cell.Value));
+                    Assert.Equal(plainText, string.Join("\n", table.Descendants("tr")
+                        .Select(static row => string.Join("\t", row.Elements().Select(static cell => cell.Value)))));
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
         }, CancellationToken.None);
     }
 
