@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -451,6 +452,81 @@ public sealed class RemoteDevTunnelCliTests
     [InlineData("Forbidden: this account cannot manage the tunnel.", false)]
     public void OnlyTransientCommandFailuresAreAutomaticallyRetried(string error, bool expected) =>
         Assert.Equal(expected, RemoteDevTunnelCli.IsTransientFailure(error));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProcessStopCancellationHandlesAggregateDescendantFailure(bool nested)
+    {
+        var attempts = new List<bool>();
+        Exception denied = new Win32Exception(5);
+        if (nested)
+            denied = new AggregateException(denied);
+        using var cancellation = new CancellationTokenSource();
+        using var registration = cancellation.Token.Register(() => RemoteDevTunnelCli.StopProcess(tree =>
+        {
+            attempts.Add(tree);
+            if (tree)
+                throw new AggregateException("Not all processes in process tree could be terminated.", denied);
+        }));
+
+        cancellation.Cancel();
+
+        Assert.Equal([true, false], attempts);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProcessStopCancellationToleratesParentFallbackFailure(bool alreadyExited)
+    {
+        var attempts = new List<bool>();
+        using var cancellation = new CancellationTokenSource();
+        using var registration = cancellation.Token.Register(() => RemoteDevTunnelCli.StopProcess(tree =>
+        {
+            attempts.Add(tree);
+            if (tree)
+                throw new AggregateException(new Win32Exception(5));
+            if (alreadyExited)
+                throw new InvalidOperationException("The owned process already exited.");
+            throw new Win32Exception(5);
+        }));
+
+        cancellation.Cancel();
+
+        Assert.Equal([true, false], attempts);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProcessStopKeepsRequestedTreePolicy(bool entireProcessTree)
+    {
+        var attempts = new List<bool>();
+
+        RemoteDevTunnelCli.StopProcess(attempts.Add, entireProcessTree);
+
+        Assert.Equal([entireProcessTree], attempts);
+    }
+
+    [Fact]
+    public void ProcessStopToleratesAnExitRace()
+    {
+        var attempts = 0;
+
+        RemoteDevTunnelCli.StopProcess(_ =>
+        {
+            attempts++;
+            throw new InvalidOperationException("The owned process already exited.");
+        });
+
+        Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public void ProcessStopDoesNotSuppressUnexpectedFailures() =>
+        Assert.Throws<IOException>(() =>
+            RemoteDevTunnelCli.StopProcess(_ => throw new IOException("Unexpected failure.")));
 
     [Theory]
     [InlineData(false)]

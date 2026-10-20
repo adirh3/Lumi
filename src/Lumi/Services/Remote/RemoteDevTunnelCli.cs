@@ -414,20 +414,32 @@ internal static class RemoteDevTunnelCli
         return tail.ToString();
     }
 
-    internal static void StopProcess(Process process, bool entireProcessTree = true)
+    internal static void StopProcess(Process process, bool entireProcessTree = true) =>
+        StopProcess(killEntireTree =>
+        {
+            if (!process.HasExited)
+                process.Kill(killEntireTree);
+        }, entireProcessTree);
+
+    internal static void StopProcess(Action<bool> kill, bool entireProcessTree = true)
     {
         try
         {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree);
+            kill(entireProcessTree);
         }
         catch (InvalidOperationException)
         {
             // The owned process exited between the check and cancellation.
         }
+        catch (AggregateException ex) when (entireProcessTree)
+        {
+            // Kill(true) aggregates descendant failures, which must not escape cancellation callbacks.
+            Trace.TraceWarning($"[Remote] Could not stop every owned Dev Tunnel process: {ex.Message}");
+            StopProcess(kill, entireProcessTree: false);
+        }
         catch (Win32Exception ex)
         {
-            Trace.TraceWarning($"[Remote] Could not stop owned Dev Tunnel setup process: {ex.Message}");
+            Trace.TraceWarning($"[Remote] Could not stop owned Dev Tunnel process: {ex.Message}");
         }
     }
 }
