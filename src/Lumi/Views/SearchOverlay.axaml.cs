@@ -316,8 +316,14 @@ public partial class SearchOverlay : UserControl
 
     private void OnOverlayPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (DataContext is SearchOverlayViewModel vm)
+        // The mouse's Back and Forward buttons are history input, not a click outside the palette, and
+        // history stays put while the palette is open, so they leave it open.
+        var button = e.GetCurrentPoint(this).Properties.PointerUpdateKind;
+        if (DataContext is SearchOverlayViewModel vm
+            && button is not (PointerUpdateKind.XButton1Pressed or PointerUpdateKind.XButton2Pressed))
+        {
             vm.Close();
+        }
 
         e.Handled = true;
     }

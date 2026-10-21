@@ -390,6 +390,9 @@ public sealed class AppNavigationHistoryTests
     [Fact]
     public Task MouseButtonsAndHistoryKeys_WorkOutsideChat_WithoutClickingThePage() => Run(async (vm, _) =>
     {
+        // Debug builds float the agent map over the top right, where it would take these presses instead
+        // of the page and the search palette, so Debug would test something other than Release.
+        vm.IsAgentDebugMapDismissed = true;
         var window = new MainWindow { DataContext = vm, Width = 1280, Height = 860 };
         window.Show();
         try
@@ -428,10 +431,20 @@ public sealed class AppNavigationHistoryTests
             Assert.Equal(3, vm.SettingsVM.SelectedPageIndex);
 
             vm.SearchOverlayVM.Open();
-            window.MouseDown(point, MouseButton.XButton1);
-            window.MouseUp(point, MouseButton.XButton1);
+            foreach (var button in new[] { MouseButton.XButton1, MouseButton.XButton2 })
+            {
+                window.MouseDown(point, button);
+                window.MouseUp(point, button);
+                await Settle();
+                Assert.True(vm.SearchOverlayVM.IsOpen);
+                Assert.Equal(3, vm.SettingsVM.SelectedPageIndex);
+            }
+
+            // The same spot is outside the palette, where a click still closes it.
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
             await Settle();
-            Assert.True(vm.SearchOverlayVM.IsOpen);
+            Assert.False(vm.SearchOverlayVM.IsOpen);
             Assert.Equal(3, vm.SettingsVM.SelectedPageIndex);
         }
         finally
