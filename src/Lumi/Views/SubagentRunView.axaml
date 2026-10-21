@@ -21,6 +21,8 @@
   <UserControl.Resources>
     <conv:ChartBrushConverter x:Key="ChartBrush" />
     <x:Double x:Key="Chat.ToolGroupContentMaxHeight">420</x:Double>
+    <SolidColorBrush x:Key="Run.FilterRim" Color="{DynamicResource Color.TextPrimary}" Opacity="0.1" />
+    <SolidColorBrush x:Key="Run.FilterHover" Color="{DynamicResource Color.TextPrimary}" Opacity="0.06" />
   </UserControl.Resources>
 
   <UserControl.Styles>
@@ -80,37 +82,55 @@
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
     </Style>
 
-    <!-- ── Status filters: calm tabs; the selected one wears the accent ── -->
+    <!-- ── Status filters: the Workspace's filter pills, as on the overview's category row. A hairline
+         ring at rest, a neutral wash on hover, and the status on screen wears accent-tinted glass ── -->
     <Style Selector="Button.run-filter">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Height" Value="26" />
+      <Setter Property="BorderBrush" Value="{StaticResource Run.FilterRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Height" Value="28" />
       <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="8,0,7,0" />
-      <Setter Property="Margin" Value="0,0,2,4" />
-      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="11,0" />
+      <Setter Property="Margin" Value="0,0,6,6" />
+      <Setter Property="CornerRadius" Value="14" />
       <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="BorderBrush" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
       <Setter Property="Template">
         <ControlTemplate>
-          <ContentPresenter Name="PART_ContentPresenter"
-                            Background="{TemplateBinding Background}"
-                            CornerRadius="{TemplateBinding CornerRadius}"
-                            Padding="{TemplateBinding Padding}"
-                            Content="{TemplateBinding Content}"
-                            VerticalContentAlignment="Center">
-            <ContentPresenter.Transitions>
-              <Transitions>
-                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
-              </Transitions>
-            </ContentPresenter.Transitions>
-          </ContentPresenter>
+          <Border Name="PART_Surface"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}">
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Content="{TemplateBinding Content}"
+                              Padding="{TemplateBinding Padding}"
+                              VerticalContentAlignment="Center" />
+          </Border>
         </ControlTemplate>
       </Setter>
     </Style>
-    <Style Selector="Button.run-filter:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    <Style Selector="Button.run-filter:pointerover">
+      <Setter Property="Background" Value="{StaticResource Run.FilterHover}" />
     </Style>
-    <Style Selector="Button.run-filter.selected /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    <Style Selector="Button.run-filter:pressed">
+      <Setter Property="Background" Value="{StaticResource Run.FilterHover}" />
+      <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="Button.run-filter.selected">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
+    </Style>
+    <Style Selector="Button.run-filter:focus-visible">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <Style Selector="TextBlock.run-filter-title">
       <Setter Property="FontSize" Value="12" />
@@ -118,12 +138,11 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.run-filter.selected TextBlock.run-filter-title">
+    <Style Selector="Button.run-filter:pointerover TextBlock.run-filter-title, Button.run-filter.selected TextBlock.run-filter-title">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
     <Style Selector="TextBlock.run-filter-count">
       <Setter Property="FontSize" Value="11" />
-      <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
@@ -448,7 +467,7 @@
                     IsVisible="{Binding IsAvailable}"
                     Command="{Binding SelectCommand}"
                     AutomationProperties.Name="{Binding Title}">
-              <StackPanel Orientation="Horizontal" Spacing="5">
+              <StackPanel Orientation="Horizontal" Spacing="6">
                 <TextBlock Classes="run-filter-title" Text="{Binding Title}" />
                 <TextBlock Classes="run-filter-count" Text="{Binding CountLabel}" />
               </StackPanel>

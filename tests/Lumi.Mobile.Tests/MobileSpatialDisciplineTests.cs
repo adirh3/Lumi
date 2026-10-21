@@ -57,7 +57,9 @@ public sealed class MobileSpatialDisciplineTests
                 var assetUri = new Uri("avares://Lumi.Mobile/Assets/lumi-icon.png");
 
                 Assert.True(AssetLoader.Exists(assetUri));
-                Assert.NotNull(image.Source);
+                // The shared icon, sharp at 56 dp on a 4x screen without holding the 1024 px source.
+                Assert.Same(LumiAppIcon.Image, image.Source);
+                Assert.InRange(LumiAppIcon.Image.PixelSize.Width, 224, 256);
                 Assert.True(image.IsEffectivelyVisible);
                 Assert.True(
                     image.Bounds.Width > 0 && image.Bounds.Height > 0,

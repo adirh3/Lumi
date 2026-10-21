@@ -1506,7 +1506,7 @@
           <StackPanel x:Name="WelcomeHero">
             <!-- Lumi's own app icon, as the desktop's launchpad and the pairing screen show it. -->
             <Border x:Name="WelcomeMark" Classes="welcome-mark" IsHitTestVisible="False">
-              <Image Source="avares://Lumi.Mobile/Assets/lumi-icon.png"
+              <Image Source="{x:Static views:LumiAppIcon.Image}"
                      Stretch="Uniform"
                      RenderOptions.BitmapInterpolationMode="HighQuality" />
             </Border>

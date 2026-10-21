@@ -580,6 +580,87 @@ public sealed partial class MobileChatViewModel : ObservableObject
             _pendingConfiguration.SetScalar("worktree", UseWorktree ? "true" : "false");
     }
 
+    // The draft's own choices from before the first setup was applied to it, so tapping the applied
+    // setup again puts them back, as on the desktop. Only what a setup changes is kept: the prompt,
+    // attachments, skills and connectors stay as the user left them. A new surface forgets it.
+    private SetupBaseline? _setupBaseline;
+
+    private static readonly string[] SetupScalarKeys =
+        ["useChatSetup", "model", "quality", "contextWindowTier", "agent", "agentId", "project", "projectId", "worktree"];
+
+    private sealed record SetupBaseline(
+        string? Model,
+        string? Quality,
+        string? ContextWindowTier,
+        string? AgentValue,
+        string? AgentName,
+        string AgentGlyph,
+        string? ProjectValue,
+        string? ProjectName,
+        bool UseWorktree,
+        bool WorktreeChoiceExplicit,
+        IReadOnlyDictionary<string, string> PendingScalars);
+
+    internal bool HasDraftBeforeSetup => _setupBaseline is not null;
+
+    /// <summary>Remembers the draft before a setup is first applied to it; later setups keep that one.</summary>
+    internal void RememberDraftBeforeSetup()
+    {
+        if (_setupBaseline is not null)
+            return;
+
+        var pendingScalars = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var key in SetupScalarKeys)
+        {
+            if (_pendingConfiguration.TryGetScalar(key, out var value))
+                pendingScalars[key] = value;
+        }
+
+        _setupBaseline = new SetupBaseline(
+            Model, Quality, ContextWindowTier, AgentValue, AgentName, AgentGlyph,
+            ProjectValue, ProjectName, UseWorktree, _worktreeChoiceExplicit, pendingScalars);
+    }
+
+    /// <summary>Puts back the draft the first setup replaced.</summary>
+    internal void RestoreDraftBeforeSetup()
+    {
+        if (_setupBaseline is not { } baseline)
+            return;
+
+        _setupBaseline = null;
+        _restoringDraftState = true;
+        try
+        {
+            // The model first: it re-derives the efforts and context tiers the draft can use.
+            Model = baseline.Model;
+            Quality = baseline.Quality;
+            ContextWindowTier = baseline.ContextWindowTier;
+            AgentValue = baseline.AgentValue;
+            AgentName = baseline.AgentName;
+            AgentGlyph = baseline.AgentGlyph;
+            ProjectValue = baseline.ProjectValue;
+            ProjectName = baseline.ProjectName;
+            _worktreeChoiceExplicit = baseline.WorktreeChoiceExplicit;
+            UseWorktree = baseline.UseWorktree;
+
+            // Those selections re-derive some of what the first message carries, so the draft's own
+            // goes back last, without the setup's marker.
+            foreach (var key in SetupScalarKeys)
+            {
+                if (baseline.PendingScalars.TryGetValue(key, out var value))
+                    _pendingConfiguration.SetScalar(key, value);
+                else
+                    _pendingConfiguration.RemoveScalar(key);
+            }
+        }
+        finally
+        {
+            _restoringDraftState = false;
+        }
+
+        OnPropertyChanged(nameof(HasUnsentWork));
+    }
+
     /// <summary>
     /// What an empty chat offers before the user has typed anything. An empty canvas gives no clue
     /// what Lumi can actually do, and on a phone — where typing is the expensive part — a tap that
@@ -1743,6 +1824,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         {
             _pendingConfiguration.Clear();
             _pendingRetry = null;
+            _setupBaseline = null;
 
             ChatId = chatId;
             Title = title;

@@ -12,13 +12,31 @@
 
   <!-- The Workspace home: everything Lumi did in this chat at a glance. Live status first (plan,
        agents, git), then what it produced (files, edits, skills), what it read (links, sources) and
-       where things happened (your messages, the activity timeline). A category bar that never
-       scrolls away puts every kind one click from its full list, and one search filters it all.
+       where things happened (your messages, the activity timeline). A row of category chips that
+       never scrolls away puts every kind one click from its full list, and one search filters it all.
        A new list is a WorkspaceSection + category chip on the view-model and one WorkspaceSectionView below. -->
 
   <UserControl.Resources>
     <conv:ChartBrushConverter x:Key="ChartBrush" />
 
+    <!-- Category chips: hairlines in the theme's text colour, as on the palette's (Ctrl+K) filter chips.
+         The fades cover 12% of the row at each end; the code-behind's ChipFadeShare reveals a chip clear of them. -->
+    <SolidColorBrush x:Key="Ws.ChipRim" Color="{DynamicResource Color.TextPrimary}" Opacity="0.1" />
+    <SolidColorBrush x:Key="Ws.ChipHover" Color="{DynamicResource Color.TextPrimary}" Opacity="0.06" />
+    <LinearGradientBrush x:Key="Ws.ChipFadeEnd" StartPoint="0%,50%" EndPoint="100%,50%">
+      <GradientStop Offset="0.88" Color="#FF000000" />
+      <GradientStop Offset="1" Color="#00000000" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Ws.ChipFadeStart" StartPoint="0%,50%" EndPoint="100%,50%">
+      <GradientStop Offset="0" Color="#00000000" />
+      <GradientStop Offset="0.12" Color="#FF000000" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Ws.ChipFadeBoth" StartPoint="0%,50%" EndPoint="100%,50%">
+      <GradientStop Offset="0" Color="#00000000" />
+      <GradientStop Offset="0.12" Color="#FF000000" />
+      <GradientStop Offset="0.88" Color="#FF000000" />
+      <GradientStop Offset="1" Color="#00000000" />
+    </LinearGradientBrush>
 
     <!-- Shared chrome for every list section: header, rows, "Show all" (narrows to the section). -->
     <ControlTheme x:Key="{x:Type views:WorkspaceSectionView}" TargetType="views:WorkspaceSectionView">
@@ -51,97 +69,79 @@
   </UserControl.Resources>
 
   <UserControl.Styles>
-    <!-- ── Category bar: calm tabs on a whisper of surface; the selected kind wears the Strata
-         line (the same gradient pipe as a Strata tab), drawn in from its centre ── -->
+    <!-- ── Category chips: the palette's (Ctrl+K) filter pills in the Workspace's glyphs. A hairline
+         ring at rest, a neutral wash on hover, and the kind on screen wears accent-tinted glass with a
+         hairline ring, like the place you're on in the sidebar bar. One row: kinds beyond the edge
+         slide in sideways, and the row fades out at whichever end has more beyond it. ── -->
+    <Style Selector="ScrollViewer.ws-chips.fade-end">
+      <Setter Property="OpacityMask" Value="{StaticResource Ws.ChipFadeEnd}" />
+    </Style>
+    <Style Selector="ScrollViewer.ws-chips.fade-start">
+      <Setter Property="OpacityMask" Value="{StaticResource Ws.ChipFadeStart}" />
+    </Style>
+    <Style Selector="ScrollViewer.ws-chips.fade-start.fade-end">
+      <Setter Property="OpacityMask" Value="{StaticResource Ws.ChipFadeBoth}" />
+    </Style>
     <Style Selector="Button.ws-chip">
       <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{StaticResource Ws.ChipRim}" />
+      <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="Height" Value="28" />
       <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="8,0,10,0" />
-      <Setter Property="Margin" Value="0,0,4,4" />
-      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="10,0,11,0" />
+      <!-- Hidden kinds collapse with their spacing, so it lives on the chip rather than the panel. -->
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="CornerRadius" Value="14" />
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="RenderTransformOrigin" Value="50%,50%" />
       <Setter Property="Transitions">
         <Transitions>
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="BorderBrush" Duration="0:0:0.16" Easing="CubicEaseOut" />
           <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
       <Setter Property="Template">
         <ControlTemplate>
-          <Panel>
-            <Border Name="PART_Surface"
-                    CornerRadius="{TemplateBinding CornerRadius}"
-                    Background="{DynamicResource Brush.SubtleHover}"
-                    Opacity="0.55">
-              <Border.Transitions>
-                <Transitions>
-                  <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
-                  <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.2" />
-                  <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.15" />
-                </Transitions>
-              </Border.Transitions>
-            </Border>
+          <Border Name="PART_Surface"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}">
             <ContentPresenter Name="PART_ContentPresenter"
                               Content="{TemplateBinding Content}"
                               Padding="{TemplateBinding Padding}"
                               Foreground="{TemplateBinding Foreground}"
                               VerticalContentAlignment="Center" />
-            <Border Name="PART_Pipe"
-                    Height="2" Margin="10,0,10,1"
-                    VerticalAlignment="Bottom"
-                    CornerRadius="1"
-                    Background="{DynamicResource Brush.StratumLine}"
-                    Opacity="0"
-                    RenderTransformOrigin="50%,50%"
-                    RenderTransform="scaleX(0)"
-                    IsHitTestVisible="False">
-              <Border.Transitions>
-                <Transitions>
-                  <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut" />
-                  <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="CubicEaseOut" />
-                </Transitions>
-              </Border.Transitions>
-            </Border>
-          </Panel>
+          </Border>
         </ControlTemplate>
       </Setter>
     </Style>
     <Style Selector="Button.ws-chip:pointerover">
+      <Setter Property="Background" Value="{StaticResource Ws.ChipHover}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-      <Setter Property="RenderTransform" Value="translateY(-1px)" />
-    </Style>
-    <Style Selector="Button.ws-chip:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Button.ws-chip:pressed">
+      <Setter Property="Background" Value="{StaticResource Ws.ChipHover}" />
       <Setter Property="RenderTransform" Value="scale(0.96)" />
     </Style>
-    <Style Selector="Button.ws-chip:focus-visible /template/ Border#PART_Surface">
-      <Setter Property="Opacity" Value="1" />
-      <Setter Property="BoxShadow" Value="0 0 0 2 #40818CF8" />
-    </Style>
     <Style Selector="Button.ws-chip.selected">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.ws-chip.selected /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="Opacity" Value="1" />
-    </Style>
-    <Style Selector="Button.ws-chip.selected:pointerover /template/ Border#PART_Surface">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
-    </Style>
-    <Style Selector="Button.ws-chip.selected /template/ Border#PART_Pipe">
-      <Setter Property="Opacity" Value="1" />
-      <Setter Property="RenderTransform" Value="scaleX(1)" />
+    <!-- Inside the ring rather than around it: the row clips anything drawn beyond a chip. -->
+    <Style Selector="Button.ws-chip:focus-visible">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <Style Selector="PathIcon.ws-chip-icon">
-      <Setter Property="Width" Value="15" />
-      <Setter Property="Height" Value="15" />
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="Transitions">
         <Transitions>
           <BrushTransition Property="Foreground" Duration="0:0:0.15" />
@@ -149,7 +149,7 @@
       </Setter>
     </Style>
     <Style Selector="Button.ws-chip:pointerover PathIcon.ws-chip-icon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <Style Selector="Button.ws-chip.selected PathIcon.ws-chip-icon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
@@ -168,33 +168,20 @@
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <!-- Counts sit in a small badge, like the section headers' counts. -->
-    <Style Selector="Border.ws-chip-count">
-      <Setter Property="MinWidth" Value="18" />
-      <Setter Property="Height" Value="16" />
-      <Setter Property="Padding" Value="5,0" />
+    <!-- Counts are quiet figures beside the name, not badges. -->
+    <Style Selector="TextBlock.ws-chip-count">
+      <Setter Property="FontSize" Value="11" />
       <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
-      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Border.ws-chip-count > TextBlock">
-      <Setter Property="FontSize" Value="10.5" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="HorizontalAlignment" Value="Center" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-    <Style Selector="Button.ws-chip.selected Border.ws-chip-count">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
-    </Style>
-    <Style Selector="Button.ws-chip.selected Border.ws-chip-count > TextBlock">
+    <Style Selector="Button.ws-chip.selected TextBlock.ws-chip-count">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <!-- Plan / Browser open their page: a small chevron says so. -->
+    <!-- Plan / Browser / Desktop open their page: a small chevron says so. -->
     <Style Selector="PathIcon.ws-chip-open">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
-      <Setter Property="Margin" Value="-3,0,-4,0" />
+      <Setter Property="Margin" Value="-3,0,-3,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
@@ -579,33 +566,35 @@
       </TextBox>
 
       <!-- Every kind of content, one click away: a chip narrows the overview to that kind's full list
-           (the plan and the browser open their page). Docked, so it never scrolls away. -->
-      <ItemsControl x:Name="WsCategoryBar" DockPanel.Dock="Top" Margin="11,0,7,8"
-                    ItemsSource="{Binding WorkspaceCategories}">
-        <ItemsControl.ItemsPanel>
-          <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
-        </ItemsControl.ItemsPanel>
-        <ItemsControl.ItemTemplate>
-          <DataTemplate DataType="vm:WorkspaceCategoryChip">
-            <Button x:Name="WsCategoryChip" Classes="ws-chip"
-                    Classes.selected="{Binding IsSelected}"
-                    Classes.live="{Binding IsLive}"
-                    IsVisible="{Binding IsAvailable}"
-                    Command="{Binding $parent[views:WorkspaceOverview].((vm:ChatViewModel)DataContext).SelectWorkspaceCategoryCommand}"
-                    CommandParameter="{Binding Category}"
-                    AutomationProperties.Name="{Binding Title}">
-              <StackPanel Orientation="Horizontal" Spacing="5">
-                <PathIcon Classes="ws-chip-icon" Data="{Binding Icon}" />
-                <TextBlock Classes="ws-chip-title" Text="{Binding Title}" />
-                <Border Classes="ws-chip-count" IsVisible="{Binding HasCount}">
-                  <TextBlock Text="{Binding CountLabel}" />
-                </Border>
-                <PathIcon Classes="ws-chip-open" IsVisible="{Binding OpensPage}" Data="{x:Static vm:WorkspaceIcons.Chevron}" />
-              </StackPanel>
-            </Button>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
+           (the plan, the browser and the desktop open their page). Docked, so it never scrolls away;
+           one row, so kinds beyond the edge slide in sideways rather than piling into a wall. -->
+      <ScrollViewer x:Name="WsCategoryScroller" Classes="ws-chips" DockPanel.Dock="Top"
+                    Margin="0,0,0,10" Padding="12,0,6,0"
+                    HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+        <ItemsControl x:Name="WsCategoryBar" ItemsSource="{Binding WorkspaceCategories}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="vm:WorkspaceCategoryChip">
+              <Button x:Name="WsCategoryChip" Classes="ws-chip"
+                      Classes.selected="{Binding IsSelected}"
+                      Classes.live="{Binding IsLive}"
+                      IsVisible="{Binding IsAvailable}"
+                      Command="{Binding $parent[views:WorkspaceOverview].((vm:ChatViewModel)DataContext).SelectWorkspaceCategoryCommand}"
+                      CommandParameter="{Binding Category}"
+                      AutomationProperties.Name="{Binding Title}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Classes="ws-chip-icon" Data="{Binding Icon}" />
+                  <TextBlock Classes="ws-chip-title" Text="{Binding Title}" />
+                  <TextBlock Classes="ws-chip-count" IsVisible="{Binding HasCount}" Text="{Binding CountLabel}" />
+                  <PathIcon Classes="ws-chip-open" IsVisible="{Binding OpensPage}" Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
 
       <ScrollViewer x:Name="WsScroller" Classes="hover-scroll"
                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

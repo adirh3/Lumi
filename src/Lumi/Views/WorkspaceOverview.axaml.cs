@@ -1,9 +1,13 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
+using Lumi.Models;
 using Lumi.ViewModels;
 using StrataTheme.Animation;
 
@@ -15,10 +19,16 @@ public partial class WorkspaceOverview : UserControl
     private static readonly TimeSpan EntranceDuration = TimeSpan.FromMilliseconds(260);
     private static readonly TimeSpan EntranceStagger = TimeSpan.FromMilliseconds(40);
     private const int EntranceStaggerLimit = 5;
+    private const double ChipWheelStep = 48;
+    // The row fades out over this share of its width at each end (the Ws.ChipFade* brushes).
+    private const double ChipFadeShare = 0.12;
 
     private ScrollViewer? _scroller;
     private Panel? _content;
+    private ScrollViewer? _chipScroller;
+    private ItemsControl? _chipBar;
     private ChatViewModel? _observed;
+    private Chat? _chipRowChat;
 
     public WorkspaceOverview()
     {
@@ -30,8 +40,18 @@ public partial class WorkspaceOverview : UserControl
         AvaloniaXamlLoader.Load(this);
         _scroller = this.FindControl<ScrollViewer>("WsScroller");
         _content = this.FindControl<Panel>("WsContent");
+        _chipBar = this.FindControl<ItemsControl>("WsCategoryBar");
+        _chipScroller = this.FindControl<ScrollViewer>("WsCategoryScroller");
         if (this.FindControl<TextBox>("WsSearchBox") is { } searchBox)
             searchBox.KeyDown += OnSearchKeyDown;
+
+        if (_chipScroller is { } chips)
+        {
+            chips.ScrollChanged += (_, _) => UpdateChipFades(chips);
+            // Tunnel, so a mouse wheel slides the chips sideways before the presenter reads it as vertical.
+            chips.AddHandler(PointerWheelChangedEvent, OnChipWheel, RoutingStrategies.Tunnel);
+            chips.AddHandler(GotFocusEvent, OnChipFocused);
+        }
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -63,12 +83,21 @@ public partial class WorkspaceOverview : UserControl
             _observed.PropertyChanged -= OnViewModelPropertyChanged;
 
         _observed = viewModel;
-        if (viewModel is not null)
-            viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        if (viewModel is null)
+            return;
+
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        FollowChat(viewModel.CurrentChat);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ChatViewModel.CurrentChat))
+        {
+            FollowChat(_observed?.CurrentChat);
+            return;
+        }
+
         if (e.PropertyName != nameof(ChatViewModel.WorkspaceCategory))
             return;
 
@@ -76,7 +105,70 @@ public partial class WorkspaceOverview : UserControl
         if (_scroller is not null)
             _scroller.Offset = default;
 
+        // A kind chosen elsewhere ("Show all", Escape) may sit beyond the edge of the chip row.
+        Dispatcher.UIThread.Post(RevealSelectedChip, DispatcherPriority.Loaded);
         PlayCategoryEntrance();
+    }
+
+    /// <summary>
+    /// Another chat's row starts at its beginning. The chat view-model also re-announces
+    /// CurrentChat whenever this chat's details change (each model call, its project, skills),
+    /// which must leave the row where the user slid it.
+    /// </summary>
+    private void FollowChat(Chat? chat)
+    {
+        if (ReferenceEquals(chat, _chipRowChat))
+            return;
+
+        _chipRowChat = chat;
+        if (_chipScroller is not null)
+            _chipScroller.Offset = default;
+    }
+
+    private void RevealSelectedChip()
+    {
+        var selected = _observed?.WorkspaceCategories.FirstOrDefault(static chip => chip.IsSelected);
+        if (selected is { IsAvailable: true } && _chipBar?.ContainerFromItem(selected) is { } chip)
+            RevealChip(chip);
+    }
+
+    /// <summary>Tabbing along the row keeps the focused chip on screen.</summary>
+    private void OnChipFocused(object? sender, FocusChangedEventArgs e)
+    {
+        if (e.NavigationMethod is NavigationMethod.Tab or NavigationMethod.Directional && e.Source is Control chip)
+            RevealChip(chip);
+    }
+
+    /// <summary>Slides the row just far enough that the chip clears the fade at its edge.</summary>
+    private void RevealChip(Control chip)
+    {
+        var margin = (_chipScroller?.Viewport.Width ?? 0) * ChipFadeShare;
+        chip.BringIntoView(new Rect(-margin, 0, chip.Bounds.Width + margin * 2, chip.Bounds.Height));
+    }
+
+    /// <summary>The row fades out at whichever end has more chips beyond it.</summary>
+    private static void UpdateChipFades(ScrollViewer scroller)
+    {
+        var hidden = scroller.Extent.Width - scroller.Viewport.Width;
+        var offset = scroller.Offset.X;
+        scroller.Classes.Set("fade-start", hidden > 1 && offset > 1);
+        scroller.Classes.Set("fade-end", hidden > 1 && hidden - offset > 1);
+    }
+
+    private void OnChipWheel(object? sender, PointerWheelEventArgs e)
+    {
+        if (_chipScroller is not { } scroller)
+            return;
+
+        var hidden = scroller.Extent.Width - scroller.Viewport.Width;
+        if (hidden <= 1)
+            return;
+
+        var delta = Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y) ? e.Delta.X : e.Delta.Y;
+        scroller.Offset = new Vector(
+            Math.Clamp(scroller.Offset.X - delta * ChipWheelStep, 0, hidden),
+            scroller.Offset.Y);
+        e.Handled = true;
     }
 
     /// <summary>The kind just chosen rises into place, block by block.</summary>

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Animation;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -363,6 +364,113 @@ public sealed class WorkspaceTests
             {
                 window.Close();
                 workspace.Dispose();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CategoryChipsShareOneRowThatSlidesToTheChosenKind()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            var data = CreateAppData();
+            var chat = new Chat { Title = "Chips" };
+            data.Chats.Add(chat);
+            using var chatVm = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            chatVm.CurrentChat = chat;
+            chatVm.HasPlan = true;
+            chatVm.PlanContent = "# Plan\n\n- [ ] Ship";
+            for (var i = 1; i <= 4; i++)
+                chatVm.Messages.Add(new ChatMessageViewModel(new ChatMessage { Role = "user", Content = $"Ask {i}" }));
+            chatVm.Messages.Add(new ChatMessageViewModel(new ChatMessage
+            {
+                Role = "user",
+                Content = "Use a skill",
+                ActiveSkills = [new SkillReference { Name = "Code Helper" }],
+            }));
+            chatVm.Messages.Add(new ChatMessageViewModel(new ChatMessage
+            {
+                Role = "tool",
+                ToolName = "edit",
+                ToolStatus = "Completed",
+                Content = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    filePath = Path.Combine(Path.GetTempPath(), "LumiWorkspaceChips", "Notes.md"),
+                    oldString = "old",
+                    newString = "new",
+                }),
+            }));
+            chatVm.RebuildTranscript();
+            var overview = new WorkspaceOverview { DataContext = chatVm };
+            // The Workspace rail at its narrowest.
+            var window = new Window { Width = 300, Height = 640, Content = overview };
+
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                var row = overview.FindControl<ScrollViewer>("WsCategoryScroller")!;
+                var chips = overview.FindControl<ItemsControl>("WsCategoryBar")!
+                    .GetVisualDescendants().OfType<Button>().Where(static chip => chip.IsVisible).ToList();
+                var messages = chips.Single(static chip => ((WorkspaceCategoryChip)chip.DataContext!).Category == WorkspaceCategory.Messages);
+
+                // One row that slides, never a wall of wrapped chips; it fades where more lies beyond.
+                Assert.Equal(
+                    [WorkspaceCategory.All, WorkspaceCategory.Plan, WorkspaceCategory.Edits, WorkspaceCategory.Skills, WorkspaceCategory.Messages],
+                    chips.Select(static chip => ((WorkspaceCategoryChip)chip.DataContext!).Category));
+                Assert.Single(chips.Select(chip => chip.TranslatePoint(default, row)!.Value.Y).Distinct());
+                Assert.True(row.Extent.Width > row.Viewport.Width);
+                Assert.Contains("fade-end", row.Classes);
+                Assert.DoesNotContain("fade-start", row.Classes);
+
+                // A kind chosen beyond the edge ("Show all" under its preview) slides fully into view.
+                chatVm.WorkspaceMessages.ShowAllCommand.Execute(null);
+                await PumpAsync();
+                Assert.Contains("selected", messages.Classes);
+                AssertOnScreen(messages);
+                Assert.Contains("fade-start", row.Classes);
+
+                // Back to everything, the row returns to its start.
+                chatVm.SelectWorkspaceCategoryCommand.Execute(WorkspaceCategory.Messages);
+                await PumpAsync();
+                Assert.Equal(WorkspaceCategory.All, chatVm.WorkspaceCategory);
+                Assert.Equal(0, row.Offset.X);
+
+                // Tabbing along the row keeps the focused chip on screen.
+                Assert.True(messages.Focus(NavigationMethod.Tab));
+                await PumpAsync();
+                AssertOnScreen(messages);
+
+                // A mouse wheel slides the row sideways.
+                row.Offset = default;
+                await PumpAsync();
+                var rowCentre = row.TranslatePoint(new Point(row.Bounds.Width / 2, row.Bounds.Height / 2), window)!.Value;
+                window.MouseWheel(rowCentre, new Vector(0, -1), RawInputModifiers.None);
+                await PumpAsync();
+                Assert.True(row.Offset.X > 0);
+
+                // The chat is re-announced whenever its details change (each model call, its project):
+                // the row stays where it was slid. Another chat starts it at its beginning.
+                var slid = row.Offset.X;
+                chatVm.SetProjectId(Guid.NewGuid());
+                await PumpAsync();
+                Assert.Equal(slid, row.Offset.X);
+                chatVm.CurrentChat = new Chat { Title = "Another chat" };
+                await PumpAsync();
+                Assert.Equal(0, row.Offset.X);
+
+                void AssertOnScreen(Control chip)
+                {
+                    Assert.True(row.Offset.X > 0);
+                    Assert.InRange(chip.TranslatePoint(default, row)!.Value.X, 0, row.Viewport.Width - chip.Bounds.Width);
+                }
+            }
+            finally
+            {
+                window.Close();
             }
         }, CancellationToken.None);
     }

@@ -592,11 +592,32 @@ public sealed partial class MobileShellViewModel :
             return;
         }
 
-        ActiveProjectId = setup.ProjectId;
-        Chat.ApplyStartSetup(setup.Source);
+        // The project lens goes first because it also sets a blank chat's project; the setup, or the
+        // draft it replaced, then has the last word.
+        if (!setup.IsSelected)
+        {
+            if (!Chat.HasDraftBeforeSetup)
+            {
+                _activeProjectBeforeSetup = ActiveProjectId;
+                Chat.RememberDraftBeforeSetup();
+            }
+            ActiveProjectId = setup.ProjectId;
+            Chat.ApplyStartSetup(setup.Source);
+        }
+        else if (Chat.HasDraftBeforeSetup)
+        {
+            // As on the desktop, tapping the applied setup again puts back the draft it replaced. A
+            // draft that simply matches a setup has nothing to put back.
+            ActiveProjectId = _activeProjectBeforeSetup;
+            Chat.RestoreDraftBeforeSetup();
+        }
+
         RefreshSetupSelection();
         Chat.ErrorText = null;
     }
+
+    /// <summary>The chat list's project when a setup was first applied to the draft.</summary>
+    private Guid? _activeProjectBeforeSetup;
 
     // ── Chat action sheet ────────────────────────────────────────────────────────────────────
 

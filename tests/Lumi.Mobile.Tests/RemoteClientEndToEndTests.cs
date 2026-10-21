@@ -375,8 +375,11 @@ public class RemoteClientEndToEndTests
             new RemoteChatStatus { ChatId = chatId, IsBusy = true, IsStreaming = true, StatusText = "Thinking" },
             RemoteJsonContext.Default.RemoteChatStatus));
 
-        await WaitAsync(() => shell.Chat.IsStreaming, "the streaming flag to arrive");
-        Assert.Equal("Thinking", shell.Chat.StatusText);
+        // The shell applies a status frame in several steps, and here they run on the stream's own
+        // thread, so wait for everything a frame sets rather than its first step.
+        await WaitAsync(
+            () => shell.Chat.IsStreaming && shell.Chat.StatusText == "Thinking",
+            "the streaming status to arrive");
 
         await desktop.PushAsync(RemoteProtocol.Events.StreamDelta, JsonSerializer.Serialize(
             new RemoteStreamDelta { ChatId = chatId, ItemId = "a1", Text = "Hello from your PC" },
@@ -397,19 +400,23 @@ public class RemoteClientEndToEndTests
         await desktop.PushAsync(RemoteProtocol.Events.ChatStatus, JsonSerializer.Serialize(
             new RemoteChatStatus { ChatId = chatId, IsSessionActive = true },
             RemoteJsonContext.Default.RemoteChatStatus));
-        await WaitAsync(() => shell.Chat.HasBackgroundActivity, "assistant ready with background activity");
+        await WaitAsync(
+            () => shell.Chat.HasBackgroundActivity
+                  && shell.ChatList.Groups[0].Chats[0].HasBackgroundActivity
+                  && shell.SearchChatList.Groups[0].Chats[0].HasBackgroundActivity,
+            "the chat and its rows to show background activity");
         Assert.False(shell.Chat.IsBusy);
         Assert.False(shell.Chat.IsStreaming);
-        Assert.True(shell.ChatList.Groups[0].Chats[0].HasBackgroundActivity);
-        Assert.True(shell.SearchChatList.Groups[0].Chats[0].HasBackgroundActivity);
 
         // This frame changes only session activity; no assistant busy/streaming edge can carry it.
         await desktop.PushAsync(RemoteProtocol.Events.ChatStatus, JsonSerializer.Serialize(
             new RemoteChatStatus { ChatId = chatId },
             RemoteJsonContext.Default.RemoteChatStatus));
-        await WaitAsync(() => !shell.Chat.IsSessionActive, "the remaining session activity to finish");
-        Assert.False(shell.ChatList.Groups[0].Chats[0].HasBackgroundActivity);
-        Assert.False(shell.SearchChatList.Groups[0].Chats[0].HasBackgroundActivity);
+        await WaitAsync(
+            () => !shell.Chat.IsSessionActive
+                  && !shell.ChatList.Groups[0].Chats[0].HasBackgroundActivity
+                  && !shell.SearchChatList.Groups[0].Chats[0].HasBackgroundActivity,
+            "the chat and its rows to finish their session activity");
     }
 
     [Fact]
