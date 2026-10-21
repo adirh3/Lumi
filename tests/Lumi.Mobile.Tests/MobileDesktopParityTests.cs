@@ -410,6 +410,123 @@ public sealed class MobileDesktopParityTests
         Assert.False(model.HasDescription);
     }
 
+    /// <summary>
+    /// As on the desktop, tapping the applied setup puts back the draft it replaced: its project, agent,
+    /// model, effort and checkout, and the chat list's project, with nothing of the setup left for the
+    /// first message to carry. Setups tried on in turn keep the first draft to come back to, the
+    /// composer's own project survives the chat list's, and the prompt stays.
+    /// </summary>
+    [Fact]
+    public async Task TappingTheAppliedSetupPutsBackTheDraftItReplaced()
+    {
+        await using var shell = new MobileShellViewModel(
+            store: new MobileSettingsStore(Path.Combine(Path.GetTempPath(), "lumi-mobile-tests", Guid.NewGuid().ToString("N"))),
+            post: action => action());
+        var lumi = new RemoteProject { Id = Guid.NewGuid(), Name = "Lumi", IsCodingProject = true };
+        var fluent = new RemoteProject { Id = Guid.NewGuid(), Name = "Fluent Search", IsCodingProject = true };
+        var agent = new RemoteLumi { Id = Guid.NewGuid(), Name = "Coding Lumi", IconGlyph = "⚡" };
+        foreach (var project in new[] { lumi, fluent })
+            shell.Projects.Add(new ProjectPickViewModel { Id = project.Id, Name = project.Name });
+        shell.Chat.ApplyLibraryCatalogs(new RemoteLibrary { Projects = [lumi, fluent], Lumis = [agent] });
+        shell.Chat.ApplyCatalogs(new RemoteSettings
+        {
+            PreferredModel = "model-a",
+            AvailableModels = ["model-a", "model-b"],
+            ModelReasoningEfforts = ["model-a=Low,High", "model-b=Low,High"]
+        });
+        shell.ApplyNewChatExperience(new RemoteNewChatExperience
+        {
+            Setups =
+            [
+                new()
+                {
+                    Id = "lumi", Title = lumi.Name, Glyph = "L", ProjectId = lumi.Id, ProjectName = lumi.Name,
+                    AgentId = agent.Id, AgentName = agent.Name, Model = "model-b", Quality = "High", UseWorktree = true
+                },
+                new() { Id = "agent", Title = agent.Name, AgentId = agent.Id, AgentName = agent.Name, Model = "model-b" }
+            ]
+        });
+        var lumiSetup = shell.StartSetups[0];
+        var agentSetup = shell.StartSetups[1];
+
+        var untouched = Draft(shell);
+        Assert.False(shell.Chat.HasPendingConfiguration);
+        shell.UseStartSetupCommand.Execute(lumiSetup);
+        Assert.True(lumiSetup.IsSelected);
+        Assert.Equal(lumi.Id, shell.ActiveProjectId);
+        shell.UseStartSetupCommand.Execute(lumiSetup);
+        Assert.False(lumiSetup.IsSelected);
+        Assert.Equal(untouched, Draft(shell));
+        Assert.Null(shell.ActiveProjectId);
+        Assert.False(shell.Chat.HasPendingConfiguration);
+
+        // A project picked in the composer while the chat list shows every chat, then two setups.
+        shell.Chat.ProjectValue = fluent.Id.ToString();
+        shell.Chat.ProjectName = fluent.Name;
+        shell.Chat.PromptText = "Keep my draft";
+        var picked = Draft(shell);
+        shell.UseStartSetupCommand.Execute(agentSetup);
+        shell.UseStartSetupCommand.Execute(lumiSetup);
+        Assert.True(lumiSetup.IsSelected);
+        shell.UseStartSetupCommand.Execute(lumiSetup);
+        Assert.Equal(picked, Draft(shell));
+        Assert.Null(shell.ActiveProjectId);
+        Assert.Equal("Keep my draft", shell.Chat.PromptText);
+        Assert.DoesNotContain(shell.StartSetups, setup => setup.IsSelected);
+
+        static (string?, string?, string?, string?, string?, string?, bool) Draft(MobileShellViewModel shell) => (
+            shell.Chat.ProjectValue, shell.Chat.ProjectName, shell.Chat.AgentValue, shell.Chat.AgentName,
+            shell.Chat.Model, shell.Chat.Quality, shell.Chat.UseWorktree);
+    }
+
+    /// <summary>
+    /// What the draft goes back to is also what its first message carries: the composer's own project
+    /// and checkout, and nothing of the setup's agent, model, effort or marker.
+    /// </summary>
+    [Fact]
+    public async Task TheFirstMessageCarriesTheDraftTheSetupGaveBack()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var lumi = new RemoteProject { Id = Guid.NewGuid(), Name = "Lumi", IsCodingProject = true };
+        var fluent = new RemoteProject { Id = Guid.NewGuid(), Name = "Fluent Search", IsCodingProject = true };
+        var agentId = Guid.NewGuid();
+        chat.ApplyLibraryCatalogs(new RemoteLibrary
+        {
+            Projects = [lumi, fluent],
+            Lumis = [new RemoteLumi { Id = agentId, Name = "Coding Lumi" }]
+        });
+        chat.ApplyCatalogs(new RemoteSettings
+        {
+            PreferredModel = "model-a",
+            AvailableModels = ["model-a", "model-b"],
+            ModelReasoningEfforts = ["model-a=Low,High", "model-b=Low,High"]
+        });
+        chat.ProjectValue = fluent.Id.ToString();
+        chat.ProjectName = fluent.Name;
+
+        chat.RememberDraftBeforeSetup();
+        chat.ApplyStartSetup(new RemoteChatSetup
+        {
+            ProjectId = lumi.Id, ProjectName = lumi.Name, AgentId = agentId, AgentName = "Coding Lumi",
+            Model = "model-b", Quality = "High", UseWorktree = true
+        });
+        chat.RestoreDraftBeforeSetup();
+        chat.PromptText = "Plan the release";
+        var sending = chat.SendCommand.ExecuteAsync(null);
+
+        var send = Assert.Single(sink.Commands);
+        Assert.Equal(fluent.Id.ToString(), send.Get("projectId"));
+        Assert.False(send.GetBool("worktree"));
+        Assert.Null(send.Get("useChatSetup"));
+        Assert.Null(send.Get("agentId"));
+        // Every first message carries the model on screen: the draft's own, not the setup's.
+        Assert.Equal("model-a", send.Get("model"));
+        Assert.Null(send.Get("quality"));
+        sink.Completion.SetResult(new RemoteCommandResult { Ok = true, ChatId = Guid.NewGuid() });
+        await sending;
+    }
+
     private sealed class RecordingSink : IRemoteCommandSink
     {
         public List<RemoteCommand> Commands { get; } = [];

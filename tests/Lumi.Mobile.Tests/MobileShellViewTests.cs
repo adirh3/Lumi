@@ -2256,13 +2256,7 @@ public sealed class MobileShellViewTests
             Pump(window);
             var card = Named(window, "WelcomeSetups").GetVisualDescendants().OfType<Button>().Single();
             Assert.True(card.Bounds.Height >= 48);
-            var center = card.TranslatePoint(new Point(card.Bounds.Width / 2, card.Bounds.Height / 2), window)!.Value;
-            var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(center));
-            Assert.True(ReferenceEquals(hit, card) || hit.GetVisualAncestors().Contains(card),
-                $"The desktop setup is covered by {hit.GetType().Name} at {center}.");
-            window.MouseDown(center, MouseButton.Left);
-            window.MouseUp(center, MouseButton.Left);
-            Pump(window);
+            TapCard();
             Assert.Equal(Guid.Empty, shell.Chat.ChatId);
             Assert.Equal(projectId.ToString(), shell.Chat.ProjectValue);
             Assert.Equal(agentId.ToString(), shell.Chat.AgentValue);
@@ -2271,6 +2265,29 @@ public sealed class MobileShellViewTests
             Assert.Equal("Keep my draft", shell.Chat.PromptText);
             Assert.Equal("notes.txt", Assert.Single(shell.Chat.Attachments).FileName);
             Assert.True(Assert.Single(shell.StartSetups).IsSelected);
+
+            // A second tap on the applied card puts back the draft it replaced, as on the desktop. The
+            // composer now carries the setup's project and agent, so the card has risen with it.
+            Pump(window);
+            TapCard();
+            Assert.False(Assert.Single(shell.StartSetups).IsSelected);
+            Assert.Null(shell.Chat.ProjectValue);
+            Assert.Null(shell.Chat.AgentValue);
+            Assert.False(shell.Chat.UseWorktree);
+            Assert.Null(shell.ActiveProjectId);
+            Assert.Equal("Keep my draft", shell.Chat.PromptText);
+            Assert.Equal("notes.txt", Assert.Single(shell.Chat.Attachments).FileName);
+
+            void TapCard()
+            {
+                var center = card.TranslatePoint(new Point(card.Bounds.Width / 2, card.Bounds.Height / 2), window)!.Value;
+                var hit = Assert.IsAssignableFrom<Visual>(window.InputHitTest(center));
+                Assert.True(ReferenceEquals(hit, card) || hit.GetVisualAncestors().Contains(card),
+                    $"The desktop setup is covered by {hit.GetType().Name} at {center}.");
+                window.MouseDown(center, MouseButton.Left);
+                window.MouseUp(center, MouseButton.Left);
+                Pump(window);
+            }
         });
     }
 
@@ -2948,6 +2965,7 @@ public sealed class MobileShellViewTests
             Pump(window);
             var mark = Named(window, "WelcomeMark");
             Assert.True(mark.IsEffectivelyVisible);
+            Assert.Same(LumiAppIcon.Image, mark.GetVisualDescendants().OfType<Image>().Single().Source);
 
             Layout(window, shell, 412, 540);
             Pump(window);

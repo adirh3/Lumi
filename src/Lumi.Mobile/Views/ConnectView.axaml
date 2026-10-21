@@ -48,7 +48,7 @@
                         Padding="4"
                         CornerRadius="18">
                   <Image x:Name="ConnectOrb"
-                         Source="avares://Lumi.Mobile/Assets/lumi-icon.png"
+                         Source="{x:Static views:LumiAppIcon.Image}"
                          Width="56" Height="56"
                          Stretch="Uniform"
                          HorizontalAlignment="Center"

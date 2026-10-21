@@ -838,8 +838,9 @@ the starters for the hour follow as calm glass pills that put their words in the
 or finish first. The user's usual setups sit on the composer they configure, within the thumb's
 reach: a row of glass cards running to the screen's edges, each marked as the desktop marks it (its
 project's initial on the project's own hue, otherwise its agent's glyph). Applying one checks its card
-and shows its project and agent on the composer. The welcome gives way to the keyboard, and on short
-screens drops the mark so the greeting, starters and setups stay in view.
+and shows its project and agent on the composer; tapping it again puts back the draft it replaced, as
+on the desktop. The welcome gives way to the keyboard, and on short screens drops the mark so the
+greeting, starters and setups stay in view.
 
 Mobile popups are floating glass sheets. Only the popup is frosted: it blurs the content
 beneath its own surface and slides with it, while the page around it stays sharp behind a
