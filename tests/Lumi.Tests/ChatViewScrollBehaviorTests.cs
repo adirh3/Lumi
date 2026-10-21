@@ -820,7 +820,7 @@ public sealed class ChatViewScrollBehaviorTests
                     BindingFlags.Instance | BindingFlags.NonPublic);
                 Assert.NotNull(method);
 
-                var task = Assert.IsAssignableFrom<Task<TranscriptTurnControl?>>(method.Invoke(view, [targetTurn]));
+                var task = Assert.IsAssignableFrom<Task<TranscriptTurnControl?>>(method.Invoke(view, [targetTurn, true]));
                 var control = await task;
                 Assert.NotNull(control);
                 Assert.Same(targetTurn, control.Turn);
@@ -1157,6 +1157,141 @@ public sealed class ChatViewScrollBehaviorTests
                 await PumpAsync();
 
                 Assert.InRange(Math.Abs(scrollViewer.Offset.Y - beforeDraftUp), 0, 0.5);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task UserMessageShortcut_OnlyAppliesToUnfocusedWindowTranscriptOrEmptyComposer()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await DispatchAsync(session, async () =>
+        {
+            var chat = CreateLongChat();
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                }
+            };
+            data.Chats.Add(chat);
+
+            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            var view = new ChatView { DataContext = viewModel };
+            var sidebarButton = new Button { Content = "Sidebar action" };
+            var sidebarList = new ListBox { ItemsSource = new[] { "Chat A", "Chat B", "Chat C" } };
+            var sidebar = new StackPanel { Width = 200, Children = { sidebarButton, sidebarList } };
+            DockPanel.SetDock(sidebar, Dock.Left);
+            var window = new Window
+            {
+                Width = 1300,
+                Height = 820,
+                Content = new DockPanel { Children = { sidebar, view } },
+            };
+
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() =>
+                    view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null
+                    && !TranscriptRealizationScheduler.Instance.HasPendingWork);
+
+                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
+                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+                var composer = Assert.IsType<StrataChatComposer>(view.FindControl<StrataChatComposer>("Composer"));
+                var input = composer.GetVisualDescendants()
+                    .OfType<TextBox>()
+                    .Single(control => control.Name == "PART_Input");
+
+                shell.JumpToLatest();
+                await WaitUntilAsync(() =>
+                    scrollViewer.Extent.Height - scrollViewer.Viewport.Height > 96);
+                var maxOffset = Math.Max(0, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+                shell.PreserveViewport();
+                scrollViewer.Offset = scrollViewer.Offset.WithY(maxOffset / 2);
+                await PumpAsync();
+
+                var modifiers = OperatingSystem.IsMacOS()
+                    ? KeyModifiers.Meta | KeyModifiers.Alt
+                    : KeyModifiers.Control;
+                KeyEventArgs Shortcut(Key key) => new()
+                {
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = key,
+                    KeyModifiers = modifiers,
+                };
+
+                // An unrelated focused control outside the chat keeps the keys.
+                sidebarButton.Focus();
+                await PumpAsync();
+                var beforeButton = scrollViewer.Offset.Y;
+                var fromButton = Shortcut(Key.Down);
+                sidebarButton.RaiseEvent(fromButton);
+                await PumpAsync();
+                await PumpAsync();
+
+                Assert.False(fromButton.Handled);
+                Assert.InRange(Math.Abs(scrollViewer.Offset.Y - beforeButton), 0, 0.5);
+
+                sidebarList.SelectedIndex = 0;
+                await PumpAsync();
+                var sidebarItem = Assert.IsType<ListBoxItem>(sidebarList.ContainerFromIndex(0));
+                sidebarItem.Focus();
+                await PumpAsync();
+                var beforeListItem = scrollViewer.Offset.Y;
+                sidebarItem.RaiseEvent(Shortcut(Key.Down));
+                await PumpAsync();
+                await PumpAsync();
+
+                Assert.InRange(Math.Abs(scrollViewer.Offset.Y - beforeListItem), 0, 0.5);
+
+                // With nothing focused the key is raised on the window itself.
+                var beforeWindow = scrollViewer.Offset.Y;
+                var fromWindow = Shortcut(Key.Down);
+                window.RaiseEvent(fromWindow);
+                Assert.True(fromWindow.Handled);
+                await WaitUntilAsync(() => Math.Abs(scrollViewer.Offset.Y - beforeWindow) > 0.5);
+
+                var transcriptMessage = view.GetVisualDescendants()
+                    .OfType<StrataChatMessage>()
+                    .First(message => message.IsEffectivelyVisible);
+                transcriptMessage.Focus();
+                await PumpAsync();
+                var beforeTranscript = scrollViewer.Offset.Y;
+                var fromTranscript = Shortcut(Key.Up);
+                transcriptMessage.RaiseEvent(fromTranscript);
+                Assert.True(fromTranscript.Handled);
+                await WaitUntilAsync(() => Math.Abs(scrollViewer.Offset.Y - beforeTranscript) > 0.5);
+
+                input.Text = string.Empty;
+                input.Focus();
+                await PumpAsync();
+                var beforeComposer = scrollViewer.Offset.Y;
+                var fromComposer = Shortcut(Key.Up);
+                input.RaiseEvent(fromComposer);
+                Assert.True(fromComposer.Handled);
+                await WaitUntilAsync(() => Math.Abs(scrollViewer.Offset.Y - beforeComposer) > 0.5);
+
+                input.Text = "draft";
+                input.CaretIndex = input.Text.Length;
+                await PumpAsync();
+                var beforeDraft = scrollViewer.Offset.Y;
+                var fromDraft = Shortcut(Key.Up);
+                input.RaiseEvent(fromDraft);
+                await PumpAsync();
+                await PumpAsync();
+
+                Assert.False(fromDraft.Handled);
+                Assert.InRange(Math.Abs(scrollViewer.Offset.Y - beforeDraft), 0, 0.5);
             }
             finally
             {
