@@ -820,7 +820,7 @@ public sealed class ChatViewScrollBehaviorTests
                     BindingFlags.Instance | BindingFlags.NonPublic);
                 Assert.NotNull(method);
 
-                var task = Assert.IsAssignableFrom<Task<TranscriptTurnControl?>>(method.Invoke(view, [targetTurn]));
+                var task = Assert.IsAssignableFrom<Task<TranscriptTurnControl?>>(method.Invoke(view, [targetTurn, true]));
                 var control = await task;
                 Assert.NotNull(control);
                 Assert.Same(targetTurn, control.Turn);
