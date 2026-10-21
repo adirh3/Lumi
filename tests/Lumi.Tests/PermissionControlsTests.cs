@@ -840,6 +840,7 @@ public sealed class PermissionControlsTests
     [Theory]
     [InlineData(600)]
     [InlineData(1000)]
+    [InlineData(1600)]
     public async Task ApprovalCards_RenderInTheChat_WithTheModePickerAndWaitingBar(double width)
     {
         using var ui = HeadlessTestSession.Start();
@@ -870,6 +871,16 @@ public sealed class PermissionControlsTests
                 Assert.Equal(2, cards.Count);
                 Assert.Contains(cards, card => card.Title == Loc.Get("Approval_RunCommand") && card.Subject == "git status --short");
                 Assert.All(cards, card => Assert.Equal(StrataApprovalStatus.Pending, card.Status));
+
+                // However wide the chat, a card starts where the chat does and fills up to its reading width
+                // (within the pixel layout rounding may add).
+                foreach (var card in cards)
+                {
+                    var surface = card.GetVisualDescendants().OfType<Border>().First(border => border.Name == "PART_Card");
+                    var slot = card.GetVisualParent()!.Bounds.Width - card.Margin.Left - card.Margin.Right;
+                    Assert.Equal(card.Margin.Left, card.Bounds.X + surface.Bounds.X, 1);
+                    Assert.InRange(surface.Bounds.Width, Math.Min(640, slot) - 1, Math.Min(640, slot) + 1);
+                }
             }
             finally { window.Close(); }
             return Task.CompletedTask;
