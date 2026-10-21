@@ -14,8 +14,9 @@ namespace Lumi.Views;
 
 /// <summary>
 /// Ctrl+↑/↓ (⌥⌘↑/↓ on macOS) jumps the transcript to the previous/next user message, landing it just
-/// below the header and briefly glowing it. Disabled while typing in a text box; an empty composer
-/// still allows it, matching plain ↑/↓ scrolling the transcript from an empty composer.
+/// below the header and briefly glowing it. It applies when nothing is focused, from the transcript,
+/// or from an empty composer (matching plain ↑/↓ scrolling the transcript from an empty composer);
+/// other focused controls and typing keep the keys.
 /// </summary>
 public partial class ChatView
 {
@@ -112,20 +113,30 @@ public partial class ChatView
         _ = NavigateUserMessageAsync(direction);
     }
 
+    /// <summary>
+    /// The shortcut only applies where the reader is plainly in this chat: a window with nothing
+    /// focused, a non-text control inside this transcript, or this view's empty composer. Any other
+    /// focused control (sidebar, header, workspace panel, typing in a text box) keeps its own
+    /// Ctrl+↑/↓ handling, since this handler tunnels from the window and would otherwise run first.
+    /// </summary>
     private bool CanNavigateUserMessagesFrom(object? source)
     {
-        var sourceControl = source as Control;
-        var owningChat = sourceControl as ChatView ?? sourceControl?.FindAncestorOfType<ChatView>();
-        if (owningChat is not null && !ReferenceEquals(owningChat, this))
-            return false;
-
-        var textBox = sourceControl as TextBox ?? sourceControl?.FindAncestorOfType<TextBox>();
-        if (textBox is null)
+        if (source is null || ReferenceEquals(source, _userNavKeySource))
             return true;
 
-        return textBox.Name == "PART_Input"
-            && ReferenceEquals(textBox.FindAncestorOfType<StrataChatComposer>(), _composer)
-            && string.IsNullOrEmpty(textBox.Text);
+        if (source is not Visual visual)
+            return false;
+
+        var textBox = visual as TextBox ?? visual.FindAncestorOfType<TextBox>();
+        if (textBox is not null)
+        {
+            return textBox.Name == "PART_Input"
+                && ReferenceEquals(textBox.FindAncestorOfType<StrataChatComposer>(), _composer)
+                && string.IsNullOrEmpty(textBox.Text);
+        }
+
+        return _transcriptScrollViewer is { } transcript
+            && (ReferenceEquals(transcript, visual) || transcript.IsVisualAncestorOf(visual));
     }
 
     private async Task NavigateUserMessageAsync(int direction)
