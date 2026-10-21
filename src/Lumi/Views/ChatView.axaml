@@ -1989,11 +1989,15 @@
       <Setter Property="Margin" Value="0,6,6,0" />
     </Style>
 
-    <!-- Jump-to-source: the replied-to message briefly glows so the eye lands on it. -->
-    <Style Selector="sc|StrataChatMessage.reply-flash /template/ Border#PART_Bubble">
+    <!-- Jump-to-message (reply source, Ctrl+Up/Down user message): the target briefly glows so the eye lands on it. -->
+    <Style Selector="sc|StrataChatMessage.reply-flash:not(:user) /template/ Border#PART_Bubble">
       <Setter Property="Background" Value="#26818CF8" />
       <Setter Property="BoxShadow" Value="0 0 0 8 #26818CF8" />
       <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <!-- User bubbles keep their own fill and shape; only a glow ring is added. -->
+    <Style Selector="sc|StrataChatMessage.reply-flash:user /template/ Border#PART_Bubble">
+      <Setter Property="BoxShadow" Value="0 0 0 3 #80818CF8" />
     </Style>
   </UserControl.Styles>
 
