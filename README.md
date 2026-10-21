@@ -13,7 +13,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Reply actions** — A compact footer below each answer groups its model name with copy, Share prompt, reply, and a more-actions menu for formatted copying and branching. The quiet actions stay discoverable without moving the answer; hovering over its timestamp shows the full date, time, and UTC offset. Missing snippet models use the recorded model for that turn; genuinely missing historical metadata is marked "Model not recorded" rather than guessed from the current model picker
 - **Select and copy** — Drag across paragraphs, lists, tables, code and adjacent messages, with edge scrolling and Shift-click extension. Right-click keeps the selection highlighted. Ctrl+C (Cmd+C on macOS) supplies both readable text and rich formatting; the context menu has one **Copy as** group for Plain text, Markdown and Rich text, each copying the selection or the message when nothing is selected. The footer's copy button always copies its whole message, and **Select message** / Ctrl+A selects that message. Cards, comparisons, charts, confidence, sources and interactive blocks become ordinary headings, lists and tables with current values instead of raw widget JSON; Markdown keeps Mermaid fences, while rich copying includes the rendered diagram when available. File and skill context still travels when pasted into Lumi
 - **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
-- **Glass composer** — The composer is a floating glass card that frosts the conversation scrolling beneath it, and focusing it brings the whole composer forward and draws Lumi's Strata line under what you write. **+** holds everything a message can bring in: files and photos, your three most recent chats (or **All chats**), skills, agents, connectors and a project. **Skills** and **Connectors** stay one click away beside it. **+ → Agents** lists your agents; the one you choose answers and shows as a chip. The send button dictates while there is nothing to send and stops Lumi while it works. Chats you bring in are read when you send (their recent messages) and show as pills on your message that open the chat; type `#` for chats and files, `/` for skills or `@` for agents without leaving the keyboard
+- **Glass composer** — The composer is a floating glass card that frosts the conversation scrolling beneath it, and focusing it brings the whole composer forward and draws Lumi's Strata line under what you write. **+** holds everything a message can bring in: files and photos, your three most recent chats (or **All chats**), skills, agents, connectors and a project. **Skills** and **Connectors** stay one click away beside it. **+ → Agents** lists your agents; the one you choose answers and shows as a chip. The microphone beside send dictates, and the send button stops Lumi while it works. Chats you bring in are read when you send (their recent messages) and show as pills on your message that open the chat; type `#` for chats and files, `/` for skills or `@` for agents without leaving the keyboard
 - **Agents** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
 - **Customize & Discover** — One place to set up agents, skills, connectors (MCP servers) and projects, plus Discover: browse and install GitHub Copilot plugins from plugin marketplaces and add connectors from MCP registries
@@ -29,10 +29,63 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Make it yours** — Settings → Appearance: a Light, Dark or System theme, eight accent palettes that recolor buttons, selection, your messages and Lumi's glow, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
+- **Voice input** — Local, multilingual dictation on Windows, Linux and macOS: asks once before its one-time download, listens instantly with a live waveform, and shows your words as you speak
 - **Desktop notifications** — Toast notifications when responses complete in the background
 - **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
 - **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
+### Voice input
+
+Tap the microphone beside the send button. The first time, Lumi asks before setting voice typing up:
+**Download and start** fetches the speech model that suits this computer once — Whisper
+large-v3-turbo (575 MB) with a dedicated graphics card or Apple silicon, Whisper Small (191 MB)
+otherwise — shows its progress and starts listening as soon as it's ready; **Not now** downloads
+nothing and asks again next time. Closing the progress with the microphone keeps the download going
+without listening by itself; **Cancel** stops it.
+
+Listening starts at once — the model loads while the microphone already records, so nothing said is
+lost. The composer becomes a voice bar: a breathing dot, the time, a live waveform of your voice, the
+language it listens for and **✕**, and send steps aside for the microphone's **✓**. The words heard
+so far appear in quiet text where they will land, and each phrase joins your draft when you pause.
+Tap **✓** to finish and keep the text, press **Enter** to finish and send everything heard, or press
+**Esc**/**✕** to discard the dictation and put your draft back as it was (unless you edited it
+meanwhile). Dictation appends to your current draft and never sends on its own. Editing an earlier
+message, switching chats or leaving the composer stops pending voice work without inserting text into
+another chat.
+
+The language pill picks what Lumi listens for, and the choice is remembered. **Auto-detect** lets the
+first clear phrase of a dictation set its language, which keeps short words from being misheard as
+another language and makes the live preview fast. Choosing your language avoids mixing up similar
+ones (Whisper can hear Hebrew as Arabic, for example) and applies from the next words; your own
+languages — Lumi's, your computer's and, on Windows, the ones you type — come first, and all 99 of
+Whisper's are under **More languages**.
+
+Lumi uses bundled SDL audio capture and Whisper speech recognition on x64 and ARM64 Windows, Linux
+and macOS, and speech never leaves the computer. Whisper runs on the GPU through Vulkan on x64
+Windows and Linux and through Metal on Apple silicon; elsewhere, without a Vulkan driver, or on
+processors without AVX2 it runs on the processor. A pause of just over a second ends a phrase; pauses
+are found relative to the room's own noise, so dictation keeps up with a quiet microphone or in a
+noisy room. Before Whisper hears a phrase, a small speech detector (Silero VAD) checks that it holds
+speech, so a fan, a hum or typing never turns into invented words such as "Thank you." The model and
+the detector are downloaded together into `Lumi/voice` under Lumi's app-data directory and checked
+against their pinned sizes and SHA-256 before they are used; a cancelled, stalled or damaged download
+leaves nothing behind, a model already there keeps being used, and a model that fails to load is
+removed so voice typing can be set up again. Later use works offline. No speech API key, paid speech
+service, FFmpeg, or separately installed recorder is required.
+
+Allow microphone access in your operating system's privacy settings and select the intended default
+input device in sound settings. Windows needs the Microsoft Visual C++ 2022 redistributable used by
+Whisper. Linux needs a working PulseAudio server (including PipeWire's compatibility service) with
+`libpulse0`, or ALSA with `libasound2`/`libasound2t64`, plus `libstdc++6`, `libgomp1` and glibc 2.31
+or newer; with `libvulkan1` and a Vulkan GPU driver, Whisper runs on the GPU. Both Intel and Apple
+Silicon macOS packages include a microphone usage description and the hardened-runtime audio-input
+entitlement. For macOS microphone permission testing, launch the packaged `.app`; `dotnet run` uses
+the terminal/.NET host's privacy identity instead of Lumi's app bundle.
+
+When something stops dictation, a card in the composer says what to do: a microphone that can't be
+opened or only sends silence (muted or blocked) offers **Try again** and, on Windows and macOS,
+**Microphone settings**; hearing no words, a failed download and other errors each explain
+themselves. Typing instead puts the card away.
 ### AI accounts
 
 Open **Settings > AI & Models > AI accounts**, or use **Choose the AI behind Lumi**

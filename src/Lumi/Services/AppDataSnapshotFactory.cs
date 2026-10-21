@@ -42,6 +42,7 @@ internal static class AppDataSnapshotFactory
                 AnimatePresenceWhileWorking = settings.AnimatePresenceWhileWorking,
                 ShowAnimations = settings.ShowAnimations,
                 SendWithEnter = settings.SendWithEnter,
+                VoiceLanguage = settings.VoiceLanguage,
                 ShowTimestamps = settings.ShowTimestamps,
                 ShowToolCalls = settings.ShowToolCalls,
                 ShowReasoning = settings.ShowReasoning,

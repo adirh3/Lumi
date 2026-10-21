@@ -67,7 +67,9 @@ public sealed class ChatPauseControlsTests
 
         var editingStatus = composer.Element(composer.Name.Namespace + "StrataChatComposer.StatusContent");
         Assert.NotNull(editingStatus);
-        Assert.Equal("{Binding IsEditingMessage}", Attribute(Assert.Single(editingStatus.Elements()), "IsVisible"));
+        var editBanner = Named(view, "ComposerEditStatus");
+        Assert.Contains(editingStatus.Descendants(), element => ReferenceEquals(element, editBanner));
+        Assert.Equal("{Binding IsEditingMessage}", Attribute(editBanner, "IsVisible"));
         Assert.Contains(editingStatus.Descendants(Avalonia + "Button"),
             button => Attribute(button, "Command") == "{Binding CancelComposerEditCommand}");
         Assert.Contains(editingStatus.Descendants(Avalonia + "Button"),

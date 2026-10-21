@@ -198,7 +198,7 @@ public partial class ChatViewModel
         ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
         _inProgressMessages.Clear();
-        _voiceService.Dispose();
+        DisposeVoice();
         _modelSelectionSaveCts?.Cancel();
         _modelSelectionSaveCts?.Dispose();
         _modelSelectionSaveCts = null;

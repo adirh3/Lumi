@@ -172,6 +172,9 @@ public partial class App : Application
                 new Setter(StrataChatComposer.AddMenuHintProperty, Loc.Composer_AddHint),
                 new Setter(StrataChatComposer.DictateLabelProperty, Loc.Composer_Dictate),
                 new Setter(StrataChatComposer.StopDictatingLabelProperty, Loc.Composer_StopDictating),
+                new Setter(StrataChatComposer.CancelDictationLabelProperty, Loc.Composer_DiscardDictation),
+                new Setter(StrataChatComposer.VoiceLanguageLabelProperty, Loc.Composer_DictationLanguage),
+                new Setter(StrataChatComposer.MoreVoiceLanguagesLabelProperty, Loc.Composer_MoreLanguages),
             }
         },
         new Style(selector => selector.OfType<StrataComposerPicker>().Class("skills"))

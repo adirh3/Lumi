@@ -315,6 +315,19 @@ public partial class ChatView : UserControl
             };
         }
 
+        // Voice typing's cards rise into the composer as they take over from one another.
+        foreach (var name in new[] { "VoiceSetupCard", "VoiceDownloadCard", "VoiceProblemCard" })
+        {
+            if (this.FindControl<Border>(name) is not { } voiceCard)
+                continue;
+            voiceCard.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == IsVisibleProperty && voiceCard.IsVisible
+                    && _subscribedVm?.AreAnimationsEnabled != false)
+                    SlideFadeEntrance.Play(voiceCard, offsetY: 6);
+            };
+        }
+
         // ── Search bar controls ──
         _searchBar = this.FindControl<Border>("SearchBar");
         _searchInput = this.FindControl<TextBox>("SearchInput");
@@ -430,7 +443,6 @@ public partial class ChatView : UserControl
         DetachTranscriptScrollViewer();
         UnsubscribeMountedTurns();
         UnsubscribeFromViewModel();
-        _subscribedVm?.StopVoiceIfRecording();
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -455,6 +467,7 @@ public partial class ChatView : UserControl
         DeactivateLaunchpad();
         _backgroundActivityButton?.Flyout?.Hide();
         if (_subscribedVm is null) return;
+        _subscribedVm.StopVoiceIfRecording();
         _subscribedVm.ScrollToEndRequested -= OnScrollToEndRequested;
         _subscribedVm.UserMessageSent -= OnUserMessageSent;
         _subscribedVm.TranscriptRebuilt -= OnTranscriptRebuilt;

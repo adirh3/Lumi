@@ -1574,6 +1574,8 @@ public class UserSettings
 
     // ── Chat ──
     public bool SendWithEnter { get; set; } = true;
+    /// <summary>The language dictation listens for, as a Whisper language code; empty detects it.</summary>
+    public string VoiceLanguage { get; set; } = "";
     public bool ShowTimestamps { get; set; } = true;
     public bool ShowToolCalls { get; set; } = true;
     public bool ShowReasoning { get; set; } = true;

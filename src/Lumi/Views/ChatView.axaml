@@ -43,6 +43,8 @@
     <SolidColorBrush x:Key="ChatHeader.MenuItemHover" Color="{DynamicResource Color.TextPrimary}" Opacity="0.07" />
     <SolidColorBrush x:Key="ChatHeader.MenuItemPressed" Color="{DynamicResource Color.TextPrimary}" Opacity="0.11" />
     <SolidColorBrush x:Key="ChatHeader.MenuDangerHover" Color="{DynamicResource Color.DangerDefault}" Opacity="0.12" />
+    <!-- Voice typing cards sit a shade off the composer's glass. -->
+    <SolidColorBrush x:Key="Voice.CardFill" Color="{DynamicResource Color.TextPrimary}" Opacity="0.04" />
 
     <!-- Follow-up chips wear the header pills' glass; hovering tints the rim with the accent. The glyph
          is a turn-down-right arrow on a 14px grid, stroked rather than filled. -->
@@ -2002,6 +2004,99 @@
         <Transitions />
       </Setter>
       <Setter Property="BoxShadow" Value="0 0 0 3 #80818CF8" />
+    </Style>
+
+    <!-- Voice typing cards: a quiet inset in the composer, a tile for what it's about, then words and actions. -->
+    <Style Selector="Border.voice-card">
+      <Setter Property="Background" Value="{DynamicResource Voice.CardFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource ChatHeader.PillBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="12" />
+      <Setter Property="Margin" Value="0,6,0,2" />
+    </Style>
+    <Style Selector="Border.voice-tile">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="Border.voice-tile sc|StrataLineIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.voice-tile.brand">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
+      <Setter Property="BoxShadow" Value="0 4 10 -4 #40000000" />
+    </Style>
+    <Style Selector="Border.voice-tile.brand sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    </Style>
+    <Style Selector="Border.voice-tile.problem">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+    </Style>
+    <Style Selector="Border.voice-tile.problem sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="Border.voice-tile.quiet">
+      <Setter Property="Background" Value="{DynamicResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="Border.voice-tile.quiet sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.voice-title">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.voice-body">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.voice-caption">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="StackPanel.voice-fact">
+      <Setter Property="Spacing" Value="7" />
+    </Style>
+    <Style Selector="StackPanel.voice-fact sc|StrataLineIcon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="StackPanel.voice-fact TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Button.voice-action">
+      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+    </Style>
+    <Style Selector="Button.voice-action.accent">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.voice-close">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Margin" Value="8,0,0,0" />
     </Style>
   </UserControl.Styles>
 
@@ -4202,6 +4297,13 @@
                              McpIsLoading="{Binding IsConnectorCatalogLoading}"
                              IsRecording="{Binding IsRecording}"
                              CanVoice="{Binding IsVoiceAvailable}"
+                             VoiceLevel="{Binding VoiceLevel}"
+                             VoicePreview="{Binding VoicePreview}"
+                             VoiceStatus="{Binding VoiceStatus}"
+                             VoiceLanguages="{Binding VoiceLanguages}"
+                             MoreVoiceLanguages="{Binding MoreVoiceLanguages}"
+                             SelectedVoiceLanguage="{Binding SelectedVoiceLanguage}"
+                             VoiceCancelCommand="{Binding DiscardVoiceCommand}"
                              SendWithEnter="{Binding SendWithEnter}"
                              SendCommand="{Binding SendMessageCommand}"
                              StopCommand="{Binding StopGenerationCommand}"
@@ -4311,7 +4413,104 @@
           </sc:StrataModePicker>
         </sc:StrataChatComposer.TrailingContent>
         <sc:StrataChatComposer.StatusContent>
-          <Grid ColumnDefinitions="Auto,*"
+          <StackPanel MinWidth="0" Spacing="4">
+          <!-- Voice typing: asking before the one-time download, its progress, and what stopped dictation. -->
+          <Border x:Name="VoiceSetupCard" Classes="voice-card" IsVisible="{Binding IsVoiceSetupVisible}">
+            <Grid ColumnDefinitions="Auto,*">
+              <Border Classes="voice-tile brand">
+                <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Mic}" />
+              </Border>
+              <StackPanel Grid.Column="1" MinWidth="0" Spacing="10">
+                <StackPanel Spacing="3">
+                  <TextBlock Classes="voice-title" Text="{loc:Str Voice_SetupTitle}" />
+                  <TextBlock Classes="voice-body" Text="{Binding VoiceSetupMessage}" />
+                </StackPanel>
+                <StackPanel Spacing="5">
+                  <StackPanel Classes="voice-fact" Orientation="Horizontal">
+                    <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Lock}" />
+                    <TextBlock Text="{loc:Str Voice_SetupPrivate}" />
+                  </StackPanel>
+                  <StackPanel Classes="voice-fact" Orientation="Horizontal">
+                    <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Globe}" />
+                    <TextBlock Text="{loc:Str Voice_SetupOffline}" />
+                  </StackPanel>
+                </StackPanel>
+                <WrapPanel>
+                  <Button x:Name="VoiceSetupDownloadButton"
+                          Classes="accent voice-action"
+                          Content="{loc:Str Voice_SetupDownload}"
+                          Command="{Binding DownloadVoiceModelCommand}" />
+                  <Button Classes="subtle voice-action"
+                          Content="{loc:Str Voice_SetupLater}"
+                          Command="{Binding DismissVoiceCommand}" />
+                </WrapPanel>
+              </StackPanel>
+            </Grid>
+          </Border>
+          <Border x:Name="VoiceDownloadCard" Classes="voice-card" IsVisible="{Binding IsVoiceDownloadVisible}">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <Border Classes="voice-tile brand">
+                <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Download}" />
+              </Border>
+              <StackPanel Grid.Column="1" MinWidth="0" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Classes="voice-title" Text="{loc:Str Voice_DownloadTitle}" />
+                <ProgressBar x:Name="VoiceDownloadProgress"
+                             Minimum="0" Maximum="100"
+                             Value="{Binding VoiceDownloadPercent}"
+                             Height="4" MinHeight="4" />
+                <TextBlock Classes="voice-caption" Text="{Binding VoiceDownloadText}" />
+              </StackPanel>
+              <Button Grid.Column="2"
+                      Classes="subtle voice-action"
+                      Margin="12,0,0,0"
+                      VerticalAlignment="Top"
+                      Content="{loc:Str Common_Cancel}"
+                      Command="{Binding DismissVoiceCommand}" />
+            </Grid>
+          </Border>
+          <Border x:Name="VoiceProblemCard" Classes="voice-card" IsVisible="{Binding IsVoiceProblemVisible}">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <Border Classes="voice-tile quiet" IsVisible="{Binding IsVoiceNoSpeech}">
+                <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Mic}" />
+              </Border>
+              <Border Classes="voice-tile problem" IsVisible="{Binding !IsVoiceNoSpeech}">
+                <Panel>
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.MicOff}" IsVisible="{Binding IsVoiceMicrophoneProblem}" />
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Alert}" IsVisible="{Binding !IsVoiceMicrophoneProblem}" />
+                </Panel>
+              </Border>
+              <StackPanel Grid.Column="1" MinWidth="0" Spacing="10">
+                <StackPanel Spacing="3">
+                  <TextBlock Classes="voice-title" Text="{Binding VoiceProblemTitle}" />
+                  <TextBlock Classes="voice-body" Text="{Binding VoiceProblemMessage}" />
+                  <TextBlock Classes="voice-caption"
+                             Text="{Binding VoiceProblemDetail}"
+                             IsVisible="{Binding VoiceProblemDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+                <WrapPanel>
+                  <Button Classes="accent voice-action"
+                          Content="{loc:Str Common_TryAgain}"
+                          Command="{Binding RetryVoiceCommand}" />
+                  <Button Classes="subtle voice-action"
+                          Content="{loc:Str Voice_OpenSettings}"
+                          Command="{Binding OpenMicrophoneSettingsCommand}"
+                          IsVisible="{Binding CanOpenMicrophoneSettings}" />
+                </WrapPanel>
+              </StackPanel>
+              <Button Grid.Column="2"
+                      Classes="subtle voice-close"
+                      VerticalAlignment="Top"
+                      Command="{Binding DismissVoiceCommand}"
+                      ToolTip.Tip="{loc:Str Voice_Dismiss}"
+                      ToolTip.Placement="Top"
+                      ToolTip.VerticalOffset="-4"
+                      AutomationProperties.Name="{loc:Str Voice_Dismiss}">
+                <sc:StrataLineIcon Width="12" Height="12" StrokeThickness="2.2" Data="{x:Static sc:StrataIcons.Cross}" />
+              </Button>
+            </Grid>
+          </Border>
+          <Grid x:Name="ComposerEditStatus"
+                ColumnDefinitions="Auto,*"
                 MinWidth="0"
                 IsVisible="{Binding IsEditingMessage}"
                 Margin="2,4,2,2">
@@ -4354,6 +4553,7 @@
               </WrapPanel>
             </StackPanel>
           </Grid>
+          </StackPanel>
         </sc:StrataChatComposer.StatusContent>
         <sc:StrataChatComposer.ModelItemTemplate>
           <!-- One line per model: name, an optional status, then cost (when the catalog reports

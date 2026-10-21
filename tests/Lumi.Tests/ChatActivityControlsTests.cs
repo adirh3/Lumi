@@ -60,7 +60,7 @@ public sealed class ChatActivityControlsTests
                     Assert.InRange(activity.Bounds.Width, 30, 160);
                     Assert.Same(context.GetLogicalParent(), activity.GetLogicalParent());
                     Assert.DoesNotContain(activity, composer.GetLogicalDescendants());
-                    Assert.False(Assert.IsType<Grid>(composer.StatusContent).IsVisible);
+                    Assert.DoesNotContain(Assert.IsType<StackPanel>(composer.StatusContent).Children, status => status.IsVisible);
 
                     var activityPosition = activity.TranslatePoint(default, view)!.Value;
                     var contextPosition = context.TranslatePoint(default, view)!.Value;

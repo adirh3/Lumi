@@ -740,9 +740,11 @@ jobs:
           if [ "${{ steps.applesign.outputs.signing }}" = "signed" ]; then
             SIGN_ARGS=(--signAppIdentity "$APPLE_SIGN_IDENTITY" \
                        --signInstallIdentity "$APPLE_INSTALLER_IDENTITY" \
+                       --signEntitlements build/macOS/Lumi.entitlements \
                        --notaryProfile velopack-profile \
                        --keychain "$KEYCHAIN_PATH")
           fi
+          sed "s/@VERSION@/$RELEASE_VERSION/g" build/macOS/Info.plist > "$RUNNER_TEMP/lumi-Info.plist"
           vpk pack \
             -u Lumi \
             -v "$RELEASE_VERSION" \
@@ -751,6 +753,7 @@ jobs:
             -e Lumi \
             -i "$RUNNER_TEMP/lumi-icon.icns" \
             --bundleId com.lumi.app \
+            --plist "$RUNNER_TEMP/lumi-Info.plist" \
             --channel ${{ matrix.rid }} \
             "${SIGN_ARGS[@]}"
 

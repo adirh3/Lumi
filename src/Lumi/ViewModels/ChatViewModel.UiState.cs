@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -28,14 +27,7 @@ public partial class ChatViewModel
     private bool _suppressComposerProjectSync;
     private bool _suppressActiveMcpCollectionSync;
     private CancellationTokenSource? _fileSearchCts;
-    private readonly VoiceInputService _voiceService = new();
     private Chat? _currentChatTitleSource;
-    private string _textBeforeVoice = "";
-    private bool _voiceStarting;
-
-    /// <summary>True when push-to-talk voice input is available on this platform (Windows only).
-    /// Bound to the composer so the mic button is hidden on Linux/macOS.</summary>
-    public bool IsVoiceAvailable => _voiceService.IsAvailable;
 
     public bool AreAnimationsEnabled => _dataStore.Data.Settings.ShowAnimations;
 
@@ -45,7 +37,6 @@ public partial class ChatViewModel
 
     /// <summary>Multiplier on the presence glow's tuned brightness (Settings → Appearance).</summary>
     [ObservableProperty] private double _presenceBrightness = 1.0;
-    [ObservableProperty] private bool _isRecording;
     [ObservableProperty] private string? _selectedAgentName;
     [ObservableProperty] private string _selectedAgentGlyph = "◉";
     [ObservableProperty] private string? _selectedProjectName;
@@ -1196,6 +1187,7 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        CancelVoice();
         if (value is null)
             _draftApprovalMode = null;
         RefreshPermissionRequests(showInTranscript: false);
@@ -1495,96 +1487,6 @@ public partial class ChatViewModel
 
             ActiveMcpServerNames.Clear();
             SyncActiveMcpsToChat();
-        }
-    }
-
-    // ── Voice input ──────────────────────────────────────
-
-    [RelayCommand]
-    private async Task ToggleVoice()
-    {
-        if (!_voiceService.IsAvailable || _voiceStarting)
-            return;
-
-        if (_voiceService.IsRecording)
-        {
-            await _voiceService.StopAsync();
-            IsRecording = false;
-            return;
-        }
-
-        _voiceStarting = true;
-        _textBeforeVoice = PromptText ?? "";
-
-        _voiceService.HypothesisGenerated += OnVoiceHypothesis;
-        _voiceService.ResultGenerated += OnVoiceResult;
-        _voiceService.Stopped += OnVoiceStopped;
-        _voiceService.Error += OnVoiceError;
-
-        var culture = CultureInfo.CurrentUICulture;
-        var language = culture.Name.Contains('-') ? culture.Name : culture.IetfLanguageTag;
-        if (string.IsNullOrEmpty(language) || !language.Contains('-'))
-            language = "en-US";
-
-        await _voiceService.StartAsync(language);
-
-        _voiceStarting = false;
-        if (_voiceService.IsRecording)
-            IsRecording = true;
-
-        FocusComposerRequested?.Invoke();
-    }
-
-    private void OnVoiceHypothesis(string text)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            var baseText = _textBeforeVoice;
-            if (!string.IsNullOrEmpty(baseText) && !baseText.EndsWith(' '))
-                baseText += " ";
-            PromptText = baseText + text;
-        });
-    }
-
-    private void OnVoiceResult(string text)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            var baseText = _textBeforeVoice;
-            if (!string.IsNullOrEmpty(baseText) && !baseText.EndsWith(' '))
-                baseText += " ";
-            _textBeforeVoice = baseText + text;
-            PromptText = _textBeforeVoice;
-        });
-    }
-
-    private void OnVoiceError(string message)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            StatusText = message == "speech_privacy"
-                ? Loc.Voice_SpeechPrivacyRequired
-                : $"{Loc.Voice_Error}: {message}";
-        });
-    }
-
-    private void OnVoiceStopped()
-    {
-        _voiceService.HypothesisGenerated -= OnVoiceHypothesis;
-        _voiceService.ResultGenerated -= OnVoiceResult;
-        _voiceService.Stopped -= OnVoiceStopped;
-        _voiceService.Error -= OnVoiceError;
-
-        Dispatcher.UIThread.Post(() => IsRecording = false);
-    }
-
-    /// <summary>Cleans up voice resources. Called when the view is being detached.</summary>
-    public void StopVoiceIfRecording()
-    {
-        if (_voiceService.IsRecording)
-        {
-            _ = _voiceService.StopAsync();
-            IsRecording = false;
         }
     }
 

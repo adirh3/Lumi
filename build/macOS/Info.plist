@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Lumi</string>
+    <key>CFBundleDisplayName</key>
+    <string>Lumi</string>
+    <key>CFBundleExecutable</key>
+    <string>Lumi</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.lumi.app</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>CFBundleIconFile</key>
+    <string>lumi-icon.icns</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true />
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Lumi uses your microphone to transcribe dictation locally on your computer.</string>
+</dict>
+</plist>

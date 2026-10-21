@@ -1101,6 +1101,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _editingMessageStatusText = "";
     public string ComposerPlaceholder => IsEditingMessage
         ? Loc.Get("Chat_EditPlaceholder")
+        : IsRecording ? Loc.Voice_Placeholder
         : IsPaused ? Loc.Get("Chat_PausedPlaceholder")
         : HasPendingReply ? Loc.Chat_ReplyPlaceholder : Loc.Chat_Placeholder;
 
@@ -1646,7 +1647,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ByokRateLimiter? byokRateLimiter = null,
         ChatEventHub? chatEvents = null,
         CapabilityCatalog? capabilityCatalog = null)
+        : this(new VoiceInputService(), dataStore, copilotService, globalSearchService,
+            secureKeyStore, byokRateLimiter, chatEvents, capabilityCatalog)
     {
+    }
+
+    internal ChatViewModel(
+        VoiceInputService voiceService,
+        DataStore dataStore,
+        CopilotService copilotService,
+        GlobalSearchService? globalSearchService = null,
+        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null,
+        ByokRateLimiter? byokRateLimiter = null,
+        ChatEventHub? chatEvents = null,
+        CapabilityCatalog? capabilityCatalog = null)
+    {
+        _voiceService = voiceService;
         _dataStore = dataStore;
         _copilotService = copilotService;
         _chatEvents = chatEvents ?? new ChatEventHub();
@@ -3080,6 +3096,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     public void ClearChat()
     {
+        CancelVoice();
         lock (_chatLoadSync)
         {
             _chatLoadRequestId++;
@@ -4083,6 +4100,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
+        CancelVoice();
         _preEditComposerSnapshot ??= CaptureComposerEditSnapshot();
         _editingUserMessage = userMessage;
         IsEditingMessage = true;
@@ -4609,6 +4627,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task SendMessage()
     {
+        if (!await FinishVoiceBeforeSendAsync())
+            return;
         if (IsPaused && _editingUserMessage is not null)
         {
             StatusText = Loc.Get("Chat_Paused");
@@ -4632,6 +4652,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task StopAndSendMessage()
     {
+        if (!await FinishVoiceBeforeSendAsync())
+            return;
         var prompt = PromptText?.Trim();
         if (string.IsNullOrWhiteSpace(prompt))
             return;

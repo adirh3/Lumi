@@ -216,7 +216,7 @@ public sealed class ChatReferenceTests
         var composer = styles[0].Setters.OfType<Avalonia.Styling.Setter>()
             .ToDictionary(setter => setter.Property!, setter => setter.Value);
 
-        Assert.Equal(12, composer.Count);
+        Assert.Equal(15, composer.Count);
         Assert.Equal(Loc.Composer_Add, composer[StrataChatComposer.AddButtonToolTipProperty]);
         Assert.Equal(Loc.Composer_AddFiles, composer[StrataChatComposer.AddFilesLabelProperty]);
         Assert.Equal(Loc.Composer_ChatsRecent, composer[StrataChatComposer.AddRecentChatsLabelProperty]);
@@ -229,6 +229,9 @@ public sealed class ChatReferenceTests
         Assert.Equal(Loc.Composer_AddHint, composer[StrataChatComposer.AddMenuHintProperty]);
         Assert.Equal(Loc.Composer_Dictate, composer[StrataChatComposer.DictateLabelProperty]);
         Assert.Equal(Loc.Composer_StopDictating, composer[StrataChatComposer.StopDictatingLabelProperty]);
+        Assert.Equal(Loc.Composer_DiscardDictation, composer[StrataChatComposer.CancelDictationLabelProperty]);
+        Assert.Equal(Loc.Composer_DictationLanguage, composer[StrataChatComposer.VoiceLanguageLabelProperty]);
+        Assert.Equal(Loc.Composer_MoreLanguages, composer[StrataChatComposer.MoreVoiceLanguagesLabelProperty]);
         Assert.Contains("{0}", Loc.Composer_ConnectorsOn);
 
         // The agent list opened from the + menu speaks the same language.

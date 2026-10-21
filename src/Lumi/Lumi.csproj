@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationIcon>Assets\lumi-icon.ico</ApplicationIcon>
     <Version>0.9.9</Version>
 
@@ -62,6 +63,13 @@
     <PackageReference Include="System.Drawing.Common" Version="9.0.5" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
+    <PackageReference Include="Silk.NET.SDL" Version="2.23.0" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime.NoAvx" Version="1.9.1" />
+    <!-- GPU speech recognition on Windows and Linux x64 through Vulkan; Apple silicon already gets Metal from
+         Whisper.net.Runtime. Whisper.net falls back to the CPU runtime when no Vulkan driver is present. -->
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" />
     <PackageReference Include="AvaloniaMcp.Diagnostics" Version="0.4.0" Condition="'$(Configuration)' == 'Debug'" />
   </ItemGroup>
 
@@ -108,5 +116,19 @@
   </ItemGroup>
 
   <Import Project="..\..\build\Copilot\CopilotCli.targets" />
+
+  <!-- Whisper.net's Vulkan runtime adds both its Windows and its Linux GPU library (each about 57 MB) to every build.
+       Keep only the one this build can load: win-x64 for Windows, linux-x64 for Linux, none for macOS. -->
+  <PropertyGroup>
+    <_LumiVulkanRid Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows'">win-x64</_LumiVulkanRid>
+    <_LumiVulkanRid Condition="'$(_LumiVulkanRid)' == '' and ($(RuntimeIdentifier.StartsWith('linux-x64')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux')) and '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'))">linux-x64</_LumiVulkanRid>
+  </PropertyGroup>
+  <Target Name="LumiKeepOwnVulkanRuntime" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <_LumiVulkanRuntime Include="@(None)" Condition="$([System.String]::Copy('%(None.TargetPath)').Replace('\', '/').StartsWith('runtimes/vulkan/'))" />
+      <_LumiForeignVulkanRuntime Include="@(_LumiVulkanRuntime)" Condition="'$(_LumiVulkanRid)' == '' or !$([System.String]::Copy('%(_LumiVulkanRuntime.TargetPath)').Replace('\', '/').StartsWith('runtimes/vulkan/$(_LumiVulkanRid)/'))" />
+      <None Remove="@(_LumiForeignVulkanRuntime)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

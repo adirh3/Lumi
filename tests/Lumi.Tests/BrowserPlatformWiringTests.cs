@@ -101,7 +101,7 @@ public sealed class BrowserPlatformWiringTests
     }
 
     [Fact]
-    public async Task BrowserSettingsAreVisibleWhileVoiceAndHotkeysStayPlatformGated()
+    public async Task BrowserSettingsAndVoiceFollowCapabilitiesWhileHotkeysStayPlatformGated()
     {
         using var session = HeadlessTestSession.Start();
         var verified = false;
@@ -131,7 +131,8 @@ public sealed class BrowserPlatformWiringTests
                         var available = NativeBrowserLogic.IsEmbeddedBrowserAvailable;
                         Assert.Equal(available, settings.IsEmbeddedBrowserAvailable);
                         Assert.Equal(OperatingSystem.IsWindows(), settings.IsGlobalHotkeyAvailable);
-                        Assert.Equal(OperatingSystem.IsWindows(), chat.IsVoiceAvailable);
+                        using var voice = new VoiceInputService();
+                        Assert.Equal(voice.IsAvailable, chat.IsVoiceAvailable);
                         var privacy = view.FindSettingsControl<StackPanel>("PagePrivacy");
                         Assert.NotNull(privacy);
                         var browserGroup = Assert.Single(privacy.GetLogicalDescendants()
