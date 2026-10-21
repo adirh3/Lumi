@@ -1571,7 +1571,10 @@ public partial class ChatView : UserControl
         _chatShell.ScrollToVerticalOffset(offset);
     }
 
-    private async Task<TranscriptTurnControl?> EnsureTurnRealizedAsync(TranscriptTurn turn)
+    /// <param name="settleContent">When false, return as soon as the turn's control is realized, without
+    /// bringing it into view or waiting for its markdown to finish rebuilding. For callers that position
+    /// the turn themselves and only need its top-level controls.</param>
+    private async Task<TranscriptTurnControl?> EnsureTurnRealizedAsync(TranscriptTurn turn, bool settleContent = true)
     {
         if (_subscribedVm is null || _transcript is null)
             return null;
@@ -1611,6 +1614,13 @@ public partial class ChatView : UserControl
         var control = FindRealizedTurnControl(turn.StableId);
         if (control is null)
             return null;
+
+        if (!settleContent)
+        {
+            control.SetViewportActive(true);
+            TranscriptRealizationScheduler.Instance.FlushControl(control);
+            return control;
+        }
 
         ((Control?)control.GetVisualParent() ?? control).BringIntoView();
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);

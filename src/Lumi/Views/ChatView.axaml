@@ -1995,8 +1995,12 @@
       <Setter Property="BoxShadow" Value="0 0 0 8 #26818CF8" />
       <Setter Property="CornerRadius" Value="4" />
     </Style>
-    <!-- User bubbles keep their own fill and shape; only a glow ring is added. -->
+    <!-- User bubbles keep their own fill and shape; only a glow ring is added, at once rather than
+         through the bubble's 0.2s shadow transition so it appears with the jump. -->
     <Style Selector="sc|StrataChatMessage.reply-flash:user /template/ Border#PART_Bubble">
+      <Setter Property="Transitions">
+        <Transitions />
+      </Setter>
       <Setter Property="BoxShadow" Value="0 0 0 3 #80818CF8" />
     </Style>
   </UserControl.Styles>

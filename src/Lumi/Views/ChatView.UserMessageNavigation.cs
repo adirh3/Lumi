@@ -154,12 +154,16 @@ public partial class ChatView
         _userNavInFlight = true;
         try
         {
-            var control = await EnsureTurnRealizedAsync(turn);
+            var control = await EnsureTurnRealizedAsync(turn, settleContent: false);
             if (version != _userNavVersion || control is null || _chatShell is null || _transcriptScrollViewer is null)
                 return;
 
             var message = control.GetVisualDescendants().OfType<StrataChatMessage>().FirstOrDefault();
             Control landing = message is not null ? message : control;
+            // Glow in the same frame as the first scroll, not after the corrections below.
+            if (message is not null)
+                FlashMessage(message);
+
             // Realizing the target and its neighbours re-measures them, shifting the target after the
             // first scroll; re-measure and correct until it settles on the landing line.
             _chatShell.PreserveViewport();
@@ -183,9 +187,6 @@ public partial class ChatView
             }
 
             _userNavLandingOffset = _chatShell.VerticalOffset;
-
-            if (message is not null)
-                FlashMessage(message);
         }
         finally
         {
