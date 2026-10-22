@@ -1235,8 +1235,12 @@ Lumi does not run a separate renewal timer. If the PC remains inactive long enou
 for Microsoft to expire the resource, Lumi recreates the saved route in its original
 cluster when available.
 
-Transient relay failures are retried automatically with capped, cancellable
-backoff, and network changes rehost the same route. Settings show **Reconnecting**
+Transient relay failures and the initial cached-account check are retried
+automatically with capped, cancellable backoff, including Microsoft's
+`NoNetwork` / `no_network` broker errors after offline startup or a network change.
+Explicit interactive sign-in is never automatically repeated, and missing or
+expired credentials still require user action.
+Network changes rehost the same route. Settings show **Reconnecting**
 instead of a usable link while the relay is down; **Reconnect** retries without
 rebinding the local listener. Lumi observes the CLI's live relay-close, restored,
 and terminal host-error messages instead of waiting for the process to exit.

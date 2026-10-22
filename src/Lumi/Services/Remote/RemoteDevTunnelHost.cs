@@ -227,17 +227,30 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
 
             Task<string> RunCli(string[] arguments, CancellationToken ct) =>
                 RemoteDevTunnelCli.RunAsync(executablePath, arguments, ct);
-            var identity = await EnsureMicrosoftIdentityAsync(
-                    (arguments, ct) => RemoteDevTunnelCli.RunAsync(
-                        executablePath, arguments, ct,
+            void ReportReconnect(Exception error, TimeSpan delay)
+            {
+                Trace.TraceWarning($"[Remote] Dev Tunnel will reconnect: {error.Message}");
+                Publish(lifetime, new RemoteDevTunnelState(
+                    IsStarting: true, Account: account, IsReconnecting: true,
+                    SetupMessage: Loc.Get("Remote_DevTunnelReconnecting", (int)delay.TotalSeconds)));
+            }
+
+            Task<(string Username, string ObjectId, string TenantId)?> ResolveIdentity(CancellationToken ct) =>
+                EnsureMicrosoftIdentityAsync(
+                    (arguments, commandToken) => RemoteDevTunnelCli.RunAsync(
+                        executablePath, arguments, commandToken,
                         arguments is ["user", "login", ..] ? ReportSignInOutput : null),
                     () => Publish(lifetime, new RemoteDevTunnelState(
                         IsStarting: true, IsSigningIn: true,
                         SetupMessage: Loc.Get(useDeviceCode
                             ? "Remote_DevTunnelGettingSignInCode" : "Remote_DevTunnelDesktopSigningIn"))),
-                    token,
-                    signIn, useDeviceCode)
-                .ConfigureAwait(false);
+                    ct,
+                    signIn, useDeviceCode);
+            // Retry cached-account checks, but never repeat an interactive sign-in automatically.
+            var identity = signIn
+                ? await ResolveIdentity(token).ConfigureAwait(false)
+                : await RunWithRecoveryAsync(ResolveIdentity, ReportReconnect, token)
+                    .ConfigureAwait(false);
             if (identity is not { } owner)
             {
                 Publish(lifetime, new RemoteDevTunnelState(
@@ -262,13 +275,7 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                             port, account, lifetime, ct)
                         .ConfigureAwait(false);
                 },
-                (error, delay) =>
-                {
-                    Trace.TraceWarning($"[Remote] Dev Tunnel will reconnect: {error.Message}");
-                    Publish(lifetime, new RemoteDevTunnelState(
-                        IsStarting: true, Account: account, IsReconnecting: true,
-                        SetupMessage: Loc.Get("Remote_DevTunnelReconnecting", (int)delay.TotalSeconds)));
-                },
+                ReportReconnect,
                 token).ConfigureAwait(false);
         }
         catch (RemoteDevTunnelCliException ex) when (ex.RequiresSignIn)
@@ -393,8 +400,21 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false));
     }
 
-    internal static async Task RunWithRecoveryAsync(
+    internal static Task RunWithRecoveryAsync(
         Func<CancellationToken, Task> run,
+        Action<Exception, TimeSpan> reportReconnect,
+        CancellationToken cancellationToken,
+        Func<TimeSpan, CancellationToken, Task>? delay = null) =>
+        RunWithRecoveryAsync(
+            async ct =>
+            {
+                await run(ct).ConfigureAwait(false);
+                return true;
+            },
+            reportReconnect, cancellationToken, delay);
+
+    internal static async Task<T> RunWithRecoveryAsync<T>(
+        Func<CancellationToken, Task<T>> run,
         Action<Exception, TimeSpan> reportReconnect,
         CancellationToken cancellationToken,
         Func<TimeSpan, CancellationToken, Task>? delay = null)
@@ -406,8 +426,7 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                await run(cancellationToken).ConfigureAwait(false);
-                return;
+                return await run(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested
                 && (ex is RemoteDevTunnelCliException { RequiresSignIn: false, CanRetry: true }
