@@ -372,6 +372,34 @@ public static class DebugAgentHarness
                 Stage --> Done([Released])
             ```
 
+            **Two-way links** are one line with an arrowhead at each end, so `<-->` never doubles back on itself, and a node shared by two subgraphs stays in the first:
+
+            ```mermaid
+            flowchart TB
+                subgraph Runtime["Copilot owns execution"]
+                    MCP["MCP servers"] <--> CP["Copilot runtime"]
+                    EXT["Canvas extensions"] <--> CP
+                end
+
+                subgraph Lumi["Lumi owns presentation"]
+                    CP <--> MA["MCP Apps adapter"]
+                    CP <--> CA["Canvas adapter"]
+                    MA <--> STATE["Per-chat surface state"]
+                    CA <--> STATE
+                    STATE <--> UI["Strata Workspace and transcript cards"]
+                    UI <--> VIEW["Native view or isolated WebView"]
+                end
+            ```
+
+            **Link labels** get their own slot between ranks, so long ones never sit behind a node or on another line:
+
+            ```mermaid
+            flowchart LR
+                R["Copilot runtime"] <-->|"Open, close, invoke action"| P["Canvas provider"]
+                R -->|"Lifecycle events"| U["Lumi UI"]
+                P <-->|"Interface and shared artifact"| U
+            ```
+
             A **class diagram** verifies hierarchical layout, three compartments, and inheritance markers:
 
             ```mermaid
