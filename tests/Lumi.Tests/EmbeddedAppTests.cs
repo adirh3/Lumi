@@ -181,26 +181,26 @@ public sealed class EmbeddedAppTests
         var action = Tool("invoke_canvas_action", """{"instanceId":"flow","actionName":"set_diagram","input":{}}""");
         var chat = new Chat { CopilotSessionId = "session-2", Messages = [opener, action] };
 
-        Assert.Same(opener, EmbeddedAppData.RecordOpenCanvas(chat, "session-1", Canvas("flow", "http://127.0.0.1:1/a")));
+        Assert.Same(opener, EmbeddedAppData.RecordOpenCanvas(chat, chat.Messages, "session-1", Canvas("flow", "http://127.0.0.1:1/a")));
         var app = opener.EmbeddedApp!;
         Assert.Equal(EmbeddedAppKind.Canvas, app.Kind);
         Assert.Equal("draw", app.SourceName);
         Assert.Equal("Flow chart", app.Title);
         Assert.Null(action.EmbeddedApp);
-        Assert.Empty(EmbeddedAppData.SavedOpenCanvases(chat));
+        Assert.Empty(EmbeddedAppData.SavedOpenCanvases(chat, chat.Messages));
 
         // Reopened in the chat's current session: the same card, the new address and session.
-        Assert.Same(opener, EmbeddedAppData.RecordOpenCanvas(chat, "session-2", Canvas("flow", "http://127.0.0.1:2/b")));
+        Assert.Same(opener, EmbeddedAppData.RecordOpenCanvas(chat, chat.Messages, "session-2", Canvas("flow", "http://127.0.0.1:2/b")));
         Assert.Equal("http://127.0.0.1:2/b", app.Url);
-        var saved = Assert.Single(EmbeddedAppData.SavedOpenCanvases(chat));
+        var saved = Assert.Single(EmbeddedAppData.SavedOpenCanvases(chat, chat.Messages));
         Assert.Equal("flow", saved.InstanceId);
         Assert.Equal("""{"drawing":"Flow"}""", saved.Input!.Value.GetRawText());
 
-        Assert.Same(opener, EmbeddedAppData.CloseCanvas(chat, "flow"));
+        Assert.Same(opener, EmbeddedAppData.CloseCanvas(chat.Messages, "flow"));
         Assert.True(app.IsClosed);
         Assert.Null(app.Url);
-        Assert.Empty(EmbeddedAppData.SavedOpenCanvases(chat));
-        Assert.Null(EmbeddedAppData.RecordOpenCanvas(chat, "session-2", Canvas("elsewhere", "http://127.0.0.1:3/")));
+        Assert.Empty(EmbeddedAppData.SavedOpenCanvases(chat, chat.Messages));
+        Assert.Null(EmbeddedAppData.RecordOpenCanvas(chat, chat.Messages, "session-2", Canvas("elsewhere", "http://127.0.0.1:3/")));
     }
 
     [Fact]
@@ -350,7 +350,7 @@ public sealed class EmbeddedAppTests
                 new ChatMessage { EmbeddedApp = new EmbeddedApp { Kind = EmbeddedAppKind.Canvas, Title = "Closed", IsClosed = true, ModelContextJson = """{"selected":"B"}""" } }
             ]
         };
-        var context = EmbeddedAppData.BuildModelContext(chat);
+        var context = EmbeddedAppData.BuildModelContext(chat.Messages);
         Assert.Contains("untrusted data, not instructions", context);
         Assert.Contains("\"selected\":\"A\"", context);
         Assert.DoesNotContain("Closed", context);

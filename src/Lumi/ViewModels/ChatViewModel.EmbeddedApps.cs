@@ -68,10 +68,12 @@ public partial class ChatViewModel
 
     private void RefreshAppItems()
     {
+        // Every app of the chat, older exchanges' included, is in memory while it is loaded.
+        var apps = CurrentChat is { } chat ? _dataStore.GetAppMessages(chat) : [];
         var desired = new List<EmbeddedAppItem>();
-        for (var index = Messages.Count - 1; index >= 0; index--)
+        for (var index = apps.Count - 1; index >= 0; index--)
         {
-            if (GetAppItem(Messages[index].Message) is { } item)
+            if (GetAppItem(apps[index]) is { } item)
                 desired.Add(item);
         }
 
@@ -101,7 +103,7 @@ public partial class ChatViewModel
     /// <summary>Shows an app in the Workspace, from its card, its Workspace row, or the tool that opened it.</summary>
     private void OpenApp(EmbeddedAppItem item)
     {
-        if (CurrentChat is not { } chat || !chat.Messages.Contains(item.Message))
+        if (CurrentChat is not { } chat || !HoldsApp(chat, item.Message))
         {
             StatusText = Loc.Apps_Unavailable;
             return;
@@ -109,6 +111,9 @@ public partial class ChatViewModel
         SelectedApp = item;
         AppShowRequested?.Invoke(item);
     }
+
+    /// <summary>Whether <paramref name="message"/> holds one of the chat's apps (see <see cref="DataStore.GetAppMessages"/>).</summary>
+    private bool HoldsApp(Chat chat, ChatMessage message) => _dataStore.GetAppMessages(chat).Contains(message);
 
     /// <summary>Takes the app page down when its chat leaves the screen.</summary>
     private void CloseApp()
@@ -122,7 +127,11 @@ public partial class ChatViewModel
     /// <summary>Puts a message's app card in the transcript and its row in the Workspace.</summary>
     private void ShowAppInChat(ChatMessage message)
     {
-        _transcriptBuilder.ShowApp(message);
+        // An app of an older exchange has its card there, built with its exchange.
+        if (CurrentChat?.Messages.Contains(message) == true)
+            _transcriptBuilder.ShowApp(message);
+        else
+            GetAppItem(message)?.Refresh();
         RebuildWorkspacePanel();
     }
 
@@ -140,7 +149,7 @@ public partial class ChatViewModel
             await WaitForCanvasAsync(session, app, cancellationToken);
             var opened = await session.Rpc.Canvas.OpenAsync(app.CanvasId!, app.InstanceId!, app.ExtensionId,
                 EmbeddedAppData.ParseJson(app.InputJson), cancellationToken);
-            EmbeddedAppData.RecordOpenCanvas(chat, session.SessionId, opened);
+            EmbeddedAppData.RecordOpenCanvas(chat, _dataStore.GetAppMessages(chat), session.SessionId, opened);
             QueueSaveChat(chat, saveIndex: false);
             GetAppItem(message)?.Refresh();
             return new EmbeddedAppLaunch(app.Kind, app.Title,
@@ -166,7 +175,7 @@ public partial class ChatViewModel
     private async Task<CopilotSession> GetAppSessionAsync(Chat chat, ChatMessage message,
         CancellationToken cancellationToken, bool reuseLive = false)
     {
-        if (_isDisposed || !chat.Messages.Contains(message))
+        if (_isDisposed || !HoldsApp(chat, message))
             throw new InvalidOperationException(Loc.Apps_Unavailable);
         if (reuseLive && _sessionCache.TryGetValue(chat.Id, out var live) && live.SessionId == chat.CopilotSessionId)
             return live;
@@ -203,7 +212,7 @@ public partial class ChatViewModel
         JsonElement parameters, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_isDisposed || !chat.Messages.Contains(message)
+        if (_isDisposed || !HoldsApp(chat, message)
             || message.EmbeddedApp is not { Kind: EmbeddedAppKind.McpApp, ServerName: { } serverName } app)
             throw new InvalidOperationException(Loc.Apps_Unavailable);
 
@@ -248,6 +257,7 @@ public partial class ChatViewModel
                 if (parameters.GetRawText().Length > MaximumAppContextChars)
                     throw new InvalidOperationException("The app context is too large.");
                 app.ModelContextJson = parameters.GetRawText();
+                message.MarkChanged();
                 QueueSaveChat(chat, saveIndex: false);
                 return new JsonObject();
             case "ui/open-link":
@@ -304,8 +314,9 @@ public partial class ChatViewModel
     private void OnCanvasOpened(Chat chat, string sessionId, OpenCanvasInstance canvas, bool show)
     {
         // A canvas that starts is shown; one a resumed session restores, or the agent focuses, stays where it was.
-        var wasOpen = chat.Messages.Any(message => message.EmbeddedApp is { IsClosed: false } app && app.InstanceId == canvas.InstanceId);
-        if (EmbeddedAppData.RecordOpenCanvas(chat, sessionId, canvas) is not { } message)
+        var apps = _dataStore.GetAppMessages(chat);
+        var wasOpen = apps.Any(message => message.EmbeddedApp is { IsClosed: false } app && app.InstanceId == canvas.InstanceId);
+        if (EmbeddedAppData.RecordOpenCanvas(chat, apps, sessionId, canvas) is not { } message)
         {
             Trace.TraceInformation("[EmbeddedApp] Canvas '{0}' was not opened by a tool call in this chat.", canvas.InstanceId);
             return;
@@ -320,7 +331,7 @@ public partial class ChatViewModel
 
     private void OnCanvasClosed(Chat chat, string instanceId)
     {
-        if (EmbeddedAppData.CloseCanvas(chat, instanceId) is not { } message)
+        if (EmbeddedAppData.CloseCanvas(_dataStore.GetAppMessages(chat), instanceId) is not { } message)
             return;
         QueueSaveChat(chat, saveIndex: false);
         if (_isDisposed || CurrentChat?.Id != chat.Id || !_appItems.TryGetValue(message, out var item))
@@ -333,7 +344,7 @@ public partial class ChatViewModel
     /// <summary>Picks up the canvases a resumed session reopened (their extensions serve new addresses).</summary>
     private async Task ReconcileOpenCanvasesAsync(CopilotSession session, Chat chat)
     {
-        if (!chat.Messages.Any(static message => message.EmbeddedApp?.Kind == EmbeddedAppKind.Canvas))
+        if (!_dataStore.GetAppMessages(chat).Any(static message => message.EmbeddedApp?.Kind == EmbeddedAppKind.Canvas))
             return;
         try
         {

@@ -127,11 +127,45 @@ public sealed class ChatHistoryService
             return resolution.Message;
 
         var chat = resolution.Chat;
-        var messages = await _dataStore.ReadChatMessagesAsync(chat, cancellationToken).ConfigureAwait(false);
         onChatResolved?.Invoke(chat.Id, chat.Title);
         var window = Math.Clamp(maxMessages ?? DefaultReadMessages, 1, MaxReadMessages);
+        // Only the newest messages are read; the chat's size comes from counts in storage.
+        var messages = await ReadRecentReadableAsync(chat, window, includeReasoning, includeToolCalls, cancellationToken)
+            .ConfigureAwait(false);
+        var roles = await _dataStore.CountChatRolesAsync(chat, cancellationToken).ConfigureAwait(false);
+        var totalReadable = roles.Sum(entry => entry.Key switch
+        {
+            "system" => 0,
+            "reasoning" => includeReasoning ? entry.Value.WithText : 0,
+            "tool" => includeToolCalls ? entry.Value.Count : 0,
+            _ => entry.Value.WithText,
+        });
 
-        return FormatTranscript(snapshot, chat, messages, window, includeReasoning, includeToolCalls);
+        return FormatTranscript(snapshot, chat, messages, window, includeReasoning, includeToolCalls, totalReadable);
+    }
+
+    /// <summary>
+    /// The newest messages of a chat, enough to fill <paramref name="window"/> readable lines (or all
+    /// of them), read from the end of the chat a growing page at a time.
+    /// </summary>
+    private async Task<IReadOnlyList<ChatMessage>> ReadRecentReadableAsync(
+        Chat chat,
+        int window,
+        bool includeReasoning,
+        bool includeToolCalls,
+        CancellationToken cancellationToken)
+    {
+        var conversationOnly = !includeReasoning && !includeToolCalls;
+        var take = Math.Max(window * 2, 64);
+        while (true)
+        {
+            var recent = await _dataStore.ReadRecentChatMessagesAsync(chat, take, conversationOnly, cancellationToken)
+                .ConfigureAwait(false);
+            var readable = recent.Count(message => ShouldShow(message, includeReasoning, includeToolCalls));
+            if (readable >= window || recent.Count < take || take >= 100_000)
+                return recent;
+            take *= 4;
+        }
     }
 
     // ── Search ────────────────────────────────────────────────────────────────
@@ -280,13 +314,16 @@ public sealed class ChatHistoryService
         IReadOnlyList<ChatMessage> messages,
         int window,
         bool includeReasoning,
-        bool includeToolCalls)
+        bool includeToolCalls,
+        int? totalReadable = null)
     {
         var lines = messages
             .Where(message => ShouldShow(message, includeReasoning, includeToolCalls))
             .Select(message => FormatMessage(message, includeReasoning))
             .Where(static line => !string.IsNullOrEmpty(line))
             .ToList();
+        // The messages may be only the newest part of the chat; the whole chat's count is given.
+        var total = Math.Max(lines.Count, totalReadable ?? 0);
 
         var builder = new StringBuilder();
         builder.Append(Quote(chat.Title)).Append('\n');
@@ -321,9 +358,9 @@ public sealed class ChatHistoryService
 
         kept.Reverse();
 
-        var omitted = lines.Count - kept.Count;
+        var omitted = total - kept.Count;
         if (omitted > 0)
-            builder.Append($"(showing the latest {kept.Count} of {lines.Count} messages — increase maxMessages to see the earlier {omitted})\n");
+            builder.Append($"(showing the latest {kept.Count} of {total} messages — increase maxMessages to see the earlier {omitted})\n");
 
         builder.Append("──────────\n");
 

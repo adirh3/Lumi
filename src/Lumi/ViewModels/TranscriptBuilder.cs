@@ -48,6 +48,26 @@ public class TranscriptBuilder
     /// </summary>
     public ObservableCollection<SubagentToolCallItem> SubagentRuns { get; } = [];
 
+    /// <summary>
+    /// Tools whose calls never show as a step card of their own — they manage shells or agents, ask,
+    /// announce, load or report instead — plus plan updates, which share one plan card per run
+    /// (see <see cref="ProcessToolMessage"/>). Sub-agent tools are runs of their own.
+    /// </summary>
+    internal static readonly string[] ToolsWithoutStepCards =
+    [
+        "stop_powershell", "write_powershell", "read_powershell", "task_complete", "read_agent", "list_agents",
+        "ask_input", "ask_question", "announce_file", "fetch_skill", "report_intent",
+        ToolDisplayHelper.WorkspaceFileChangedToolName, "update_todo", "manage_todo_list",
+    ];
+
+    /// <summary>
+    /// Steps filed at the top level rather than inside a run, counted the way a run counts its own
+    /// (<see cref="SubagentToolCallItem.StepCount"/>): on a run's page, whose top level is the run's
+    /// work, how many steps the run took.
+    /// </summary>
+    public int RootStepCount { get; private set; }
+    private bool _rootPlanCounted;
+
     private ToolGroupItem? _currentToolGroup;
     private ReasoningItem? _currentReasoning;
     private readonly List<ReasoningItem> _reasoningItems = [];
@@ -85,6 +105,13 @@ public class TranscriptBuilder
     private readonly Dictionary<string, bool> _pendingWorkspaceFileChanges = new(StringComparer.OrdinalIgnoreCase);
     private IList<TranscriptTurn>? _rebuildTarget;
     public bool IsRebuildingTranscript { get; set; }
+
+    /// <summary>
+    /// Set for builds of stored history: a run keeps what its card and index row show, and its page
+    /// reads the rest — its task, its log and its steps, with their count — from storage when it opens
+    /// (see <see cref="SubagentToolCallItem.ReleaseDetail"/>).
+    /// </summary>
+    internal bool KeepsRunDetailInStorage { get; set; }
 
     public HashSet<string> ShownFileChips { get; } = new(FilePathComparer);
     private readonly HashSet<Guid> _processedMessageIds = [];
@@ -196,21 +223,37 @@ public class TranscriptBuilder
     /// opens the chat this one was branched from.
     /// </summary>
     /// <param name="isWorking">Lumi is still working on the chat's latest turn.</param>
+    /// <param name="seed">What earlier exchanges that are not part of this build already showed.</param>
     public ObservableCollection<TranscriptTurn> Rebuild(
         IEnumerable<ChatMessageViewModel> messages,
         ForkOrigin? forkOrigin,
-        bool isWorking = false)
+        bool isWorking = false,
+        TranscriptSeed? seed = null)
     {
-        IsRebuildingTranscript = true;
-        var tempTurns = new List<TranscriptTurn>();
-        _rebuildTarget = tempTurns;
-        ResetState();
-
-        EmitForkOriginChip(forkOrigin);
-
+        BeginRebuild(forkOrigin, seed);
         foreach (var msg in messages)
             ProcessMessageToTranscript(msg);
+        return EndRebuild(isWorking);
+    }
 
+    /// <summary>
+    /// Starts a rebuild that is fed one message at a time with <see cref="ProcessMessageToTranscript"/>
+    /// and finished by <see cref="EndRebuild"/>, so a long build can be spread over several frames.
+    /// </summary>
+    public void BeginRebuild(ForkOrigin? forkOrigin, TranscriptSeed? seed = null)
+    {
+        IsRebuildingTranscript = true;
+        _rebuildTarget = new List<TranscriptTurn>();
+        ResetState();
+        ApplySeed(seed);
+
+        EmitForkOriginChip(forkOrigin);
+    }
+
+    /// <summary>Finishes a rebuild started by <see cref="BeginRebuild"/> and returns its turns.</summary>
+    public ObservableCollection<TranscriptTurn> EndRebuild(bool isWorking = false)
+    {
+        var tempTurns = _rebuildTarget ?? [];
         CloseCurrentToolGroup();
         // A turn still in progress stays open, so live messages extend it and its updates stay in view until
         // its answer or its end folds them. Its end-of-turn files, plan and model label wait for that end too.
@@ -239,6 +282,57 @@ public class TranscriptBuilder
         // open run could never be matched to its rebuilt twin from inside the loop.
         _subagentRunsChanged?.Invoke();
         return result;
+    }
+
+    /// <summary>
+    /// Starts a build in the middle of a chat whose earlier exchanges are not part of it: their
+    /// count, the skills they already showed and the files they announced. With it, an exchange
+    /// built on its own shows the same chips as when the whole chat is built in one pass.
+    /// </summary>
+    private void ApplySeed(TranscriptSeed? seed)
+    {
+        if (seed is null)
+            return;
+
+        _fileChipTurn = new FileChipTurn(seed.ExchangeIndex, Guid.Empty);
+        foreach (var skill in seed.ShownSkillNames)
+            _shownSkillNames.Add(skill);
+        foreach (var (path, exchange) in seed.AnnouncedFiles)
+        {
+            _announcedFileTurns[path] = exchange;
+            ShownFileChips.Add(path);
+        }
+
+        // A run of an earlier exchange owns the steps it took after it, as in a full build, where they
+        // join its card there. A stand-in takes them here; what else they show stays in this build.
+        var runsShown = _dataStore.Data.Settings.ShowToolCalls;
+        foreach (var call in seed.EarlierToolCalls)
+        {
+            _toolParentById[call.ToolCallId] = call.ParentToolCallId;
+            if (call.IsRun && runsShown)
+            {
+                _subagentsByToolCallId[call.ToolCallId] = new SubagentToolCallItem(
+                    call.ToolCallId,
+                    StrataAiToolCallStatus.Completed,
+                    $"subagent:{call.ToolCallId}")
+                {
+                    ToolCallId = call.ToolCallId,
+                };
+            }
+        }
+    }
+
+    /// <summary>The runs this build created, or stands in for, by tool call id.</summary>
+    internal IReadOnlyDictionary<string, SubagentToolCallItem> RunsByToolCallId => _subagentsByToolCallId;
+
+    /// <summary>
+    /// Lets runs of another build take the steps this build is fed: a step of one of them joins that
+    /// run's card, while anything else the step shows stays in this build's own turns.
+    /// </summary>
+    internal void ContinueRuns(IReadOnlyDictionary<string, SubagentToolCallItem> runs)
+    {
+        foreach (var (toolCallId, run) in runs)
+            _subagentsByToolCallId[toolCallId] = run;
     }
 
     /// <summary>
@@ -301,6 +395,83 @@ public class TranscriptBuilder
         return null;
     }
 
+    /// <summary>
+    /// Lets go of the work of messages that moved to the chat's stored history while their turns stay
+    /// on screen, owned by the history (see <see cref="TranscriptHistory.AdoptRolledTail"/>), so this
+    /// builder no longer keeps their items alive. What they showed — skills, announced files — stays
+    /// known, so later messages read as before. Called when the chat is idle: nothing of theirs runs,
+    /// and the runs the remaining messages continue are carried by the history's seed instead.
+    /// </summary>
+    internal void ForgetMessages(IReadOnlyCollection<ChatMessage> messages, IReadOnlyCollection<TranscriptTurn> turns)
+    {
+        var messageIds = new HashSet<Guid>();
+        var toolCallIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var message in messages)
+        {
+            messageIds.Add(message.Id);
+            if (message.ToolCallId is { Length: > 0 } toolCallId)
+                toolCallIds.Add(toolCallId);
+        }
+
+        for (var i = _pendingToolHandlers.Count - 1; i >= 0; i--)
+        {
+            var (vm, handler) = _pendingToolHandlers[i];
+            if (!messageIds.Contains(vm.Message.Id))
+                continue;
+            vm.PropertyChanged -= handler;
+            _pendingToolHandlers.RemoveAt(i);
+        }
+
+        for (var i = _reasoningItems.Count - 1; i >= 0; i--)
+        {
+            if (!messageIds.Contains(_reasoningItems[i].MessageId))
+                continue;
+            _reasoningItems[i].DetachSources();
+            _reasoningItems.RemoveAt(i);
+        }
+
+        foreach (var toolCallId in toolCallIds)
+        {
+            _terminalPreviewsByToolCallId.Remove(toolCallId);
+            _runningToolCallsByToolCallId.Remove(toolCallId);
+            _toolDraftsByToolCallId.Remove(toolCallId);
+            _subagentsByToolCallId.Remove(toolCallId);
+            _toolParentById.Remove(toolCallId);
+            _livePlanToolCallIds.Remove(toolCallId);
+            _trackedFileEditToolCalls.Remove(toolCallId);
+            _trackedFileEditFilesByToolCall.Remove(toolCallId);
+            _deferredFileEditSubscriptions.Remove(toolCallId);
+        }
+
+        _processedMessageIds.ExceptWith(messageIds);
+        _shownApps.ExceptWith(messages);
+        var runsChanged = false;
+        for (var i = SubagentRuns.Count - 1; i >= 0; i--)
+        {
+            if (SubagentRuns[i].ToolCallId is { } runId && toolCallIds.Contains(runId))
+            {
+                SubagentRuns.RemoveAt(i);
+                runsChanged = true;
+            }
+        }
+
+        // The kept exchange starts with a user message processed after every rolled one, so the
+        // builder's per-turn state (its current turn, group, pending plan card...) is the kept
+        // exchange's. Only a turn reference could still point back, and is dropped if it does.
+        var rolledTurns = turns.ToHashSet();
+        if (_currentTurn is not null && rolledTurns.Contains(_currentTurn))
+            _currentTurn = null;
+        if (_typingTurn is not null && rolledTurns.Contains(_typingTurn))
+        {
+            _typingTurn = null;
+            _typingIndicator = null;
+        }
+
+        if (runsChanged)
+            _subagentRunsChanged?.Invoke();
+        PublishLiveActivity();
+    }
+
     public void ResetState()
     {
         // Unsubscribe all pending PropertyChanged handlers to prevent leaking
@@ -331,6 +502,8 @@ public class TranscriptBuilder
         _toolParentById.Clear();
         _subagentsByToolCallId.Clear();
         SubagentRuns.Clear();
+        RootStepCount = 0;
+        _rootPlanCounted = false;
         _subagentRunsChanged?.Invoke();
         _trackedFileEditToolCalls.Clear();
         _trackedFileEditFilesByToolCall.Clear();
@@ -439,6 +612,12 @@ public class TranscriptBuilder
         CloseCurrentToolGroup();
         AppendToCurrentTurn(item, TurnStableIdFor(item.StableId));
     }
+
+    /// <summary>
+    /// Notes a message this build leaves out (a run's step, which only the run's page shows). Like any
+    /// message but reasoning, it ends the reasoning being shown, so reasoning after it starts its own.
+    /// </summary>
+    internal void NoteOmittedMessage() => _currentReasoning = null;
 
     /// <summary>Adds a connection-lost error item with an optional retry button.</summary>
     public void AddConnectionLostError(string message, System.Windows.Input.ICommand? retryCommand)
@@ -1149,6 +1328,9 @@ public class TranscriptBuilder
             OpenRunAction = _openSubagentRunAction,
             ToolCallId = toolCallId,
         };
+        // Its page counts its steps when it reads them.
+        if (KeepsRunDetailInStorage)
+            subagent.KnownStepCount = 0;
         UpdateSubagentFromMessage(subagent, msgVm.Message);
 
         AttachSubagentToTurn(subagent, turnStableId);
@@ -1207,6 +1389,7 @@ public class TranscriptBuilder
             return;
         }
 
+        RootStepCount++;
         _currentToolGroup!.ToolCalls.Add(item);
         _currentToolGroupCount++;
     }
@@ -1276,7 +1459,7 @@ public class TranscriptBuilder
     {
         var toolName = message.ToolName ?? "task";
         // One parse for the whole payload: a streaming sub-agent re-enters here on every flush.
-        var payload = SubagentPayload.Parse(message.Content);
+        var payload = SubagentPayload.Parse(message.Content, withDetail: !KeepsRunDetailInStorage);
         var taskDescription = ToolDisplayHelper.GetSubagentTaskDescription(toolName, payload);
 
         subagent.DisplayName = ToolDisplayHelper.GetSubagentDisplayName(toolName, payload, message.Author);
@@ -1289,17 +1472,13 @@ public class TranscriptBuilder
             ?? _getSelectedModel();
         subagent.ModelDisplayName = ChatViewModel.FormatModelDisplay(modelId);
 
-        subagent.Prompt = ToolDisplayHelper.GetSubagentPrompt(payload)
-            // Not every sub-agent tool carries a full prompt (an `agent:` call may only supply the
-            // task label). Falling back to the description guarantees the run always opens with the
-            // request it was given rather than with nothing.
-            ?? taskDescription;
-        subagent.TranscriptText = payload.Transcript;
-        subagent.ReasoningText = payload.Reasoning;
         subagent.StartedAt = message.ToolStartedAt ?? message.Timestamp;
         subagent.DurationMs = message.ToolDurationMs ?? 0;
         subagent.ErrorText = FailureReason(message);
-        subagent.SyncRunEntries(payload.EntriesJson);
+        if (KeepsRunDetailInStorage)
+            subagent.ReleaseDetail();
+        else
+            subagent.ApplyDetail(payload);
     }
 
     private void UpdateSubagentState(SubagentToolCallItem subagent)
@@ -1680,22 +1859,28 @@ public class TranscriptBuilder
         var turns = GetTurnTarget();
         if (turns is null || turns.Count == 0) return;
 
-        var stableId = TranscriptIds.Create("plan-card");
-        var card = new PlanCardItem(statusText, openAction, stableId);
+        var card = new PlanCardItem(statusText, openAction, TranscriptIds.Create("plan-card"));
+        if (!TryAppendAfterLastAnswer(turns, card))
+            turns[^1].Items.Add(card);
+    }
 
-        // Find the last assistant turn and append
+    /// <summary>Whether a turn shows an answer or tool steps: what a restored plan card follows.</summary>
+    internal static bool ShowsAnswer(TranscriptTurn turn)
+        => turn.Items.Any(static item => item is AssistantMessageItem or ToolGroupItem);
+
+    /// <summary>Adds <paramref name="item"/> to the last of <paramref name="turns"/> that shows an answer; false when none does.</summary>
+    internal static bool TryAppendAfterLastAnswer(IList<TranscriptTurn> turns, TranscriptItem item)
+    {
         for (var i = turns.Count - 1; i >= 0; i--)
         {
-            var turn = turns[i];
-            if (turn.Items.Any(item => item is AssistantMessageItem or ToolGroupItem))
+            if (ShowsAnswer(turns[i]))
             {
-                turn.Items.Add(card);
-                return;
+                turns[i].Items.Add(item);
+                return true;
             }
         }
 
-        // Fallback: append to the very last turn
-        turns[^1].Items.Add(card);
+        return false;
     }
 
     private void FlushPendingPlanCard()
@@ -1852,9 +2037,17 @@ public class TranscriptBuilder
         }
     }
 
-    private static bool IsCreateDiff(string toolName, string? oldText)
+    internal static bool IsCreateDiff(string toolName, string? oldText)
         => ToolDisplayHelper.IsFileCreateTool(toolName)
            || (toolName == "apply_patch" && oldText is null);
+
+    /// <summary>
+    /// Whether a message shows as one of the user's own (a <see cref="UserMessageItem"/>): a user
+    /// message that is not a job's wake or a form's receipt. Jumps between the user's messages stop
+    /// at these; <paramref name="text"/> may be just how the message starts.
+    /// </summary>
+    internal static bool ShowsAsUserMessage(string role, string? author, string? text, bool isReceipt)
+        => role == "user" && !isReceipt && !Lumi.Remote.Protocol.RemoteJobWake.IsJobWake(author, text);
 
     private void EnsureCurrentToolGroup(StrataAiToolCallStatus initialStatus, string? stableIdSeed = null, string? turnStableId = null)
     {
@@ -2194,6 +2387,13 @@ public class TranscriptBuilder
         }
         else
         {
+            // A run counts its plan as one step, however often it changes (see the sub-agent branch).
+            if (!_rootPlanCounted)
+            {
+                _rootPlanCounted = true;
+                RootStepCount++;
+            }
+
             EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
             UpsertTodoProgressToolCall(steps, msgVm.ToolStatus ?? "InProgress");
             UpdateToolGroupLabel();

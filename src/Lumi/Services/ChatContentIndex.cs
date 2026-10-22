@@ -22,23 +22,28 @@ public sealed class ChatContentIndex
 {
     private const int MaxUserIndexedChars = 12_000;
     private const int MaxAssistantIndexedChars = 8_000;
-    private const string PersistMagic = "LCI3";
+    // LCI4: entries are tagged with the chat database's content version instead of a file timestamp.
+    private const string PersistMagic = "LCI4";
     private const int MaxPersistedEntries = 5_000_000;
 
     private readonly Func<Chat, ChatSearchSnapshot> _snapshotProvider;
     private readonly Action<Guid>? _releaseSnapshot;
-    private readonly Func<Guid, DateTimeOffset?>? _fileTimestampProvider;
+    private readonly Func<Chat, long?>? _contentVersionProvider;
     private readonly object _sync = new();
     private readonly Dictionary<Guid, Entry> _entries = [];
 
+    /// <param name="contentVersionProvider">
+    /// A chat's stored content version, which an entry is kept under until it changes; null while the
+    /// chat holds content that is not stored yet, and then the entry is read again each time.
+    /// </param>
     public ChatContentIndex(
         Func<Chat, ChatSearchSnapshot> snapshotProvider,
         Action<Guid>? releaseSnapshot = null,
-        Func<Guid, DateTimeOffset?>? fileTimestampProvider = null)
+        Func<Chat, long?>? contentVersionProvider = null)
     {
         _snapshotProvider = snapshotProvider ?? throw new ArgumentNullException(nameof(snapshotProvider));
         _releaseSnapshot = releaseSnapshot;
-        _fileTimestampProvider = fileTimestampProvider;
+        _contentVersionProvider = contentVersionProvider;
     }
 
     /// <summary>Number of chats currently held in the index.</summary>
@@ -60,27 +65,32 @@ public sealed class ChatContentIndex
 
     /// <summary>
     /// Returns the content entry for a chat, building it from the snapshot provider when allowed.
-    /// Loaded chats (messages already in memory) are always refreshed cheaply; cold chats are
-    /// only read from the provider when <paramref name="allowBuild"/> is true.
+    /// An entry is reused while the chat's stored content version stays the same. A chat with
+    /// messages in memory but no stored version to go by (no version provider, or content not
+    /// stored yet) is read again, cheaply. Cold chats are only read from the provider when
+    /// <paramref name="allowBuild"/> is true.
     /// </summary>
     public Entry? GetEntry(Chat chat, bool allowBuild)
     {
         ArgumentNullException.ThrowIfNull(chat);
 
-        var isLoaded = chat.Messages.Count > 0;
-        if (isLoaded)
-            return BuildEntry(chat, releaseAfter: false);
+        var version = _contentVersionProvider?.Invoke(chat);
+        if (version is null && chat.Messages.Count > 0)
+            return BuildEntry(chat, releaseAfter: false, version);
 
         lock (_sync)
         {
-            if (_entries.TryGetValue(chat.Id, out var cached))
+            if (_entries.TryGetValue(chat.Id, out var cached)
+                && (_contentVersionProvider is null || cached.SourceTicks == (version ?? 0)))
+            {
                 return cached;
+            }
         }
 
         if (!allowBuild)
             return null;
 
-        return BuildEntry(chat, releaseAfter: true);
+        return BuildEntry(chat, releaseAfter: true, version);
     }
 
     /// <summary>Removes a chat's entry, forcing a rebuild on next access/warm (e.g., after a save).</summary>
@@ -96,16 +106,17 @@ public sealed class ChatContentIndex
     /// <summary>
     /// Builds entries for any cold chats that are not yet cached, throttled to avoid hammering
     /// the disk. Cached entries restored from a persisted index are revalidated against the
-    /// chat file's current timestamp and rebuilt if stale (e.g., edited by another instance or
-    /// after an ungraceful shutdown). Intended to run on a background thread after startup.
+    /// chat's current content version and rebuilt if stale (e.g., saved since, or edited by
+    /// another instance). Intended to run on a background thread after startup.
     /// </summary>
     public async Task WarmAsync(IReadOnlyList<Chat> chats, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(chats);
 
-        // Warm most-recent chats first so the freshest history becomes searchable soonest.
+        // Warm most-recent chats first so the freshest history becomes searchable soonest. Without a
+        // content version, chats with messages in memory are indexed when searched instead.
         var ordered = chats
-            .Where(static chat => chat.Messages.Count == 0)
+            .Where(chat => _contentVersionProvider is not null || chat.Messages.Count == 0)
             .OrderByDescending(static chat => chat.UpdatedAt)
             .ToArray();
 
@@ -114,8 +125,8 @@ public sealed class ChatContentIndex
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!IsCached(chat.Id) || IsStale(chat.Id))
-                BuildEntry(chat, releaseAfter: true);
+            if (IsStale(chat, out var version))
+                BuildEntry(chat, releaseAfter: true, version);
 
             if (++processed % 32 == 0)
                 await Task.Delay(12, cancellationToken).ConfigureAwait(false);
@@ -135,34 +146,30 @@ public sealed class ChatContentIndex
     }
 
     /// <summary>
-    /// True when a cached entry's source chat file has a different last-write time than when the
-    /// entry was built (e.g. edited by another Lumi instance or after an ungraceful shutdown).
-    /// Always false when no timestamp provider is configured, preserving cache-only behavior.
+    /// True when a chat has no entry, or its entry was built from a different version of the chat's
+    /// stored content than it has now (e.g. saved since, or edited by another Lumi instance). Without
+    /// a version provider an existing entry is kept.
     /// </summary>
-    private bool IsStale(Guid chatId)
+    private bool IsStale(Chat chat, out long? version)
     {
-        if (_fileTimestampProvider is null)
-            return false;
-
+        version = _contentVersionProvider?.Invoke(chat);
         long cachedTicks;
         lock (_sync)
         {
-            if (!_entries.TryGetValue(chatId, out var entry))
+            if (!_entries.TryGetValue(chat.Id, out var entry))
                 return true;
             cachedTicks = entry.SourceTicks;
         }
 
-        var currentTicks = _fileTimestampProvider(chatId)?.UtcTicks ?? 0L;
-        return currentTicks != cachedTicks;
+        return _contentVersionProvider is not null && (version is null && chat.Messages.Count > 0 || (version ?? 0) != cachedTicks);
     }
 
-    private Entry BuildEntry(Chat chat, bool releaseAfter)
+    private Entry BuildEntry(Chat chat, bool releaseAfter, long? version)
     {
-        // Capture the source timestamp BEFORE reading content so that any change racing the read
-        // leaves the entry tagged with an older time, forcing a rebuild on the next warm.
-        var sourceTicks = _fileTimestampProvider?.Invoke(chat.Id)?.UtcTicks ?? 0L;
+        // The version was read BEFORE the content, so a change racing the read leaves the entry
+        // tagged with an older version, forcing a rebuild on the next warm.
         var snapshot = _snapshotProvider(chat);
-        var entry = CreateEntry(snapshot, sourceTicks);
+        var entry = CreateEntry(snapshot, version ?? 0);
 
         lock (_sync)
             _entries[chat.Id] = entry;
@@ -305,7 +312,7 @@ public sealed class ChatContentIndex
         public string AssistantNormalized { get; }
         public string AssistantCompact { get; }
 
-        /// <summary>UTC ticks of the source chat file's last-write time when this entry was built (0 if unknown).</summary>
+        /// <summary>The chat's stored content version when this entry was built (0 if unknown).</summary>
         public long SourceTicks { get; }
         public bool IsEmpty => UserNormalized.Length == 0 && AssistantNormalized.Length == 0;
 

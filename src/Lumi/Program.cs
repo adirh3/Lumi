@@ -46,6 +46,9 @@ class Program
     /// <summary>Parsed options for the automated memory stress harness (debug only).</summary>
     public static MemoryDiagnostics.MemoryHarnessOptions? MemoryHarnessOptions { get; private set; }
 
+    /// <summary>Parsed options for the history-scale harness, which measures large real-shaped profiles (debug only).</summary>
+    public static MemoryDiagnostics.HistoryHarnessOptions? HistoryHarnessOptions { get; private set; }
+
     /// <summary>When true, runs the DEBUG-only animation lifecycle retention proof once the window opens.</summary>
     public static bool AnimationLifecycleLeakReproEnabled { get; private set; }
 
@@ -110,6 +113,22 @@ class Program
         {
             AttachParentConsole();
             EnsureIsolatedHarnessAppDataDir("memory-stress");
+            SkipOnboarding = true;
+        }
+
+        // The history-scale harness measures a caller-provided large profile (a copy, never the
+        // user's own data), so it requires LUMI_APPDATA_DIR instead of creating a fresh one.
+        HistoryHarnessOptions = MemoryDiagnostics.HistoryHarnessOptions.Parse(args);
+        if (HistoryHarnessOptions.Enabled)
+        {
+            AttachParentConsole();
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR")))
+            {
+                Console.WriteLine("[history] LUMI_APPDATA_DIR must point at a copy of a profile; refusing to run.");
+                Environment.ExitCode = 2;
+                return;
+            }
+
             SkipOnboarding = true;
         }
 

@@ -56,7 +56,7 @@ public class InteractiveResponseStateTests
         var message = Answer();
         chat.Messages.Add(message);
         InteractiveResponseState.Update(message, "prep", new InteractiveState { CheckedIds = ["one"] }.ToJson());
-        var context = InteractiveResponseState.BuildPromptContext(chat);
+        var context = InteractiveResponseState.BuildPromptContext(chat.Messages);
         Assert.Contains(message.Id.ToString(), context);
         Assert.Contains("prep", context);
         Assert.Contains("one", context);
@@ -72,7 +72,7 @@ public class InteractiveResponseStateTests
             Role = "tool", ToolName = "ask_input",
             InteractionStates = new() { ["trip"] = new InteractiveState { Values = new() { ["city"] = "Lisbon" } }.ToJson() }
         });
-        Assert.Equal("", InteractiveResponseState.BuildPromptContext(chat));
+        Assert.Equal("", InteractiveResponseState.BuildPromptContext(chat.Messages));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class InteractiveResponseStateTests
                 Role = "assistant",
                 InteractionStates = new() { [$"block_{index}"] = new string('x', 1500) }
             });
-        var context = InteractiveResponseState.BuildPromptContext(chat);
+        var context = InteractiveResponseState.BuildPromptContext(chat.Messages);
         Assert.True(context.Length < 17 * 1024);
         Assert.Contains("block_19", context);
         Assert.DoesNotContain("block_0:", context);

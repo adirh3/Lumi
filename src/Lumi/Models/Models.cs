@@ -75,65 +75,115 @@ public sealed class EmbeddedApp
 
 public class ChatMessage
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public string Role { get; set; } = "user"; // user, assistant, system, tool, reasoning, error
-    public string Content { get; set; } = "";
-    public string? Author { get; set; }
+    private Guid _id = Guid.NewGuid();
+    public Guid Id { get => _id; set => SetPersisted(ref _id, value); }
+    private string _role = "user";
+    public string Role { get => _role; set => SetPersisted(ref _role, value); } // user, assistant, system, tool, reasoning, error
+    private string _content = "";
+    public string Content { get => _content; set => SetPersisted(ref _content, value); }
+    private string? _author;
+    public string? Author { get => _author; set => SetPersisted(ref _author, value); }
+    private string? _remoteRequestId;
     /// <summary>Authenticated mobile request that created this user message, when applicable.</summary>
-    public string? RemoteRequestId { get; set; }
-    public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;
-    public string? ToolName { get; set; }
+    public string? RemoteRequestId { get => _remoteRequestId; set => SetPersisted(ref _remoteRequestId, value); }
+    private DateTimeOffset _timestamp = DateTimeOffset.Now;
+    public DateTimeOffset Timestamp { get => _timestamp; set => SetPersisted(ref _timestamp, value); }
+    private string? _toolName;
+    public string? ToolName { get => _toolName; set => SetPersisted(ref _toolName, value); }
+    private string? _toolSkillName;
     /// <summary>Display name for a native skill call; the original runtime arguments remain in Content.</summary>
-    public string? ToolSkillName { get; set; }
-    public string? ToolCallId { get; set; }
-    public string? ParentToolCallId { get; set; }
-    public string? ToolStatus { get; set; } // InProgress, Completed, Failed, Stopped
-    public string? ToolOutput { get; set; }
+    public string? ToolSkillName { get => _toolSkillName; set => SetPersisted(ref _toolSkillName, value); }
+    private string? _toolCallId;
+    public string? ToolCallId { get => _toolCallId; set => SetPersisted(ref _toolCallId, value); }
+    private string? _parentToolCallId;
+    public string? ParentToolCallId { get => _parentToolCallId; set => SetPersisted(ref _parentToolCallId, value); }
+    private string? _toolStatus;
+    public string? ToolStatus { get => _toolStatus; set => SetPersisted(ref _toolStatus, value); } // InProgress, Completed, Failed, Stopped
+    private string? _toolOutput;
+    public string? ToolOutput { get => _toolOutput; set => SetPersisted(ref _toolOutput, value); }
+    private EmbeddedApp? _embeddedApp;
+    /// <summary>The app this tool opened. Changing it in place takes <see cref="MarkChanged"/> to be saved.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public EmbeddedApp? EmbeddedApp { get; set; }
+    public EmbeddedApp? EmbeddedApp { get => _embeddedApp; set => SetPersisted(ref _embeddedApp, value); }
 
+    private DateTimeOffset? _toolStartedAt;
     /// <summary>
     /// Wall-clock instant this tool call started, stamped from the SDK's tool-start event. Persisted
     /// so elapsed time is a property of the command itself rather than of the UI session that
     /// happened to observe it — switching or reopening a chat no longer restarts the clock.
     /// </summary>
-    public DateTimeOffset? ToolStartedAt { get; set; }
+    public DateTimeOffset? ToolStartedAt { get => _toolStartedAt; set => SetPersisted(ref _toolStartedAt, value); }
 
+    private double? _toolDurationMs;
     /// <summary>
     /// Final duration of this tool call in milliseconds, frozen when the call reaches a terminal
     /// status. Null while it is still running, or when its start was never observed.
     /// </summary>
-    public double? ToolDurationMs { get; set; }
+    public double? ToolDurationMs { get => _toolDurationMs; set => SetPersisted(ref _toolDurationMs, value); }
 
+    private string? _planSnapshot;
     /// <summary>
     /// The agent's plan right after this <c>sql</c> call changed it, read back from the session's todos
     /// table (<c>session.todos_changed</c>), as a <c>todoList</c> JSON array of titles and statuses. Null
     /// for every other message; a call that carries it shows as a plan update instead of a query.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? PlanSnapshot { get; set; }
-    public Guid? LinkedChatId { get; set; }
-    public string? LinkedChatTitle { get; set; }
-    public string? QuestionId { get; set; }
-    public string? QuestionText { get; set; }
-    public string? QuestionOptions { get; set; }
-    public bool? QuestionAllowFreeText { get; set; }
-    public bool? QuestionAllowMultiSelect { get; set; }
+    public string? PlanSnapshot { get => _planSnapshot; set => SetPersisted(ref _planSnapshot, value); }
+    private Guid? _linkedChatId;
+    public Guid? LinkedChatId { get => _linkedChatId; set => SetPersisted(ref _linkedChatId, value); }
+    private string? _linkedChatTitle;
+    public string? LinkedChatTitle { get => _linkedChatTitle; set => SetPersisted(ref _linkedChatTitle, value); }
+    private string? _questionId;
+    public string? QuestionId { get => _questionId; set => SetPersisted(ref _questionId, value); }
+    private string? _questionText;
+    public string? QuestionText { get => _questionText; set => SetPersisted(ref _questionText, value); }
+    private string? _questionOptions;
+    public string? QuestionOptions { get => _questionOptions; set => SetPersisted(ref _questionOptions, value); }
+    private bool? _questionAllowFreeText;
+    public bool? QuestionAllowFreeText { get => _questionAllowFreeText; set => SetPersisted(ref _questionAllowFreeText, value); }
+    private bool? _questionAllowMultiSelect;
+    public bool? QuestionAllowMultiSelect { get => _questionAllowMultiSelect; set => SetPersisted(ref _questionAllowMultiSelect, value); }
+    private Dictionary<string, string>? _interactionStates;
     /// <summary>User-owned UI state keyed by a response block's stable id.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public Dictionary<string, string>? InteractionStates { get; set; }
+    public Dictionary<string, string>? InteractionStates { get => _interactionStates; set => SetPersisted(ref _interactionStates, value); }
+    private string? _inputKind;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? InputKind { get; set; }
+    public string? InputKind { get => _inputKind; set => SetPersisted(ref _inputKind, value); }
+    private string? _inputDefinition;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? InputDefinition { get; set; }
+    public string? InputDefinition { get => _inputDefinition; set => SetPersisted(ref _inputDefinition, value); }
+    private string? _inputAnswer;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? InputAnswer { get; set; }
+    public string? InputAnswer { get => _inputAnswer; set => SetPersisted(ref _inputAnswer, value); }
+    private bool _inputCanceled;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool InputCanceled { get; set; }
+    public bool InputCanceled { get => _inputCanceled; set => SetPersisted(ref _inputCanceled, value); }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public InteractionReceipt? InteractionReceipt { get; set; }
-    public bool IsStreaming { get; set; }
+    public InteractionReceipt? InteractionReceipt
+    {
+        get => _interactionReceipt;
+        set
+        {
+            if (ReferenceEquals(_interactionReceipt, value))
+                return;
+            if (_interactionReceipt is not null)
+                _interactionReceipt.PropertyChanged -= OnInteractionReceiptChanged;
+            _interactionReceipt = value;
+            if (value is not null)
+                value.PropertyChanged += OnInteractionReceiptChanged;
+            MarkChanged();
+        }
+    }
 
+    private InteractionReceipt? _interactionReceipt;
+
+    // A receipt's status lives on its own object, so its changes are changes to this message too.
+    private void OnInteractionReceiptChanged(object? sender, PropertyChangedEventArgs e) => MarkChanged();
+    private bool _isStreaming;
+    public bool IsStreaming { get => _isStreaming; set => SetPersisted(ref _isStreaming, value); }
+
+    private bool? _isProgress;
     /// <summary>
     /// Whether this assistant message was a progress update written while working (true) or part of
     /// the answer (false), decided from the SDK's evidence when the message arrived. Null when there was
@@ -141,7 +191,7 @@ public class ChatMessage
     /// finished — whose role is then inferred from what followed it.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? IsProgress { get; set; }
+    public bool? IsProgress { get => _isProgress; set => SetPersisted(ref _isProgress, value); }
 
     /// <summary>
     /// Session-only id of the model call that produced this assistant message. A reply split around
@@ -150,37 +200,85 @@ public class ChatMessage
     [JsonIgnore]
     internal string? ApiCallId { get; set; }
 
-    public string? Model { get; set; }
-    public string? ReasoningEffort { get; set; }
-    public string? ContextWindowTier { get; set; }
-    public Guid? AgentId { get; set; }
-    public string? SdkAgentName { get; set; }
-    public bool HasAgentSelection { get; set; }
-    public List<string> ActiveMcpServerNames { get; set; } = [];
-    public bool HasMcpSelection { get; set; }
-    public List<string> Attachments { get; set; } = [];
-    public List<SearchSource> Sources { get; set; } = [];
-    public List<SkillReference> ActiveSkills { get; set; } = [];
+    private string? _model;
+    public string? Model { get => _model; set => SetPersisted(ref _model, value); }
+    private string? _reasoningEffort;
+    public string? ReasoningEffort { get => _reasoningEffort; set => SetPersisted(ref _reasoningEffort, value); }
+    private string? _contextWindowTier;
+    public string? ContextWindowTier { get => _contextWindowTier; set => SetPersisted(ref _contextWindowTier, value); }
+    private Guid? _agentId;
+    public Guid? AgentId { get => _agentId; set => SetPersisted(ref _agentId, value); }
+    private string? _sdkAgentName;
+    public string? SdkAgentName { get => _sdkAgentName; set => SetPersisted(ref _sdkAgentName, value); }
+    private bool _hasAgentSelection;
+    public bool HasAgentSelection { get => _hasAgentSelection; set => SetPersisted(ref _hasAgentSelection, value); }
+    private List<string> _activeMcpServerNames = [];
+    public List<string> ActiveMcpServerNames { get => _activeMcpServerNames; set => SetPersisted(ref _activeMcpServerNames, value); }
+    private bool _hasMcpSelection;
+    public bool HasMcpSelection { get => _hasMcpSelection; set => SetPersisted(ref _hasMcpSelection, value); }
+    private List<string> _attachments = [];
+    public List<string> Attachments { get => _attachments; set => SetPersisted(ref _attachments, value); }
+    private List<SearchSource> _sources = [];
+    public List<SearchSource> Sources { get => _sources; set => SetPersisted(ref _sources, value); }
+    private List<SkillReference> _activeSkills = [];
+    public List<SkillReference> ActiveSkills { get => _activeSkills; set => SetPersisted(ref _activeSkills, value); }
+    private MessageReply? _replyTo;
     /// <summary>
     /// The earlier assistant message (or the excerpt of it) this user message replies to, or null for
     /// an ordinary message. The quote travels with the message so the model receives it on every
     /// send, resend, and transcript replay.
     /// </summary>
-    public MessageReply? ReplyTo { get; set; }
+    public MessageReply? ReplyTo { get => _replyTo; set => SetPersisted(ref _replyTo, value); }
+    private List<ChatReference>? _referencedChats;
     /// <summary>
     /// Other chats the user brought into this message, or null for none. Their transcripts are read
     /// into the prompt when the message is sent (and on resend), so the model sees what they hold.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<ChatReference>? ReferencedChats { get; set; }
+    public List<ChatReference>? ReferencedChats { get => _referencedChats; set => SetPersisted(ref _referencedChats, value); }
+    private SessionFailureDisposition? _failureDisposition;
     /// <summary>
     /// Recovery decision captured from a structured session error. Persisted so reopening a chat
     /// does not have to infer behavior from localized display text.
     /// </summary>
-    public SessionFailureDisposition? FailureDisposition { get; set; }
+    public SessionFailureDisposition? FailureDisposition { get => _failureDisposition; set => SetPersisted(ref _failureDisposition, value); }
 
     /// <summary>A local send held by Pause, restored to the FIFO when this chat is loaded.</summary>
-    public bool IsPendingPausedSend { get; set; }
+    public bool IsPendingPausedSend { get => _isPendingPausedSend; set => SetPersisted(ref _isPendingPausedSend, value); }
+    private bool _isPendingPausedSend;
+
+    /// <summary>
+    /// The message's position key in the chat's stored transcript (1-based, ordered), or 0 while it
+    /// has never been stored. Assigned by the chat store; a copy made with <see cref="Clone"/> is new.
+    /// </summary>
+    [JsonIgnore]
+    internal long StorageSeq { get; set; }
+
+    /// <summary>Increases whenever a persisted field changes, so saves can write only changed messages.</summary>
+    [JsonIgnore]
+    internal long Revision { get; private set; }
+
+    /// <summary>The <see cref="Revision"/> last written to storage; -1 forces the next save to write it.</summary>
+    [JsonIgnore]
+    internal long PersistedRevision { get; set; } = -1;
+
+    /// <summary>True when the message holds changes storage has not received yet.</summary>
+    [JsonIgnore]
+    internal bool HasUnpersistedChanges => Revision != PersistedRevision;
+
+    /// <summary>
+    /// Records a change made inside one of the message's collections or nested objects, which the
+    /// property setters cannot see (for example adding a source to <see cref="Sources"/>).
+    /// </summary>
+    public void MarkChanged() => Revision++;
+
+    private void SetPersisted<T>(ref T field, T value)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+            return;
+        field = value;
+        Revision++;
+    }
 
     private MessageSteerState _steerDelivery;
 

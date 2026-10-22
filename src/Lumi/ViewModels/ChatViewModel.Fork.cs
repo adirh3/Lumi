@@ -53,9 +53,11 @@ public partial class ChatViewModel
     /// The current chat's breadcrumb back to its source, or null when it was not created by
     /// duplicating or forking.
     /// </summary>
-    private ForkOrigin? GetCurrentForkOrigin()
-        => CurrentChat?.ForkedFromChatId is Guid originId
-            ? new ForkOrigin(originId, CurrentChat.ForkedFromTitle, CurrentChat.ForkedFromMessage)
+    private ForkOrigin? GetCurrentForkOrigin() => GetForkOrigin(CurrentChat);
+
+    internal static ForkOrigin? GetForkOrigin(Chat? chat)
+        => chat?.ForkedFromChatId is Guid originId
+            ? new ForkOrigin(originId, chat.ForkedFromTitle, chat.ForkedFromMessage)
             : null;
 
     /// <summary>

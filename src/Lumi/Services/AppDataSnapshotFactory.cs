@@ -6,7 +6,8 @@ namespace Lumi.Services;
 
 internal static class AppDataSnapshotFactory
 {
-    public static AppData CreateIndexSnapshot(AppData source)
+    /// <param name="includeChats">False when chats live in the chat database rather than the index file.</param>
+    public static AppData CreateIndexSnapshot(AppData source, bool includeChats = true)
     {
         var settings = source.Settings;
 
@@ -131,9 +132,9 @@ internal static class AppDataSnapshotFactory
                     .Select(CloneRemotePairedDevice)
                     .ToList(),
             },
-            Chats = source.Chats
-                .Select(CloneChatIndex)
-                .ToList(),
+            Chats = includeChats
+                ? source.Chats.Select(CloneChatIndex).ToList()
+                : [],
             ChatTags = source.ChatTags
                 .Select(static tag => new ChatTag
                 {

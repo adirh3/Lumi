@@ -38,7 +38,7 @@ public class GlobalSearchAdvancedTests
         AppData data,
         IReadOnlyDictionary<Guid, ChatSearchSnapshot>? snapshots = null,
         Action<Guid>? onProviderCall = null,
-        Func<Guid, DateTimeOffset?>? timestampProvider = null)
+        Func<Guid, long?>? versionProvider = null)
     {
         return new GlobalSearchService(
             () => data,
@@ -50,7 +50,7 @@ public class GlobalSearchAdvancedTests
                 return new ChatSearchSnapshot { Version = $"empty:{chat.Id}" };
             },
             () => Now,
-            chatFileTimestampProvider: timestampProvider);
+            chatContentVersionProvider: versionProvider is null ? null : chat => versionProvider(chat.Id));
     }
 
     [Fact]
@@ -370,28 +370,28 @@ public class GlobalSearchAdvancedTests
     }
 
     [Fact]
-    public async Task Warm_RevalidatesStaleEntry_WhenFileTimestampChanges()
+    public async Task Warm_RevalidatesStaleEntry_WhenContentVersionChanges()
     {
         var chat = ColdChat("Weekly sync", Now.AddHours(-2));
         var snapshots = new Dictionary<Guid, ChatSearchSnapshot>
         {
             [chat.Id] = Snapshot("v1", "old alphaword content")
         };
-        var timestamps = new Dictionary<Guid, DateTimeOffset> { [chat.Id] = Now.AddHours(-2) };
+        var versions = new Dictionary<Guid, long> { [chat.Id] = 7 };
 
         var service = CreateService(
             new AppData { Chats = [chat] },
             snapshots,
-            timestampProvider: id => timestamps.TryGetValue(id, out var ts) ? ts : null);
+            versionProvider: id => versions.TryGetValue(id, out var version) ? version : null);
 
         await service.WarmChatContentAsync();
         Assert.NotEmpty(await service.SearchAsync("alphaword", GlobalSearchExecutionMode.Fast));
 
-        // The file changes on disk (another instance edited it) AND its last-write time advances.
+        // The stored transcript changes (another instance edited it) AND its content version advances.
         snapshots[chat.Id] = Snapshot("v2", "new betaword body");
-        timestamps[chat.Id] = Now.AddMinutes(-1);
+        versions[chat.Id] = 8;
 
-        // A fresh warm must notice the newer timestamp and rebuild the stale entry.
+        // A fresh warm must notice the newer version and rebuild the stale entry.
         await service.WarmChatContentAsync();
 
         Assert.NotEmpty(await service.SearchAsync("betaword", GlobalSearchExecutionMode.Fast));
@@ -399,26 +399,46 @@ public class GlobalSearchAdvancedTests
     }
 
     [Fact]
-    public async Task Warm_DoesNotReindex_WhenFileTimestampUnchanged()
+    public async Task ChatWithContentNotStoredYet_IsReadAgainForEverySearch()
+    {
+        var chat = ColdChat("Draft", Now.AddHours(-1));
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "first alphaword" });
+        var snapshots = new Dictionary<Guid, ChatSearchSnapshot> { [chat.Id] = Snapshot("v1", "first alphaword") };
+        long? version = null;
+        var service = CreateService(new AppData { Chats = [chat] }, snapshots, versionProvider: _ => version);
+
+        Assert.NotEmpty(await service.SearchAsync("alphaword", GlobalSearchExecutionMode.Fast));
+        snapshots[chat.Id] = Snapshot("v2", "second betaword");
+        Assert.NotEmpty(await service.SearchAsync("betaword", GlobalSearchExecutionMode.Fast));
+
+        // Once stored, the entry is kept until the stored content changes.
+        version = 9;
+        await service.WarmChatContentAsync();
+        snapshots[chat.Id] = Snapshot("v3", "third gammaword");
+        Assert.Empty(await service.SearchAsync("gammaword", GlobalSearchExecutionMode.Fast));
+    }
+
+    [Fact]
+    public async Task Warm_DoesNotReindex_WhenContentVersionUnchanged()
     {
         var chat = ColdChat("Weekly sync", Now.AddHours(-2));
         var snapshots = new Dictionary<Guid, ChatSearchSnapshot>
         {
             [chat.Id] = Snapshot("v1", "old alphaword content")
         };
-        var timestamps = new Dictionary<Guid, DateTimeOffset> { [chat.Id] = Now.AddHours(-2) };
+        var versions = new Dictionary<Guid, long> { [chat.Id] = 7 };
 
         var providerCalls = 0;
         var service = CreateService(
             new AppData { Chats = [chat] },
             snapshots,
             onProviderCall: _ => providerCalls++,
-            timestampProvider: id => timestamps.TryGetValue(id, out var ts) ? ts : null);
+            versionProvider: id => versions.TryGetValue(id, out var version) ? version : null);
 
         await service.WarmChatContentAsync();
         var callsAfterFirstWarm = providerCalls;
 
-        // Content changes but the timestamp does NOT — an unchanged file must not be re-read.
+        // Content changes but the version does NOT — an unchanged transcript must not be re-read.
         snapshots[chat.Id] = Snapshot("v2", "new betaword body");
         await service.WarmChatContentAsync();
 

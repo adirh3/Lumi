@@ -560,12 +560,10 @@ public sealed class ChatOrchestrationService : IDisposable
                 return (Snapshot: (StatusSnapshot?)null, Error: resolution.Error);
 
             var chat = resolution.Chat;
-            var loaded = chat.Messages.Count > 0 ? chat.Messages.ToList() : null;
             return (Snapshot: new StatusSnapshot(
                     chat,
                     DescribeLiveState(chat),
-                    DescribeMeta(chat),
-                    loaded),
+                    DescribeMeta(chat)),
                 Error: (string?)null);
         }).ConfigureAwait(false);
 
@@ -573,13 +571,27 @@ public sealed class ChatOrchestrationService : IDisposable
             return snap.Error!;
 
         var status = snap.Snapshot;
-        var messages = status.LoadedMessages
-            ?? (await _dataStore.ReadChatMessagesAsync(status.Chat, cancellationToken).ConfigureAwait(false)).ToList();
+        // The newest messages and the chat's counts are enough; its history stays in storage.
+        var recent = (await _dataStore.ReadRecentChatMessagesAsync(status.Chat, StatusRecentMessages, cancellationToken: cancellationToken)
+            .ConfigureAwait(false)).ToList();
+        var roles = await _dataStore.CountChatRolesAsync(status.Chat, cancellationToken).ConfigureAwait(false);
+        var lastError = recent.LastOrDefault(m => m.Role == "error")
+            ?? await _dataStore.ReadLastChatMessageAsync(status.Chat, "error", cancellationToken: cancellationToken).ConfigureAwait(false);
+        var lastAssistant = recent.LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content))
+            ?? await _dataStore.ReadLastChatMessageAsync(status.Chat, "assistant", withText: true, cancellationToken).ConfigureAwait(false);
 
-        return FormatStatus(status, messages, window);
+        return FormatStatus(status, recent, roles, lastError, lastAssistant, window);
     }
 
-    private static string FormatStatus(StatusSnapshot status, List<ChatMessage> messages, int window)
+    private const int StatusRecentMessages = 400;
+
+    private static string FormatStatus(
+        StatusSnapshot status,
+        List<ChatMessage> recent,
+        IReadOnlyDictionary<string, (int Count, int WithText)> roles,
+        ChatMessage? lastError,
+        ChatMessage? lastAssistant,
+        int window)
     {
         var chat = status.Chat;
         var builder = new StringBuilder();
@@ -587,19 +599,18 @@ public sealed class ChatOrchestrationService : IDisposable
         builder.Append(status.Meta).Append('\n');
         builder.Append("State: ").Append(status.LiveState).Append('\n');
 
-        var userCount = messages.Count(m => m.Role == "user");
-        var assistantCount = messages.Count(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
-        var errorCount = messages.Count(m => m.Role == "error");
-        builder.Append($"Messages: {messages.Count} ({userCount} from senders, {assistantCount} from Lumi");
+        var total = roles.Values.Sum(static value => value.Count);
+        var userCount = roles.TryGetValue("user", out var users) ? users.Count : 0;
+        var assistantCount = roles.TryGetValue("assistant", out var assistants) ? assistants.WithText : 0;
+        var errorCount = roles.TryGetValue("error", out var errors) ? errors.Count : 0;
+        builder.Append($"Messages: {total} ({userCount} from senders, {assistantCount} from Lumi");
         if (errorCount > 0)
             builder.Append($", {errorCount} error(s)");
         builder.Append(")\n");
 
-        var lastError = messages.LastOrDefault(m => m.Role == "error");
         if (lastError is not null)
             builder.Append("Last error: ").Append(Truncate(Collapse(lastError.Content), SnippetChars)).Append('\n');
 
-        var lastAssistant = messages.LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
         if (lastAssistant is not null)
         {
             builder.Append("\nLatest Lumi reply:\n");
@@ -611,7 +622,7 @@ public sealed class ChatOrchestrationService : IDisposable
             builder.Append("\nLumi has not produced a text reply in this chat yet.\n");
         }
 
-        var recentTools = messages
+        var recentTools = recent
             .Where(m => m.Role == "tool" && !string.IsNullOrWhiteSpace(m.ToolName))
             .TakeLast(5)
             .Select(m => $"{ToolDisplayHelper.GetToolGlyph(m.ToolName!)} {m.ToolName}{(string.IsNullOrWhiteSpace(m.ToolStatus) ? "" : $" ({m.ToolStatus})")}")
@@ -928,6 +939,5 @@ public sealed class ChatOrchestrationService : IDisposable
     private sealed record StatusSnapshot(
         Chat Chat,
         string LiveState,
-        string Meta,
-        List<ChatMessage>? LoadedMessages);
+        string Meta);
 }

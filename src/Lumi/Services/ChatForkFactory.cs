@@ -69,8 +69,8 @@ public static class ChatForkFactory
     /// </summary>
     /// <param name="source">The chat being forked. Not modified.</param>
     /// <param name="sourceMessages">
-    /// The source chat's messages. Passed explicitly because a chat's messages are lazily loaded
-    /// from its side file, so the caller must ensure they are present first.
+    /// The source chat's messages. Passed explicitly because only a chat's newest exchange is kept in
+    /// memory, so the caller reads the whole stored transcript first.
     /// </param>
     /// <param name="throughMessageId">
     /// The message the user forked from, or null to copy the whole transcript. An assistant message
@@ -88,8 +88,8 @@ public static class ChatForkFactory
         var now = DateTimeOffset.Now;
         var fork = new Chat
         {
-            // Id is a fresh Guid from the initialiser: it names the chat's side file, so it must
-            // never be shared with the source.
+            // Id is a fresh Guid from the initialiser: it keys the chat's stored transcript, so it
+            // must never be shared with the source.
             // A whole-chat duplicate and a branch taken from one message are different actions to
             // the user, so their titles say which one produced this chat.
             Title = BuildForkTitle(source.Title, throughMessageId is null ? CopyMarker : ForkMarker),

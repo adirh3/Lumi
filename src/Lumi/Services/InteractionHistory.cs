@@ -6,10 +6,12 @@ internal static class InteractionHistory
 {
     public const string InterruptedReceiptError = "The session ended before a reply was confirmed. The submitted inputs are kept.";
 
-    public static bool SettleInterrupted(Chat chat)
+    public static bool SettleInterrupted(Chat chat) => SettleInterrupted(chat.Messages);
+
+    public static bool SettleInterrupted(IEnumerable<ChatMessage> messages)
     {
         var changed = false;
-        foreach (var message in chat.Messages)
+        foreach (var message in messages)
         {
             if (message.InteractionReceipt is { Status: "Submitted" or "Working" } receipt)
             {

@@ -14,13 +14,15 @@ namespace Lumi.Views;
 
 /// <summary>
 /// Ctrl+↑/↓ (⌥⌘↑/↓ on macOS) jumps the transcript to the previous/next user message, landing it just
-/// below the header and briefly glowing it. It applies when nothing is focused, from the transcript,
+/// below the header and briefly glowing it; an older exchange that is only in storage is built first.
+/// It applies when nothing is focused, from the transcript,
 /// or from an empty composer (matching plain ↑/↓ scrolling the transcript from an empty composer);
 /// other focused controls and typing keep the keys.
 /// </summary>
 public partial class ChatView
 {
     private const double UserMessageLandingInset = 64;
+    private const double UserMessageLandingSlack = 12;
 
     private TopLevel? _userNavKeySource;
     private TranscriptTurn? _userNavTarget;
@@ -78,7 +80,9 @@ public partial class ChatView
         return -1;
     }
 
-    private static bool IsUserTurn(TranscriptTurn turn) => turn.Items.Any(static item => item is UserMessageItem);
+    // An older exchange that is only in storage stands in for the user message it starts with.
+    private static bool IsUserTurn(TranscriptTurn turn)
+        => turn.Items.Any(static item => item is UserMessageItem) || ChatViewModel.StandsInForUserMessage(turn);
 
     private void ResetUserMessageNavigation()
     {
@@ -86,6 +90,14 @@ public partial class ChatView
         _userNavTarget = null;
         _userNavLandingOffset = double.NaN;
         _userNavInFlight = false;
+    }
+
+    /// <summary>Where a realized turn's message (or the turn itself) is in the transcript's viewport: what a jump lands.</summary>
+    private double? GetLandingY(TranscriptTurn turn)
+    {
+        var control = FindRealizedTurnControl(turn.StableId);
+        var landing = (Control?)control?.GetVisualDescendants().OfType<StrataChatMessage>().FirstOrDefault() ?? control;
+        return _transcriptScrollViewer is { } viewer && landing?.TranslatePoint(default, viewer) is { } point ? point.Y : null;
     }
 
     private void AttachUserMessageNavigation(TopLevel? topLevel)
@@ -165,39 +177,73 @@ public partial class ChatView
         _userNavInFlight = true;
         try
         {
+            if (ChatViewModel.StandsInForUserMessage(turn))
+            {
+                // Build the exchange first, then land on its user message.
+                var built = await vm.BuildHistoryExchangeAsync(turn);
+                if (version != _userNavVersion || built?.FirstOrDefault(IsUserTurn) is not { } userTurn)
+                    return;
+
+                turn = userTurn;
+                _userNavTarget = turn;
+            }
+
             var control = await EnsureTurnRealizedAsync(turn, settleContent: false);
             if (version != _userNavVersion || control is null || _chatShell is null || _transcriptScrollViewer is null)
                 return;
 
             var message = control.GetVisualDescendants().OfType<StrataChatMessage>().FirstOrDefault();
-            Control landing = message is not null ? message : control;
             // Glow in the same frame as the first scroll, not after the corrections below.
             if (message is not null)
                 FlashMessage(message);
 
             // Realizing the target and its neighbours re-measures them, shifting the target after the
-            // first scroll; re-measure and correct until it settles on the landing line.
+            // first scroll; re-measure and correct until it settles on the landing line. Older exchanges
+            // around the target are read and built once the viewport realizes them, re-measuring what is
+            // above it again: realize the viewport now, wait for them, then land once more.
             _chatShell.PreserveViewport();
-            for (var attempt = 0; attempt < 4; attempt++)
+            if (!await LandAsync())
+                return;
+            if (vm.HasTranscriptHistory)
             {
-                if (landing.TranslatePoint(default, _transcriptScrollViewer) is not { } point)
-                    return;
+                (_transcript as TranscriptItemsControl)?.RealizeCurrentViewportNow();
+                for (var wait = 0; wait < 40 && (vm.TranscriptHistory.HasPendingWork || TranscriptRealizationScheduler.Instance.HasPendingWork); wait++)
+                {
+                    await Task.Delay(16);
+                    if (version != _userNavVersion)
+                        return;
+                }
 
-                var before = _chatShell.VerticalOffset;
-                var desired = Math.Max(0, before + point.Y - UserMessageLandingInset);
-                if (Math.Abs(desired - before) < 1)
-                    break;
-
-                _chatShell.ScrollToVerticalOffset(desired);
-                if (Math.Abs(_chatShell.VerticalOffset - before) < 1)
-                    break; // clamped at an edge
-
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Loaded);
-                if (version != _userNavVersion)
+                if (!await LandAsync())
                     return;
             }
 
             _userNavLandingOffset = _chatShell.VerticalOffset;
+
+            async Task<bool> LandAsync()
+            {
+                for (var attempt = 0; attempt < 4; attempt++)
+                {
+                    // Realizing again replaces the turn's controls, so find the message each time.
+                    if (_chatShell is null || GetLandingY(turn) is not { } y)
+                        return false;
+
+                    var before = _chatShell.VerticalOffset;
+                    var desired = Math.Max(0, before + y - UserMessageLandingInset);
+                    if (Math.Abs(desired - before) < 1)
+                        break;
+
+                    _chatShell.ScrollToVerticalOffset(desired);
+                    if (Math.Abs(_chatShell.VerticalOffset - before) < 1)
+                        break; // clamped at an edge
+
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Loaded);
+                    if (version != _userNavVersion)
+                        return false;
+                }
+
+                return true;
+            }
         }
         finally
         {
@@ -249,7 +295,11 @@ public partial class ChatView
             return false;
 
         anchorIndex = turns.IndexOf(anchor.Turn);
-        anchorStartsAbove = anchorTop < UserMessageLandingInset - 1;
+        // The reader is partway through the turn when what a jump lands — its message — starts above
+        // the landing line by more than the few pixels layout settles after a jump. A jump puts the
+        // message, not the turn's edge, on the line, and older exchanges built above it move the scroll
+        // offset, so this is where repeated presses resume.
+        anchorStartsAbove = (GetLandingY(anchor.Turn) ?? anchorTop) < UserMessageLandingInset - UserMessageLandingSlack;
         return anchorIndex >= 0;
     }
 }

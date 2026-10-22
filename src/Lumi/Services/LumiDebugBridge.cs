@@ -437,7 +437,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
 
         var includeEmpty = GetBool(args, "includeEmpty") ?? true;
         if (!includeEmpty)
-            chats = chats.Where(chat => chat.Messages.Count > 0 || chat.CopilotSessionId is not null);
+            chats = chats.Where(chat => chat.Messages.Count > 0 || chat.MessageCount > 0 || chat.CopilotSessionId is not null || _dataStore.HasStoredMessages(chat.Id));
 
         var isRunning = GetBool(args, "isRunning");
         if (isRunning.HasValue)
@@ -987,11 +987,20 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
     {
         return InvokeUiAsync(async () =>
         {
+            // The whole transcript: older exchanges come from storage, the newest are live.
+            var messages = (await _dataStore.ReadChatMessagesAsync(chat).ConfigureAwait(true)).ToList();
             if (_mainViewModel.ChatVM.CurrentChat?.Id == chat.Id)
-                return _mainViewModel.ChatVM.Messages.Select(vm => vm.Message).ToList();
+            {
+                // The open chat's surface may already show a message that is still streaming in.
+                var known = messages.Select(static message => message.Id).ToHashSet();
+                foreach (var message in _mainViewModel.ChatVM.Messages.Select(static vm => vm.Message))
+                {
+                    if (known.Add(message.Id))
+                        messages.Add(message);
+                }
+            }
 
-            await _dataStore.LoadChatMessagesAsync(chat).ConfigureAwait(true);
-            return chat.Messages.ToList();
+            return messages;
         });
     }
 
@@ -1502,7 +1511,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
         return result;
     }
 
-    private static IEnumerable<Chat> SortChats(IEnumerable<Chat> chats, JsonElement args)
+    private IEnumerable<Chat> SortChats(IEnumerable<Chat> chats, JsonElement args)
     {
         var sortBy = (GetString(args, "sortBy") ?? "updatedAt").Trim().ToLowerInvariant();
         var descending = !string.Equals(GetString(args, "sortDirection"), "asc", StringComparison.OrdinalIgnoreCase)
@@ -1516,8 +1525,8 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 ? chats.OrderByDescending(chat => chat.CreatedAt)
                 : chats.OrderBy(chat => chat.CreatedAt),
             "messages" or "messagecount" => descending
-                ? chats.OrderByDescending(chat => chat.Messages.Count)
-                : chats.OrderBy(chat => chat.Messages.Count),
+                ? chats.OrderByDescending(chat => _dataStore.GetTotalMessageCount(chat))
+                : chats.OrderBy(chat => _dataStore.GetTotalMessageCount(chat)),
             _ => descending
                 ? chats.OrderByDescending(chat => chat.UpdatedAt)
                 : chats.OrderBy(chat => chat.UpdatedAt)
@@ -1824,14 +1833,14 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
     private static HashSet<string> GetStringSet(JsonElement args, string propertyName)
         => GetStringArray(args, propertyName).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    private static object ChatSummary(Chat chat)
+    private object ChatSummary(Chat chat)
         => new
         {
             id = chat.Id,
             chat.Title,
             chat.ProjectId,
             chat.AgentId,
-            messageCount = chat.Messages.Count,
+            messageCount = _dataStore.GetTotalMessageCount(chat),
             chat.CreatedAt,
             chat.UpdatedAt,
             chat.IsRunning,
@@ -1849,7 +1858,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             projectName = _dataStore.Data.Projects.FirstOrDefault(project => project.Id == chat.ProjectId)?.Name,
             agentId = chat.AgentId,
             agentName = _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId)?.Name,
-            messageCount = chat.Messages.Count,
+            messageCount = _dataStore.GetTotalMessageCount(chat),
             chat.CreatedAt,
             chat.UpdatedAt,
             chat.IsRunning,

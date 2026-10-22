@@ -212,7 +212,7 @@ internal static class JsonFilePersistence
         stream.Flush(flushToDisk: true);
     }
 
-    private static void CopyFileAtomically(string sourceFile, string destinationFile)
+    internal static void CopyFileAtomically(string sourceFile, string destinationFile)
     {
         var tempFile = CreateTempPath(destinationFile);
         try
@@ -227,6 +227,26 @@ internal static class JsonFilePersistence
             using (var destination = CreateWriteStream(tempFile, asynchronous: false))
             {
                 source.CopyTo(destination, BufferSize);
+                destination.Flush(flushToDisk: true);
+            }
+
+            Publish(tempFile, destinationFile);
+            tempFile = null;
+        }
+        finally
+        {
+            TryDelete(tempFile);
+        }
+    }
+
+    internal static void WriteFileAtomically(string destinationFile, ReadOnlySpan<byte> contents)
+    {
+        var tempFile = CreateTempPath(destinationFile);
+        try
+        {
+            using (var destination = CreateWriteStream(tempFile, asynchronous: false))
+            {
+                destination.Write(contents);
                 destination.Flush(flushToDisk: true);
             }
 

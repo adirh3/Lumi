@@ -924,6 +924,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Maps chat ID → CancellationTokenSource for per-chat cancellation.</summary>
     private readonly Dictionary<Guid, CancellationTokenSource> _ctsSources = new();
     private readonly TranscriptBuilder _transcriptBuilder;
+
+    /// <summary>The open chat's stored history before its live tail, built exchange by exchange as it is read.</summary>
+    private readonly TranscriptHistory _history;
     private readonly TranscriptWindowController _transcriptWindow = new(new TranscriptPagingOptions
     {
         MaintainStableMembership = true,
@@ -1676,25 +1679,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _codingToolService = new CodingToolService(copilotService, GetCurrentCancellationToken);
         _selectedModel = dataStore.Data.Settings.PreferredModel;
 
-        _transcriptBuilder = new TranscriptBuilder(
-            dataStore,
-            showDiffAction: item => DiffShowRequested?.Invoke(item),
-            submitQuestionAnswerAction: SubmitQuestionAnswer,
-            beginEditMessageAction: BeginComposerEdit,
-            resendFromMessageAction: ResendFromMessageAsync,
-            openSkillAction: OpenSkillPreview,
-            resolveSkill: name => FindSkillReferenceByName(name),
-            openChatAction: id => OpenChatRequested?.Invoke(id),
-            getSelectedModel: () => SelectedModel,
-            sendSteeredNowAsync: SendSteeredNowAsync,
-            openSubagentRunAction: OpenSubagentRun,
-            subagentRunsChanged: RefreshSubagentRunState,
-            resolveFilePath: path => CurrentChat is { } chat
-                ? ResolveWorkspaceFileChangedPath(chat, path)
-                : path,
-            openReplySourceAction: RequestReplySourceJump,
-            appItemFor: GetAppItem);
+        _transcriptBuilder = CreateTranscriptBuilder(subagentRunsChanged: RefreshSubagentRunState);
         _transcriptBuilder.LiveActivityChanged += OnTranscriptLiveActivityChanged;
+        _history = new TranscriptHistory(
+            dataStore,
+            () => CreateTranscriptBuilder(subagentRunsChanged: null),
+            OnHistoryTurnsHydrated);
+        _history.Changed += () => TranscriptHistoryChanged?.Invoke();
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -1900,7 +1891,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
         }
 
-        TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin(), isWorking: IsBusy);
+        // The stored history leads the transcript: the live builder starts where it ends, seeded with
+        // what it showed, and the history's placeholders (or built exchanges) go in front.
+        var hasHistory = HasTranscriptHistory;
+        TranscriptTurns = _transcriptBuilder.Rebuild(
+            Messages,
+            hasHistory ? null : GetCurrentForkOrigin(),
+            isWorking: IsBusy,
+            seed: hasHistory ? _history.SeedForTail() : null);
+        if (hasHistory)
+            _history.InsertInto(TranscriptTurns);
         UpdateUserMessageEditState();
         UpdateReplySourceHighlight();
         _transcriptWindow.BindTranscript(TranscriptTurns, "rebuild");
@@ -2579,7 +2579,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
             config.ManagedSettings = askLayer;
-            config.OpenCanvases = EmbeddedAppData.SavedOpenCanvases(chat);
+            config.OpenCanvases = EmbeddedAppData.SavedOpenCanvases(chat, _dataStore.GetAppMessages(chat));
             return config;
         }
 
@@ -2818,11 +2818,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         IsLoadingChat = true;
         try
         {
-            // Load messages from per-chat file if not already in memory
+            // Read the chat's live tail (its newest exchange); older history stays in the database.
             await _dataStore.LoadChatMessagesAsync(chat, loadToken);
             if (!OwnsLiveChat(chat.Id) && InteractionHistory.SettleInterrupted(chat))
                 await SaveChatAsync(chat, saveIndex: false, cancellationToken: loadToken);
 
+            if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
+                return;
+
+            // Lay out the older exchanges as placeholders; each is read and built when scrolled to.
+            await _history.LoadAsync(chat, GetForkOrigin(chat), loadToken);
             if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
                 return;
 
@@ -2919,6 +2924,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // Rebuild transcript items from the fully loaded message list before
                 // re-enabling live incremental transcript processing.
                 RebuildTranscript();
+                // The Workspace and Agents index list older exchanges too; read their rows.
+                StartWorkspaceHistoryLoad(chat);
             }
             finally
             {
@@ -2985,6 +2992,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // loading overlay up after the transcript is already interactive.
             QueueRefreshCodingProjectState();
 
+            _historyPlanCard = null;
             if (_activeSession is not null)
             {
                 _ = RefreshPlanAsync(chat);
@@ -2994,7 +3002,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // Restore plan from persisted data (no active session, e.g. after restart)
                 HasPlan = true;
                 PlanContent = chat.PlanContent;
-                _transcriptBuilder.AppendPlanCardToLastTurn("Plan", () => PlanShowRequested?.Invoke());
+                RestorePlanCard();
             }
             else
             {
@@ -3037,7 +3045,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             HasPlan = exists;
             PlanContent = content;
             if (exists)
-                _transcriptBuilder.AppendPlanCardToLastTurn("Plan", () => PlanShowRequested?.Invoke());
+                RestorePlanCard();
         }
         catch { /* best effort */ }
     }
@@ -3136,6 +3144,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _suggestionDisplayChatId = null;
         ClearSuggestions();
 
+        _history.Reset();
+        ResetWorkspaceHistory();
         Messages.Clear();
         TranscriptTurns.Clear();
         _transcriptBuilder.ResetState();
@@ -3836,6 +3846,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _ctsSources[chatId] = cts;
+            // Every turn carries the reader's widget states from the whole chat.
+            promptAdditions += await BuildInteractionContextAsync(targetChat, cts.Token);
 
             var needsReplayPrompt = false;
             var sessionLostSkillLoads = false;
@@ -3853,7 +3865,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     chatWasCreatedThisTurn: false,
                     previousSessionId,
                     targetChat.CopilotSessionId,
-                    retainedContext.Count);
+                    CountRetainedMessages(targetChat, retainedContext));
 
                 // A replacement session holds none of this chat's earlier skill loads, so the
                 // selection persisted on the chat has to be activated again for this turn.
@@ -3921,7 +3933,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
 
             var basePrompt = needsReplayPrompt
-                ? BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
+                ? BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), prompt)
                 : prompt;
             // Background/orchestrated turns carry the skill selection persisted on the chat, not the
             // live composer state — the target chat is usually not the displayed one.
@@ -3933,7 +3945,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     cts.Token)
                 : string.Empty;
             sendOptions = new MessageOptions { Prompt = skillDirectives + basePrompt + promptAdditions };
-            localUserMessageCount = targetChat.Messages.Count(static m => m.Role == "user");
+            localUserMessageCount = _dataStore.CountUserMessages(targetChat);
             localAssistantMessageCount = CountCompletedAssistantMessages(targetChat);
 
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
@@ -3968,7 +3980,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     targetChat,
                     targetChat.ActiveExternalSkillNames,
                     cts.Token);
-                sendOptions.Prompt = skillDirectives + BuildSessionRecoveryReplayPrompt(retainedContext, prompt) + promptAdditions;
+                sendOptions.Prompt = skillDirectives
+                    + BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), prompt)
+                    + promptAdditions;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
@@ -4095,6 +4109,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (IsBusy)
             return;
+
+        // Editing rewinds the chat's Copilot session by the positions of its turns, which only line
+        // up when every message of the chat could be read.
+        if (_dataStore.IsMissingLegacyMessages(CurrentChat))
+        {
+            StatusText = Loc.Get("Chat_EditUnavailableMissingMessages");
+            return;
+        }
 
         if (_editingUserMessage?.Id == userMessage.Id && IsEditingMessage)
         {
@@ -4230,6 +4252,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // before editing (otherwise Cancel could leave the chat/session on a discarded selection).
         if (CurrentChat is { } chat)
         {
+            // An edit that came back unsent already gave the chat its agent (SendEditedMessage), and
+            // the agent was restored above without touching the chat: the chat returns to it as well.
+            chat.AgentId = snapshot.AgentId;
+            chat.SdkAgentName = snapshot.SdkAgentName;
             chat.LastModelUsed = snapshot.ChatLastModelUsed;
             chat.LastReasoningEffortUsed = snapshot.ChatLastReasoningEffortUsed;
             chat.LastContextWindowTierUsed = snapshot.ChatLastContextWindowTierUsed;
@@ -4301,24 +4327,26 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var prompt = PromptText.Trim();
         var selectedReasoningEffort = GetPersistedReasoningEffortPreference();
         var attachments = TakePendingAttachments() ?? [];
+        var edited = EditTargetFor(CurrentChat, userMessage);
 
-        userMessage.Content = prompt;
-        userMessage.Attachments = attachments
+        edited.Content = prompt;
+        edited.Attachments = attachments
             .OfType<AttachmentFile>()
             .Select(static attachment => attachment.Path)
             .ToList();
         // The composer's reply (kept, changed, or dismissed while editing) becomes the edited turn's reply.
-        userMessage.ReplyTo = PendingReply;
+        edited.ReplyTo = PendingReply;
         // Likewise the chats it brings in.
-        userMessage.ReferencedChats = TakeReferencedChats();
-        ApplyCurrentComposerSelectionsToMessage(userMessage, selectedReasoningEffort);
+        edited.ReferencedChats = TakeReferencedChats();
+        ApplyCurrentComposerSelectionsToMessage(edited, selectedReasoningEffort);
         ApplyCurrentComposerSelectionsToChat(CurrentChat, selectedReasoningEffort);
 
         // Decide whether the edit changed agent/MCP/skills vs. the pre-edit (session-built) selection
         // NOW, while the snapshot still exists and before it's cleared below. Comparing against the
         // snapshot rather than the chat/message is essential: the two Apply* calls above have already
         // copied the composer selection onto both, so a chat-vs-message comparison would always match.
-        var requiresSessionReconfiguration = ComposerSelectionDivergesFromSnapshot(_preEditComposerSnapshot);
+        var preEditSnapshot = _preEditComposerSnapshot;
+        var requiresSessionReconfiguration = ComposerSelectionDivergesFromSnapshot(preEditSnapshot);
 
         _editingUserMessage = null;
         _preEditComposerSnapshot = null;
@@ -4329,10 +4357,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _chatDrafts.Remove(CurrentChat.Id);
 
         await ResendFromMessageAsync(
-            userMessage,
+            edited,
             wasEdited: true,
             attachments,
             requiresSessionReconfiguration);
+
+        // An edit that came back unsent (ReturnEditToComposer) is still measured, and cancelled,
+        // against the composer and session it started from.
+        if (ReferenceEquals(_editingUserMessage, edited))
+            _preEditComposerSnapshot = preEditSnapshot;
     }
 
     private void ReplacePendingAttachments(IEnumerable<string> paths)
@@ -4481,12 +4514,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat is not { } chat)
             return SelectedModel;
 
-        var index = chat.Messages.IndexOf(message);
+        // A message of an older exchange is followed by the rest of its exchange, which is built.
+        var messages = chat.Messages.Contains(message)
+            ? chat.Messages
+            : _history.FindHydratedSegment(message.Id)?.Messages ?? chat.Messages;
+        var index = messages.IndexOf(message);
         if (index >= 0)
         {
-            for (var i = index + 1; i < chat.Messages.Count; i++)
+            for (var i = index + 1; i < messages.Count; i++)
             {
-                var next = chat.Messages[i];
+                var next = messages[i];
                 if (next.Role == "user")
                     break;
 
@@ -4967,6 +5004,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             cts = new CancellationTokenSource();
             var turnToken = cts.Token;
             _ctsSources[chatId] = cts;
+            // Every turn carries the reader's widget states from the whole chat.
+            promptAdditions += await BuildInteractionContextAsync(targetChat, turnToken);
 
             // Lazily create the worktree after the user message is visible. Registering the turn
             // cancellation first lets Stop prevent the prompt from being sent once creation returns.
@@ -5042,7 +5081,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     createdChat,
                     previousSessionId,
                     targetChat.CopilotSessionId,
-                    retainedContext.Count);
+                    CountRetainedMessages(targetChat, retainedContext));
 
                 // Skills are one-shot per session: a replacement session carries none of the loads
                 // from earlier turns, so every still-selected skill has to be activated again rather
@@ -5076,10 +5115,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // The chats this message brings in travel with it, so a recovery replay keeps them too.
             modelPrompt += await BuildReferencedChatsContextAsync(userMsg, cts.Token);
             var basePrompt = needsReplayPrompt
-                ? BuildSessionRecoveryReplayPrompt(retainedContext, modelPrompt)
+                ? BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), modelPrompt)
                 : modelPrompt;
             sendOptions = new MessageOptions { Prompt = skillDirectives + basePrompt + promptAdditions };
-            localUserMessageCount = targetChat.Messages.Count(m => m.Role == "user");
+            localUserMessageCount = _dataStore.CountUserMessages(targetChat);
             localAssistantMessageCount = CountCompletedAssistantMessages(targetChat);
 
             ApplyMessageAttachments(sendOptions, attachments);
@@ -5136,7 +5175,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     targetChat,
                     sessionLostHistory: true,
                     cts.Token);
-                sendOptions.Prompt = skillDirectives + BuildSessionRecoveryReplayPrompt(retainedContext, modelPrompt) + promptAdditions;
+                sendOptions.Prompt = skillDirectives
+                    + BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), modelPrompt)
+                    + promptAdditions;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
@@ -5384,8 +5425,25 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
     }
 
-    private static int CountCompletedAssistantMessages(Chat chat)
-        => chat.Messages.Count(static m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
+    private int CountCompletedAssistantMessages(Chat chat)
+        => _dataStore.CountAnsweredAssistantMessages(chat);
+
+    /// <summary>
+    /// The conversation before a send for a replacement session: the chat's stored history followed by
+    /// <paramref name="tailContext"/>, the part of the live tail before the message being sent.
+    /// </summary>
+    private async Task<List<ChatMessage>> WithStoredHistoryAsync(Chat chat, List<ChatMessage> tailContext, CancellationToken ct)
+    {
+        var history = await _dataStore.ReadHistoryConversationAsync(chat, ct);
+        if (history.Count == 0)
+            return tailContext;
+        history.AddRange(tailContext);
+        return history;
+    }
+
+    /// <summary>Messages before the one being sent, counting the chat's stored history.</summary>
+    private int CountRetainedMessages(Chat chat, List<ChatMessage> tailContext)
+        => tailContext.Count + _dataStore.GetTranscriptWindow(chat).HistoryCount;
 
     private async Task<int> CaptureExpectedSessionUserMessageCountAsync(
         CopilotSession session,
@@ -5758,11 +5816,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         var contextChat = targetChat ?? CurrentChat;
+        // A chat's apps, older ones included, are in memory while it is loaded (see GetAppMessages).
         if (contextChat is not null)
-        {
-            builder.Append(InteractiveResponseState.BuildPromptContext(contextChat));
-            builder.Append(EmbeddedAppData.BuildModelContext(contextChat));
-        }
+            builder.Append(EmbeddedAppData.BuildModelContext(_dataStore.GetAppMessages(contextChat)));
         if (contextChat is not null
             && _staleBackgroundJobPromptChats.Remove(contextChat.Id))
         {
@@ -5772,6 +5828,24 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// The reader's current widget states anywhere in the chat, for the prompt: every turn tells the
+    /// model what the reader filled in or checked, stored answers included.
+    /// </summary>
+    private async Task<string> BuildInteractionContextAsync(Chat chat, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return InteractiveResponseState.BuildPromptContext(
+                await _dataStore.ReadInteractionMessagesAsync(chat, cancellationToken).ConfigureAwait(true));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Trace.TraceWarning($"[Chat] Could not read the chat's widget states: {ex.Message}");
+            return InteractiveResponseState.BuildPromptContext(_dataStore.GetLoadedMessages(chat));
+        }
     }
 
     /// <summary>
@@ -6276,7 +6350,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     internal bool TryPrepareFirstExternalMessageTitle(Chat chat, string firstUserMessage)
     {
         if (string.IsNullOrWhiteSpace(firstUserMessage)
-            || chat.Messages.Count(static message => message.Role == "user") != 1
+            || _dataStore.CountUserMessages(chat) != 1
             || !IsDefaultChatTitle(chat.Title))
         {
             return false;
@@ -6362,7 +6436,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         chat.Title = normalizedTitle;
         _dataStore.MarkChatChanged(chat);
-        if (HasPersistedChatFile(chat) && _dataStore.Data.Settings.AutoSaveChats)
+        if (_dataStore.HasStoredMessages(chat.Id) && _dataStore.Data.Settings.AutoSaveChats)
             _ = SaveIndexAsync();
         ChatTitleChanged?.Invoke(chat.Id, chat.Title);
     }
@@ -6418,7 +6492,37 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (checkpoint is null)
             return;
 
-        _ = _memoryAgentService.ProcessCheckpointAsync(checkpoint);
+        _ = ProcessMemoryCheckpointAsync(chat, checkpoint);
+    }
+
+    // The checkpoint's recent conversation reaches back past the newest exchange, into history that
+    // is only in storage.
+    private async Task ProcessMemoryCheckpointAsync(Chat chat, MemoryAgentCheckpoint checkpoint)
+    {
+        const int recentMessages = 8;
+        if (checkpoint.RecentConversation.Count < recentMessages && _dataStore.GetTranscriptWindow(chat).HasHistory)
+        {
+            try
+            {
+                var recent = await _dataStore.ReadRecentChatMessagesAsync(chat, recentMessages * 3, conversationOnly: true);
+                var conversation = recent
+                    .Where(static m => (m.Role == "user" || m.Role == "assistant") && !string.IsNullOrWhiteSpace(m.Content))
+                    .TakeLast(recentMessages)
+                    .Select(static m => new MemoryAgentConversationItem { Role = m.Role, Content = m.Content })
+                    .ToList();
+                if (conversation.Count > checkpoint.RecentConversation.Count)
+                {
+                    checkpoint.RecentConversation.Clear();
+                    checkpoint.RecentConversation.AddRange(conversation);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Trace.TraceWarning("[Memory] Could not read the chat's earlier messages: {0}", ex.Message);
+            }
+        }
+
+        await _memoryAgentService.ProcessCheckpointAsync(checkpoint);
     }
 
     internal void QueueChatCompletionFollowUps(Chat chat)
@@ -6789,9 +6893,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
     }
 
-    private static bool HasPersistedChatFile(Chat chat) =>
-        File.Exists(Path.Combine(DataStore.ChatsDir, $"{chat.Id}.json"));
-
     /// <summary>
     /// Picks the best model from a list of model IDs using name/version heuristics.
     /// </summary>
@@ -6952,7 +7053,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         var idx = CurrentChat.Messages.IndexOf(userMessage);
-        if (idx < 0) return;
+        // A message older than the live tail can be edited or sent again too; its stored history is cut.
+        var editsStoredHistory = idx < 0 && IsStoredHistoryMessage(CurrentChat, userMessage);
+        if (idx < 0 && !editsStoredHistory) return;
+
+        // Cutting stored history waits for the database, and the turn starts only after it: until then
+        // nothing else may start a turn in the chat, or it would count as one kept before the edit.
+        using var historyCutReservation = editsStoredHistory ? TryReserveExternalSend(CurrentChat.Id) : null;
+        if (editsStoredHistory && historyCutReservation is null)
+        {
+            StatusText = Loc.Get("Chat_ResendChatBusy");
+            if (wasEdited)
+                ReturnEditToComposer(userMessage);
+            return;
+        }
         // Regenerate and Edit come from the person in the chat, even after a job's turn.
         MarkTurnAttended(CurrentChat.Id);
 
@@ -6974,12 +7088,50 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ApplyMessageSelectionsToChat(CurrentChat, userMessage, selectedReasoningEffort);
 
         // Remove the user message and everything after it
-        while (CurrentChat.Messages.Count > idx)
-            CurrentChat.Messages.RemoveAt(CurrentChat.Messages.Count - 1);
+        ChatMessage? lastStoredBeforeCut = null;
+        if (editsStoredHistory)
+        {
+            var editedChat = CurrentChat;
+            var cutSeq = userMessage.StorageSeq;
+            try
+            {
+                // The cut first: it takes effect before anything yields (see TruncateChatHistoryAsync).
+                await _dataStore.TruncateChatHistoryAsync(editedChat, userMessage);
+                lastStoredBeforeCut = await _dataStore.ReadLastStoredMessageBeforeAsync(editedChat, cutSeq);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Trace.TraceWarning("[Chat] Could not cut the chat's history to send a message again: {0}", ex.Message);
+                if (CurrentChat?.Id == editedChat.Id)
+                    RestoreUnsentHistoryEdit(userMessage, wasEdited);
+                return;
+            }
+
+            if (CurrentChat?.Id != editedChat.Id)
+                return;
+            _history.TruncateFrom(cutSeq);
+            // A run's page may have read steps the cut removed.
+            _storedRunMessages = null;
+            StartWorkspaceHistoryLoad(editedChat);
+        }
+        else
+        {
+            while (CurrentChat.Messages.Count > idx)
+                CurrentChat.Messages.RemoveAt(CurrentChat.Messages.Count - 1);
+        }
 
         // Preserve the retained transcript (before the edited user turn) so we can
-        // rebuild context safely if we need to recreate the backend session.
+        // rebuild context safely if we need to recreate the backend session. Stored history
+        // before the live tail is read only if a replacement session needs it replayed.
         var retainedContext = CurrentChat.Messages.ToList();
+        // The user turns kept before the edited one, stored or in the tail: the rewind truncates the
+        // session at the next one. Counted now, before the edit is added back as a new message.
+        var retainedUserCount = _dataStore.CountUserMessages(CurrentChat);
+        // When the cut emptied the tail, the stored message right before it decides whether a
+        // failed session must be rebuilt, as the tail's last message does otherwise.
+        var recoveryContext = retainedContext.Count == 0 && lastStoredBeforeCut is not null
+            ? [lastStoredBeforeCut]
+            : retainedContext;
 
         // Rebuild the UI without the removed messages
         _transcriptBuilder.IsRebuildingTranscript = true;
@@ -7083,7 +7235,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 return;
 
             var needsSessionSetup = NeedsSessionSetup(resendChat);
-            ScheduleStoredSessionRecovery(resendChat, retainedContext);
+            ScheduleStoredSessionRecovery(resendChat, recoveryContext);
             if (ConsumePendingSessionInvalidation(resendChat))
                 needsSessionSetup = true;
 
@@ -7104,7 +7256,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var historyRewound = false;
             if (wasEdited)
             {
-                historyRewound = await TryRewindEditedHistoryAsync(CurrentChat, retainedContext, cts.Token);
+                historyRewound = await TryRewindEditedHistoryAsync(CurrentChat, retainedUserCount, cts.Token);
                 if (historyRewound)
                 {
                     shouldReplayPrompt = false;
@@ -7131,6 +7283,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
 
             _ctsSources[chatId] = cts;
+            // Every turn carries the reader's widget states from the whole chat.
+            promptAdditions += await BuildInteractionContextAsync(resendChat, cts.Token);
 
             if (needsSessionSetup)
             {
@@ -7152,7 +7306,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         chatWasCreatedThisTurn: false,
                         previousSessionId,
                         CurrentChat.CopilotSessionId,
-                        retainedContext.Count);
+                        CountRetainedMessages(CurrentChat, retainedContext));
                     if (wasEdited)
                         historyRewound = false;
                 }
@@ -7186,6 +7340,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             RestoreDisplayedSessionFromCache();
             var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            // The turn holds the chat from here, as an external send's does once it starts.
+            historyCutReservation?.Dispose();
             ApplyDisplayedRuntimeState(runtime);
             if (WorktreePath is { Length: > 0 } wtPath && attachments.Count > 0)
             {
@@ -7224,7 +7380,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // The resent turn reads the chats it brings in again, as they are now.
             modelPrompt += await BuildReferencedChatsContextAsync(newUserMsg, cts.Token);
             var resendPrompt = BuildResendPrompt(
-                retainedContext,
+                (wasEdited && !historyRewound) || shouldReplayPrompt
+                    ? await WithStoredHistoryAsync(CurrentChat, retainedContext, cts.Token)
+                    : retainedContext,
                 modelPrompt,
                 wasEdited && !historyRewound,
                 shouldReplayPrompt,
@@ -7234,7 +7392,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (attachments.Count > 0)
                 resendOptions.Attachments = attachments;
 
-            localUserMessageCount = CurrentChat.Messages.Count(m => m.Role == "user");
+            localUserMessageCount = _dataStore.CountUserMessages(CurrentChat);
             localAssistantMessageCount = CountCompletedAssistantMessages(CurrentChat);
             var resendSession = _activeSession
                 ?? throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
@@ -7271,7 +7429,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     return;
                 }
                 var resendPrompt2 = BuildResendPrompt(
-                    retainedContext,
+                    await WithStoredHistoryAsync(CurrentChat, retainedContext, cts.Token),
                     modelPrompt,
                     wasEdited,
                     shouldReplayPrompt: !wasEdited,
@@ -7365,15 +7523,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// from both the live session and the persisted session log.
     /// </summary>
     /// <param name="chat">The chat whose backend session should be rewound.</param>
-    /// <param name="retainedContext">The messages that remain before the edited turn. The
-    /// edited turn is the Nth user turn (0-based) where N is the count of user messages here.</param>
+    /// <param name="retainedUserCount">User messages that remain before the edited turn (stored history
+    /// included): the edited turn is the Nth user turn (0-based) where N is this count.</param>
     /// <param name="ct">Cancellation token for the rewind operation.</param>
     /// <returns><c>true</c> if the history was truncated and the caller may resend the edit as a
     /// normal turn; <c>false</c> if the caller should fall back to recreating the session and
     /// replaying the transcript.</returns>
     private async Task<bool> TryRewindEditedHistoryAsync(
         Chat chat,
-        List<ChatMessage> retainedContext,
+        int retainedUserCount,
         CancellationToken ct)
     {
         // No persisted session means there is nothing server-side to rewind.
@@ -7403,7 +7561,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // system-sourced priming message) that have no local counterpart, so we truncate
             // exactly the edited turn instead of an earlier one. A null result means the local
             // and server user turns don't line up — fall back to the safe replay path.
-            var retainedUserCount = retainedContext.Count(static m => m.Role == "user");
             var target = PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, retainedUserCount);
             if (target is null)
                 return false;

@@ -203,7 +203,10 @@ public sealed class LibraryService
             IReadOnlyList<ChatMessage> messages;
             try
             {
-                messages = await _dataStore.ReadChatMessagesAsync(chat, cancellationToken).ConfigureAwait(false);
+                // Artifacts ride on conversation messages (attachments, sources) and on file
+                // announcements, so the chat's tool traffic never has to be read.
+                messages = await _dataStore.ReadChatConversationAndKindsAsync(
+                    chat, LibraryArtifactKinds, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -556,13 +559,14 @@ public sealed class LibraryService
         };
     }
 
+    private static readonly string[] LibraryArtifactKinds = [Storage.ChatMessageKinds.Deliverable];
+
     private string BuildChatSignature(Chat chat)
     {
-        if (chat.Messages.Count > 0)
-            return $"mem:{chat.Messages.Count}:{chat.UpdatedAt.Ticks}";
+        if (_dataStore.GetChatContentVersion(chat.Id) is { } version)
+            return $"db:{version}:{chat.Messages.Count}";
 
-        var timestamp = _dataStore.GetChatFileTimestamp(chat.Id);
-        return $"file:{timestamp?.Ticks ?? 0}:{chat.MessageCount}";
+        return $"mem:{chat.Messages.Count}:{chat.UpdatedAt.Ticks}:{chat.MessageCount}";
     }
 
     private bool TryGetCached(Guid chatId, string signature, out List<ArtifactReference> references)

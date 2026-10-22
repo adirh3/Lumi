@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
@@ -15,6 +16,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Storage;
 using Lumi.ViewModels;
 using Lumi.Views;
 using StrataTheme.Controls;
@@ -72,6 +74,9 @@ public sealed class ChatViewScrollBehaviorTests
                 var bottomOffset = scrollViewer.Offset.Y;
                 scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0, bottomOffset - 220));
                 await PumpAsync();
+                // The turns the scroll brought into view are realized first, so only the refresh could move them.
+                await Task.Delay(TranscriptItemsControl.ScrollIdleRealizationDelay + TimeSpan.FromMilliseconds(30));
+                await SettleAsync(viewModel);
 
                 Assert.False(shell.IsFollowingTail);
                 var readerAnchor = CaptureVisibleTurnAnchor(view, scrollViewer);
@@ -660,7 +665,7 @@ public sealed class ChatViewScrollBehaviorTests
                     return !viewModel.IsChatSurfaceLoading
                         && transcript.Opacity == 1
                         && (transcript.RenderTransform?.Value ?? Matrix.Identity).IsIdentity;
-                });
+                }, 10_000);
 
                 shell.JumpToLatest();
                 await PumpAsync();
@@ -670,14 +675,24 @@ public sealed class ChatViewScrollBehaviorTests
                 scrollViewer.Offset = scrollViewer.Offset.WithY(middleOffset);
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-
-                scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0, scrollViewer.Offset.Y - 180));
+                transcript.RealizeCurrentViewportNow();
+                await WaitUntilAsync(() => !TranscriptRealizationScheduler.Instance.HasPendingWork);
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
 
-                var anchor = CaptureVisibleTurnAnchor(view, scrollViewer);
+                // Put the top of what shows mid-screen: above it, turns whose content is not shown yet, reserving
+                // estimated heights, as scrolling up brings them into view.
+                var topShown = transcript.ItemsPanelRoot!.GetVisualDescendants().OfType<TranscriptTurnControl>().First(static control => control.ShowsContent);
+                scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0,
+                    scrollViewer.Offset.Y + topShown.TranslatePoint(default, scrollViewer)!.Value.Y - scrollViewer.Viewport.Height / 2));
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+
+                var anchor = CaptureShownTurnAnchor(view, scrollViewer);
                 Assert.NotNull(anchor);
                 Assert.NotNull(scrollViewer.CurrentAnchor);
+                Assert.Contains(GetVisibleTurnControls(view, scrollViewer), control =>
+                    !control.ShowsContent && control.TranslatePoint(default, scrollViewer)!.Value.Y < anchor!.Value.ViewportY);
 
                 var realizationBefore = TranscriptRealizationScheduler.CaptureDiagnostics();
                 transcript.RealizeCurrentViewportNow();
@@ -691,6 +706,7 @@ public sealed class ChatViewScrollBehaviorTests
                 Assert.NotNull(settledY);
                 Assert.False(shell.IsFollowingTail);
                 Assert.True(realizationAfter.RealizeCount > realizationBefore.RealizeCount);
+                // What showed stays where it was while the turns above it realize and take their real heights.
                 Assert.InRange(Math.Abs(settledY.Value - anchor.Value.ViewportY), 0, 2.0);
             }
             finally
@@ -1301,6 +1317,244 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
+    public async Task UserMessageShortcut_StepsBackThroughOlderExchangesThatAreOnlyInStorage()
+    {
+        using var session = HeadlessTestSession.Start();
+        await WithStoredHistoryAsync(session, async (window, view, viewModel, scrollViewer) =>
+        {
+            // The chat opens at its newest exchange; the oldest are only in storage.
+            Assert.DoesNotContain(
+                viewModel.TranscriptTurns.SelectMany(static turn => turn.Items).OfType<UserMessageItem>(),
+                static item => item.Content == "Question 0");
+
+            var target = typeof(ChatView).GetField("_userNavTarget", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var inFlight = typeof(ChatView).GetField("_userNavInFlight", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var modifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta | KeyModifiers.Alt : KeyModifiers.Control;
+            var landed = new List<(string Content, double? Y)>();
+            for (var press = 0; press < 20; press++)
+            {
+                var shortcut = new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Up, KeyModifiers = modifiers };
+                window.RaiseEvent(shortcut);
+                Assert.True(shortcut.Handled);
+                await WaitUntilAsync(() => !(bool)inFlight.GetValue(view)!, 10_000);
+                if (target.GetValue(view) is not TranscriptTurn turn
+                    || turn.Items.OfType<UserMessageItem>().FirstOrDefault() is not { } item)
+                    break;
+
+                await SettleAsync(viewModel);
+                landed.Add((item.Content, GetTurnViewportY(view, scrollViewer, turn.StableId)));
+            }
+
+            // Each press lands on the previous question, past the job's wake, back to the first, and the
+            // message stays on the landing line while the exchanges around it are built.
+            Assert.NotEmpty(landed);
+            var first = int.Parse(landed[0].Content["Question ".Length..]);
+            var report = string.Join(", ", landed.Select(static landing => $"{landing.Content} at {landing.Y:0}"));
+            Assert.True(
+                Enumerable.Range(0, first + 1).Reverse().Select(static i => $"Question {i}").SequenceEqual(landed.Select(static landing => landing.Content)),
+                report);
+            Assert.True(landed.All(static landing => landing.Y is >= 56 and <= 72), report);
+        });
+    }
+
+    [Fact]
+    public async Task ScrollingUpThroughStoredHistory_KeepsWhatIsOnScreenInPlace()
+    {
+        using var session = HeadlessTestSession.Start();
+        await WithStoredHistoryAsync(session, async (_, view, viewModel, scrollViewer) =>
+        {
+            // Where each built turn near the viewport is.
+            Dictionary<string, double> Positions() => viewModel.TranscriptTurns
+                .Where(static turn => !TranscriptHistory.IsPlaceholder(turn))
+                .Select(turn => (turn.StableId, Y: GetTurnViewportY(view, scrollViewer, turn.StableId)))
+                .Where(entry => entry.Y > -200 && entry.Y < scrollViewer.Viewport.Height + 200)
+                .ToDictionary(static entry => entry.StableId, static entry => entry.Y!.Value);
+
+            // Scroll up in wheel-sized steps: as older exchanges are built and swapped in above or at the
+            // top of the viewport, every turn on screen moves exactly as far as the scroll did.
+            var drifts = new List<string>();
+            for (var step = 0; step < 80 && scrollViewer.Offset.Y > 1; step++)
+            {
+                var before = Positions();
+                var from = scrollViewer.Offset.Y;
+                scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0, from - 150));
+                var scrolled = from - scrollViewer.Offset.Y;
+                await SettleAsync(viewModel);
+                foreach (var (id, now) in Positions())
+                {
+                    if (before.TryGetValue(id, out var was) && Math.Abs(now - (was + scrolled)) > 2)
+                        drifts.Add($"step {step}: {id} moved {now - (was + scrolled):0} px");
+                }
+            }
+
+            Assert.True(scrollViewer.Offset.Y <= 1, "The scroll did not reach the top of the chat.");
+            Assert.True(drifts.Count == 0, string.Join(Environment.NewLine, drifts));
+        });
+    }
+
+    [Fact]
+    public async Task OpeningWorkInATurnStraddlingTheTop_GrowsDownward()
+    {
+        using var session = HeadlessTestSession.Start();
+        await DispatchAsync(session, async () =>
+        {
+            // Exchanges whose updates and steps fold into a "worked for" row above the answer.
+            var chat = new Chat { Title = "Straddling turn" };
+            for (var i = 0; i < 8; i++)
+            {
+                chat.Messages.Add(new ChatMessage { Role = "user", Content = $"Question {i}" });
+                for (var step = 0; step < 3; step++)
+                {
+                    chat.Messages.Add(new ChatMessage { Role = "assistant", IsProgress = true, Content = $"Update {i}.{step}: " + new string('u', 900) });
+                    chat.Messages.Add(new ChatMessage { Role = "tool", ToolName = "view", ToolCallId = $"view-{i}-{step}", ToolStatus = "Completed", Content = "{\"path\":\"README.md\"}" });
+                }
+
+                chat.Messages.Add(new ChatMessage { Role = "assistant", Content = $"Answer {i}: " + new string('a', 1600) });
+            }
+
+            var data = new AppData { Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false, ShowAnimations = false } };
+            data.Chats.Add(chat);
+            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            var view = new ChatView { DataContext = viewModel };
+            var window = new Window { Width = 1100, Height = 820, Content = view };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() => view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null, 10_000);
+                var scrollViewer = Assert.IsType<ScrollViewer>(view.FindControl<StrataChatShell>("ChatShell")!.TranscriptScrollViewer);
+                await SettleAsync(viewModel);
+
+                // A turn with folded work, shown, its top just above the viewport and its answer on screen.
+                var turns = viewModel.TranscriptTurns.ToList();
+                var work = turns.Where(static turn => turn.Items.OfType<TurnSummaryItem>().Any()).ElementAt(4);
+                var next = turns[turns.IndexOf(work) + 1];
+                var summary = work.Items.OfType<TurnSummaryItem>().First();
+                Assert.False(summary.IsExpanded);
+                for (var attempt = 0; attempt < 3; attempt++)
+                {
+                    await WaitUntilAsync(() => GetTurnViewportY(view, scrollViewer, work.StableId) is not null);
+                    var y = GetTurnViewportY(view, scrollViewer, work.StableId)!.Value;
+                    scrollViewer.Offset = scrollViewer.Offset.WithY(scrollViewer.Offset.Y + y + 8);
+                    // Turns show their content once scrolling rests.
+                    await Task.Delay(TranscriptItemsControl.ScrollIdleRealizationDelay + TimeSpan.FromMilliseconds(30));
+                    await SettleAsync(viewModel);
+                }
+
+                var top = GetTurnViewportY(view, scrollViewer, work.StableId)!.Value;
+                var nextTop = GetTurnViewportY(view, scrollViewer, next.StableId)!.Value;
+                Assert.InRange(top, -20, -1);
+                Assert.InRange(nextTop, 0, scrollViewer.Viewport.Height);
+                Assert.True(view.FindControl<TranscriptItemsControl>("Transcript")!.ItemsPanelRoot!.GetVisualDescendants()
+                    .OfType<TranscriptTurnControl>().Single(control => control.Turn?.StableId == work.StableId).ShowsContent);
+
+                // Opening its work grows the turn downward: it stays where it is and pushes the next one down.
+                summary.IsExpanded = true;
+                double? Grown() => GetTurnViewportY(view, scrollViewer, next.StableId) - nextTop;
+                double? last = null;
+                for (int frame = 0, still = 0; frame < 200 && still < 5; frame++)
+                {
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    await PumpAsync();
+                    await Task.Delay(10);
+                    var now = Grown();
+                    still = now > 20 && last is { } previous && Math.Abs(now.Value - previous) < 0.5 ? still + 1 : 0;
+                    last = now;
+                }
+
+                Assert.True(Grown() > 20, $"Opening the work moved the next turn {Grown():0} px.");
+                Assert.InRange(GetTurnViewportY(view, scrollViewer, work.StableId)!.Value - top, -2, 2);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Opens a chat stored in SQLite at its newest exchange, so its older exchanges are only in
+    /// storage: twelve questions with long answers, and a job's wake before the seventh.
+    /// </summary>
+    private static async Task WithStoredHistoryAsync(
+        HeadlessTestSession session,
+        Func<Window, ChatView, ChatViewModel, ScrollViewer, Task> test)
+    {
+        var directory = Path.Combine(TestProfile.Root, "stored-history", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "lumi.db");
+        try
+        {
+            await DispatchAsync(session, async () =>
+            {
+                var settings = new UserSettings { AutoSaveChats = true, EnableMemoryAutoSave = false };
+                var chat = new Chat { Title = "Stored history" };
+                for (var i = 0; i < 12; i++)
+                {
+                    // A job's wake starts an exchange of its own, but is not one of the user's messages.
+                    if (i == 6)
+                    {
+                        chat.Messages.Add(new ChatMessage { Role = "user", Author = "Lumi Job - Watcher", Content = "Background job triggered: Watcher" });
+                        chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Nothing new." });
+                    }
+
+                    chat.Messages.Add(new ChatMessage { Role = "user", Content = $"Question {i}" });
+                    chat.Messages.Add(new ChatMessage { Role = "assistant", Content = $"Answer {i}: " + new string('a', 2400) });
+                }
+
+                using (var writer = new ChatStore(databasePath))
+                {
+                    var dataStore = new DataStore(new AppData { Settings = settings }, writer);
+                    dataStore.Data.Chats.Add(chat);
+                    await dataStore.SaveChatAsync(chat);
+                }
+
+                using var store = new ChatStore(databasePath);
+                var reopened = new DataStore(new AppData { Settings = settings }, store);
+                using var viewModel = new ChatViewModel(reopened, TestCopilot.Shared);
+                var view = new ChatView { DataContext = viewModel };
+                var window = new Window { Width = 1100, Height = 820, Content = view };
+                window.Show();
+                try
+                {
+                    await PumpAsync();
+                    await viewModel.LoadChatAsync(Assert.Single(reopened.Data.Chats));
+                    await WaitUntilAsync(() => view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null, 10_000);
+                    var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
+                    var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+                    shell.JumpToLatest();
+                    await WaitUntilAsync(() => scrollViewer.Extent.Height - scrollViewer.Viewport.Height > 96, 10_000);
+                    await SettleAsync(viewModel);
+                    Assert.True(viewModel.HasTranscriptHistory);
+
+                    await test(window, view, viewModel, scrollViewer);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    // Lets older exchanges be read, built and realized, then layout finish.
+    private static async Task SettleAsync(ChatViewModel viewModel)
+    {
+        for (var i = 0; i < 100 && (viewModel.TranscriptHistory.HasPendingWork || TranscriptRealizationScheduler.Instance.HasPendingWork); i++)
+        {
+            await PumpAsync();
+            await Task.Delay(10);
+        }
+
+        await PumpAsync();
+    }
+
+    [Fact]
     public async Task ClearingDataContext_DetachesMountedTurnHeightSubscriptions()
     {
         using var session = HeadlessTestSession.Start();
@@ -1418,6 +1672,18 @@ public sealed class ChatViewScrollBehaviorTests
             return control.Turn is null
                 ? null
                 : (control.Turn.StableId, point.Value.Y);
+        }
+
+        return null;
+    }
+
+    // The first visible turn whose content shows: what the reader sees first, which the transcript anchors on.
+    private static (string StableId, double ViewportY)? CaptureShownTurnAnchor(ChatView view, ScrollViewer scrollViewer)
+    {
+        foreach (var control in GetVisibleTurnControls(view, scrollViewer))
+        {
+            if (control.ShowsContent && control.Turn is { } turn)
+                return (turn.StableId, control.TranslatePoint(default, scrollViewer)!.Value.Y);
         }
 
         return null;

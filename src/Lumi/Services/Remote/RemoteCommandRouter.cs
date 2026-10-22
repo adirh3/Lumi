@@ -596,8 +596,17 @@ internal sealed class RemoteCommandRouter
         {
             await _dataStore.LoadChatMessagesAsync(chat, cancellationToken).ConfigureAwait(true);
             var owner = TryResolveRegisteredOwner(chat.Id);
-            if ((owner?.FindInteractionMessage(chat, messageId) ?? chat.Messages.FirstOrDefault(message => message.Id == messageId))
-                is not { } message)
+            var message = owner?.FindInteractionMessage(chat, messageId)
+                ?? chat.Messages.FirstOrDefault(candidate => candidate.Id == messageId);
+            if (message is null
+                && await _dataStore.FindChatMessageAsync(chat, messageId, cancellationToken).ConfigureAwait(true) is { } stored)
+            {
+                // An answer in an older exchange, only in storage: edit it in place so saving stores it.
+                _dataStore.AttachHistoryMessages(chat, [stored]);
+                message = stored;
+            }
+
+            if (message is null)
                 return Fail("That answer is no longer in this chat.", chat.Id);
             if (message.ToolName == "ask_input")
             {

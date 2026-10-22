@@ -654,6 +654,10 @@ public sealed class TranscriptPagingHeadlessTests
             Assert.Same(secondHost, secondControl.Content);
             Assert.Same(secondHost, turn.RealizedItemsHost);
             Assert.Equal(2, GetHostedItemCount(secondControl));
+            // The other window still shows the turn, so it stays on screen until that one lets go too.
+            Assert.True(turn.IsViewportActive);
+            secondControl.SetViewportActive(false);
+            Assert.False(turn.IsViewportActive);
 
             secondWindow.Close();
             firstWindow.Close();

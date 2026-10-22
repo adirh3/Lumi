@@ -592,7 +592,8 @@ internal static class RemoteProjector
         bool compact = false,
         string? workingDirectory = null,
         IReadOnlyList<ChatMessage>? activitySourceMessages = null,
-        IReadOnlySet<string>? runningBackgroundToolCallIds = null)
+        IReadOnlySet<string>? runningBackgroundToolCallIds = null,
+        IReadOnlySet<string>? authorizedImagePaths = null)
     {
         var transcript = new RemoteTranscript
         {
@@ -613,8 +614,12 @@ internal static class RemoteProjector
         RemoteTranscriptItem? toolGroup = null;
         RemoteTranscriptItem? compactActivity = null;
         var compactSource = activitySourceMessages ?? window.Messages;
-        var authorizedImagePaths =
-            RemoteMarkdownImageFiles.BuildAuthorizedPaths(compactSource);
+        // Paths the whole chat made showable, when the source is only the window's part of it.
+        var windowImagePaths = RemoteMarkdownImageFiles.BuildAuthorizedPaths(compactSource);
+        if (authorizedImagePaths is { Count: > 0 })
+            windowImagePaths = new HashSet<string>(windowImagePaths.Concat(authorizedImagePaths),
+                OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var imagePaths = windowImagePaths;
 
         RemoteTranscriptTurn EnsureTurn()
         {
@@ -662,7 +667,7 @@ internal static class RemoteProjector
                     toolGroup = null;
                     EnsureTurn().Items.Add(BuildAssistantItem(
                         message,
-                        authorizedImagePaths));
+                        imagePaths));
                     break;
 
                 case "reasoning":

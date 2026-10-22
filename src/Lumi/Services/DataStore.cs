@@ -17,7 +17,7 @@ public sealed record UserPromptHistoryItem(
     string Content,
     DateTimeOffset Timestamp);
 
-public class DataStore
+public partial class DataStore
 {
     internal const int SuggestionHistoryScanLimit = 1000;
     private static readonly TimeSpan SuggestionHistoryCacheTtl = TimeSpan.FromMinutes(2);
@@ -79,9 +79,6 @@ public class DataStore
     private AppData _data;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _skillSyncLock = new(1, 1);
-    private readonly object _chatLoadLocksSync = new();
-    private readonly Dictionary<Guid, SemaphoreSlim> _chatLoadLocks = new();
-    private readonly HashSet<Guid> _deletedChatFiles = [];
     private readonly object _chatSearchCacheSync = new();
     private readonly Dictionary<Guid, CachedChatSearchSnapshot> _chatSearchCache = [];
     private readonly object _suggestionHistorySync = new();
@@ -119,9 +116,17 @@ public class DataStore
         SkillsDirectory = SkillsDir;
         Directory.CreateDirectory(AppDir);
         Directory.CreateDirectory(SkillsDir);
-        Directory.CreateDirectory(ChatsDir);
         Directory.CreateDirectory(CopilotConfigDir);
         _data = Load();
+        // Chats live in the chat database. Chats the index still lists in the legacy layout are
+        // imported first (metadata now, transcripts in the background), then the index drops them.
+        var legacyIndexChats = _data.Chats;
+        (_chatStore, var storedChats, _legacyImporter) = OpenChatStorage(
+            DatabaseFile, legacyIndexChats, ChatsDir, BackupLegacyIndexOnce);
+        _chatStore.ChatContentCommitted += OnChatContentCommitted;
+        _data.Chats = storedChats;
+        if (legacyIndexChats.Count > 0)
+            Save();
         // One-time migration: previous Lumi versions auto-injected an "api-key" header for Azure
         // AI Foundry URLs (services.ai.azure.com / *.openai.azure.com). Lumi no longer treats
         // those URLs specially — every BYOK endpoint is now a plain OpenAI-compatible target.
@@ -145,6 +150,8 @@ public class DataStore
             Save();
             SyncSkillFiles();
         }
+
+        StartLegacyImport();
     }
 
     internal DataStore(AppData data, string? skillsDirectoryOverride = null)
@@ -455,7 +462,7 @@ public class DataStore
         lock (_backgroundJobsSync)
         {
             lock (_remoteSecuritySync)
-                return AppDataSnapshotFactory.CreateIndexSnapshot(_data);
+                return AppDataSnapshotFactory.CreateIndexSnapshot(_data, includeChats: _chatStore is null);
         }
     }
 
@@ -508,8 +515,8 @@ public class DataStore
     }
 
     /// <summary>
-    /// Saves the index file (settings, chat metadata, chat tags, projects, skills, agents, memories).
-    /// Does NOT save chat messages — use SaveChat() for that.
+    /// Saves the index file (settings, chat tags, projects, skills, agents, memories, jobs) and the
+    /// metadata rows of changed chats. Does NOT save chat messages — use SaveChatAsync() for that.
     /// </summary>
     public void Save()
     {
@@ -520,8 +527,8 @@ public class DataStore
     }
 
     /// <summary>
-    /// Saves the index file (settings, chat metadata, chat tags, projects, skills, agents, memories).
-    /// Does NOT save chat messages — use SaveChatAsync() for that.
+    /// Saves the index file (settings, chat tags, projects, skills, agents, memories, jobs) and the
+    /// metadata rows of changed chats. Does NOT save chat messages — use SaveChatAsync() for that.
     /// </summary>
     public async Task SaveAsync(CancellationToken cancellationToken = default)
     {
@@ -558,10 +565,17 @@ public class DataStore
                     remotePairedDevicesChangeVersion > 0);
             }
 
+            // The chat database owns chats; an index written by an older Lumi may still list some.
+            if (_chatStore is not null)
+                snapshot.Chats = [];
+
             await JsonFilePersistence.SaveAppDataAsync(
                 DataFile,
                 snapshot,
                 cancellationToken).ConfigureAwait(false);
+
+            if (_chatStore is not null)
+                await PersistChatRowsAsync(dirtyChatVersions.Keys, deletedChatVersions.Keys).ConfigureAwait(false);
 
             AcknowledgeChatChangeVersions(dirtyChatVersions, deletedChatVersions);
             AcknowledgeBackgroundJobsChangeVersion(backgroundJobsChangeVersion);
@@ -576,573 +590,6 @@ public class DataStore
         IndexSaved?.Invoke();
     }
 
-    /// <summary>Saves a chat's messages to its per-chat file.</summary>
-    public void SaveChat(Chat chat)
-    {
-        if (!_usesPersistentStorage)
-            return;
-
-        SaveChatAsync(chat).GetAwaiter().GetResult();
-    }
-
-    /// <summary>Saves a chat's messages to its per-chat file.</summary>
-    public async Task SaveChatAsync(Chat chat, CancellationToken cancellationToken = default)
-    {
-        if (!_usesPersistentStorage)
-            return;
-
-        // Clone synchronously on the caller's thread. Chat messages are UI-owned mutable state; if a
-        // contended gate resumed below on the pool, enumerating them there could race the next event.
-        var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
-        var messagesSnapshot = chat.Messages
-            .Select(static message => message.Clone())
-            .ToList();
-
-        var chatOperationLock = GetChatLoadLock(chat.Id);
-        await chatOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (IsChatFileDeleted(chat.Id))
-                return;
-
-            // Keep the persisted message count in sync so has-content checks work even after
-            // the chat's messages are unloaded from memory while it is inactive.
-            chat.MessageCount = messagesSnapshot.Count;
-            chat.Preview = ChatPreviewHelper.FromMessages(messagesSnapshot);
-
-            await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                await using var stream = new FileStream(
-                    chatFile,
-                    FileMode.Create,
-                    FileAccess.Write,
-                    FileShare.None,
-                    81920,
-                    FileOptions.Asynchronous);
-
-                await JsonSerializer.SerializeAsync(
-                    stream,
-                    messagesSnapshot,
-                    AppDataJsonContext.Default.ListChatMessage,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                _writeLock.Release();
-            }
-        }
-        finally
-        {
-            chatOperationLock.Release();
-        }
-
-        ChatContentChanged?.Invoke(chat.Id);
-    }
-
-    /// <summary>
-    /// True when a chat has a persisted messages file on disk. Used as a migration-safe
-    /// "has content" signal for chats whose <see cref="Chat.MessageCount"/> predates that
-    /// field (existing chats default to 0 until first saved/loaded) and whose messages are
-    /// not currently loaded in memory.
-    /// </summary>
-    public bool HasStoredMessages(Guid chatId)
-        => _usesPersistentStorage && File.Exists(Path.Combine(ChatsDir, $"{chatId}.json"));
-
-    /// <summary>Loads messages from a chat's per-chat file into chat.Messages.</summary>
-    public async Task LoadChatMessagesAsync(Chat chat, CancellationToken cancellationToken = default)
-    {
-        if (chat.Messages.Count > 0) return; // Already loaded
-
-        var loadLock = GetChatLoadLock(chat.Id);
-        await loadLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-        try
-        {
-            if (IsChatFileDeleted(chat.Id))
-                return;
-
-            // Another concurrent caller may have loaded this chat while we awaited the lock.
-            if (chat.Messages.Count > 0) return;
-
-            var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
-            if (!File.Exists(chatFile)) return;
-
-            const int maxReadAttempts = 3;
-            const int retryDelayMs = 35;
-
-            for (var attempt = 1; attempt <= maxReadAttempts; attempt++)
-            {
-                try
-                {
-                    await using var stream = new FileStream(
-                        chatFile,
-                        FileMode.Open,
-                        FileAccess.Read,
-                        FileShare.ReadWrite | FileShare.Delete,
-                        81920,
-                        FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-                    var messages = await JsonSerializer.DeserializeAsync(
-                        stream,
-                        AppDataJsonContext.Default.ListChatMessage,
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (messages is not null)
-                        chat.Messages.AddRange(messages);
-                    chat.MessageCount = chat.Messages.Count;
-                    break;
-                }
-                catch (IOException) when (attempt < maxReadAttempts)
-                {
-                    // Save operations can momentarily lock the chat file. Retry briefly.
-                    await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
-                }
-                catch (IOException)
-                {
-                    // Ignore persistent file IO issues; chat will open without history.
-                    break;
-                }
-                catch (JsonException)
-                {
-                    // Ignore malformed chat files; chat will open without history.
-                    break;
-                }
-            }
-        }
-        finally
-        {
-            loadLock.Release();
-        }
-    }
-
-    /// <summary>Shares the frequent-request history across chat surfaces; stale data is refreshed
-    /// once in the background. Rejected prompts never need to stay cached for the ranker.</summary>
-    internal Task<IReadOnlyList<UserPromptHistoryItem>> GetSuggestionHistoryAsync(
-        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots)
-    {
-        ArgumentNullException.ThrowIfNull(loadedMessageSnapshots);
-        lock (_suggestionHistorySync)
-        {
-            var cached = _suggestionHistory;
-            if (cached is not null && DateTimeOffset.UtcNow - _suggestionHistoryAt < SuggestionHistoryCacheTtl)
-                return Task.FromResult(cached);
-
-            var refresh = _suggestionHistoryRefresh;
-            if (refresh is null || refresh.IsCompleted)
-            {
-                var generation = _suggestionHistoryGeneration;
-                refresh = Task.Run(async () =>
-                {
-                    var history = await GetUserPromptHistoryAsync(
-                        SuggestionHistoryScanLimit, loadedMessageSnapshots).ConfigureAwait(false);
-                    IReadOnlyList<UserPromptHistoryItem> candidates = history
-                        .Where(static item => SuggestionHistoryRanker.IsCandidate(item.Content))
-                        .ToArray();
-                    lock (_suggestionHistorySync)
-                    {
-                        if (generation != _suggestionHistoryGeneration)
-                            return Array.Empty<UserPromptHistoryItem>();
-
-                        _suggestionHistory = candidates;
-                        _suggestionHistoryAt = DateTimeOffset.UtcNow;
-                    }
-
-                    return candidates;
-                });
-                _suggestionHistoryRefresh = refresh;
-                _ = refresh.ContinueWith(
-                    task => Trace.TraceWarning("[Chat] Suggestion history refresh failed: {0}", task.Exception),
-                    CancellationToken.None,
-                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
-            }
-
-            return cached is null ? refresh : Task.FromResult(cached);
-        }
-    }
-
-    /// <summary>Returns recent user-authored prompts across chats for personalized follow-up suggestions.</summary>
-    public async Task<IReadOnlyList<UserPromptHistoryItem>> GetUserPromptHistoryAsync(
-        int maxMessages,
-        IReadOnlyDictionary<Guid, IReadOnlyList<ChatMessage>> loadedMessageSnapshots,
-        CancellationToken cancellationToken = default)
-    {
-        if (maxMessages <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxMessages), "Message limit must be greater than zero.");
-
-        // Visit newest chats first so we can stop once the newest `maxMessages` prompts are found,
-        // instead of reading every cold chat file from disk on each call. A chat's messages are never
-        // newer than its UpdatedAt, so once the running top-`maxMessages` set is full and a chat's
-        // UpdatedAt is older than the oldest kept prompt, no remaining (older) chat can contribute.
-        var orderedChats = SnapshotChatsByRecency();
-
-        // Min-heap keyed by timestamp ticks; keeps only the newest `maxMessages` prompts seen so far.
-        var topPrompts = new PriorityQueue<UserPromptHistoryItem, long>();
-
-        foreach (var chat in orderedChats)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (topPrompts.Count >= maxMessages
-                && topPrompts.TryPeek(out _, out var oldestKeptTicks)
-                && chat.UpdatedAt.UtcTicks <= oldestKeptTicks)
-            {
-                break;
-            }
-
-            var messages = loadedMessageSnapshots.TryGetValue(chat.Id, out var loadedMessages)
-                ? loadedMessages
-                : await ReadPersistedChatMessagesAsync(chat.Id, cancellationToken).ConfigureAwait(false);
-
-            foreach (var message in messages)
-            {
-                if (!string.Equals(message.Role, "user", StringComparison.Ordinal)
-                    || string.IsNullOrWhiteSpace(message.Content))
-                {
-                    continue;
-                }
-
-                topPrompts.Enqueue(
-                    new UserPromptHistoryItem(chat.Id, message.Id, message.Content, message.Timestamp),
-                    message.Timestamp.UtcTicks);
-
-                if (topPrompts.Count > maxMessages)
-                    topPrompts.Dequeue();
-            }
-        }
-
-        return topPrompts.UnorderedItems
-            .Select(static entry => entry.Element)
-            .OrderByDescending(static item => item.Timestamp)
-            .ToList();
-    }
-
-    /// <summary>Takes a recency-ordered snapshot of the chat list. <see cref="_data"/>.Chats is a plain
-    /// <see cref="List{T}"/> mutated on the UI thread, while this scan can run on a background thread, so a
-    /// concurrent add/remove can throw <see cref="InvalidOperationException"/> mid-enumeration. Retrying a
-    /// few times yields a consistent snapshot without locking the UI thread's collection.</summary>
-    private List<Chat> SnapshotChatsByRecency()
-    {
-        const int maxAttempts = 4;
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                return _data.Chats
-                    .OrderByDescending(static chat => chat.UpdatedAt)
-                    .ToList();
-            }
-            catch (InvalidOperationException) when (attempt < maxAttempts)
-            {
-                // Collection was modified during enumeration; retry with a fresh pass.
-            }
-        }
-    }
-
-    /// <summary>
-    /// Returns a chat's full message history without permanently materializing a cold chat.
-    /// Loaded chats return their in-memory messages; cold chats are read from their per-chat file
-    /// and returned without populating <see cref="Chat.Messages"/>, so reading history for tooling
-    /// or search does not bloat memory or change the chat's loaded/cold state.
-    /// </summary>
-    public async Task<IReadOnlyList<ChatMessage>> ReadChatMessagesAsync(
-        Chat chat,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(chat);
-
-        if (chat.Messages.Count > 0)
-            return chat.Messages.ToList();
-
-        return await ReadPersistedChatMessagesAsync(chat.Id, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Reads only the persisted history for a chat ID. Unlike <see cref="ReadChatMessagesAsync"/>,
-    /// this method never touches mutable in-memory <see cref="Chat"/> state and is safe for
-    /// background read-side projections after they capture IDs on the UI thread.
-    /// </summary>
-    internal async Task<IReadOnlyList<ChatMessage>> ReadPersistedChatMessagesAsync(
-        Guid chatId,
-        CancellationToken cancellationToken)
-    {
-        if (!_usesPersistentStorage)
-            return [];
-
-        var chatOperationLock = GetChatLoadLock(chatId);
-        await chatOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (IsChatFileDeleted(chatId))
-                return [];
-
-            var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
-            if (!File.Exists(chatFile))
-                return [];
-
-            const int maxReadAttempts = 3;
-            const int retryDelayMs = 35;
-
-            for (var attempt = 1; attempt <= maxReadAttempts; attempt++)
-            {
-                try
-                {
-                    await using var stream = new FileStream(
-                        chatFile,
-                        FileMode.Open,
-                        FileAccess.Read,
-                        FileShare.ReadWrite | FileShare.Delete,
-                        81920,
-                        FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-                    return await JsonSerializer.DeserializeAsync(
-                        stream,
-                        AppDataJsonContext.Default.ListChatMessage,
-                        cancellationToken).ConfigureAwait(false) ?? [];
-                }
-                catch (IOException) when (attempt < maxReadAttempts)
-                {
-                    await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
-                }
-                catch (IOException ex)
-                {
-                    Debug.WriteLine($"[Lumi] Suggestion history read failed for chat {chatId}: {ex.Message}");
-                    return [];
-                }
-                catch (JsonException ex)
-                {
-                    Debug.WriteLine($"[Lumi] Suggestion history JSON parse failed for chat {chatId}: {ex.Message}");
-                    return [];
-                }
-            }
-
-            return [];
-        }
-        finally
-        {
-            chatOperationLock.Release();
-        }
-    }
-
-    /// <summary>Returns a search snapshot for a chat, including persisted history when the chat is not loaded.</summary>
-    public ChatSearchSnapshot GetChatSearchSnapshot(Chat chat)
-    {
-        ArgumentNullException.ThrowIfNull(chat);
-
-        if (chat.Messages.Count > 0)
-            // Copy once before indexing: callers (global search index, search_chats) run on
-            // background threads while the UI thread appends/removes messages, so iterating the
-            // live list would risk ArgumentOutOfRangeException / torn reads.
-            return CreateLoadedChatSearchSnapshot(chat.Messages.ToArray());
-
-        var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
-        if (!File.Exists(chatFile))
-        {
-            RemoveChatSearchSnapshot(chat.Id);
-            return new ChatSearchSnapshot { Version = $"missing:{chat.Id}" };
-        }
-
-        DateTime lastWriteUtc;
-        try
-        {
-            lastWriteUtc = File.GetLastWriteTimeUtc(chatFile);
-        }
-        catch (IOException)
-        {
-            return new ChatSearchSnapshot { Version = $"io-error:{chat.Id}" };
-        }
-
-        lock (_chatSearchCacheSync)
-        {
-            if (_chatSearchCache.TryGetValue(chat.Id, out var cached)
-                && cached.LastWriteUtc == lastWriteUtc)
-            {
-                return cached.Snapshot;
-            }
-        }
-
-        const int maxReadAttempts = 3;
-        const int retryDelayMs = 35;
-
-        for (var attempt = 1; attempt <= maxReadAttempts; attempt++)
-        {
-            try
-            {
-                using var stream = new FileStream(
-                    chatFile,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete,
-                    81920,
-                    FileOptions.SequentialScan);
-
-                var messages = JsonSerializer.Deserialize(stream, AppDataJsonContext.Default.ListChatMessage)
-                               ?? [];
-                var snapshot = CreateChatSearchSnapshot(
-                    messages,
-                    $"file:{lastWriteUtc.Ticks}:{messages.Count}");
-
-                lock (_chatSearchCacheSync)
-                {
-                    _chatSearchCache[chat.Id] = new CachedChatSearchSnapshot(lastWriteUtc, snapshot);
-                }
-
-                return snapshot;
-            }
-            catch (IOException) when (attempt < maxReadAttempts)
-            {
-                Thread.Sleep(retryDelayMs);
-            }
-            catch (IOException)
-            {
-                return new ChatSearchSnapshot { Version = $"io-error:{chat.Id}" };
-            }
-            catch (JsonException)
-            {
-                return new ChatSearchSnapshot { Version = $"json-error:{chat.Id}" };
-            }
-        }
-
-        return new ChatSearchSnapshot { Version = $"io-error:{chat.Id}" };
-    }
-
-    private SemaphoreSlim GetChatLoadLock(Guid chatId)
-    {
-        lock (_chatLoadLocksSync)
-            return GetChatLoadLockLocked(chatId);
-    }
-
-    private SemaphoreSlim GetChatLoadLockLocked(Guid chatId)
-    {
-        if (_chatLoadLocks.TryGetValue(chatId, out var existing))
-            return existing;
-
-        var created = new SemaphoreSlim(1, 1);
-        _chatLoadLocks[chatId] = created;
-        return created;
-    }
-
-    private void RemoveChatSearchSnapshot(Guid chatId)
-    {
-        lock (_chatSearchCacheSync)
-            _chatSearchCache.Remove(chatId);
-    }
-
-    /// <summary>Evicts a chat's cached full-text snapshot to bound memory (e.g., after it is indexed elsewhere).</summary>
-    public void EvictChatSearchSnapshot(Guid chatId) => RemoveChatSearchSnapshot(chatId);
-
-    /// <summary>
-    /// Returns the last-write time (UTC) of a chat's persisted file, or null when it has no file.
-    /// Used by the search content index to detect entries that went stale between runs.
-    /// </summary>
-    public DateTimeOffset? GetChatFileTimestamp(Guid chatId)
-    {
-        var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
-        try
-        {
-            return File.Exists(chatFile)
-                ? new DateTimeOffset(File.GetLastWriteTimeUtc(chatFile))
-                : null;
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-    }
-
-    private static ChatSearchSnapshot CreateLoadedChatSearchSnapshot(IReadOnlyList<ChatMessage> messages)
-    {
-        var signature = new HashCode();
-        var searchMessages = CreateChatSearchMessages(messages, ref signature);
-        signature.Add(searchMessages.Length);
-
-        return new ChatSearchSnapshot
-        {
-            Version = $"loaded:{searchMessages.Length}:{signature.ToHashCode()}",
-            Messages = searchMessages
-        };
-    }
-
-    private static ChatSearchSnapshot CreateChatSearchSnapshot(
-        IReadOnlyList<ChatMessage> messages,
-        string version)
-        => new()
-        {
-            Version = version,
-            Messages = CreateChatSearchMessages(messages)
-        };
-
-    private static ChatSearchMessage[] CreateChatSearchMessages(IReadOnlyList<ChatMessage> messages)
-    {
-        var searchMessages = new List<ChatSearchMessage>(messages.Count);
-
-        foreach (var message in messages)
-        {
-            var text = BuildChatSearchText(message);
-            if (string.IsNullOrWhiteSpace(text))
-                continue;
-
-            searchMessages.Add(new ChatSearchMessage
-            {
-                Text = text,
-                Role = message.Role,
-                Timestamp = message.Timestamp
-            });
-        }
-
-        return searchMessages.ToArray();
-    }
-
-    private static ChatSearchMessage[] CreateChatSearchMessages(
-        IReadOnlyList<ChatMessage> messages,
-        ref HashCode signature)
-    {
-        var searchMessages = new List<ChatSearchMessage>(messages.Count);
-
-        for (var index = 0; index < messages.Count; index++)
-        {
-            var message = messages[index];
-            var text = BuildChatSearchText(message);
-            if (string.IsNullOrWhiteSpace(text))
-                continue;
-
-            searchMessages.Add(new ChatSearchMessage
-            {
-                Text = text,
-                Role = message.Role,
-                Timestamp = message.Timestamp
-            });
-
-            signature.Add(index);
-            signature.Add(message.Id);
-            signature.Add(message.Role, StringComparer.OrdinalIgnoreCase);
-            signature.Add(message.Timestamp.UtcTicks);
-            signature.Add(text, StringComparer.Ordinal);
-        }
-
-        return searchMessages.ToArray();
-    }
-
-    private static string BuildChatSearchText(ChatMessage message)
-    {
-        var segments = new List<string>(4);
-
-        if (!string.IsNullOrWhiteSpace(message.Content))
-            segments.Add(message.Content);
-        if (!string.IsNullOrWhiteSpace(message.QuestionText))
-            segments.Add(message.QuestionText);
-        if (!string.IsNullOrWhiteSpace(message.ToolName))
-            segments.Add(message.ToolName);
-        if (!string.IsNullOrWhiteSpace(message.Author)
-            && !string.Equals(message.Author, message.Role, StringComparison.OrdinalIgnoreCase))
-        {
-            segments.Add(message.Author);
-        }
-
-        return string.Join(Environment.NewLine, segments);
-    }
-
     private static RemotePairedDevice CloneRemotePairedDevice(RemotePairedDevice device) =>
         new()
         {
@@ -1152,61 +599,6 @@ public class DataStore
             PairedAt = device.PairedAt,
             LastSeenAt = device.LastSeenAt
         };
-
-    private bool IsChatFileDeleted(Guid chatId)
-    {
-        lock (_chatLoadLocksSync)
-            return _deletedChatFiles.Contains(chatId);
-    }
-
-    /// <summary>Deletes the per-chat file for a given chat ID.</summary>
-    public async Task DeleteChatFileAsync(Guid chatId, CancellationToken cancellationToken = default)
-    {
-        SemaphoreSlim chatOperationLock;
-        lock (_chatLoadLocksSync)
-        {
-            _deletedChatFiles.Add(chatId);
-            chatOperationLock = GetChatLoadLockLocked(chatId);
-        }
-
-        await chatOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            RemoveChatSearchSnapshot(chatId);
-            var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
-            if (File.Exists(chatFile))
-                File.Delete(chatFile);
-        }
-        finally
-        {
-            chatOperationLock.Release();
-        }
-
-        ChatContentChanged?.Invoke(chatId);
-    }
-
-    /// <summary>Deletes all per-chat files. A store that only lives in memory owns no files, so it
-    /// leaves the saved profile's chats alone.</summary>
-    public void DeleteAllChatFiles()
-    {
-        lock (_chatSearchCacheSync)
-            _chatSearchCache.Clear();
-        lock (_suggestionHistorySync)
-        {
-            _suggestionHistoryGeneration++;
-            _suggestionHistory = null;
-            _suggestionHistoryRefresh = null;
-            _suggestionHistoryAt = DateTimeOffset.MinValue;
-        }
-
-        if (_usesPersistentStorage && Directory.Exists(ChatsDir))
-        {
-            foreach (var file in Directory.GetFiles(ChatsDir, "*.json"))
-                File.Delete(file);
-        }
-
-        ChatsContentReset?.Invoke();
-    }
 
     /// <summary>
     /// Writes all skills as markdown files in the skills directory for the Copilot SDK.
@@ -1424,46 +816,6 @@ public class DataStore
         var invalid = Path.GetInvalidFileNameChars();
         var sanitized = string.Join("_", name.Split(invalid, StringSplitOptions.RemoveEmptyEntries));
         return string.IsNullOrWhiteSpace(sanitized) ? "skill" : sanitized;
-    }
-
-    /// <summary>
-    /// Removes chats whose message file is missing or empty on disk.
-    /// These "ghost" entries can accumulate when the index is saved but the
-    /// per-chat message file was never written (e.g. due to a save failure
-    /// or the process being killed between the two writes).
-    /// </summary>
-    private void CleanOrphanedChats()
-    {
-        var removed = _data.Chats.RemoveAll(chat =>
-        {
-            var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
-            if (!File.Exists(chatFile))
-            {
-                MarkChatDeleted(chat.Id);
-                return true;
-            }
-
-            try
-            {
-                var length = new FileInfo(chatFile).Length;
-                // An empty JSON array "[]" is ≤ 4 bytes (possible BOM + brackets)
-                if (length <= 4)
-                {
-                    MarkChatDeleted(chat.Id);
-                    File.Delete(chatFile);
-                    return true;
-                }
-            }
-            catch (IOException)
-            {
-                // File might be locked; leave it alone
-            }
-
-            return false;
-        });
-
-        if (removed > 0)
-            Save();
     }
 
     internal sealed record PlatformSkillText(
@@ -2365,5 +1717,4 @@ public class DataStore
         }
     }
 
-    private readonly record struct CachedChatSearchSnapshot(DateTime LastWriteUtc, ChatSearchSnapshot Snapshot);
 }

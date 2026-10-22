@@ -382,6 +382,31 @@ public partial class ChatViewModel
         var activities = new List<WorkspaceActivityItem>();
         var userMessages = new List<WorkspaceUserMessageItem>();
 
+        // Older exchanges are only in storage; their rows were read once and lead the lists.
+        if (CurrentWorkspaceHistory is { } history)
+        {
+            foreach (var file in history.Files)
+            {
+                if (seenFiles.Add(file.FilePath))
+                    deliverables.Add(file);
+            }
+
+            foreach (var link in history.Links)
+            {
+                if (seenLinks.Add(link.Url))
+                    links.Add(link);
+            }
+
+            foreach (var source in history.Sources)
+            {
+                if (seenSources.Add(source.Url))
+                    sources.Add(source);
+            }
+
+            activities.AddRange(history.Activities);
+            userMessages.AddRange(history.Messages);
+        }
+
         BuildActivitySeedIndex();
 
         for (var i = 0; i < Messages.Count; i++)
@@ -471,21 +496,30 @@ public partial class ChatViewModel
     /// <summary>Latest state of every file Lumi created or edited this chat, most recently touched first.</summary>
     private List<FileChangeItem> CollectChangedFiles()
         => LatestFirst(
-            TranscriptTurns
+            (CurrentWorkspaceHistory?.Edits ?? []).Concat(WorkspaceTurns()
                 .SelectMany(static turn => turn.Items.OfType<FileChangesSummaryItem>())
-                .SelectMany(static summary => summary.FileChanges),
+                .SelectMany(static summary => summary.FileChanges)),
             static change => change.FilePath);
+
+    /// <summary>
+    /// The turns whose rows the panel reads. Once the older exchanges' rows were read from storage,
+    /// only the live tail's turns add to them; built older exchanges would list their rows twice.
+    /// </summary>
+    private IEnumerable<TranscriptTurn> WorkspaceTurns()
+        => CurrentWorkspaceHistory is null
+            ? TranscriptTurns
+            : TranscriptTurns.Where(static turn => turn.HistorySegment is null);
 
     /// <summary>Skills attached to a message or loaded mid-turn, newest first, one row per skill.</summary>
     private List<SkillChipItem> CollectSkills()
         => LatestFirst(
             // A skill loaded mid-turn folds away with the turn's work, so the work is searched too.
-            TranscriptTurns.SelectMany(static turn => turn.EnumerateItems()).SelectMany(static item => item switch
+            (CurrentWorkspaceHistory?.Skills ?? []).Concat(WorkspaceTurns().SelectMany(static turn => turn.EnumerateItems()).SelectMany(static item => item switch
             {
                 UserMessageItem user => user.SkillChips,
                 SkillLoadedItem loaded => [loaded.Chip],
                 _ => Enumerable.Empty<SkillChipItem>(),
-            }),
+            })),
             static chip => chip.Name);
 
     /// <summary>The last occurrence of each key (paths and names compare case-insensitively), most recent first.</summary>

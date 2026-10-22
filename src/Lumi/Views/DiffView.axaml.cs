@@ -10,5 +10,5 @@ public sealed class DiffView : StrataDiffView
     public void SetFileChangeDiff(FileChangeItem fileChange) =>
         SetDocument(fileChange.FilePath, () => fileChange.HasSnapshots
             ? UnifiedDiffBuilder.BuildFromSnapshots(fileChange.OriginalContent, fileChange.CurrentContent)
-            : UnifiedDiffBuilder.BuildFromEdits(fileChange.Edits, fileChange.IsCreate));
+            : UnifiedDiffBuilder.BuildFromEdits(fileChange.ReadEdits(), fileChange.IsCreate));
 }

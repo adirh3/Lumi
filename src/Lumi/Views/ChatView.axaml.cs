@@ -103,7 +103,19 @@ public partial class ChatView : UserControl
     private DispatcherTimer? _replyFlashTimer;
 
     /// <summary>A match against a TranscriptItem's raw content, with the occurrence index within that item.</summary>
-    private sealed record SearchHit(TranscriptTurn Turn, TranscriptItem Item, int OccurrenceInItem, string Query);
+    /// <summary>
+    /// A search hit. Hits in an older exchange that is not built yet only name the exchange
+    /// (<see cref="Segment"/>, no turn or item); navigating to one builds the exchange and replaces
+    /// its stand-ins with the real hits.
+    /// </summary>
+    private sealed record SearchHit(
+        TranscriptTurn? Turn,
+        TranscriptItem? Item,
+        int OccurrenceInItem,
+        string Query,
+        TranscriptHistorySegment? Segment = null);
+
+    private int _searchVersion;
 
     private static readonly string ClipboardImagesDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -175,12 +187,15 @@ public partial class ChatView : UserControl
             return;
         args.Handled = true;
         var sourceId = item.Receipt.SourceMessageId;
-        if (!chat.Messages.Any(message => message.Id == sourceId))
+        // The answer may be in an older exchange that is only in storage; build it first.
+        var vm = _subscribedVm;
+        if (!await vm.EnsureMessageInTranscriptAsync(sourceId, includeFoldedSteps: true) || !ReferenceEquals(vm.CurrentChat, chat))
         {
-            _subscribedVm.StatusText = InteractiveLabels.ForLanguage(Loc.Culture.Name)["sourceUnavailable"];
+            if (ReferenceEquals(vm.CurrentChat, chat))
+                vm.StatusText = InteractiveLabels.ForLanguage(Loc.Culture.Name)["sourceUnavailable"];
             return;
         }
-        var sourceTurn = _subscribedVm.TranscriptTurns.FirstOrDefault(turn => turn.EnumerateItems().Any(child =>
+        var sourceTurn = vm.TranscriptTurns.FirstOrDefault(turn => turn.EnumerateItems().Any(child =>
             child is AssistantMessageItem assistant && assistant.MessageId == sourceId));
         if (sourceTurn is null) return;
         var sourceItem = sourceTurn.EnumerateItems().First(child =>
@@ -405,9 +420,12 @@ public partial class ChatView : UserControl
         {
             _subscribedVm = vm;
             _lastObservedCurrentChat = vm.CurrentChat;
+            // A cached surface shown again reads back what it released while idle.
+            vm.RestoreReleasedHistorySnapshots();
             vm.ScrollToEndRequested += OnScrollToEndRequested;
             vm.UserMessageSent += OnUserMessageSent;
             vm.TranscriptRebuilt += OnTranscriptRebuilt;
+            vm.TranscriptHistoryChanged += OnTranscriptHistoryChanged;
             vm.PropertyChanged += OnViewModelPropertyChanged;
             vm.AttachFilesRequested += OnAttachFilesRequested;
             vm.ClipboardPasteRequested += OnClipboardPasteRequested;
@@ -471,6 +489,7 @@ public partial class ChatView : UserControl
         _subscribedVm.ScrollToEndRequested -= OnScrollToEndRequested;
         _subscribedVm.UserMessageSent -= OnUserMessageSent;
         _subscribedVm.TranscriptRebuilt -= OnTranscriptRebuilt;
+        _subscribedVm.TranscriptHistoryChanged -= OnTranscriptHistoryChanged;
         _subscribedVm.PropertyChanged -= OnViewModelPropertyChanged;
         _subscribedVm.AttachFilesRequested -= OnAttachFilesRequested;
         _subscribedVm.ClipboardPasteRequested -= OnClipboardPasteRequested;
@@ -667,8 +686,11 @@ public partial class ChatView : UserControl
         if (control.IsViewportManaged && _transcriptScrollViewer.CurrentAnchor is not null)
             return;
 
-        // Only compensate for turns fully above the viewport.
-        if (point.Value.Y + control.Bounds.Height > 0)
+        // Only compensate for turns that were fully above the viewport before they changed — a turn grows
+        // and shrinks from its top, so one that ends above the viewport moves only what is below it — and
+        // only for a change: a turn's first measurement (one of an older exchange's turns just built in
+        // its place, say) is the space its layout already took.
+        if (previousHeight <= 0 || point.Value.Y + previousHeight > 0)
             return;
 
         _chatShell.CompensateForContentAbove(delta);
@@ -1570,8 +1592,10 @@ public partial class ChatView : UserControl
         if (_subscribedVm is null || _chatShell is null || _transcriptScrollViewer is null)
             return;
 
-        var turn = _subscribedVm.TranscriptTurns.FirstOrDefault(t => t.StableId == stableId);
-        if (turn is null)
+        // The turn may belong to an older exchange that is only in storage; build it first.
+        var vm = _subscribedVm;
+        var turn = await vm.EnsureTurnInTranscriptAsync(stableId);
+        if (turn is null || !ReferenceEquals(_subscribedVm, vm) || _chatShell is null || _transcriptScrollViewer is null)
             return;
 
         var target = await EnsureTurnRealizedAsync(turn);
@@ -2067,9 +2091,18 @@ public partial class ChatView : UserControl
         if (_subscribedVm is null || _chatShell is null || _transcriptScrollViewer is null)
             return;
 
+        // The quoted message may be in an older exchange (or among its folded steps) that is only in
+        // storage; build it first.
+        var vm = _subscribedVm;
+        if (!await vm.EnsureMessageInTranscriptAsync(reply.MessageId, includeFoldedSteps: true)
+            || !ReferenceEquals(_subscribedVm, vm))
+        {
+            return;
+        }
+
         TranscriptTurn? sourceTurn = null;
         AssistantMessageItem? sourceItem = null;
-        foreach (var turn in _subscribedVm.TranscriptTurns)
+        foreach (var turn in vm.TranscriptTurns)
         {
             sourceItem = turn.EnumerateItems()
                 .OfType<AssistantMessageItem>()
@@ -2498,9 +2531,10 @@ public partial class ChatView : UserControl
         });
     }
 
-    private void ExecuteSearch()
+    private async void ExecuteSearch()
     {
         var query = _searchInput?.Text;
+        var version = ++_searchVersion;
         _searchHits.Clear();
         _currentHitIndex = -1;
         ClearSearchHighlight();
@@ -2511,16 +2545,54 @@ public partial class ChatView : UserControl
             return;
         }
 
-        // Search ALL transcript turns (including unmounted/off-screen) and the work folded into them
-        foreach (var turn in _subscribedVm.TranscriptTurns)
+        // Older exchanges are searched in storage, built or not; each stands in for its hits until
+        // the reader navigates to one. The live tail is searched in its turns.
+        var vm = _subscribedVm;
+        IReadOnlyList<(TranscriptHistorySegment Segment, int Count)> stored = [];
+        if (vm.HasTranscriptHistory)
+        {
+            try
+            {
+                stored = await vm.SearchStoredHistoryAsync(query);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                System.Diagnostics.Trace.TraceWarning("[Search] Could not search older messages: {0}", ex.Message);
+            }
+
+            if (version != _searchVersion || !ReferenceEquals(vm, _subscribedVm))
+                return;
+        }
+
+        foreach (var (segment, count) in stored)
+        {
+            for (var occurrence = 0; occurrence < count; occurrence++)
+                _searchHits.Add(new SearchHit(null, null, occurrence, query, segment));
+        }
+
+        foreach (var turn in vm.TranscriptTurns)
+        {
+            if (!ChatViewModel.IsHistoryTurn(turn))
+                CollectSearchHits(turn, query, _searchHits);
+        }
+
+        if (_searchHits.Count > 0)
+            _currentHitIndex = 0;
+
+        UpdateSearchCounter();
+    }
+
+    /// <summary>Adds every occurrence of <paramref name="query"/> in a turn's items (and the work folded into them).</summary>
+    private static void CollectSearchHits(TranscriptTurn turn, string query, List<SearchHit> hits, TranscriptHistorySegment? segment = null)
+    {
         {
             foreach (var item in turn.EnumerateItems())
             {
                 var content = item switch
                 {
                     UserMessageItem u => u.Content,
-                    InteractionReceiptItem receipt => receipt.Receipt.Title + "\n" + receipt.Receipt.Summary + "\n" + receipt.Receipt.Detail,
-                    InputRequestItem input => input.Definition.Title + "\n" + input.Definition.Description,
+                    InteractionReceiptItem receipt => TranscriptSearchText.Receipt(receipt.Receipt),
+                    InputRequestItem input => TranscriptSearchText.Input(input.Definition),
                     JobWakeItem j => j.SearchText,
                     AssistantMessageItem a => a.Content,
                     ErrorMessageItem err => err.Content,
@@ -2536,17 +2608,12 @@ public partial class ChatView : UserControl
                 {
                     var idx = content.IndexOf(query, pos, StringComparison.OrdinalIgnoreCase);
                     if (idx < 0) break;
-                    _searchHits.Add(new SearchHit(turn, item, occurrence, query));
+                    hits.Add(new SearchHit(turn, item, occurrence, query, segment));
                     occurrence++;
                     pos = idx + query.Length;
                 }
             }
         }
-
-        if (_searchHits.Count > 0)
-            _currentHitIndex = 0;
-
-        UpdateSearchCounter();
     }
 
     private async void NavigateSearchMatch(int direction)
@@ -2559,6 +2626,46 @@ public partial class ChatView : UserControl
 
         var hit = _searchHits[_currentHitIndex];
         if (_subscribedVm is null) return;
+
+        // A hit in an older exchange: build it (again, if it was released) and swap its stand-ins
+        // for the real hits.
+        if (hit.Segment is { } segment
+            && (hit.Turn is null || !_subscribedVm.TranscriptTurns.Contains(hit.Turn)))
+        {
+            var vm = _subscribedVm;
+            var version = _searchVersion;
+            var ordinal = _searchHits.Take(_currentHitIndex).Count(candidate => ReferenceEquals(candidate.Segment, segment));
+            var turns = await vm.BuildExchangeForSearchAsync(segment);
+            if (turns is null || version != _searchVersion || !ReferenceEquals(vm, _subscribedVm))
+                return;
+
+            var first = _searchHits.FindIndex(candidate => ReferenceEquals(candidate.Segment, segment));
+            if (first < 0)
+                return;
+            var count = _searchHits.Count(candidate => ReferenceEquals(candidate.Segment, segment));
+            var concrete = new List<SearchHit>();
+            foreach (var turn in turns)
+                CollectSearchHits(turn, hit.Query, concrete, segment);
+            _searchHits.RemoveRange(first, count);
+            _searchHits.InsertRange(first, concrete);
+            if (_searchHits.Count == 0)
+            {
+                _currentHitIndex = -1;
+                UpdateSearchCounter();
+                return;
+            }
+
+            _currentHitIndex = concrete.Count > 0
+                ? first + Math.Min(ordinal, concrete.Count - 1)
+                : Math.Min(first, _searchHits.Count - 1);
+            UpdateSearchCounter();
+            hit = _searchHits[_currentHitIndex];
+            if (hit.Turn is null)
+                return;
+        }
+
+        if (hit.Turn is null || hit.Item is null)
+            return;
 
         var revealed = hit.Turn.RevealFoldedItem(hit.Item);
         if (await EnsureTurnRealizedAsync(hit.Turn) is not { } turnControl)
@@ -2587,6 +2694,7 @@ public partial class ChatView : UserControl
 
         // Find the visual for this item: a directly-built host in its turn, or a view inside an
         // opened history row.
+        if (hit.Item is null) return null;
         var itemVisual = FindTranscriptItemView(_transcript, hit.Item);
         if (itemVisual is null) return null;
 
@@ -2741,5 +2849,47 @@ public partial class ChatView : UserControl
         _currentHitIndex = -1;
         if (_searchMatchCounter is not null)
             _searchMatchCounter.Text = "";
+    }
+
+    /// <summary>
+    /// Older exchanges were built or released. A hit in an exchange that was released stands in for
+    /// it again (navigating builds it anew), so search never keeps a released exchange's turns; a hit
+    /// in an exchange that is no longer part of the chat goes.
+    /// </summary>
+    private void OnTranscriptHistoryChanged()
+    {
+        if (_searchHits.Count == 0 || _subscribedVm is not { } vm)
+            return;
+
+        var segments = vm.TranscriptHistory.Segments.ToHashSet();
+        var currentReleased = false;
+        for (var i = _searchHits.Count - 1; i >= 0; i--)
+        {
+            var hit = _searchHits[i];
+            // A hit of a live turn whose exchange the history now owns belongs to that exchange.
+            if (hit.Segment is null && hit.Turn?.HistorySegment is TranscriptHistorySegment owner)
+                _searchHits[i] = hit = hit with { Segment = owner };
+            if (hit.Segment is not { } segment)
+                continue;
+
+            if (!segments.Contains(segment))
+            {
+                _searchHits.RemoveAt(i);
+                if (i < _currentHitIndex)
+                    _currentHitIndex--;
+                else
+                    currentReleased |= i == _currentHitIndex;
+            }
+            else if (hit.Turn is { HistorySegment: null })
+            {
+                _searchHits[i] = hit with { Turn = null, Item = null };
+                currentReleased |= i == _currentHitIndex;
+            }
+        }
+
+        if (currentReleased)
+            ClearSearchHighlight();
+        _currentHitIndex = Math.Min(_currentHitIndex, _searchHits.Count - 1);
+        UpdateSearchCounter();
     }
 }

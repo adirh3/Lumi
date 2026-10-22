@@ -48,6 +48,42 @@ public sealed class FileIconHelperMemoryTests
         return new WeakReference(item.IconImage);
     }
 
+    [SkippableFact]
+    public async Task IconResolvedLater_FollowsTheListedFile()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows shell icons are Windows-only.");
+        using var session = HeadlessTestSession.Start();
+        var directory = CreateTempDirectory();
+        var picture = Path.Combine(directory, "picture.png");
+        File.Copy(ResolveLumiIconPath(), picture);
+        var notes = Path.Combine(directory, "notes.txt");
+        File.WriteAllText(notes, "notes");
+        FileIconHelper.ClearCachesForTests();
+
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                FileAttachmentItem[] items =
+                [
+                    new(picture, isPreviewable: true, resolveIconLater: true),
+                    new(notes, isPreviewable: true, resolveIconLater: true),
+                ];
+
+                // Listed at once; the picture's thumbnail and the type icon arrive once the UI thread is free.
+                Assert.All(items, static item => Assert.Null(item.IconImage));
+                for (var wait = 0; wait < 500 && Array.Exists(items, static item => item.IconImage is null); wait++)
+                    await Task.Delay(10);
+                Assert.All(items, static item => Assert.NotNull(item.IconImage));
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            FileIconHelper.ClearCachesForTests();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "Lumi-file-icon-tests", Guid.NewGuid().ToString("N"));

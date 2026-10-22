@@ -49,6 +49,9 @@ internal sealed class SubagentRunTranscript
     /// <summary>The run rendered as transcript turns, ready for the chat's own turn control.</summary>
     public ObservableCollection<TranscriptTurn> Turns { get; private set; } = [];
 
+    /// <summary>The run's steps on the page, counted as the run's card counts them.</summary>
+    public int StepCount => _builder.RootStepCount;
+
     /// <summary>
     /// Brings the rendered run up to date: new steps and messages are appended to the live
     /// transcript, a growing tail is pushed into the bubble already bound to it, and the transcript

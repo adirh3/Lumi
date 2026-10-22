@@ -1204,7 +1204,9 @@ public class AppDataSnapshotFactoryTests
             BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)
             ?? throw new InvalidOperationException("CreateIndexSnapshot method was not found.");
 
-        return (AppData)(createMethod.Invoke(null, [source])
+        // Chats are included unless the caller stores them elsewhere (the chat database).
+        object?[] arguments = createMethod.GetParameters().Length == 2 ? [source, true] : [source];
+        return (AppData)(createMethod.Invoke(null, arguments)
             ?? throw new InvalidOperationException("CreateIndexSnapshot returned null."));
     }
 

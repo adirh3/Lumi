@@ -83,8 +83,8 @@ public partial class ChatViewModel
                 return "";
 
             var parts = new List<string>(3) { FormatHeaderStarted(chat.CreatedAt, DateTimeOffset.Now) };
-            var messages = chat.Messages.Count(static message =>
-                message.Role is "user" or "assistant" && !string.IsNullOrWhiteSpace(message.Content));
+            // The whole chat, including history that is only in storage.
+            var messages = _dataStore.CountUserMessages(chat, withText: true) + _dataStore.CountAnsweredAssistantMessages(chat);
             if (messages > 0)
                 parts.Add(messages == 1
                     ? Loc.ChatHeader_OneMessage

@@ -694,7 +694,10 @@ public partial class ChatViewModel
                 var rebasedPath = normalizedWorktreePath + path[normalizedProjectDir.Length..];
                 file.Path = rebasedPath;
                 if (i < userMsg.Attachments.Count)
+                {
                     userMsg.Attachments[i] = rebasedPath;
+                    userMsg.MarkChanged();
+                }
             }
         }
     }

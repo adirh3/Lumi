@@ -2986,6 +2986,13 @@
       </sc:StrataTurnSummary>
     </DataTemplate>
 
+    <!-- ── Earlier exchange not built yet ───────────── -->
+    <!-- Holds the exchange's place (its last measured height, or an estimate) until it is read and
+         built as the reader scrolls near it. Empty, so scrolling quickly past history stays calm. -->
+    <DataTemplate DataType="vm:HistoryPlaceholderItem">
+      <Border Height="{Binding Height}" Background="Transparent" IsHitTestVisible="False" />
+    </DataTemplate>
+
   </UserControl.DataTemplates>
 
   <Panel DragDrop.AllowDrop="True">

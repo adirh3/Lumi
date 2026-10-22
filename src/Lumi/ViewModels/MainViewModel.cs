@@ -502,9 +502,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _ownsChatSurfaceRegistry = chatSurfaceRegistry is null;
         _globalSearchService = globalSearchService ?? new GlobalSearchService(
             () => _dataStore.Data,
-            _dataStore.GetChatSearchSnapshot,
+            _dataStore.GetChatIndexSnapshot,
             releaseChatSnapshot: _dataStore.EvictChatSearchSnapshot,
-            chatFileTimestampProvider: _dataStore.GetChatFileTimestamp);
+            chatContentVersionProvider: _dataStore.GetChatIndexVersion);
         _chatSessionStore = chatSessionStore ?? new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService, _secureKeyStore);
         _ownsChatSessionStore = chatSessionStore is null;
 
@@ -616,7 +616,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                      or nameof(SettingsViewModel.ShowToolCalls)
                      or nameof(SettingsViewModel.ShowReasoning)
                      or nameof(SettingsViewModel.ExpandReasoningWhileStreaming))
-                _chatSessionStore.ApplyToSurfaces(surface => surface.RebuildTranscript());
+                _chatSessionStore.ApplyToSurfaces(surface => surface.RebuildTranscriptAndHistory());
             else if (args.PropertyName == nameof(SettingsViewModel.SuggestFollowUps))
                 _chatSessionStore.ApplyToSurfaces(surface => surface.ApplySuggestFollowUpsSetting());
             else if (args.PropertyName == nameof(SettingsViewModel.IsAuthenticated))
@@ -2315,11 +2315,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Chat? fork = null;
         try
         {
-            // Messages live in a per-chat side file and are unloaded while a chat is inactive, so a
-            // fork of a non-active chat would otherwise copy an empty transcript.
-            await _dataStore.LoadChatMessagesAsync(chat);
+            // Only the newest exchange of a chat is kept in memory; a fork copies the whole stored
+            // transcript (or all of it up to the message forked from).
+            var sourceMessages = await _dataStore.ReadChatMessagesAsync(chat);
 
-            var plan = ChatForkFactory.CreateFork(chat, chat.Messages, throughMessageId);
+            var plan = ChatForkFactory.CreateFork(chat, sourceMessages, throughMessageId);
             fork = plan.Chat;
 
             // Prefer a real server-side session fork: the copy then inherits the model's actual
@@ -2341,8 +2341,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ChatForkFactory.ReconcileTag(fork, _dataStore.Data.ChatTags);
             _dataStore.Data.Chats.Add(fork);
             _dataStore.MarkChatChanged(fork);
-            await _dataStore.SaveChatAsync(fork);
+            // Every message of the copy is new, so its first save encodes the whole transcript: off
+            // the UI thread, as nothing shows or changes the copy yet.
+            await Task.Run(() => _dataStore.SaveChatAsync(fork));
             await _dataStore.SaveAsync();
+            // The copy opens like any stored chat: its newest exchange now, older ones on demand.
+            _dataStore.TryReleaseChatMessages(fork);
 
             RefreshChatList();
             ProjectsVM.RefreshSelectedProjectChats();
@@ -2403,6 +2407,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         string? name)
     {
         if (source.CopilotSessionId is not { Length: > 0 } sessionId)
+            return null;
+
+        // The copy's turns map onto the session's by position — at a cut here, or when the copy is
+        // edited later — which only holds when every message of the chat could be read; otherwise the
+        // copy replays the transcript it has.
+        if (_dataStore.IsMissingLegacyMessages(source))
             return null;
 
         CopilotSession? live = null;

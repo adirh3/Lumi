@@ -1880,12 +1880,19 @@ Git/
 ```
 src/Lumi/
 ├── Models/          — Domain entities (Chat, Project, Skill, Agent, Memory)
-├── Services/        — CopilotService, DataStore (JSON), SystemPromptBuilder
+├── Services/        — CopilotService, DataStore (JSON + SQLite chats), SystemPromptBuilder
 ├── ViewModels/      — MVVM ViewModels with CommunityToolkit.Mvvm generators
 └── Views/           — Avalonia XAML views + code-behind
 ```
 
-Data is persisted as a single JSON file in `%AppData%/Lumi/data.json` — no database required.
+Settings, projects, skills, agents and memories are saved in `%AppData%/Lumi/data.json`. Chats and their
+transcripts live in a local SQLite database next to it, `lumi.db`, so a chat opens with only its newest
+exchange in memory and older history is read as you scroll to it (a delegated agent's own steps only when
+you open its page); exchanges you scroll away from, and the
+older part of a long session once Lumi is idle, are let go again — memory follows what is on screen, not
+how long a chat is. The first start after updating moves existing chats into the database in the
+background (a chat you open first moves right away); the previous files stay as `chats.pre-sqlite-backup`
+and `data.pre-sqlite.json`, and are deleted only with the chats they hold (or by Clear All Chats).
 
 The local MCP proxy is organized by responsibility:
 

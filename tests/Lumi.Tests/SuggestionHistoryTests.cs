@@ -109,7 +109,7 @@ public class SuggestionHistoryTests
         Assert.Empty(await otherStore.GetSuggestionHistoryAsync(snapshots));
 
         store.Data.Chats.Clear();
-        store.DeleteAllChatFiles();
+        await store.DeleteAllChatFilesAsync();
 
         Assert.Empty(await store.GetSuggestionHistoryAsync(new Dictionary<Guid, IReadOnlyList<ChatMessage>>()));
     }
@@ -133,7 +133,7 @@ public class SuggestionHistoryTests
         {
             await reading.Task.WaitAsync(TimeSpan.FromSeconds(5));
             store.Data.Chats.Clear();
-            store.DeleteAllChatFiles();
+            await store.DeleteAllChatFilesAsync();
         }
         finally
         {

@@ -40,6 +40,35 @@ public sealed class TranscriptTurn : ObservableObject
     internal DateTimeOffset? RequestedAt { get; set; }
 
     /// <summary>
+    /// Set on turns the transcript history owns (a stored exchange's placeholder or its built turns):
+    /// told when the turn enters or leaves the realized viewport band, so history loads and releases
+    /// exchanges by what the reader is looking at.
+    /// </summary>
+    internal Action<TranscriptTurn, bool>? ViewportActivityChanged { get; set; }
+
+    /// <summary>The stored exchange this turn renders, when the transcript history owns it.</summary>
+    internal object? HistorySegment { get; set; }
+
+    // Turn controls showing the turn inside their realized viewport band: two windows can show the
+    // same surface, and so the same turn.
+    private int _viewportHosts;
+
+    /// <summary>True while a control shows the turn inside the realized viewport band.</summary>
+    internal bool IsViewportActive => _viewportHosts > 0;
+
+    internal void EnterViewport()
+    {
+        if (++_viewportHosts == 1)
+            ViewportActivityChanged?.Invoke(this, true);
+    }
+
+    internal void LeaveViewport()
+    {
+        if (_viewportHosts > 0 && --_viewportHosts == 0)
+            ViewportActivityChanged?.Invoke(this, false);
+    }
+
+    /// <summary>
     /// True once the run that produced the turn has ended and its work is folded. New work in the turn
     /// clears it, so the end of the next run folds the turn again.
     /// </summary>
@@ -210,9 +239,25 @@ public sealed class TranscriptTurnControl : UserControl
         ReleaseAdoptedHost();
 
         _turn = newTurn;
+        ReportViewportActivity();
 
         SubscribeToTurnItems(newTurn);
         AdoptHost();
+    }
+
+    // The turn this control reported as on screen, which it alone takes back.
+    private TranscriptTurn? _reportedTurn;
+
+    /// <summary>Tells the turn whether this control shows it inside the realized viewport band.</summary>
+    private void ReportViewportActivity()
+    {
+        var shown = _isAttachedToVisualTree && _isViewportActive && IsViewportManaged ? _turn : null;
+        if (ReferenceEquals(shown, _reportedTurn))
+            return;
+
+        _reportedTurn?.LeaveViewport();
+        _reportedTurn = shown;
+        shown?.EnterViewport();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -226,8 +271,9 @@ public sealed class TranscriptTurnControl : UserControl
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        UnsubscribeFromTurnItems(_turn);
         _isAttachedToVisualTree = false;
+        ReportViewportActivity();
+        UnsubscribeFromTurnItems(_turn);
         ReleaseAdoptedHost();
         base.OnDetachedFromVisualTree(e);
     }
@@ -372,12 +418,16 @@ public sealed class TranscriptTurnControl : UserControl
 
     internal bool IsViewportActive => _isViewportActive;
 
+    /// <summary>True while the turn's content is shown, so its height is measured rather than reserved.</summary>
+    internal bool ShowsContent => _host is not null && ReferenceEquals(Content, _host);
+
     internal void SetViewportActive(bool isActive, bool retainHostWhenInactive = false)
     {
         if (!IsViewportManaged || _isViewportActive == isActive)
             return;
 
         _isViewportActive = isActive;
+        ReportViewportActivity();
         if (isActive)
         {
             AdoptHost();
@@ -968,6 +1018,7 @@ public sealed class TranscriptItemsControl : ItemsControl
         if (!double.IsFinite(viewportHeight) || viewportHeight <= 0)
             return null;
 
+        Control? fallback = null;
         foreach (var control in EnumerateTurnControls())
         {
             var point = control.TranslatePoint(default, scrollViewer);
@@ -978,10 +1029,20 @@ public sealed class TranscriptItemsControl : ItemsControl
                 continue;
             }
 
-            return (Control?)control.FindAncestorOfType<ContentPresenter>() ?? control;
+            var container = (Control?)control.FindAncestorOfType<ContentPresenter>() ?? control;
+            // Anchor on a turn whose height is real. One still reserving an estimate (its content not
+            // shown yet), or an older exchange's stand-in that is swapped for the exchange once built,
+            // would move everything below it when it is measured or swapped.
+            if (!control.ShowsContent || (control.Turn is { } turn && TranscriptHistory.IsPlaceholder(turn)))
+            {
+                fallback ??= container;
+                continue;
+            }
+
+            return container;
         }
 
-        return null;
+        return fallback;
     }
 
     private IEnumerable<TranscriptTurnControl> EnumerateTurnControls()

@@ -2233,13 +2233,22 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private void Save() => _ = _dataStore.SaveAsync();
 
-    // Destructive: only reached through ConfirmDangerAction, after the user confirms.
-    private void ClearAllChats()
+    // Destructive: only reached through ConfirmDangerAction, after the user confirms. Every chat is
+    // marked deleted at once and the list empties; the stored chats are deleted in the background.
+    private async Task ClearAllChatsAsync()
     {
         _dataStore.Data.Chats.Clear();
-        _dataStore.DeleteAllChatFiles();
+        var deletion = _dataStore.DeleteAllChatFilesAsync();
         Save();
         SettingsChanged?.Invoke();
+        try
+        {
+            await deletion;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError($"[Settings] Failed to delete the stored chats: {ex}");
+        }
     }
 
     private void ClearAllMemories()

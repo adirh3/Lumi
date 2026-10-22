@@ -268,6 +268,77 @@ public sealed class SubagentIndexTests
         Assert.StartsWith(string.Format(Loc.Culture, Loc.Subagent_Steps, 2), run.RunMetaText);
     }
 
+    [Fact]
+    public void RunPage_CountsTheRunsStepsAsItsCardDoes()
+    {
+        // A run of an older exchange is listed from its latest step only; its page reads the rest
+        // and must arrive at the count the run's card has when the whole chat is built.
+        Loc.Load("en");
+        const string plan = """{"todoList":[{"title":"Look","status":"completed"},{"title":"Fix","status":"in-progress"}]}""";
+        using var vm = CreateViewModel(Agent("run", "Completed", "Outer"));
+        foreach (var message in new[]
+        {
+            Step("s1", "view", """{"path":"a.cs"}"""),
+            Step("s2", "report_intent", """{"intent":"Reading"}"""),
+            Step("s3", "update_todo", plan),
+            Step("s4", "powershell", """{"command":"dir","description":"List files"}"""),
+            Step("s5", "read_powershell", """{"shellId":"1"}"""),
+            Step("s6", "update_todo", plan),
+            Step("s7", "task", """{"description":"Inner","agent_type":"explore"}"""),
+            Step("s8", "view", """{"path":"b.cs"}""", parent: "s7"),
+            Step("s9", "grep", """{"pattern":"x"}"""),
+        })
+        {
+            vm.Messages.Add(new ChatMessageViewModel(message));
+        }
+
+        var outer = vm.SubagentRuns.Single(run => run.ToolCallId == "run");
+        // The file read, the plan (once, however often it changes), the command and the search.
+        Assert.Equal(4, outer.StepCount);
+
+        var page = new SubagentRunTranscript(new DataStore(new AppData()), static _ => { });
+        page.Sync(outer, vm.Messages.ToList());
+        Assert.Equal(outer.StepCount, page.StepCount);
+
+        // A known count stands in for the steps the run's row has not loaded; zero hides it.
+        var listed = new SubagentToolCallItem("Explore agent", StrataAiToolCallStatus.Completed) { KnownStepCount = 0 };
+        listed.Activities.Add(new ToolCallItem("📄 Reading file", StrataAiToolCallStatus.Completed, "tool:latest"));
+        Assert.False(listed.HasRunMeta);
+        listed.KnownStepCount = page.StepCount;
+        Assert.StartsWith(string.Format(Loc.Culture, Loc.Subagent_Steps, 4), listed.RunMetaText);
+    }
+
+    private static ChatMessage Step(string toolCallId, string toolName, string content, string parent = "run") => new()
+    {
+        Role = "tool",
+        ToolName = toolName,
+        ToolCallId = toolCallId,
+        ParentToolCallId = parent,
+        ToolStatus = "Completed",
+        Content = content,
+        Timestamp = DateTimeOffset.Now,
+    };
+
+    [Fact]
+    public void ToolsWithoutStepCards_NeverAddAStepToTheirRun()
+    {
+        // The Agents index reads a run's latest step card from storage by tool name, so this list
+        // must match what the builder files as a step.
+        Loc.Load("en");
+        const string plan = """{"todoList":[{"title":"Look","status":"completed"}]}""";
+        foreach (var tool in TranscriptBuilder.ToolsWithoutStepCards)
+        {
+            var isPlan = tool is "update_todo" or "manage_todo_list";
+            using var vm = CreateViewModel(Agent("run", "Completed", "Outer"));
+            vm.Messages.Add(new ChatMessageViewModel(Step("s1", tool, isPlan ? plan : """{"intent":"x","filePath":"C:\\a.txt"}""")));
+            vm.Messages.Add(new ChatMessageViewModel(Step("s2", tool, isPlan ? plan : """{"intent":"y","filePath":"C:\\b.txt"}""")));
+
+            var run = vm.SubagentRuns.Single(run => run.ToolCallId == "run");
+            // A plan is one card however often it changes; everything else adds none.
+            Assert.True(run.StepCount == (isPlan ? 1 : 0), $"{tool} added {run.StepCount} steps.");
+        }
+    }
+
     private static ChatViewModel CreateViewModel(params ChatMessage[] messages)
     {
         var vm = new ChatViewModel(new DataStore(new AppData()), TestCopilot.Shared);

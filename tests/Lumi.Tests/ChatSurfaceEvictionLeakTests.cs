@@ -67,11 +67,16 @@ public sealed class ChatSurfaceEvictionLeakTests
         await session.Dispatch(async () =>
         {
             var reloaded = await store.AcquireChatAsync(chat);
-            Assert.Equal(expectedIds, chat.Messages.Select(message => message.Id));
-            Assert.Equal(expectedContent, chat.Messages.Select(message => message.Content));
-            Assert.Equal(expectedIds.Length, reloaded.Messages.Count);
+            // Reopening brings back only the newest exchange; the whole history is still stored, unchanged.
+            var history = await dataStore.ReadChatMessagesAsync(chat);
+            Assert.Equal(expectedIds, history.Select(message => message.Id));
+            Assert.Equal(expectedContent, history.Select(message => message.Content));
+            Assert.Equal(expectedIds[^2..], chat.Messages.Select(message => message.Id));
+            Assert.Equal(chat.Messages.Count, reloaded.Messages.Count);
+            Assert.Equal(expectedIds.Length, dataStore.GetTotalMessageCount(chat));
             store.Dispose();
             registry.Dispose();
+            dataStore.CloseChatStorage();
         }, CancellationToken.None);
         GC.KeepAlive(dataStore);
     }
@@ -82,7 +87,8 @@ public sealed class ChatSurfaceEvictionLeakTests
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
-            var dataStore = new DataStore();
+            using var persistent = new PersistentStore();
+            var dataStore = persistent.Store;
             dataStore.Data.Settings.AutoSaveChats = false;
             var chat = CreateChat("unsaved eviction", messageCount: 2);
             dataStore.Data.Chats.Add(chat);
@@ -106,7 +112,8 @@ public sealed class ChatSurfaceEvictionLeakTests
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
-            var dataStore = new DataStore();
+            using var persistent = new PersistentStore();
+            var dataStore = persistent.Store;
             dataStore.Data.Settings.AutoSaveChats = true;
             var chat = CreateChat("active eviction", messageCount: 2);
             dataStore.Data.Chats.Add(chat);
@@ -136,20 +143,21 @@ public sealed class ChatSurfaceEvictionLeakTests
     }
 
     [Fact]
-    public async Task EvictedChat_FailedSave_KeepsModelsAndExistingFile()
+    public async Task EvictedChat_FailedSave_KeepsModelsAndStoredHistory()
     {
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
-            var dataStore = new DataStore();
+            using var persistent = new PersistentStore();
+            var dataStore = persistent.Store;
             dataStore.Data.Settings.AutoSaveChats = true;
             var chat = CreateChat("failed eviction", messageCount: 2);
             dataStore.Data.Chats.Add(chat);
             await dataStore.SaveChatAsync(chat);
-            var path = Path.Combine(DataStore.ChatsDir, $"{chat.Id}.json");
-            var originalFile = await File.ReadAllBytesAsync(path);
+            var originalContent = chat.Messages[0].Content;
             chat.Messages[0].Content = "Unsaved changes must survive the failed eviction save.";
-            using var fileLock = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            // The database is gone (as on a failing disk), so leaving the chat cannot save it.
+            dataStore.ChatStore!.Dispose();
             using var registry = new ChatSurfaceRegistry();
             using var store = new ChatSessionStore(
                 dataStore, TestCopilot.Shared, registry, LoadTranscript,
@@ -157,11 +165,16 @@ public sealed class ChatSurfaceEvictionLeakTests
 
             var surface = await store.AcquireChatAsync(chat);
             store.Release(surface);
-            await Task.Yield();
+            var release = (Task)typeof(ChatSessionStore)
+                .GetField("_evictedMessagesRelease", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(store)!;
+            await release.WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.Equal(2, chat.Messages.Count);
             Assert.Equal("Unsaved changes must survive the failed eviction save.", chat.Messages[0].Content);
-            Assert.Equal(originalFile, await File.ReadAllBytesAsync(path));
+            using var reader = new Lumi.Services.Storage.ChatStore(DataStore.ChatDatabasePath);
+            var stored = await reader.ReadAllAsync(chat.Id);
+            Assert.Equal(originalContent, stored[0].Content);
         }, CancellationToken.None);
     }
 
@@ -171,7 +184,8 @@ public sealed class ChatSurfaceEvictionLeakTests
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
-            var dataStore = new DataStore();
+            using var persistent = new PersistentStore();
+            var dataStore = persistent.Store;
             dataStore.Data.Settings.AutoSaveChats = true;
             var chat = CreateChat("reacquired eviction", messageCount: 2);
             dataStore.Data.Chats.Add(chat);
@@ -180,9 +194,6 @@ public sealed class ChatSurfaceEvictionLeakTests
             using var store = new ChatSessionStore(
                 dataStore, TestCopilot.Shared, registry, LoadTranscript,
                 maxIdleCachedSurfaces: 0);
-            var writeLock = (SemaphoreSlim)typeof(DataStore)
-                .GetField("_writeLock", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(dataStore)!;
             var saved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             dataStore.ChatContentChanged += id =>
             {
@@ -191,20 +202,18 @@ public sealed class ChatSurfaceEvictionLeakTests
             };
 
             var surface = await store.AcquireChatAsync(chat);
-            await writeLock.WaitAsync();
-            ChatViewModel replacement;
-            try
-            {
-                store.Release(surface);
-                replacement = await store.AcquireChatAsync(chat);
-                chat.Messages[0].Content = "Edited by the new owner while the old save was pending.";
-            }
-            finally
-            {
-                writeLock.Release();
-            }
+            // An unsaved change makes leaving write the chat. The write completes on the database's
+            // writer thread, and the eviction resumes on this thread only after the chat is reopened.
+            chat.Messages[1].Content = "Changed before leaving, so leaving writes the chat.";
+            store.Release(surface);
+            var replacement = await store.AcquireChatAsync(chat);
+            chat.Messages[0].Content = "Edited by the new owner while the old save was pending.";
 
             await saved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var release = (Task)typeof(ChatSessionStore)
+                .GetField("_evictedMessagesRelease", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(store)!;
+            await release.WaitAsync(TimeSpan.FromSeconds(5));
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
                 static () => { }, Avalonia.Threading.DispatcherPriority.Background);
             Assert.Equal(2, chat.Messages.Count);
@@ -219,7 +228,8 @@ public sealed class ChatSurfaceEvictionLeakTests
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
-            var dataStore = new DataStore();
+            using var persistent = new PersistentStore();
+            var dataStore = persistent.Store;
             dataStore.Data.Settings.AutoSaveChats = true;
             var chat = CreateChat("reopened and evicted", messageCount: 2);
             dataStore.Data.Chats.Add(chat);
@@ -263,7 +273,8 @@ public sealed class ChatSurfaceEvictionLeakTests
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
-            var dataStore = new DataStore();
+            using var persistent = new PersistentStore();
+            var dataStore = persistent.Store;
             dataStore.Data.Settings.AutoSaveChats = true;
             var first = CreateChat("first queued eviction", messageCount: 2);
             var second = CreateChat("second queued eviction", messageCount: 2);
@@ -526,5 +537,14 @@ public sealed class ChatSurfaceEvictionLeakTests
         }
 
         return chat;
+    }
+
+    // A store with real storage opens the test profile's chat database and a writer thread for it;
+    // disposing the lease closes them when the test ends.
+    private sealed class PersistentStore : IDisposable
+    {
+        public DataStore Store { get; } = new();
+
+        public void Dispose() => Store.CloseChatStorage();
     }
 }

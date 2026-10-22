@@ -68,10 +68,18 @@ public partial class ChatViewModel
         FocusComposerAtEndRequested?.Invoke();
     }
 
-    private static bool IsMessageBefore(Chat chat, Guid messageId, ChatMessage laterMessage)
+    private bool IsMessageBefore(Chat chat, Guid messageId, ChatMessage laterMessage)
     {
-        var index = chat.Messages.FindIndex(message => message.Id == messageId);
-        return index >= 0 && index < chat.Messages.IndexOf(laterMessage);
+        var message = EnumerateShownMessages(chat).FirstOrDefault(candidate => candidate.Id == messageId);
+        return message is not null && TranscriptOrder(chat, message).CompareTo(TranscriptOrder(chat, laterMessage)) < 0;
+    }
+
+    // Older exchanges (only in storage, or built from it) come before the live tail; within each,
+    // messages keep their stored position or their place in the list.
+    private static (int Part, long Position) TranscriptOrder(Chat chat, ChatMessage message)
+    {
+        var index = chat.Messages.IndexOf(message);
+        return index >= 0 ? (1, index) : (0, message.StorageSeq);
     }
 
     [RelayCommand]

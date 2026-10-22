@@ -32,9 +32,12 @@ public partial class ChatViewModel
     private static void SettleInterruptedInteractionReceipt(ChatRuntimeState runtime) =>
         SetInteractionReceiptStatus(runtime, "Stopped", InteractionHistory.InterruptedReceiptError);
 
-    /// <summary>The answer that hosts an interaction, including one still streaming into the transcript.</summary>
+    /// <summary>
+    /// The answer that hosts an interaction, including one still streaming into the transcript or one
+    /// of an older exchange the transcript has built.
+    /// </summary>
     internal ChatMessage? FindInteractionMessage(Chat chat, Guid messageId) =>
-        chat.Messages.FirstOrDefault(message => message.Id == messageId)
+        EnumerateShownMessages(chat).FirstOrDefault(message => message.Id == messageId)
         ?? (_inProgressMessages.TryGetValue(chat.Id, out var streaming) && streaming.Id == messageId ? streaming : null);
 
     public bool CanSubmitInteractions => CurrentChat is not null && !IsBusy && !IsPaused;

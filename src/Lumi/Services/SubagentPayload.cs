@@ -37,8 +37,12 @@ public readonly record struct SubagentPayload(
 {
     public static SubagentPayload Empty { get; } = default;
 
-    /// <summary>Reads the whole payload in one pass. Malformed input yields <see cref="Empty"/>.</summary>
-    public static SubagentPayload Parse(string? json)
+    /// <summary>
+    /// Reads the whole payload in one pass. Malformed input yields <see cref="Empty"/>. Without
+    /// <paramref name="withDetail"/>, what only a run's page shows — its task, transcript, reasoning
+    /// and log — is skipped rather than copied out.
+    /// </summary>
+    public static SubagentPayload Parse(string? json, bool withDetail = true)
     {
         if (string.IsNullOrWhiteSpace(json))
             return Empty;
@@ -58,10 +62,11 @@ public readonly record struct SubagentPayload(
                 AgentDescription: ReadString(root, "agentDescription"),
                 Mode: ReadString(root, "mode"),
                 Model: ReadString(root, "model"),
-                Prompt: ReadString(root, "prompt"),
-                Transcript: ReadString(root, "transcript"),
-                Reasoning: ReadString(root, "reasoning"),
-                EntriesJson: root.TryGetProperty("entries", out var entries)
+                Prompt: withDetail ? ReadString(root, "prompt") : null,
+                Transcript: withDetail ? ReadString(root, "transcript") : null,
+                Reasoning: withDetail ? ReadString(root, "reasoning") : null,
+                EntriesJson: withDetail
+                    && root.TryGetProperty("entries", out var entries)
                     && entries.ValueKind == JsonValueKind.Array
                         ? entries.GetRawText()
                         : null);

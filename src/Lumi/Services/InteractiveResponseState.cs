@@ -59,6 +59,7 @@ internal static class InteractiveResponseState
             ? new Dictionary<string, string>(StringComparer.Ordinal)
             : new Dictionary<string, string>(message.InteractionStates, StringComparer.Ordinal);
         message.InteractionStates[blockId] = state.ToJson();
+        message.MarkChanged();
         return (definition, state);
     }
 
@@ -71,17 +72,22 @@ internal static class InteractiveResponseState
             return;
         latest.SubmittedFingerprint = action + ":" + submitted.Fingerprint();
         message.InteractionStates[blockId] = latest.ToJson();
+        message.MarkChanged();
     }
 
-    public static string BuildPromptContext(Chat chat)
+    /// <summary>
+    /// The reader's current widget states in <paramref name="messages"/> (oldest first), newest first
+    /// within a 16 KB budget.
+    /// </summary>
+    public static string BuildPromptContext(IReadOnlyList<ChatMessage> messages)
     {
         var builder = new StringBuilder();
         var sections = new List<string>();
         var remaining = 16 * 1024;
         var omitted = false;
-        for (var index = chat.Messages.Count - 1; index >= 0; index--)
+        for (var index = messages.Count - 1; index >= 0; index--)
         {
-            var message = chat.Messages[index];
+            var message = messages[index];
             // Submitted ask_input values already reached the task as tool results; drafts are not input.
             if (message.ToolName == "ask_input" || message.InteractionStates is not { Count: > 0 } states)
                 continue;

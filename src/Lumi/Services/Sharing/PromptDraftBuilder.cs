@@ -164,8 +164,27 @@ public static partial class PromptDraftBuilder
     public static PromptShareSource Create(Chat chat, Guid throughMessageId, string sourcePlatform)
     {
         ArgumentNullException.ThrowIfNull(chat);
-        var end = chat.Messages.FindIndex(message => message.Id == throughMessageId);
-        if (end < 0 || chat.Messages[end] is not { Role: "assistant", IsStreaming: false } selected
+        return Create(chat.Messages, throughMessageId, sourcePlatform);
+    }
+
+    /// <summary>
+    /// Builds the source from a chat's transcript, given as its messages in order (at least the
+    /// conversation and answered questions through <paramref name="throughMessageId"/>).
+    /// </summary>
+    public static PromptShareSource Create(IReadOnlyList<ChatMessage> messages, Guid throughMessageId, string sourcePlatform)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        var end = -1;
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Id == throughMessageId)
+            {
+                end = i;
+                break;
+            }
+        }
+
+        if (end < 0 || messages[end] is not { Role: "assistant", IsStreaming: false } selected
             || selected.ParentToolCallId is not null || string.IsNullOrWhiteSpace(selected.Content))
             throw new ArgumentException("Choose a completed assistant result with text.");
 
@@ -174,7 +193,7 @@ public static partial class PromptDraftBuilder
         var usedLength = 0;
         for (var index = end; index >= 0; index--)
         {
-            var message = chat.Messages[index];
+            var message = messages[index];
             var isUserDecision = message.Role == "tool" && message.QuestionText is { Length: > 0 }
                 && message.ToolOutput?.StartsWith("User answered: ", StringComparison.Ordinal) == true;
             if (message.IsStreaming || (!isUserDecision

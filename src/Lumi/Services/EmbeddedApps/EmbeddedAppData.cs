@@ -67,12 +67,13 @@ internal static class EmbeddedAppData
 
     /// <summary>
     /// Records a canvas instance the runtime reported open on the message that opened it: the one
-    /// already holding the instance, else the tool call (Copilot's <c>open_canvas</c>) that named it.
-    /// Returns null when no message in the chat opened this instance.
+    /// already holding the instance among the chat's <paramref name="apps"/>, else the tool call
+    /// (Copilot's <c>open_canvas</c>) in the chat's live tail that named it. Returns null when no
+    /// message in the chat opened this instance.
     /// </summary>
-    internal static ChatMessage? RecordOpenCanvas(Chat chat, string sessionId, OpenCanvasInstance canvas)
+    internal static ChatMessage? RecordOpenCanvas(Chat chat, IReadOnlyList<ChatMessage> apps, string sessionId, OpenCanvasInstance canvas)
     {
-        var message = chat.Messages.FirstOrDefault(message => message.EmbeddedApp?.InstanceId == canvas.InstanceId)
+        var message = apps.FirstOrDefault(message => message.EmbeddedApp?.InstanceId == canvas.InstanceId)
             ?? chat.Messages.LastOrDefault(message => message.Role == "tool" && OpensCanvas(message.Content, canvas.InstanceId));
         if (message is null)
             return null;
@@ -88,23 +89,25 @@ internal static class EmbeddedAppData
         if (canvas.Input is { } input)
             app.InputJson = input.GetRawText();
         app.IsClosed = false;
+        message.MarkChanged();
         return message;
     }
 
-    /// <summary>Marks a canvas instance closed; returns its message, if the chat has it.</summary>
-    internal static ChatMessage? CloseCanvas(Chat chat, string instanceId)
+    /// <summary>Marks a canvas instance closed; returns its message, if the chat's <paramref name="apps"/> have it.</summary>
+    internal static ChatMessage? CloseCanvas(IReadOnlyList<ChatMessage> apps, string instanceId)
     {
-        var message = chat.Messages.FirstOrDefault(message => message.EmbeddedApp?.InstanceId == instanceId);
+        var message = apps.FirstOrDefault(message => message.EmbeddedApp?.InstanceId == instanceId);
         if (message?.EmbeddedApp is { } app)
         {
             app.IsClosed = true;
             app.Url = null;
+            message.MarkChanged();
         }
         return message;
     }
 
-    /// <summary>The canvases still open in the chat's current session, so resuming it reopens them.</summary>
-    internal static List<OpenCanvasInstance> SavedOpenCanvases(Chat chat) => chat.Messages
+    /// <summary>The canvases among the chat's <paramref name="apps"/> still open in its current session, so resuming it reopens them.</summary>
+    internal static List<OpenCanvasInstance> SavedOpenCanvases(Chat chat, IReadOnlyList<ChatMessage> apps) => apps
         .Select(static message => message.EmbeddedApp)
         .OfType<EmbeddedApp>()
         .Where(app => app is { Kind: EmbeddedAppKind.Canvas, IsClosed: false, InstanceId: not null, CanvasId: not null, ExtensionId: not null }
@@ -115,12 +118,12 @@ internal static class EmbeddedAppData
             Title = app.Title, Input = ParseJson(app.InputJson)
         }).ToList();
 
-    /// <summary>The context open apps asked to add to the next turn, newest first, marked as untrusted data.</summary>
-    internal static string BuildModelContext(Chat chat)
+    /// <summary>The context the open <paramref name="apps"/> (a chat's, oldest first) asked to add to the next turn, newest first, marked as untrusted data.</summary>
+    internal static string BuildModelContext(IReadOnlyList<ChatMessage> apps)
     {
         var contexts = new List<string>();
         var remaining = MaximumModelContextChars;
-        foreach (var app in chat.Messages.AsEnumerable().Reverse().Select(static message => message.EmbeddedApp).OfType<EmbeddedApp>())
+        foreach (var app in apps.Reverse().Select(static message => message.EmbeddedApp).OfType<EmbeddedApp>())
         {
             if (app.ModelContextJson is not { Length: > 0 } json || app.IsClosed || json.Length > remaining)
                 continue;

@@ -399,7 +399,7 @@ public partial class SettingsViewModel
         switch (action)
         {
             case DangerClearChats:
-                ClearAllChats();
+                _ = ClearAllChatsAsync();
                 break;
             case DangerClearMemories:
                 ClearAllMemories();

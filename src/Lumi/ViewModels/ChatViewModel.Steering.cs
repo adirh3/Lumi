@@ -172,9 +172,11 @@ public partial class ChatViewModel
                 token);
 
             var referencedChats = await BuildReferencedChatsContextAsync(userMsg, token);
+            var interactionContext = await BuildInteractionContextAsync(activeChat, token);
             var sendOptions = new MessageOptions
             {
-                Prompt = skillDirectives + ComposeModelPrompt(prompt, userMsg) + referencedChats + BuildSendPromptAdditions(targetChat: activeChat),
+                Prompt = skillDirectives + ComposeModelPrompt(prompt, userMsg) + referencedChats
+                    + BuildSendPromptAdditions(targetChat: activeChat) + interactionContext,
                 Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
             };
             ApplyMessageAttachments(sendOptions, attachments);

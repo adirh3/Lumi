@@ -423,11 +423,19 @@ public sealed class ChatSessionStore : IDisposable
         try
         {
             // Navigation can outrun disk writes. Clone only one evicted history at a time.
-            await previousRelease;
+            try
+            {
+                await previousRelease;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The previous chat's failure was reported there; it must not stop this one.
+            }
+
             if (!CanUnloadEvictedMessages(chat, release)
                 || !_dataStore.Data.Settings.AutoSaveChats
                 || chat.Messages.Count == 0
-                || !_dataStore.UsesPersistentStorage)
+                || !_dataStore.PersistsTranscripts)
                 return;
 
             var messageCount = chat.Messages.Count;
@@ -437,16 +445,15 @@ public sealed class ChatSessionStore : IDisposable
                 // Reopening invalidates this attempt even if the new owner has already left again.
                 if (!CanUnloadEvictedMessages(chat, release)
                     || !_dataStore.Data.Settings.AutoSaveChats
-                    || chat.Messages.Count != messageCount
-                    || !_dataStore.HasStoredMessages(chat.Id))
+                    || chat.Messages.Count != messageCount)
                     return;
 
-                chat.MessageCount = messageCount;
-                chat.Messages.Clear();
-                chat.Messages.TrimExcess();
+                // The store keeps anything changed since the save.
+                _dataStore.TryReleaseChatMessages(chat);
             });
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException
+                                       or Microsoft.Data.Sqlite.SqliteException or ObjectDisposedException)
         {
             Trace.TraceWarning("[Chat] Could not persist evicted chat {0}; keeping its messages in memory: {1}", chat.Id, ex);
         }

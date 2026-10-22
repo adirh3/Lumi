@@ -243,9 +243,9 @@ public partial class App : Application
             _chatSurfaceRegistry = new ChatSurfaceRegistry();
             _globalSearchService = new GlobalSearchService(
                 () => dataStore.Data,
-                dataStore.GetChatSearchSnapshot,
+                dataStore.GetChatIndexSnapshot,
                 releaseChatSnapshot: dataStore.EvictChatSearchSnapshot,
-                chatFileTimestampProvider: dataStore.GetChatFileTimestamp);
+                chatContentVersionProvider: dataStore.GetChatIndexVersion);
             _chatSessionStore = new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService, Lumi.Services.Byok.SecureKeyStoreFactory.Instance);
             _projectGitSyncService = new ProjectGitSyncService(dataStore);
             _contextCuratorService = new Lumi.Services.Context.ContextCuratorService(dataStore, copilotService, _globalSearchService);
@@ -361,6 +361,16 @@ public partial class App : Application
                     Trace.TraceWarning($"[Shutdown] Failed to stop the debug bridge: {ex.Message}");
                 }
 #endif
+
+                // Last, once nothing else saves: queued chat writes reach the database before exit.
+                try
+                {
+                    dataStore.CloseChatStorage();
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceWarning($"[Shutdown] Failed to close the chat database: {ex.Message}");
+                }
             }
 
             void CleanupForShutdown(bool isUpdateRestart)
@@ -469,6 +479,8 @@ public partial class App : Application
                     StartMemoryStressHarness(desktop, vm, dataStore, memoryHarnessOptions);
                 else if (Program.UiHarnessOptions is { Enabled: true } uiHarnessOptions)
                     StartUiResponsivenessHarness(desktop, vm, dataStore, uiHarnessOptions);
+                else if (Program.HistoryHarnessOptions is { Enabled: true } historyHarnessOptions)
+                    StartHistoryScaleHarness(desktop, vm, dataStore, historyHarnessOptions);
 
                 if (Program.AnimationLifecycleLeakReproEnabled)
                     AnimationLifecycleLeakRepro.Start(desktop);
@@ -570,6 +582,40 @@ public partial class App : Application
             catch (Exception ex)
             {
                 Console.WriteLine("[memory] Harness host failed: " + ex);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try { Environment.ExitCode = 1; desktop.Shutdown(1); }
+                    catch { /* already shutting down */ }
+                });
+            }
+        });
+    }
+
+    private void StartHistoryScaleHarness(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        MainViewModel vm,
+        DataStore dataStore,
+        MemoryDiagnostics.HistoryHarnessOptions options)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(1200);
+                var harness = new MemoryDiagnostics.HistoryScaleHarness(
+                    vm,
+                    dataStore,
+                    options,
+                    requestShutdown: exitCode => Dispatcher.UIThread.Post(() =>
+                    {
+                        try { Environment.ExitCode = exitCode; desktop.Shutdown(exitCode); }
+                        catch { /* already shutting down */ }
+                    }));
+                await harness.RunAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[history] Harness host failed: " + ex);
                 Dispatcher.UIThread.Post(() =>
                 {
                     try { Environment.ExitCode = 1; desktop.Shutdown(1); }

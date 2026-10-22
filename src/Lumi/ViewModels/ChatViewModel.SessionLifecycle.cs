@@ -207,6 +207,8 @@ public partial class ChatViewModel
             added = true;
         }
 
+        if (added)
+            target.MarkChanged();
         return added ? target : null;
     }
 
@@ -1893,6 +1895,11 @@ public partial class ChatViewModel
                         CompleteAssistantResponse(IsDisplayedSession());
                         QueueSaveChat(chat, saveIndex: false);
                         ScheduleQueuedBusySendDrain(chat.Id);
+
+                        // The reply is done: a long session's older exchanges move to the history, as
+                        // on reopening, even while work it started goes on in the background.
+                        if (CurrentChat?.Id == chat.Id)
+                            _ = RollTailIntoHistoryAsync(chat);
                     });
                     break;
 
@@ -1973,6 +1980,10 @@ public partial class ChatViewModel
                         // The chat is free again. This is the authoritative "chat is idle" signal —
                         // without it a deferred send only ever left the queue via Stop.
                         ScheduleQueuedBusySendDrain(chat.Id);
+
+                        // A long session's older exchanges move to the history, as on reopening.
+                        if (CurrentChat?.Id == chat.Id)
+                            _ = RollTailIntoHistoryAsync(chat);
                     });
                     break;
 

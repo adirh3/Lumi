@@ -5,8 +5,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
@@ -297,6 +299,7 @@ public sealed class JobWakeItem : TranscriptItem
         : base($"message:job-wake:{source.Message.Id}")
     {
         var details = Lumi.Remote.Protocol.RemoteJobWake.Parse(source.Author, source.Content);
+        SearchText = TranscriptSearchText.JobWake(details);
         JobName = details.JobName;
         TimestampText = showTimestamps ? source.TimestampText : "";
         Instructions = details.Instructions;
@@ -311,18 +314,8 @@ public sealed class JobWakeItem : TranscriptItem
         => source.Role == "user"
            && Lumi.Remote.Protocol.RemoteJobWake.IsJobWake(source.Author, source.Content);
 
-    public string SearchText => string.Join('\n', new[]
-        {
-            JobName,
-            Instructions,
-            WakeSignal,
-            ExitCode,
-            StartedText,
-            CompletedText,
-            OutputText
-        }
-        .Where(static value => !string.IsNullOrWhiteSpace(value)));
-
+    /// <summary>What in-chat search finds in the wake (see <see cref="TranscriptSearchText"/>).</summary>
+    public string SearchText { get; }
 }
 
 // ── Assistant message ────────────────────────────────
@@ -568,9 +561,13 @@ public partial class ReasoningItem : TranscriptItem
     public ReasoningItem(ChatMessageViewModel source, bool expandWhileStreaming)
         : base($"message:reasoning:{source.Message.Id}")
     {
+        MessageId = source.Message.Id;
         _expandWhileStreaming = expandWhileStreaming;
         AppendSource(source);
     }
+
+    /// <summary>The first reasoning message the block shows.</summary>
+    internal Guid MessageId { get; }
 
     partial void OnIsActiveChanged(bool value) => RefreshSummary();
 
@@ -1036,7 +1033,29 @@ public partial class SubagentToolCallItem : TranscriptItem
     public string PromptToggleLabel => IsPromptExpanded ? Loc.Subagent_ShowLessTask : Loc.Subagent_ShowFullTask;
 
     /// <summary>How many steps (tool calls) the run has taken so far.</summary>
-    public int StepCount => Activities.Count;
+    public int StepCount => _knownStepCount ?? Activities.Count;
+
+    private int? _knownStepCount;
+
+    /// <summary>
+    /// The step count of a run whose <see cref="Activities"/> hold only some of its steps: a run of an
+    /// older exchange, listed from its latest step until its page reads the rest. Zero hides the count
+    /// while it is unknown; null counts <see cref="Activities"/>.
+    /// </summary>
+    internal int? KnownStepCount
+    {
+        get => _knownStepCount;
+        set
+        {
+            if (_knownStepCount == value)
+                return;
+
+            _knownStepCount = value;
+            OnPropertyChanged(nameof(StepCount));
+            OnPropertyChanged(nameof(RunMetaText));
+            OnPropertyChanged(nameof(HasRunMeta));
+        }
+    }
 
     /// <summary>"53 steps · Started 14:48" under the run page's headline.</summary>
     public string RunMetaText
@@ -1225,6 +1244,43 @@ public partial class SubagentToolCallItem : TranscriptItem
         _runEntriesJson = entriesJson;
         RunEntries = SubagentRunLog.Parse(entriesJson);
         RunContentChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Sets what only the run's page shows of the run itself: the task it was given, its finalized
+    /// log and the text it was last writing.
+    /// </summary>
+    internal void ApplyDetail(in SubagentPayload payload)
+    {
+        IsDetailReleased = false;
+        // Not every sub-agent tool carries a full prompt (an `agent:` call may only supply the task
+        // label). Falling back to the description guarantees the run always opens with the request
+        // it was given rather than with nothing.
+        Prompt = ToolDisplayHelper.GetSubagentPrompt(payload) ?? TaskDescription;
+        TranscriptText = payload.Transcript;
+        ReasoningText = payload.Reasoning;
+        SyncRunEntries(payload.EntriesJson);
+    }
+
+    /// <summary>True while the run holds only what the Agents index lists (see <see cref="ReleaseDetail"/>).</summary>
+    internal bool IsDetailReleased { get; private set; }
+
+    /// <summary>True for a run of an older exchange, whose page detail lives in storage.</summary>
+    internal bool KeepsDetailInStorage { get; private set; }
+
+    /// <summary>
+    /// Lets go of what only the run's page shows (see <see cref="ApplyDetail"/>). A run of an older
+    /// exchange keeps its index row; its page reads the rest back with its steps when it opens.
+    /// </summary>
+    internal void ReleaseDetail()
+    {
+        KeepsDetailInStorage = true;
+        IsDetailReleased = true;
+        Prompt = null;
+        TranscriptText = null;
+        ReasoningText = null;
+        _runEntriesJson = null;
+        RunEntries = [];
     }
 
     /// <summary>Signals that one of this run's already-added tool cards changed presentation.</summary>
@@ -1666,7 +1722,9 @@ public partial class TurnSummaryItem : TranscriptItem
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _hasFailures;
 
-    public ObservableCollection<TranscriptItem> InnerItems { get; } = [];
+    private ObservableCollection<TranscriptItem> _innerItems = [];
+
+    public ObservableCollection<TranscriptItem> InnerItems => _innerItems;
 
     /// <summary>
     /// True while Lumi itself holds the row open, to keep a live plan in view as it works. The
@@ -1688,10 +1746,37 @@ public partial class TurnSummaryItem : TranscriptItem
         IsAutoExpanded = expanded;
     }
 
+    /// <summary>
+    /// True while the row's folded work is not built. Older exchanges keep only what a collapsed row
+    /// shows; expanding it builds the inner steps again from the exchange's messages.
+    /// </summary>
+    public bool HasDeferredItems => _deferredItemsLoader is not null;
+
+    private Action<TurnSummaryItem>? _deferredItemsLoader;
+
+    internal void DeferInnerItems(Action<TurnSummaryItem> loader)
+    {
+        InnerItems.Clear();
+        _deferredItemsLoader = loader;
+        OnPropertyChanged(nameof(HasDeferredItems));
+    }
+
+    internal void RestoreDeferredItems(IEnumerable<TranscriptItem> items)
+    {
+        _deferredItemsLoader = null;
+        // A new collection rather than adds, so the open row's list shows them a page at a time
+        // like any row that opens.
+        _innerItems = new ObservableCollection<TranscriptItem>(items);
+        OnPropertyChanged(nameof(InnerItems));
+        OnPropertyChanged(nameof(HasDeferredItems));
+    }
+
     partial void OnIsExpandedChanged(bool value)
     {
         if (!_isSettingAutoExpanded)
             IsAutoExpanded = false;
+        if (value && _deferredItemsLoader is { } loader)
+            loader(this);
     }
 }
 
@@ -1705,17 +1790,21 @@ public partial class FileAttachmentItem : ObservableObject
     public string FileName { get; }
     public string? FileSize { get; }
     public bool IsRemovable { get; }
-    public Avalonia.Media.Imaging.Bitmap? IconImage { get; }
 
+    [ObservableProperty] private Avalonia.Media.Imaging.Bitmap? _iconImage;
     [ObservableProperty] private bool _isPreviewable;
     [ObservableProperty] private bool _isEdited;
 
+    /// <param name="resolveIconLater">
+    /// Shows the file at once and its icon a moment later, for a batch of files listed together.
+    /// </param>
     public FileAttachmentItem(
         string filePath,
         bool isRemovable = false,
         Action<string>? removeAction = null,
         bool isPreviewable = false,
-        bool isEdited = false)
+        bool isEdited = false,
+        bool resolveIconLater = false)
     {
         FilePath = filePath;
         FileName = ToolDisplayHelper.GetDisplayFileName(filePath);
@@ -1732,7 +1821,29 @@ public partial class FileAttachmentItem : ObservableObject
         }
         catch { /* ignore */ }
 
-        IconImage = Services.FileIconHelper.GetFileIcon(filePath);
+        if (resolveIconLater)
+            ResolveIconLater();
+        else
+            _iconImage = Services.FileIconHelper.GetFileIcon(filePath);
+    }
+
+    // As the Library does: a picture's thumbnail is decoded off the UI thread; a file type's icon,
+    // resolved from its extension and cached, on the UI thread at idle priority.
+    private void ResolveIconLater()
+    {
+        var path = FilePath;
+        if (Services.FileIconHelper.IsImageExtension(Path.GetExtension(path)))
+        {
+            _ = Task.Run(() => Services.FileIconHelper.GetFileIcon(path))
+                .ContinueWith(
+                    task => Dispatcher.UIThread.Post(() => IconImage = task.Result),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnRanToCompletion,
+                    TaskScheduler.Default);
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() => IconImage = Services.FileIconHelper.GetFileIcon(path), DispatcherPriority.Background);
     }
 
     [RelayCommand]
@@ -1897,10 +2008,14 @@ public partial class FileChangeItem : ObservableObject
     public string? CurrentContent { get; private set; }
     public bool HasSnapshots { get; private set; }
 
-    /// <summary>All edits applied to this file (old text → new text pairs).</summary>
+    /// <summary>
+    /// The edits held for this file (old text → new text pairs). A file an older exchange changed holds
+    /// none; its diff reads them (<see cref="ReadEdits"/>).
+    /// </summary>
     public List<(string? OldText, string? NewText)> Edits { get; } = [];
 
     private readonly Action<FileChangeItem>? _showDiffAction;
+    private readonly Func<IReadOnlyList<(string? OldText, string? NewText)>>? _readStoredEdits;
 
     public FileChangeItem(string filePath, bool isCreate, Action<FileChangeItem>? showDiffAction = null)
     {
@@ -1912,6 +2027,27 @@ public partial class FileChangeItem : ObservableObject
 
         ActionLabel = isCreate ? Loc.FileChange_Created : Loc.FileChange_Modified;
     }
+
+    /// <summary>
+    /// A file an older exchange changed, as the Workspace lists it: its line counts, with its edits
+    /// left in storage until its diff reads them with <paramref name="readStoredEdits"/>.
+    /// </summary>
+    internal FileChangeItem(
+        string filePath,
+        bool isCreate,
+        int linesAdded,
+        int linesRemoved,
+        Func<IReadOnlyList<(string? OldText, string? NewText)>> readStoredEdits,
+        Action<FileChangeItem>? showDiffAction)
+        : this(filePath, isCreate, showDiffAction)
+    {
+        LinesAdded = linesAdded;
+        LinesRemoved = linesRemoved;
+        _readStoredEdits = readStoredEdits;
+    }
+
+    /// <summary>The edits the file's diff shows: those held, or those read from storage. Call off the UI thread.</summary>
+    public IReadOnlyList<(string? OldText, string? NewText)> ReadEdits() => _readStoredEdits?.Invoke() ?? Edits;
 
     /// <summary>The folder, shortened to its last two levels for the row; the row's tooltip has the full path.</summary>
     public string? DirectoryHint => CompactDirectory(Directory);
@@ -1968,16 +2104,37 @@ public partial class FileChangeItem : ObservableObject
     public void EnsureStatsForCreatedFile()
     {
         if (!IsCreate || LinesAdded > 0) return;
-        try
-        {
-            if (File.Exists(FilePath))
-                LinesAdded = File.ReadAllLines(FilePath).Length;
-        }
-        catch { /* ignore */ }
+        LinesAdded = CountFileLines(FilePath);
     }
 
-    private static int CountLines(string? text)
-        => string.IsNullOrEmpty(text) ? 0 : text.Split('\n').Length;
+    /// <summary>The lines of a file on disk, or 0 when it cannot be read.</summary>
+    internal static int CountFileLines(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+                return File.ReadAllLines(filePath).Length;
+        }
+        catch { /* ignore */ }
+
+        return 0;
+    }
+
+    /// <summary>A file's text on disk, or empty when it cannot be read.</summary>
+    internal static string ReadFileText(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+                return File.ReadAllText(filePath);
+        }
+        catch { /* ignore */ }
+
+        return "";
+    }
+
+    internal static int CountLines(string? text)
+        => string.IsNullOrEmpty(text) ? 0 : text.AsSpan().Count('\n') + 1;
 
     [RelayCommand]
     private void ShowDiff() => _showDiffAction?.Invoke(this);

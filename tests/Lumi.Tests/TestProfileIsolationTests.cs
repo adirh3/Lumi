@@ -38,7 +38,7 @@ public sealed class TestProfileIsolationTests
     }
 
     [Fact]
-    public void AnInMemoryStoreNeverDeletesSavedChats()
+    public async Task AnInMemoryStoreNeverDeletesSavedChats()
     {
         Directory.CreateDirectory(DataStore.ChatsDir);
         var saved = Path.Combine(DataStore.ChatsDir, $"{Guid.NewGuid()}.json");
@@ -49,7 +49,7 @@ public sealed class TestProfileIsolationTests
             var resets = 0;
             store.ChatsContentReset += () => resets++;
 
-            store.DeleteAllChatFiles();
+            await store.DeleteAllChatFilesAsync();
 
             Assert.True(File.Exists(saved));
             Assert.Equal(1, resets);

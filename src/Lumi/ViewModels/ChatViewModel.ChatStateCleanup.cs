@@ -238,6 +238,20 @@ public partial class ChatViewModel
         }
 
         _transcriptWindow.ReleaseRealizedHosts("surface-idle");
+        // Older exchanges go back to storage too; their placeholders keep the measured heights, so
+        // the reader's place survives a switch back. So do the Workspace's rows of them, which are
+        // read again when the surface is shown.
+        if (HasTranscriptHistory)
+        {
+            _history.ReleaseAll();
+            if (_workspaceHistory is not null)
+            {
+                ResetWorkspaceHistory();
+                RebuildWorkspacePanel();
+                RefreshSubagentRunState();
+                _workspaceHistoryReleased = true;
+            }
+        }
     }
 
     private bool IsChatRuntimeActive(Guid chatId)
@@ -1257,15 +1271,12 @@ public partial class ChatViewModel
     }
 
     /// <summary>
-    /// Releases the in-memory <see cref="Chat.Messages"/> of an inactive chat to reclaim RAM.
-    /// Every chat opened during a session otherwise stays fully loaded for the app's lifetime,
-    /// so a long session that browses many (or large) chats accumulates their message models
-    /// on the managed heap. The messages are lazily reloaded from the per-chat file on next open.
+    /// Releases the in-memory tail (<see cref="Chat.Messages"/>) of an inactive chat to reclaim RAM.
+    /// The chat database holds the whole transcript, so the tail is read back on next open.
     ///
-    /// Only ever called after the caller has just durably persisted the chat's messages, and it
-    /// re-verifies the live count still matches what was persisted so a message added between the
-    /// save and this (UI-thread) call is never dropped. Skipped when auto-save is off (no file to
-    /// reload from) or the file is missing.
+    /// The store only releases a tail whose every message is already saved, so a message added or
+    /// changed after the caller's save is never dropped. Skipped when auto-save is off (nothing to
+    /// read back from).
     /// </summary>
     private void TryUnloadInactiveChatMessages(Chat chat, int expectedMessageCount)
     {
@@ -1277,17 +1288,12 @@ public partial class ChatViewModel
         if (CurrentChat?.Id == chat.Id || IsChatRuntimeActive(chat.Id))
             return;
 
-        // Only safe when the messages are durably on disk and unchanged since we persisted them.
         if (!_dataStore.Data.Settings.AutoSaveChats)
             return;
         if (expectedMessageCount >= 0 && chat.Messages.Count != expectedMessageCount)
             return;
-        if (!_dataStore.HasStoredMessages(chat.Id))
-            return;
 
-        chat.MessageCount = chat.Messages.Count;
-        chat.Messages.Clear();
-        chat.Messages.TrimExcess();
+        _dataStore.TryReleaseChatMessages(chat);
     }
 
     /// <summary>

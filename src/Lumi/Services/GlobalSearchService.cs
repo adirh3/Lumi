@@ -128,12 +128,12 @@ public sealed class GlobalSearchService
         Func<Chat, ChatSearchSnapshot> chatSnapshotProvider,
         Func<DateTimeOffset>? nowProvider = null,
         Action<Guid>? releaseChatSnapshot = null,
-        Func<Guid, DateTimeOffset?>? chatFileTimestampProvider = null)
+        Func<Chat, long?>? chatContentVersionProvider = null)
     {
         _getData = getData ?? throw new ArgumentNullException(nameof(getData));
         ArgumentNullException.ThrowIfNull(chatSnapshotProvider);
         _nowProvider = nowProvider ?? (() => DateTimeOffset.Now);
-        _contentIndex = new ChatContentIndex(chatSnapshotProvider, releaseChatSnapshot, chatFileTimestampProvider);
+        _contentIndex = new ChatContentIndex(chatSnapshotProvider, releaseChatSnapshot, chatContentVersionProvider);
     }
 
     /// <summary>Number of chats whose content is currently indexed (full-coverage progress).</summary>

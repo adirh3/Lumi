@@ -79,9 +79,13 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     private volatile bool _securityStateReady;
     private bool _disposed;
 
+    /// <summary>Where a chat's transcript is: its stored history before the live messages, if loaded.</summary>
+    private sealed record TranscriptSource(bool IsLoaded, int HistoryCount);
+
     private sealed record TranscriptCapture(
         Chat Chat,
         IReadOnlyList<ChatMessage>? LoadedMessages,
+        TranscriptSource Source,
         RemoteChatStatus Status,
         bool ShowReasoning,
         bool ShowToolCalls,
@@ -95,6 +99,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     private sealed record ActivityCapture(
         Chat Chat,
         IReadOnlyList<ChatMessage>? LoadedMessages,
+        TranscriptSource Source,
         string WorkingDirectory,
         IReadOnlySet<string> RunningBackgroundToolCallIds);
 
@@ -103,7 +108,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         Chat? Chat,
         string? Content,
         string? Role,
-        IReadOnlySet<string>? AuthorizedPaths);
+        IReadOnlyList<ChatMessage>? LoadedMessages);
 
     public LumiRemoteServer(DataStore dataStore, MainViewModel main)
         : this(dataStore, main, GetVerifiedTailscaleAddresses)
@@ -1128,14 +1133,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         }
 
         var content = capture.Content;
-        if (content is null && capture.Chat.Messages.Count == 0)
+        if (content is null
+            && await _dataStore.FindStoredMessageAsync(chatId, messageId, cancellationToken).ConfigureAwait(false)
+                is { Message: var stored }
+            && string.Equals(stored.ToolName, "announce_file", StringComparison.OrdinalIgnoreCase))
         {
-            var persisted = await _dataStore
-                .ReadPersistedChatMessagesAsync(chatId, cancellationToken)
-                .ConfigureAwait(false);
-            content = persisted.FirstOrDefault(message =>
-                message.Id == messageId
-                && string.Equals(message.ToolName, "announce_file", StringComparison.OrdinalIgnoreCase))?.Content;
+            content = stored.Content;
         }
 
         var path = RemoteProjector.ExtractJsonField(content, "filePath");
@@ -1368,9 +1371,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 chat,
                 message?.Content,
                 message?.Role,
-                messages is null
-                    ? null
-                    : RemoteMarkdownImageFiles.BuildAuthorizedPaths(messages));
+                messages?.Select(CloneMessageForRemote).ToList());
         });
 
         if (capture.Chat is null)
@@ -1382,19 +1383,17 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         var content = capture.Content;
         var role = capture.Role;
-        var authorizedPaths = capture.AuthorizedPaths;
-        if (content is null || role is null || authorizedPaths is null)
+        if ((content is null || role is null)
+            && await _dataStore.FindStoredMessageAsync(chatId, messageId, cancellationToken).ConfigureAwait(false)
+                is { Message: var stored })
         {
-            var persisted = await _dataStore
-                .ReadPersistedChatMessagesAsync(chatId, cancellationToken)
-                .ConfigureAwait(false);
-            var message = persisted.FirstOrDefault(candidate =>
-                candidate.Id == messageId);
-            content ??= message?.Content;
-            role ??= message?.Role;
-            authorizedPaths ??=
-                RemoteMarkdownImageFiles.BuildAuthorizedPaths(persisted);
+            content ??= stored.Content;
+            role ??= stored.Role;
         }
+
+        var authorizedPaths = _dataStore.PersistsTranscripts
+            ? await GetAuthorizedImagePathsAsync(chatId, capture.LoadedMessages, cancellationToken).ConfigureAwait(false)
+            : RemoteMarkdownImageFiles.BuildAuthorizedPaths(capture.LoadedMessages ?? []);
 
         var advertised = string.Equals(
                              role,
@@ -1581,6 +1580,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     return new TranscriptCapture(
                         new Chat { Id = chat.Id, Title = chat.Title },
                         null,
+                        new TranscriptSource(false, 0),
                         status,
                         settings.ShowReasoning,
                         settings.ShowToolCalls,
@@ -1599,9 +1599,11 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     ? chat.Messages.Select(CloneMessageForRemote).ToList()
                     : null;
 
+            var transcriptWindow = _dataStore.GetTranscriptWindow(chat);
             return new TranscriptCapture(
                 new Chat { Id = chat.Id, Title = chat.Title },
                 loadedMessages,
+                new TranscriptSource(transcriptWindow.IsLoaded, transcriptWindow.HistoryCount),
                 status,
                 settings.ShowReasoning,
                 settings.ShowToolCalls,
@@ -1640,10 +1642,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
         }
 
-        var messages = capture.LoadedMessages
-                       ?? await _dataStore
-                           .ReadPersistedChatMessagesAsync(capture.Chat.Id, cancellationToken)
-                           .ConfigureAwait(false);
+        var messages = await CreateMessageSourceAsync(
+                capture.Chat.Id,
+                capture.Source,
+                capture.LoadedMessages,
+                cancellationToken)
+            .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
         var window = compact
@@ -1657,6 +1661,19 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 messages,
                 beforeMessageIndex,
                 maxMessages);
+        // Older history is read a page at a time; the window's whole turns are what its activity
+        // rows and folded work are read from, and the whole chat says which local images it showed.
+        IReadOnlyList<ChatMessage> activitySource = messages;
+        IReadOnlySet<string>? imagePaths = null;
+        if (messages is RemoteMessageSource paged)
+        {
+            activitySource = window.TotalMessageCount == 0
+                ? []
+                : paged.Slice(paged.FindTurnStart(window.StartMessageIndex), window.EndMessageIndex);
+            imagePaths = await GetAuthorizedImagePathsAsync(capture.Chat.Id, capture.LoadedMessages, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var transcript = RemoteProjector.BuildTranscript(
             capture.Chat,
             window,
@@ -1667,8 +1684,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             capture.RevisionEpoch,
             compact,
             capture.WorkingDirectory,
-            messages,
-            capture.RunningBackgroundToolCallIds);
+            activitySource,
+            capture.RunningBackgroundToolCallIds,
+            imagePaths);
         if (transcript.IsLatestWindow)
             transcript.TranscriptVersion = capture.TranscriptVersion;
 
@@ -1714,9 +1732,11 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             var runningBackgroundToolCallIds =
                 (owner ?? _main.ChatVM).GetRunningBackgroundShellIds(chatId);
 
+            var transcriptWindow = _dataStore.GetTranscriptWindow(chat);
             return new ActivityCapture(
                 new Chat { Id = chat.Id, Title = chat.Title },
                 loadedMessages,
+                new TranscriptSource(transcriptWindow.IsLoaded, transcriptWindow.HistoryCount),
                 workingDirectory,
                 runningBackgroundToolCallIds);
         });
@@ -1728,10 +1748,23 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
         }
 
-        var messages = capture.LoadedMessages
-                       ?? await _dataStore
-                           .ReadPersistedChatMessagesAsync(capture.Chat.Id, cancellationToken)
-                           .ConfigureAwait(false);
+        var messages = await CreateMessageSourceAsync(
+                capture.Chat.Id,
+                capture.Source,
+                capture.LoadedMessages,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (messages is RemoteMessageSource paged)
+        {
+            // Only the turn holding the activity is read from storage.
+            var position = await FindMessagePositionAsync(
+                    capture.Chat.Id, paged, capture.LoadedMessages, activityId, cancellationToken)
+                .ConfigureAwait(false);
+            messages = position is { } index
+                ? paged.Slice(paged.FindTurnStart(index), paged.FindTurnEnd(index))
+                : [];
+        }
+
         var details = RemoteProjector.BuildActivityDetails(
             capture.Chat,
             messages,
@@ -1748,6 +1781,105 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         await context.WriteJsonAsync(
             JsonSerializer.Serialize(details, RemoteJsonContext.Default.RemoteActivityDetails),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    // ── Transcript sources ──────────────────────────────────────────────────
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (long Version, IReadOnlySet<string> Paths)> _imagePathCache = new();
+
+    /// <summary>
+    /// The chat's transcript by absolute position: the captured live messages after the stored
+    /// history, which is read a page at a time only where a window reaches it.
+    /// </summary>
+    private async Task<IReadOnlyList<ChatMessage>> CreateMessageSourceAsync(
+        Guid chatId,
+        TranscriptSource source,
+        IReadOnlyList<ChatMessage>? live,
+        CancellationToken cancellationToken)
+    {
+        // A store without a database keeps whole transcripts in memory.
+        if (!_dataStore.PersistsTranscripts)
+            return live ?? [];
+
+        if (source.IsLoaded)
+        {
+            return new RemoteMessageSource(
+                (start, count) => _dataStore.ReadStoredMessagesByIndex(chatId, start, count),
+                source.HistoryCount,
+                live ?? []);
+        }
+
+        if (live is not { Count: > 0 })
+        {
+            var stored = await _dataStore.CountStoredMessagesAsync(chatId, cancellationToken).ConfigureAwait(false);
+            return new RemoteMessageSource(
+                (start, count) => _dataStore.ReadStoredMessagesByIndex(chatId, start, count),
+                stored,
+                []);
+        }
+
+        // Rare: messages were added while the chat was not loaded (a job's prompt). They are newer
+        // than everything stored, and saved ones are stored too.
+        var all = (await _dataStore.ReadPersistedChatMessagesAsync(chatId, cancellationToken).ConfigureAwait(false)).ToList();
+        var storedSeqs = all.Select(static message => message.StorageSeq).ToHashSet();
+        all.AddRange(live.Where(message => message.StorageSeq <= 0 || !storedSeqs.Contains(message.StorageSeq)));
+        return all;
+    }
+
+    /// <summary>The absolute position of a message (id in "N" form), from the live messages or storage.</summary>
+    private async Task<int?> FindMessagePositionAsync(
+        Guid chatId,
+        RemoteMessageSource source,
+        IReadOnlyList<ChatMessage>? live,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParseExact(messageId, "N", out var id))
+            return null;
+
+        if (live is not null)
+        {
+            for (var index = 0; index < live.Count; index++)
+            {
+                if (live[index].Id == id)
+                    return source.StoredCount + index;
+            }
+        }
+
+        var stored = await _dataStore.FindStoredMessageAsync(chatId, id, cancellationToken).ConfigureAwait(false);
+        return stored is { Index: var position } && position < source.StoredCount ? position : null;
+    }
+
+    /// <summary>
+    /// The local image paths the whole chat made showable (attachments, announced files, viewed
+    /// images), read through indexes and cached per stored version, plus the live messages' own.
+    /// </summary>
+    private async Task<IReadOnlySet<string>> GetAuthorizedImagePathsAsync(
+        Guid chatId,
+        IReadOnlyList<ChatMessage>? live,
+        CancellationToken cancellationToken)
+    {
+        var version = _dataStore.GetChatContentVersion(chatId) ?? 0;
+        IReadOnlySet<string> stored;
+        if (_imagePathCache.TryGetValue(chatId, out var cached) && cached.Version == version)
+        {
+            stored = cached.Paths;
+        }
+        else
+        {
+            var sources = await _dataStore.ReadImageSourceMessagesAsync(chatId, cancellationToken).ConfigureAwait(false);
+            stored = RemoteMarkdownImageFiles.BuildAuthorizedPaths(sources);
+            if (_imagePathCache.Count > 64)
+                _imagePathCache.Clear();
+            _imagePathCache[chatId] = (version, stored);
+        }
+
+        if (live is not { Count: > 0 })
+            return stored;
+
+        var paths = new HashSet<string>(stored, OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        paths.UnionWith(RemoteMarkdownImageFiles.BuildAuthorizedPaths(live));
+        return paths;
     }
 
     private async Task HandleCommandAsync(
@@ -2825,9 +2957,14 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _serverOwnershipLock = null;
     }
 
+    /// <summary>
+    /// A copy of a live message for a remote client's transcript. It keeps the message's storage
+    /// position, by which a transcript merges live messages with the stored ones they replace.
+    /// </summary>
     internal static ChatMessage CloneMessageForRemote(ChatMessage message) =>
         new()
         {
+            StorageSeq = message.StorageSeq,
             Id = message.Id,
             Role = message.Role,
             Content = message.Content,

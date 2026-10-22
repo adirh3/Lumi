@@ -7,6 +7,8 @@ using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
+using Lumi.Models;
+using Lumi.Services;
 using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
@@ -137,7 +139,7 @@ public partial class ChatViewModel
     public bool HasSubagentRunContent => SubagentRunTurns.Count > 0;
 
     /// <summary>The open run has nothing to show and isn't working on anything either.</summary>
-    public bool ShowSubagentRunEmptyState => !HasSubagentRunContent && SelectedSubagentRun is { IsInProgress: false };
+    public bool ShowSubagentRunEmptyState => !HasSubagentRunContent && SelectedSubagentRun is { IsInProgress: false, IsDetailReleased: false };
 
     /// <summary>Header badge text: how many agents are running, or how many finished.</summary>
     public string SubagentRunsSummary => RunningSubagentCount > 0
@@ -235,7 +237,13 @@ public partial class ChatViewModel
         {
             oldValue.RunContentChanged -= OnSubagentRunContentChanged;
             oldValue.Activities.CollectionChanged -= OnSubagentRunActivitiesChanged;
+            if (oldValue.KeepsDetailInStorage)
+                oldValue.ReleaseDetail();
         }
+
+        // The steps an older run's page read from storage are let go with the page.
+        if (_storedRunMessages is { } stored && !string.Equals(stored.ToolCallId, newValue?.ToolCallId, StringComparison.Ordinal))
+            _storedRunMessages = null;
 
         if (newValue is not null)
         {
@@ -291,9 +299,77 @@ public partial class ChatViewModel
         _subagentRunTranscript ??= new SubagentRunTranscript(
             _dataStore,
             item => DiffShowRequested?.Invoke(item));
-        _subagentRunTranscript.Sync(run, Messages);
+        var messages = RunMessagesFor(run);
+        if (messages is not null && run.IsDetailReleased)
+            RestoreRunDetail(run, messages);
+        _subagentRunTranscript.Sync(run, messages ?? []);
+        // A run of an older exchange is listed from its latest step; once its page has read the
+        // rest, the page's top level is exactly the run's work.
+        if (messages is not null && run.KnownStepCount is not null)
+            run.KnownStepCount = _subagentRunTranscript.StepCount;
         if (!ReferenceEquals(SubagentRunTurns, _subagentRunTranscript.Turns))
             SubagentRunTurns = _subagentRunTranscript.Turns;
+    }
+
+    // The steps of the open run when it belongs to an older exchange: read from storage when opened.
+    private (Chat Chat, string ToolCallId, IReadOnlyList<ChatMessageViewModel> Messages)? _storedRunMessages;
+    private string? _loadingRunToolCallId;
+
+    // A run of an older exchange reads its page's detail from its own message, read with its steps.
+    private static void RestoreRunDetail(SubagentToolCallItem run, IReadOnlyList<ChatMessageViewModel> messages)
+    {
+        var own = messages.FirstOrDefault(message => string.Equals(message.Message.ToolCallId, run.ToolCallId, StringComparison.Ordinal));
+        run.ApplyDetail(own is null ? SubagentPayload.Empty : SubagentPayload.Parse(own.Message.Content));
+    }
+
+    /// <summary>
+    /// The messages a run's page is built from: the live messages, or — for a run of an older
+    /// exchange — its own steps read from storage (null while they load).
+    /// </summary>
+    private IReadOnlyList<ChatMessageViewModel>? RunMessagesFor(SubagentToolCallItem run)
+    {
+        if (run.ToolCallId is not { Length: > 0 } toolCallId
+            || !HasTranscriptHistory
+            || Messages.Any(message => string.Equals(message.Message.ToolCallId, toolCallId, StringComparison.Ordinal)))
+        {
+            return Messages;
+        }
+
+        if (_storedRunMessages is { } stored
+            && ReferenceEquals(stored.Chat, CurrentChat)
+            && string.Equals(stored.ToolCallId, toolCallId, StringComparison.Ordinal))
+            return stored.Messages;
+
+        _ = LoadStoredRunMessagesAsync(toolCallId);
+        return null;
+    }
+
+    private async System.Threading.Tasks.Task LoadStoredRunMessagesAsync(string toolCallId)
+    {
+        if (string.Equals(_loadingRunToolCallId, toolCallId, StringComparison.Ordinal) || CurrentChat is not { } chat)
+            return;
+
+        _loadingRunToolCallId = toolCallId;
+        try
+        {
+            var messages = await _dataStore.ReadChatToolDescendantsAsync(chat, toolCallId);
+            if (!ReferenceEquals(CurrentChat, chat) || SelectedSubagentRun?.ToolCallId != toolCallId)
+                return;
+
+            // Work a crash cut off shows as stopped, as it does in the transcript.
+            Lumi.Services.InteractionHistory.SettleInterrupted(messages);
+            _storedRunMessages = (chat, toolCallId, messages.Select(static message => new ChatMessageViewModel(message)).ToList());
+            RebuildSubagentRunTranscript();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            System.Diagnostics.Trace.TraceWarning("[Agents] Could not read a run's steps: {0}", ex.Message);
+        }
+        finally
+        {
+            if (string.Equals(_loadingRunToolCallId, toolCallId, StringComparison.Ordinal))
+                _loadingRunToolCallId = null;
+        }
     }
 
     partial void OnSubagentRunCountChanged(int value)
@@ -320,7 +396,7 @@ public partial class ChatViewModel
     /// </summary>
     private void RefreshSubagentRunState()
     {
-        var runs = _transcriptBuilder.SubagentRuns;
+        var runs = AllSubagentRuns();
         int running = 0, failed = 0, stopped = 0;
         foreach (var run in runs)
         {
@@ -562,8 +638,15 @@ public partial class ChatViewModel
     /// <summary>Re-points a selection at the rebuilt instance of the same run (stable ids survive
     /// transcript rebuilds), so an open Agents page keeps showing the same agent.</summary>
     private SubagentToolCallItem? ResolveReplacementRun(SubagentToolCallItem previous)
-        => _transcriptBuilder.SubagentRuns
+        => AllSubagentRuns()
             .FirstOrDefault(run => string.Equals(run.StableId, previous.StableId, StringComparison.Ordinal));
+
+    /// <summary>Every run in the chat, oldest first: older exchanges' (read from storage) and the live tail's.</summary>
+    internal IList<SubagentToolCallItem> AllSubagentRuns()
+    {
+        var history = HistorySubagentRuns;
+        return history.Count == 0 ? _transcriptBuilder.SubagentRuns : [.. history, .. _transcriptBuilder.SubagentRuns];
+    }
 
     /// <summary>Opens one sub-agent's run as a read-only transcript in the Workspace.</summary>
     [RelayCommand]
@@ -596,6 +679,7 @@ public partial class ChatViewModel
         RunningSubagentCount = 0;
         HeaderRunningAgents = [];
         SubagentRunFilter = SubagentRunFilter.All;
+        _storedRunMessages = null;
         _subagentRunRebuild?.CancelPending();
     }
 
