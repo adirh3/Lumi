@@ -27,6 +27,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
 - **Inline images** — Local and online images render directly in chat. Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
+- **MCP Apps & canvases** — Connector-provided interactive apps and Copilot canvas extensions open in Workspace, with lightweight reopen cards in the transcript. App tool calls reuse the chat's Copilot connection; canvas behavior and data stay with the extension.
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Make it yours** — Settings → Appearance: a Light, Dark or System theme, eight accent palettes that recolor buttons, selection, your messages and Lumi's glow, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
@@ -87,6 +88,54 @@ When something stops dictation, a card in the composer says what to do: a microp
 opened or only sends silence (muted or blocked) offers **Try again** and, on Windows and macOS,
 **Microphone settings**; hearing no words, a failed download and other errors each explain
 themselves. Typing instead puts the card away.
+
+### MCP Apps and Copilot canvases
+
+When a connector tool supplies an MCP App (`_meta.ui.resourceUri`), or the agent
+opens a Copilot canvas, a card appears under that tool call and the app opens in
+the Workspace (it is also listed under **Apps & canvases**). Lumi shows the app's
+loading state, then the app itself, or what went wrong with **Try again**. The
+header reloads the app and, for a canvas, **Close canvas** ends its instance;
+closing the Workspace only hides it. A card reads **Showing** while its app is on
+screen.
+
+MCP Apps receive the tool's input and result through the standard MCP Apps
+bridge, along with Lumi's theme as the standard host style variables (colors,
+fonts and radii), so apps that use them match Lumi in light and dark. Refresh
+buttons and app-only tools use the same connector connection. Apps can send text
+messages to their chat (labelled with the app's name) and supply explicit,
+bounded context for its next turn. Text tool output remains available without a
+web interface.
+
+Canvas extensions use the runtime's discovery, launch profiles, actions and
+open/close events; a canvas belongs to the `open_canvas` call that opened it.
+JavaScript extensions need **Node.js 20+ on PATH**. Lumi launches them with
+`COPILOT_HOME` set to its own Copilot folder, where its sessions are kept, so an
+extension that stores data beside the session finds it again after a restart.
+
+A chat saves only what identifies each app and what its tool exchanged; the
+interface is fetched again from the chat's session when the app opens, resuming
+that session if needed. Saved cards never replay the original tool.
+
+The viewer uses one browser profile for all apps, separate from Lumi's normal
+browsing profile. MCP App HTML runs behind a different-origin sandbox with its
+declared content security policy; the bridge accepts only supported, chat-scoped
+operations. This isolates the interface, **not** an MCP server or extension
+process. Canvas code remains executable local code and should come from a
+trusted source. The desktop viewer uses WebView2 on Windows and the existing
+native browser on Linux/macOS (macOS 14+). Desktop loopback canvas URLs are not
+forwarded to the phone; the phone retains the ordinary tool summary.
+
+The no-auth smoke-test fixtures are the official
+[Basic Vanilla JS](https://github.com/modelcontextprotocol/ext-apps/tree/main/examples/basic-server-vanillajs)
+and [System Monitor](https://github.com/modelcontextprotocol/ext-apps/tree/main/examples/system-monitor-server)
+MCP Apps, and Awesome Copilot's
+[Draw canvas](https://github.com/github/awesome-copilot/tree/main/extensions/draw).
+
+The bundled bridge is built from `tools\EmbeddedApps` with `npm ci` and
+`npm run build`. Its generated JavaScript and dependency license notices live in
+`src\Lumi\Assets\EmbeddedApps`; ordinary .NET builds do not require npm.
+
 ### AI accounts
 
 Open **Settings > AI & Models > AI accounts**, or use **Choose the AI behind Lumi**

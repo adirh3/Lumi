@@ -30,6 +30,49 @@ public enum SessionFailureDisposition
     RebuildSession
 }
 
+public enum EmbeddedAppKind
+{
+    /// <summary>A connector tool's HTML interface (MCP Apps).</summary>
+    McpApp,
+    /// <summary>A web surface a Copilot extension serves for a canvas instance.</summary>
+    Canvas,
+}
+
+/// <summary>
+/// An interactive app a tool call opened, kept on that tool's message so the transcript and the
+/// Workspace can reopen it. Only what identifies the app and what the tool exchanged is saved; its
+/// interface is fetched again from the chat's live session when it opens.
+/// </summary>
+public sealed class EmbeddedApp
+{
+    public EmbeddedAppKind Kind { get; set; }
+    public string Title { get; set; } = "";
+    /// <summary>The connector or extension providing the app, as the user knows it.</summary>
+    public string? SourceName { get; set; }
+    /// <summary>The Copilot session a canvas was last open in (resume reopens only its own).</summary>
+    public string? SessionId { get; set; }
+
+    public string? ServerName { get; set; }
+    public string? ResourceUri { get; set; }
+    /// <summary>The tool's arguments (an MCP App) or the canvas's open input.</summary>
+    public string? InputJson { get; set; }
+    public string? ResultJson { get; set; }
+    /// <summary>What the app asked to add to the chat's next turn (<c>ui/update-model-context</c>).</summary>
+    public string? ModelContextJson { get; set; }
+
+    public string? ExtensionId { get; set; }
+    public string? CanvasId { get; set; }
+    public string? InstanceId { get; set; }
+    public bool IsClosed { get; set; }
+
+    [JsonIgnore] public string? Html { get; set; }
+    [JsonIgnore] public string? MetadataJson { get; set; }
+    /// <summary>The canvas's current address, valid only while its extension process runs.</summary>
+    [JsonIgnore] public string? Url { get; set; }
+
+    public EmbeddedApp Clone() => (EmbeddedApp)MemberwiseClone();
+}
+
 public class ChatMessage
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -46,6 +89,8 @@ public class ChatMessage
     public string? ParentToolCallId { get; set; }
     public string? ToolStatus { get; set; } // InProgress, Completed, Failed, Stopped
     public string? ToolOutput { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EmbeddedApp? EmbeddedApp { get; set; }
 
     /// <summary>
     /// Wall-clock instant this tool call started, stamped from the SDK's tool-start event. Persisted
@@ -188,6 +233,7 @@ public class ChatMessage
         ParentToolCallId = ParentToolCallId,
         ToolStatus = ToolStatus,
         ToolOutput = ToolOutput,
+        EmbeddedApp = EmbeddedApp?.Clone(),
         ToolStartedAt = ToolStartedAt,
         ToolDurationMs = ToolDurationMs,
         PlanSnapshot = PlanSnapshot,

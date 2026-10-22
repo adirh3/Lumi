@@ -234,7 +234,7 @@ public partial class ChatViewModel
 
         try
         {
-            session = await GetContextMaintenanceSessionAsync(chat, operationCts.Token);
+            session = await GetOrResumeSessionAsync(chat, operationCts.Token);
             if (session is null)
                 throw new InvalidOperationException(Loc.Get("Chat_ContextWindow_SessionUnavailable"));
 
@@ -481,7 +481,7 @@ public partial class ChatViewModel
 
         try
         {
-            var session = await GetContextMaintenanceSessionAsync(chat, refreshCts.Token);
+            var session = await GetOrResumeSessionAsync(chat, refreshCts.Token);
             if (session is null)
                 throw new InvalidOperationException(Loc.Get("Chat_ContextWindow_SessionUnavailable"));
 
@@ -527,7 +527,8 @@ public partial class ChatViewModel
         }
     }
 
-    private async Task<CopilotSession?> GetContextMaintenanceSessionAsync(Chat chat, CancellationToken cancellationToken)
+    /// <summary>The chat's session without starting a turn: the live one, or its saved session resumed (never a new one).</summary>
+    private async Task<CopilotSession?> GetOrResumeSessionAsync(Chat chat, CancellationToken cancellationToken)
     {
         if (!_copilotService.IsConnected)
             await _copilotService.ConnectAsync(cancellationToken);

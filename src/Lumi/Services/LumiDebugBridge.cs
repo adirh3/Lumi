@@ -14,8 +14,12 @@ using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.VisualTree;
 using Lumi.Models;
 using Lumi.ViewModels;
+using Lumi.Views;
 
 namespace Lumi.Services;
 
@@ -229,6 +233,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "read_activity" => ReadActivityAsync(arguments),
             "load_fixture" => InvokeUiAsync(LoadFixture),
             "load_browser_fixture" => InvokeUiAsync(() => LoadBrowserFixtureAsync(arguments)),
+            "probe_app" => InvokeUiAsync(() => ProbeAppAsync(arguments)),
             "load_background_shell" => InvokeUiAsync(LoadBackgroundShellFixture),
             "list_features" => InvokeUiAsync(() => ListFeatures(arguments)),
             "configure_feature" => InvokeUiAsync(() => ConfigureFeatureAsync(arguments)),
@@ -290,6 +295,87 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 jobs = _dataStore.Data.BackgroundJobs.Count
             }
         };
+    }
+
+    private async Task<object> ProbeAppAsync(JsonElement? arguments)
+    {
+        if (!DataStore.UsesIsolatedProfile)
+            throw new InvalidOperationException("App probes require an isolated Debug profile.");
+        var args = arguments ?? default;
+        if (GetBool(args, "backend") == true)
+        {
+            var session = _mainViewModel.ChatVM.DebugAppSession
+                ?? throw new InvalidOperationException("The chat has no live session.");
+            object diagnostic;
+            try
+            {
+                diagnostic = GetString(args, "serverName") is { } server
+                    ? await session.Rpc.Mcp.Apps.DiagnoseAsync(server)
+                    : await session.Rpc.Canvas.ListAsync();
+            }
+            catch (Exception error)
+            {
+                diagnostic = new { error = error.Message };
+            }
+            return new { sessionId = session.SessionId, capabilities = session.Capabilities, diagnostic };
+        }
+        var item = _mainViewModel.ChatVM.SelectedApp;
+        var desktop = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+        var view = desktop?.Windows.SelectMany(static window => window.GetVisualDescendants())
+            .OfType<EmbeddedAppView>()
+            .FirstOrDefault(control => control.IsEffectivelyVisible && item is not null && ReferenceEquals(control.App, item));
+        if (view is null)
+            throw new InvalidOperationException("No app is visible.");
+        JsonElement? evaluated = null;
+        string? screenshot = null;
+#if WINDOWS
+        if (view.Browser?.WebView is not { } webView)
+            throw new InvalidOperationException("The app browser is not initialized.");
+        if (GetString(args, "script") is { Length: > 0 } script)
+        {
+            using var tree = JsonDocument.Parse(await webView.CallDevToolsProtocolMethodAsync("Page.getFrameTree", "{}"));
+            var canvasUrl = item!.IsCanvas ? item.Message.EmbeddedApp?.Url : null;
+            var frame = Frames(tree.RootElement.GetProperty("frameTree")).LastOrDefault(candidate =>
+            {
+                var url = candidate.GetProperty("url").GetString() ?? "";
+                return canvasUrl is not null ? url == canvasUrl : url.EndsWith("/resource", StringComparison.Ordinal);
+            });
+            if (frame.ValueKind == JsonValueKind.Undefined)
+                throw new InvalidOperationException("The app frame is not loaded.");
+            using var world = JsonDocument.Parse(await webView.CallDevToolsProtocolMethodAsync("Page.createIsolatedWorld",
+                JsonSerializer.Serialize(new { frameId = frame.GetProperty("id").GetString(), worldName = "lumi-app-smoke" }, JsonOptions)));
+            using var result = JsonDocument.Parse(await webView.CallDevToolsProtocolMethodAsync("Runtime.evaluate",
+                JsonSerializer.Serialize(new
+                {
+                    expression = script,
+                    contextId = world.RootElement.GetProperty("executionContextId").GetInt32(),
+                    returnByValue = true, awaitPromise = true, timeout = 15000
+                }, JsonOptions)));
+            if (result.RootElement.TryGetProperty("exceptionDetails", out var error))
+                throw new InvalidOperationException(error.GetRawText());
+            if (result.RootElement.GetProperty("result").TryGetProperty("value", out var value))
+                evaluated = value.Clone();
+        }
+        if (GetBool(args, "screenshot") == true)
+        {
+            using var capture = JsonDocument.Parse(await webView.CallDevToolsProtocolMethodAsync(
+                "Page.captureScreenshot", """{"format":"png","captureBeyondViewport":false}"""));
+            screenshot = capture.RootElement.GetProperty("data").GetString();
+        }
+#else
+        if (GetString(args, "script") is not null || GetBool(args, "screenshot") == true)
+            throw new PlatformNotSupportedException("Frame probes use WebView2 on Windows; use the native browser fixture on other platforms.");
+#endif
+        return new { ready = view.IsAppReady, error = view.AppError, title = item?.Title, evaluated, screenshot };
+
+        static IEnumerable<JsonElement> Frames(JsonElement node)
+        {
+            yield return node.GetProperty("frame");
+            if (node.TryGetProperty("childFrames", out var children))
+                foreach (var child in children.EnumerateArray())
+                    foreach (var frame in Frames(child))
+                        yield return frame;
+        }
     }
 
     private object Navigate(JsonElement? arguments)

@@ -45,6 +45,11 @@
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <!-- The page below can be a native view (an app, the browser, a preview) that covers in-window
+           popups, and the window's caption buttons sit above the header, so tips open beside it. -->
+      <Setter Property="ToolTip.Placement" Value="Left" />
+      <Setter Property="ToolTip.HorizontalOffset" Value="-6" />
+      <Setter Property="ToolTip.VerticalOffset" Value="0" />
     </Style>
     <Style Selector="Button.ws-header-button PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
@@ -159,6 +164,9 @@
               <TextBlock x:Name="WorkspaceTitleText"
                          Text="{Binding Title}"
                          ToolTip.Tip="{Binding Title}"
+                         ToolTip.Placement="Left"
+                         ToolTip.HorizontalOffset="-6"
+                         ToolTip.VerticalOffset="0"
                          FontSize="13" FontWeight="SemiBold"
                          TextTrimming="CharacterEllipsis"
                          Foreground="{DynamicResource Brush.TextPrimary}" />
@@ -182,6 +190,22 @@
                       ToolTip.Tip="{loc:Str FileMenu_Open}"
                       AutomationProperties.Name="{loc:Str FileMenu_Open}">
                 <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.OpenExternal}" />
+              </Button>
+            </StackPanel>
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2"
+                        IsVisible="{Binding IsApp}">
+              <Button x:Name="WorkspaceReloadAppButton" Classes="subtle ws-header-button"
+                      Click="OnReloadAppClick"
+                      ToolTip.Tip="{loc:Str Apps_Reload}"
+                      AutomationProperties.Name="{loc:Str Apps_Reload}">
+                <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.Refresh}" />
+              </Button>
+              <Button x:Name="WorkspaceCloseCanvasButton" Classes="subtle ws-header-button"
+                      IsVisible="{Binding CanCloseApp}"
+                      Click="OnCloseCanvasClick"
+                      ToolTip.Tip="{loc:Str Apps_CloseCanvas}"
+                      AutomationProperties.Name="{loc:Str Apps_CloseCanvas}">
+                <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.CloseCanvas}" />
               </Button>
             </StackPanel>
             <Button x:Name="WorkspaceCloseButton" Grid.Column="4"

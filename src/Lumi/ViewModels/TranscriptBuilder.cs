@@ -31,6 +31,8 @@ public class TranscriptBuilder
     private readonly Func<string, string>? _resolveFilePath;
     private readonly Action<MessageReply>? _openReplySourceAction;
     private readonly bool _foldProgressMessages;
+    private readonly Func<ChatMessage, EmbeddedAppItem?>? _appItemFor;
+    private readonly HashSet<ChatMessage> _shownApps = [];
     // When the message that started the turn being built was sent: the start of its "Worked for" time.
     private DateTimeOffset? _requestedAt;
     private static readonly StringComparer FilePathComparer = OperatingSystem.IsWindows()
@@ -145,7 +147,8 @@ public class TranscriptBuilder
         Action? subagentRunsChanged = null,
         Func<string, string>? resolveFilePath = null,
         Action<MessageReply>? openReplySourceAction = null,
-        bool foldProgressMessages = true)
+        bool foldProgressMessages = true,
+        Func<ChatMessage, EmbeddedAppItem?>? appItemFor = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -162,6 +165,7 @@ public class TranscriptBuilder
         _resolveFilePath = resolveFilePath;
         _openReplySourceAction = openReplySourceAction;
         _foldProgressMessages = foldProgressMessages;
+        _appItemFor = appItemFor;
     }
 
     /// <summary>
@@ -340,6 +344,7 @@ public class TranscriptBuilder
         _announcedFileTurns.Clear();
         _fileChipTurn = new FileChipTurn(0, Guid.Empty);
         _processedMessageIds.Clear();
+        _shownApps.Clear();
         _shownSkillNames.Clear();
         _shownLinkedChatKeys.Clear();
         PublishLiveActivity();
@@ -410,11 +415,29 @@ public class TranscriptBuilder
         var expandReasoning = _dataStore.Data.Settings.ExpandReasoningWhileStreaming;
 
         if (msgVm.Role == "tool")
+        {
             ProcessToolMessage(msgVm, showToolCalls, showTimestamps);
+            if (msgVm.Message.EmbeddedApp is not null)
+                ShowApp(msgVm.Message);
+        }
         else if (msgVm.Role == "reasoning")
             ProcessReasoningMessage(msgVm, showReasoning, expandReasoning);
         else
             ProcessChatMessage(msgVm, showTimestamps);
+    }
+
+    /// <summary>Shows the card of the app a tool message opened, once, after that tool's steps.</summary>
+    public void ShowApp(ChatMessage message)
+    {
+        if (_appItemFor?.Invoke(message) is not { } item)
+            return;
+        if (!_shownApps.Add(message))
+        {
+            item.Refresh();
+            return;
+        }
+        CloseCurrentToolGroup();
+        AppendToCurrentTurn(item, TurnStableIdFor(item.StableId));
     }
 
     /// <summary>Adds a connection-lost error item with an optional retry button.</summary>

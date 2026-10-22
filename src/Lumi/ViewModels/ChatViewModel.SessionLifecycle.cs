@@ -364,6 +364,7 @@ public partial class ChatViewModel
         var sessionTurnSequence = runtime.LifecycleTurnSequence;
         var capabilities = GetCapabilities(chat, workDir);
         var nativeMcpServersByToolCallId = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var appServersByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
         var nativeMcpRestartTimes = new Dictionary<string, long>(StringComparer.Ordinal);
         var toolParentById = new Dictionary<string, string?>(StringComparer.Ordinal);
         var terminalRootByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1073,6 +1074,36 @@ public partial class ChatViewModel
             {
             switch (evt)
             {
+                case SessionCanvasOpenedEvent canvasOpened:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (IsAuthoritativeSession())
+                            OnCanvasOpened(chat, session.SessionId, new GitHub.Copilot.Rpc.OpenCanvasInstance
+                            {
+                                InstanceId = canvasOpened.Data.InstanceId,
+                                CanvasId = canvasOpened.Data.CanvasId,
+                                ExtensionId = canvasOpened.Data.ExtensionId,
+                                ExtensionName = canvasOpened.Data.ExtensionName,
+                                Title = canvasOpened.Data.Title,
+                                Url = canvasOpened.Data.Url,
+                                Input = canvasOpened.Data.Input
+                            }, show: IsDisplayedSession());
+                    });
+                    break;
+                case SessionCanvasClosedEvent canvasClosed:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (IsAuthoritativeSession())
+                            OnCanvasClosed(chat, canvasClosed.Data.InstanceId);
+                    });
+                    break;
+                case SessionCanvasUnavailableEvent canvasUnavailable:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (IsAuthoritativeSession())
+                            OnCanvasClosed(chat, canvasUnavailable.Data.InstanceId);
+                    });
+                    break;
                 case AssistantTurnStartEvent turnStart when IsRootAgentEvent(evt):
                     // Empty-batch continuations have no user.message echo to establish their epoch.
                     if (runtime.IsContinuationTurn)
@@ -1356,6 +1387,8 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionStartEvent toolStart:
+                    if (toolStart.Data.McpServerName is { Length: > 0 } appServerName)
+                        appServersByToolCallId[toolStart.Data.ToolCallId] = appServerName;
                     if (GetNativeMcpServerName(toolStart.Data) is { } nativeMcpServerName)
                         nativeMcpServersByToolCallId[toolStart.Data.ToolCallId] = nativeMcpServerName;
                     if (IsRootAgentEvent(toolStart))
@@ -1522,6 +1555,7 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionCompleteEvent toolEnd:
+                    appServersByToolCallId.Remove(toolEnd.Data.ToolCallId, out var completedAppServer);
                     if (toolEnd.Data.ToolCallId == runningRootSqlToolCallId)
                         runningRootSqlToolCallId = null;
                     shellOutputByToolCallId.Remove(toolEnd.Data.ToolCallId);
@@ -1555,6 +1589,7 @@ public partial class ChatViewModel
                     var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == toolEnd.Data.ToolCallId);
                     if (toolMsg is not null)
                     {
+                        RecordMcpApp(chat, session, toolMsg, toolEnd.Data, completedAppServer, IsDisplayedSession());
                         if (!success)
                             toolMsg.ToolOutput = completedToolOutput;
 
@@ -2804,6 +2839,7 @@ public partial class ChatViewModel
             assistantStream,
             reasoningStream,
             new ActionDisposable(() => _copilotService.CliProcessExited -= OnCliProcessExited));
+        _ = ReconcileOpenCanvasesAsync(session, chat);
         return true;
     }
 

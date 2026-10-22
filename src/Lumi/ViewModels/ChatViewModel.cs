@@ -22,6 +22,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
+using Lumi.Services.EmbeddedApps;
 using StrataTheme.Controls;
 
 using ChatMessage = Lumi.Models.ChatMessage;
@@ -1691,7 +1692,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             resolveFilePath: path => CurrentChat is { } chat
                 ? ResolveWorkspaceFileChangedPath(chat, path)
                 : path,
-            openReplySourceAction: RequestReplySourceJump);
+            openReplySourceAction: RequestReplySourceJump,
+            appItemFor: GetAppItem);
         _transcriptBuilder.LiveActivityChanged += OnTranscriptLiveActivityChanged;
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
@@ -2577,6 +2579,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
             config.ManagedSettings = askLayer;
+            config.OpenCanvases = EmbeddedAppData.SavedOpenCanvases(chat);
             return config;
         }
 
@@ -2807,6 +2810,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             BrowserHideRequested?.Invoke();
             DiffHideRequested?.Invoke();
+            CloseApp();
             CloseFilePreview();
             ClearSuggestions();
         }
@@ -3122,6 +3126,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PlanHideRequested?.Invoke();
         SkillHideRequested?.Invoke();
         SubagentRunHideRequested?.Invoke();
+        CloseApp();
         CloseFilePreview();
         HasUsedBrowser = false;
         WorkspaceCategory = WorkspaceCategory.All;
@@ -5754,7 +5759,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var contextChat = targetChat ?? CurrentChat;
         if (contextChat is not null)
+        {
             builder.Append(InteractiveResponseState.BuildPromptContext(contextChat));
+            builder.Append(EmbeddedAppData.BuildModelContext(contextChat));
+        }
         if (contextChat is not null
             && _staleBackgroundJobPromptChats.Remove(contextChat.Id))
         {

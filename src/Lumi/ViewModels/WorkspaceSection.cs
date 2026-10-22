@@ -28,6 +28,7 @@ public enum WorkspaceCategory
     Activity,
     Browser,
     Desktop,
+    Apps,
 }
 
 /// <summary>What every Workspace overview section exposes, whatever its row type — enough for the

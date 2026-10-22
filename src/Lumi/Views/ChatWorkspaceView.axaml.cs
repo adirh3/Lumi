@@ -195,6 +195,10 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
     private void OnOpenFilePreviewClick(object? sender, RoutedEventArgs e) => _workspace?.OpenFilePreviewExternally();
 
+    private void OnReloadAppClick(object? sender, RoutedEventArgs e) => _workspace?.ReloadApp();
+
+    private void OnCloseCanvasClick(object? sender, RoutedEventArgs e) => _workspace?.CloseCanvas();
+
     /// <summary>Escape steps back: out of a page, else from one kind back to everything.</summary>
     private void OnWorkspaceKeyDown(object? sender, KeyEventArgs e)
     {
