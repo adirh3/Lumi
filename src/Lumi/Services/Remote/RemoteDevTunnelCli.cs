@@ -315,7 +315,7 @@ internal static class RemoteDevTunnelCli
     internal static bool IsTransientFailure(string error) =>
         System.Text.RegularExpressions.Regex.IsMatch(
             error,
-            @"\b(?:408|429|5\d\d|TooManyRequests|ServiceUnavailable|GatewayTimeout|timeout|timed out|network|socket|unavailable|no such host|name resolution|failed to connect|connection (?:refused|reset|closed|aborted))\b",
+            @"\b(?:408|429|5\d\d|TooManyRequests|ServiceUnavailable|GatewayTimeout|timeout|timed out|network|NoNetwork|no_network|socket|unavailable|no such host|name resolution|failed to connect|connection (?:refused|reset|closed|aborted))\b",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase
             | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
