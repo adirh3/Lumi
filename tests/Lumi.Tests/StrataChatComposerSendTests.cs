@@ -8,6 +8,8 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using StrataTheme.Controls;
@@ -19,6 +21,62 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class StrataChatComposerSendTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StopButton_UsesThemeColorsAndUpdatesWhenThemeChanges(bool initiallyDark)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var composer = new StrataChatComposer { IsBusy = true };
+            var window = new Window
+            {
+                Width = 360,
+                Height = 180,
+                Content = composer,
+                RequestedThemeVariant = initiallyDark ? ThemeVariant.Dark : ThemeVariant.Light,
+            };
+            window.Show();
+            await PumpAsync();
+
+            var button = composer.GetVisualDescendants()
+                .OfType<Button>().Single(control => control.Name == "PART_SendButton");
+            var surface = button.GetVisualDescendants()
+                .OfType<Border>().Single(control => control.Name == "PART_Surface");
+            var icon = button.GetVisualDescendants()
+                .OfType<Border>().Single(control => control.Name == "PART_OrbStopIcon");
+            var stop = new CaptureCommand();
+            composer.StopCommand = stop;
+            var stopRaised = 0;
+            composer.StopRequested += (_, _) => stopRaised++;
+
+            foreach (var dark in new[] { initiallyDark, !initiallyDark })
+            {
+                window.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
+                window.MouseMove(new Point(0, 0));
+                await PumpAsync();
+
+                Assert.True(icon.IsVisible);
+                Assert.Equal(Color.Parse(dark ? "#1C1C24" : "#F0F0F0"),
+                    Assert.IsAssignableFrom<ISolidColorBrush>(surface.Background).Color);
+                Assert.Equal(Color.Parse(dark ? "#FFFFFF" : "#1B1B1F"),
+                    Assert.IsAssignableFrom<ISolidColorBrush>(icon.Background).Color);
+
+                var topLeft = button.TranslatePoint(new Point(), window)!.Value;
+                window.MouseMove(topLeft + new Point(button.Bounds.Width / 2, button.Bounds.Height / 2));
+                await PumpAsync();
+                Assert.Equal(Color.Parse(dark ? "#2A2A34" : "#EBEBEB"),
+                    Assert.IsAssignableFrom<ISolidColorBrush>(surface.Background).Color);
+            }
+
+            Click(window, button);
+            Assert.Equal(1, stopRaised);
+            window.Close();
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
