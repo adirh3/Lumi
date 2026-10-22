@@ -30,7 +30,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **MCP Apps & canvases** — Connector-provided interactive apps and Copilot canvas extensions open in Workspace, with lightweight reopen cards in the transcript. App tool calls reuse the chat's Copilot connection; canvas behavior and data stay with the extension.
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
 - **Localization** — English and Hebrew, with easy extension to other languages
-- **Make it yours** — Settings → Appearance: a Light, Dark or System theme, eight accent palettes that recolor buttons, selection, your messages and Lumi's glow, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
+- **Make it yours** — Settings → Appearance: a Light, Dark or System theme, eight accent palettes that recolor buttons, selection, your messages, Lumi's glow and Lumi's icon in the app and the tray, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
 - **Voice input** — Local, multilingual dictation on Windows, Linux and macOS: asks once before its one-time download, listens instantly with a live waveform, and shows your words as you speak
 - **Desktop notifications** — Toast notifications when responses complete in the background
 - **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
@@ -1838,6 +1838,23 @@ to select another existing Lumi Debug output directory.
 Do not run desktop tests or benchmarks concurrently: Windows has one shared
 foreground window and keyboard. Non-Windows builds neither expose nor advertise
 the desktop tools.
+
+### App Icon
+
+Lumi's icon is Lumi's soft sparkle met by a smaller one that stands for you; where they overlap, the
+meeting glows in the Strata line's colours. One renderer, `src\Lumi\Services\AppIconArt.cs`, draws it.
+Inside the app (the welcome screen, onboarding, the loading window and Settings → About) and in the tray
+it wears the accent chosen in Settings → Appearance and changes with it; on Windows, the tray gets an icon
+frame drawn for each display scale. Installed icons (the taskbar, Start menu, Dock, launchers and home
+screens) keep Lumi's own colours. After changing the art, rewrite every installed icon from a Debug build:
+
+```powershell
+dotnet run --project src\Lumi\Lumi.csproj -- --write-app-icons
+```
+
+It writes `src\Lumi\Assets\lumi-icon.png` and `lumi-icon.ico`, the icon on `installer-splash.png`
+(keeping its words), the Android launcher icons and the web app's icons. The output is deterministic,
+so running it again changes nothing.
 
 ### Windows Installer
 

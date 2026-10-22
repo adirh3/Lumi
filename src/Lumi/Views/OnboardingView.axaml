@@ -540,7 +540,7 @@
     <Grid Grid.Row="0" Margin="28,14,28,0" ColumnDefinitions="Auto,*,Auto" MinHeight="36">
       <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                   IsVisible="{Binding !IsHelloStep}">
-        <Image Source="/Assets/lumi-icon.png" Width="20" Height="20"
+        <Image Source="{DynamicResource Image.LumiMark}" Width="20" Height="20"
                RenderOptions.BitmapInterpolationMode="HighQuality" />
         <TextBlock Text="Lumi" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
                    Foreground="{DynamicResource Brush.TextSecondary}" />
@@ -585,7 +585,7 @@
         <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
           <StackPanel MaxWidth="560" Margin="32,0,32,24" HorizontalAlignment="Center" VerticalAlignment="Center">
             <Border Classes="ob-mark" Margin="0,0,0,30">
-              <Image Source="/Assets/lumi-icon.png" Width="88" Height="88"
+              <Image Source="{DynamicResource Image.LumiMark}" Width="88" Height="88"
                      RenderOptions.BitmapInterpolationMode="HighQuality" />
             </Border>
             <TextBlock Classes="ob-display" Text="{loc:Str Onboarding_HelloTitle}" />
@@ -689,7 +689,7 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <Grid x:Name="DemoReply" ColumnDefinitions="Auto,*" Margin="0,16,0,0">
-                  <Image Classes="ob-avatar" Source="/Assets/lumi-icon.png"
+                  <Image Classes="ob-avatar" Source="{DynamicResource Image.LumiMark}"
                          RenderOptions.BitmapInterpolationMode="HighQuality" />
                   <TextBlock Grid.Column="1" Text="{Binding Reply}" FontSize="14" LineHeight="21"
                              TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextPrimary}" />
@@ -767,7 +767,7 @@
                                            Subject="{loc:Str Onboarding_AutonomyDemoCommand}"
                                            IsHitTestVisible="False" />
                     <Grid ColumnDefinitions="Auto,*">
-                      <Image Classes="ob-avatar" Source="/Assets/lumi-icon.png"
+                      <Image Classes="ob-avatar" Source="{DynamicResource Image.LumiMark}"
                              RenderOptions.BitmapInterpolationMode="HighQuality" />
                       <TextBlock Grid.Column="1" Text="{loc:Str Onboarding_AutonomyDemoReply}" FontSize="13.5" LineHeight="20"
                                  TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextPrimary}" />
@@ -987,14 +987,14 @@
                 <DataTemplate x:DataType="vm:OnboardingChatItem">
                   <Panel>
                     <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding IsLumi}">
-                      <Image Classes="ob-avatar" Source="/Assets/lumi-icon.png"
+                      <Image Classes="ob-avatar" Source="{DynamicResource Image.LumiMark}"
                              RenderOptions.BitmapInterpolationMode="HighQuality" />
                       <Border Grid.Column="1" Classes="ob-lumi-bubble">
                         <TextBlock Text="{Binding Text}" />
                       </Border>
                     </Grid>
                     <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding IsTyping}">
-                      <Image Classes="ob-avatar" Source="/Assets/lumi-icon.png"
+                      <Image Classes="ob-avatar" Source="{DynamicResource Image.LumiMark}"
                              RenderOptions.BitmapInterpolationMode="HighQuality" />
                       <sc:StrataTypingIndicator Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center"
                                                 Label="{loc:Str Status_Thinking}" />
@@ -1035,7 +1035,7 @@
         <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
           <StackPanel MaxWidth="740" Margin="32,0,32,8" HorizontalAlignment="Center" VerticalAlignment="Center">
             <Border Classes="ob-mark" Margin="0,0,0,14">
-              <Image Source="/Assets/lumi-icon.png" Width="58" Height="58"
+              <Image Source="{DynamicResource Image.LumiMark}" Width="58" Height="58"
                      RenderOptions.BitmapInterpolationMode="HighQuality" />
             </Border>
             <TextBlock x:Name="ReadyTitleText" Classes="ob-display" FontSize="32" Text="{Binding ReadyTitle}" />

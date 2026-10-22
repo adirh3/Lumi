@@ -1828,18 +1828,10 @@
         <Panel>
           <Border Classes="st-hero-glow" />
           <Grid ColumnDefinitions="Auto,*" Margin="22,20,22,20">
-            <Border Width="64" Height="64" CornerRadius="18" VerticalAlignment="Top" Margin="0,0,18,0"
-                    Background="{DynamicResource Mg.TileBackground}"
-                    BorderBrush="{DynamicResource Mg.TileBorder}" BorderThickness="1">
-              <Panel>
-                <Ellipse Width="30" Height="30" Fill="{DynamicResource Brush.AccentGradient}" Opacity="0.55">
-                  <Ellipse.Effect>
-                    <BlurEffect Radius="12" />
-                  </Ellipse.Effect>
-                </Ellipse>
-                <Ellipse Width="22" Height="22" Fill="{DynamicResource Brush.AccentGradient}" />
-                <Ellipse Width="8" Height="8" Fill="White" Opacity="0.85" Margin="-6,-6,0,0" />
-              </Panel>
+            <Border Width="64" Height="64" CornerRadius="14" VerticalAlignment="Top" Margin="0,0,18,0"
+                    BoxShadow="0 8 22 -10 #80000000">
+              <Image x:Name="AboutAppIcon" Source="{DynamicResource Image.LumiMark}"
+                     RenderOptions.BitmapInterpolationMode="HighQuality" />
             </Border>
             <StackPanel Grid.Column="1" Spacing="14">
               <StackPanel Spacing="4">

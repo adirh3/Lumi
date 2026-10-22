@@ -92,13 +92,22 @@ public static class AccentPalettes
 
     /// <summary>
     /// Shows <paramref name="id"/> across the app. The palette is one merged dictionary of
-    /// <paramref name="resources"/>, swapped whole, so a change refreshes the UI once.
+    /// <paramref name="resources"/>, swapped whole, so a change refreshes the UI once. Lumi's mark
+    /// (<see cref="AppIcon.MarkResourceKey"/>) is redrawn in the palette when it changes.
     /// </summary>
     public static void Apply(IResourceDictionary resources, string? id)
     {
         ArgumentNullException.ThrowIfNull(resources);
 
         var palette = Find(id);
+        var markIsCurrent = resources.ContainsKey(AppIcon.MarkResourceKey) && AppliedId(resources) == palette.Id;
+        ApplyTones(resources, palette);
+        if (!markIsCurrent)
+            resources[AppIcon.MarkResourceKey] = AppIcon.CreateMark(palette);
+    }
+
+    private static void ApplyTones(IResourceDictionary resources, Palette palette)
+    {
         var merged = resources.MergedDictionaries;
         var current = merged.OfType<PaletteDictionary>().ToList();
         if (palette.IsDefault ? current.Count == 0 : current.Count == 1 && current[0].PaletteId == palette.Id)

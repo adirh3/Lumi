@@ -177,6 +177,14 @@ class Program
             RunAgentTestAsync().GetAwaiter().GetResult();
             return;
         }
+
+        // Writes the installed icons (app, installer, Android, web app) from the icon Lumi draws.
+        if (args.Any(Services.AppIconAssets.IsFlag))
+        {
+            AttachParentConsole();
+            Environment.ExitCode = Services.AppIconAssets.Write();
+            return;
+        }
 #endif
 
         var wasToastActivated = NotificationService.IsToastActivationLaunch(args);

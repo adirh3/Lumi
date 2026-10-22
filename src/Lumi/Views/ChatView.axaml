@@ -3056,7 +3056,7 @@
             <Border x:Name="WelcomeOrb" Width="56" Height="56" CornerRadius="14"
                     HorizontalAlignment="Center" Opacity="0.95" ClipToBounds="True"
                     Margin="0,0,0,8">
-              <Image Source="avares://Lumi/Assets/lumi-icon.png"
+              <Image Source="{DynamicResource Image.LumiMark}"
                      Width="56" Height="56"
                      RenderOptions.BitmapInterpolationMode="HighQuality" />
             </Border>

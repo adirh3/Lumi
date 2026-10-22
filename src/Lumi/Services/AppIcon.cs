@@ -1,7 +1,10 @@
 using System;
 using System.IO;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Lumi.Services.Appearance;
 
 namespace Lumi.Services;
 
@@ -13,6 +16,47 @@ namespace Lumi.Services;
 internal static class AppIcon
 {
     private static readonly Uri IconUri = new("avares://Lumi/Assets/lumi-icon.png");
+
+    /// <summary>The resource key of Lumi's mark in the current accent, an <see cref="Avalonia.Media.IImage"/>
+    /// that the welcome screen, onboarding and the loading window show.</summary>
+    internal const string MarkResourceKey = "Image.LumiMark";
+
+    // Sharp for the largest mark in the app (88 dip, onboarding's greeting) up to 290% display scale.
+    private const int MarkSize = 256;
+
+    // The notification area's icon at 100% to 300% display scale.
+    private static readonly int[] TrayIconSizes = [16, 20, 24, 32, 40, 48];
+
+    /// <summary>Lumi's mark in <paramref name="palette"/>.</summary>
+    internal static Bitmap CreateMark(AccentPalettes.Palette palette)
+    {
+        using var art = AppIconArt.Render(AppIconArt.ColorsFor(palette), MarkSize);
+        return new Bitmap(
+            PixelFormat.Bgra8888, AlphaFormat.Premul, art.GetPixels(),
+            new PixelSize(MarkSize, MarkSize), new Vector(96, 96), art.RowBytes);
+    }
+
+    /// <summary>
+    /// The tray icon in <paramref name="palette"/>. Windows gets an .ico with a frame drawn for each tray
+    /// size, because the shell shrinks a single large bitmap without filtering; elsewhere it is one PNG.
+    /// </summary>
+    internal static WindowIcon CreateTrayIcon(AccentPalettes.Palette palette, bool isWindows)
+    {
+        var colors = AppIconArt.ColorsFor(palette);
+        byte[] data;
+        if (isWindows)
+        {
+            data = AppIconArt.CreateIco(colors, TrayIconSizes);
+        }
+        else
+        {
+            using var art = AppIconArt.Render(colors, MarkSize);
+            data = AppIconArt.EncodePng(art);
+        }
+
+        using var stream = new MemoryStream(data);
+        return new WindowIcon(stream);
+    }
 
     /// <summary>
     /// The PNG fallback is only for unbundled macOS launches; packaged apps keep their system-rendered icon.

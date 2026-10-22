@@ -111,6 +111,7 @@
     <Compile Remove="UiPerf\UiStreamingLoad.cs" />
     <Compile Remove="MemoryDiagnostics\MemoryStressHarness.cs" />
     <Compile Remove="MemoryDiagnostics\HistoryScaleHarness.cs" />
+    <Compile Remove="Services\AppIconAssets.cs" />
     <!-- UiHarnessOptions/UiResponsivenessMetrics/UiResponsivenessReport are intentionally NOT removed:
          they are pure-logic, side-effect-free types that the Lumi.Tests project references, and
          pr-validation.yml builds AND runs the whole solution in Release config. Removing them would

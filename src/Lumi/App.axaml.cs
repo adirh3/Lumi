@@ -897,8 +897,7 @@ public partial class App : Application
     {
         if (enable && _trayIcon is null)
         {
-            var uri = new Uri("avares://Lumi/Assets/lumi-icon.png");
-            var icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(uri));
+            var icon = CreateTrayIcon();
 
             var showItem = new NativeMenuItem(Loc.Tray_Show);
             showItem.Click += (_, _) => ShowMainWindow();
@@ -945,6 +944,16 @@ public partial class App : Application
             ShowMainWindow();
         }
     }
+
+    /// <summary>Redraws the tray icon in the accent the app now shows.</summary>
+    public void RefreshTrayIcon()
+    {
+        if (_trayIcon is not null)
+            _trayIcon.Icon = CreateTrayIcon();
+    }
+
+    private WindowIcon CreateTrayIcon()
+        => AppIcon.CreateTrayIcon(AccentPalettes.Find(AccentPalettes.AppliedId(Resources)), OperatingSystem.IsWindows());
 
     public void ShowMainWindow()
     {

@@ -162,7 +162,10 @@ public partial class SettingsViewModel
 
         _dataStore.Data.Settings.AccentColor = value;
         if (Avalonia.Application.Current is { } application)
+        {
             AccentPalettes.Apply(application.Resources, value);
+            (application as App)?.RefreshTrayIcon();
+        }
         _dataStore.NotifyAppearanceSettingsChanged(this);
         Save();
         NotifyModified();
