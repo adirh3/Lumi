@@ -1,5 +1,7 @@
 namespace Lumi.Remote.Protocol;
 
+using System.Text.Json.Serialization;
+
 public sealed class RemoteProject
 {
     public Guid Id { get; set; }
@@ -106,6 +108,13 @@ public sealed class RemoteSettings
     /// </summary>
     public List<RemoteModelDefaults> ModelDefaults { get; set; } = [];
 
+    /// <summary>
+    /// The model picker's rows as the desktop's picker draws them: pinned models first in the order
+    /// they were pinned, then the rest in catalog order, each with its account and the facts its row
+    /// shows. Empty from a desktop without <see cref="RemoteProtocol.Capabilities.ModelPinsV1"/>.
+    /// </summary>
+    public List<RemoteModelOption> ModelOptions { get; set; } = [];
+
     /// <summary>Desktop-selected new-chat choices. Null on hosts without launchpad projection.</summary>
     public RemoteNewChatExperience? NewChat { get; set; }
 }
@@ -147,6 +156,33 @@ public sealed class RemoteModelDefaults
     public string Model { get; set; } = "";
     public string? Quality { get; set; }
     public string? ContextWindowTier { get; set; }
+}
+
+/// <summary>One row of the desktop's model picker. Its texts are the desktop's own, already formatted.</summary>
+public sealed class RemoteModelOption
+{
+    public string Model { get; set; } = "";
+
+    /// <summary>The row's name. Unlike the model's display name it leaves out the account, which heads its group.</summary>
+    public string? DisplayName { get; set; }
+
+    /// <summary>The group the row is listed under: "GitHub Copilot", or the connected account's name.</summary>
+    public string? ProviderName { get; set; }
+
+    /// <summary>The connected account the model runs on; null for a Copilot model. Qualifies a pinned row's name.</summary>
+    public string? Account { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsPinned { get; set; }
+
+    /// <summary>Premium-request multiplier ("1×", "0.33×", "Included"); null when the catalog reports none.</summary>
+    public string? Cost { get; set; }
+
+    /// <summary>Largest context the model offers ("200K", "1M"); null when unknown.</summary>
+    public string? ContextSize { get; set; }
+
+    /// <summary>A short state beside the name, such as a model that still has to be enabled.</summary>
+    public string? Status { get; set; }
 }
 
 /// <summary>Everything the phone needs to render its library tabs, refreshed as a unit.</summary>

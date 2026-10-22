@@ -259,6 +259,12 @@ public static class RemoteProtocol
         /// </summary>
         public const string ResumePingV1 = "resume-ping-v1";
 
+        /// <summary>
+        /// The settings carry the desktop picker's rows (<see cref="RemoteSettings.ModelOptions"/>) and
+        /// <see cref="Actions.PinModel"/> pins or unpins a model, so the phone shares the desktop's pins.
+        /// </summary>
+        public const string ModelPinsV1 = "model-pins-v1";
+
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
         [
@@ -268,7 +274,8 @@ public static class RemoteProtocol
             GitChangesV1,
             InteractiveResponsesV1,
             ConditionalTranscriptV1,
-            ResumePingV1
+            ResumePingV1,
+            ModelPinsV1
         ];
     }
 
@@ -363,6 +370,12 @@ public static class RemoteProtocol
         public const string ConfigureChat = "configure_chat";
 
         public const string ConfigureFeature = "configure_feature";
+
+        /// <summary>
+        /// Pins (<c>pinned=true</c>) or unpins a <c>model</c> in the model picker. Pins are the
+        /// desktop's app-wide favorites, listed first in every picker on the PC and the phone.
+        /// </summary>
+        public const string PinModel = "pin_model";
     }
 
     /// <summary>Event names emitted on the SSE stream.</summary>

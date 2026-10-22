@@ -2122,16 +2122,73 @@
       </Border>
     </sc:StrataBottomSheet>
 
-    <!-- The desktop's model picker as a sheet: the models, then how hard the chosen one thinks and how
-         much it keeps in view, as segments beneath them. Picking a model closes it; a segment does not. -->
+    <!-- The desktop's model picker as a sheet: pinned models first, then each provider or account, each
+         row with its cost, context size and pin; how hard the chosen model thinks and how much it keeps
+         in view stay docked beneath the list, as the picker's footer does. Picking a model closes the
+         sheet; a pin or a segment does not. -->
     <sc:StrataBottomSheet x:Name="ModelSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsModelSheetOpen, Mode=TwoWay}"
                           Title="Model">
       <Border x:Name="ModelSheetSideInset">
-        <ScrollViewer Classes="mobile-scroll" MaxHeight="560" Padding="0,0,0,4"
-                      HorizontalScrollBarVisibility="Disabled">
-          <StackPanel>
+        <!-- The settings dock under the list while there is height to spare; on a short screen the view
+             moves them into the list's scroll (ChatDetailView.PlaceModelSettings). -->
+        <DockPanel x:Name="ModelSheetLayout">
+          <Border x:Name="ModelSheetSettings" Classes="model-settings" DockPanel.Dock="Bottom"
+                  IsVisible="{Binding Chat.HasModelSettings}">
+            <StackPanel>
+              <StackPanel x:Name="ModelSheetEffort" IsVisible="{Binding Chat.HasQualityLevels}">
+                <TextBlock Text="Reasoning effort" Classes="sheet-label" />
+                <Border Classes="segment-track">
+                  <ItemsControl ItemsSource="{Binding Chat.QualityOptions}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <UniformGrid Rows="1" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:PickerOption">
+                        <Button Classes="segment" Classes.selected="{Binding IsSelected}"
+                                AutomationProperties.Name="{Binding Label, StringFormat='Reasoning effort: {0}'}"
+                                Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.PickQualityCommand}"
+                                CommandParameter="{Binding Name}">
+                          <TextBlock Text="{Binding Label}" />
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Border>
+              </StackPanel>
+              <StackPanel x:Name="ModelSheetContext" IsVisible="{Binding Chat.HasContextWindowTiers}">
+                <TextBlock Text="Context window" Classes="sheet-label" />
+                <Border Classes="segment-track">
+                  <ItemsControl ItemsSource="{Binding Chat.ContextTierOptions}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <UniformGrid Rows="1" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:PickerOption">
+                        <Button Classes="segment" Classes.selected="{Binding IsSelected}"
+                                AutomationProperties.Name="{Binding Label, StringFormat='Context window: {0}'}"
+                                Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.PickContextTierCommand}"
+                                CommandParameter="{Binding Name}">
+                          <TextBlock Text="{Binding Label}" />
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Border>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+          <TextBlock x:Name="ModelPinErrorText" Classes="model-pin-error" DockPanel.Dock="Top"
+                     Text="{Binding Chat.ModelPinError}"
+                     IsVisible="{Binding Chat.ModelPinError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <ScrollViewer x:Name="ModelSheetScroll" Classes="mobile-scroll model-scroll" Padding="0,0,0,4"
+                        HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="ModelSheetScrollContent">
             <ItemsControl x:Name="ModelSheetList" ItemsSource="{Binding Chat.ModelGroups}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:ModelProviderGroup">
@@ -2139,17 +2196,40 @@
                     <TextBlock Text="{Binding Label}" Classes="sheet-label" />
                     <ItemsControl ItemsSource="{Binding Options}">
                       <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:PickerOption">
-                          <Button Classes="sheet-item model-option" Classes.selected="{Binding IsSelected}"
-                                  AutomationProperties.Name="{Binding Label}"
-                                  Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.PickModelCommand}"
-                                  CommandParameter="{Binding Name}">
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                              <TextBlock Text="{Binding Label}" VerticalAlignment="Center" TextWrapping="Wrap" />
-                              <PathIcon Grid.Column="1" Classes="sheet-check" IsVisible="{Binding IsSelected}"
-                                        Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                            </Grid>
-                          </Button>
+                        <!-- One line per model, as on the desktop: a check for the current model, its name,
+                             then cost and context size in right-aligned columns. The pin sits on the row's
+                             trailing edge, always shown, since a phone has no pointer to reveal it. -->
+                        <DataTemplate x:DataType="vm:ModelPickerOption">
+                          <Panel>
+                            <Button Classes="sheet-item model-option" Classes.selected="{Binding IsSelected}"
+                                    Classes.pinnable="{Binding CanPin}"
+                                    AutomationProperties.Name="{Binding AccessibleName}"
+                                    Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.PickModelCommand}"
+                                    CommandParameter="{Binding Name}">
+                              <Grid ColumnDefinitions="20,*,Auto,Auto" ColumnSpacing="6">
+                                <PathIcon Classes="sheet-check" HorizontalAlignment="Left" IsVisible="{Binding IsSelected}"
+                                          Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                  <TextBlock Classes="model-name"><Run Text="{Binding Label}" /><Run Text="{Binding PinnedAccount}" FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}" /></TextBlock>
+                                  <TextBlock Classes="model-status" Text="{Binding Status}"
+                                             IsVisible="{Binding HasStatus}" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Classes="model-meta emphasis" Text="{Binding Cost}"
+                                           IsVisible="{Binding HasCost}" />
+                                <TextBlock Grid.Column="3" Classes="model-meta" Text="{Binding ContextSize}"
+                                           IsVisible="{Binding HasContextSize}" />
+                              </Grid>
+                            </Button>
+                            <Button Classes="model-pin" Classes.pinned="{Binding IsPinned}"
+                                    IsVisible="{Binding CanPin}"
+                                    AutomationProperties.Name="{Binding PinActionName}"
+                                    Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.ToggleModelPinCommand}"
+                                    CommandParameter="{Binding}">
+                              <Viewbox Width="20" Height="20">
+                                <Path Width="16" Height="16" Stretch="None" Data="{DynamicResource Mobile.Icon.ModelPin}" />
+                              </Viewbox>
+                            </Button>
+                          </Panel>
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -2157,52 +2237,9 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <StackPanel x:Name="ModelSheetEffort" IsVisible="{Binding Chat.HasQualityLevels}">
-              <TextBlock Text="Reasoning effort" Classes="sheet-label" />
-              <Border Classes="segment-track">
-                <ItemsControl ItemsSource="{Binding Chat.QualityOptions}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <UniformGrid Rows="1" />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:PickerOption">
-                      <Button Classes="segment" Classes.selected="{Binding IsSelected}"
-                              AutomationProperties.Name="{Binding Label, StringFormat='Reasoning effort: {0}'}"
-                              Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.PickQualityCommand}"
-                              CommandParameter="{Binding Name}">
-                        <TextBlock Text="{Binding Label}" />
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </Border>
             </StackPanel>
-            <StackPanel x:Name="ModelSheetContext" IsVisible="{Binding Chat.HasContextWindowTiers}">
-              <TextBlock Text="Context window" Classes="sheet-label" />
-              <Border Classes="segment-track">
-                <ItemsControl ItemsSource="{Binding Chat.ContextTierOptions}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <UniformGrid Rows="1" />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:PickerOption">
-                      <Button Classes="segment" Classes.selected="{Binding IsSelected}"
-                              AutomationProperties.Name="{Binding Label, StringFormat='Context window: {0}'}"
-                              Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.PickContextTierCommand}"
-                              CommandParameter="{Binding Name}">
-                        <TextBlock Text="{Binding Label}" />
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </Border>
-            </StackPanel>
-          </StackPanel>
-        </ScrollViewer>
+          </ScrollViewer>
+        </DockPanel>
       </Border>
     </sc:StrataBottomSheet>
 

@@ -1422,6 +1422,67 @@ public sealed class RemoteProjectionTests
         Assert.Equal(expectedTier, parsed.ModelDefaults[0].ContextWindowTier);
     }
 
+    /// <summary>
+    /// The phone lists the desktop picker's own rows: the same names and account groups, the same cost,
+    /// context size and status, and the PC's pins first in the order they were pinned.
+    /// </summary>
+    [Fact]
+    public void Settings_CarryThePickerRowsWithTheDesktopsPins()
+    {
+        Loc.Load("en");
+        var data = new AppData();
+        data.Settings.ByokEndpoints.Add(new() { Id = "or", Name = "OpenRouter", ConnectionProviderId = "openrouter" });
+        data.Settings.ByokModels.Add(new() { Id = "or-model", EndpointId = "or", ModelId = "wire-id", DisplayName = "OpenRouter · Shared model" });
+        // A favorite the catalog no longer offers is skipped, as the desktop's picker skips it.
+        data.Settings.FavoriteModelIds = ["byok:or-model", "retired-model", "claude-opus-5"];
+        var store = new DataStore(data);
+        using var viewModel = new ChatViewModel(store, TestCopilot.Shared);
+        viewModel.UpdateModelCapabilities(
+        [
+            new ModelInfo
+            {
+                Id = "gpt-5.4",
+                Capabilities = new ModelCapabilities { Limits = new ModelLimits { MaxContextWindowTokens = 400_000 } },
+                Billing = new ModelBilling { Multiplier = 1 }
+            },
+            new ModelInfo
+            {
+                Id = "claude-opus-5",
+                Capabilities = new ModelCapabilities { Limits = new ModelLimits { MaxContextWindowTokens = 200_000 } },
+                Billing = new ModelBilling { Multiplier = 3 },
+                Policy = new ModelPolicy { State = "unconfigured" }
+            },
+            new ModelInfo { Id = "auto", Billing = new ModelBilling { Multiplier = 0 } }
+        ]);
+
+        var settings = RemoteProjector.BuildSettings(
+            store, ["auto", "gpt-5.4", "claude-opus-5", "byok:or-model"], viewModel);
+
+        Assert.Equal(["byok:or-model", "claude-opus-5", "auto", "gpt-5.4"], settings.ModelOptions.Select(row => row.Model));
+        var account = settings.ModelOptions[0];
+        Assert.Equal(("Shared model", "OpenRouter", "OpenRouter", true),
+            (account.DisplayName, account.ProviderName, account.Account, account.IsPinned));
+        Assert.Null(account.Cost);
+        var opus = settings.ModelOptions[1];
+        Assert.Equal(("Claude Opus 5", "GitHub Copilot", true), (opus.DisplayName, opus.ProviderName, opus.IsPinned));
+        Assert.Null(opus.Account);
+        Assert.Equal(("3\u00d7", "200K", "Needs enabling"), (opus.Cost, opus.ContextSize, opus.Status));
+        var auto = settings.ModelOptions[2];
+        Assert.Equal("Included", auto.Cost);
+        Assert.Null(auto.ContextSize);
+        Assert.Null(auto.Status);
+        Assert.False(auto.IsPinned);
+        var gpt = settings.ModelOptions[3];
+        Assert.Equal(("1\u00d7", "400K"), (gpt.Cost, gpt.ContextSize));
+
+        var json = JsonSerializer.Serialize(settings, RemoteJsonContext.Default.RemoteSettings);
+        var parsed = JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteSettings)!;
+        Assert.Equal(
+            settings.ModelOptions.Select(row => (row.Model, row.DisplayName, row.IsPinned, row.Cost, row.Status)),
+            parsed.ModelOptions.Select(row => (row.Model, row.DisplayName, row.IsPinned, row.Cost, row.Status)));
+        Assert.DoesNotContain("\"isPinned\":false", json);
+    }
+
     [Theory]
     [InlineData("127.0.0.1", true)]
     [InlineData("::1", true)]

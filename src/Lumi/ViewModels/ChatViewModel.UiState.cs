@@ -274,6 +274,18 @@ public partial class ChatViewModel
     }
 
     /// <summary>
+    /// Fresh picker rows for <paramref name="modelIds"/> with this surface's catalog facts and the
+    /// current pins, built apart from <see cref="ModelOptions"/> so that reading them for the phone
+    /// never moves a row in a picker that is open on screen.
+    /// </summary>
+    internal IReadOnlyList<ModelOption> CreateModelOptions(IEnumerable<string> modelIds)
+    {
+        var options = new ObservableCollection<ModelOption>();
+        ModelOptionCatalog.SyncOptions(options, modelIds, _dataStore.Data.Settings, _modelOptionMetadata);
+        return options;
+    }
+
+    /// <summary>
     /// Pins or unpins a model in the picker. Favorites are an app-wide preference, so this writes
     /// straight to settings; every surface picks the new order up when its picker is next opened.
     /// </summary>

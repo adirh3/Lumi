@@ -491,6 +491,7 @@ internal static class RemoteProjector
                 .ToList(),
             ModelReasoningEfforts = BuildReasoningEffortMap(models, chatVm),
             ModelContextWindowTiers = BuildContextWindowTierMap(models, chatVm),
+            ModelOptions = BuildModelOptions(models, chatVm),
             ModelDefaults = chatVm is null
                 ? []
                 : models.Select(model =>
@@ -505,6 +506,30 @@ internal static class RemoteProjector
                     };
                 }).ToList()
         };
+    }
+
+    /// <summary>
+    /// The picker's rows as the desktop's own picker builds them — the same names, account groups,
+    /// facts and pins — so the phone lists the models exactly as the PC does.
+    /// </summary>
+    private static List<RemoteModelOption> BuildModelOptions(IReadOnlyList<string> models, ChatViewModel? chatVm)
+    {
+        if (chatVm is null)
+            return [];
+
+        return chatVm.CreateModelOptions(models).Select(option => new RemoteModelOption
+        {
+            Model = option.Id,
+            DisplayName = BoundOptional(option.DisplayName, RemoteProtocol.MobileMetadataTextLimit),
+            ProviderName = BoundOptional(option.ProviderName, RemoteProtocol.MobileMetadataTextLimit),
+            Account = ByokConfigHelper.IsByokModel(option.Id)
+                ? BoundOptional(option.ProviderName, RemoteProtocol.MobileMetadataTextLimit)
+                : null,
+            IsPinned = option.IsPinned,
+            Cost = option.CostBadge,
+            ContextSize = option.ContextShort,
+            Status = option.RequiresOptIn ? Loc.ModelPicker_NeedsEnabling : null
+        }).ToList();
     }
 
     /// <summary>

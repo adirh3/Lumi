@@ -729,7 +729,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal("Default", ((PickerOption)Assert.Single(segments, segment => segment.Classes.Contains("selected")).DataContext!).Name);
             Assert.All(segments, segment => Assert.True(segment.Bounds.Height >= 48));
             var model = modelSheet.GetVisualDescendants().OfType<Button>()
-                .Single(button => button.DataContext is PickerOption { Name: "gpt-6-sol" });
+                .Single(button => button.DataContext is ModelPickerOption { Name: "gpt-6-sol" }
+                                  && button.Classes.Contains("model-option"));
             Tap(window, model);
             Assert.Equal("gpt-6-sol", shell.Chat.Model);
             Assert.False(shell.Chat.IsModelSheetOpen);
@@ -748,13 +749,20 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal(Guid.Empty, shell.Chat.ChatId);
             Assert.Equal(shell.Projects[0].Id, shell.ActiveProjectId);
 
+            static string? OptionName(object? option) => option switch
+            {
+                PickerOption picked => picked.Name,
+                ModelPickerOption model => model.Name,
+                _ => null
+            };
+
             static void AssertSelection(StrataBottomSheet sheet, string expected)
             {
                 var rows = sheet.GetVisualDescendants().OfType<Button>()
-                    .Where(button => button.DataContext is PickerOption && button.Classes.Contains("sheet-item")).ToArray();
+                    .Where(button => OptionName(button.DataContext) is not null && button.Classes.Contains("sheet-item")).ToArray();
                 Assert.All(rows, row => Assert.True(row.Bounds.Height >= 48));
                 var selected = Assert.Single(rows, row => row.Classes.Contains("selected"));
-                Assert.Equal(expected, Assert.IsType<PickerOption>(selected.DataContext).Name);
+                Assert.Equal(expected, OptionName(selected.DataContext));
                 Assert.All(rows, row =>
                 {
                     var check = row.GetVisualDescendants().OfType<PathIcon>()

@@ -417,6 +417,48 @@ public sealed class StrataModelPickerRichItemTests
         Assert.Equal("claude-opus-5", selected);
     }
 
+    /// <summary>
+    /// A host that draws its own list, as the phone's sheet does, reads the same sections and order as
+    /// the open picker: pinned first in pin order, then each account, newest versions first.
+    /// </summary>
+    [Fact]
+    public async Task ModelSections_ListWhatTheOpenPickerLists()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var models = new ObservableCollection<ModelOption>
+            {
+                new("claude-opus-5") { IsPinned = true },
+                new("byok:or") { ProviderName = "OpenRouter", DisplayName = "Shared model", IsPinned = true },
+                new("auto"),
+                new("claude-sonnet-4.5"),
+                new("gpt-5.4"),
+                new("byok:poe") { ProviderName = "Poe", DisplayName = "Other model" }
+            };
+            var picker = new StrataModelPicker { Models = models, SelectedModel = "gpt-5.4" };
+            var window = new Window { Width = 460, Height = 720, Content = picker };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                ClickPickerButton(window, picker);
+                await PumpAsync();
+
+                var sections = StrataModelPicker.GetModelSections(models);
+                Assert.Equal(["PINNED", "GITHUB COPILOT", "POE"], sections.Select(section => section.Label));
+                Assert.Equal([true, false, false], sections.Select(section => section.IsPinned));
+                Assert.Equal(
+                    ["claude-opus-5", "byok:or", "gpt-5.4", "claude-sonnet-4.5", "auto", "byok:poe"],
+                    sections.SelectMany(section => section.Models).Cast<ModelOption>().Select(option => option.Id));
+                Assert.Equal(ReadGroupHeaders(picker), sections.Select(section => section.Label));
+                Assert.Equal(ReadRowIds(picker),
+                    sections.SelectMany(section => section.Models).Cast<ModelOption>().Select(option => option.Id));
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task PinnedRichItems_AreListedFirstUnderAPinnedHeader()
     {

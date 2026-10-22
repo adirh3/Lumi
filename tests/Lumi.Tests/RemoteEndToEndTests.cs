@@ -981,6 +981,58 @@ public sealed class RemoteEndToEndTests
     });
 
     /// <summary>
+    /// Pins are shared between the PC and the phone, both ways and live: a pin made in the phone's
+    /// sheet becomes the desktop's favorite, and one made in the desktop's picker reaches a phone that
+    /// has a chat open, which hears no new-chat setups.
+    /// </summary>
+    [Fact]
+    public Task ModelPinsAreSharedBetweenThePhoneAndTheDesktop() => RunAsync(async rig =>
+    {
+        await PairAsync(rig);
+        rig.Main.ChatVM.UpdateModelCapabilities(
+        [
+            new ModelInfo
+            {
+                Id = "gpt-5.4",
+                Capabilities = new ModelCapabilities { Limits = new ModelLimits { MaxContextWindowTokens = 400_000 } },
+                Billing = new ModelBilling { Multiplier = 1 }
+            },
+            new ModelInfo { Id = "claude-opus-5", Billing = new ModelBilling { Multiplier = 3 } }
+        ]);
+        rig.Main.ChatVM.ApplyAvailableModels(["gpt-5.4", "claude-opus-5"], "gpt-5.4");
+        await WaitAsync(
+            () => rig.Shell.Chat.ModelOptions.Any(option => option is { Name: "gpt-5.4", ContextSize: "400K", Cost: "1\u00d7" }),
+            "the desktop's picker rows to reach the phone");
+        Assert.True(rig.Shell.SupportsModelPins);
+        Assert.All(rig.Shell.Chat.ModelOptions, option => Assert.True(option.CanPin));
+
+        await WaitAsync(
+            () => rig.Shell.ChatList.Groups.SelectMany(group => group.Chats).Any(chat => chat.Title == "Pins"),
+            "the chat list to arrive");
+        rig.Shell.ChatList.OpenChatCommand.Execute(
+            rig.Shell.ChatList.Groups.SelectMany(group => group.Chats).Single(chat => chat.Title == "Pins"));
+        await WaitAsync(() => rig.Shell.Chat.ChatId != Guid.Empty, "the chat to open on the phone");
+        rig.Shell.Chat.OpenModelSheetCommand.Execute(null);
+
+        await rig.Shell.Chat.ToggleModelPinCommand.ExecuteAsync(
+            rig.Shell.Chat.ModelOptions.Single(option => option.Name == "claude-opus-5"));
+        Assert.Null(rig.Shell.Chat.ModelPinError);
+        Assert.Equal(["claude-opus-5"], rig.DataStore.Data.Settings.FavoriteModelIds);
+        Assert.Equal("PINNED", rig.Shell.Chat.ModelGroups[0].Label);
+
+        // The desktop's own pin, saved as the desktop's store saves it.
+        rig.Main.ChatVM.TogglePinnedModelCommand.Execute(
+            rig.Main.ChatVM.ModelOptions.Single(option => option.Id == "gpt-5.4"));
+        await rig.DataStore.SaveAsync();
+        await WaitAsync(
+            () => rig.Shell.Chat.ModelOptions.Any(option => option is { Name: "gpt-5.4", IsPinned: true }),
+            "the desktop's pin to reach the phone");
+        Assert.Equal(["claude-opus-5", "gpt-5.4"], rig.Shell.Chat.ModelGroups[0].Options.Select(option => option.Name));
+        Assert.True(rig.Shell.Chat.IsModelSheetOpen);
+    },
+    seed: data => data.Chats.Add(new Chat { Id = Guid.NewGuid(), Title = "Pins", UpdatedAt = DateTimeOffset.Now }));
+
+    /// <summary>
     /// The command response is the phone's acceptance contract. Returning success before Lumi has
     /// passed BYOK/preflight clears the mobile composer even though no message was accepted.
     /// </summary>

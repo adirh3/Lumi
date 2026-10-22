@@ -161,6 +161,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _capabilities.Contains(RemoteProtocol.Capabilities.ConditionalTranscriptV1);
     public bool SupportsResumePing =>
         _capabilities.Contains(RemoteProtocol.Capabilities.ResumePingV1);
+    public bool SupportsModelPins =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.ModelPinsV1);
 
     /// <summary>True once this host has proven a compatible protocol; a resume can skip the handshake.</summary>
     public bool HasCompatibleBootstrap => _hasCompatibleBootstrap;
@@ -665,7 +667,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     internal void MarkProtocolCompatibleForTests(
         int protocolVersion = RemoteProtocol.Version,
         bool scopedEvents = true,
-        bool fileSuggestions = false)
+        bool fileSuggestions = false,
+        bool modelPins = false)
     {
         _compatibleBaseUrl = BaseUrl;
         _compatibleProtocolVersion = protocolVersion;
@@ -674,11 +677,18 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             _capabilities.Add(RemoteProtocol.Capabilities.ScopedEventsV1);
         if (fileSuggestions)
             _capabilities.Add(RemoteProtocol.Capabilities.FileSuggestionsV1);
+        if (modelPins)
+            _capabilities.Add(RemoteProtocol.Capabilities.ModelPinsV1);
         _hasCompatibleBootstrap = true;
     }
 
     private static bool IsSupportedProtocol(int protocolVersion) =>
         RemoteProtocol.IsCompatibleVersion(protocolVersion);
+
+#if DEBUG
+    /// <summary>The design preview has no PC to say what it supports, so it names the features it shows.</summary>
+    internal void UsePreviewCapabilities(params string[] capabilities) => ApplyCapabilities(capabilities);
+#endif
 
     private void ApplyCapabilities(IEnumerable<string>? capabilities)
     {

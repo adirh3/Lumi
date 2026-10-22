@@ -517,6 +517,7 @@ public sealed partial class MobileShellViewModel :
 
     public LumiRemoteClient Client { get; }
     public bool SupportsInteractiveResponses => Client.SupportsInteractiveResponses;
+    public bool SupportsModelPins => Client.SupportsModelPins;
 
     public ILumiDiscoveryClient Discovery { get; }
 

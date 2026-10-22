@@ -131,13 +131,32 @@ public static class DesignPreview
             }
         ]);
 
+        // A PC whose picker has pins, costs, context sizes, a model that still has to be enabled and
+        // one on a connected account.
+        shell.Client.UsePreviewCapabilities(RemoteProtocol.Capabilities.ModelPinsV1);
         shell.Chat.ApplyCatalogs(new RemoteSettings
         {
             PreferredModel = "gpt-6.1-sol",
-            AvailableModels = ["auto", "gpt-6.1-sol", "claude-opus-5.5", "gemini-3.8-flash"],
-            ModelDisplayNames = ["auto=Auto", "gpt-6.1-sol=GPT-6.1 Sol", "claude-opus-5.5=Claude Opus 5.5", "gemini-3.8-flash=Gemini 3.8 Flash"],
-            ModelReasoningEfforts = ["gpt-6.1-sol=low,medium,high,xhigh"],
-            ModelDefaults = [new() { Model = "gpt-6.1-sol", Quality = "high" }]
+            AvailableModels = ["auto", "claude-opus-5.5", "claude-sonnet-5.5", "gpt-6.1-sol", "gpt-6-luna", "gemini-3.8-flash", "byok:chatgpt-sol"],
+            ModelDisplayNames =
+            [
+                "auto=Auto", "claude-opus-5.5=Claude Opus 5.5", "claude-sonnet-5.5=Claude Sonnet 5.5",
+                "gpt-6.1-sol=GPT-6.1 Sol", "gpt-6-luna=GPT-6 Luna", "gemini-3.8-flash=Gemini 3.8 Flash",
+                "byok:chatgpt-sol=GPT-6.1 Sol"
+            ],
+            ModelReasoningEfforts = ["gpt-6.1-sol=low,medium,high,xhigh", "claude-opus-5.5=low,medium,high"],
+            ModelContextWindowTiers = ["gpt-6.1-sol=Default,Long"],
+            ModelDefaults = [new() { Model = "gpt-6.1-sol", Quality = "high", ContextWindowTier = "Default" }],
+            ModelOptions =
+            [
+                new() { Model = "gpt-6.1-sol", DisplayName = "GPT-6.1 Sol", ProviderName = "GitHub Copilot", IsPinned = true, Cost = "1×", ContextSize = "400K" },
+                new() { Model = "claude-opus-5.5", DisplayName = "Claude Opus 5.5", ProviderName = "GitHub Copilot", IsPinned = true, Cost = "3×", ContextSize = "200K" },
+                new() { Model = "byok:chatgpt-sol", DisplayName = "GPT-6.1 Sol", ProviderName = "ChatGPT", Account = "ChatGPT", IsPinned = true, ContextSize = "400K" },
+                new() { Model = "auto", DisplayName = "Auto", ProviderName = "GitHub Copilot", Cost = "Included" },
+                new() { Model = "claude-sonnet-5.5", DisplayName = "Claude Sonnet 5.5", ProviderName = "GitHub Copilot", Cost = "1×", ContextSize = "1M" },
+                new() { Model = "gpt-6-luna", DisplayName = "GPT-6 Luna", ProviderName = "GitHub Copilot", Cost = "0.33×", ContextSize = "400K" },
+                new() { Model = "gemini-3.8-flash", DisplayName = "Gemini 3.8 Flash", ProviderName = "GitHub Copilot", Cost = "0.33×", ContextSize = "1M", Status = "Needs enabling" }
+            ]
         });
         // A new chat as a paired PC describes it: its greeting and brief, the setups the user keeps
         // starting chats with, and starters for the hour.

@@ -881,41 +881,58 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// against the current selection cannot work here — Avalonia's ConverterParameter is not
     /// bindable — and pushing the comparison into the view model keeps it testable besides.
     /// </summary>
-    public ObservableCollection<PickerOption> ModelOptions { get; } = [];
+    public ObservableCollection<ModelPickerOption> ModelOptions { get; } = [];
 
+    /// <summary>
+    /// The model sheet's sections, as the desktop's picker lists them: pinned models first, then each
+    /// provider or connected account, newest models first.
+    /// </summary>
     public ObservableCollection<ModelProviderGroup> ModelGroups { get; } = [];
 
     public ObservableCollection<PickerOption> QualityOptions { get; } = [];
 
     public ObservableCollection<PickerOption> ContextTierOptions { get; } = [];
 
+    /// <summary>The model sheet's docked settings show while the current model offers a choice.</summary>
+    public bool HasModelSettings => HasQualityLevels || HasContextWindowTiers;
+
+    /// <summary>True when the PC takes pins from the phone, so each model row offers its pin.</summary>
+    public bool CanPinModels => _sink.SupportsModelPins;
+
+    /// <summary>Why the last pin did not reach the PC, shown in the model sheet until it is next used.</summary>
+    [ObservableProperty] private string? _modelPinError;
+
     private void RefreshPickerOptions()
     {
-        SyncOptions(ModelOptions, AvailableModels, Model, DisplayModel);
-        var groups = ModelOptions.GroupBy(option => StrataModelPicker.GetModelProviderLabel(option.Name)).ToList();
-        for (var i = 0; i < groups.Count; i++)
+        var sections = StrataModelPicker.GetModelSections(OrderPinnedFirst(AvailableModels).Select(CreateModelRow).ToList());
+        var rows = sections.SelectMany(section => section.Models).Cast<ModelPickerOption>().ToList();
+        SyncRows(ModelOptions, rows);
+        for (var i = 0; i < sections.Count; i++)
         {
             if (i >= ModelGroups.Count)
-                ModelGroups.Add(new ModelProviderGroup(groups[i].Key));
-            else if (ModelGroups[i].Label != groups[i].Key)
-                ModelGroups[i] = new ModelProviderGroup(groups[i].Key);
+                ModelGroups.Add(new ModelProviderGroup(sections[i].Label));
+            else if (ModelGroups[i].Label != sections[i].Label)
+                ModelGroups[i] = new ModelProviderGroup(sections[i].Label);
 
-            var options = groups[i].ToList();
-            var target = ModelGroups[i].Options;
-            while (target.Count > options.Count)
-                target.RemoveAt(target.Count - 1);
-            for (var j = 0; j < options.Count; j++)
-            {
-                if (j >= target.Count)
-                    target.Add(options[j]);
-                else if (target[j] != options[j])
-                    target[j] = options[j];
-            }
+            SyncRows(ModelGroups[i].Options, sections[i].Models.Cast<ModelPickerOption>().ToList());
         }
-        while (ModelGroups.Count > groups.Count)
+        while (ModelGroups.Count > sections.Count)
             ModelGroups.RemoveAt(ModelGroups.Count - 1);
         SyncOptions(QualityOptions, QualityLevels, Quality, EffortDisplay);
         SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier);
+
+        static void SyncRows(ObservableCollection<ModelPickerOption> target, IReadOnlyList<ModelPickerOption> source)
+        {
+            while (target.Count > source.Count)
+                target.RemoveAt(target.Count - 1);
+            for (var i = 0; i < source.Count; i++)
+            {
+                if (i >= target.Count)
+                    target.Add(source[i]);
+                else if (target[i] != source[i])
+                    target[i] = source[i];
+            }
+        }
 
         void SyncOptions(
             ObservableCollection<PickerOption> target,
@@ -953,12 +970,107 @@ public sealed partial class MobileChatViewModel : ObservableObject
         return _modelDisplayNames.TryGetValue(model, out var display) ? display : model;
     }
 
+    /// <summary>Pinned models first in the order they were pinned, then the rest in catalog order, as on the PC.</summary>
+    private IEnumerable<string> OrderPinnedFirst(IReadOnlyList<string> models)
+    {
+        var pinned = _pinnedModels.Where(model => models.Contains(model, StringComparer.Ordinal)).ToList();
+        return pinned.Concat(models.Where(model => !pinned.Contains(model, StringComparer.Ordinal)));
+    }
+
+    private ModelPickerOption CreateModelRow(string model)
+    {
+        _modelRows.TryGetValue(model, out var row);
+        return new ModelPickerOption(
+            model,
+            row?.DisplayName is { Length: > 0 } name ? name : DisplayModel(model) ?? model,
+            string.Equals(model, Model, StringComparison.OrdinalIgnoreCase),
+            IsModelPinned(model),
+            CanPinModels,
+            row?.ProviderName,
+            row?.Account,
+            row?.Status,
+            row?.Cost,
+            row?.ContextSize);
+    }
+
+    private bool IsModelPinned(string model) => _pinnedModels.Contains(model, StringComparer.Ordinal);
+
+    private static void SetPinned(List<string> pins, string model, bool pinned)
+    {
+        if (!pinned)
+            pins.RemoveAll(id => string.Equals(id, model, StringComparison.Ordinal));
+        else if (!pins.Contains(model, StringComparer.Ordinal))
+            pins.Add(model);
+    }
+
+    /// <summary>Shows the PC's pins as it last listed them, with the pins still on their way to it applied over them.</summary>
+    private void ShowModelPins()
+    {
+        _pinnedModels.Clear();
+        _pinnedModels.AddRange(_pcPinnedModels);
+        foreach (var (model, pending) in _pendingModelPins)
+            SetPinned(_pinnedModels, model, pending.Pinned);
+    }
+
+    /// <summary>
+    /// Pins or unpins a model, as the desktop picker's pin does: the row moves at once, the PC keeps
+    /// the pin for every picker there and here, and a pin the PC refuses puts the row back. Each row
+    /// tracks its own pin in flight, so pinning one model never disables the others' pins.
+    /// </summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task ToggleModelPinAsync(ModelPickerOption? option)
+    {
+        if (option is null || !CanPinModels)
+            return;
+
+        var model = option.Name;
+        var pinned = !IsModelPinned(model);
+        var version = ++_modelPinVersion;
+        _pendingModelPins[model] = (pinned, version);
+        ModelPinError = null;
+        SetPinned(_pinnedModels, model, pinned);
+        RefreshPickerOptions();
+
+        RemoteCommandResult result;
+        try
+        {
+            result = await _sink.SendCommandAsync(new RemoteCommand(RemoteProtocol.Actions.PinModel)
+                .With("model", model)
+                .With("pinned", pinned ? "true" : "false"));
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"[Mobile] Pinning a model failed: {ex}");
+            result = new RemoteCommandResult { Error = "The PC didn't answer." };
+        }
+
+        // A newer tap on the same row owns it now. Switching PCs drops every pin in flight.
+        if (!_pendingModelPins.TryGetValue(model, out var pending) || pending.Version != version)
+            return;
+
+        _pendingModelPins.Remove(model);
+        if (result.Ok)
+        {
+            // The PC holds the pin now, as its next catalog will say.
+            SetPinned(_pcPinnedModels, model, pinned);
+            return;
+        }
+
+        // Back to the PC's own pins rather than the row's previous state: an unpinned row returns to its
+        // place among them, and a pin the PC took anyway, as a catalog may already have said, stays.
+        ShowModelPins();
+        if (IsModelPinned(model) != pinned)
+            ModelPinError = $"Couldn't {(pinned ? "pin" : "unpin")} {option.Label}. {result.Error}".TrimEnd();
+        RefreshPickerOptions();
+    }
+
     [RelayCommand]
     private void OpenModelSheet()
     {
         // The sheet carries the model's context tiers as well as its effort levels.
         RefreshContextWindowTiers();
         RefreshPickerOptions();
+        ModelPinError = null;
         IsModelSheetOpen = true;
     }
 
@@ -1897,6 +2009,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowThinking));
         OnPropertyChanged(nameof(HasQualityLevels));
         OnPropertyChanged(nameof(HasContextWindowTiers));
+        OnPropertyChanged(nameof(HasModelSettings));
         RefreshEffortLevels();
         RefreshContextWindowTiers();
         RefreshBlankModelDefaults();
@@ -1916,6 +2029,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
         _modelEfforts.Clear();
         _modelContextTiers.Clear();
         _modelDisplayNames.Clear();
+        _modelRows.Clear();
+        _pcPinnedModels.Clear();
+        _pinnedModels.Clear();
+        _pendingModelPins.Clear();
+        ModelPinError = null;
         AvailableModels.Clear();
         Reset(Guid.Empty, "New chat");
         _drafts.Clear();
@@ -2407,6 +2525,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         OnPropertyChanged(nameof(HasQualityLevels));
         OnPropertyChanged(nameof(HasContextWindowTiers));
+        OnPropertyChanged(nameof(HasModelSettings));
         RefreshEffortLevels();
         RefreshContextWindowTiers();
 
@@ -2460,7 +2579,20 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public void ApplyCatalogs(RemoteSettings settings)
     {
         _preferredModel = settings.PreferredModel;
-        Sync(AvailableModels, settings.AvailableModels);
+
+        // Handed models while nothing is selected, the composer selects the first one. That fills a
+        // gap in the view and is not the user's choice: taken for one, it outranked the PC's preferred
+        // model below and started every new chat on whichever model the PC listed first.
+        var wasApplyingServerState = _applyingServerState;
+        _applyingServerState = true;
+        try
+        {
+            Sync(AvailableModels, settings.AvailableModels);
+        }
+        finally
+        {
+            _applyingServerState = wasApplyingServerState;
+        }
 
         _modelDisplayNames.Clear();
         foreach (var entry in settings.ModelDisplayNames)
@@ -2498,15 +2630,28 @@ public sealed partial class MobileChatViewModel : ObservableObject
         foreach (var defaults in settings.ModelDefaults)
             _modelDefaults[defaults.Model] = defaults;
 
+        _modelRows.Clear();
+        _pcPinnedModels.Clear();
+        foreach (var row in settings.ModelOptions)
+        {
+            if (string.IsNullOrWhiteSpace(row.Model))
+                continue;
+
+            _modelRows[row.Model] = row;
+            if (row.IsPinned)
+                SetPinned(_pcPinnedModels, row.Model, pinned: true);
+        }
+        ShowModelPins();
+
         RefreshEffortLevels();
         RefreshContextWindowTiers();
-        var wasApplyingServerState = _applyingServerState;
         _applyingServerState = true;
         try
         {
             if (ChatId == Guid.Empty && !IsCurrentBlankSendInFlight && !HasPendingReplay)
             {
-                if (!_pendingConfiguration.TryGetScalar("model", out _))
+                // A PC without a preference leaves the chat on the model the composer shows.
+                if (!string.IsNullOrWhiteSpace(_preferredModel) && !_pendingConfiguration.TryGetScalar("model", out _))
                     Model = _preferredModel;
                 RefreshBlankModelDefaults();
             }
@@ -2608,6 +2753,19 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private readonly Dictionary<string, string> _modelDisplayNames = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The desktop picker's row for each model: its name, account and facts.</summary>
+    private readonly Dictionary<string, RemoteModelOption> _modelRows = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The PC's pinned models as it last listed them, in the order they were pinned.</summary>
+    private readonly List<string> _pcPinnedModels = [];
+
+    /// <summary>The pins the sheet shows: the PC's, with the pins still on their way to it applied.</summary>
+    private readonly List<string> _pinnedModels = [];
+
+    /// <summary>Pins on their way to the PC. A catalog that crossed one in flight must not undo it.</summary>
+    private readonly Dictionary<string, (bool Pinned, long Version)> _pendingModelPins = new(StringComparer.Ordinal);
+    private long _modelPinVersion;
+
     private RemoteModelDefaults? SelectedModelDefaults =>
         Model is { Length: > 0 } model ? _modelDefaults.GetValueOrDefault(model) : null;
 
@@ -2696,6 +2854,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasQualityLevels));
+        OnPropertyChanged(nameof(HasModelSettings));
         OnPropertyChanged(nameof(EffortMax));
         OnPropertyChanged(nameof(EffortIndex));
         OnPropertyChanged(nameof(EffortLabel));
@@ -2718,6 +2877,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasContextWindowTiers));
+        OnPropertyChanged(nameof(HasModelSettings));
         OnPropertyChanged(nameof(ContextWindowLabel));
         OnPropertyChanged(nameof(RunSettingsSummary));
         RefreshPickerOptions();
@@ -3973,6 +4133,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
 public interface IRemoteCommandSink
 {
     bool SupportsInteractiveResponses => false;
+
+    /// <summary>True when the PC lists the picker's rows and takes pins from the phone.</summary>
+    bool SupportsModelPins => false;
+
     Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command);
 
     /// <summary>Sends a file to the PC. Lumi reads by path, so attaching means uploading first.</summary>
@@ -4036,7 +4200,51 @@ public sealed record ChatStarter(string IconKey, string Text, string? Prompt = n
 public sealed class ModelProviderGroup(string label)
 {
     public string Label { get; } = label;
-    public ObservableCollection<PickerOption> Options { get; } = [];
+    public ObservableCollection<ModelPickerOption> Options { get; } = [];
+}
+
+/// <summary>
+/// One model in the model sheet, carrying what the desktop picker's row shows: its name, the account
+/// a pinned row qualifies it with, a short status, its cost and context size, and its pin.
+/// </summary>
+/// <param name="Name">The model id: the value chosen, and what the PC pins.</param>
+/// <param name="Label">The row's name.</param>
+/// <param name="Provider">The group it is listed under; null groups it by its id, as the desktop does.</param>
+/// <param name="Account">The connected account it runs on; null for a Copilot model.</param>
+public sealed record ModelPickerOption(
+    string Name,
+    string Label,
+    bool IsSelected,
+    bool IsPinned,
+    bool CanPin,
+    string? Provider = null,
+    string? Account = null,
+    string? Status = null,
+    string? Cost = null,
+    string? ContextSize = null) : IStrataModelOption
+{
+    string IStrataModelOption.ModelId => Name;
+
+    string IStrataModelOption.DisplayName => Label;
+
+    string? IStrataModelOption.ProviderName => Provider;
+
+    /// <summary>The account after a pinned row's name: the Pinned group has no account heading.</summary>
+    public string? PinnedAccount => IsPinned && !string.IsNullOrWhiteSpace(Account) ? "  " + Account : null;
+
+    public bool HasStatus => !string.IsNullOrWhiteSpace(Status);
+
+    public bool HasCost => !string.IsNullOrWhiteSpace(Cost);
+
+    public bool HasContextSize => !string.IsNullOrWhiteSpace(ContextSize);
+
+    /// <summary>
+    /// The row's name for a screen reader. It names the account as well, which the sheet shows in a
+    /// section heading or, once pinned, beside the name, so two models of the same name read apart.
+    /// </summary>
+    public string AccessibleName => string.IsNullOrWhiteSpace(Account) ? Label : $"{Label}, {Account}";
+
+    public string PinActionName => $"{(IsPinned ? "Unpin" : "Pin")} {AccessibleName}";
 }
 
 /// <summary>One row in a picker sheet, carrying whether it is the current selection.</summary>

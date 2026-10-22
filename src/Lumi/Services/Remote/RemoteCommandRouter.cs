@@ -71,6 +71,7 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.UpdateInteraction => await UpdateInteractionAsync(command, cancellationToken),
             RemoteProtocol.Actions.ConfigureChat => await ConfigureChatAsync(command),
             RemoteProtocol.Actions.ConfigureFeature => await ConfigureFeatureAsync(command),
+            RemoteProtocol.Actions.PinModel => await PinModelAsync(command),
             _ => Fail($"Unknown remote action '{command.Action}'.")
         };
     }
@@ -245,6 +246,35 @@ internal sealed class RemoteCommandRouter
         await _dataStore.SaveAsync().ConfigureAwait(true);
         _main.RefreshChatList();
         return Success(chat.IsPinned ? "Chat pinned." : "Chat unpinned.", chat.Id);
+    }
+
+    /// <summary>
+    /// Pins or unpins a model in the picker. Pins are the app-wide favorites every picker on the PC
+    /// lists first, so this is the desktop's own pin; its pickers read the pins again as they open.
+    /// The phone states the pin it wants rather than toggling, so a repeated request is harmless.
+    /// </summary>
+    private async Task<RemoteCommandResult> PinModelAsync(RemoteCommand command)
+    {
+        if (command.Get("model") is not { Length: > 0 } model)
+            return Fail("model is required.");
+        if (command.GetBool("pinned") is not { } pinned)
+            return Fail("pinned is required.");
+
+        var favorites = _dataStore.Data.Settings.FavoriteModelIds ??= [];
+        if (pinned)
+        {
+            if (!_main.ChatVM.AvailableModels.Contains(model, StringComparer.Ordinal))
+                return Fail("That model isn't available on this PC.");
+            if (!favorites.Contains(model, StringComparer.Ordinal))
+                favorites.Add(model);
+        }
+        else
+        {
+            favorites.RemoveAll(id => string.Equals(id, model, StringComparison.Ordinal));
+        }
+
+        await _dataStore.SaveAsync().ConfigureAwait(true);
+        return Success(pinned ? "Model pinned." : "Model unpinned.");
     }
 
     private async Task<RemoteCommandResult> SendMessageAsync(RemoteCommand command, CancellationToken cancellationToken, InteractionReceipt? interactionReceipt = null)

@@ -1021,6 +1021,77 @@ public sealed class RemoteEventHubObserverTests
         failure?.Throw();
     }
 
+    /// <summary>
+    /// A pin changes every phone's picker, so it reaches a phone with a chat open too, which the
+    /// new-chat setups never reach; a save that leaves the pins alone sends that phone nothing.
+    /// </summary>
+    [Fact]
+    public async Task APinChangeReachesAPhoneWithAChatOpen()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            Task? writer = null;
+            MainViewModel? main = null;
+            try
+            {
+                var chat = Chat("Open on the phone");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                using var hub = new RemoteEventHub(dataStore, main, () => ["gpt-5.4", "claude-opus-5"]);
+                Dispatcher.UIThread.RunJobs();
+
+                var stream = new RecordingStream();
+                var phone = hub.AddClient(stream, "phone", subscription: new RemoteEventSubscription
+                {
+                    Generation = 1,
+                    ChatId = chat.Id,
+                    IsForeground = true
+                });
+                cancellation = new CancellationTokenSource();
+                writer = phone.RunAsync(cancellation.Token);
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+
+                var unchanged = stream.Text.Length;
+                Pump(dataStore.SaveAsync());
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                Assert.Equal(0, CountEvent(stream.Text[unchanged..], RemoteProtocol.Events.Snapshot));
+
+                var pinned = stream.Text.Length;
+                dataStore.Data.Settings.FavoriteModelIds.Add("claude-opus-5");
+                Pump(dataStore.SaveAsync());
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+                var pushed = stream.Text[pinned..];
+                Assert.Equal(1, CountEvent(pushed, RemoteProtocol.Events.Snapshot));
+                Assert.Contains("\"model\":\"claude-opus-5\"", pushed);
+                Assert.Contains("\"isPinned\":true", pushed);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
     [Fact]
     public async Task KeepAliveClosesBackgroundStreamsThePhoneAbandoned()
     {

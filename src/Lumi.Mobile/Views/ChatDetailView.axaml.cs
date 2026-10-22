@@ -624,7 +624,8 @@ public partial class ChatDetailView : UserControl
 
                 var selected = list.GetVisualDescendants()
                     .OfType<Button>()
-                    .FirstOrDefault(button => button.DataContext is PickerOption { IsSelected: true });
+                    .FirstOrDefault(button => button.DataContext is ModelPickerOption { IsSelected: true }
+                                              && button.Classes.Contains("model-option"));
 
                 if (selected is not null)
                 {
@@ -682,6 +683,7 @@ public partial class ChatDetailView : UserControl
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
         SynchronizeObservers();
         UpdateNativeComposerVisibility();
+        PlaceModelSettings();
     }
 
     private void Detach()
@@ -781,6 +783,33 @@ public partial class ChatDetailView : UserControl
         {
             UpdateNativeComposerVisibility();
         }
+
+        if (e.PropertyName == nameof(MobileShellViewModel.Layout))
+            PlaceModelSettings();
+    }
+
+    /// <summary>
+    /// Docks the model sheet's effort and context under its list, as the desktop picker's footer is,
+    /// whenever the screen leaves the list room above them. On a phone held sideways they scroll with
+    /// the list instead: docked there, they would leave the list a sliver.
+    /// </summary>
+    private void PlaceModelSettings()
+    {
+        if (this.FindControl<Border>("ModelSheetSettings") is not { } settings
+            || this.FindControl<DockPanel>("ModelSheetLayout") is not { } docked
+            || this.FindControl<StackPanel>("ModelSheetScrollContent") is not { } scrolled)
+            return;
+
+        var target = _shell?.Layout.IsShortHeight == true ? (Panel)scrolled : docked;
+        if (ReferenceEquals(settings.Parent, target))
+            return;
+
+        (settings.Parent as Panel)?.Children.Remove(settings);
+        // A dock panel docks its children in order, so the footer goes ahead of the list that fills it.
+        if (ReferenceEquals(target, docked))
+            docked.Children.Insert(0, settings);
+        else
+            scrolled.Children.Add(settings);
     }
 
     private void SetTranscriptMotionWidth(bool hold)

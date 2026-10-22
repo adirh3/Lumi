@@ -2387,7 +2387,8 @@ public sealed class MobileShellViewTests
             Assert.Equal("Claude Opus 5", selected.Label);
             Assert.Equal("Claude Opus 5", shell.Chat.ModelDisplayName);
 
-            var rows = Named(window, "ModelSheetList").GetVisualDescendants().OfType<Button>().ToList();
+            var rows = Named(window, "ModelSheetList").GetVisualDescendants().OfType<Button>()
+                .Where(button => button.Classes.Contains("model-option")).ToList();
             Assert.Equal(3, rows.Count);
             Assert.Equal(shell.Chat.ModelOptions.Select(option => StrataModelPicker.GetModelProviderLabel(option.Name)).Distinct(),
                 shell.Chat.ModelGroups.Select(group => group.Label));
@@ -2396,12 +2397,12 @@ public sealed class MobileShellViewTests
             Assert.All(rows, r => Assert.True(r.Bounds.Height >= 48, $"row was {r.Bounds.Height}px tall"));
             Assert.Contains(
                 rows.SelectMany(row => row.GetVisualDescendants().OfType<TextBlock>()),
-                text => text.Text == "Claude Opus 5");
+                text => (string.IsNullOrEmpty(text.Text) ? text.Inlines?.Text : text.Text) == "Claude Opus 5");
             Assert.DoesNotContain(
                 rows.SelectMany(row => row.GetVisualDescendants().OfType<TextBlock>()),
-                text => text.Text == "claude-opus-5");
+                text => (string.IsNullOrEmpty(text.Text) ? text.Inlines?.Text : text.Text) == "claude-opus-5");
             Assert.True(
-                rows.Single(row => row.DataContext is PickerOption { IsSelected: true }).IsFocused,
+                rows.Single(row => row.DataContext is ModelPickerOption { IsSelected: true }).IsFocused,
                 "focus must move into the modal sheet, not remain on the composer behind it");
 
             // Picking dismisses; a sheet that lingers after a choice reads as broken.

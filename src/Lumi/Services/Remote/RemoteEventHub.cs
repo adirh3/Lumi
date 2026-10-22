@@ -63,6 +63,8 @@ internal sealed class RemoteEventHub : IDisposable
     private bool _libraryDirty;
     private bool _snapshotDirty;
     private string? _lastLibraryJson;
+    // The pinned models phones were last told about, as one comparable string.
+    private string? _publishedFavoriteModels;
     // Row hashes of the last whole first page sent to phones without row patches.
     private IReadOnlyDictionary<Guid, ulong>? _lastFullPageRows;
     private long _revision;
@@ -384,6 +386,7 @@ internal sealed class RemoteEventHub : IDisposable
         _main.ChatActivityOrReadStateChanged += OnChatActivityOrReadStateChanged;
         _dataStore.ChatContentChanged += OnChatContentChanged;
         _dataStore.IndexSaved += OnLibraryChanged;
+        _publishedFavoriteModels = FavoriteModelsSignature();
 
         ReconcileSurfaces();
 
@@ -695,8 +698,24 @@ internal sealed class RemoteEventHub : IDisposable
         _libraryDirty = true;
         // A backgrounded phone's new-chat setups and pickers depend on the library too.
         MarkCatalogsMissedInBackground();
-        if (_clients.Values.Any(static client => client.WantsNewChatExperience))
+        // Pins live in settings, yet every phone's picker lists them first, including a phone with a
+        // chat open, which hears no new-chat setups: a pin made anywhere reaches every phone.
+        if (TakeFavoriteModelsChange() || _clients.Values.Any(static client => client.WantsNewChatExperience))
             _snapshotDirty = true;
+    }
+
+    private string FavoriteModelsSignature() =>
+        string.Join('\n', _dataStore.Data.Settings.FavoriteModelIds ?? []);
+
+    /// <summary>True once for each change to the pinned models since phones were last told.</summary>
+    private bool TakeFavoriteModelsChange()
+    {
+        var signature = FavoriteModelsSignature();
+        if (string.Equals(signature, _publishedFavoriteModels, StringComparison.Ordinal))
+            return false;
+
+        _publishedFavoriteModels = signature;
+        return true;
     }
 
     /// <summary>Phones backgrounded on a kept stream receive the catalogs when they return.</summary>

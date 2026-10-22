@@ -736,6 +736,14 @@ IME insets on resume, so cached keyboard bounds cannot lift the composer to the 
 New chats show the desktop-resolved reasoning effort and context-window selection for
 the chosen model. Older desktop hosts remain compatible and show **Set by desktop**
 when they do not provide that metadata; unsupported settings are labelled explicitly.
+The phone's model sheet lists models as the desktop picker does: pinned models first in
+the order they were pinned, then GitHub Copilot and each connected account with the newest
+models first, each row with its cost, context size and any status such as **Needs enabling**.
+Every row has a pin: pinning on the phone pins the model on the PC, so the desktop's pickers
+and every paired phone list it first, and a pin made on the PC reaches an open phone at once.
+A pin the PC refuses springs back with the reason. Reasoning effort and context window stay
+docked under the list on a tall screen and scroll with it on a phone held sideways. Older
+desktop hosts keep the earlier sheet without pins or row details.
 If backgrounding interrupts a send acknowledgement, resume checks for the original
 request ID in the desktop transcript before clearing its draft or adopting its new chat.
 This confirmation is read-only: it does not resend the message, and newer draft edits

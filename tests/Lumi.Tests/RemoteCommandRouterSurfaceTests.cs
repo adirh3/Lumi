@@ -55,6 +55,46 @@ public sealed class RemoteCommandRouterSurfaceTests
         Assert.Empty(chat.Messages);
     });
 
+    /// <summary>
+    /// A phone's pin is the desktop's own: the model joins the PC's favorites after those already
+    /// pinned, in the order every picker lists them; pinning twice is harmless, unpinning removes it,
+    /// and only a model the PC offers can be pinned.
+    /// </summary>
+    [Fact]
+    public Task PinModelSetsTheDesktopsFavorites() => RunAsync(async () =>
+    {
+        var settings = TestSettings();
+        settings.FavoriteModelIds = ["claude-opus-5"];
+        var store = new DataStore(new AppData { Settings = settings });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+        main.ChatVM.ApplyAvailableModels(["gpt-5.4", "claude-opus-5", "auto"], "gpt-5.4");
+        var router = new RemoteCommandRouter(store, main);
+        var saves = 0;
+        store.IndexSaved += () => saves++;
+
+        Task<RemoteCommandResult> Pin(string? model, string? pinned) => router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.PinModel).With("model", model).With("pinned", pinned),
+            CancellationToken.None);
+
+        var pinned = await Pin("gpt-5.4", "true");
+        Assert.True(pinned.Ok, pinned.Error);
+        Assert.Equal(1, saves);
+        Assert.True((await Pin("gpt-5.4", "True")).Ok);
+        Assert.Equal(["claude-opus-5", "gpt-5.4"], settings.FavoriteModelIds);
+        Assert.Equal(["claude-opus-5", "gpt-5.4", "auto"],
+            ModelOptionCatalog.OrderPinnedFirst(main.ChatVM.AvailableModels, settings.FavoriteModelIds));
+
+        Assert.True((await Pin("claude-opus-5", "false")).Ok);
+        Assert.Equal(["gpt-5.4"], settings.FavoriteModelIds);
+
+        var unknown = await Pin("retired-model", "true");
+        Assert.False(unknown.Ok);
+        Assert.Equal("That model isn't available on this PC.", unknown.Error);
+        Assert.False((await Pin("", "true")).Ok);
+        Assert.False((await Pin("auto", null)).Ok);
+        Assert.Equal(["gpt-5.4"], settings.FavoriteModelIds);
+    });
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

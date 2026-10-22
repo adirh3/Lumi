@@ -245,8 +245,15 @@ public class RemoteClientEndToEndTests
         await PairAsync(shell, desktop);
         await desktop.SubscriberConnected.WaitAsync(TimeSpan.FromSeconds(10));
         await WaitAsync(() => shell.Chat.ChatId == desktopChatId, "the initial active chat to be adopted");
-
+        // This harness applies what the PC sends on the thread that receives it, where the app would
+        // apply it on the UI thread in turn with the user's taps. Let the adopted chat's transcript,
+        // and the refresh a new chat asks for, land before acting as the user.
+        await WaitAsync(
+            () => desktop.TranscriptRequestCount > 0 && !shell.Chat.IsLoading,
+            "the adopted chat's transcript to be applied");
         shell.ChatList.NewChatCommand.Execute(null);
+        await shell.RefreshSnapshotAsync();
+
         shell.Chat.PromptText = "phone-only draft";
         shell.Chat.Model = "gpt-5.6";
         shell.Chat.Quality = "high";
