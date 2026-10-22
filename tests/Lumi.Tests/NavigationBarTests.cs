@@ -647,6 +647,28 @@ public sealed class NavigationBarTests
                     T Named<T>(string name) where T : Control
                         => window.GetVisualDescendants().OfType<T>().Single(control => control.Name == name);
 
+                    void AssertSwitcherCountsAligned()
+                    {
+                        var counts = Named<StackPanel>("ProjectFilterResults").GetVisualDescendants()
+                            .OfType<TextBlock>()
+                            .Where(text => text.Classes.Contains("project-switcher-row-count"))
+                            .ToArray();
+                        Assert.Equal(2, counts.Length);
+                        var right = counts[0].TranslatePoint(new Point(counts[0].Bounds.Width, 0), window)!.Value.X;
+                        Assert.All(counts, count =>
+                        {
+                            Assert.True(count.Bounds.Width > 0);
+                            Assert.Equal(right,
+                                count.TranslatePoint(new Point(count.Bounds.Width, 0), window)!.Value.X, 1);
+                            var content = Assert.IsType<DockPanel>(count.GetVisualParent());
+                            Assert.Equal(content.Bounds.Width, count.Bounds.Right, 1);
+                            var edit = content.Children.SingleOrDefault(child =>
+                                child.Classes.Contains("project-switcher-row-edit"));
+                            if (edit is not null)
+                                Assert.True(edit.Bounds.Right <= count.Bounds.Left);
+                        });
+                    }
+
                     async Task Click(string name)
                     {
                         var button = Named<Button>(name);
@@ -732,6 +754,7 @@ public sealed class NavigationBarTests
                     Assert.Equal(surface.Bounds.Width - surface.BorderThickness.Left - surface.BorderThickness.Right,
                         Named<Button>("ProjectSwitchButton").Bounds.Width, 1);
                     await Click("ProjectSwitchButton");
+                    AssertSwitcherCountsAligned();
                     new ButtonAutomationPeer(Named<Button>("ProjectEditButton")).Invoke();
                     await Settle();
                     Assert.Equal(2, vm.SelectedNavIndex);
@@ -771,6 +794,7 @@ public sealed class NavigationBarTests
                         "The open switcher lies over the chat list instead of pushing it down");
                     Assert.True(frost.BlurRadius > 0, "Open, the switcher frosts the chats beneath it");
                     Assert.InRange(Assert.IsAssignableFrom<ISolidColorBrush>(surface.Background).Opacity, 0.5, 0.9);
+                    AssertSwitcherCountsAligned();
 
                     // Every project in it has a gear that sets it up without switching to it. Like the
                     // gear's appearance, it waits for the row's first hover.
@@ -781,6 +805,7 @@ public sealed class NavigationBarTests
                         && button.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == project.Name));
                     window.MouseMove(row.TranslatePoint(new Point(row.Bounds.Width / 2, row.Bounds.Height / 2), window)!.Value);
                     await Settle();
+                    AssertSwitcherCountsAligned();
                     var gear = row.GetVisualDescendants().OfType<Button>()
                         .Single(button => button.Classes.Contains("project-switcher-row-edit"));
                     new ButtonAutomationPeer(gear).Invoke();

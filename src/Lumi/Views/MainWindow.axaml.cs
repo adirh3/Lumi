@@ -2939,9 +2939,8 @@ public partial class MainWindow : Window
         string countText,
         int unreadCount)
     {
-        // The open project's gear comes with its row. The others only show on hover, so each is built
-        // on its row's first hover, keeping the drawer quick to open; until then an empty slot of the
-        // same size holds its place, so nothing shifts when it appears.
+        // The open project's gear comes with its row. Other gears are built on first hover;
+        // an equally sized slot keeps the row stable, while the count stays at the far right.
         Control? edit = project is null ? null
             : isSelected ? CreateProjectEditButton(vm, project, isCurrent: true)
             : new Border { Classes = { "project-switcher-row-edit" } };
@@ -3024,12 +3023,6 @@ public partial class MainWindow : Window
             Margin = new Thickness(6, 5),
         };
 
-        if (edit is not null)
-        {
-            DockPanel.SetDock(edit, Dock.Right);
-            dock.Children.Add(edit);
-        }
-
         // An unread count replaces the chat count: while a project has new replies, "where are they"
         // matters more than "how big is this project".
         Control? trailing = unreadCount > 0
@@ -3041,6 +3034,12 @@ public partial class MainWindow : Window
         {
             DockPanel.SetDock(trailing, Dock.Right);
             dock.Children.Add(trailing);
+        }
+
+        if (edit is not null)
+        {
+            DockPanel.SetDock(edit, Dock.Right);
+            dock.Children.Add(edit);
         }
 
         var badge = CreateProjectBadge(project, isRunning);
