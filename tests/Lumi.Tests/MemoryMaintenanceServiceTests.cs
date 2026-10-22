@@ -59,6 +59,56 @@ public sealed class MemoryMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task RunAsync_KeepsMemoriesTheDailyCuratorChecked()
+    {
+        var projectId = Guid.NewGuid();
+        var data = new AppData
+        {
+            Memories =
+            [
+                new Memory
+                {
+                    Key = "Current Blast branch activity",
+                    Content = "Blast is currently on branch version/1.1.0.0 for the 1.1 release.",
+                    Category = "Work",
+                    Source = MemorySources.Curator
+                },
+                // Both mention a theme, which maintenance would otherwise take for one topic and keep only the newer.
+                new Memory
+                {
+                    Key = "Accent palettes",
+                    Content = "Lumi's accent palettes are StrataTheme dictionaries swapped whole.",
+                    Category = "Project",
+                    Scope = MemoryScopes.Project,
+                    ProjectId = projectId,
+                    Source = MemorySources.Curator
+                },
+                new Memory
+                {
+                    Key = "Window materials",
+                    Content = "Lumi's window materials follow the light or dark theme.",
+                    Category = "Project",
+                    Scope = MemoryScopes.Project,
+                    ProjectId = projectId,
+                    Source = MemorySources.Curator,
+                    UpdatedAt = DateTimeOffset.Now.AddDays(-1)
+                }
+            ]
+        };
+
+        var result = await new MemoryMaintenanceService(new DataStore(data)).RunAsync();
+
+        Assert.Equal(3, data.Memories.Count);
+        Assert.All(data.Memories, memory =>
+        {
+            Assert.Equal(MemoryStatuses.Active, memory.Status);
+            Assert.NotNull(memory.LastReviewedAt);
+        });
+        Assert.Equal(0, result.Archived);
+        Assert.Equal(0, result.Merged);
+    }
+
+    [Fact]
     public async Task RunAsync_RewritesOnboardingSelectionIntoDirectFact()
     {
         var data = new AppData

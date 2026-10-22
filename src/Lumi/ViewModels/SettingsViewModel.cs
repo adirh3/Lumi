@@ -327,6 +327,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     // ── Privacy & Data ──
     [ObservableProperty] private bool _enableMemoryAutoSave;
     [ObservableProperty] private bool _enableMemoryAutoMaintenance;
+    [ObservableProperty] private bool _enableDailyBriefs;
     [ObservableProperty] private bool _isMemoryCleanupRunning;
     [ObservableProperty] private string _memoryCleanupStatus = "Memory cleanup has not run yet.";
     [ObservableProperty] private bool _autoSaveChats;
@@ -695,6 +696,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         // Privacy
         _enableMemoryAutoSave = s.EnableMemoryAutoSave;
         _enableMemoryAutoMaintenance = s.EnableMemoryAutoMaintenance;
+        _enableDailyBriefs = s.EnableDailyBriefs;
         _autoSaveChats = s.AutoSaveChats;
         RefreshBrowserCookieStatus();
 
@@ -2061,6 +2063,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnEnableMemoryAutoSaveChanged(bool value) { _dataStore.Data.Settings.EnableMemoryAutoSave = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnEnableMemoryAutoMaintenanceChanged(bool value) { _dataStore.Data.Settings.EnableMemoryAutoMaintenance = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+    partial void OnEnableDailyBriefsChanged(bool value) { _dataStore.Data.Settings.EnableDailyBriefs = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnAutoSaveChatsChanged(bool value) { _dataStore.Data.Settings.AutoSaveChats = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
 
     // ── IsModified properties (compare to defaults) ──
@@ -2102,6 +2105,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsContextWindowTierModified => ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
     public bool IsEnableMemoryAutoMaintenanceModified => EnableMemoryAutoMaintenance != _defaults.EnableMemoryAutoMaintenance;
+    public bool IsEnableDailyBriefsModified => EnableDailyBriefs != _defaults.EnableDailyBriefs;
     public bool IsAutoSaveChatsModified => AutoSaveChats != _defaults.AutoSaveChats;
 
     private void NotifyModified()
@@ -2142,6 +2146,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsContextWindowTierModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoMaintenanceModified));
+        OnPropertyChanged(nameof(IsEnableDailyBriefsModified));
         OnPropertyChanged(nameof(IsAutoSaveChatsModified));
     }
 
@@ -2200,6 +2205,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertMcpToolTimeout() => McpToolTimeoutSeconds = _defaults.McpToolTimeoutSeconds;
     [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;
     [RelayCommand] private void RevertEnableMemoryAutoMaintenance() => EnableMemoryAutoMaintenance = _defaults.EnableMemoryAutoMaintenance;
+    [RelayCommand] private void RevertEnableDailyBriefs() => EnableDailyBriefs = _defaults.EnableDailyBriefs;
     [RelayCommand] private void RevertAutoSaveChats() => AutoSaveChats = _defaults.AutoSaveChats;
 
     // ── Restart indicator ──
@@ -2378,6 +2384,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ContextWindowTier = defaults.ContextWindowTier;
         EnableMemoryAutoSave = defaults.EnableMemoryAutoSave;
         EnableMemoryAutoMaintenance = defaults.EnableMemoryAutoMaintenance;
+        EnableDailyBriefs = defaults.EnableDailyBriefs;
         AutoSaveChats = defaults.AutoSaveChats;
         NeedsRestart = false;
     }

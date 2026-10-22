@@ -109,6 +109,7 @@ internal static class AppDataSnapshotFactory
                 UseBYOKOnly = settings.UseBYOKOnly,
                 EnableMemoryAutoSave = settings.EnableMemoryAutoSave,
                 EnableMemoryAutoMaintenance = settings.EnableMemoryAutoMaintenance,
+                EnableDailyBriefs = settings.EnableDailyBriefs,
                 AutoSaveChats = settings.AutoSaveChats,
                 WindowWidth = settings.WindowWidth,
                 WindowHeight = settings.WindowHeight,
@@ -228,6 +229,17 @@ internal static class AppDataSnapshotFactory
                     LastUsedAt = m.LastUsedAt,
                     Confidence = m.Confidence,
                     MaintenanceNote = m.MaintenanceNote
+                })
+                .ToList(),
+            // The curator adds and drops briefs on a background thread; ToArray copies without a version check.
+            Briefs = source.Briefs.ToArray()
+                .Select(static b => new ContextBrief
+                {
+                    ProjectId = b.ProjectId,
+                    Content = b.Content,
+                    UpdatedAt = b.UpdatedAt,
+                    CuratedThrough = b.CuratedThrough,
+                    EditedByUser = b.EditedByUser
                 })
                 .ToList(),
         };

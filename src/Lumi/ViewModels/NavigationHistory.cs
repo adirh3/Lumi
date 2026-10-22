@@ -25,7 +25,8 @@ internal sealed record ManagementNavigationState(
     Guid? ItemId,
     bool IsEditing,
     string? ExternalItemKey = null,
-    string? CategoryFilter = null) : NavigationState(PageIndex);
+    string? CategoryFilter = null,
+    string? BriefKey = null) : NavigationState(PageIndex);
 
 internal sealed record DiscoverNavigationState(
     DiscoverFilter Filter,

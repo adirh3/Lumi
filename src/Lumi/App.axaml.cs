@@ -34,6 +34,7 @@ public partial class App : Application
     private ChatSessionStore? _chatSessionStore;
     private GlobalSearchService? _globalSearchService;
     private ProjectGitSyncService? _projectGitSyncService;
+    private Lumi.Services.Context.ContextCuratorService? _contextCuratorService;
     private Lumi.Services.Remote.LumiRemoteServer? _remoteServer;
     private readonly List<MainWindow> _windows = [];
     private int _secondaryWindowSequence;
@@ -247,6 +248,7 @@ public partial class App : Application
                 chatFileTimestampProvider: dataStore.GetChatFileTimestamp);
             _chatSessionStore = new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService, Lumi.Services.Byok.SecureKeyStoreFactory.Instance);
             _projectGitSyncService = new ProjectGitSyncService(dataStore);
+            _contextCuratorService = new Lumi.Services.Context.ContextCuratorService(dataStore, copilotService, _globalSearchService);
             var vm = CreateMainViewModel(
                 forceOnboarding: Program.ForceOnboarding,
                 startBackgroundJobs: true
@@ -298,6 +300,16 @@ public partial class App : Application
                 catch (Exception ex)
                 {
                     Trace.TraceWarning($"[Shutdown] Failed to stop project git sync: {ex.Message}");
+                }
+
+                try
+                {
+                    if (_contextCuratorService is not null)
+                        await _contextCuratorService.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceWarning($"[Shutdown] Failed to stop the daily briefs: {ex.Message}");
                 }
 
                 try
@@ -446,6 +458,10 @@ public partial class App : Application
                     // Start checking for updates in background
                     updateService.StartPeriodicChecks();
                     _projectGitSyncService?.Start();
+                    // Test and debug profiles review their chats only on request (Update now on the Memories page),
+                    // so seeded or copied chats never start background AI work on their own.
+                    if (!DataStore.UsesIsolatedProfile)
+                        _contextCuratorService?.Start();
                 }, DispatcherPriority.Background);
 
 #if DEBUG
@@ -633,6 +649,7 @@ public partial class App : Application
             skipOnboarding
 #endif
             , initializeCopilotOnStartup: true
+            , contextCuratorService: _contextCuratorService
         );
     }
 

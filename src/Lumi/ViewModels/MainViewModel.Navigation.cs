@@ -20,6 +20,7 @@ public partial class MainViewModel
         ObserveNavigation(MemoriesVM, MemoriesNavIndex,
             nameof(MemoriesViewModel.SelectedMemory), nameof(MemoriesViewModel.IsEditing),
             nameof(MemoriesViewModel.CategoryFilter));
+        ObserveNavigation(MemoriesVM.Briefs, MemoriesNavIndex, nameof(BriefsViewModel.SelectedBrief));
         ObserveNavigation(ProjectsVM, 2, nameof(ProjectsViewModel.SelectedProject), nameof(ProjectsViewModel.IsEditing));
         ObserveNavigation(SkillsVM, 3, nameof(SkillsViewModel.SelectedSkill), nameof(SkillsViewModel.IsEditing));
         ObserveNavigation(AgentsVM, 4, nameof(AgentsViewModel.SelectedAgent), nameof(AgentsViewModel.IsEditing));
@@ -77,7 +78,7 @@ public partial class MainViewModel
         4 => new ManagementNavigationState(4, AgentsVM.SelectedAgent?.Id, AgentsVM.IsEditing,
             AgentsVM.External.NavigationItemKey),
         MemoriesNavIndex => new ManagementNavigationState(MemoriesNavIndex, MemoriesVM.SelectedMemory?.Id,
-            MemoriesVM.IsEditing, CategoryFilter: MemoriesVM.CategoryFilter),
+            MemoriesVM.IsEditing, CategoryFilter: MemoriesVM.CategoryFilter, BriefKey: MemoriesVM.Briefs.NavigationKey),
         6 => new ManagementNavigationState(6, McpServersVM.SelectedServer?.Id, McpServersVM.IsEditing,
             McpServersVM.External.NavigationItemKey),
         7 => new SettingsNavigationState(SettingsVM.SelectedPageIndex, SettingsVM.SearchQuery),
@@ -104,6 +105,7 @@ public partial class MainViewModel
             _ => false,
         },
         LibraryNavigationState { ItemKey: { } key } => LibraryVM.ContainsNavigationItem(key),
+        ManagementNavigationState { BriefKey: { } briefKey } => MemoriesVM.Briefs.CanRestoreNavigation(briefKey),
         _ => true,
     };
 
@@ -184,6 +186,7 @@ public partial class MainViewModel
                 RestoreEditor(state, MemoriesVM.SelectedMemory?.Id, MemoriesVM.IsEditing,
                     id => MemoriesVM.SelectedMemory = _dataStore.Data.Memories.First(memory => memory.Id == id),
                     MemoriesVM.NewMemoryCommand, MemoriesVM.CloseDetailCommand);
+                MemoriesVM.Briefs.RestoreNavigation(state.BriefKey);
                 break;
             case 6:
                 RestoreEditor(state, McpServersVM.SelectedServer?.Id, McpServersVM.IsEditing,

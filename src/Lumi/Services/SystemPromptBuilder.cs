@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -46,13 +47,20 @@ public static class SystemPromptBuilder
 
     public static string Build(UserSettings settings, LumiAgent? agent, Project? project,
         List<Skill> allSkills, List<Skill> activeSkills, List<Memory> memories,
-        List<BackgroundJob>? backgroundJobs = null)
-        => Build(settings, agent, project, allSkills, activeSkills, memories, DetectPlatform(), backgroundJobs);
+        List<BackgroundJob>? backgroundJobs = null,
+        ContextBrief? brief = null,
+        IReadOnlyList<Chat>? activeChats = null)
+        => Build(settings, agent, project, allSkills, activeSkills, memories, DetectPlatform(), backgroundJobs, brief, activeChats);
 
+    /// <param name="brief">The scope's brief from the daily context curator: the project's, or the one across
+    /// projects for a chat outside them.</param>
+    /// <param name="activeChats">The project's other chats active since that brief was written.</param>
     internal static string Build(UserSettings settings, LumiAgent? agent, Project? project,
         List<Skill> allSkills, List<Skill> activeSkills, List<Memory> memories,
         PromptPlatform platform,
-        List<BackgroundJob>? backgroundJobs = null)
+        List<BackgroundJob>? backgroundJobs = null,
+        ContextBrief? brief = null,
+        IReadOnlyList<Chat>? activeChats = null)
     {
         var userName = settings.UserName ?? "there";
         var timeOfDay = GetTimeOfDay();
@@ -540,9 +548,10 @@ public static class SystemPromptBuilder
             ## Memory
             Lumi keeps persistent memories about the user across conversations.
             Memory updates are handled by a background memory sync agent after assistant turns (when auto-save is enabled in settings).
+            Memories appear near the end of this prompt with their details. When there are many, some are listed by title only.
 
             **Tools available in this chat:**
-            - `recall_memory(key)` — Fetch the full details for a memory key when needed.
+            - `recall_memory(key)` — Fetch the details of a memory listed by title only.
             - `manage_memories(...)` — Explicitly list, create, update, or delete memories when the user directly asks to manage memories.
 
             **Guidelines:**
@@ -550,7 +559,7 @@ public static class SystemPromptBuilder
             - If the user asks to remember, correct, or forget something and auto-save is enabled, respond naturally — background sync will handle persistence.
             - If auto-save is disabled, explicitly tell the user that automatic memory saving is off and suggest enabling it in Settings or editing memories from the Memories page.
             - Use `manage_memories` only when the user explicitly asks to manage memories directly.
-            - Use `recall_memory` only when a memory key is relevant and you need its full content.
+            - Use `recall_memory` only when a memory listed by title is relevant and you need its details.
             """;
         var promptBuilder = new StringBuilder(prompt);
 
@@ -594,6 +603,8 @@ public static class SystemPromptBuilder
                     """);
         }
 
+        AppendBrief(promptBuilder, project, brief, activeChats);
+
         // Note: copilot-instructions.md / AGENTS.md injection is handled by the Copilot SDK
         // via the WorkingDirectory in SessionConfig — no need to manually inject them here.
 
@@ -609,6 +620,8 @@ public static class SystemPromptBuilder
                 promptBuilder.Append("\n### ").Append(skill.Name).Append('\n').Append(skill.Content).Append('\n');
         }
 
+        // Memories the daily curator wrote or reviewed were already checked against their chats; the keyword gate is
+        // for what the per-turn agent saves.
         var promptMemories = memories
             .Where(memory => string.Equals(memory.Status, MemoryStatuses.Active, StringComparison.OrdinalIgnoreCase))
             .Where(memory =>
@@ -616,11 +629,12 @@ public static class SystemPromptBuilder
                 var scope = MemoryAgentService.NormalizeScope(memory.Scope, memory.ProjectId);
                 return scope == MemoryScopes.Global || (project is not null && memory.ProjectId == project.Id);
             })
-            .Where(memory => MemoryAgentService.EvaluateMemoryCandidate(
-                memory.Key,
-                memory.Content,
-                memory.Category,
-                memory.Scope).ShouldSave)
+            .Where(memory => memory.Source == MemorySources.Curator
+                             || MemoryAgentService.EvaluateMemoryCandidate(
+                                 memory.Key,
+                                 memory.Content,
+                                 memory.Category,
+                                 memory.Scope).ShouldSave)
             .ToList();
 
         var globalMemories = promptMemories
@@ -633,18 +647,26 @@ public static class SystemPromptBuilder
                                  && memory.ProjectId == project.Id)
                 .ToList();
 
+        // Details for as many memories as the budget holds: global ones first, then the project's, the most recently
+        // updated first. The rest are listed by title and can be recalled.
+        var detailed = new HashSet<Memory>(ReferenceEqualityComparer.Instance);
+        var memoryBudget = MemoryTextBudget;
+        foreach (var memory in globalMemories.OrderByDescending(m => m.UpdatedAt)
+                     .Concat(projectMemories.OrderByDescending(m => m.UpdatedAt)))
+        {
+            var size = memory.Key.Length + memory.Content.Length;
+            if (size > memoryBudget)
+                continue;
+            detailed.Add(memory);
+            memoryBudget -= size;
+        }
+
         if (globalMemories.Count > 0)
         {
             promptBuilder.Append("\n\n--- Your Memories About ")
                 .Append(userName)
                 .Append(" ---\n");
-            var grouped = globalMemories.GroupBy(m => m.Category).OrderBy(g => g.Key);
-            foreach (var group in grouped)
-            {
-                promptBuilder.Append('[').Append(group.Key).Append("]\n");
-                foreach (var memory in group)
-                    promptBuilder.Append("- ").Append(memory.Key).Append('\n');
-            }
+            AppendMemories(promptBuilder, globalMemories, detailed);
         }
 
         if (project is not null && projectMemories.Count > 0)
@@ -652,13 +674,7 @@ public static class SystemPromptBuilder
             promptBuilder.Append("\n\n--- Project Memories: ")
                 .Append(project.Name)
                 .Append(" ---\n");
-            var grouped = projectMemories.GroupBy(m => m.Category).OrderBy(g => g.Key);
-            foreach (var group in grouped)
-            {
-                promptBuilder.Append('[').Append(group.Key).Append("]\n");
-                foreach (var memory in group)
-                    promptBuilder.Append("- ").Append(memory.Key).Append('\n');
-            }
+            AppendMemories(promptBuilder, projectMemories, detailed);
         }
 
         promptBuilder.Append(BuildBackgroundJobsContext(backgroundJobs));
@@ -938,6 +954,58 @@ public static class SystemPromptBuilder
             < 21 => "evening",
             _ => "night"
         };
+    }
+
+    /// <summary>Characters of memory text a chat starts with; memories beyond it are listed by title.</summary>
+    internal const int MemoryTextBudget = 12_000;
+
+    private const int ActiveChatsShown = 8;
+
+    private static void AppendMemories(StringBuilder promptBuilder, List<Memory> memories, HashSet<Memory> detailed)
+    {
+        foreach (var group in memories.GroupBy(m => m.Category).OrderBy(g => g.Key))
+        {
+            promptBuilder.Append('[').Append(group.Key).Append("]\n");
+            foreach (var memory in group)
+            {
+                promptBuilder.Append("- ").Append(memory.Key);
+                if (detailed.Contains(memory) && !string.IsNullOrWhiteSpace(memory.Content))
+                    promptBuilder.Append(": ").Append(memory.Content.Trim());
+                promptBuilder.Append('\n');
+            }
+        }
+    }
+
+    /// <summary>
+    /// The scope's brief from the daily context curator and, for a project, its other chats active since then: a new
+    /// chat starts where the earlier ones left off.
+    /// </summary>
+    private static void AppendBrief(StringBuilder promptBuilder, Project? project, ContextBrief? brief, IReadOnlyList<Chat>? activeChats)
+    {
+        if (brief is { Content: { Length: > 0 } content } && !string.IsNullOrWhiteSpace(content))
+        {
+            var written = brief.UpdatedAt.ToLocalTime().ToString("MMM d, HH:mm", CultureInfo.InvariantCulture);
+            promptBuilder.Append(project is null
+                    ? $"\n\n--- Across Your Projects (Lumi's own summary of recent chats, written {written}) ---\n"
+                    : $"\n\n--- Project Brief: {project.Name} (Lumi's own summary of this project's recent chats, written {written}) ---\n")
+                .Append(content.Trim())
+                .Append("\nThe brief is background: what the user says in this chat comes first, and a cited chat can be opened with read_chat.\n");
+        }
+
+        if (project is null || activeChats is not { Count: > 0 })
+            return;
+
+        promptBuilder.Append("\n\n--- Other ").Append(project.Name).Append(" Chats Active Since the Brief ---\n");
+        foreach (var chat in activeChats.OrderByDescending(chat => chat.UpdatedAt).Take(ActiveChatsShown))
+        {
+            var state = chat.IsRunning
+                ? "working now"
+                : $"last active {chat.UpdatedAt.ToLocalTime().ToString("MMM d HH:mm", CultureInfo.InvariantCulture)}";
+            promptBuilder.Append("- \"").Append(chat.Title).Append("\" (").Append(state).Append(')');
+            if (!string.IsNullOrWhiteSpace(chat.Preview))
+                promptBuilder.Append(": latest \"").Append(chat.Preview).Append('"');
+            promptBuilder.Append('\n');
+        }
     }
 
     /// <summary>

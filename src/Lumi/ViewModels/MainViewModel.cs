@@ -16,6 +16,7 @@ using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
+using Lumi.Services.Context;
 using Lumi.Services.Discover;
 using Lumi.Services.Sharing;
 
@@ -58,6 +59,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly bool _ownsChatSurfaceRegistry;
     private readonly HashSet<Chat> _runningStateSubscriptions = [];
     private readonly GlobalSearchService _globalSearchService;
+    private readonly ContextCuratorService? _contextCuratorService;
     private readonly CancellationTokenSource _searchIndexCts = new();
     private bool _isDisposed;
     private bool _isRefreshingCopilotState;
@@ -488,10 +490,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         bool skipOnboarding = false
 #endif
         , bool initializeCopilotOnStartup = false
+        , ContextCuratorService? contextCuratorService = null
         )
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
+        _contextCuratorService = contextCuratorService;
         _secureKeyStore = secureKeyStore ?? Lumi.Services.Byok.SecureKeyStoreFactory.Instance;
         _settingsBrowserService = new BrowserService();
         _chatSurfaceRegistry = chatSurfaceRegistry ?? new ChatSurfaceRegistry();
@@ -540,7 +544,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SkillsVM = new SkillsViewModel(dataStore);
         AgentsVM = new AgentsViewModel(dataStore);
         ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
-        MemoriesVM = new MemoriesViewModel(dataStore);
+        MemoriesVM = new MemoriesViewModel(dataStore, contextCuratorService);
+        if (_contextCuratorService is not null)
+            _contextCuratorService.Changed += OnContextCuratorChanged;
         McpServersVM = new McpServersViewModel(dataStore);
         var pluginCatalog = new PluginCatalogService(copilotService);
         SetupsVM = new SetupSuggestionsViewModel(dataStore, copilotService, pluginCatalog, GetCustomizeCapabilities)
@@ -627,6 +633,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 UserName = SettingsVM.UserName;
             else if (args.PropertyName == nameof(SettingsViewModel.UseBYOKOnly))
                 InjectByokModels();
+            else if (args.PropertyName == nameof(SettingsViewModel.EnableDailyBriefs))
+            {
+                MemoriesVM.RefreshFromStore();
+                ProjectsVM.RefreshBriefFacts();
+                if (SettingsVM.EnableDailyBriefs)
+                    _contextCuratorService?.RequestCheck();
+            }
         };
 
         SkillsVM.SkillsChanged += () =>
@@ -780,6 +793,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             SelectedNavIndex = 2;
             ProjectsVM.OpenById(id);
         };
+        ProjectsVM.OpenBriefRequested += id =>
+        {
+            SelectedNavIndex = MemoriesNavIndex;
+            MemoriesVM.OpenBrief(id);
+        };
+        MemoriesVM.BriefsChanged += ProjectsVM.RefreshBriefFacts;
         SkillsVM.CopyForChatRequested += (skill, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(skill, unsaved));
         AgentsVM.CopyForChatRequested += (agent, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(agent, unsaved));
         McpServersVM.CopyForChatRequested += (server, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(server, unsaved));
@@ -1207,6 +1226,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         _searchIndexCts.Dispose();
         _backgroundJobService.JobsChanged -= OnBackgroundJobServiceJobsChanged;
+        if (_contextCuratorService is not null)
+            _contextCuratorService.Changed -= OnContextCuratorChanged;
         _copilotService.ModelCatalogChanged -= OnModelCatalogChanged;
         _copilotService.PluginsChanged -= OnPluginsChanged;
         _chatSessionStore.SurfaceFeatureManagementStateChanged -= OnChatFeatureManagementStateChanged;
@@ -1721,6 +1742,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (!_isDisposed)
                 RefreshFeatureManagementUi(preserveJobsEditor: true);
+        });
+    }
+
+    /// <summary>
+    /// The daily context curator started or finished a review, or changed a brief or memories: the Memories page
+    /// shows the new state.
+    /// </summary>
+    private void OnContextCuratorChanged()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isDisposed)
+                return;
+            MemoriesVM.RefreshFromStore();
+            ProjectsVM.RefreshBriefFacts();
         });
     }
 

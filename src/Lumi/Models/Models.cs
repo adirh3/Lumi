@@ -1507,6 +1507,34 @@ public static class MemoryStatuses
     public const string Archived = "archived";
 }
 
+public static class MemorySources
+{
+    /// <summary>Written or reviewed by the daily context curator, which checks each memory against the chats
+    /// it came from, so the keyword quality gate for per-turn memories does not apply to it.</summary>
+    public const string Curator = "curator";
+
+    /// <summary>The source a memory has after the user edits it. One the curator checked stays the curator's, so the
+    /// keyword gate for per-turn memories doesn't hide or archive it.</summary>
+    public static string AfterUserEdit(string? source) => source == Curator ? Curator : "manual";
+}
+
+/// <summary>
+/// Where things stand, in Lumi's words: one brief per project and one across all of them (<see cref="ProjectId"/>
+/// null). The daily context curator keeps it current from the chats, and every new chat in its scope starts with it.
+/// </summary>
+public class ContextBrief
+{
+    public Guid? ProjectId { get; set; }
+    public string Content { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>The curator has read this scope's chats up to here; its next run starts from this moment.</summary>
+    public DateTimeOffset? CuratedThrough { get; set; }
+
+    /// <summary>The user changed the text after the curator last wrote it; the curator keeps those edits in mind.</summary>
+    public bool EditedByUser { get; set; }
+}
+
 public class UserSettings
 {
     private List<ApprovalRule> _approvalRules = [];
@@ -1669,6 +1697,8 @@ public class UserSettings
     // ── Privacy & Data ──
     public bool EnableMemoryAutoSave { get; set; } = true;
     public bool EnableMemoryAutoMaintenance { get; set; } = true;
+    /// <summary>Each morning Lumi reviews the chats since its last run, updates the briefs and tidies memories.</summary>
+    public bool EnableDailyBriefs { get; set; } = true;
     public bool AutoSaveChats { get; set; } = true;
 
     // ── Window ──
@@ -1739,4 +1769,5 @@ public class AppData
     public List<McpServer> McpServers { get; set; } = [];
     public List<BackgroundJob> BackgroundJobs { get; set; } = [];
     public List<Memory> Memories { get; set; } = [];
+    public List<ContextBrief> Briefs { get; set; } = [];
 }

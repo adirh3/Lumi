@@ -111,6 +111,30 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void BriefsAndTheirSetting_SurviveSnapshotAndJsonRoundTrip()
+    {
+        var projectId = Guid.NewGuid();
+        var curatedThrough = new DateTimeOffset(2026, 10, 22, 5, 0, 0, TimeSpan.FromHours(3));
+        var data = new AppData
+        {
+            Settings = new UserSettings { EnableDailyBriefs = false },
+            Briefs = [new ContextBrief { ProjectId = projectId, Content = "## Now\n- Shipping 1.0", CuratedThrough = curatedThrough, EditedByUser = true }]
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        data.Briefs[0].Content = "changed after the snapshot";
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
+
+        Assert.False(restored.Settings.EnableDailyBriefs);
+        var brief = Assert.Single(restored.Briefs);
+        Assert.Equal(projectId, brief.ProjectId);
+        Assert.Equal("## Now\n- Shipping 1.0", brief.Content);
+        Assert.Equal(curatedThrough, brief.CuratedThrough);
+        Assert.True(brief.EditedByUser);
+        Assert.True(JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!.EnableDailyBriefs);
+    }
+
+    [Fact]
     public void RemoteSecuritySnapshotReplacesEveryOwnerControlledField()
     {
         var store = new DataStore(new AppData

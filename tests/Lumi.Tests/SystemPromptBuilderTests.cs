@@ -530,6 +530,60 @@ public sealed class SystemPromptBuilderTests
         Assert.DoesNotContain("Archived project memory", prompt);
     }
 
+    [Fact]
+    public void Build_StartsAChatWithItsBriefAndTheProjectsOtherActiveChats()
+    {
+        var settings = new UserSettings { Language = "en", UserName = "Adir" };
+        var project = new Project { Name = "Lumi" };
+        var running = new Chat { Title = "Composer glitch", ProjectId = project.Id, Preview = "Fixed the flicker" };
+        running.IsRunning = true;
+
+        var projectPrompt = SystemPromptBuilder.Build(settings, agent: null, project, allSkills: [], activeSkills: [], memories: [],
+            brief: new ContextBrief { ProjectId = project.Id, Content = "## Now\n- Shipping 1.0 next week (\"Release\", Oct 21)" },
+            activeChats: [running]);
+
+        Assert.True(projectPrompt.IndexOf("--- Project Brief: Lumi (", StringComparison.Ordinal)
+                    > projectPrompt.IndexOf("--- Active Project: Lumi ---", StringComparison.Ordinal));
+        Assert.Contains("- Shipping 1.0 next week (\"Release\", Oct 21)", projectPrompt);
+        Assert.Contains("--- Other Lumi Chats Active Since the Brief ---\n- \"Composer glitch\" (working now): latest \"Fixed the flicker\"", projectPrompt);
+
+        var outsidePrompt = SystemPromptBuilder.Build(settings, agent: null, project: null, allSkills: [], activeSkills: [], memories: [],
+            brief: new ContextBrief { Content = "## Projects\n- Lumi: shipping 1.0 (as of Oct 21)" });
+        Assert.Contains("--- Across Your Projects (", outsidePrompt);
+        Assert.Contains("- Lumi: shipping 1.0 (as of Oct 21)", outsidePrompt);
+
+        var unwritten = SystemPromptBuilder.Build(settings, agent: null, project, allSkills: [], activeSkills: [], memories: [],
+            brief: new ContextBrief { ProjectId = project.Id }, activeChats: []);
+        Assert.DoesNotContain("Project Brief", unwritten);
+        Assert.DoesNotContain("Active Since the Brief", unwritten);
+    }
+
+    [Fact]
+    public void Build_GivesMemoriesInFullUpToTheBudgetAndTrustsTheCurator()
+    {
+        var memories = new List<Memory>
+        {
+            new() { Key = "Preferred IDE", Content = "Adir prefers VS Code as his code editor.", Category = "Preferences" },
+            new()
+            {
+                Key = "Launch checklist", Content = new string('x', SystemPromptBuilder.MemoryTextBudget), Category = "Work",
+                Source = MemorySources.Curator, UpdatedAt = DateTimeOffset.Now.AddDays(-1),
+            },
+            new()
+            {
+                Key = "Current Blast branch activity", Content = "Blast is currently on branch version/1.1.0.0 for the 1.1 release.",
+                Category = "Work", Source = MemorySources.Curator,
+            },
+        };
+
+        var prompt = SystemPromptBuilder.Build(new UserSettings { Language = "en", UserName = "Adir" },
+            agent: null, project: null, allSkills: [], activeSkills: [], memories);
+
+        Assert.Contains("- Preferred IDE: Adir prefers VS Code as his code editor.", prompt);
+        Assert.Contains("- Launch checklist\n", prompt);
+        Assert.Contains("- Current Blast branch activity: Blast is currently on branch", prompt);
+    }
+
     private static string BuildForPlatform(SystemPromptBuilder.PromptPlatform platform)
         => SystemPromptBuilder.Build(
             new UserSettings { Language = "en", UserName = "Adir" },

@@ -20,8 +20,9 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Sharing** — Share reusable prompts, skills, agents and MCP servers as readable files or compact chat codes; preview what travels, personalize prompts for your own setup, and review capabilities before importing
 - **Projects** — Organize chats with custom instructions that shape Lumi's behavior; switch between them from the project switcher at the top of the chat list and set them up in Customize → Projects. Coding projects can optionally update their default branch once daily, including nested submodules at the exact commits recorded by the project (not their latest branch tips). Uncommitted files, staged submodule changes, and unrecorded local submodule commits block automatic updates; already-current branches can still initialize or repair their submodule checkouts
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions; review and edit them in Settings → Memories
+- **Briefs** — Each night Lumi reads the day's chats, writes down where each project stands and tidies its memories; every new chat in a project starts with its brief, so it picks up where the earlier ones left off. Read, correct or clear them in Settings → Memories, where they're a group of their own, or open one from its project's page
 - **Background AI model** — One configurable model for internal AI helpers, with cost-first Auto selection independent of chat and job models
-- **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
+- **Context awareness** — Lumi assembles context from the active project and its brief, agent, time of day, user name, skills, and memories into every interaction
 - **System tray** — Minimize to tray with global hotkey for instant access. On macOS, clicking the Dock icon or opening Lumi again restores the hidden window and keeps the current chat, draft, and maximized or full-screen state. Quit and operating-system shutdown still exit normally when minimize-to-tray is enabled.
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
 - **Inline images** — Local and online images render directly in chat. Use the expand button in an image's top-right corner to view it full screen; press Esc or the close button to return
@@ -351,7 +352,13 @@ window-wide default. Chip and selection fills still provide contrast independent
   view and every other project shows one on hover, and its **New project** and **Manage projects** open
   the section too.
 - **Memories** is a Settings page, listed under **Profile**. Settings reopens on the page used last,
-  so it reopens Memories if that is where you left it.
+  so it reopens Memories if that is where you left it. Its **Briefs** group, with its own chip beside the
+  categories, holds Lumi's own account of where each project stands, and one across projects, which new
+  chats start with. **All** shows the one across projects and the three most recently updated; **Show all**
+  or the chip lists every brief, and search finds brief text too. Open one to read it, correct it (Lumi
+  keeps your edits unless newer chats show they're out of date) or clear it; **Update now** reads the chats
+  since the last review without waiting for the night. A project's page links to its brief. **Privacy &
+  Data → Daily Briefs** turns them off.
 - **Settings** lists its pages under a search box and your profile card. Search finds a setting by its
   name (forgiving a typo), the words of its description, or the choices it offers — `ocean` finds the
   accent color, `compact` the density. Clearing chats or memories and resetting settings ask once more
@@ -508,6 +515,7 @@ Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior
 | Chat titles | A new conversation starts, when automatic titles are enabled | Produces a short title from the first user message |
 | Follow-up suggestions | An eligible assistant reply completes | Proposes three concise next messages using the current exchange and frequently typed requests as low-priority context |
 | Automatic memories | A completed exchange contains potential lasting facts, when auto-save is enabled | Saves, updates, or removes personal facts and durable project conventions using restricted memory tools |
+| Daily briefs | Once a night at 05:00 (or at the first chance after it), for each project with chats that day and then once across projects, when Daily Briefs is on; or on **Update now** | Reads the day's chats with read-only chat tools, rewrites the project's brief, and repairs, merges or removes memories with evidence from the chats (only with automatic memories on). A missed night is caught up a day at a time, three days on the first run and at most a week |
 | Onboarding personalization | The first-run getting-to-know-you step, prefetched once the user allows a look around (or skips it) | Turns a short local summary of projects, known apps, top sites and recent-file counts — never paths or document contents — into Lumi's first words, three tailored questions and three first tasks in one tool-free call; built-in fallbacks apply when it is unavailable |
 | Reusable prompt drafts | You choose Share prompt on a completed reply | Turns the bounded, redacted conversation snapshot into a portable task |
 | Coding helpers | The assistant invokes `code_review`, `generate_tests`, `explain_code`, or `analyze_project` | Performs the requested specialized analysis in an isolated, tool-free session |
@@ -1338,7 +1346,7 @@ platform-capability checks are unchanged. Lumi tools that only look or talk to y
 declare themselves read-only don't ask in Ask first. Website and memory rules aren't offered,
 because the runtime's URL rules don't cover Lumi's own browser and fetch tools. Local or cloud
 sandboxing and the Interactive/Plan/Autopilot agent modes are separate runtime features these
-controls don't configure. Application helper sessions (titles, suggestions, memory and onboarding)
+controls don't configure. Application helper sessions (titles, suggestions, memory, daily briefs and onboarding)
 keep their own restricted tools. GHCP and external-account routing are unchanged.
 
 In an isolated Debug profile, `StartDebugPermissionProbeCommand` (on a fresh chat) raises three

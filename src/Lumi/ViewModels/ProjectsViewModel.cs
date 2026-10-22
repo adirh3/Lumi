@@ -91,6 +91,9 @@ public partial class ProjectsViewModel : ObservableObject
     /// <summary>Fired by "New chat"; the shell starts a chat inside the project.</summary>
     public event Action<Project>? NewChatRequested;
 
+    /// <summary>Fired when the project's brief is clicked; the shell opens it in Memories.</summary>
+    public event Action<Guid>? OpenBriefRequested;
+
     public ProjectsViewModel(DataStore dataStore, ProjectGitSyncService? projectGitSyncService = null)
     {
         _dataStore = dataStore;
@@ -166,6 +169,18 @@ public partial class ProjectsViewModel : ObservableObject
         : 0;
     public bool HasProjectMemories => ProjectMemoryCount > 0;
     public string ProjectMemoryLabel => ManagementText.Count(ProjectMemoryCount, Loc.Projects_MemoriesOne, Loc.Projects_MemoriesMany);
+
+    /// <summary>The open project's brief from the daily context curator, when there is one; it's edited in Memories.</summary>
+    private ContextBrief? ProjectBrief => SelectedProject is { } project && _dataStore.Data.Settings.EnableDailyBriefs
+        ? _dataStore.Data.Briefs.ToArray().FirstOrDefault(brief => brief.ProjectId == project.Id && !string.IsNullOrWhiteSpace(brief.Content))
+        : null;
+    public bool HasProjectBrief => ProjectBrief is not null;
+    public string ProjectBriefSummary => ProjectBrief is { } brief
+        ? BriefCard.Summarize(brief.Content).Split('\n')[0]
+        : "";
+    public string ProjectBriefUpdatedLabel => ProjectBrief is { } brief
+        ? string.Format(CultureInfo.CurrentCulture, Loc.Mg_Updated, ManagementText.Relative(brief.UpdatedAt))
+        : "";
     public string CreatedLabel => SelectedProject is { } project
         ? string.Format(CultureInfo.CurrentCulture, Loc.Mg_Created, ManagementText.Date(project.CreatedAt))
         : "";
@@ -430,6 +445,22 @@ public partial class ProjectsViewModel : ObservableObject
         OnPropertyChanged(nameof(ProjectMemoryCount));
         OnPropertyChanged(nameof(HasProjectMemories));
         OnPropertyChanged(nameof(ProjectMemoryLabel));
+        RefreshBriefFacts();
+    }
+
+    /// <summary>Shows the open project's brief as it is now, after a review or an edit in Memories.</summary>
+    public void RefreshBriefFacts()
+    {
+        OnPropertyChanged(nameof(HasProjectBrief));
+        OnPropertyChanged(nameof(ProjectBriefSummary));
+        OnPropertyChanged(nameof(ProjectBriefUpdatedLabel));
+    }
+
+    [RelayCommand]
+    private void OpenBrief()
+    {
+        if (SelectedProject is { } project && HasProjectBrief)
+            OpenBriefRequested?.Invoke(project.Id);
     }
 
     partial void OnEditNameChanged(string value) => UpdateDirtyState();

@@ -2381,6 +2381,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var activeAgent = chat.AgentId.HasValue
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)
             : null;
+        var (brief, activeChats) = ResolveChatStartContext(chat, project);
         var systemPrompt = SystemPromptBuilder.Build(
             _dataStore.Data.Settings,
             activeAgent,
@@ -2388,7 +2389,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             allSkills,
             activeSkills,
             memories,
-            _dataStore.SnapshotBackgroundJobs());
+            _dataStore.SnapshotBackgroundJobs(),
+            brief,
+            activeChats);
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
         using var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
@@ -6372,6 +6375,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         var normalized = title?.Trim().Trim('"', '\'', '.', '!');
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
+    /// <summary>
+    /// What a session starts with from the daily context curator: its scope's brief (the project's, or the one across
+    /// projects) and, in a project, the other chats active since that brief was written (at most a day back).
+    /// </summary>
+    private (ContextBrief? Brief, List<Chat> ActiveChats) ResolveChatStartContext(Chat chat, Project? project)
+    {
+        if (!_dataStore.Data.Settings.EnableDailyBriefs)
+            return (null, []);
+
+        var brief = _dataStore.Data.Briefs.ToArray().FirstOrDefault(item => item.ProjectId == project?.Id);
+        if (project is null)
+            return (brief, []);
+
+        var dayAgo = DateTimeOffset.Now.AddDays(-1);
+        var since = brief?.CuratedThrough is { } curated && curated > dayAgo ? curated : dayAgo;
+        var activeChats = _dataStore.Data.Chats.ToArray()
+            .Where(other => other.ProjectId == project.Id
+                            && other.Id != chat.Id
+                            && other.UpdatedAt > since
+                            && (other.MessageCount > 0 || other.Messages.Count > 0))
+            .ToList();
+        return (brief, activeChats);
     }
 
     private void QueueAutonomousMemoryCheckpoint(Chat chat)

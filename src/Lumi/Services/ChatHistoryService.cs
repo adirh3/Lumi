@@ -51,15 +51,23 @@ public sealed class ChatHistoryService
     /// hit so the model can follow up with <see cref="ReadChatAsync"/>. An empty query lists the
     /// most recently active chats.
     /// </summary>
-    public async Task<string> SearchChatsAsync(
+    public Task<string> SearchChatsAsync(
         string? query,
         int? limit = null,
+        CancellationToken cancellationToken = default)
+        => SearchChatsAsync(query, limit, scope: null, cancellationToken);
+
+    /// <param name="scope">When given, only chats it accepts are listed or matched.</param>
+    public async Task<string> SearchChatsAsync(
+        string? query,
+        int? limit,
+        Func<Chat, bool>? scope,
         CancellationToken cancellationToken = default)
     {
         var max = Math.Clamp(limit ?? DefaultSearchLimit, 1, MaxSearchLimit);
         var trimmed = (query ?? "").Trim();
 
-        var snapshot = CaptureSnapshot();
+        var snapshot = CaptureSnapshot(scope);
         if (snapshot.Chats.Count == 0)
             return "There are no saved chats yet.";
 
@@ -132,9 +140,9 @@ public sealed class ChatHistoryService
     // thread-safe; these tool handlers run on the background agent loop. Snapshot them once per
     // call (mirroring GlobalSearchService) so the rest of the work iterates a stable copy instead
     // of risking "Collection was modified" while the user creates or deletes chats mid-read.
-    private HistorySnapshot CaptureSnapshot()
+    private HistorySnapshot CaptureSnapshot(Func<Chat, bool>? scope = null)
         => new(
-            _dataStore.Data.Chats.ToArray(),
+            scope is null ? _dataStore.Data.Chats.ToArray() : _dataStore.Data.Chats.ToArray().Where(scope).ToArray(),
             _dataStore.Data.Projects.ToArray(),
             _dataStore.Data.Agents.ToArray(),
             _dataStore.Data.Skills.ToArray());
@@ -158,10 +166,12 @@ public sealed class ChatHistoryService
                 .SearchAsync(query, GlobalSearchExecutionMode.Full, cancellationToken)
                 .ConfigureAwait(false);
 
+            // The index searches every chat; a scoped search keeps only the chats in the snapshot.
+            var inScope = snapshot.Chats.Select(static chat => chat.Id).ToHashSet();
             var ranked = matches
                 .Where(static match => match.Category == GlobalSearchCategory.Chats)
                 .Select(match => (Chat: match.Item as Chat, Snippet: ExtractSnippet(match)))
-                .Where(static tuple => tuple.Chat is not null)
+                .Where(tuple => tuple.Chat is not null && inScope.Contains(tuple.Chat.Id))
                 .Take(limit)
                 .Select(static tuple => new ChatCandidate(tuple.Chat!, tuple.Snippet))
                 .ToList();
