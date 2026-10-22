@@ -1344,12 +1344,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private void OnModelCatalogChanged(ModelCatalogSnapshot snapshot)
     {
+        var connectionGeneration = _copilotService.ConnectionGeneration;
         Dispatcher.UIThread.Post(() =>
         {
-            if (_isDisposed || _isRefreshingCopilotState || !IsConnected)
+            if (_isDisposed || _isRefreshingCopilotState
+                || connectionGeneration != _copilotService.ConnectionGeneration)
                 return;
 
             ApplyModelCatalog(snapshot.Models.ToList(), snapshot.ContextWindows, resetSurfaceSelections: false);
+
+            // An initial catalog timeout can leave the UI disconnected while the CLI still works.
+            // A successful refresh recovers that state without reconnecting or resetting chat choices.
+            if (!IsConnected)
+            {
+                IsConnected = true;
+                ConnectionStatus = Loc.Status_Connected;
+                RefreshCapabilitiesAfterConnection();
+            }
         });
     }
 

@@ -120,6 +120,9 @@ the whole window. In-window picker blur, selection behavior and the normal
 platform renderer (including native window backdrops) are retained. The entrance
 uses a short, subtle scale/fade rather than vertically stretching the whole menu;
 visible row templates are built once, and the host refresh runs after the click.
+If loading the model catalog times out at startup, a successful later picker
+refresh restores the connection status and model lists on desktop and phone
+without restarting active chats or resetting their model selections.
 
 The Debug UI responsiveness harness includes a **Model picker** category:
 `dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness --ui-perf-filter model-picker`.
