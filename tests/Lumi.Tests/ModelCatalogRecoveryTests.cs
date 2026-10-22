@@ -19,6 +19,7 @@ public sealed class ModelCatalogRecoveryTests
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
+            await using var connection = new TestCopilot.SimulatedConnection();
             var data = new AppData
             {
                 Settings = new UserSettings
@@ -97,6 +98,7 @@ public sealed class ModelCatalogRecoveryTests
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
+            await using var connection = new TestCopilot.SimulatedConnection();
             using var main = new MainViewModel(
                 new DataStore(new AppData()), TestCopilot.Shared, new UpdateService(),
                 startBackgroundJobs: false, initializeCopilotOnStartup: false);
@@ -111,6 +113,39 @@ public sealed class ModelCatalogRecoveryTests
             await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
             Assert.False(main.IsConnected);
             Assert.DoesNotContain("claude-sonnet-5.5", main.ChatVM.AvailableModels);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(ConnectionState.Disconnected, false)]
+    [InlineData(ConnectionState.Error, false)]
+    [InlineData(ConnectionState.Connected, true)]
+    public async Task QueuedRefreshRejectsConnectionLossOrGenerationChange(
+        ConnectionState state, bool advanceGeneration)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var connection = new TestCopilot.SimulatedConnection();
+            using var main = new MainViewModel(
+                new DataStore(new AppData()), TestCopilot.Shared, new UpdateService(),
+                startBackgroundJobs: false, initializeCopilotOnStartup: false);
+            main.ConnectionStatus = "Catalog request timed out";
+            var generation = TestCopilot.Shared.ConnectionGeneration;
+            Publish(main, new ModelCatalogSnapshot(
+                [new ModelInfo { Id = "claude-sonnet-5.5" }], ModelCatalogCache.Empty));
+            connection.SetState(state);
+            if (advanceGeneration)
+                connection.AdvanceGeneration();
+            else
+                Assert.Equal(generation, TestCopilot.Shared.ConnectionGeneration);
+
+            await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+
+            Assert.False(main.IsConnected);
+            Assert.Equal("Catalog request timed out", main.ConnectionStatus);
+            Assert.DoesNotContain("claude-sonnet-5.5", main.ChatVM.AvailableModels);
+            Assert.DoesNotContain("claude-sonnet-5.5", main.SettingsVM.AvailableModels);
         }, CancellationToken.None);
     }
 

@@ -1347,7 +1347,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var connectionGeneration = _copilotService.ConnectionGeneration;
         Dispatcher.UIThread.Post(() =>
         {
-            if (_isDisposed || _isRefreshingCopilotState
+            if (_isDisposed || _isRefreshingCopilotState || !_copilotService.IsConnected
                 || connectionGeneration != _copilotService.ConnectionGeneration)
                 return;
 

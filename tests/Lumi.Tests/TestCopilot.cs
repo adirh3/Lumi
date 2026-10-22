@@ -1,6 +1,9 @@
 using System;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
+using GitHub.Copilot;
 using Lumi.Services;
 
 namespace Lumi.Tests;
@@ -34,6 +37,43 @@ public static class TestCopilot
 
     /// <summary>The shared service handed to test surfaces that just need a non-null CopilotService.</summary>
     public static CopilotService Shared => LazyShared.Value;
+
+    // Use only in the non-parallel Headless UI collection. No CLI process is started.
+    internal sealed class SimulatedConnection : IAsyncDisposable
+    {
+        private static readonly FieldInfo ClientField = Field("_client");
+        private static readonly FieldInfo StateField = Field("_state");
+        private static readonly FieldInfo GenerationField = Field("_connectionGeneration");
+        private readonly object? _previousClient = ClientField.GetValue(Shared);
+        private readonly object? _previousState = StateField.GetValue(Shared);
+        private readonly object? _previousGeneration = GenerationField.GetValue(Shared);
+        private readonly CopilotClient _client = new(new CopilotClientOptions
+        {
+            Connection = RuntimeConnection.ForUri("127.0.0.1:1")
+        });
+
+        public SimulatedConnection()
+        {
+            ClientField.SetValue(Shared, _client);
+            SetState(ConnectionState.Connected);
+        }
+
+        public void SetState(ConnectionState state) => StateField.SetValue(Shared, state);
+
+        public void AdvanceGeneration()
+            => GenerationField.SetValue(Shared, Shared.ConnectionGeneration + 1);
+
+        public async ValueTask DisposeAsync()
+        {
+            ClientField.SetValue(Shared, _previousClient);
+            StateField.SetValue(Shared, _previousState);
+            GenerationField.SetValue(Shared, _previousGeneration);
+            await _client.DisposeAsync();
+        }
+
+        private static FieldInfo Field(string name)
+            => typeof(CopilotService).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
+    }
 
     [ModuleInitializer]
     internal static void RegisterShutdown() =>

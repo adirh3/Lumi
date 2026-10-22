@@ -35,6 +35,7 @@ public sealed class BackgroundModelSettingsTests
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(async () =>
         {
+            await using var connection = new TestCopilot.SimulatedConnection();
             var endpoint = new ByokEndpoint
             {
                 Id = "catalog-endpoint",
