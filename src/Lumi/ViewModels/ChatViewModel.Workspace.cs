@@ -28,6 +28,7 @@ public enum WorkspacePage
     FilePreview,
     Browser,
     Desktop,
+    App,
 }
 
 /// <summary>
@@ -76,7 +77,7 @@ public partial class ChatViewModel
     /// searched with the rest but never counts as chat content (it must not auto-open the panel).</summary>
     private IWorkspaceSection[] ChatContentSections => _chatContentSections ??=
     [
-        WorkspaceAgents, WorkspaceFiles, WorkspaceEdits, WorkspaceSkills,
+        WorkspaceAgents, WorkspaceApps, WorkspaceFiles, WorkspaceEdits, WorkspaceSkills,
         WorkspaceLinks, WorkspaceSources, WorkspaceMessages, WorkspaceActivity,
     ];
 
@@ -108,6 +109,7 @@ public partial class ChatViewModel
         new(WorkspaceCategory.Plan, Loc.Workspace_Plan, opensPage: true),
         new(WorkspaceCategory.Agents, Loc.Workspace_Agents),
         new(WorkspaceCategory.Changes, Loc.Workspace_Changes),
+        new(WorkspaceCategory.Apps, Loc.Workspace_Apps),
         new(WorkspaceCategory.Files, Loc.Workspace_Files),
         new(WorkspaceCategory.Edits, Loc.Workspace_Edits),
         new(WorkspaceCategory.Skills, Loc.Workspace_Skills),
@@ -369,6 +371,7 @@ public partial class ChatViewModel
     /// </summary>
     internal void RebuildWorkspacePanel()
     {
+        RefreshAppItems();
         var seenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deliverables = new List<FileAttachmentItem>();
         var seenSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Context;
 using StrataSearch;
 
 namespace Lumi.ViewModels;
@@ -56,11 +57,31 @@ public partial class MemoriesViewModel : ObservableObject
     /// <summary>Raised when the project a memory belongs to is clicked; the shell opens the project.</summary>
     public event Action<Guid>? OpenProjectRequested;
 
-     public MemoriesViewModel(DataStore dataStore)
+    /// <summary>Raised after the user saved or cleared a brief, or a review finished, for other pages that show briefs.</summary>
+    public event Action? BriefsChanged;
+
+    /// <summary>The chip that narrows the page to the briefs; it can't be a memory category.</summary>
+    internal const string BriefsFilter = "\u0001briefs";
+
+    /// <summary>The briefs group: Lumi's daily summary of where each project stands.</summary>
+    public BriefsViewModel Briefs { get; }
+
+     public MemoriesViewModel(DataStore dataStore, ContextCuratorService? curator = null)
      {
          _dataStore = dataStore;
+         Briefs = new BriefsViewModel(dataStore, curator, OnBriefsChanged);
+         Briefs.PropertyChanged += (_, args) =>
+         {
+             if (args.PropertyName == nameof(BriefsViewModel.IsOpen))
+                 OnPropertyChanged(nameof(ShowOverview));
+         };
          RefreshList();
      }
+
+    /// <summary>The gallery shows while neither a memory nor a brief is open.</summary>
+    public bool ShowOverview => !IsEditing && !Briefs.IsOpen;
+
+    private bool ShowsOnlyBriefs => CategoryFilter == BriefsFilter;
 
     public bool IsNewMemory => IsEditing && SelectedMemory is null;
     public bool ShowSaveBar => IsEditing && (HasUnsavedChanges || IsNewMemory) && !IsConfirmingDelete;
@@ -71,9 +92,15 @@ public partial class MemoriesViewModel : ObservableObject
     public string DetailTitle => string.IsNullOrWhiteSpace(EditKey) ? Loc.Memories_NewTitle : EditKey;
     public string DeleteConfirmText => string.Format(CultureInfo.CurrentCulture, Loc.Mg_DeleteConfirm, DetailTitle);
     public bool HasAnyMemories => ActiveMemories().Any();
+
+    /// <summary>Daily Briefs is on and there are briefs to list.</summary>
+    private bool HasBriefsToShow => Briefs.IsEnabled && Briefs.HasBriefs;
+
+    /// <summary>Anything to search or filter: memories or briefs.</summary>
+    public bool HasAnyContent => HasAnyMemories || HasBriefsToShow;
     public bool HasResults => MemoryGroups.Count > 0;
     public bool IsSearching => !string.IsNullOrWhiteSpace(SearchQuery);
-    public bool ShowNoResults => HasAnyMemories && !HasResults;
+    public bool ShowNoResults => HasAnyContent && !HasResults && !Briefs.ShowGroup;
     public bool ShowEmptyState => !HasAnyMemories;
     public string NoResultsText => string.Format(CultureInfo.CurrentCulture, Loc.Mg_NoResults, SearchQuery.Trim());
     public string TotalCountText => ActiveMemories().Count().ToString(CultureInfo.CurrentCulture);
@@ -97,6 +124,8 @@ public partial class MemoriesViewModel : ObservableObject
 
      public void RefreshFromStore()
      {
+         Briefs.Refresh();
+
          // Rebuilding the list clears the sidebar's selection. Put the open memory back quietly so the
          // page stays open or closed as it was, and keeps edits in progress.
          var open = SelectedMemory;
@@ -163,19 +192,28 @@ public partial class MemoriesViewModel : ObservableObject
             .OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase)
             .Select(group => (Name: group.Key, Count: group.Count()))
             .ToList();
+        var briefsAvailable = HasBriefsToShow;
 
-        // A filter on a category that no longer exists falls back to "All".
+        // A filter on a category that no longer exists, or on briefs that are gone, falls back to "All".
         if (CategoryFilter is not null
-            && !categories.Any(category => string.Equals(category.Name, CategoryFilter, StringComparison.OrdinalIgnoreCase)))
+            && (ShowsOnlyBriefs
+                ? !briefsAvailable
+                : !categories.Any(category => string.Equals(category.Name, CategoryFilter, StringComparison.OrdinalIgnoreCase))))
         {
             CategoryFilter = null;
             return;
         }
 
+        Briefs.ApplyView(SearchQuery, CategoryFilter is null ? BriefsListMode.Preview
+            : ShowsOnlyBriefs ? BriefsListMode.All
+            : BriefsListMode.Hidden);
+
         Memories.Clear();
         var inScope = CategoryFilter is null
             ? activeMemories
-            : activeMemories.Where(memory => string.Equals(CategoryOf(memory), CategoryFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+            : ShowsOnlyBriefs
+                ? new List<Memory>()
+                : activeMemories.Where(memory => string.Equals(CategoryOf(memory), CategoryFilter, StringComparison.OrdinalIgnoreCase)).ToList();
 
         var hasQuery = !string.IsNullOrWhiteSpace(SearchQuery);
         var items = hasQuery
@@ -211,6 +249,14 @@ public partial class MemoriesViewModel : ObservableObject
             IsSelected = CategoryFilter is null
         };
         CategoryFilters.Add(all);
+        if (briefsAvailable)
+        {
+            CategoryFilters.Add(new ManagementFilterOption(BriefsFilter, Loc.Briefs_Title, Briefs.Cards.Count, SelectCategory)
+            {
+                IsSelected = ShowsOnlyBriefs
+            });
+        }
+
         foreach (var (name, count) in categories)
         {
             CategoryFilters.Add(new ManagementFilterOption(name, name, count, SelectCategory)
@@ -229,6 +275,7 @@ public partial class MemoriesViewModel : ObservableObject
         // The sidebar follows the open memory one way; re-announcing it re-selects the row after a rebuild.
         OnPropertyChanged(nameof(SelectedMemory));
         OnPropertyChanged(nameof(HasAnyMemories));
+        OnPropertyChanged(nameof(HasAnyContent));
         OnPropertyChanged(nameof(HasResults));
         OnPropertyChanged(nameof(IsSearching));
         OnPropertyChanged(nameof(ShowNoResults));
@@ -253,7 +300,7 @@ public partial class MemoriesViewModel : ObservableObject
         {
             EditKey = "";
             EditContent = "";
-            EditCategory = CategoryFilter ?? DefaultCategory;
+            EditCategory = CategoryFilter is { } category && !ShowsOnlyBriefs ? category : DefaultCategory;
         }
         finally
         {
@@ -344,7 +391,14 @@ public partial class MemoriesViewModel : ObservableObject
         MarkChosenCategory();
         UpdateDirtyState();
     }
-    partial void OnIsEditingChanged(bool value) => UpdateDirtyState();
+    partial void OnIsEditingChanged(bool value)
+    {
+        // One detail at a time: a memory opened while a brief is open, as Back can do, takes its place.
+        if (value && Briefs.IsOpen)
+            Briefs.CloseCommand.Execute(null);
+        UpdateDirtyState();
+        OnPropertyChanged(nameof(ShowOverview));
+    }
     partial void OnHasUnsavedChangesChanged(bool value) => OnPropertyChanged(nameof(ShowSaveBar));
     partial void OnIsConfirmingDeleteChanged(bool value)
     {
@@ -374,6 +428,20 @@ public partial class MemoriesViewModel : ObservableObject
             OpenProjectRequested?.Invoke(projectId);
     }
 
+    /// <summary>Opens a project's brief, or the one across projects, from elsewhere such as the project's page.</summary>
+    public void OpenBrief(Guid? projectId)
+    {
+        if (IsEditing)
+            CloseDetail();
+        Briefs.OpenFor(projectId);
+    }
+
+    private void OnBriefsChanged()
+    {
+        RefreshFromStore();
+        BriefsChanged?.Invoke();
+    }
+
     [RelayCommand]
     private void SaveMemory()
     {
@@ -385,7 +453,7 @@ public partial class MemoriesViewModel : ObservableObject
             SelectedMemory.Key = EditKey.Trim();
             SelectedMemory.Content = EditContent.Trim();
             SelectedMemory.Category = EditCategory.Trim();
-            SelectedMemory.Source = "manual";
+            SelectedMemory.Source = MemorySources.AfterUserEdit(SelectedMemory.Source);
             SelectedMemory.UpdatedAt = DateTimeOffset.Now;
             saved = SelectedMemory;
         }

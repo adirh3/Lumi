@@ -1,0 +1,77 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:views="using:Lumi.Views"
+             xmlns:loc="using:Lumi.Localization"
+             xmlns:sa="using:StrataTheme.Animation"
+             x:Class="Lumi.Views.EmbeddedAppView">
+  <UserControl.Styles>
+    <!-- Until the app is ready (or when it cannot open), its tile, name and state stand in for it. -->
+    <Style Selector="Border#AppStatusTile">
+      <Setter Property="Width" Value="52" />
+      <Setter Property="Height" Value="52" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Border#AppStatusTile > PathIcon">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="views|EmbeddedAppView.failed Border#AppStatusTile">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+    </Style>
+    <Style Selector="views|EmbeddedAppView.failed Border#AppStatusTile > PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+
+    <!-- The Strata line: the sign of work in progress, breathing while the app opens. -->
+    <Style Selector="Border#AppLoadingLine">
+      <Setter Property="Height" Value="2" />
+      <Setter Property="Width" Value="140" />
+      <Setter Property="CornerRadius" Value="1" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+      <Setter Property="Background" Value="{DynamicResource Brush.StratumLine}" />
+      <Setter Property="OpacityMask">
+        <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+          <GradientStop Offset="0" Color="#00000000" />
+          <GradientStop Offset="0.2" Color="#FF000000" />
+          <GradientStop Offset="0.8" Color="#FF000000" />
+          <GradientStop Offset="1" Color="#00000000" />
+        </LinearGradientBrush>
+      </Setter>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+  </UserControl.Styles>
+
+  <Panel>
+    <views:BrowserView x:Name="AppBrowser" ShowBrowserChrome="False" IsVisible="False" />
+
+    <StackPanel x:Name="AppStatus" Margin="28" MaxWidth="340"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+      <Border x:Name="AppStatusTile">
+        <PathIcon x:Name="AppStatusIcon" Data="{x:Static vm:WorkspaceIcons.Apps}" />
+      </Border>
+      <TextBlock x:Name="AppStatusTitle" Margin="0,16,0,0"
+                 FontSize="15" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"
+                 Foreground="{DynamicResource Brush.TextPrimary}" />
+      <SelectableTextBlock x:Name="AppStatusDetail" Margin="0,6,0,0"
+                           FontSize="12.5" TextAlignment="Center" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextSecondary}" />
+      <Border x:Name="AppLoadingLine" Margin="0,18,0,0" />
+      <Button x:Name="AppRetryButton" Classes="accent" Margin="0,18,0,0"
+              HorizontalAlignment="Center" IsVisible="False"
+              Click="OnRetryClick">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <PathIcon Width="14" Height="14" Data="{x:Static vm:WorkspaceIcons.Refresh}" />
+          <TextBlock Text="{loc:Str Common_TryAgain}" VerticalAlignment="Center" />
+        </StackPanel>
+      </Button>
+    </StackPanel>
+  </Panel>
+</UserControl>

@@ -793,6 +793,28 @@
             </Button>
           </StackPanel>
 
+          <!-- ── Apps and canvases tools opened (each opens on the app page) ── -->
+          <views:WorkspaceSectionView x:Name="WsApps"
+                                      IsVisible="{Binding WorkspaceApps.IsShown}"
+                                      Title="{loc:Str Workspace_Apps}"
+                                      Icon="{x:Static vm:WorkspaceIcons.Apps}"
+                                      Section="{Binding WorkspaceApps}">
+            <views:WorkspaceSectionView.ItemTemplate>
+              <DataTemplate DataType="vm:EmbeddedAppItem">
+                <Button Classes="ws-row" Command="{Binding OpenCommand}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <PathIcon Classes="ws-section-icon" Data="{x:Static vm:WorkspaceIcons.Apps}" />
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" Spacing="2">
+                      <TextBlock Classes="ws-row-title" Text="{Binding Title}" />
+                      <TextBlock Classes="ws-meta" Text="{Binding Subtitle}" />
+                    </StackPanel>
+                    <PathIcon Grid.Column="2" Classes="ws-trailing" Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </views:WorkspaceSectionView.ItemTemplate>
+          </views:WorkspaceSectionView>
+
           <!-- ── Files Lumi delivered ── -->
           <views:WorkspaceSectionView x:Name="WsFiles"
                                       IsVisible="{Binding WorkspaceFiles.IsShown}"

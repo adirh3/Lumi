@@ -483,6 +483,35 @@
               </StackPanel>
             </Border>
 
+            <!-- Brief: what Lumi gathered from the project's chats and new chats start with. It's read and
+                 corrected in Memories, so it has one editor. -->
+            <Border x:Name="ProjectBriefSection" Classes="mg-section" IsVisible="{Binding HasProjectBrief}">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                    <PathIcon Data="{StaticResource Icon.Memory}" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="mg-section-title" Text="{loc:Str Briefs_Chip}" />
+                    <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_BriefCaption}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </DockPanel>
+                <Button x:Name="ProjectBriefButton" Classes="mg-row" Command="{Binding OpenBriefCommand}">
+                  <Border Classes="mg-row-frame">
+                    <DockPanel>
+                      <PathIcon DockPanel.Dock="Right" Classes="mg-row-chevron" Data="{StaticResource Icon.ChevronRight}" Margin="10,0,0,0" />
+                      <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Margin="12,0,0,0" Text="{Binding ProjectBriefUpdatedLabel}" />
+                      <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Document}" Width="13" Height="13" Margin="0,0,11,0"
+                                Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" />
+                      <TextBlock Text="{Binding ProjectBriefSummary}" FontSize="13"
+                                 Foreground="{DynamicResource Brush.TextPrimary}"
+                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    </DockPanel>
+                  </Border>
+                </Button>
+              </StackPanel>
+            </Border>
+
             <!-- Context folders -->
             <Border Classes="mg-section">
               <StackPanel Spacing="14">

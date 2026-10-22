@@ -1812,7 +1812,7 @@ public sealed class LumiFeatureManager
         if (category is not null)
             memory.Category = NormalizeOrNull(category) ?? "General";
 
-        memory.Source = "manual";
+        memory.Source = MemorySources.AfterUserEdit(memory.Source);
         memory.UpdatedAt = DateTimeOffset.Now;
         return Success($"Memory updated.\n{DescribeMemory(memory)}");
     }

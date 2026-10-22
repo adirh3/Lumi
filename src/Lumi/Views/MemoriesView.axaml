@@ -4,6 +4,7 @@
              xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
              xmlns:mgmt="using:Lumi.Views.Management"
+             xmlns:sc="using:StrataTheme.Controls"
              x:Class="Lumi.Views.MemoriesView"
              x:DataType="vm:MemoriesViewModel"
              x:CompileBindings="True">
@@ -42,7 +43,7 @@
   <Panel>
 
     <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
-    <Panel x:Name="MemoriesOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}"
+    <Panel x:Name="MemoriesOverview" Classes="mg-surface" IsVisible="{Binding ShowOverview}"
            mgmt:ManagementMotion.Entrance="True">
       <Border Classes="mg-wash" />
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
@@ -89,7 +90,7 @@
 
           <!-- Memories is a Settings page, so its search lives here rather than in a sidebar. A capped
                star column keeps it in line with the filters below (a capped Stretch would centre it). -->
-          <Grid x:Name="MemoriesSearchPanel" IsVisible="{Binding HasAnyMemories}">
+          <Grid x:Name="MemoriesSearchPanel" IsVisible="{Binding HasAnyContent}">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*" MaxWidth="560" />
             </Grid.ColumnDefinitions>
@@ -108,7 +109,7 @@
           </Grid>
 
           <!-- Category filter -->
-          <ItemsControl x:Name="MemoryCategoryFilters" ItemsSource="{Binding CategoryFilters}" IsVisible="{Binding HasAnyMemories}">
+          <ItemsControl x:Name="MemoryCategoryFilters" ItemsSource="{Binding CategoryFilters}" IsVisible="{Binding HasAnyContent}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
                 <WrapPanel Orientation="Horizontal" ItemSpacing="7" LineSpacing="7" />
@@ -125,6 +126,69 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
+
+          <!-- Briefs: Lumi's summary of where each project stands, which new chats start with. A group like the
+               categories below, with its own chip; All shows the brief across projects and the latest few. -->
+          <StackPanel x:Name="BriefsGroup" Spacing="12" IsVisible="{Binding Briefs.ShowGroup}">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" Margin="16,0,0,0">
+                <TextBlock x:Name="BriefsStatusText" Classes="mg-meta" Text="{Binding Briefs.StatusText}" VerticalAlignment="Center" />
+                <Button x:Name="BriefsUpdateButton" Classes="mg-button" Command="{Binding Briefs.UpdateNowCommand}"
+                        IsEnabled="{Binding Briefs.CanUpdateNow}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Refresh}" />
+                    <TextBlock Text="{loc:Str Briefs_UpdateNow}" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                <TextBlock Classes="mg-section-title" Text="{loc:Str Briefs_Title}" FontSize="15" />
+                <Border Classes="mg-group-count" IsVisible="{Binding Briefs.HasBriefs}">
+                  <TextBlock Text="{Binding Briefs.CountText}" />
+                </Border>
+              </StackPanel>
+            </DockPanel>
+            <TextBlock Classes="mg-section-caption" Text="{loc:Str Briefs_Caption}" TextWrapping="Wrap" Margin="0,-6,0,0" />
+
+            <ItemsControl x:Name="BriefCardsList" ItemsSource="{Binding Briefs.VisibleCards}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <controls:AdaptiveGridPanel MinItemWidth="240" ColumnSpacing="12" RowSpacing="12" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:BriefCard">
+                  <Button Classes="mg-card" Command="{Binding OpenCommand}">
+                    <Border Classes="mg-card-frame" Padding="16,14,16,13">
+                      <DockPanel>
+                        <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                          <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Text="{Binding UpdatedLabel}" Margin="10,0,0,0" />
+                          <DockPanel>
+                            <PathIcon DockPanel.Dock="Left" Margin="0,0,6,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Folder}" IsVisible="{Binding !IsGlobal}" />
+                            <PathIcon DockPanel.Dock="Left" Margin="0,0,6,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Globe}" IsVisible="{Binding IsGlobal}" />
+                            <TextBlock Classes="mg-meta" Text="{Binding Audience}" TextTrimming="CharacterEllipsis" />
+                          </DockPanel>
+                        </DockPanel>
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                          <PathIcon DockPanel.Dock="Right" Classes="mg-card-arrow" Data="{StaticResource Icon.ChevronRight}" Margin="8,0,0,0" />
+                          <TextBlock Classes="mg-card-title" Text="{Binding Title}" FontSize="14" />
+                        </DockPanel>
+                        <TextBlock Classes="mg-memory-text" Text="{Binding Summary}" />
+                      </DockPanel>
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Button x:Name="BriefsShowAllButton" Classes="subtle mg-button" HorizontalAlignment="Left"
+                    IsVisible="{Binding Briefs.CanToggleShowAll}" Command="{Binding Briefs.ToggleShowAllCommand}"
+                    Content="{Binding Briefs.ShowAllText}" />
+
+            <Border Classes="mg-empty-note" IsVisible="{Binding Briefs.ShowEmpty}">
+              <TextBlock Classes="mg-section-caption" Text="{loc:Str Briefs_Empty}" TextWrapping="Wrap" />
+            </Border>
+          </StackPanel>
 
           <!-- Groups -->
           <ItemsControl x:Name="MemoryGroupsList" ItemsSource="{Binding MemoryGroups}" IsVisible="{Binding HasResults}">
@@ -356,6 +420,149 @@
       </Border>
 
       <Border Classes="mg-saved-toast" IsVisible="{Binding ShowSavedToast}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12"
+                    Foreground="{DynamicResource Brush.SuccessDefault}" />
+          <TextBlock Text="{loc:Str Mg_Saved}" FontSize="12.5" FontWeight="Medium"
+                     Foreground="{DynamicResource Brush.TextPrimary}" />
+        </StackPanel>
+      </Border>
+    </Panel>
+
+    <!-- ══════════════════════════ BRIEF ══════════════════════════ -->
+    <Panel x:Name="BriefDetail" Classes="mg-surface" IsVisible="{Binding Briefs.IsOpen}"
+           mgmt:ManagementMotion.Entrance="True" mgmt:ManagementMotion.Key="{Binding Briefs.SelectedBrief}">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="mg-topbar">
+          <DockPanel>
+            <Button x:Name="ClearBriefButton" DockPanel.Dock="Right" Classes="mg-icon-button subtle"
+                    Command="{Binding Briefs.RequestClearCommand}" ToolTip.Tip="{loc:Str Briefs_Clear}">
+              <PathIcon Data="{StaticResource Icon.Trash}" />
+            </Button>
+            <DockPanel>
+              <Button DockPanel.Dock="Left" x:Name="BriefBackButton" Classes="subtle mg-back" Command="{Binding Briefs.CloseCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
+                  <TextBlock Text="{loc:Str Memories_Title}" />
+                </StackPanel>
+              </Button>
+              <TextBlock DockPanel.Dock="Left" Classes="mg-crumb" Text="/" Margin="2,0,6,0" />
+              <TextBlock Classes="mg-crumb current" Text="{Binding Briefs.DetailTitle}" />
+            </DockPanel>
+          </DockPanel>
+        </Border>
+
+        <ScrollViewer x:Name="BriefDetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="40,32,40,120" MaxWidth="780" Spacing="20">
+
+            <DockPanel>
+              <Border DockPanel.Dock="Left" Classes="mg-tile lg" Margin="0,0,22,0">
+                <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Document}" />
+              </Border>
+              <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBlock x:Name="BriefTitle" Classes="mg-page-title" Text="{Binding Briefs.DetailTitle}" />
+                <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,8,0,0">
+                  <Border Classes="mg-chip hue">
+                    <TextBlock Text="{loc:Str Briefs_Chip}" />
+                  </Border>
+                  <Border Classes="mg-chip">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Folder}" IsVisible="{Binding !Briefs.IsGlobal}" />
+                      <PathIcon Data="{StaticResource Icon.Globe}" IsVisible="{Binding Briefs.IsGlobal}" />
+                      <TextBlock Text="{Binding Briefs.ScopeLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Clock}" />
+                      <TextBlock Text="{Binding Briefs.UpdatedLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip" IsVisible="{Binding Briefs.IsEditedByUser}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Rename}" />
+                      <TextBlock Text="{loc:Str Briefs_EditedByYou}" />
+                    </StackPanel>
+                  </Border>
+                </WrapPanel>
+              </StackPanel>
+            </DockPanel>
+
+            <Border Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Right" Classes="mg-segmented" Margin="12,0,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Button x:Name="BriefPreviewButton" Classes="mg-segment" Classes.selected="{Binding Briefs.IsPreviewing}"
+                              Command="{Binding Briefs.ShowPreviewCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.Eye}" />
+                          <TextBlock Text="{loc:Str Mg_Preview}" />
+                        </StackPanel>
+                      </Button>
+                      <Button x:Name="BriefEditButton" Classes="mg-segment" Classes.selected="{Binding !Briefs.IsPreviewing}"
+                              Command="{Binding Briefs.ShowEditorCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.Rename}" />
+                          <TextBlock Text="{loc:Str Mg_Edit}" />
+                        </StackPanel>
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Document}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Briefs_SectionTitle}" />
+                      <TextBlock Classes="mg-section-caption" Text="{Binding Briefs.DetailCaption}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <Border x:Name="BriefPreview" Classes="mg-inset" Padding="20,16" IsVisible="{Binding Briefs.IsPreviewing}">
+                  <sc:StrataMarkdown Markdown="{Binding Briefs.PreviewMarkdown}" IsInline="True" />
+                </Border>
+                <TextBox x:Name="BriefEditor" Classes="mg-editor" IsVisible="{Binding !Briefs.IsPreviewing}"
+                         Text="{Binding Briefs.EditContent}" MinHeight="240"
+                         PlaceholderText="{loc:Str Briefs_Placeholder}" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+
+      <Border x:Name="BriefSaveBar" Classes="mg-floatbar" IsVisible="{Binding Briefs.ShowSaveBar}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <Ellipse DockPanel.Dock="Left" Classes="mg-dot" Fill="{DynamicResource Brush.AccentDefault}" Margin="0,0,9,0" />
+            <TextBlock DockPanel.Dock="Right" x:Name="BriefSaveHint" Classes="mg-floatbar-hint" Text="Ctrl+S" Margin="9,0,0,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{loc:Str Mg_Unsaved}" TextTrimming="CharacterEllipsis" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{loc:Str Mg_Discard}" Command="{Binding Briefs.DiscardCommand}" />
+            <Button x:Name="SaveBriefButton" Classes="accent mg-button" Content="{loc:Str Mg_SaveChanges}"
+                    Command="{Binding Briefs.SaveCommand}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Classes="mg-floatbar danger" IsVisible="{Binding Briefs.IsConfirmingClear}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Trash}" Width="13" Height="13"
+                      Foreground="{DynamicResource Brush.DangerDefault}" Margin="0,0,9,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{Binding Briefs.ClearConfirmText}" MaxWidth="420"
+                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Briefs.ClearConfirmText}" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{loc:Str Common_Cancel}" Command="{Binding Briefs.CancelClearCommand}" />
+            <Button x:Name="ConfirmClearBriefButton" Classes="danger mg-button" Content="{loc:Str Briefs_Clear}"
+                    Command="{Binding Briefs.ConfirmClearCommand}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Classes="mg-saved-toast" IsVisible="{Binding Briefs.ShowSavedToast}">
         <StackPanel Orientation="Horizontal" Spacing="8">
           <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12"
                     Foreground="{DynamicResource Brush.SuccessDefault}" />

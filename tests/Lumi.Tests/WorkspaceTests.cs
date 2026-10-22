@@ -668,6 +668,69 @@ public sealed class WorkspaceTests
     }
 
     [Fact]
+    public async Task HeaderTipsOpenBesideTheirButtonsNeverOverThePage()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            var dataStore = new DataStore(CreateAppData());
+            using var chatVm = new ChatViewModel(dataStore, TestCopilot.Shared);
+            chatVm.HasPlan = true;
+            chatVm.PlanContent = "# Ship the workspace\n\n- [ ] Design";
+            var workspace = new ChatWorkspaceView { DataContext = chatVm, DataStore = dataStore };
+            var window = new Window { Width = 1000, Height = 900, Content = workspace };
+
+            window.Show();
+            try
+            {
+                chatVm.OpenWorkspacePlanCommand.Execute(null);
+                await PumpAsync();
+                await Task.Delay(400); // the panel slides in
+                await PumpAsync();
+
+                // A page can be a native view (an app, the browser, a preview) that covers in-window
+                // popups, and the window's caption buttons sit above the header: tips open beside.
+                var header = workspace.FindControl<StackPanel>("WorkspaceHeaderBar")!;
+                var buttons = header.GetVisualDescendants().OfType<Button>()
+                    .Where(static button => button.Classes.Contains("ws-header-button")).ToList();
+                Assert.Contains(buttons, static button => button.Name == "WorkspaceReloadAppButton");
+                Assert.Contains(buttons, static button => button.Name == "WorkspaceCloseCanvasButton");
+                Assert.All(buttons, static button =>
+                {
+                    Assert.Equal(PlacementMode.Left, ToolTip.GetPlacement(button));
+                    Assert.Equal(0, ToolTip.GetVerticalOffset(button));
+                });
+                Assert.Equal(PlacementMode.Left, ToolTip.GetPlacement(workspace.FindControl<TextBlock>("WorkspaceTitleText")!));
+
+                var close = workspace.FindControl<Button>("WorkspaceCloseButton")!;
+                var tip = new ToolTip { Content = ToolTip.GetTip(close) };
+                ToolTip.SetTip(close, tip);
+                ToolTip.SetIsOpen(close, true);
+                await PumpAsync();
+                window.UpdateLayout();
+                Assert.True(tip.IsAttachedToVisualTree());
+                var tipTop = tip.PointToScreen(new Point(0, 0));
+                var tipBottom = tip.PointToScreen(new Point(tip.Bounds.Width, tip.Bounds.Height));
+                var closeTop = close.PointToScreen(new Point(0, 0));
+                var bodyTop = workspace.FindControl<Panel>("WorkspaceBody")!.PointToScreen(new Point(0, 0));
+                var panelTop = workspace.FindControl<Border>("WorkspacePanel")!.PointToScreen(new Point(0, 0));
+                var geometry = $"tip {tipTop}-{tipBottom} ({tip.Bounds}), close {closeTop} ({close.Bounds}), body {bodyTop}, panel {panelTop}";
+                Assert.True(tipBottom.X <= closeTop.X, "The tip opens beside its button: " + geometry);
+                Assert.True(tipBottom.Y <= bodyTop.Y, "The tip stays above the page: " + geometry);
+                Assert.True(tipTop.Y >= panelTop.Y, "The tip stays below the window's caption buttons: " + geometry);
+                ToolTip.SetIsOpen(close, false);
+            }
+            finally
+            {
+                window.Close();
+                workspace.Dispose();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task GitChangesCanOpenStraightIntoOneFileAndBackToTheList()
     {
         var path = Path.Combine(Path.GetTempPath(), $"lumi-workspace-{Guid.NewGuid():N}.md");

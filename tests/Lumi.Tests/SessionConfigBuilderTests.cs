@@ -217,7 +217,10 @@ public sealed class SessionConfigBuilderTests
         Assert.True(config.EnableConfigDiscovery);
         Assert.True(config.EnableSkills);
 #pragma warning disable GHCP001
-        Assert.False(config.RequestExtensions);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable
+            && CopilotExtensionLaunchProvider.NodePath is not null, config.RequestExtensions);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.EnableMcpApps);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.RequestCanvasRenderer);
 #pragma warning restore GHCP001
         Assert.Null(config.SkillDirectories);
         Assert.NotNull(config.McpServers);
@@ -300,7 +303,10 @@ public sealed class SessionConfigBuilderTests
         Assert.True(config.EnableConfigDiscovery);
         Assert.True(config.EnableSkills);
 #pragma warning disable GHCP001
-        Assert.False(config.RequestExtensions);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable
+            && CopilotExtensionLaunchProvider.NodePath is not null, config.RequestExtensions);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.EnableMcpApps);
+        Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable, config.RequestCanvasRenderer);
 #pragma warning restore GHCP001
         Assert.Null(config.SkillDirectories);
         Assert.NotNull(config.McpServers);

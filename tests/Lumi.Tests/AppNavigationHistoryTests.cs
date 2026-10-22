@@ -200,6 +200,62 @@ public sealed class AppNavigationHistoryTests
     });
 
     [Fact]
+    public Task ABriefOpensFromItsProject_AndBackStepsThroughIt() => Run(async (vm, data) =>
+    {
+        var project = data.Projects[0];
+        data.Briefs.Add(new ContextBrief { ProjectId = project.Id, Content = "## Now\n- Shipping 1.0 next week (\"Release\", Oct 21)" });
+        vm.SelectedNavIndex = 2;
+        await Settle();
+        vm.ProjectsVM.OpenById(project.Id);
+        await Settle();
+        Assert.True(vm.ProjectsVM.HasProjectBrief);
+
+        vm.ProjectsVM.OpenBriefCommand.Execute(null);
+        await Settle();
+        Assert.Equal(MainViewModel.MemoriesNavIndex, vm.SelectedNavIndex);
+        Assert.Equal(project.Id, vm.MemoriesVM.Briefs.SelectedBrief?.ProjectId);
+
+        // Closing the brief is a step of its own, like closing a memory.
+        vm.MemoriesVM.Briefs.CloseCommand.Execute(null);
+        await Settle();
+        Assert.True(await vm.TryNavigateHistoryAsync(-1));
+        Assert.Equal(project.Id, vm.MemoriesVM.Briefs.SelectedBrief?.ProjectId);
+        Assert.False(vm.MemoriesVM.IsEditing);
+        Assert.True(await vm.TryNavigateHistoryAsync(-1));
+        Assert.Equal(2, vm.SelectedNavIndex);
+        Assert.Same(project, vm.ProjectsVM.SelectedProject);
+
+        // A memory opened while a brief is open takes its place rather than showing beside it.
+        Assert.True(await vm.TryNavigateHistoryAsync(1));
+        Assert.True(vm.MemoriesVM.Briefs.IsOpen);
+        vm.MemoriesVM.EditMemoryCommand.Execute(data.Memories[0]);
+        await Settle();
+        Assert.False(vm.MemoriesVM.Briefs.IsOpen);
+    });
+
+    [Fact]
+    public Task Back_SkipsABriefClearedSinceItWasOpen() => Run(async (vm, data) =>
+    {
+        var project = data.Projects[0];
+        data.Briefs.Add(new ContextBrief { ProjectId = project.Id, Content = "## Now\n- Shipping 1.0 next week (\"Release\", Oct 21)" });
+        vm.SelectedNavIndex = 2;
+        await Settle();
+        vm.ProjectsVM.OpenById(project.Id);
+        await Settle();
+        vm.ProjectsVM.OpenBriefCommand.Execute(null);
+        await Settle();
+
+        vm.MemoriesVM.Briefs.RequestClearCommand.Execute(null);
+        vm.MemoriesVM.Briefs.ConfirmClearCommand.Execute(null);
+        await Settle();
+        Assert.False(vm.ProjectsVM.HasProjectBrief);
+
+        Assert.True(await vm.TryNavigateHistoryAsync(-1));
+        Assert.Equal(2, vm.SelectedNavIndex);
+        Assert.Same(project, vm.ProjectsVM.SelectedProject);
+    });
+
+    [Fact]
     public Task Discover_RestoresFiltersSourcesAndCardDetails() => Run(async (vm, _) =>
     {
         vm.SelectedNavIndex = MainViewModel.DiscoverNavIndex;

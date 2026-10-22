@@ -43,7 +43,10 @@ internal static class ManagementPage
     /// Scrolls the detail back to the top whenever a different item is opened, so a new item never
     /// opens halfway down because the previous one was scrolled.
     /// </summary>
-    public static void ResetScrollOn(Control view, string scrollViewerName, string selectionProperty)
+    /// <param name="observe">The object that raises <paramref name="selectionProperty"/>, when it isn't the view's
+    /// DataContext itself.</param>
+    public static void ResetScrollOn(Control view, string scrollViewerName, string selectionProperty,
+        Func<object?, INotifyPropertyChanged?>? observe = null)
     {
         INotifyPropertyChanged? observed = null;
         PropertyChangedEventHandler handler = (_, e) =>
@@ -59,7 +62,7 @@ internal static class ManagementPage
         {
             if (observed is not null)
                 observed.PropertyChanged -= handler;
-            observed = view.DataContext as INotifyPropertyChanged;
+            observed = observe is null ? view.DataContext as INotifyPropertyChanged : observe(view.DataContext);
             if (observed is not null)
                 observed.PropertyChanged += handler;
         };

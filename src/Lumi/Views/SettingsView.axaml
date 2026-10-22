@@ -1750,6 +1750,11 @@
                           IsModified="{Binding IsEnableMemoryAutoMaintenanceModified}">
           <ToggleSwitch IsChecked="{Binding EnableMemoryAutoMaintenance}" />
         </sc:StrataSetting>
+        <sc:StrataSetting Header="{loc:Str Setting_DailyBriefs}" Description="{loc:Str SettingDesc_DailyBriefs}"
+                          st:SettingsChrome.SearchText="{loc:Str SettingKeywords_DailyBriefs}"
+                          IsModified="{Binding IsEnableDailyBriefsModified}">
+          <ToggleSwitch x:Name="DailyBriefsToggle" IsChecked="{Binding EnableDailyBriefs}" />
+        </sc:StrataSetting>
         <sc:StrataSetting Header="{loc:Str Setting_CleanUpMemories}" Description="{Binding MemoryCleanupStatus}">
           <Button Classes="mg-button motion-action" Content="{loc:Str Button_CleanUpMemories}"
                   Command="{Binding CleanUpMemoriesNowCommand}"

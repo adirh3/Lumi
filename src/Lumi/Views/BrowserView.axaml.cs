@@ -17,6 +17,15 @@ namespace Lumi.Views;
 
 public partial class BrowserView : UserControl
 {
+    public static readonly StyledProperty<bool> ShowBrowserChromeProperty =
+        AvaloniaProperty.Register<BrowserView, bool>(nameof(ShowBrowserChrome), true);
+
+    public bool ShowBrowserChrome
+    {
+        get => GetValue(ShowBrowserChromeProperty);
+        set => SetValue(ShowBrowserChromeProperty, value);
+    }
+
     internal readonly record struct NativeWebViewLayout(
         int X,
         int Y,
@@ -226,6 +235,12 @@ public partial class BrowserView : UserControl
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+        if (change.Property == ShowBrowserChromeProperty)
+        {
+            if (_urlBar is not null)
+                _urlBar.IsVisible = ShowBrowserChrome;
+            UpdateWebViewBounds();
+        }
         if (change.Property == IsVisibleProperty)
         {
             if (IsVisible)
@@ -289,7 +304,7 @@ public partial class BrowserView : UserControl
             _isInitialized = true;
 
             // Show cookie onboarding if user hasn't imported yet
-            if (_dataStore is not null && !_dataStore.Data.Settings.HasImportedBrowserCookies)
+            if (ShowBrowserChrome && _dataStore is not null && !_dataStore.Data.Settings.HasImportedBrowserCookies)
                 ShowCookieOnboarding();
 
             UpdateWebViewBounds();
@@ -390,8 +405,8 @@ public partial class BrowserView : UserControl
 
     internal NativeWebViewLayout? CalculateNativeWebViewLayout(TopLevel topLevel)
     {
-        var urlBarHeight = _urlBar?.Bounds.Height ?? 36.0;
-        if (urlBarHeight < 1)
+        var urlBarHeight = ShowBrowserChrome ? _urlBar?.Bounds.Height ?? 36.0 : 0;
+        if (ShowBrowserChrome && urlBarHeight < 1)
             urlBarHeight = 36.0;
 
         var localWidth = Bounds.Width;

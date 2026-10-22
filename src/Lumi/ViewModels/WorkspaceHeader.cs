@@ -10,7 +10,7 @@ namespace Lumi.ViewModels;
 public sealed partial class WorkspaceHeader : ObservableObject
 {
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsOverview), nameof(IsFilePreview), nameof(Icon))]
+    [NotifyPropertyChangedFor(nameof(IsOverview), nameof(IsFilePreview), nameof(IsApp), nameof(Icon))]
     private WorkspacePage _page = WorkspacePage.Overview;
 
     [ObservableProperty] private string _title = "";
@@ -19,8 +19,12 @@ public sealed partial class WorkspaceHeader : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasSubtitle))]
     private string? _subtitle;
 
+    /// <summary>The app page shows a canvas that is running (its header offers to close it).</summary>
+    [ObservableProperty] private bool _canCloseApp;
+
     public bool IsOverview => Page == WorkspacePage.Overview;
     public bool IsFilePreview => Page == WorkspacePage.FilePreview;
+    public bool IsApp => Page == WorkspacePage.App;
     public bool HasSubtitle => !string.IsNullOrWhiteSpace(Subtitle);
     public Geometry Icon => WorkspaceIcons.For(Page);
 }

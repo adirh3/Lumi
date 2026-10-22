@@ -138,6 +138,8 @@ internal sealed class WorkspacePanelController : IDisposable
     private string? _filePath;
     private BrowserView? _browserView;
     private DesktopPreviewView? _desktopView;
+    private EmbeddedAppView? _appView;
+    private EmbeddedAppItem? _headerApp;
 
     public WorkspacePanelController(
         Control host,
@@ -204,6 +206,9 @@ internal sealed class WorkspacePanelController : IDisposable
         }
 
         _fileView?.Dispose();
+        _appView?.Dispose();
+        _appView = null;
+        TrackHeaderApp(null);
         _fileView = null;
         if (_gitChanges is not null)
             _gitChanges.FileActivated = null;
@@ -265,6 +270,34 @@ internal sealed class WorkspacePanelController : IDisposable
         if (_canShowBrowserPanel?.Invoke(chatId) != false)
             _ = ShowBrowserAsync(chatId);
     }
+
+    private async Task ShowAppAsync(EmbeddedAppItem item)
+    {
+        _appView ??= new EmbeddedAppView(_vm, _dataStore);
+        var view = _appView;
+        var alreadyShown = IsOpen && _page == WorkspacePage.App;
+        view.ShowLoading(item);
+        var shown = Navigate(WorkspacePage.App, view);
+        if (!alreadyShown && !await shown)
+            return;
+        if (_isDisposed || _page != WorkspacePage.App || !ReferenceEquals(view, _appView) || !ReferenceEquals(_vm.SelectedApp, item))
+            return;
+
+        // The page may have just widened the panel: place the native view once layout has run.
+        await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Loaded);
+        if (!_isDisposed && _page == WorkspacePage.App && ReferenceEquals(view, _appView) && ReferenceEquals(_vm.SelectedApp, item))
+            await view.ShowAsync(item);
+    }
+
+    /// <summary>Loads the app on the app page again (the header's Reload).</summary>
+    public void ReloadApp()
+    {
+        if (_page == WorkspacePage.App && _vm.SelectedApp is { } item && _appView is { } view)
+            _ = view.ShowAsync(item, reload: true);
+    }
+
+    /// <summary>Ends the canvas on the app page (the header's Close canvas).</summary>
+    public void CloseCanvas() => _vm.CloseSelectedCanvasCommand.Execute(null);
 
     /// <summary>Restores this host's remembered page, without navigating or capturing in another host.</summary>
     public void RestoreDesktop()
@@ -393,6 +426,8 @@ internal sealed class WorkspacePanelController : IDisposable
         _vm.FilePreviewShowRequested += OnFilePreviewShowRequested;
         _vm.FilePreviewHideRequested += OnFilePreviewHideRequested;
         _vm.WorkspaceToggleRequested += Toggle;
+        _vm.AppShowRequested += OnAppShowRequested;
+        _vm.AppHideRequested += OnAppHideRequested;
         _vm.WorkspaceContentChanged += RefreshVisibility;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
     }
@@ -415,6 +450,8 @@ internal sealed class WorkspacePanelController : IDisposable
         _vm.FilePreviewShowRequested -= OnFilePreviewShowRequested;
         _vm.FilePreviewHideRequested -= OnFilePreviewHideRequested;
         _vm.WorkspaceToggleRequested -= Toggle;
+        _vm.AppShowRequested -= OnAppShowRequested;
+        _vm.AppHideRequested -= OnAppHideRequested;
         _vm.WorkspaceContentChanged -= RefreshVisibility;
         _vm.PropertyChanged -= OnViewModelPropertyChanged;
     }
@@ -429,6 +466,8 @@ internal sealed class WorkspacePanelController : IDisposable
     }
 
     private void OnBrowserShowRequested(Guid chatId) => PostIfActive(() => ShowBrowser(chatId));
+    private void OnAppShowRequested(EmbeddedAppItem item) => PostIfActive(() => _ = ShowAppAsync(item));
+    private void OnAppHideRequested() => PostIfActive(() => ClosePage(WorkspacePage.App));
     private void OnBrowserHideRequested() => PostIfActive(() => ClosePage(WorkspacePage.Browser));
     private void OnDesktopShowRequested(Guid chatId) => PostIfActive(() =>
     {
@@ -488,6 +527,7 @@ internal sealed class WorkspacePanelController : IDisposable
             case nameof(ChatViewModel.PlanTitle) or nameof(ChatViewModel.PlanProgressLabel)
                 when _page == WorkspacePage.Plan:
             case nameof(ChatViewModel.SkillPreviewTitle) when _page == WorkspacePage.Skill:
+            case nameof(ChatViewModel.SelectedApp) when _page == WorkspacePage.App:
                 RefreshHeader();
                 break;
         }
@@ -624,6 +664,9 @@ internal sealed class WorkspacePanelController : IDisposable
             case WorkspacePage.Browser when _vm.CurrentChat is { } chat && _vm.GetBrowserServiceForChat(chat.Id) is not null:
                 _ = ShowBrowserAsync(chat.Id);
                 return true;
+            case WorkspacePage.App when _vm.SelectedApp is { } app:
+                _ = ShowAppAsync(app);
+                return true;
             case WorkspacePage.Desktop when _vm.HasDesktopPreview && _vm.CurrentChat is { } desktopChat:
                 if (!ShowDesktop(desktopChat.Id))
                     return false;
@@ -661,6 +704,10 @@ internal sealed class WorkspacePanelController : IDisposable
         StopPageEntrance();
         switch (page)
         {
+            case WorkspacePage.App:
+                _appView?.Dispose();
+                _appView = null;
+                break;
             case WorkspacePage.Browser:
                 _browserView?.ClearBrowserService();
                 _vm.IsBrowserOpen = false;
@@ -756,7 +803,7 @@ internal sealed class WorkspacePanelController : IDisposable
     }
 
     private static bool IsNativePage(WorkspacePage page)
-        => page is WorkspacePage.Browser or WorkspacePage.FilePreview;
+        => page is WorkspacePage.Browser or WorkspacePage.FilePreview or WorkspacePage.App;
 
     /// <summary>Puts the current page's content on screen.</summary>
     private void SyncPageContent()
@@ -794,12 +841,34 @@ internal sealed class WorkspacePanelController : IDisposable
             WorkspacePage.FilePreview => (Path.GetFileName(_filePath) ?? Loc.Preview_Title, (string?)Loc.Preview_Title),
             WorkspacePage.Browser => (Loc.Browser_Title, (string?)null),
             WorkspacePage.Desktop => (Loc.Desktop_Title, (string?)null),
+            WorkspacePage.App => (_vm.SelectedApp?.Title ?? Loc.Workspace_Apps, _vm.SelectedApp?.Subtitle),
             _ => (Loc.Workspace_Title, (string?)null),
         };
 
         Header.Page = _page;
         Header.Title = string.IsNullOrWhiteSpace(title) ? Loc.Workspace_Title : title;
         Header.Subtitle = subtitle;
+        var app = _page == WorkspacePage.App ? _vm.SelectedApp : null;
+        Header.CanCloseApp = app?.CanClose == true;
+        TrackHeaderApp(app);
+    }
+
+    /// <summary>Keeps the header in step with the app on the app page (a canvas renamed or closed).</summary>
+    private void TrackHeaderApp(EmbeddedAppItem? app)
+    {
+        if (ReferenceEquals(_headerApp, app))
+            return;
+        if (_headerApp is not null)
+            _headerApp.PropertyChanged -= OnHeaderAppChanged;
+        _headerApp = app;
+        if (app is not null)
+            app.PropertyChanged += OnHeaderAppChanged;
+    }
+
+    private void OnHeaderAppChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(EmbeddedAppItem.Title) or nameof(EmbeddedAppItem.Subtitle) or nameof(EmbeddedAppItem.CanClose))
+            RefreshHeader();
     }
 
     // ── Pages ────────────────────────────────────────────────────────────────────────

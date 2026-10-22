@@ -41,6 +41,19 @@ public sealed class MemoryMaintenanceService
                 changed = true;
             }
 
+            // The daily curator checked its memories against the chats they came from; the keyword gate below is
+            // for what the per-turn agent saves, and would archive many of the curator's good memories.
+            if (memory.Source == MemorySources.Curator)
+            {
+                if (memory.LastReviewedAt != now)
+                {
+                    memory.LastReviewedAt = now;
+                    changed = true;
+                }
+
+                continue;
+            }
+
             var quality = MemoryAgentService.EvaluateMemoryCandidate(
                 memory.Key,
                 memory.Content,
@@ -207,6 +220,9 @@ public sealed class MemoryMaintenanceService
         var merged = 0;
         var duplicateGroups = memories
             .Where(static m => string.Equals(m.Status, MemoryStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            // A curator memory holds one fact, and the curator merges its own duplicates: a shared topic doesn't make two
+            // of them one.
+            .Where(static m => m.Source != MemorySources.Curator)
             .GroupBy(BuildMergeKey, StringComparer.Ordinal)
             .Where(static g => g.Key.Length > 0 && g.Count() > 1)
             .ToList();

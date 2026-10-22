@@ -22,6 +22,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
+using Lumi.Services.EmbeddedApps;
 using StrataTheme.Controls;
 
 using ChatMessage = Lumi.Models.ChatMessage;
@@ -1691,7 +1692,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             resolveFilePath: path => CurrentChat is { } chat
                 ? ResolveWorkspaceFileChangedPath(chat, path)
                 : path,
-            openReplySourceAction: RequestReplySourceJump);
+            openReplySourceAction: RequestReplySourceJump,
+            appItemFor: GetAppItem);
         _transcriptBuilder.LiveActivityChanged += OnTranscriptLiveActivityChanged;
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
@@ -2381,6 +2383,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var activeAgent = chat.AgentId.HasValue
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)
             : null;
+        var (brief, activeChats) = ResolveChatStartContext(chat, project);
         var systemPrompt = SystemPromptBuilder.Build(
             _dataStore.Data.Settings,
             activeAgent,
@@ -2388,7 +2391,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             allSkills,
             activeSkills,
             memories,
-            _dataStore.SnapshotBackgroundJobs());
+            _dataStore.SnapshotBackgroundJobs(),
+            brief,
+            activeChats);
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
         using var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
@@ -2574,6 +2579,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
             config.ManagedSettings = askLayer;
+            config.OpenCanvases = EmbeddedAppData.SavedOpenCanvases(chat);
             return config;
         }
 
@@ -2804,6 +2810,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             BrowserHideRequested?.Invoke();
             DiffHideRequested?.Invoke();
+            CloseApp();
             CloseFilePreview();
             ClearSuggestions();
         }
@@ -3119,6 +3126,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PlanHideRequested?.Invoke();
         SkillHideRequested?.Invoke();
         SubagentRunHideRequested?.Invoke();
+        CloseApp();
         CloseFilePreview();
         HasUsedBrowser = false;
         WorkspaceCategory = WorkspaceCategory.All;
@@ -5751,7 +5759,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var contextChat = targetChat ?? CurrentChat;
         if (contextChat is not null)
+        {
             builder.Append(InteractiveResponseState.BuildPromptContext(contextChat));
+            builder.Append(EmbeddedAppData.BuildModelContext(contextChat));
+        }
         if (contextChat is not null
             && _staleBackgroundJobPromptChats.Remove(contextChat.Id))
         {
@@ -6372,6 +6383,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         var normalized = title?.Trim().Trim('"', '\'', '.', '!');
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
+    /// <summary>
+    /// What a session starts with from the daily context curator: its scope's brief (the project's, or the one across
+    /// projects) and, in a project, the other chats active since that brief was written (at most a day back).
+    /// </summary>
+    private (ContextBrief? Brief, List<Chat> ActiveChats) ResolveChatStartContext(Chat chat, Project? project)
+    {
+        if (!_dataStore.Data.Settings.EnableDailyBriefs)
+            return (null, []);
+
+        var brief = _dataStore.Data.Briefs.ToArray().FirstOrDefault(item => item.ProjectId == project?.Id);
+        if (project is null)
+            return (brief, []);
+
+        var dayAgo = DateTimeOffset.Now.AddDays(-1);
+        var since = brief?.CuratedThrough is { } curated && curated > dayAgo ? curated : dayAgo;
+        var activeChats = _dataStore.Data.Chats.ToArray()
+            .Where(other => other.ProjectId == project.Id
+                            && other.Id != chat.Id
+                            && other.UpdatedAt > since
+                            && (other.MessageCount > 0 || other.Messages.Count > 0))
+            .ToList();
+        return (brief, activeChats);
     }
 
     private void QueueAutonomousMemoryCheckpoint(Chat chat)

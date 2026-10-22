@@ -324,6 +324,7 @@ public class CopilotService : IAsyncDisposable
             {
                 Connection = RuntimeConnection.ForStdio(cliPath ?? "copilot"),
                 LogLevel = CopilotLogLevel.Error,
+                ExtensionLaunchProvider = new CopilotExtensionLaunchProvider(),
             };
             if (IsolatedRuntimeHome is { } isolatedHome)
             {
@@ -1907,6 +1908,8 @@ public class CopilotService : IAsyncDisposable
         ApplyAgentProcessEnvironment(env);
         ApplySkillListingBudget(env);
         ApplyAutoReviewFeature(env);
+        if (NativeBrowserLogic.IsEmbeddedBrowserAvailable)
+            ApplyMcpAppsFeature(env);
         return env;
     }
 
@@ -1920,11 +1923,17 @@ public class CopilotService : IAsyncDisposable
     /// list). It only unlocks the <c>assisted</c> mode: chats in other modes never call the reviewer.
     /// </summary>
     internal static void ApplyAutoReviewFeature(IDictionary<string, string> environment)
+        => EnableRuntimeFeature(environment, AutoReviewFeatureFlag);
+
+    internal static void ApplyMcpAppsFeature(IDictionary<string, string> environment)
+        => environment.TryAdd("COPILOT_MCP_APPS", "true");
+
+    private static void EnableRuntimeFeature(IDictionary<string, string> environment, string feature)
     {
         var flags = environment.TryGetValue(FeatureFlagsVariable, out var configured) ? configured.Trim().TrimEnd(',') : "";
-        if (flags.Split(',', StringSplitOptions.TrimEntries).Contains(AutoReviewFeatureFlag, StringComparer.OrdinalIgnoreCase))
+        if (flags.Split(',', StringSplitOptions.TrimEntries).Contains(feature, StringComparer.OrdinalIgnoreCase))
             return;
-        environment[FeatureFlagsVariable] = flags.Length == 0 ? AutoReviewFeatureFlag : flags + "," + AutoReviewFeatureFlag;
+        environment[FeatureFlagsVariable] = flags.Length == 0 ? feature : flags + "," + feature;
     }
 
     /// <summary>

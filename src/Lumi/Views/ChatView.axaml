@@ -652,6 +652,85 @@
       <Setter Property="Opacity" Value="1" />
     </Style>
 
+    <!-- An app a tool opened (an MCP App or a canvas): a file card's glass that opens into the
+         Workspace, and wears the accent while the Workspace shows it. -->
+    <Style Selector="Button.transcript-app">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="7,7,13,7" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="260" />
+      <Setter Property="MaxWidth" Value="440" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.transcript-app /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+    </Style>
+    <Style Selector="Button.transcript-app /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.transcript-app:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+    </Style>
+    <Style Selector="Button.transcript-app:pressed">
+      <Setter Property="RenderTransform" Value="scale(0.98)" />
+    </Style>
+    <Style Selector="Button.transcript-app Border.app-tile">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
+    </Style>
+    <Style Selector="Button.transcript-app Border.app-tile > PathIcon">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.transcript-app TextBlock.app-title">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="Button.transcript-app TextBlock.app-subtitle">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="Button.transcript-app TextBlock.app-action">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.transcript-app sc|StrataLineIcon.app-chevron">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.transcript-app.showing /template/ Border#PART_Surface">
+      <Setter Property="BorderBrush">
+        <SolidColorBrush Color="{DynamicResource Color.AccentDefault}" Opacity="0.55" />
+      </Setter>
+    </Style>
+    <Style Selector="Button.transcript-app.showing Border.app-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Button.transcript-app.showing Border.app-tile > PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.transcript-app.showing sc|StrataLineIcon.app-chevron">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+
     <!-- An error: the step's glass, the danger colour only on its icon, and a way to try again. -->
     <Style Selector="Border.transcript-error">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
@@ -2453,6 +2532,27 @@
           <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
           <sc:StrataLineIcon Classes="chip-chevron" Data="{x:Static sc:StrataIcons.ChevronRight}" />
         </StackPanel>
+      </Button>
+    </DataTemplate>
+
+    <!-- ── App card (an MCP App or canvas a tool opened; it opens in the Workspace) ── -->
+    <DataTemplate DataType="vm:EmbeddedAppItem">
+      <Button x:Name="AppCard" Classes="transcript-app" Classes.showing="{Binding IsShowing}"
+              Command="{Binding OpenCommand}" Margin="0,2"
+              AutomationProperties.Name="{Binding Title}">
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <Border Classes="app-tile">
+            <PathIcon Data="{x:Static vm:WorkspaceIcons.Apps}" />
+          </Border>
+          <StackPanel Grid.Column="1" Margin="11,0,14,0" Spacing="1" VerticalAlignment="Center">
+            <TextBlock Classes="app-title" Text="{Binding Title}" />
+            <TextBlock Classes="app-subtitle" Text="{Binding Subtitle}" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+            <TextBlock Classes="app-action" Text="{Binding ActionLabel}" />
+            <sc:StrataLineIcon Classes="app-chevron" Data="{x:Static sc:StrataIcons.ChevronRight}" />
+          </StackPanel>
+        </Grid>
       </Button>
     </DataTemplate>
 
