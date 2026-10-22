@@ -17,7 +17,8 @@ jobs:
   validate:
     name: Validate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # The Windows suite alone takes about half an hour.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
