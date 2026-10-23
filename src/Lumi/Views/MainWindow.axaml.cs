@@ -27,6 +27,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views.Management;
 using StrataTheme;
 using StrataTheme.Animation;
 using StrataTheme.Controls;
@@ -108,6 +109,9 @@ public partial class MainWindow : Window
     private ContentControl? _settingsHost;
     private SettingsView? _settingsView;
     private ContentControl? _libraryHost;
+    private readonly Dictionary<int, PageScrollState> _pageScrollStates = [];
+    private readonly Dictionary<int, PageScrollState> _sidebarScrollStates = [];
+    private sealed record PageScrollState(object? Key, IReadOnlyDictionary<string, Vector> Offsets);
     private Border? _sidebarBorder;
     private Border? _contentArea;
     private Thumb? _sidebarResizeThumb;
@@ -1272,8 +1276,7 @@ public partial class MainWindow : Window
 
     private void ShowPage(int index)
     {
-        if (index != 7)
-            ReleaseSettingsView();
+        ReleaseInactivePageViews(index);
         EnsurePageViewLoaded(index);
 
         var sectionChanged = _currentShellIndex != index;
@@ -1291,8 +1294,30 @@ public partial class MainWindow : Window
         // Show the matching sidebar panel
         for (int i = 0; i < _sidebarPanels.Length; i++)
         {
-            if (_sidebarPanels[i] is not null)
-                _sidebarPanels[i]!.IsVisible = i == sidebarIndex;
+            if (_sidebarPanels[i] is not { } sidebar)
+                continue;
+
+            if (i > 0 && DataContext is MainViewModel pageModel)
+            {
+                if (i == sidebarIndex)
+                {
+                    var context = PageDataContext(pageModel, i);
+                    if (!ReferenceEquals(sidebar.DataContext, context))
+                    {
+                        sidebar.DataContext = context;
+                        var restoredIndex = i;
+                        RestoreScroll(sidebar, _sidebarScrollStates, i,
+                            () => _currentSidebarIndex == restoredIndex && ReferenceEquals(sidebar.DataContext, context));
+                    }
+                }
+                else if (sidebar.DataContext is not null)
+                {
+                    _sidebarScrollStates[i] = new PageScrollState(PageStateKey(pageModel, i), ManagementPage.CaptureScroll(sidebar));
+                    sidebar.IsVisible = false;
+                    sidebar.DataContext = null;
+                }
+            }
+            sidebar.IsVisible = i == sidebarIndex;
         }
 
         // Leaving the chat closes Workspace pages: the native browser can't float over other pages
@@ -1719,18 +1744,6 @@ public partial class MainWindow : Window
 
             _pendingNavHoverIndex = -1;
             SetHoveredNavButton(index);
-
-            // Pre-warm the hovered page off the click path. Hovering a nav item signals intent to
-            // open it, so inflate its (lazily-created, then cached) view now at Background priority.
-            // By click time the heavy one-time XAML/template inflation is already paid, turning a
-            // cold first-visit hitch (worst: the MCP servers page) into an instant warm switch.
-            // Idempotent: EnsurePageViewLoaded no-ops once the page's host content exists.
-            if (index > 0 && DataContext is MainViewModel hovered)
-            {
-                var page = PageForNavButton(hovered, index);
-                if (page >= 0 && page != 7)
-                    Dispatcher.UIThread.Post(() => EnsurePageViewLoaded(page), DispatcherPriority.Background);
-            }
         }, DispatcherPriority.Input);
     }
 
@@ -3348,53 +3361,83 @@ public partial class MainWindow : Window
 
     private void EnsurePageViewLoaded(int index)
     {
-        if (DataContext is not MainViewModel vm) return;
+        if (DataContext is not MainViewModel vm || vm.SelectedNavIndex != index
+            || PageHost(index) is not { Content: null } host)
+            return;
 
-        switch (index)
+        Control? view = index switch
         {
-            case 1:
-                if (_jobsHost is not null && _jobsHost.Content is null)
-                    _jobsHost.Content = new BackgroundJobsView { DataContext = vm.JobsVM };
-                break;
-            case 2:
-                if (_projectsHost is not null && _projectsHost.Content is null)
-                    _projectsHost.Content = new ProjectsView { DataContext = vm.ProjectsVM };
-                break;
-            case 3:
-                if (_skillsHost is not null && _skillsHost.Content is null)
-                    _skillsHost.Content = new SkillsView { DataContext = vm.SkillsVM };
-                break;
-            case 4:
-                if (_agentsHost is not null && _agentsHost.Content is null)
-                    _agentsHost.Content = new AgentsView { DataContext = vm.AgentsVM };
-                break;
-            case 5:
-                if (_memoriesHost is not null && _memoriesHost.Content is null)
-                    _memoriesHost.Content = new MemoriesView { DataContext = vm.MemoriesVM };
-                break;
-            case 6:
-                if (_mcpServersHost is not null && _mcpServersHost.Content is null)
-                    _mcpServersHost.Content = new McpServersView { DataContext = vm.McpServersVM };
-                break;
-            case 7:
-                if (_settingsHost is not null && _settingsHost.Content is null)
-                {
-                    _settingsView = new SettingsView { DataContext = vm.SettingsVM };
-                    _settingsHost.Content = _settingsView;
-                }
-                else if (_settingsHost is not null)
-                {
-                    _settingsView = _settingsHost.Content as SettingsView;
-                }
-                break;
-            case 8:
-                if (_libraryHost is not null && _libraryHost.Content is null)
-                    _libraryHost.Content = new LibraryView { DataContext = vm.LibraryVM };
-                break;
-            case MainViewModel.DiscoverNavIndex:
-                if (_discoverHost is not null && _discoverHost.Content is null)
-                    _discoverHost.Content = new DiscoverView { DataContext = vm.DiscoverVM };
-                break;
+            1 => new BackgroundJobsView(),
+            2 => new ProjectsView(),
+            3 => new SkillsView(),
+            4 => new AgentsView(),
+            5 => new MemoriesView(),
+            6 => new McpServersView(),
+            7 => _settingsView = new SettingsView(),
+            8 => new LibraryView(),
+            MainViewModel.DiscoverNavIndex => new DiscoverView(),
+            _ => null
+        };
+        if (view is null)
+            return;
+
+        view.DataContext = PageDataContext(vm, index);
+        host.Content = view;
+        RestoreScroll(view, _pageScrollStates, index,
+            () => _currentShellIndex == index && ReferenceEquals(host.Content, view));
+    }
+
+    private ContentControl? PageHost(int index) => index switch
+    {
+        1 => _jobsHost, 2 => _projectsHost, 3 => _skillsHost, 4 => _agentsHost,
+        5 => _memoriesHost, 6 => _mcpServersHost, 7 => _settingsHost, 8 => _libraryHost,
+        MainViewModel.DiscoverNavIndex => _discoverHost, _ => null
+    };
+
+    private static object? PageDataContext(MainViewModel vm, int index) => index switch
+    {
+        1 => vm.JobsVM, 2 => vm.ProjectsVM, 3 => vm.SkillsVM, 4 => vm.AgentsVM,
+        5 => vm.MemoriesVM, 6 => vm.McpServersVM, 7 => vm.SettingsVM, 8 => vm.LibraryVM,
+        MainViewModel.DiscoverNavIndex => vm.DiscoverVM, _ => null
+    };
+
+    private static object? PageStateKey(MainViewModel vm, int index) => index switch
+    {
+        1 => (vm.JobsVM.SelectedJob?.Id, vm.JobsVM.SearchQuery, vm.JobsVM.ActivationFilterIndex, vm.JobsVM.LifecycleFilterIndex),
+        2 => (vm.ProjectsVM.SelectedProject?.Id, vm.ProjectsVM.IsEditing, vm.ProjectsVM.SearchQuery, vm.ProjectsVM.SortIndex),
+        3 => (vm.SkillsVM.SelectedSkill?.Id, vm.SkillsVM.External.OpenItem, vm.SkillsVM.IsEditing, vm.SkillsVM.SearchQuery, vm.SkillsVM.SortIndex),
+        4 => (vm.AgentsVM.SelectedAgent?.Id, vm.AgentsVM.External.OpenItem, vm.AgentsVM.IsEditing, vm.AgentsVM.SearchQuery, vm.AgentsVM.SortIndex),
+        5 => (vm.MemoriesVM.SelectedMemory?.Id, vm.MemoriesVM.Briefs.SelectedBrief, vm.MemoriesVM.Briefs.IsOpen, vm.MemoriesVM.SearchQuery),
+        6 => (vm.McpServersVM.SelectedServer?.Id, vm.McpServersVM.External.OpenItem, vm.McpServersVM.IsEditing, vm.McpServersVM.SearchQuery, vm.McpServersVM.SortIndex),
+        7 => vm.SettingsVM.SelectedPageIndex,
+        8 => (vm.LibraryVM.CaptureNavigationState(), vm.LibraryVM.SelectedSortIndex),
+        MainViewModel.DiscoverNavIndex => (vm.DiscoverVM.OpenCard, vm.DiscoverVM.Filter, vm.DiscoverVM.SourceKey, vm.DiscoverVM.SearchQuery),
+        _ => null
+    };
+
+    private void ReleaseInactivePageViews(int activeIndex)
+    {
+        for (var index = 1; index < _pages.Length; index++)
+        {
+            if (index == activeIndex || PageHost(index) is not { Content: Control view } host)
+                continue;
+            if (index == 7)
+            {
+                ReleaseSettingsView();
+                continue;
+            }
+            if (DataContext is MainViewModel vm)
+                _pageScrollStates[index] = new PageScrollState(PageStateKey(vm, index), ManagementPage.CaptureScroll(view));
+            ManagementPage.Release(view);
+            host.Content = null;
         }
+    }
+
+    private void RestoreScroll(Control view, Dictionary<int, PageScrollState> states, int index, Func<bool> isCurrent)
+    {
+        if (DataContext is not MainViewModel vm || !states.TryGetValue(index, out var state))
+            return;
+        ManagementPage.RestoreScroll(view, state.Offsets,
+            () => isCurrent() && Equals(state.Key, PageStateKey(vm, index)));
     }
 }

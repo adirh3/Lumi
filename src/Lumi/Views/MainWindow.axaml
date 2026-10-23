@@ -2071,7 +2071,7 @@
           </Panel>
 
           <!-- ── 1: Jobs sidebar ── -->
-          <Panel x:Name="SidebarJobs" IsVisible="False" DataContext="{Binding JobsVM}" x:DataType="vm:BackgroundJobsViewModel">
+          <Panel x:Name="SidebarJobs" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:BackgroundJobsViewModel">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
@@ -2319,7 +2319,7 @@
           </Panel>
 
           <!-- ── 2: Projects sidebar (Customize → Projects) ── -->
-          <Panel x:Name="SidebarProjects" IsVisible="False" DataContext="{Binding ProjectsVM}" x:DataType="vm:ProjectsViewModel">
+          <Panel x:Name="SidebarProjects" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:ProjectsViewModel">
             <Panel.Resources>
               <ResourceDictionary>
                 <ResourceDictionary.MergedDictionaries>
@@ -2412,7 +2412,7 @@
           </Panel>
 
           <!-- ── 3: Skills sidebar ── -->
-          <Panel x:Name="SidebarSkills" IsVisible="False" DataContext="{Binding SkillsVM}" x:DataType="vm:SkillsViewModel">
+          <Panel x:Name="SidebarSkills" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:SkillsViewModel">
             <Panel.Resources>
               <ResourceDictionary>
                 <ResourceDictionary.MergedDictionaries>
@@ -2507,7 +2507,7 @@
           </Panel>
 
           <!-- ── 4: Lumis sidebar ── -->
-          <Panel x:Name="SidebarAgents" IsVisible="False" DataContext="{Binding AgentsVM}" x:DataType="vm:AgentsViewModel">
+          <Panel x:Name="SidebarAgents" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:AgentsViewModel">
             <Panel.Resources>
               <ResourceDictionary>
                 <ResourceDictionary.MergedDictionaries>
@@ -2602,7 +2602,7 @@
           </Panel>
 
           <!-- ── 6: MCP Servers sidebar ── -->
-          <Panel x:Name="SidebarMcpServers" IsVisible="False" DataContext="{Binding McpServersVM}" x:DataType="vm:McpServersViewModel">
+          <Panel x:Name="SidebarMcpServers" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:McpServersViewModel">
             <Panel.Resources>
               <ResourceDictionary>
                 <ResourceDictionary.MergedDictionaries>
@@ -2702,7 +2702,7 @@
           </Panel>
 
           <!-- ── 9: Discover sidebar: what to browse, and where it comes from ── -->
-          <Panel x:Name="SidebarDiscover" IsVisible="False" DataContext="{Binding DiscoverVM}" x:DataType="vm:DiscoverViewModel">
+          <Panel x:Name="SidebarDiscover" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:DiscoverViewModel">
             <Panel.Resources>
               <ResourceDictionary>
                 <ResourceDictionary.MergedDictionaries>
@@ -2784,7 +2784,7 @@
           <!-- Search first, then you (profile, memories), the app, intelligence and connections, and
                data and Lumi itself, with a little air between the groups. Each row wears its page's
                hue, as Customize's rows do; the selection uses Lumi's accent. -->
-          <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}" x:DataType="vm:SettingsViewModel">
+          <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:SettingsViewModel">
             <Panel.Resources>
               <ResourceDictionary>
                 <ResourceDictionary.MergedDictionaries>
@@ -2900,7 +2900,7 @@
           </Panel>
 
           <!-- ── 8: Library sidebar ── -->
-          <Panel x:Name="SidebarLibrary" IsVisible="False" DataContext="{Binding LibraryVM}" x:DataType="vm:LibraryViewModel">
+          <Panel x:Name="SidebarLibrary" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:LibraryViewModel">
             <DockPanel>
               <!-- Named for what the column does, not for the page it belongs to: every control
                    below narrows the results, and the page header already says "Library". Undo
