@@ -40,9 +40,18 @@ internal sealed class ChatStoreWriter : IDisposable
 
     /// <summary>Queues a write. Its task completes once the write is committed.</summary>
     public Task Enqueue(Guid? chatId, Action<SqliteConnection, SqliteTransaction> work)
+        => Enqueue(chatId, new WriteJob(work, null));
+
+    /// <summary>
+    /// Queues work that manages its own transactions (<c>VACUUM</c> cannot run inside one), in order
+    /// with the writes around it. Its task completes once it ran.
+    /// </summary>
+    public Task EnqueueMaintenance(Action<SqliteConnection> work)
+        => Enqueue(null, new WriteJob(null, work));
+
+    private Task Enqueue(Guid? chatId, WriteJob job)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var job = new WriteJob(work);
         lock (_lastWriteSync)
         {
             if (!_jobs.Writer.TryWrite(job))
@@ -84,13 +93,41 @@ internal sealed class ChatStoreWriter : IDisposable
         {
             batch.Clear();
             while (batch.Count < MaxJobsPerTransaction && _jobs.Reader.TryRead(out var job))
-                batch.Add(job);
+            {
+                if (job.Maintenance is null)
+                {
+                    batch.Add(job);
+                    continue;
+                }
+
+                // Writes queued before it commit first; it then runs on its own.
+                if (batch.Count > 0)
+                    Execute(connection, batch);
+                batch.Clear();
+                RunMaintenance(connection, job);
+            }
+
             if (batch.Count > 0)
                 Execute(connection, batch);
         }
     }
 
-    private static void Execute(SqliteConnection connection, List<WriteJob> batch)
+    private void RunMaintenance(SqliteConnection connection, WriteJob job)
+    {
+        try
+        {
+            job.Maintenance!(connection);
+            job.Completion.TrySetResult();
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError("[ChatStore] Maintenance failed: {0}", ex);
+            _database.NoteDamage(ex);
+            job.Completion.TrySetException(ex);
+        }
+    }
+
+    private void Execute(SqliteConnection connection, List<WriteJob> batch)
     {
         SqliteTransaction? transaction = null;
         try
@@ -103,7 +140,7 @@ internal sealed class ChatStoreWriter : IDisposable
                 transaction.Save(savepoint);
                 try
                 {
-                    job.Work(connection, transaction);
+                    job.Work!(connection, transaction);
                     transaction.Release(savepoint);
                 }
                 catch (Exception ex)
@@ -131,9 +168,14 @@ internal sealed class ChatStoreWriter : IDisposable
         foreach (var job in batch)
         {
             if (job.Error is { } error)
+            {
+                _database.NoteDamage(error);
                 job.Completion.TrySetException(error);
+            }
             else
+            {
                 job.Completion.TrySetResult();
+            }
         }
     }
 
@@ -156,9 +198,10 @@ internal sealed class ChatStoreWriter : IDisposable
         }
     }
 
-    private sealed class WriteJob(Action<SqliteConnection, SqliteTransaction> work)
+    private sealed class WriteJob(Action<SqliteConnection, SqliteTransaction>? work, Action<SqliteConnection>? maintenance)
     {
-        public Action<SqliteConnection, SqliteTransaction> Work { get; } = work;
+        public Action<SqliteConnection, SqliteTransaction>? Work { get; } = work;
+        public Action<SqliteConnection>? Maintenance { get; } = maintenance;
         public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Exception? Error { get; set; }
     }

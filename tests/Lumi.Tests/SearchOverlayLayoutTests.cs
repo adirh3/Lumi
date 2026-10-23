@@ -520,7 +520,7 @@ public sealed class SearchOverlayLayoutTests
     {
         var service = new GlobalSearchService(
             () => appData,
-            _ => new ChatSearchSnapshot { Version = "empty" });
+            chatContent: null);
         return new SearchOverlayViewModel(service, () => 0);
     }
 }

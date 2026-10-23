@@ -43,27 +43,36 @@ public sealed class GlobalSearchMatch
     public DateTimeOffset? SortTimestamp { get; init; }
 }
 
-public sealed class ChatSearchMessage
-{
-    public string Text { get; init; } = "";
-    public string Role { get; init; } = "";
-    public DateTimeOffset Timestamp { get; init; }
-}
+/// <summary>
+/// Where some text occurs in a chat: in the user's messages, in Lumi's, and one such message to quote
+/// (a stored message's row in <see cref="MessageKey"/>, or its text in <see cref="Text"/>).
+/// </summary>
+public readonly record struct ChatContentHit(bool InUserMessage, bool InAnswer, long MessageKey, string? Text);
 
-public sealed class ChatSearchSnapshot
+/// <summary>Finds chats by what was said in them (<see cref="DataStore"/> looks in the chat database).</summary>
+public interface IChatContentSearch
 {
-    public string Version { get; init; } = "";
-    public IReadOnlyList<ChatSearchMessage> Messages { get; init; } = Array.Empty<ChatSearchMessage>();
+    /// <summary>
+    /// The chats whose messages contain <paramref name="text"/>: a run of three or more characters,
+    /// anywhere, ignoring case and accents. Shorter text finds nothing.
+    /// </summary>
+    IReadOnlyDictionary<Guid, ChatContentHit> FindChatsContaining(string text);
+
+    /// <summary>The text of the message a hit points at, to quote it; null when it is gone.</summary>
+    string? ReadHitText(ChatContentHit hit);
 }
 
 public sealed class GlobalSearchService
 {
     private readonly Func<AppData> _getData;
     private readonly Func<DateTimeOffset> _nowProvider;
-    private readonly ChatContentIndex _contentIndex;
-    private const int InteractiveColdChatContentLimit = 16;
+    private readonly IChatContentSearch? _chatContent;
     private const double UserMessageSearchWeight = 3.0;
     private const double AssistantMessageSearchWeight = 1.0;
+
+    // What a query word found in a chat's messages scores, before its weight: a real occurrence,
+    // so about what the text engine gives a word it finds whole (1,600, less a share for where).
+    private const double ContentTermScore = 1_500;
 
     // Chat titles are often long auto-generated sentences, so the fuzzy text engine can match a
     // query against an unrelated word (e.g. "exposes"/"expert" for "expenses") and the high primary
@@ -123,30 +132,26 @@ public sealed class GlobalSearchService
         new("Version", "About", 7)
     ];
 
+    /// <param name="chatContent">Finds chats by their messages; without it, chats are found by their titles.</param>
     public GlobalSearchService(
         Func<AppData> getData,
-        Func<Chat, ChatSearchSnapshot> chatSnapshotProvider,
-        Func<DateTimeOffset>? nowProvider = null,
-        Action<Guid>? releaseChatSnapshot = null,
-        Func<Chat, long?>? chatContentVersionProvider = null)
+        IChatContentSearch? chatContent,
+        Func<DateTimeOffset>? nowProvider = null)
     {
         _getData = getData ?? throw new ArgumentNullException(nameof(getData));
-        ArgumentNullException.ThrowIfNull(chatSnapshotProvider);
+        _chatContent = chatContent;
         _nowProvider = nowProvider ?? (() => DateTimeOffset.Now);
-        _contentIndex = new ChatContentIndex(chatSnapshotProvider, releaseChatSnapshot, chatContentVersionProvider);
     }
-
-    /// <summary>Number of chats whose content is currently indexed (full-coverage progress).</summary>
-    public int IndexedChatCount => _contentIndex.Count;
 
     /// <summary>
     /// Captures one consistent data snapshot and parses the query once so progressive UI phases
     /// can reuse that work instead of repeatedly copying the full application data.
     /// Must be called from the UI thread because <see cref="AppData"/> collections are UI-owned.
     /// </summary>
-    public PreparedSearch PrepareSearch(string query)
+    /// <param name="chats">When set, the only chats searched, chosen before results are ranked and limited.</param>
+    public PreparedSearch PrepareSearch(string query, Func<Chat, bool>? chats = null)
     {
-        var snapshot = CaptureSnapshot(_getData());
+        var snapshot = CaptureSnapshot(_getData(), chats);
         var trimmedQuery = query?.Trim() ?? "";
 
         if (string.IsNullOrEmpty(trimmedQuery))
@@ -198,7 +203,10 @@ public sealed class GlobalSearchService
             preparedSearch.TextQuery,
             preparedSearch.Range,
             preparedSearch.HasRecencyIntent,
-            executionMode);
+            executionMode,
+            executionMode == GlobalSearchExecutionMode.Preview || _chatContent is null
+                ? null
+                : () => preparedSearch.GetContent(_chatContent));
 
         return Task.Run<IReadOnlyList<GlobalSearchMatch>>(
             () => SearchCore(preparedSearch.Snapshot, context, cancellationToken),
@@ -211,6 +219,7 @@ public sealed class GlobalSearchService
         CancellationToken cancellationToken)
     {
         var results = new List<GlobalSearchMatch>();
+        var quotes = new Dictionary<GlobalSearchMatch, ContentQuote>(ReferenceEqualityComparer.Instance);
 
         if (context.IsBrowse)
         {
@@ -218,7 +227,7 @@ public sealed class GlobalSearchService
         }
         else
         {
-            SearchChats(snapshot, context, results, cancellationToken);
+            SearchChats(snapshot, context, results, quotes, cancellationToken);
             SearchJobs(snapshot, context, results, cancellationToken);
             SearchProjects(snapshot, context, results, cancellationToken);
             SearchSkills(snapshot, context, results, cancellationToken);
@@ -246,19 +255,53 @@ public sealed class GlobalSearchService
             return StringComparer.CurrentCultureIgnoreCase.Compare(left.Title, right.Title);
         });
 
-        return LimitResultsPerCategory(results, context.Mode == GlobalSearchExecutionMode.Preview ? 12 : 32);
+        var limited = LimitResultsPerCategory(results, context.Mode == GlobalSearchExecutionMode.Preview ? 12 : 32);
+        return quotes.Count == 0 ? limited : Quote(limited, quotes, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gives the chats found by what was said in them, among the results shown, the words around it:
+    /// one message read for each, rather than one for every chat that matched.
+    /// </summary>
+    private IReadOnlyList<GlobalSearchMatch> Quote(
+        IReadOnlyList<GlobalSearchMatch> results,
+        Dictionary<GlobalSearchMatch, ContentQuote> quotes,
+        CancellationToken cancellationToken)
+    {
+        var quoted = new List<GlobalSearchMatch>(results.Count);
+        foreach (var match in results)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!quotes.TryGetValue(match, out var quote) || match.Item is not Chat chat)
+            {
+                quoted.Add(match);
+                continue;
+            }
+
+            var snippet = BuildSnippet(quote.Hit.Text ?? _chatContent!.ReadHitText(quote.Hit), quote.Text);
+            quoted.Add(new GlobalSearchMatch
+            {
+                Category = match.Category,
+                Title = match.Title,
+                Subtitle = BuildChatSubtitle(quote.ProjectName, chat.UpdatedAt, snippet),
+                NavIndex = match.NavIndex,
+                Item = match.Item,
+                Score = match.Score,
+                IsContentMatch = match.IsContentMatch,
+                SortTimestamp = match.SortTimestamp
+            });
+        }
+
+        return quoted;
     }
 
     private void SearchChats(
         SearchSnapshot snapshot,
         SearchContext context,
         ICollection<GlobalSearchMatch> results,
+        Dictionary<GlobalSearchMatch, ContentQuote> quotes,
         CancellationToken cancellationToken)
     {
-        var interactiveColdChatIds = context.Mode == GlobalSearchExecutionMode.Interactive
-            ? GetInteractiveColdChatIds(snapshot.Chats, context, cancellationToken)
-            : null;
-
         foreach (var chat in snapshot.Chats)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -268,53 +311,46 @@ public sealed class GlobalSearchService
 
             var titleField = new PreparedSearchField(chat.Title, 3.8, SearchFieldKind.Primary);
             var evaluation = SearchEngine.Evaluate(context.TextQuery, [titleField]);
-
-            if (!evaluation.IsMatch && context.Mode != GlobalSearchExecutionMode.Preview)
-            {
-                var contentFields = GetChatContentFields(
-                    chat,
-                    context.Mode,
-                    interactiveColdChatIds,
-                    context.TextQuery,
-                    cancellationToken);
-
-                if (contentFields is not null)
-                {
-                    var fields = new List<PreparedSearchField>(1 + contentFields.Count) { titleField };
-                    fields.AddRange(contentFields);
-                    evaluation = SearchEngine.Evaluate(context.TextQuery, fields);
-                }
-            }
-
-            if (!evaluation.IsMatch)
-                continue;
-
             snapshot.ProjectNames.TryGetValue(chat.ProjectId ?? Guid.Empty, out var projectName);
 
-            // A match is "genuine" when the query actually occurs in the content (content fields are
-            // never fuzzy-matched) or every term is a real substring/token of the title. Pure fuzzy
-            // title matches are damped so they cannot bury exact title or real content matches.
-            var isGenuineMatch = evaluation.IsContentMatch
-                                 || QueryTermsPresentInTitle(chat.Title, context.TextQuery);
-            var relevance = isGenuineMatch
-                ? evaluation.Score
-                : evaluation.Score * FuzzyChatRelevanceFactor;
+            double relevance;
+            ContentQuote? quote = null;
+            if (evaluation.IsMatch)
+            {
+                // A pure fuzzy title match is damped so it cannot bury exact title or real content
+                // matches; one where every term is a real substring/token of the title is not.
+                relevance = QueryTermsPresentInTitle(chat.Title, context.TextQuery)
+                    ? evaluation.Score
+                    : evaluation.Score * FuzzyChatRelevanceFactor;
+            }
+            else if (context.Content?.Invoke().Match(chat.Id, titleField, projectName) is { } contentMatch)
+            {
+                relevance = contentMatch.Score;
+                quote = contentMatch.Quote;
+            }
+            else
+            {
+                continue;
+            }
 
             var score = relevance
                         + GetTitleBonus(chat.Title, context.TextQuery)
                         + GetChatRecencyBoost(chat.UpdatedAt, context.HasRecencyIntent);
 
-            results.Add(new GlobalSearchMatch
+            var match = new GlobalSearchMatch
             {
                 Category = GlobalSearchCategory.Chats,
                 Title = chat.Title,
-                Subtitle = BuildChatSubtitle(projectName, chat.UpdatedAt, evaluation.BestContentSnippet),
+                Subtitle = BuildChatSubtitle(projectName, chat.UpdatedAt, snippet: null),
                 NavIndex = 0,
                 Item = chat,
                 Score = score,
-                IsContentMatch = evaluation.IsContentMatch,
+                IsContentMatch = quote is not null,
                 SortTimestamp = chat.UpdatedAt
-            });
+            };
+            results.Add(match);
+            if (quote is not null)
+                quotes[match] = quote;
         }
     }
 
@@ -926,52 +962,6 @@ public sealed class GlobalSearchService
         return results;
     }
 
-    /// <summary>
-    /// Resolves the content field for a chat according to the execution mode. Cheap modes only use
-    /// already-indexed content (no disk reads); Interactive additionally builds a bounded number of
-    /// the most recent cold chats; Full builds everything. A cheap substring gate avoids running the
-    /// fuzzy evaluator on chats whose content cannot contain the query.
-    /// </summary>
-    private IReadOnlyList<PreparedSearchField>? GetChatContentFields(
-        Chat chat,
-        GlobalSearchExecutionMode executionMode,
-        IReadOnlySet<Guid>? interactiveColdChatIds,
-        SearchQuery query,
-        CancellationToken cancellationToken)
-    {
-        if (executionMode == GlobalSearchExecutionMode.Preview)
-            return null;
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        ChatContentIndex.Entry? entry;
-        switch (executionMode)
-        {
-            case GlobalSearchExecutionMode.Fast:
-                // Loaded chats rebuild cheaply from memory; cold chats use only indexed content.
-                entry = _contentIndex.GetEntry(chat, allowBuild: false);
-                break;
-
-            case GlobalSearchExecutionMode.Interactive:
-                if (chat.Messages.Count > 0 || _contentIndex.IsCached(chat.Id))
-                    entry = _contentIndex.GetEntry(chat, allowBuild: false);
-                else if (interactiveColdChatIds is not null && interactiveColdChatIds.Contains(chat.Id))
-                    entry = _contentIndex.GetEntry(chat, allowBuild: true);
-                else
-                    entry = null;
-                break;
-
-            default: // Full
-                entry = _contentIndex.GetEntry(chat, allowBuild: true);
-                break;
-        }
-
-        if (entry is null || entry.IsEmpty || !entry.MayMatch(query))
-            return null;
-
-        return entry.ToContentFields(UserMessageSearchWeight, AssistantMessageSearchWeight);
-    }
-
     private static IReadOnlyList<GlobalSearchMatch> LimitResultsPerCategory(
         IEnumerable<GlobalSearchMatch> sortedResults,
         int perCategoryLimit)
@@ -994,77 +984,6 @@ public sealed class GlobalSearchService
 
     private static bool IncludeContentFields(GlobalSearchExecutionMode executionMode)
         => executionMode is GlobalSearchExecutionMode.Interactive or GlobalSearchExecutionMode.Full;
-
-    private HashSet<Guid>? GetInteractiveColdChatIds(
-        IReadOnlyList<Chat> chats,
-        SearchContext context,
-        CancellationToken cancellationToken)
-    {
-        var recentColdChats = new List<Chat>(InteractiveColdChatContentLimit);
-        foreach (var chat in chats)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (chat.Messages.Count > 0 || _contentIndex.IsCached(chat.Id))
-                continue;
-
-            if (!context.InRange(chat.UpdatedAt))
-                continue;
-
-            if (recentColdChats.Count < InteractiveColdChatContentLimit)
-            {
-                recentColdChats.Add(chat);
-                continue;
-            }
-
-            var oldestIndex = 0;
-            for (var index = 1; index < recentColdChats.Count; index++)
-            {
-                if (recentColdChats[index].UpdatedAt < recentColdChats[oldestIndex].UpdatedAt)
-                    oldestIndex = index;
-            }
-
-            if (chat.UpdatedAt > recentColdChats[oldestIndex].UpdatedAt)
-                recentColdChats[oldestIndex] = chat;
-        }
-
-        return recentColdChats.Count == 0
-            ? null
-            : recentColdChats.Select(static chat => chat.Id).ToHashSet();
-    }
-
-    // ── Content index maintenance (called from the view model) ────────────────
-
-    /// <summary>Builds content entries for all cold chats in the background so search covers the full history.</summary>
-    public Task WarmChatContentAsync(CancellationToken cancellationToken = default)
-        => _contentIndex.WarmAsync(_getData().Chats.ToArray(), cancellationToken);
-
-    /// <summary>
-    /// Builds content entries for the supplied cold chats. The caller captures the chat list on the
-    /// UI thread (<see cref="AppData.Chats"/> is not thread-safe) so this can run off the UI thread.
-    /// </summary>
-    public Task WarmChatContentAsync(IReadOnlyList<Chat> chats, CancellationToken cancellationToken = default)
-        => _contentIndex.WarmAsync(chats, cancellationToken);
-
-    /// <summary>Forces a chat's content entry to rebuild on next access (after it was edited/saved).</summary>
-    public void InvalidateChatContent(Guid chatId) => _contentIndex.Invalidate(chatId);
-
-    /// <summary>Drops a deleted chat's content entry.</summary>
-    public void RemoveChatContent(Guid chatId) => _contentIndex.Remove(chatId);
-
-    /// <summary>Removes index entries for chats that no longer exist.</summary>
-    public void PruneChatContent()
-        => _contentIndex.Prune(_getData().Chats.Select(static chat => chat.Id));
-
-    /// <summary>Removes index entries for chats not present in the supplied live id set (caller-captured).</summary>
-    public void PruneChatContent(IEnumerable<Guid> liveChatIds)
-        => _contentIndex.Prune(liveChatIds);
-
-    /// <summary>Loads a previously persisted content index. Returns the number of entries restored.</summary>
-    public int LoadChatContentIndex(string path) => _contentIndex.Load(path);
-
-    /// <summary>Persists the content index so a restart can skip re-reading the whole history.</summary>
-    public void SaveChatContentIndex(string path) => _contentIndex.Save(path);
 
     private double GetRecencyBoost(DateTimeOffset timestamp, double multiplier)
     {
@@ -1229,11 +1148,13 @@ public sealed class GlobalSearchService
         return builder.ToString().Trim();
     }
 
-    private static SearchSnapshot CaptureSnapshot(AppData data)
+    private static SearchSnapshot CaptureSnapshot(AppData data, Func<Chat, bool>? chatFilter)
     {
         ArgumentNullException.ThrowIfNull(data);
 
         var chats = data.Chats.ToArray();
+        if (chatFilter is not null)
+            chats = Array.FindAll(chats, chat => chatFilter(chat));
         var projects = data.Projects.ToArray();
         var skills = data.Skills.ToArray();
         var agents = data.Agents.ToArray();
@@ -1269,7 +1190,8 @@ public sealed class GlobalSearchService
         SearchQuery textQuery,
         SearchTimeRange? range,
         bool hasRecencyIntent,
-        GlobalSearchExecutionMode mode)
+        GlobalSearchExecutionMode mode,
+        Func<ContentLookup>? content)
     {
         public SearchQuery TextQuery { get; } = textQuery;
         public SearchTimeRange? Range { get; } = range;
@@ -1277,11 +1199,112 @@ public sealed class GlobalSearchService
         public GlobalSearchExecutionMode Mode { get; } = mode;
         public bool HasRange => Range.HasValue;
 
+        /// <summary>What the query found in chats' messages; null when they are not searched (Preview).</summary>
+        public Func<ContentLookup>? Content { get; } = content;
+
         /// <summary>True when there is no residual text to match (list by time/recency instead).</summary>
         public bool IsBrowse => TextQuery.IsEmpty;
 
         public bool InRange(DateTimeOffset timestamp)
             => Range is not { } window || window.Contains(timestamp);
+    }
+
+    /// <summary>A chat found by what was said in it: the hit to quote, the text to quote around, and its project.</summary>
+    internal sealed record ContentQuote(ChatContentHit Hit, string Text, string? ProjectName);
+
+    /// <summary>
+    /// What one query found in chats' messages, looked up once and shared by its search phases. Every
+    /// query word must occur in the chat's title or messages, as the text engine matches words across
+    /// fields; a word of one or two letters, which the messages cannot be searched for, only in the
+    /// title, unless the whole query, long enough to look up, occurs in a message as typed. Messages
+    /// are searched for the words as typed (<see cref="ChatSearchText.Words"/>); titles are compared
+    /// the text engine's way.
+    /// </summary>
+    internal sealed class ContentLookup
+    {
+        private readonly string[] _words;
+        private readonly SearchQuery[] _wordQueries;
+        private readonly IReadOnlyDictionary<Guid, ChatContentHit>?[] _wordHits;
+        private readonly string? _phrase;
+        private readonly IReadOnlyDictionary<Guid, ChatContentHit>? _phraseHits;
+
+        public ContentLookup(IChatContentSearch search, SearchQuery query)
+        {
+            _words = ChatSearchText.Words(query.Original);
+            _wordQueries = Array.ConvertAll(_words, static word => SearchQuery.Create(word));
+            _wordHits = Array.ConvertAll(_words, word => ChatSearchText.CanLookUp(word)
+                ? search.FindChatsContaining(word)
+                : null);
+            if (Array.Exists(_wordHits, static hits => hits is null) && ChatSearchText.CanLookUp(query.Original))
+            {
+                _phrase = query.Original;
+                _phraseHits = search.FindChatsContaining(query.Original);
+            }
+        }
+
+        public (double Score, ContentQuote Quote)? Match(Guid chatId, PreparedSearchField title, string? projectName)
+        {
+            // As the text engine scores words across fields: each word's best field, plus a share for
+            // every word and for the words the title holds.
+            var total = 0d;
+            var inTitle = 0;
+            ContentQuote? quote = null;
+            for (var index = 0; index < _words.Length; index++)
+            {
+                var titleScore = SearchEngine.Evaluate(_wordQueries[index], [title]).Score;
+                var contentScore = 0d;
+                var hit = default(ChatContentHit);
+                if (_wordHits[index]?.TryGetValue(chatId, out hit) == true)
+                    contentScore = ContentScore(hit);
+
+                if (titleScore <= 0 && contentScore <= 0)
+                    return PhraseMatch(chatId, projectName);
+
+                if (titleScore >= contentScore)
+                {
+                    total += titleScore;
+                    inTitle++;
+                }
+                else
+                {
+                    total += contentScore;
+                    quote ??= new ContentQuote(hit, _words[index], projectName);
+                }
+            }
+
+            // Every word in the title is a title match, found before the messages are looked at.
+            if (quote is null)
+                return null;
+
+            if (_words.Length > 1)
+                total += _words.Length * 110 + inTitle * 70;
+            return (total, quote);
+        }
+
+        private (double Score, ContentQuote Quote)? PhraseMatch(Guid chatId, string? projectName)
+            => _phraseHits?.TryGetValue(chatId, out var hit) == true
+                ? (ContentScore(hit), new ContentQuote(hit, _phrase!, projectName))
+                : null;
+
+        private static double ContentScore(ChatContentHit hit)
+            => ContentTermScore * (hit.InUserMessage ? UserMessageSearchWeight : AssistantMessageSearchWeight);
+    }
+
+    /// <summary>The words around the first place <paramref name="text"/> occurs in <paramref name="message"/>.</summary>
+    private static string? BuildSnippet(string? message, string text)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return null;
+
+        const int radius = 72;
+        var start = Math.Max(0, ChatSearchText.IndexOf(message, text) - radius);
+        var length = Math.Min(message.Length - start, radius * 2);
+        var snippet = message.Substring(start, length).Trim();
+        if (start > 0)
+            snippet = "..." + snippet;
+        if (start + length < message.Length)
+            snippet += "...";
+        return snippet;
     }
 
     internal sealed class SearchSnapshot(
@@ -1329,6 +1352,16 @@ public sealed class GlobalSearchService
         internal SearchTimeRange? Range { get; }
         internal bool HasRecencyIntent { get; }
         internal bool UseDefaultResults { get; }
+
+        private readonly object _contentSync = new();
+        private ContentLookup? _content;
+
+        /// <summary>What this query finds in chats' messages: looked up by its first phase that searches them.</summary>
+        internal ContentLookup GetContent(IChatContentSearch search)
+        {
+            lock (_contentSync)
+                return _content ??= new ContentLookup(search, TextQuery);
+        }
     }
 
     private readonly record struct SearchSettingEntry(string Name, string Page, int PageIndex);

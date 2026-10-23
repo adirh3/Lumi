@@ -17,7 +17,7 @@ public sealed record UserPromptHistoryItem(
     string Content,
     DateTimeOffset Timestamp);
 
-public partial class DataStore
+public partial class DataStore : IChatContentSearch
 {
     internal const int SuggestionHistoryScanLimit = 1000;
     private static readonly TimeSpan SuggestionHistoryCacheTtl = TimeSpan.FromMinutes(2);
@@ -40,7 +40,6 @@ public partial class DataStore
     public static string SkillsDir { get; } = Path.Combine(AppDir, "skills");
     public static string ChatsDir { get; } = Path.Combine(AppDir, "chats");
     public static string CopilotConfigDir { get; } = Path.Combine(AppDir, "copilot");
-    public static string SearchContentIndexFile { get; } = Path.Combine(AppDir, "search-content-index.bin");
     internal static string AppDirectory => AppDir;
 
     /// <summary>
@@ -51,10 +50,10 @@ public partial class DataStore
     internal static bool UsesIsolatedProfile { get; } =
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR"));
 
-    /// <summary>Raised when a chat's persisted content changes (saved or deleted) so search indexes can refresh.</summary>
+    /// <summary>Raised when a chat's persisted content changes (saved or deleted) so views of it can refresh.</summary>
     public event Action<Guid>? ChatContentChanged;
 
-    /// <summary>Raised when all chats are cleared so search indexes can be reset.</summary>
+    /// <summary>Raised when all chats are cleared so views of them can refresh.</summary>
     public event Action? ChatsContentReset;
 
     /// <summary>
@@ -79,8 +78,6 @@ public partial class DataStore
     private AppData _data;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _skillSyncLock = new(1, 1);
-    private readonly object _chatSearchCacheSync = new();
-    private readonly Dictionary<Guid, CachedChatSearchSnapshot> _chatSearchCache = [];
     private readonly object _suggestionHistorySync = new();
     private IReadOnlyList<UserPromptHistoryItem>? _suggestionHistory;
     private DateTimeOffset _suggestionHistoryAt = DateTimeOffset.MinValue;
@@ -121,7 +118,7 @@ public partial class DataStore
         // Chats live in the chat database. Chats the index still lists in the legacy layout are
         // imported first (metadata now, transcripts in the background), then the index drops them.
         var legacyIndexChats = _data.Chats;
-        (_chatStore, var storedChats, _legacyImporter) = OpenChatStorage(
+        (_chatStore, var storedChats, _legacyImporter, _damagedChatsCopy) = OpenChatStorage(
             DatabaseFile, legacyIndexChats, ChatsDir, BackupLegacyIndexOnce);
         _chatStore.ChatContentCommitted += OnChatContentCommitted;
         _data.Chats = storedChats;
@@ -152,6 +149,10 @@ public partial class DataStore
         }
 
         StartLegacyImport();
+        UpgradesChatStorage = _chatStore.NeedsUpgrade;
+        _chatStorageUpkeep = _chatStore.StartMaintenance();
+        ObserveFailure(_chatStorageUpkeep, "Chat database upkeep");
+        RemoveRetiredSearchIndex();
     }
 
     internal DataStore(AppData data, string? skillsDirectoryOverride = null)

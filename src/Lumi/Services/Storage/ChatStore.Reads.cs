@@ -195,44 +195,6 @@ internal sealed partial class ChatStore
             """, chatKey, ("$role", role), ("$before", beforeSeq)).FirstOrDefault(), (ChatMessage?)null);
 
     /// <summary>
-    /// The messages before <paramref name="beforeSeq"/> that in-chat search reads, oldest first, with
-    /// just what it finds in them (see <see cref="Lumi.Services.TranscriptSearchText"/>): the role, text and author of
-    /// conversation and reasoning messages, and the whole message where the transcript shows more
-    /// than its text — a submitted form's receipt, an input request.
-    /// </summary>
-    public Task<List<ChatMessage>> ReadSearchMessagesAsync(Guid chatId, long beforeSeq)
-        => ReadAsync(chatId, (connection, chatKey) =>
-        {
-            using var command = CreateCommand(connection, null, """
-                SELECT seq, role, json_extract(body, '$.content'), json_extract(body, '$.author'),
-                       CASE WHEN role = 'tool' OR json_type(body, '$.interactionReceipt') IS NOT NULL THEN body END
-                FROM messages
-                WHERE chat_key = $chat AND seq < $before
-                  AND (role IN ('user', 'assistant', 'error', 'reasoning') OR (role = 'tool' AND tool_name = 'ask_input'))
-                ORDER BY seq;
-                """);
-            command.Parameters.AddWithValue("$chat", chatKey);
-            command.Parameters.AddWithValue("$before", beforeSeq);
-            using var reader = command.ExecuteReader();
-            var messages = new List<ChatMessage>();
-            while (reader.Read())
-            {
-                var message = reader.IsDBNull(4)
-                    ? new ChatMessage
-                    {
-                        Role = reader.GetString(1),
-                        Content = reader.IsDBNull(2) ? "" : reader.GetString(2),
-                        Author = reader.IsDBNull(3) ? null : reader.GetString(3),
-                    }
-                    : ChatStorageJson.DeserializeMessage(reader.GetString(4));
-                message.StorageSeq = reader.GetInt64(0);
-                messages.Add(message);
-            }
-
-            return messages;
-        }, new List<ChatMessage>());
-
-    /// <summary>
     /// For each run, the few steps its card summarizes without its work: the latest step that shows
     /// as a step card (a tool outside <paramref name="toolsWithoutCards"/>, and not a run of its own),
     /// the latest reported intent, and the first plan update. Oldest first, without their output,
@@ -784,73 +746,31 @@ internal sealed partial class ChatStore
         => Task.Run(async () =>
         {
             await _writer.WhenAllSettled().ConfigureAwait(false);
-            using var connection = _database.OpenConnection();
-            using var command = CreateCommand(connection, null, """
-                SELECT c.id, m.id, json_extract(m.body, '$.content'), m.timestamp
-                FROM messages m INDEXED BY messages_prompts JOIN chats c ON c.chat_key = m.chat_key
-                WHERE m.role = 'user'
-                ORDER BY m.timestamp DESC LIMIT $limit;
-                """);
-            command.Parameters.AddWithValue("$limit", Math.Max(0, limit));
-            using var reader = command.ExecuteReader();
-            var prompts = new List<StoredUserPrompt>();
-            while (reader.Read())
+            return Read(connection =>
             {
-                if (reader.IsDBNull(2))
-                    continue;
-                prompts.Add(new StoredUserPrompt(
-                    ReadGuid(reader, 0),
-                    ReadGuid(reader, 1),
-                    reader.GetString(2),
-                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)).ToLocalTime()));
-            }
+                using var command = CreateCommand(connection, null, """
+                    SELECT c.id, m.id, json_extract(m.body, '$.content'), m.timestamp
+                    FROM messages m INDEXED BY messages_prompts JOIN chats c ON c.chat_key = m.chat_key
+                    WHERE m.role = 'user'
+                    ORDER BY m.timestamp DESC LIMIT $limit;
+                    """);
+                command.Parameters.AddWithValue("$limit", Math.Max(0, limit));
+                using var reader = command.ExecuteReader();
+                var prompts = new List<StoredUserPrompt>();
+                while (reader.Read())
+                {
+                    if (reader.IsDBNull(2))
+                        continue;
+                    prompts.Add(new StoredUserPrompt(
+                        ReadGuid(reader, 0),
+                        ReadGuid(reader, 1),
+                        reader.GetString(2),
+                        DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)).ToLocalTime()));
+                }
 
-            return prompts;
+                return prompts;
+            });
         });
-
-    /// <summary>
-    /// The searchable text of the chat's stored messages before <paramref name="beforeSeq"/> (or all
-    /// of them), extracted by SQLite without materializing the messages: every message, or with
-    /// <paramref name="conversationOnly"/> just the user, assistant and error messages (read through
-    /// the outline index, never touching tool output). Synchronous; call from a background thread.
-    /// </summary>
-    public List<ChatSearchRow> ReadSearchRows(Guid chatId, bool conversationOnly = false, long beforeSeq = long.MaxValue)
-    {
-        PrepareReadAsync(chatId).GetAwaiter().GetResult();
-        return ReadNow(chatId, (connection, chatKey) =>
-        {
-            using var command = CreateCommand(connection, null, conversationOnly
-                ? """
-                  SELECT role, timestamp, json_extract(body, '$.content'), json_extract(body, '$.questionText'),
-                         tool_name, json_extract(body, '$.author')
-                  FROM messages INDEXED BY messages_outline
-                  WHERE chat_key = $chat AND role IN ('user', 'assistant', 'system', 'error') AND role <> 'system'
-                    AND seq < $before
-                  ORDER BY seq;
-                  """
-                : """
-                  SELECT role, timestamp, json_extract(body, '$.content'), json_extract(body, '$.questionText'),
-                         tool_name, json_extract(body, '$.author')
-                  FROM messages WHERE chat_key = $chat AND seq < $before ORDER BY seq;
-                  """);
-            command.Parameters.AddWithValue("$chat", chatKey);
-            command.Parameters.AddWithValue("$before", beforeSeq);
-            using var reader = command.ExecuteReader();
-            var rows = new List<ChatSearchRow>();
-            while (reader.Read())
-            {
-                rows.Add(new ChatSearchRow(
-                    reader.GetString(0),
-                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)).ToLocalTime(),
-                    reader.IsDBNull(2) ? null : reader.GetString(2),
-                    reader.IsDBNull(3) ? null : reader.GetString(3),
-                    reader.IsDBNull(4) ? null : reader.GetString(4),
-                    reader.IsDBNull(5) ? null : reader.GetString(5)));
-            }
-
-            return rows;
-        }, new List<ChatSearchRow>());
-    }
 
     // ── Read plumbing ───────────────────────────────────────────────────────
 
@@ -868,10 +788,25 @@ internal sealed partial class ChatStore
     }
 
     private T ReadNow<T>(Guid chatId, Func<SqliteConnection, long, T> read, T missing)
+        => Read(connection =>
+        {
+            var chatKey = ScalarLong(connection, "SELECT chat_key FROM chats WHERE id = $id;", null, ("$id", chatId.ToByteArray()));
+            return chatKey is { } key ? read(connection, key) : missing;
+        });
+
+    /// <summary>Runs a read on a pooled connection, noting damage it runs into (see <see cref="ChatDatabase.NoteDamage"/>).</summary>
+    private T Read<T>(Func<SqliteConnection, T> read)
     {
-        using var connection = _database.OpenConnection();
-        var chatKey = ScalarLong(connection, "SELECT chat_key FROM chats WHERE id = $id;", null, ("$id", chatId.ToByteArray()));
-        return chatKey is { } key ? read(connection, key) : missing;
+        try
+        {
+            using var connection = _database.OpenConnection();
+            return read(connection);
+        }
+        catch (SqliteException ex) when (ChatDatabase.IsDamage(ex))
+        {
+            _database.NoteDamage(ex);
+            throw;
+        }
     }
 
     internal static List<ChatMessage> ReadMessages(

@@ -49,50 +49,6 @@ public class GlobalSearchServiceTests
     }
 
     [Fact]
-    public async Task SearchAsync_FastModeSkipsColdPersistedHistoryUntilFullPass()
-    {
-        var chat = new Chat
-        {
-            Id = Guid.NewGuid(),
-            Title = "Weekly sync",
-            UpdatedAt = Now.AddHours(-2)
-        };
-
-        var providerCalls = 0;
-        var snapshot = new ChatSearchSnapshot
-        {
-            Version = "persisted-fast-1",
-            Messages =
-            [
-                new ChatSearchMessage
-                {
-                    Text = "We discussed the application rollout plan in detail.",
-                    Timestamp = Now.AddHours(-1)
-                }
-            ]
-        };
-
-        var service = new GlobalSearchService(
-            () => new AppData { Chats = [chat] },
-            _ =>
-            {
-                providerCalls++;
-                return snapshot;
-            },
-            () => Now);
-
-        var fastResults = await service.SearchAsync("applic", GlobalSearchExecutionMode.Fast);
-        Assert.Empty(fastResults);
-        Assert.Equal(0, providerCalls);
-
-        var fullResults = await service.SearchAsync("applic", GlobalSearchExecutionMode.Full);
-        var match = Assert.Single(fullResults);
-        Assert.Same(chat, match.Item);
-        Assert.True(match.IsContentMatch);
-        Assert.Equal(1, providerCalls);
-    }
-
-    [Fact]
     public async Task PreparedSearch_ReusesOneDataSnapshotAcrossProgressivePhases()
     {
         var chat = new Chat
@@ -108,7 +64,7 @@ public class GlobalSearchServiceTests
                 dataCalls++;
                 return new AppData { Chats = [chat] };
             },
-            _ => new ChatSearchSnapshot { Version = "empty" },
+            chatContent: null,
             () => Now);
 
         var prepared = service.PrepareSearch("alpha");
@@ -121,7 +77,7 @@ public class GlobalSearchServiceTests
     }
 
     [Fact]
-    public async Task SearchAsync_PreviewModeSkipsColdPersistedHistoryUntilFullPass()
+    public async Task PreparedSearch_PreviewLeavesChatContentAlone_LaterPhasesLookItUpOnce()
     {
         var chat = new Chat
         {
@@ -129,39 +85,24 @@ public class GlobalSearchServiceTests
             Title = "Weekly sync",
             UpdatedAt = Now.AddHours(-2)
         };
+        var data = new AppData { Chats = [chat] };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "We discussed the application rollout plan in detail." });
+        var content = new CountingChatContent(new DataStore(data));
+        var service = new GlobalSearchService(() => data, content, () => Now);
 
-        var providerCalls = 0;
-        var snapshot = new ChatSearchSnapshot
+        var prepared = service.PrepareSearch("applic");
+        Assert.Empty(await service.SearchAsync(prepared, GlobalSearchExecutionMode.Preview));
+        Assert.Equal(0, content.Lookups);
+
+        foreach (var mode in new[] { GlobalSearchExecutionMode.Fast, GlobalSearchExecutionMode.Interactive, GlobalSearchExecutionMode.Full })
         {
-            Version = "persisted-preview-1",
-            Messages =
-            [
-                new ChatSearchMessage
-                {
-                    Text = "We discussed the application rollout plan in detail.",
-                    Timestamp = Now.AddHours(-1)
-                }
-            ]
-        };
+            var match = Assert.Single(await service.SearchAsync(prepared, mode));
+            Assert.Same(chat, match.Item);
+            Assert.True(match.IsContentMatch);
+            Assert.Contains("application rollout", match.Subtitle);
+        }
 
-        var service = new GlobalSearchService(
-            () => new AppData { Chats = [chat] },
-            _ =>
-            {
-                providerCalls++;
-                return snapshot;
-            },
-            () => Now);
-
-        var previewResults = await service.SearchAsync("applic", GlobalSearchExecutionMode.Preview);
-        Assert.Empty(previewResults);
-        Assert.Equal(0, providerCalls);
-
-        var fullResults = await service.SearchAsync("applic", GlobalSearchExecutionMode.Full);
-        var match = Assert.Single(fullResults);
-        Assert.Same(chat, match.Item);
-        Assert.True(match.IsContentMatch);
-        Assert.Equal(1, providerCalls);
+        Assert.Equal(1, content.Lookups);
     }
 
     [Fact]
@@ -193,88 +134,6 @@ public class GlobalSearchServiceTests
             result => ReferenceEquals(result.Item, skill));
         Assert.Equal(GlobalSearchCategory.Skills, match.Category);
         Assert.True(match.IsContentMatch);
-    }
-
-    [Fact]
-    public async Task SearchAsync_InteractiveModeBoundsColdPersistedHistoryReads()
-    {
-        var chats = Enumerable.Range(0, 70)
-            .Select(index => new Chat
-            {
-                Id = Guid.NewGuid(),
-                Title = $"Chat {index}",
-                UpdatedAt = Now.AddMinutes(-index)
-            })
-            .ToList();
-
-        var providerCalls = 0;
-        var service = new GlobalSearchService(
-            () => new AppData { Chats = chats },
-            _ =>
-            {
-                providerCalls++;
-                return new ChatSearchSnapshot
-                {
-                    Version = $"persisted-interactive-{providerCalls}",
-                    Messages =
-                    [
-                        new ChatSearchMessage
-                        {
-                            Text = "needle appears in persisted history.",
-                            Timestamp = Now
-                        }
-                    ]
-                };
-            },
-            () => Now);
-
-        var interactiveResults = await service.SearchAsync("needle", GlobalSearchExecutionMode.Interactive);
-
-        Assert.NotEmpty(interactiveResults);
-        Assert.InRange(providerCalls, 1, 16);
-    }
-
-    [Fact]
-    public async Task SearchAsync_FastModeUsesCachedHistoryAfterFullPass()
-    {
-        var chat = new Chat
-        {
-            Id = Guid.NewGuid(),
-            Title = "Weekly sync",
-            UpdatedAt = Now.AddHours(-2)
-        };
-
-        var providerCalls = 0;
-        var snapshot = new ChatSearchSnapshot
-        {
-            Version = "persisted-fast-2",
-            Messages =
-            [
-                new ChatSearchMessage
-                {
-                    Text = "We discussed the application rollout plan in detail.",
-                    Timestamp = Now.AddHours(-1)
-                }
-            ]
-        };
-
-        var service = new GlobalSearchService(
-            () => new AppData { Chats = [chat] },
-            _ =>
-            {
-                providerCalls++;
-                return snapshot;
-            },
-            () => Now);
-
-        await service.SearchAsync("applic", GlobalSearchExecutionMode.Full);
-        Assert.Equal(1, providerCalls);
-
-        var fastResults = await service.SearchAsync("applic", GlobalSearchExecutionMode.Fast);
-        var match = Assert.Single(fastResults);
-        Assert.Same(chat, match.Item);
-        Assert.True(match.IsContentMatch);
-        Assert.Equal(1, providerCalls);
     }
 
     [Fact]
@@ -686,19 +545,18 @@ public class GlobalSearchServiceTests
     private static GlobalSearchService CreateService(
         AppData data,
         IReadOnlyDictionary<Guid, ChatSearchSnapshot>? chatSnapshots = null)
-    {
-        return new GlobalSearchService(
-            () => data,
-            chat =>
-            {
-                if (chatSnapshots is not null
-                    && chatSnapshots.TryGetValue(chat.Id, out var snapshot))
-                {
-                    return snapshot;
-                }
+        => SearchTestContent.CreateService(data, chatSnapshots, () => Now);
 
-                return new ChatSearchSnapshot { Version = $"empty:{chat.Id}" };
-            },
-            () => Now);
+    private sealed class CountingChatContent(IChatContentSearch inner) : IChatContentSearch
+    {
+        public int Lookups { get; private set; }
+
+        public IReadOnlyDictionary<Guid, ChatContentHit> FindChatsContaining(string text)
+        {
+            Lookups++;
+            return inner.FindChatsContaining(text);
+        }
+
+        public string? ReadHitText(ChatContentHit hit) => inner.ReadHitText(hit);
     }
 }

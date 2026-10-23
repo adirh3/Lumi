@@ -184,15 +184,6 @@ internal sealed record ChatTailRead(
 /// <summary>User messages and answered assistant messages in a chat's history (before its tail).</summary>
 internal readonly record struct HistoryConversationCounts(int UserMessages, int AnsweredAssistantMessages, int UserMessagesWithText = 0);
 
-/// <summary>The text a search snapshot needs from one stored message.</summary>
-internal readonly record struct ChatSearchRow(
-    string Role,
-    DateTimeOffset Timestamp,
-    string? Content,
-    string? QuestionText,
-    string? ToolName,
-    string? Author);
-
 /// <summary>A recent user prompt read across chats for suggestions.</summary>
 internal readonly record struct StoredUserPrompt(
     Guid ChatId,

@@ -150,19 +150,27 @@ internal sealed partial class ChatStore : IDisposable
             ForgetCounters(chatId);
         }).ConfigureAwait(false);
         ChatContentCommitted?.Invoke(chatId);
+        _ = ReclaimFreeSpace();
     }
 
     /// <summary>Deletes every chat and transcript. Completes once the deletion is committed.</summary>
-    public Task DeleteAllChatsAsync()
-        => _writer.Enqueue(null, (connection, transaction) =>
+    public async Task DeleteAllChatsAsync()
+    {
+        await _writer.Enqueue(null, (connection, transaction) =>
         {
-            using var command = CreateCommand(connection, transaction, "DELETE FROM messages; DELETE FROM chats;");
+            // Emptied at once rather than entry by entry as the triggers would.
+            using var command = CreateCommand(connection, transaction,
+                "INSERT INTO messages_text (messages_text) VALUES ('delete-all'); DELETE FROM messages; DELETE FROM chats;");
+            if (!HasTextIndex)
+                command.CommandText = "DELETE FROM messages; DELETE FROM chats;";
             command.ExecuteNonQuery();
             _contentVersions.Clear();
             _messageCounts.Clear();
             _nextSeqs.Clear();
             _importStates.Clear();
-        });
+        }).ConfigureAwait(false);
+        _ = ReclaimFreeSpace();
+    }
 
     private void ForgetCounters(Guid chatId)
     {
@@ -177,6 +185,23 @@ internal sealed partial class ChatStore : IDisposable
     /// a step that relies on rows having reached the disk, such as dropping chats from the legacy index.
     /// </summary>
     public void Checkpoint() => _database.Checkpoint();
+
+    /// <summary>Checks the structure of the whole file; true when it is intact.</summary>
+    internal bool IsIntact() => _database.IsIntact();
+
+    /// <summary>Forgets damage noted while Lumi last ran, once a check found the file intact.</summary>
+    internal void ClearDamageMarker() => _database.ClearDamageMarker();
+
+    /// <summary>
+    /// Copies what still reads in a damaged database moved aside (see <see cref="ChatSalvage"/>) into
+    /// this one, then forgets it was pending.
+    /// </summary>
+    internal ChatSalvage.Result Salvage(string damagedCopy)
+    {
+        var result = ChatSalvage.Copy(damagedCopy, _database);
+        _database.ClearPendingRecovery();
+        return result;
+    }
 
     // ── Transcript writes ───────────────────────────────────────────────────
 
@@ -223,6 +248,8 @@ internal sealed partial class ChatStore : IDisposable
         {
             if (task.IsCompletedSuccessfully && batch.HasMessageChanges)
                 ChatContentCommitted?.Invoke(batch.ChatId);
+            if (task.IsCompletedSuccessfully && batch.DeleteFromSeq is not null)
+                _ = ReclaimFreeSpace();
             return task;
         }, TaskScheduler.Default).Unwrap();
     }

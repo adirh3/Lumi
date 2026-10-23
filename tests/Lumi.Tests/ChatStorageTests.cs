@@ -438,7 +438,7 @@ public sealed class ChatStorageTests : IDisposable
         var orphanFile = Path.Combine(legacyDirectory, $"{Guid.NewGuid()}.json");
         await File.WriteAllTextAsync(orphanFile, "[{\"role\":\"user\",\"content\":\"orphan\"}]");
 
-        var (store, chats, importer) = DataStore.OpenChatStorage(DatabasePath, [good, broken, missing], legacyDirectory, null);
+        var (store, chats, importer, _) = DataStore.OpenChatStorage(DatabasePath, [good, broken, missing], legacyDirectory, null);
         _stores.Add(store);
         using (importer)
         {
@@ -464,7 +464,7 @@ public sealed class ChatStorageTests : IDisposable
         // Starting again finds the good chat imported, never twice; the damaged file, which gave its
         // chat nothing, is kept as it is and not read again.
         CloseStores();
-        var (reopened, again, secondImporter) = DataStore.OpenChatStorage(DatabasePath, [good, broken], legacyDirectory, null);
+        var (reopened, again, secondImporter, _) = DataStore.OpenChatStorage(DatabasePath, [good, broken], legacyDirectory, null);
         _stores.Add(reopened);
         using (secondImporter)
         {
@@ -484,7 +484,7 @@ public sealed class ChatStorageTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(legacyDirectory, $"{chat.Id}.json"),
             JsonSerializer.Serialize(messages, AppDataJsonContext.Default.ListChatMessage));
 
-        var (store, _, importer) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
+        var (store, _, importer, _) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
         _stores.Add(store);
         // Simulate a crash after part of the transcript landed: rows exist, the chat is still pending.
         await store.Writer.Enqueue(chat.Id, (connection, transaction) =>
@@ -1104,21 +1104,30 @@ public sealed class ChatStorageTests : IDisposable
     }
 
     [Fact]
-    public async Task SearchSnapshots_IncludeContentThatIsNotSavedYet()
+    public async Task ChatSearch_FindsStoredContentAndContentNotSavedYet()
     {
         var dataStore = OpenDataStore(out _);
         var chat = CreateChat(dataStore, exchanges: 2, toolsPerExchange: 1);
         await dataStore.SaveChatAsync(chat);
-        Assert.NotNull(dataStore.GetChatIndexVersion(chat));
+        Assert.Equal(new ChatContentHit(true, false, dataStore.FindChatsContaining("question 0")[chat.Id].MessageKey, null),
+            dataStore.FindChatsContaining("QUESTION 0")[chat.Id]);
+        Assert.Equal("answer 1", dataStore.ReadHitText(dataStore.FindChatsContaining("answer 1")[chat.Id]));
+        // Tool output is not searched; neither is text too short to look up.
+        Assert.Empty(dataStore.FindChatsContaining("output 0.0"));
+        Assert.Empty(dataStore.FindChatsContaining("qu"));
 
-        chat.Messages.Add(new ChatMessage { Role = "user", Content = "an unsaved pomegranate" });
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "answer the unsaved pomegranate" });
+        var unsaved = dataStore.FindChatsContaining("pomegranate")[chat.Id];
+        Assert.Equal(("answer the unsaved pomegranate", 0L), (dataStore.ReadHitText(unsaved), unsaved.MessageKey));
+        // Stored answers and an unsaved message of the user's: the user's words are the ones quoted.
+        var both = dataStore.FindChatsContaining("answer");
+        Assert.True(both[chat.Id] is { InUserMessage: true, InAnswer: true });
+        Assert.Equal("answer the unsaved pomegranate", dataStore.ReadHitText(both[chat.Id]));
 
-        Assert.Null(dataStore.GetChatIndexVersion(chat));
-        Assert.Contains(dataStore.GetChatIndexSnapshot(chat).Messages, static message => message.Text.Contains("pomegranate"));
-        Assert.Contains(dataStore.GetChatIndexSnapshot(chat).Messages, static message => message.Text.Contains("question 0"));
         await dataStore.SaveChatAsync(chat);
-        Assert.NotNull(dataStore.GetChatIndexVersion(chat));
-        Assert.Contains(dataStore.GetChatIndexSnapshot(chat).Messages, static message => message.Text.Contains("pomegranate"));
+        var saved = dataStore.FindChatsContaining("Pomegranate")[chat.Id];
+        Assert.True(saved.MessageKey > 0);
+        Assert.Equal("answer the unsaved pomegranate", dataStore.ReadHitText(saved));
     }
 
     [Fact]
@@ -1229,7 +1238,7 @@ public sealed class ChatStorageTests : IDisposable
         var json = JsonSerializer.Serialize(messages, AppDataJsonContext.Default.ListChatMessage);
         await File.WriteAllTextAsync(Path.Combine(legacyDirectory, $"{chat.Id}.json"), json[..^1] + ",{\"role\":\"assistant\",\"cont");
 
-        var (store, _, importer) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
+        var (store, _, importer, _) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
         _stores.Add(store);
         using (importer)
             await importer.EnsureImportedAsync(chat.Id);
@@ -1237,7 +1246,7 @@ public sealed class ChatStorageTests : IDisposable
         Assert.Equal(messages.Select(Legacy), (await store.ReadAllAsync(chat.Id)).Select(Legacy));
         Assert.Equal(ChatImportState.Failed, store.GetImportState(chat.Id));
         CloseStores();
-        var (reopened, _, again) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
+        var (reopened, _, again, _) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
         _stores.Add(reopened);
         using (again)
             Assert.False(again.IsPending(chat.Id));
@@ -1253,7 +1262,7 @@ public sealed class ChatStorageTests : IDisposable
         var file = Path.Combine(legacyDirectory, $"{chat.Id}.json");
         await File.WriteAllTextAsync(file, JsonSerializer.Serialize(messages, AppDataJsonContext.Default.ListChatMessage));
 
-        var (store, _, importer) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
+        var (store, _, importer, _) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
         _stores.Add(store);
         using (importer)
         {
@@ -1272,7 +1281,7 @@ public sealed class ChatStorageTests : IDisposable
 
         // Once the file can be read, its transcript goes in before what was added meanwhile.
         CloseStores();
-        var (reopened, _, again) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
+        var (reopened, _, again, _) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
         _stores.Add(reopened);
         using (again)
         {
@@ -1296,7 +1305,7 @@ public sealed class ChatStorageTests : IDisposable
         var messages = Enumerable.Range(0, 6).Select(i => new ChatMessage { Role = i % 2 == 0 ? "user" : "assistant", Content = $"m{i}" }).ToList();
         await File.WriteAllTextAsync(Path.Combine(legacyDirectory, $"{chat.Id}.json"),
             JsonSerializer.Serialize(messages, AppDataJsonContext.Default.ListChatMessage));
-        var (store, chats, importer) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
+        var (store, chats, importer, _) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
         _stores.Add(store);
         using (importer)
         {
@@ -1366,7 +1375,7 @@ public sealed class ChatStorageTests : IDisposable
         var messages = Enumerable.Range(0, 4000).Select(i => new ChatMessage { Role = i % 2 == 0 ? "user" : "assistant", Content = $"m{i}" }).ToList();
         await File.WriteAllTextAsync(Path.Combine(legacyDirectory, $"{legacy.Id}.json"),
             JsonSerializer.Serialize(messages, AppDataJsonContext.Default.ListChatMessage));
-        var (store, _, importer) = DataStore.OpenChatStorage(DatabasePath, [legacy], legacyDirectory, null);
+        var (store, _, importer, _) = DataStore.OpenChatStorage(DatabasePath, [legacy], legacyDirectory, null);
         _stores.Add(store);
         using (importer)
         {
@@ -1445,7 +1454,7 @@ public sealed class ChatStorageTests : IDisposable
         var messages = Enumerable.Range(0, 4).Select(i => new ChatMessage { Role = i % 2 == 0 ? "user" : "assistant", Content = $"m{i}" }).ToList();
         var json = JsonSerializer.Serialize(messages, AppDataJsonContext.Default.ListChatMessage);
         await File.WriteAllTextAsync(Path.Combine(legacyDirectory, $"{chat.Id}.json"), json[..^1] + ",{\"role\":\"user\",\"cont");
-        var (store, _, importer) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
+        var (store, _, importer, _) = DataStore.OpenChatStorage(DatabasePath, [chat], legacyDirectory, null);
         _stores.Add(store);
         using (importer)
         {
@@ -1474,11 +1483,11 @@ public sealed class ChatStorageTests : IDisposable
     {
         OpenStore();
         CloseStores();
-        SetSchema(version: 2, minimumReader: 1);
+        SetSchema(version: ChatDatabase.SchemaVersion + 1, minimumReader: 1);
         OpenStore();
         CloseStores();
 
-        SetSchema(version: 3, minimumReader: 2);
+        SetSchema(version: ChatDatabase.SchemaVersion + 2, minimumReader: ChatDatabase.SchemaVersion + 1);
         var error = Assert.Throws<InvalidDataException>(() => new ChatStore(DatabasePath));
         Assert.Contains("newer version of Lumi", error.Message);
 

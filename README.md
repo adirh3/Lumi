@@ -1915,7 +1915,13 @@ transcripts live in a local SQLite database next to it, `lumi.db`, so a chat ope
 exchange in memory and older history is read as you scroll to it (a delegated agent's own steps only when
 you open its page); exchanges you scroll away from, and the
 older part of a long session once Lumi is idle, are let go again — memory follows what is on screen, not
-how long a chat is. The first start after updating moves existing chats into the database in the
+how long a chat is. Search reads the same database through a text index, so Ctrl+K finds words anywhere
+in your messages and Lumi's answers (three letters or more, ignoring case and Latin accents; shorter words
+match titles) and Find in chat searches a chat's whole history, without loading either. Deleting chats gives
+their space back to the disk. If the database is ever damaged, Lumi moves it aside as
+`lumi.damaged-<time>.db`, starts a new one and copies back every chat that still reads; an update that
+changes the database's layout applies it once at startup, while the startup window says so. The first start
+after updating moves existing chats into the database in the
 background (a chat you open first moves right away); the previous files stay as `chats.pre-sqlite-backup`
 and `data.pre-sqlite.json`, and are deleted only with the chats they hold (or by Clear All Chats).
 

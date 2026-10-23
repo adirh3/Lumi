@@ -14,11 +14,11 @@ namespace Lumi.Services;
 /// Backs the agentic chat-history tools (<c>search_chats</c> / <c>read_chat</c>). Lets Lumi find
 /// past conversations the user references and read their transcripts without leaving the chat.
 ///
-/// Search reuses the warmed <see cref="GlobalSearchService"/> content index when available (the
-/// same engine that powers the in-app search overlay) and falls back to a lightweight title/content
-/// scan over <see cref="DataStore"/> when it is not. Reading is non-mutating: cold chats are read
-/// straight from disk via <see cref="DataStore.ReadChatMessagesAsync"/> so browsing history never
-/// permanently materializes chats or bloats memory.
+/// Search is the in-app search's (<see cref="GlobalSearchService"/>), which finds chats by their
+/// titles and, through the chat database's text index, by what was said in them. Reading is
+/// non-mutating: cold chats are read straight from storage via
+/// <see cref="DataStore.ReadChatMessagesAsync"/> so browsing history never permanently materializes
+/// chats or bloats memory.
 /// </summary>
 public sealed class ChatHistoryService
 {
@@ -32,17 +32,18 @@ public sealed class ChatHistoryService
     private const int MaxPlanChars = 1_500;
 
     private readonly DataStore _dataStore;
-    private readonly GlobalSearchService? _searchService;
+    private readonly GlobalSearchService _searchService;
     private readonly Func<DateTimeOffset> _nowProvider;
 
+    /// <param name="searchService">The app's search; without one, a search over <paramref name="dataStore"/> is made.</param>
     public ChatHistoryService(
         DataStore dataStore,
         GlobalSearchService? searchService,
         Func<DateTimeOffset>? nowProvider = null)
     {
         _dataStore = dataStore ?? throw new ArgumentNullException(nameof(dataStore));
-        _searchService = searchService;
         _nowProvider = nowProvider ?? (() => DateTimeOffset.Now);
+        _searchService = searchService ?? new GlobalSearchService(() => dataStore.Data, dataStore, _nowProvider);
     }
 
     /// <summary>
@@ -194,65 +195,18 @@ public sealed class ChatHistoryService
         int limit,
         CancellationToken cancellationToken)
     {
-        if (_searchService is not null)
-        {
-            var matches = await _searchService
-                .SearchAsync(query, GlobalSearchExecutionMode.Full, cancellationToken)
-                .ConfigureAwait(false);
+        // A scoped search ranks only the chats in the snapshot, so chats outside it never crowd them out.
+        var inScope = snapshot.Chats.Select(static chat => chat.Id).ToHashSet();
+        var matches = await _searchService
+            .SearchAsync(_searchService.PrepareSearch(query, chat => inScope.Contains(chat.Id)), GlobalSearchExecutionMode.Full, cancellationToken)
+            .ConfigureAwait(false);
 
-            // The index searches every chat; a scoped search keeps only the chats in the snapshot.
-            var inScope = snapshot.Chats.Select(static chat => chat.Id).ToHashSet();
-            var ranked = matches
-                .Where(static match => match.Category == GlobalSearchCategory.Chats)
-                .Select(match => (Chat: match.Item as Chat, Snippet: ExtractSnippet(match)))
-                .Where(tuple => tuple.Chat is not null && inScope.Contains(tuple.Chat.Id))
-                .Take(limit)
-                .Select(static tuple => new ChatCandidate(tuple.Chat!, tuple.Snippet))
-                .ToList();
-
-            if (ranked.Count > 0)
-                return ranked;
-        }
-
-        return FallbackSearch(snapshot, query, limit);
-    }
-
-    private List<ChatCandidate> FallbackSearch(HistorySnapshot snapshot, string query, int limit)
-    {
-        var scored = new List<(ChatCandidate Candidate, int Score, DateTimeOffset Updated)>();
-
-        foreach (var chat in snapshot.Chats)
-        {
-            var score = 0;
-            var snippet = "";
-
-            if (chat.Title.Contains(query, StringComparison.OrdinalIgnoreCase))
-                score += 100;
-
-            if (score == 0)
-            {
-                var chatSnapshot = _dataStore.GetChatSearchSnapshot(chat);
-                foreach (var message in chatSnapshot.Messages)
-                {
-                    var hit = message.Text.IndexOf(query, StringComparison.OrdinalIgnoreCase);
-                    if (hit < 0)
-                        continue;
-
-                    score += 40;
-                    snippet = BuildSnippet(message.Text, hit, query.Length);
-                    break;
-                }
-            }
-
-            if (score > 0)
-                scored.Add((new ChatCandidate(chat, snippet), score, chat.UpdatedAt));
-        }
-
-        return scored
-            .OrderByDescending(static entry => entry.Score)
-            .ThenByDescending(static entry => entry.Updated)
+        return matches
+            .Where(static match => match.Category == GlobalSearchCategory.Chats)
+            .Select(match => (Chat: match.Item as Chat, Snippet: ExtractSnippet(match)))
+            .Where(static tuple => tuple.Chat is not null)
             .Take(limit)
-            .Select(static entry => entry.Candidate)
+            .Select(static tuple => new ChatCandidate(tuple.Chat!, tuple.Snippet))
             .ToList();
     }
 
@@ -585,16 +539,6 @@ public sealed class ChatHistoryService
 
         var separator = match.Subtitle.LastIndexOf(" · ", StringComparison.Ordinal);
         return separator >= 0 ? match.Subtitle[(separator + 3)..] : match.Subtitle;
-    }
-
-    private static string BuildSnippet(string text, int hit, int queryLength)
-    {
-        var start = Math.Max(0, hit - 40);
-        var end = Math.Min(text.Length, hit + queryLength + 60);
-        var slice = text[start..end].Trim();
-        var prefix = start > 0 ? "…" : "";
-        var suffix = end < text.Length ? "…" : "";
-        return $"{prefix}{Collapse(slice)}{suffix}";
     }
 
     private string FormatRelativeTime(DateTimeOffset timestamp)

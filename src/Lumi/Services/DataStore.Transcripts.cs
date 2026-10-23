@@ -64,6 +64,7 @@ public partial class DataStore
     private readonly LegacyChatImporter? _legacyImporter;
     private readonly object _transcriptStatesSync = new();
     private readonly Dictionary<Guid, ChatTranscriptState> _transcriptStates = [];
+    private string? _damagedChatsCopy;
 
     /// <summary>The chat database, or null for a store that only lives in memory.</summary>
     internal ChatStore? ChatStore => _chatStore;
@@ -113,16 +114,17 @@ public partial class DataStore
     /// <summary>
     /// Opens the chat database, imports chats the index still lists from the legacy JSON layout, and
     /// replaces <see cref="AppData.Chats"/> with the stored chats. Returns the importer that moves the
-    /// legacy transcripts in the background.
+    /// legacy transcripts in the background, and where a damaged database was moved aside (see
+    /// <see cref="OpenOrSetAside"/>), if one was: what still reads in it is copied over by
+    /// <see cref="RecoverChatsAsync"/>.
     /// </summary>
-    internal static (ChatStore Store, List<Chat> Chats, LegacyChatImporter Importer) OpenChatStorage(
+    internal static (ChatStore Store, List<Chat> Chats, LegacyChatImporter Importer, string? DamagedCopy) OpenChatStorage(
         string databaseFile,
         IReadOnlyList<Chat> legacyIndexChats,
         string legacyChatsDirectory,
         Action? backupLegacyIndex)
     {
-        var store = new ChatStore(databaseFile);
-        var stored = store.LoadChats();
+        var (store, stored, damagedCopy) = OpenOrSetAside(databaseFile);
         var storedIds = stored.Select(static chat => chat.Chat.Id).ToHashSet();
         var newLegacyChats = legacyIndexChats.Where(chat => !storedIds.Contains(chat.Id)).ToList();
         if (newLegacyChats.Count > 0)
@@ -153,7 +155,119 @@ public partial class DataStore
             .Select(static chat => chat.Chat.Id)
             .ToList();
         var importer = new LegacyChatImporter(store, legacyChatsDirectory, pending);
-        return (store, stored.Select(static chat => chat.Chat).ToList(), importer);
+        return (store, stored.Select(static chat => chat.Chat).ToList(), importer, damagedCopy);
+    }
+
+    /// <summary>
+    /// Opens the chat database. One SQLite reports damaged (when it opens, when its chats are listed,
+    /// or when damage a read ran into last time is confirmed by a check of the whole file) is moved
+    /// aside and replaced by a new one, so Lumi still starts; anything else that fails still fails. A
+    /// recovery Lumi was closed during goes on (<see cref="ChatDatabase.PendingRecovery"/>).
+    /// </summary>
+    private static (ChatStore Store, IReadOnlyList<StoredChat> Chats, string? DamagedCopy) OpenOrSetAside(string databaseFile)
+    {
+        ChatStore? store = null;
+        string damage;
+        try
+        {
+            store = new ChatStore(databaseFile);
+            if (!ChatDatabase.HasDamageMarker(databaseFile))
+                return (store, store.LoadChats(), ChatDatabase.PendingRecovery(databaseFile));
+            if (store.IsIntact())
+            {
+                store.ClearDamageMarker();
+                return (store, store.LoadChats(), ChatDatabase.PendingRecovery(databaseFile));
+            }
+
+            damage = "a check of the whole file found damage";
+        }
+        catch (Exception ex) when (ChatDatabase.IsDamage(ex))
+        {
+            damage = ex.ToString();
+        }
+
+        Trace.TraceError("[ChatStore] The chat database is damaged; Lumi moves it aside and starts a new one: {0}", damage);
+        store?.Dispose();
+        var copy = ChatDatabase.SetAside(databaseFile);
+        store = new ChatStore(databaseFile);
+        return (store, store.LoadChats(), copy);
+    }
+
+    /// <summary>A damaged chat database moved aside at startup whose chats are not copied over yet.</summary>
+    internal bool HasChatsToRecover => _damagedChatsCopy is not null;
+
+    /// <summary>
+    /// True when this start upgrades the chat database once (<see cref="ChatStore.NeedsUpgrade"/>).
+    /// Every write waits behind the upgrade, so Lumi lets it finish before opening a window
+    /// (<see cref="FinishChatStorageUpgradeAsync"/>).
+    /// </summary>
+    internal bool UpgradesChatStorage { get; }
+
+    private readonly Task _chatStorageUpkeep = Task.CompletedTask;
+
+    /// <summary>Completes once this start's upkeep of the chat database has run; a failure is logged and tried again next start.</summary>
+    internal async Task FinishChatStorageUpgradeAsync()
+    {
+        try
+        {
+            await _chatStorageUpkeep.ConfigureAwait(true);
+        }
+        catch (Exception)
+        {
+            // Logged where it was started.
+        }
+    }
+
+    /// <summary>
+    /// True when a read failed because the chat database is damaged. The failure was noted, so the
+    /// next start checks the file and recovers what still reads.
+    /// </summary>
+    internal static bool IsDamage(Exception exception) => ChatDatabase.IsDamage(exception);
+
+    /// <summary>
+    /// Copies what still reads in the damaged database moved aside at startup into the new one (see
+    /// <see cref="ChatSalvage"/>) and lists the chats it recovered. Run once, before any window uses the
+    /// chat list; the copy itself runs on a background thread. Never fails: Lumi starts with whatever
+    /// was recovered. When the disk has no room for the copy, nothing is copied and the recovery waits
+    /// for a later start (<see cref="ChatDatabase.PendingRecovery"/>): <c>Recovered</c> is null and
+    /// <c>SpaceNeeded</c> says how much room it needs.
+    /// </summary>
+    internal async Task<(ChatSalvage.Result? Recovered, long SpaceNeeded)> RecoverChatsAsync()
+    {
+        if (_damagedChatsCopy is not { } copy || _chatStore is null)
+            return (new ChatSalvage.Result(), 0);
+
+        _damagedChatsCopy = null;
+        var store = _chatStore;
+        try
+        {
+            // The copy can grow as large as what reads in the damaged file, plus its text index. Cut
+            // short by a full disk, it would leave the rest behind for good.
+            var spaceNeeded = new FileInfo(copy).Length / 8 * 9;
+            if (!store.HasRoomFor(spaceNeeded))
+            {
+                Trace.TraceWarning("[ChatStore] Not enough disk space to recover the chats in {0} yet.", copy);
+                return (null, spaceNeeded);
+            }
+
+            var result = await Task.Run(() => store.Salvage(copy)).ConfigureAwait(true);
+            var known = _data.Chats.Select(static chat => chat.Id).ToHashSet();
+            foreach (var stored in store.LoadChats())
+            {
+                if (known.Add(stored.Chat.Id))
+                    _data.Chats.Add(stored.Chat);
+            }
+
+            CleanOrphanedChats();
+            Trace.TraceInformation("[ChatStore] Recovered {0} chats ({1} messages) from {2}.", result.Chats, result.Messages, copy);
+            return (result, 0);
+        }
+        catch (Exception ex)
+        {
+            // The damaged file is kept; what was copied before the failure stays.
+            Trace.TraceError("[ChatStore] Recovering chats from {0} failed: {1}", copy, ex);
+            return (new ChatSalvage.Result(), 0);
+        }
     }
 
     private static bool HasUsableLegacyFile(string directory, Guid chatId)
@@ -239,6 +353,20 @@ public partial class DataStore
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+
+    // Chat search used to keep its own copy of every chat's text here; the chat database indexes it now.
+    private static void RemoveRetiredSearchIndex()
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(AppDir, "search-content-index.bin*"))
+                TryDeleteFile(file);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Trace.TraceWarning("[ChatStore] Could not remove the retired search index: {0}", ex.Message);
+        }
+    }
 
     /// <summary>
     /// Updates the rows of chats whose metadata changed (a chat gets its row with its first
@@ -1249,17 +1377,11 @@ public partial class DataStore
     private static bool IsConversationRole(string? role)
         => role is "user" or "assistant" or "system" or "error";
 
-    // The searchable text of the last chat searched, kept only weakly: typing a query searches the
-    // same text several times, but it must never keep a long chat's text in memory.
-    private WeakReference<HistorySearchText>? _historySearchText;
-
-    private sealed record HistorySearchText(
-        Guid ChatId, long Version, long BeforeSeq, bool IncludesReasoning, List<(long Seq, string Text)> Rows);
-
     /// <summary>
     /// Searches a chat's stored history (before its live tail) for <paramref name="query"/>, ignoring
     /// case, in the text its transcript shows (see <see cref="TranscriptSearchText"/>). Returns each
-    /// matching message's position and how often it matches, in order.
+    /// matching message's position and how often it matches, in order. Only messages the chat
+    /// database finds the query in are read.
     /// </summary>
     internal async Task<List<(long Seq, int Occurrences)>> SearchHistoryTextAsync(
         Chat chat,
@@ -1271,42 +1393,20 @@ public partial class DataStore
         if (_chatStore is null || !window.HasHistory || string.IsNullOrEmpty(query))
             return [];
 
-        var version = _chatStore.GetContentVersion(chat.Id);
-        List<(long Seq, string Text)> rows;
-        if (_historySearchText?.TryGetTarget(out var cached) == true
-            && cached.ChatId == chat.Id && cached.Version == version && cached.BeforeSeq == window.TailStartSeq
-            && cached.IncludesReasoning == includeReasoning)
+        var candidates = await _chatStore.ReadSearchCandidatesAsync(chat.Id, query, window.TailStartSeq, includeReasoning)
+            .WaitAsync(cancellationToken).ConfigureAwait(false);
+        // Older messages shown on screen are the ones searched: they may hold edits not stored yet.
+        var matches = new List<(long, int)>();
+        foreach (var message in MapAttached(chat, candidates))
         {
-            rows = cached.Rows;
-        }
-        else
-        {
-            var messages = await _chatStore.ReadSearchMessagesAsync(chat.Id, window.TailStartSeq)
-                .WaitAsync(cancellationToken).ConfigureAwait(false);
-            // Older messages shown on screen are the ones searched: they may hold edits not stored yet.
-            MapAttached(chat, messages);
-            rows = [];
-            foreach (var message in messages)
+            if (TranscriptSearchText.Of(message, includeReasoning) is { Length: > 0 } text
+                && TranscriptSearchText.CountOccurrences(text, query) is > 0 and var count)
             {
-                if (TranscriptSearchText.Of(message, includeReasoning) is { Length: > 0 } text)
-                    rows.Add((message.StorageSeq, text));
+                matches.Add((message.StorageSeq, count));
             }
-
-            _historySearchText = new WeakReference<HistorySearchText>(
-                new HistorySearchText(chat.Id, version, window.TailStartSeq, includeReasoning, rows));
         }
 
-        return await Task.Run(() =>
-        {
-            var matches = new List<(long, int)>();
-            foreach (var (seq, text) in rows)
-            {
-                if (TranscriptSearchText.CountOccurrences(text, query) is > 0 and var count)
-                    matches.Add((seq, count));
-            }
-
-            return matches;
-        }, cancellationToken).ConfigureAwait(false);
+        return matches;
     }
 
     // ── Reads by chat id (remote clients, off the UI thread) ───────────────
@@ -1476,141 +1576,96 @@ public partial class DataStore
     // ── Search ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Returns a search snapshot for a chat. Stored chats are read from the database (text only,
-    /// extracted by SQLite) and cached per content version; a store without a database uses memory.
+    /// The chats whose messages contain <paramref name="text"/>, ignoring case and accents (see
+    /// <see cref="ChatSearchText"/>): stored messages through the chat database's text index, and
+    /// messages it does not have yet (a reply still arriving, edits not saved) in memory.
     /// </summary>
-    public ChatSearchSnapshot GetChatSearchSnapshot(Chat chat) => GetChatSearchSnapshot(chat, conversationOnly: false);
-
-    /// <summary>
-    /// The snapshot the global search index is built from: only the user, assistant and error
-    /// messages it indexes, so building an entry never reads a chat's tool output. Not cached; the
-    /// index keeps what it needs.
-    /// </summary>
-    public ChatSearchSnapshot GetChatIndexSnapshot(Chat chat) => GetChatSearchSnapshot(chat, conversationOnly: true);
-
-    private ChatSearchSnapshot GetChatSearchSnapshot(Chat chat, bool conversationOnly)
+    public IReadOnlyDictionary<Guid, ChatContentHit> FindChatsContaining(string text)
     {
-        ArgumentNullException.ThrowIfNull(chat);
+        var hits = new Dictionary<Guid, ChatContentHit>();
+        if (!ChatSearchText.CanLookUp(text))
+            return hits;
 
-        if (_chatStore is null)
-            // Copy once before indexing: callers (global search index, search_chats) run on
-            // background threads while the UI thread appends/removes messages, so iterating the
-            // live list would risk ArgumentOutOfRangeException / torn reads.
-            return CreateLoadedChatSearchSnapshot(chat.Messages.ToArray());
-
-        // Content not saved yet (Auto Save Chats is off, or a reply is still arriving) is newer than
-        // storage: memory has the tail, and storage the history before it. Read fresh each time.
-        if (TrySnapshotUnsavedTail(chat, out var tailStartSeq, out var unsaved))
-            return CreateMergedSearchSnapshot(chat, conversationOnly, tailStartSeq, unsaved);
-
-        var version = _chatStore.GetContentVersion(chat.Id);
-        if (!conversationOnly)
+        if (_chatStore is not null)
         {
-            lock (_chatSearchCacheSync)
+            try
             {
-                if (_chatSearchCache.TryGetValue(chat.Id, out var cached) && cached.Version == version && version > 0)
-                    return cached.Snapshot;
+                foreach (var match in _chatStore.FindText(text))
+                {
+                    hits[match.ChatId] = new ChatContentHit(
+                        match.UserMessageKey > 0,
+                        match.AnswerMessageKey > 0,
+                        match.UserMessageKey > 0 ? match.UserMessageKey : match.AnswerMessageKey,
+                        null);
+                }
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
+            {
+                Trace.TraceWarning("[ChatStore] Searching chat text failed: {0}", ex.Message);
             }
         }
 
-        if (ReadSearchRows(chat.Id, conversationOnly, long.MaxValue) is not { } rows)
-            return new ChatSearchSnapshot { Version = $"io-error:{chat.Id}" };
-
-        // Reading may have imported the chat, which gives it a version.
-        version = _chatStore.GetContentVersion(chat.Id);
-        var messages = new List<ChatSearchMessage>(rows.Count);
-        foreach (var row in rows)
-            AddSearchMessage(messages, row.Content, row.QuestionText, row.ToolName, row.Author, row.Role, row.Timestamp);
-
-        var snapshot = new ChatSearchSnapshot { Version = $"db:{version}:{messages.Count}", Messages = messages.ToArray() };
-        if (!conversationOnly)
+        foreach (var (chatId, message) in SnapshotUnstoredMessages())
         {
-            lock (_chatSearchCacheSync)
-                _chatSearchCache[chat.Id] = new CachedChatSearchSnapshot(version, snapshot);
+            if (ChatSearchText.Of(message) is not { } messageText || !ChatSearchText.Contains(messageText, text))
+                continue;
+
+            var isUser = message.Role == "user";
+            hits.TryGetValue(chatId, out var hit);
+            var merged = hit with { InUserMessage = hit.InUserMessage || isUser, InAnswer = hit.InAnswer || !isUser };
+            // The user's words are the ones to quote when there are any, as they weigh more.
+            if (isUser || hit is { MessageKey: 0, Text: null })
+                merged = merged with { MessageKey = 0, Text = messageText };
+            hits[chatId] = merged;
         }
 
-        return snapshot;
+        return hits;
     }
 
-    private static void AddSearchMessage(
-        List<ChatSearchMessage> messages, string? content, string? questionText, string? toolName, string? author, string role, DateTimeOffset timestamp)
+    /// <summary>The text of the message a search hit points at, or null when it is gone.</summary>
+    public string? ReadHitText(ChatContentHit hit)
     {
-        var text = BuildChatSearchText(content, questionText, toolName, author, role);
-        if (!string.IsNullOrWhiteSpace(text))
-            messages.Add(new ChatSearchMessage { Text = text, Role = role, Timestamp = timestamp });
-    }
+        if (hit.Text is not null)
+            return hit.Text;
+        if (_chatStore is null || hit.MessageKey <= 0)
+            return null;
 
-    private List<ChatSearchRow>? ReadSearchRows(Guid chatId, bool conversationOnly, long beforeSeq)
-    {
         try
         {
-            return _chatStore!.ReadSearchRows(chatId, conversationOnly, beforeSeq);
+            return _chatStore.ReadSearchText(hit.MessageKey);
         }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
         {
-            Debug.WriteLine($"[Lumi] Search snapshot read failed for chat {chatId}: {ex.Message}");
+            Trace.TraceWarning("[ChatStore] Reading a search hit failed: {0}", ex.Message);
             return null;
         }
     }
 
-    // The stored history before the tail, then the tail as it is in memory.
-    private ChatSearchSnapshot CreateMergedSearchSnapshot(Chat chat, bool conversationOnly, long tailStartSeq, ChatMessage[] tail)
-    {
-        var rows = ReadSearchRows(chat.Id, conversationOnly, tailStartSeq) ?? [];
-        var messages = new List<ChatSearchMessage>(rows.Count + tail.Length);
-        foreach (var row in rows)
-            AddSearchMessage(messages, row.Content, row.QuestionText, row.ToolName, row.Author, row.Role, row.Timestamp);
-        foreach (var message in tail)
-        {
-            if (!conversationOnly || message.Role is "user" or "assistant" or "error")
-                AddSearchMessage(messages, message.Content, message.QuestionText, message.ToolName, message.Author, message.Role, message.Timestamp);
-        }
-
-        return new ChatSearchSnapshot { Version = $"unsaved:{messages.Count}", Messages = messages.ToArray() };
-    }
-
     /// <summary>
-    /// The chat's tail when it holds messages or edits storage has not received yet, with where the
-    /// tail starts in storage. A copy, as callers run off the UI thread.
+    /// Messages the chat database does not hold as they are: new messages and unsaved edits in
+    /// memory (every message, for a store without a database). Copies, as search runs off the UI thread.
     /// </summary>
-    private bool TrySnapshotUnsavedTail(Chat chat, out long tailStartSeq, out ChatMessage[] tail)
+    private List<(Guid ChatId, ChatMessage Message)> SnapshotUnstoredMessages()
     {
-        var state = GetTranscriptState(chat.Id);
-        lock (state)
+        var messages = new List<(Guid, ChatMessage)>();
+        foreach (var chat in SnapshotChatsByRecency())
         {
-            tailStartSeq = state.TailStartSeq;
-            tail = chat.Messages.ToArray();
-            if (!state.IsLoaded && !state.HasAppendBase)
-                return false;
-            foreach (var message in tail)
+            // A chat whose transcript is not loaded holds nothing in memory.
+            if (chat.Messages.Count == 0)
+                continue;
+            foreach (var message in chat.Messages.ToArray())
             {
                 if (message.StorageSeq <= 0 || message.HasUnpersistedChanges)
-                    return true;
+                    messages.Add((chat.Id, message));
             }
         }
 
-        return false;
+        return messages;
     }
-
-    /// <summary>
-    /// The version the global search index keeps a chat's entry under: its stored content version,
-    /// or null while the chat holds content storage has not received yet, so its entry is read fresh.
-    /// </summary>
-    public long? GetChatIndexVersion(Chat chat)
-        => _chatStore is not null && TrySnapshotUnsavedTail(chat, out _, out _) ? null : GetChatContentVersion(chat.Id);
-
-    private void RemoveChatSearchSnapshot(Guid chatId)
-    {
-        lock (_chatSearchCacheSync)
-            _chatSearchCache.Remove(chatId);
-    }
-
-    /// <summary>Evicts a chat's cached full-text snapshot to bound memory (e.g., after it is indexed elsewhere).</summary>
-    public void EvictChatSearchSnapshot(Guid chatId) => RemoveChatSearchSnapshot(chatId);
 
     /// <summary>
     /// A monotonic marker of a chat's stored content, or null when nothing is stored. Changes whenever
-    /// the chat's transcript is written, so search indexes can detect stale entries across runs.
+    /// the chat's transcript is written, so views of it can tell when to refresh.
     /// </summary>
     public long? GetChatContentVersion(Guid chatId)
     {
@@ -1622,58 +1677,6 @@ public partial class DataStore
         return version > 0 ? version : null;
     }
 
-    private static ChatSearchSnapshot CreateLoadedChatSearchSnapshot(IReadOnlyList<ChatMessage> messages)
-    {
-        var signature = new HashCode();
-        var searchMessages = new List<ChatSearchMessage>(messages.Count);
-        for (var index = 0; index < messages.Count; index++)
-        {
-            var message = messages[index];
-            var text = BuildChatSearchText(message.Content, message.QuestionText, message.ToolName, message.Author, message.Role);
-            if (string.IsNullOrWhiteSpace(text))
-                continue;
-
-            searchMessages.Add(new ChatSearchMessage
-            {
-                Text = text,
-                Role = message.Role,
-                Timestamp = message.Timestamp
-            });
-
-            signature.Add(index);
-            signature.Add(message.Id);
-            signature.Add(message.Role, StringComparer.OrdinalIgnoreCase);
-            signature.Add(message.Timestamp.UtcTicks);
-            signature.Add(text, StringComparer.Ordinal);
-        }
-
-        signature.Add(searchMessages.Count);
-        return new ChatSearchSnapshot
-        {
-            Version = $"loaded:{searchMessages.Count}:{signature.ToHashCode()}",
-            Messages = searchMessages.ToArray()
-        };
-    }
-
-    private static string BuildChatSearchText(string? content, string? questionText, string? toolName, string? author, string? role)
-    {
-        var segments = new List<string>(4);
-
-        if (!string.IsNullOrWhiteSpace(content))
-            segments.Add(content);
-        if (!string.IsNullOrWhiteSpace(questionText))
-            segments.Add(questionText);
-        if (!string.IsNullOrWhiteSpace(toolName))
-            segments.Add(toolName);
-        if (!string.IsNullOrWhiteSpace(author)
-            && !string.Equals(author, role, StringComparison.OrdinalIgnoreCase))
-        {
-            segments.Add(author);
-        }
-
-        return string.Join(Environment.NewLine, segments);
-    }
-
     // ── Deleting ────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -1683,7 +1686,6 @@ public partial class DataStore
     public async Task DeleteChatFileAsync(Guid chatId, CancellationToken cancellationToken = default)
     {
         MarkTranscriptDeleted(GetTranscriptState(chatId));
-        RemoveChatSearchSnapshot(chatId);
         if (_chatStore is null)
         {
             ChatContentChanged?.Invoke(chatId);
@@ -1777,8 +1779,6 @@ public partial class DataStore
     /// </summary>
     public async Task DeleteAllChatFilesAsync()
     {
-        lock (_chatSearchCacheSync)
-            _chatSearchCache.Clear();
         lock (_suggestionHistorySync)
         {
             _suggestionHistoryGeneration++;
@@ -1843,6 +1843,4 @@ public partial class DataStore
         _legacyImporter?.Dispose();
         _chatStore?.Dispose();
     }
-
-    private readonly record struct CachedChatSearchSnapshot(long Version, ChatSearchSnapshot Snapshot);
 }

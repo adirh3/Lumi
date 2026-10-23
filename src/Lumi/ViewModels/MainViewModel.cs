@@ -60,7 +60,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly HashSet<Chat> _runningStateSubscriptions = [];
     private readonly GlobalSearchService _globalSearchService;
     private readonly ContextCuratorService? _contextCuratorService;
-    private readonly CancellationTokenSource _searchIndexCts = new();
     private bool _isDisposed;
     private bool _isRefreshingCopilotState;
     private bool _wasExternalOnly;
@@ -500,11 +499,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _settingsBrowserService = new BrowserService();
         _chatSurfaceRegistry = chatSurfaceRegistry ?? new ChatSurfaceRegistry();
         _ownsChatSurfaceRegistry = chatSurfaceRegistry is null;
-        _globalSearchService = globalSearchService ?? new GlobalSearchService(
-            () => _dataStore.Data,
-            _dataStore.GetChatIndexSnapshot,
-            releaseChatSnapshot: _dataStore.EvictChatSearchSnapshot,
-            chatContentVersionProvider: _dataStore.GetChatIndexVersion);
+        _globalSearchService = globalSearchService ?? new GlobalSearchService(() => _dataStore.Data, _dataStore);
         _chatSessionStore = chatSessionStore ?? new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService, _secureKeyStore);
         _ownsChatSessionStore = chatSessionStore is null;
 
@@ -1124,7 +1119,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private async Task InitializeAsync()
     {
         await RefreshCopilotStateAsync(refreshAuthStatus: true);
-        _ = WarmSearchIndexAsync();
         await RefreshExternalCapabilitiesAsync(force: false);
         if (IsOnboarded)
             await SetupsVM.CheckAtStartupAsync();
@@ -1140,68 +1134,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _globalSearchService.InvalidateChatContent(chatId);
         LibraryVM.MarkDirty();
         if (!_dataStore.Data.Chats.Any(chat => chat.Id == chatId))
             RefreshChatList();
     }
 
-    private void OnDataStoreChatsContentReset()
-    {
-        _globalSearchService.PruneChatContent();
-        LibraryVM.MarkDirty();
-    }
-
-    /// <summary>
-    /// Builds the full-coverage chat content index in the background so search can find any chat by
-    /// its message content — not just the most recent few. The index is persisted between runs.
-    /// </summary>
-    private async Task WarmSearchIndexAsync()
-    {
-        try
-        {
-            await Task.Yield();
-            var indexPath = DataStore.SearchContentIndexFile;
-            var token = _searchIndexCts.Token;
-
-            // Capture the chat list on the UI thread (List<Chat> is not thread-safe), then run all
-            // disk I/O and indexing on a background thread so startup stays responsive.
-            var chats = _dataStore.Data.Chats.ToArray();
-            var liveChatIds = Array.ConvertAll(chats, static chat => chat.Id);
-
-            await Task.Run(async () =>
-            {
-                try
-                {
-                    _globalSearchService.LoadChatContentIndex(indexPath);
-                }
-                catch
-                {
-                    // A missing or corrupt index just means we rebuild from scratch.
-                }
-
-                _globalSearchService.PruneChatContent(liveChatIds);
-                await _globalSearchService.WarmChatContentAsync(chats, token).ConfigureAwait(false);
-            }, token).ConfigureAwait(false);
-
-            try
-            {
-                _globalSearchService.SaveChatContentIndex(indexPath);
-            }
-            catch
-            {
-                // Persisting the index is best-effort; failure only costs a re-warm next launch.
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Shutting down — leave whatever was warmed so far.
-        }
-        catch
-        {
-            // Never let background indexing crash the app.
-        }
-    }
+    private void OnDataStoreChatsContentReset() => LibraryVM.MarkDirty();
 
     public void Dispose()
     {
@@ -1215,16 +1153,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ShareVM.CloseCommand.Execute(null);
         _dataStore.ChatContentChanged -= OnDataStoreChatContentChanged;
         _dataStore.ChatsContentReset -= OnDataStoreChatsContentReset;
-        _searchIndexCts.Cancel();
-        try
-        {
-            _globalSearchService.SaveChatContentIndex(DataStore.SearchContentIndexFile);
-        }
-        catch
-        {
-            // Best-effort persistence on shutdown.
-        }
-        _searchIndexCts.Dispose();
         _backgroundJobService.JobsChanged -= OnBackgroundJobServiceJobsChanged;
         if (_contextCuratorService is not null)
             _contextCuratorService.Changed -= OnContextCuratorChanged;
@@ -1976,6 +1904,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ShowChatSurface(surface);
             if (ChatVM.CurrentChat?.Id != chat.Id)
                 return false;
+        }
+        catch (Exception ex) when (DataStore.IsDamage(ex))
+        {
+            // The next start repairs the database; until then this chat stays closed instead of crashing Lumi.
+            if (shouldBridgeLoading)
+                visibleSurface.IsLoadingChat = false;
+            NotificationService.Show(Loc.Recovery_UnreadableChatTitle, Loc.Recovery_UnreadableChatBody);
+            ChatSelectionSyncRequested?.Invoke(ActiveChatId);
+            return false;
         }
         catch
         {

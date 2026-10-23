@@ -12,9 +12,8 @@ using Xunit;
 namespace Lumi.Tests;
 
 /// <summary>
-/// Integration coverage for the time-aware, full-coverage, recency-weighted search overhaul:
-/// temporal filtering/browse, content coverage beyond the recent-chat cap, background warming,
-/// on-disk persistence, staleness invalidation, recency ranking, and scale.
+/// Integration coverage for time-aware, full-coverage, recency-weighted search: temporal
+/// filtering/browse, content found in any chat however old, recency ranking, and scale.
 /// </summary>
 public class GlobalSearchAdvancedTests
 {
@@ -36,22 +35,8 @@ public class GlobalSearchAdvancedTests
 
     private static GlobalSearchService CreateService(
         AppData data,
-        IReadOnlyDictionary<Guid, ChatSearchSnapshot>? snapshots = null,
-        Action<Guid>? onProviderCall = null,
-        Func<Guid, long?>? versionProvider = null)
-    {
-        return new GlobalSearchService(
-            () => data,
-            chat =>
-            {
-                onProviderCall?.Invoke(chat.Id);
-                if (snapshots is not null && snapshots.TryGetValue(chat.Id, out var snapshot))
-                    return snapshot;
-                return new ChatSearchSnapshot { Version = $"empty:{chat.Id}" };
-            },
-            () => Now,
-            chatContentVersionProvider: versionProvider is null ? null : chat => versionProvider(chat.Id));
-    }
+        IReadOnlyDictionary<Guid, ChatSearchSnapshot>? snapshots = null)
+        => SearchTestContent.CreateService(data, snapshots, () => Now);
 
     [Fact]
     public async Task Search_Yesterday_ListsOnlyYesterdaysChats()
@@ -148,119 +133,6 @@ public class GlobalSearchAdvancedTests
     }
 
     [Fact]
-    public async Task Search_InteractiveMode_DoesNotCoverOldContent_ButFullDoes()
-    {
-        var chats = new List<Chat>();
-        var snapshots = new Dictionary<Guid, ChatSearchSnapshot>();
-        for (var i = 0; i < 40; i++)
-        {
-            var chat = ColdChat($"Conversation {i}", Now.AddDays(-i));
-            chats.Add(chat);
-            snapshots[chat.Id] = Snapshot($"v-{i}", i == 39 ? "rare zphyxmarker token" : "ordinary text");
-        }
-
-        var service = CreateService(new AppData { Chats = chats }, snapshots);
-
-        // Interactive only builds the 16 most-recent cold chats, so the oldest is not covered yet.
-        var interactive = await service.SearchAsync("zphyxmarker", GlobalSearchExecutionMode.Interactive);
-        Assert.Empty(interactive);
-
-        // Full covers the entire history.
-        var full = await service.SearchAsync("zphyxmarker", GlobalSearchExecutionMode.Full);
-        Assert.Same(chats[39], Assert.Single(full).Item);
-    }
-
-    [Fact]
-    public async Task Warm_ThenFastMode_FindsOldChatByContentWithoutFurtherReads()
-    {
-        var chats = new List<Chat>();
-        var snapshots = new Dictionary<Guid, ChatSearchSnapshot>();
-        for (var i = 0; i < 40; i++)
-        {
-            var chat = ColdChat($"Conversation {i}", Now.AddDays(-i));
-            chats.Add(chat);
-            snapshots[chat.Id] = Snapshot($"v-{i}", i == 39 ? "the gribbletoken appears here" : "nothing special");
-        }
-
-        var providerCalls = 0;
-        var service = CreateService(new AppData { Chats = chats }, snapshots, _ => providerCalls++);
-
-        await service.WarmChatContentAsync();
-        Assert.Equal(40, service.IndexedChatCount);
-        var callsAfterWarm = providerCalls;
-
-        // Fast is the cheapest live phase; after warming it must still find old content with no new reads.
-        var fast = await service.SearchAsync("gribbletoken", GlobalSearchExecutionMode.Fast);
-
-        Assert.Same(chats[39], Assert.Single(fast).Item);
-        Assert.Equal(callsAfterWarm, providerCalls);
-    }
-
-    [Fact]
-    public async Task ContentIndex_PersistsAcrossServiceInstances()
-    {
-        var chats = new List<Chat>();
-        var snapshots = new Dictionary<Guid, ChatSearchSnapshot>();
-        for (var i = 0; i < 10; i++)
-        {
-            var chat = ColdChat($"Conversation {i}", Now.AddDays(-i));
-            chats.Add(chat);
-            snapshots[chat.Id] = Snapshot($"v-{i}", i == 9 ? "persistedneedle lives here" : "filler content");
-        }
-
-        var indexPath = Path.Combine(Path.GetTempPath(), $"lumi-index-{Guid.NewGuid():N}.bin");
-        try
-        {
-            var first = CreateService(new AppData { Chats = chats }, snapshots);
-            await first.WarmChatContentAsync();
-            first.SaveChatContentIndex(indexPath);
-
-            // Second instance whose provider must never be touched — proves the load served the match.
-            var secondCalls = 0;
-            var second = CreateService(new AppData { Chats = chats }, snapshots, _ => secondCalls++);
-            var loaded = second.LoadChatContentIndex(indexPath);
-            Assert.Equal(10, loaded);
-
-            var fast = await second.SearchAsync("persistedneedle", GlobalSearchExecutionMode.Fast);
-
-            Assert.Same(chats[9], Assert.Single(fast).Item);
-            Assert.Equal(0, secondCalls);
-        }
-        finally
-        {
-            if (File.Exists(indexPath))
-                File.Delete(indexPath);
-        }
-    }
-
-    [Fact]
-    public async Task InvalidateChatContent_RefreshesStaleEntryOnNextFullPass()
-    {
-        var chat = ColdChat("Weekly sync", Now.AddHours(-2));
-        var snapshots = new Dictionary<Guid, ChatSearchSnapshot>
-        {
-            [chat.Id] = Snapshot("v1", "old alpha content")
-        };
-
-        var service = CreateService(new AppData { Chats = [chat] }, snapshots);
-
-        await service.WarmChatContentAsync();
-        Assert.NotEmpty(await service.SearchAsync("alpha", GlobalSearchExecutionMode.Fast));
-
-        // Content changes on disk; the cached entry is now stale.
-        snapshots[chat.Id] = Snapshot("v2", "new betacontent body");
-
-        // Without invalidation the stale entry persists.
-        Assert.Empty(await service.SearchAsync("betacontent", GlobalSearchExecutionMode.Fast));
-
-        service.InvalidateChatContent(chat.Id);
-
-        // A full pass rebuilds the entry and now matches the new content.
-        var full = await service.SearchAsync("betacontent", GlobalSearchExecutionMode.Full);
-        Assert.Same(chat, Assert.Single(full).Item);
-    }
-
-    [Fact]
     public async Task Search_MultiTerm_AcrossTitleAndContent_WithinTimeWindow()
     {
         var chat = ColdChat("Alpha planning", Now.AddDays(-2));
@@ -295,9 +167,6 @@ public class GlobalSearchAdvancedTests
         }
 
         var service = CreateService(new AppData { Chats = chats }, snapshots);
-
-        await service.WarmChatContentAsync();
-        Assert.Equal(1200, service.IndexedChatCount);
 
         var fast = await service.SearchAsync("zylphquark", GlobalSearchExecutionMode.Fast);
 
@@ -367,111 +236,5 @@ public class GlobalSearchAdvancedTests
         Assert.True(
             fuzzyIndex < 0 || contentIndex < fuzzyIndex,
             $"Expected content match (#{contentIndex}) to rank above fuzzy title (#{fuzzyIndex}).");
-    }
-
-    [Fact]
-    public async Task Warm_RevalidatesStaleEntry_WhenContentVersionChanges()
-    {
-        var chat = ColdChat("Weekly sync", Now.AddHours(-2));
-        var snapshots = new Dictionary<Guid, ChatSearchSnapshot>
-        {
-            [chat.Id] = Snapshot("v1", "old alphaword content")
-        };
-        var versions = new Dictionary<Guid, long> { [chat.Id] = 7 };
-
-        var service = CreateService(
-            new AppData { Chats = [chat] },
-            snapshots,
-            versionProvider: id => versions.TryGetValue(id, out var version) ? version : null);
-
-        await service.WarmChatContentAsync();
-        Assert.NotEmpty(await service.SearchAsync("alphaword", GlobalSearchExecutionMode.Fast));
-
-        // The stored transcript changes (another instance edited it) AND its content version advances.
-        snapshots[chat.Id] = Snapshot("v2", "new betaword body");
-        versions[chat.Id] = 8;
-
-        // A fresh warm must notice the newer version and rebuild the stale entry.
-        await service.WarmChatContentAsync();
-
-        Assert.NotEmpty(await service.SearchAsync("betaword", GlobalSearchExecutionMode.Fast));
-        Assert.Empty(await service.SearchAsync("alphaword", GlobalSearchExecutionMode.Fast));
-    }
-
-    [Fact]
-    public async Task ChatWithContentNotStoredYet_IsReadAgainForEverySearch()
-    {
-        var chat = ColdChat("Draft", Now.AddHours(-1));
-        chat.Messages.Add(new ChatMessage { Role = "user", Content = "first alphaword" });
-        var snapshots = new Dictionary<Guid, ChatSearchSnapshot> { [chat.Id] = Snapshot("v1", "first alphaword") };
-        long? version = null;
-        var service = CreateService(new AppData { Chats = [chat] }, snapshots, versionProvider: _ => version);
-
-        Assert.NotEmpty(await service.SearchAsync("alphaword", GlobalSearchExecutionMode.Fast));
-        snapshots[chat.Id] = Snapshot("v2", "second betaword");
-        Assert.NotEmpty(await service.SearchAsync("betaword", GlobalSearchExecutionMode.Fast));
-
-        // Once stored, the entry is kept until the stored content changes.
-        version = 9;
-        await service.WarmChatContentAsync();
-        snapshots[chat.Id] = Snapshot("v3", "third gammaword");
-        Assert.Empty(await service.SearchAsync("gammaword", GlobalSearchExecutionMode.Fast));
-    }
-
-    [Fact]
-    public async Task Warm_DoesNotReindex_WhenContentVersionUnchanged()
-    {
-        var chat = ColdChat("Weekly sync", Now.AddHours(-2));
-        var snapshots = new Dictionary<Guid, ChatSearchSnapshot>
-        {
-            [chat.Id] = Snapshot("v1", "old alphaword content")
-        };
-        var versions = new Dictionary<Guid, long> { [chat.Id] = 7 };
-
-        var providerCalls = 0;
-        var service = CreateService(
-            new AppData { Chats = [chat] },
-            snapshots,
-            onProviderCall: _ => providerCalls++,
-            versionProvider: id => versions.TryGetValue(id, out var version) ? version : null);
-
-        await service.WarmChatContentAsync();
-        var callsAfterFirstWarm = providerCalls;
-
-        // Content changes but the version does NOT — an unchanged transcript must not be re-read.
-        snapshots[chat.Id] = Snapshot("v2", "new betaword body");
-        await service.WarmChatContentAsync();
-
-        Assert.Equal(callsAfterFirstWarm, providerCalls);
-        Assert.Empty(await service.SearchAsync("betaword", GlobalSearchExecutionMode.Fast));
-    }
-
-    [Fact]
-    public void LoadChatContentIndex_OnCorruptFile_ReturnsZeroWithoutThrowing()
-    {
-        var dir = Path.Combine(Path.GetTempPath(), $"lumi-corrupt-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
-        try
-        {
-            var service = CreateService(new AppData());
-
-            // Random garbage with no valid header.
-            var garbage = Path.Combine(dir, "garbage.bin");
-            File.WriteAllBytes(garbage, [0xFF, 0x00, 0x12, 0x34, 0x56, 0x78, 0x9A]);
-            Assert.Equal(0, service.LoadChatContentIndex(garbage));
-
-            // Valid magic but an absurd entry count with no entries following it.
-            var truncated = Path.Combine(dir, "truncated.bin");
-            using (var writer = new BinaryWriter(File.Create(truncated), Encoding.UTF8))
-            {
-                writer.Write("LCI3");
-                writer.Write(int.MaxValue);
-            }
-            Assert.Equal(0, service.LoadChatContentIndex(truncated));
-        }
-        finally
-        {
-            Directory.Delete(dir, recursive: true);
-        }
     }
 }

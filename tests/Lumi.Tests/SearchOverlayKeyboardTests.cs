@@ -177,7 +177,7 @@ public sealed class SearchOverlayKeyboardTests
     {
         var service = new GlobalSearchService(
             () => new AppData(),
-            _ => new ChatSearchSnapshot { Version = "empty" });
+            chatContent: null);
         return new SearchOverlayViewModel(service, () => 0);
     }
 

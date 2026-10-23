@@ -78,7 +78,12 @@ public partial class App : Application
                 : ThemeVariant.Light;
             AccentPalettes.Apply(Resources, settings.AccentColor);
 
-            if (dataStore.Data.Settings.StartMinimized)
+            // A damaged chat database was moved aside: its chats are copied over while the startup
+            // window says so, before anything lists them. A one-time upgrade of the database finishes
+            // there too, before any window can save: every write would wait behind it.
+            var recovering = dataStore.HasChatsToRecover;
+            var upgrading = dataStore.UpgradesChatStorage;
+            if (dataStore.Data.Settings.StartMinimized && !recovering && !upgrading)
             {
                 InitializeDesktop(dataStore);
             }
@@ -87,11 +92,23 @@ public partial class App : Application
                 var startupWindow = new StartupWindow();
                 if (Loc.IsRightToLeft)
                     startupWindow.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
+                if (recovering)
+                    startupWindow.ShowStatus(Loc.Startup_RecoveringChats);
+                else if (upgrading)
+                    startupWindow.ShowStatus(Loc.Startup_UpdatingChats);
                 desktop.MainWindow = startupWindow;
 
                 // Let the loading window render before constructing the main UI.
-                startupWindow.Opened += (_, _) => Dispatcher.UIThread.Post(() =>
+                startupWindow.Opened += (_, _) => Dispatcher.UIThread.Post(async () =>
                 {
+                    if (upgrading)
+                        await dataStore.FinishChatStorageUpgradeAsync();
+                    if (recovering)
+                    {
+                        var (recovered, spaceNeeded) = await dataStore.RecoverChatsAsync();
+                        NotifyChatsRecovered(recovered, spaceNeeded);
+                    }
+
                     if (!startupWindow.IsVisible)
                         return;
 
@@ -105,6 +122,25 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Tells the user their chat database was damaged, and how many chats were recovered from it, or,
+    /// when the disk had no room to copy them yet (<paramref name="recovered"/> is null), how much it needs.
+    /// </summary>
+    private static void NotifyChatsRecovered(Lumi.Services.Storage.ChatSalvage.Result? recovered, long spaceNeeded)
+    {
+        if (recovered is not { } result)
+        {
+            NotificationService.Show(Loc.Recovery_NoRoomTitle,
+                string.Format(System.Globalization.CultureInfo.CurrentCulture, Loc.Recovery_NoRoomBody, ToolDisplayHelper.FormatFileSize(spaceNeeded)));
+            return;
+        }
+
+        var body = result.ChatsMissingMessages > 0
+            ? string.Format(System.Globalization.CultureInfo.CurrentCulture, Loc.Recovery_BodyMissing, result.Chats, result.ChatsMissingMessages)
+            : string.Format(System.Globalization.CultureInfo.CurrentCulture, Loc.Recovery_Body, result.Chats);
+        NotificationService.Show(Loc.Recovery_Title, body);
     }
 
     /// <summary>
@@ -241,11 +277,7 @@ public partial class App : Application
             var updateShutdownCoordinator = new UpdateShutdownCoordinator();
             updateService.Initialize();
             _chatSurfaceRegistry = new ChatSurfaceRegistry();
-            _globalSearchService = new GlobalSearchService(
-                () => dataStore.Data,
-                dataStore.GetChatIndexSnapshot,
-                releaseChatSnapshot: dataStore.EvictChatSearchSnapshot,
-                chatContentVersionProvider: dataStore.GetChatIndexVersion);
+            _globalSearchService = new GlobalSearchService(() => dataStore.Data, dataStore);
             _chatSessionStore = new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService, Lumi.Services.Byok.SecureKeyStoreFactory.Instance);
             _projectGitSyncService = new ProjectGitSyncService(dataStore);
             _contextCuratorService = new Lumi.Services.Context.ContextCuratorService(dataStore, copilotService, _globalSearchService);
@@ -1246,6 +1278,11 @@ public partial class App : Application
         }
         catch (OperationCanceledException) when (_isShuttingDown)
         {
+        }
+        catch (Exception ex) when (DataStore.IsDamage(ex))
+        {
+            NotificationService.Show(Loc.Recovery_UnreadableChatTitle, Loc.Recovery_UnreadableChatBody);
+            window.Close();
         }
     }
 

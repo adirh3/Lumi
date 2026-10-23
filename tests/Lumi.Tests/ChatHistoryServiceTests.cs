@@ -29,7 +29,7 @@ public sealed class ChatHistoryServiceTests
     {
         var store = new DataStore(data);
         GlobalSearchService? search = withSearch
-            ? new GlobalSearchService(() => store.Data, store.GetChatSearchSnapshot, () => Now)
+            ? new GlobalSearchService(() => store.Data, store, () => Now)
             : null;
         return new ChatHistoryService(store, search, () => Now);
     }
@@ -46,6 +46,21 @@ public sealed class ChatHistoryServiceTests
         Assert.Contains(hotels.Id.ToString(), result);
         Assert.Contains("Honeymoon hotel shortlist", result);
         Assert.DoesNotContain(taxes.Id.ToString(), result);
+    }
+
+    [Fact]
+    public async Task SearchChats_InAScope_FindsItsChats_HoweverManyOthersRankHigher()
+    {
+        var project = Guid.NewGuid();
+        var others = Enumerable.Range(0, 40).Select(index => Chat($"Ledger review {index}", Now.AddMinutes(-index))).ToList();
+        var mine = Chat("Quarterly planning", Now.AddDays(-30), Msg("user", "move the ledger to the new format"));
+        mine.ProjectId = project;
+        var service = CreateService(new AppData { Chats = [.. others, mine] }, withSearch: true);
+
+        var result = await service.SearchChatsAsync("ledger", 5, chat => chat.ProjectId == project);
+
+        Assert.Contains(mine.Id.ToString(), result);
+        Assert.DoesNotContain(others[0].Id.ToString(), result);
     }
 
     [Fact]
