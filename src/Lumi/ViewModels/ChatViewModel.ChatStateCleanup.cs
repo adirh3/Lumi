@@ -1239,6 +1239,31 @@ public partial class ChatViewModel
         ReleaseChatRuntimeState(chat, unloadMessages: false, expectedMessageCount: -1);
     }
 
+    internal void ReleaseIdleSessionRuntimes(DateTimeOffset utcNow)
+    {
+        if (_isDisposed || IsLoadingChat || IsContextPanelBusy
+            || Volatile.Read(ref _modelSelectionSyncOperations) > 0
+            || (IsWorkspacePanelOpen && SelectedApp?.IsShowing == true))
+            return;
+
+        foreach (var (chatId, _) in _sessionCache.ToArray())
+        {
+            if (OwnsLiveChat(chatId) || IsExternalSendReserved(chatId))
+                continue;
+
+            var runtime = GetOrCreateRuntimeState(chatId);
+            if (utcNow - runtime.LastSessionActivityUtc < CopilotService.IdleSessionTimeout)
+                continue;
+
+            // Only the native runtime goes cold: keep the displayed transcript, draft and saved ID.
+            ReleaseSessionResources(chatId, cancelActiveRequest: false);
+            _sessionProviderSignatures.Remove(chatId);
+            _sessionMcpPlans.Remove(chatId);
+            if (_activeSession is null)
+                ClearActiveSessionState();
+        }
+    }
+
     private void ReleaseInactiveChatState(Chat chat, bool unloadMessages = false, int expectedMessageCount = -1)
     {
         if (CurrentChat?.Id == chat.Id || IsChatRuntimeActive(chat.Id))

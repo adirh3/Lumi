@@ -7,6 +7,26 @@ namespace Lumi.Tests;
 
 public sealed class CopilotProcessEnvironmentTests
 {
+    [Theory]
+    [InlineData(null, "copilot")]
+    [InlineData("copilot-fixture", "copilot-fixture")]
+    public void ClientOptions_DisableTelemetryAndNativeIdleExpiry(string? cliPath, string expectedPath)
+    {
+        var options = CopilotService.BuildClientOptions(cliPath);
+        var connection = Assert.IsType<StdioRuntimeConnection>(options.Connection);
+
+        Assert.Equal(expectedPath, connection.Path);
+        Assert.Contains("--disable-client-telemetry", connection.Args!);
+        Assert.Equal(0, options.SessionIdleTimeoutSeconds);
+        Assert.Equal(TimeSpan.FromMinutes(30), CopilotService.IdleSessionTimeout);
+        Assert.Equal(CopilotLogLevel.Error, options.LogLevel);
+#pragma warning disable GHCP001 // Preserve the SDK extension launcher without opting into telemetry forwarding.
+        Assert.NotNull(options.ExtensionLaunchProvider);
+        Assert.Null(options.Telemetry);
+        Assert.Null(options.OnGitHubTelemetry);
+#pragma warning restore GHCP001
+    }
+
     [Fact]
     public void ApplyAgentProcessEnvironment_DisablesPersistentDotnetBuildServers()
     {

@@ -249,4 +249,48 @@ public class BackgroundModelSelectionTests
         };
         Assert.NotEqual(withProvider, CopilotService.GetLightweightSessionModelSignature(config));
     }
+
+    [Fact]
+    public void SuggestionQuestion_IncludesItsRulesAndOnlyTheSuppliedExchange()
+    {
+        var first = CopilotService.BuildSuggestionQuestion(
+            "Compare the OLED televisions.", "Which television should I buy?", "OLD_HISTORY_FIXTURE_REQUEST");
+        var second = CopilotService.BuildSuggestionQuestion(
+            "The soup needs another ten minutes.", "When is dinner ready?", null);
+
+        Assert.Contains("Output ONLY a JSON array of exactly 3 strings", second);
+        Assert.Contains($"Latest user message:{Environment.NewLine}When is dinner ready?", second);
+        Assert.Contains($"Latest assistant message:{Environment.NewLine}The soup needs another ten minutes.", second);
+        Assert.DoesNotContain("OLED", second);
+        Assert.DoesNotContain("television", second);
+        Assert.DoesNotContain("OLD_HISTORY_FIXTURE_REQUEST", second);
+        Assert.Contains("OLD_HISTORY_FIXTURE_REQUEST", first);
+    }
+
+    [Fact]
+    public void SuggestionQuestion_KeepsContextBoundedAndPreservesUnicode()
+    {
+        var question = CopilotService.BuildSuggestionQuestion(
+            new string('a', 1399) + "\U0001F600" + "end",
+            new string('u', 900),
+            new string('h', 1600));
+        var contextStart = question.IndexOf("Latest user message:", StringComparison.Ordinal);
+        var context = question[contextStart..];
+
+        Assert.InRange(context.Length, 1, 3600);
+        Assert.Contains(new string('u', 800), context);
+        Assert.DoesNotContain(new string('u', 801), context);
+        Assert.Contains(new string('a', 1399), context);
+        _ = new System.Text.UTF8Encoding(false, true).GetBytes(question);
+    }
+
+    [Fact]
+    public void SuggestionQuestion_OmitsMissingOptionalContext()
+    {
+        var question = CopilotService.BuildSuggestionQuestion("The current answer.", null, " ");
+
+        Assert.DoesNotContain("Latest user message:", question);
+        Assert.DoesNotContain("The user's frequently-typed requests from other chats", question);
+        Assert.Contains($"Latest assistant message:{Environment.NewLine}The current answer.", question);
+    }
 }

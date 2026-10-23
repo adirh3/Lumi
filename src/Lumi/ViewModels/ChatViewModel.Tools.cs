@@ -465,6 +465,7 @@ public partial class ChatViewModel
 
     private CancellationTokenSource? _modelSelectionSaveCts;
     private CancellationTokenSource? _modelSelectionSyncCts;
+    private int _modelSelectionSyncOperations;
 
     partial void OnSelectedModelChanged(string? value)
     {
@@ -581,24 +582,29 @@ public partial class ChatViewModel
     {
         CancelPendingMidSessionModelSync();
 
-        if (_activeSession is null || string.IsNullOrWhiteSpace(SelectedModel))
+        if (_activeSession is null || CurrentChat is not { } chat || string.IsNullOrWhiteSpace(SelectedModel))
             return;
 
+        GetOrCreateRuntimeState(chat.Id).LastSessionActivityUtc = DateTimeOffset.UtcNow;
         var modelId = SelectedModel;
         var reasoningEffort = GetSelectedReasoningEffort();
         var contextTier = GetSelectedContextWindowTier();
         _modelSelectionSyncCts = new CancellationTokenSource();
         var cts = _modelSelectionSyncCts;
-        _ = Task.Delay(75, cts.Token).ContinueWith(
-            _ => SwitchModelMidSessionAsync(modelId, reasoningEffort, contextTier),
-            cts.Token,
+        var token = cts.Token;
+        _ = Task.Delay(75, token).ContinueWith(
+            async _ => await Dispatcher.UIThread.InvokeAsync(() => !token.IsCancellationRequested && CurrentChat?.Id == chat.Id
+                    ? SwitchModelMidSessionAsync(modelId, reasoningEffort, contextTier, token)
+                    : Task.FromResult(false)),
+            token,
             TaskContinuationOptions.OnlyOnRanToCompletion,
             TaskScheduler.Default).Unwrap();
     }
 
-    private async Task<bool> SwitchModelMidSessionAsync(string? modelId, string? reasoningEffort, string? contextTier)
+    private async Task<bool> SwitchModelMidSessionAsync(
+        string? modelId, string? reasoningEffort, string? contextTier, CancellationToken selectionToken = default)
     {
-        if (_activeSession is null)
+        if (selectionToken.IsCancellationRequested || _activeSession is null || CurrentChat is not { } chat)
             return false;
 
         // No specific model to switch to — treat the session as already consistent.
@@ -625,29 +631,54 @@ public partial class ChatViewModel
             return false;
         }
 
+        Interlocked.Increment(ref _modelSelectionSyncOperations);
         try
         {
-            await _activeSession.SetModelAsync(
-                modelRoute.WireModelId,
-                new SetModelOptions
-                {
-                    ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
-                    ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                    ContextTier = SessionConfigBuilder.CreateContextTier(contextTier),
-                    ModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
-                        modelRoute.ByokModel,
-                        contextTier)
-                });
-            return true;
+            CopilotSession? session;
+            try
+            {
+                // A picker change need not reload a closed conversation; the next send uses its latest selection.
+                session = await TryGetReusableCachedSessionAsync(chat, selectionToken);
+            }
+            catch (OperationCanceledException) when (selectionToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.TraceWarning("[Chat] Could not validate the session for a model change: {0}", ex);
+                return false;
+            }
+            if (selectionToken.IsCancellationRequested || session is null || CurrentChat?.Id != chat.Id)
+                return false;
+
+            try
+            {
+                await session.SetModelAsync(
+                    modelRoute.WireModelId,
+                    new SetModelOptions
+                    {
+                        ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
+                        ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
+                        ContextTier = SessionConfigBuilder.CreateContextTier(contextTier),
+                        ModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+                            modelRoute.ByokModel,
+                            contextTier)
+                    });
+                return true;
+            }
+            catch
+            {
+                // The live session cannot apply this selection. Keep the existing recreation fallback.
+                InvalidateCurrentSessionForModelSwitch();
+                return false;
+            }
         }
-        catch
+        finally
         {
-            // Fallback: SDK may not support mid-session switch for all models. Callers that need the
-            // switch to take effect this turn (e.g. an edited-message resend) recreate the session on
-            // a false result. The debounced sync must also mark the existing session stale so context
-            // refresh/steering cannot mix the requested identity with the still-active old session.
-            InvalidateCurrentSessionForModelSwitch();
-            return false;
+            Interlocked.Decrement(ref _modelSelectionSyncOperations);
+            if (_runtimeStates.TryGetValue(chat.Id, out var runtime))
+                runtime.LastSessionActivityUtc = DateTimeOffset.UtcNow;
         }
     }
 

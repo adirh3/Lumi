@@ -178,6 +178,190 @@ public sealed class ChatViewModelLeakTests
                 .GetValue(surface));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task IdleTimeout_ReleasesHostedAndCachedRuntimeWithoutLosingTheChat(bool hosted)
+    {
+        var chat = new Chat { Title = "idle-timeout", CopilotSessionId = "sid-idle-timeout" };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "keep this transcript" });
+        var store = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [chat]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var vm = await sessions.AcquireChatAsync(chat);
+        vm.SelectedModel = "fixture-model";
+        vm.PromptText = "unsent draft";
+        var message = new ChatMessageViewModel(chat.Messages[0]);
+        vm.Messages.Add(message);
+        var native = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = native;
+        SetPrivateField(vm, "_activeSession", native);
+        var lastActivity = DateTimeOffset.UtcNow;
+        var runtime = new ChatRuntimeState { Chat = chat, LastSessionActivityUtc = lastActivity };
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = runtime;
+        if (!hosted)
+            sessions.Release(vm);
+
+        await sessions.ReleaseIdleSessionsAsync(lastActivity + CopilotService.IdleSessionTimeout - TimeSpan.FromTicks(1));
+        Assert.False(SessionWasDisposed(native));
+        await sessions.ReleaseIdleSessionsAsync(lastActivity + CopilotService.IdleSessionTimeout);
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(native));
+        Assert.False(vm.HasLiveCopilotRuntimeForCurrentChat());
+        Assert.Equal("sid-idle-timeout", chat.CopilotSessionId);
+        Assert.Equal("unsent draft", vm.PromptText);
+        Assert.Equal("fixture-model", vm.SelectedModel);
+        Assert.Same(message, Assert.Single(vm.Messages));
+        Assert.Equal("keep this transcript", Assert.Single(chat.Messages).Content);
+        Assert.Same(runtime, GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id]);
+        Assert.Same(vm, await sessions.AcquireChatAsync(chat));
+    }
+
+    [Theory]
+    [InlineData("assistant")]
+    [InlineData("background")]
+    [InlineData("question")]
+    [InlineData("queued")]
+    [InlineData("reservation")]
+    [InlineData("context")]
+    [InlineData("model")]
+    [InlineData("app")]
+    public void IdleTimeout_ProtectsWorkAndPendingOperations(string protectedWork)
+    {
+        var store = CreateDataStore();
+        var chat = new Chat { Title = "protected-idle", CopilotSessionId = "sid-protected" };
+        store.Data.Chats.Add(chat);
+        using var vm = new ChatViewModel(store, TestCopilot.Shared) { CurrentChat = chat };
+        var native = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = native;
+        SetPrivateField(vm, "_activeSession", native);
+        var runtime = new ChatRuntimeState { Chat = chat };
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = runtime;
+        using var reservation = protectedWork == "reservation" ? vm.TryReserveExternalSend(chat.Id) : null;
+        switch (protectedWork)
+        {
+            case "assistant":
+                runtime.IsBusy = true;
+                break;
+            case "background":
+                runtime.HasPendingBackgroundWork = true;
+                break;
+            case "question":
+                InvokePrivate(vm, "TrackPendingQuestion", chat.Id, "idle-question",
+                    new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+                break;
+            case "queued":
+                GetField<Dictionary<Guid, List<ChatMessage>>>(vm, "_queuedBusySendPrompts")[chat.Id] =
+                    [new ChatMessage { Role = "user", Content = "queued" }];
+                break;
+            case "context":
+                vm.IsContextOperationRunning = true;
+                break;
+            case "model":
+                SetPrivateField(vm, "_modelSelectionSyncOperations", 1);
+                break;
+            case "app":
+                var appMessage = new ChatMessage
+                {
+                    Role = "tool",
+                    EmbeddedApp = new EmbeddedApp { Kind = EmbeddedAppKind.Canvas }
+                };
+                vm.SelectedApp = vm.GetAppItem(appMessage);
+                vm.WorkspacePage = WorkspacePage.App;
+                vm.IsWorkspacePanelOpen = true;
+                break;
+        }
+        runtime.LastSessionActivityUtc = DateTimeOffset.UtcNow - TimeSpan.FromHours(1);
+
+        vm.ReleaseIdleSessionRuntimes(DateTimeOffset.UtcNow);
+
+        Assert.False(SessionWasDisposed(native));
+        Assert.True(vm.HasLiveCopilotRuntimeForCurrentChat());
+        Assert.Equal("sid-protected", chat.CopilotSessionId);
+    }
+
+    [Fact]
+    public void SessionCompletion_RestartsItsIdleClock()
+    {
+        var runtime = new ChatRuntimeState { IsSessionActive = true };
+        runtime.LastSessionActivityUtc = DateTimeOffset.UtcNow - TimeSpan.FromHours(1);
+        var beforeCompletion = DateTimeOffset.UtcNow;
+
+        runtime.IsSessionActive = false;
+
+        Assert.InRange(runtime.LastSessionActivityUtc, beforeCompletion, DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
+    public async Task ModelSelection_CancelledSyncDoesNotTouchTheSessionOrForgetHistory()
+    {
+        var store = CreateDataStore();
+        var chat = new Chat { CopilotSessionId = "sid-cancelled-model" };
+        store.Data.Chats.Add(chat);
+        using var vm = new ChatViewModel(store, TestCopilot.Shared) { CurrentChat = chat };
+        var native = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = native;
+        SetPrivateField(vm, "_activeSession", native);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        var sync = (Task<bool>)typeof(ChatViewModel).GetMethod("SwitchModelMidSessionAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(vm, ["unused-model", null, null, cancelled.Token])!;
+
+        Assert.False(await sync);
+        Assert.False(SessionWasDisposed(native));
+        Assert.Equal("sid-cancelled-model", chat.CopilotSessionId);
+        Assert.Empty(GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+    }
+
+    [Fact]
+    public async Task IdleTimer_ReleasesAnExpiredHostedSessionAndStopsWithTheStore()
+    {
+        using var ui = HeadlessTestSession.Start();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await ui.Dispatch(async () =>
+        {
+            var store = CreateDataStore();
+            var chat = new Chat { CopilotSessionId = "sid-idle-timer" };
+            store.Data.Chats.Add(chat);
+            using var registry = new ChatSurfaceRegistry();
+            using var sessions = new ChatSessionStore(store, TestCopilot.Shared, registry,
+                static (surface, loadedChat) =>
+                {
+                    surface.CurrentChat = loadedChat;
+                    return Task.CompletedTask;
+                });
+            var vm = await sessions.AcquireChatAsync(chat);
+            var native = CreateDetachedSession(chat.CopilotSessionId);
+            GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = native;
+            SetPrivateField(vm, "_activeSession", native);
+            GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
+            {
+                Chat = chat,
+                LastSessionActivityUtc = DateTimeOffset.UtcNow - CopilotService.IdleSessionTimeout - TimeSpan.FromMinutes(1)
+            };
+            var timer = GetField<Avalonia.Threading.DispatcherTimer>(sessions, "_idleSessionTimer");
+            timer.Interval = TimeSpan.FromMilliseconds(10);
+            while (!SessionWasDisposed(native))
+                await Task.Delay(10, deadline.Token);
+
+            Assert.Equal("sid-idle-timer", chat.CopilotSessionId);
+            Assert.False(vm.HasLiveCopilotRuntimeForCurrentChat());
+            sessions.Dispose();
+            Assert.False(timer.IsEnabled);
+        }, deadline.Token);
+    }
+
     [Fact]
     public async Task IdleCachedSurface_ReleasesPreviousWarmSessionWhenSecondBecomesIdle()
     {

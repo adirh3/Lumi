@@ -586,8 +586,10 @@ an error, never a silent fallback to an expensive default.
 
 All helpers resolve through `CopilotService.BuildLightweightSessionConfigAsync` and
 `SessionConfigBuilder.BuildLightweight`. One-shot sessions are disposed and deleted; suggestions
-keep their existing serialized, reusable session, replacing it before the next request if the
-resolved model, provider, or capabilities changed. Auto re-evaluates the shared catalog and uses its
+keep one serialized, warm helper and use the SDK's transient no-tools query API. Each query carries
+its own instructions and bounded current-exchange context without adding a conversation turn, so
+unrelated requests do not accumulate in the helper's history. The helper is replaced if it expired
+or its resolved model, provider, or capabilities changed. Auto re-evaluates the shared catalog and uses its
 existing five-minute refresh policy; Settings shows the current automatic model. Changes apply to
 the next helper request without interrupting current work or changing any chat's selected model.
 
@@ -601,6 +603,28 @@ Actual chat turns, scheduled job/chat-event wakes, and orchestrated chats retain
 explicitly overridden models. SDK-owned subagents, web search, and context compaction remain
 under the main session/SDK's policy, not this internal-helper setting. Memory maintenance and
 launchpad starters use deterministic local logic, not LLM calls.
+
+### Copilot telemetry and idle sessions
+
+Lumi disables the bundled Copilot CLI's optional client telemetry, including during sign-in, and
+sets `EnableSessionTelemetry = false` on created, resumed and helper sessions. This is separate from
+local session journals, chat persistence, model requests and provider-side usage/accounting.
+Lumi does not configure an OpenTelemetry exporter.
+
+Lumi owns a 30-minute idle policy, checked once a minute by its existing chat-session store.
+Copilot's automatic idle timeout is disabled: Lumi explicitly releases an unused native session
+and clears its local handle while retaining the saved session ID, transcript, draft and selection.
+This includes visible idle chats as well as cached chats. Active/background work, queued sends,
+questions, approvals, pending session operations and a visible app or canvas protect their sessions.
+When further work needs the session, Lumi resumes the saved ID through its normal setup path.
+Model-only changes on a closed session are saved for that next use rather than loading its history.
+The warm suggestion helper is also released after 30 minutes unused, under its request gate, and
+recreated on demand. One-shot helpers keep their existing dispose-after-use lifetime.
+Idle release does not stop the shared Copilot process or clear the displayed transcript.
+Foreground sends, background sends and resends restore an expired native session using its saved
+ID; only genuinely unavailable native history falls back to a new session with text replay.
+Edits restore the live session before rewinding its history, and pending external-skill activations
+are retried on the restored handle even when its session ID did not change.
 
 ### Unread chats
 

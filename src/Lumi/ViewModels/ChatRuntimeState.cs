@@ -13,6 +13,13 @@ internal sealed class ChatRuntimeState
 {
     private bool _isBusy;
     private bool _isSessionActive;
+    private long _lastSessionActivityUtcTicks = DateTimeOffset.UtcNow.UtcTicks;
+
+    public DateTimeOffset LastSessionActivityUtc
+    {
+        get => new(Interlocked.Read(ref _lastSessionActivityUtcTicks), TimeSpan.Zero);
+        set => Interlocked.Exchange(ref _lastSessionActivityUtcTicks, value.UtcTicks);
+    }
 
     public Chat? Chat { get; init; }
 
@@ -28,6 +35,7 @@ internal sealed class ChatRuntimeState
                 return;
 
             _isBusy = value;
+            LastSessionActivityUtc = DateTimeOffset.UtcNow;
             if (value)
                 IsSessionActive = true;
             if (Chat is not null)
@@ -44,6 +52,8 @@ internal sealed class ChatRuntimeState
         get => _isSessionActive;
         set
         {
+            if (_isSessionActive != value)
+                LastSessionActivityUtc = DateTimeOffset.UtcNow;
             _isSessionActive = value;
             if (Chat is not null)
                 Chat.IsSessionActive = value;

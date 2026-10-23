@@ -3965,7 +3965,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             try
             {
-                DetachPersistedSession(targetChat);
+                var previousSessionId = targetChat.CopilotSessionId;
+                InvalidateLocalSessionCache(targetChat);
                 var ok = await EnsureSessionAsync(targetChat, cts.Token, allowCreateFallback: true);
                 if (!ok)
                     throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
@@ -3974,15 +3975,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     ? sessionForChat
                     : _activeSession!;
                 RestoreDisplayedSessionFromCache();
-                // The replacement session starts empty, so re-activate the chat's skill selection.
-                skillDirectives = await ActivateExternalSkillsAsync(
-                    sendSession,
-                    targetChat,
-                    targetChat.ActiveExternalSkillNames,
-                    cts.Token);
-                sendOptions.Prompt = skillDirectives
-                    + BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), prompt)
-                    + promptAdditions;
+                if (!string.Equals(previousSessionId, sendSession.SessionId, StringComparison.Ordinal))
+                {
+                    // Only a replacement needs text replay; a resumed session keeps the original send.
+                    skillDirectives = await ActivateExternalSkillsAsync(
+                        sendSession,
+                        targetChat,
+                        targetChat.ActiveExternalSkillNames,
+                        cts.Token);
+                    sendOptions.Prompt = skillDirectives
+                        + BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), prompt)
+                        + promptAdditions;
+                }
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
@@ -4965,6 +4969,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Hoisted so the stale-session recovery path below re-applies the same skill directives:
         // the directive text is session-independent, but the recreated session still needs it.
         var skillDirectives = string.Empty;
+        string? basePrompt = null;
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
         try
@@ -5114,7 +5119,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 cts.Token);
             // The chats this message brings in travel with it, so a recovery replay keeps them too.
             modelPrompt += await BuildReferencedChatsContextAsync(userMsg, cts.Token);
-            var basePrompt = needsReplayPrompt
+            basePrompt = needsReplayPrompt
                 ? BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), modelPrompt)
                 : modelPrompt;
             sendOptions = new MessageOptions { Prompt = skillDirectives + basePrompt + promptAdditions };
@@ -5148,7 +5153,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             try
             {
                 StatusText = Loc.Status_Reconnecting;
-                DetachPersistedSession(targetChat);
+                var previousSessionId = targetChat.CopilotSessionId;
+                InvalidateLocalSessionCache(targetChat);
                 var ok = await EnsureSessionAsync(
                     targetChat, cts.Token, allowCreateFallback: true, holdForConnectorSignIn: true);
                 if (cts.IsCancellationRequested)
@@ -5167,17 +5173,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     ? recoveredSessionForChat
                     : _activeSession!;
                 RestoreDisplayedSessionFromCache();
-                // The replacement session holds none of this chat's earlier skill loads, so
-                // re-activate every still-selected skill instead of reusing the directives that
-                // were built for the dead session.
+                var sessionLostHistory = !string.Equals(
+                    previousSessionId, sendSession.SessionId, StringComparison.Ordinal);
+                // Pending activation may have failed on the stale handle even when its history survives.
                 skillDirectives = await ActivateTurnExternalSkillsAsync(
-                    sendSession,
-                    targetChat,
-                    sessionLostHistory: true,
-                    cts.Token);
-                sendOptions.Prompt = skillDirectives
-                    + BuildSessionRecoveryReplayPrompt(await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), modelPrompt)
-                    + promptAdditions;
+                    sendSession, targetChat, sessionLostHistory, cts.Token);
+                if (sessionLostHistory)
+                    basePrompt = BuildSessionRecoveryReplayPrompt(
+                        await WithStoredHistoryAsync(targetChat, retainedContext, cts.Token), modelPrompt);
+                sendOptions.Prompt = skillDirectives + basePrompt + promptAdditions;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
@@ -5590,6 +5594,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // mid-session model switch can detect when the cached session's endpoint no longer
             // matches the user's selected model.
             _activeSessionProviderSignature = _sessionProviderSignatures.GetValueOrDefault(chat.Id);
+            GetOrCreateRuntimeState(chat.Id).LastSessionActivityUtc = DateTimeOffset.UtcNow;
             return cachedSession;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -7213,6 +7218,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         MessageOptions? resendOptions = null;
+        string? resendPrompt = null;
         var promptAdditions = BuildSendPromptAdditions(
             consumePendingSkillInjections: false,
             targetChat: CurrentChat);
@@ -7379,7 +7385,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             // The resent turn reads the chats it brings in again, as they are now.
             modelPrompt += await BuildReferencedChatsContextAsync(newUserMsg, cts.Token);
-            var resendPrompt = BuildResendPrompt(
+            resendPrompt = BuildResendPrompt(
                 (wasEdited && !historyRewound) || shouldReplayPrompt
                     ? await WithStoredHistoryAsync(CurrentChat, retainedContext, cts.Token)
                     : retainedContext,
@@ -7417,7 +7423,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var cts = _ctsSources.GetValueOrDefault(CurrentChat.Id);
                 if (cts is null) return;
                 StatusText = Loc.Status_Reconnecting;
-                DetachPersistedSession(CurrentChat);
+                var previousSessionId = CurrentChat.CopilotSessionId;
+                InvalidateLocalSessionCache(CurrentChat);
                 var ok = await EnsureSessionAsync(CurrentChat, cts.Token, allowCreateFallback: true);
                 if (!ok)
                 {
@@ -7428,22 +7435,33 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         overrideMessage: Loc.Status_OriginalSessionUnavailable);
                     return;
                 }
-                var resendPrompt2 = BuildResendPrompt(
-                    await WithStoredHistoryAsync(CurrentChat, retainedContext, cts.Token),
-                    modelPrompt,
-                    wasEdited,
-                    shouldReplayPrompt: !wasEdited,
-                    promptAdditions);
-                // Recreated session: none of this chat's earlier skill loads survived, so activate
-                // the resent turn's own skills against the replacement session.
-                skillDirectives = await ActivateExternalSkillsAsync(
-                    _activeSession,
-                    CurrentChat,
-                    ResolveSkillSelectionsFromReferences(userMessage.ActiveSkills).ExternalSkillNames,
-                    cts.Token);
-                resendOptions = new MessageOptions { Prompt = skillDirectives + resendPrompt2 };
-                if (attachments.Count > 0)
-                    resendOptions.Attachments = attachments;
+                var sessionWasReplaced = !string.Equals(
+                    previousSessionId, CurrentChat.CopilotSessionId, StringComparison.Ordinal);
+                if (sessionWasReplaced || resendOptions is null)
+                {
+                    resendPrompt = BuildResendPrompt(
+                        sessionWasReplaced
+                            ? await WithStoredHistoryAsync(CurrentChat, retainedContext, cts.Token)
+                            : retainedContext,
+                        modelPrompt,
+                        wasEdited: sessionWasReplaced && wasEdited,
+                        shouldReplayPrompt: sessionWasReplaced && !wasEdited,
+                        promptAdditions);
+                    skillDirectives = await ActivateExternalSkillsAsync(
+                        _activeSession,
+                        CurrentChat,
+                        ResolveSkillSelectionsFromReferences(userMessage.ActiveSkills).ExternalSkillNames,
+                        cts.Token);
+                    resendOptions = new MessageOptions { Prompt = skillDirectives + resendPrompt };
+                    if (attachments.Count > 0)
+                        resendOptions.Attachments = attachments;
+                }
+                else
+                {
+                    skillDirectives = await ActivateTurnExternalSkillsAsync(
+                        _activeSession, CurrentChat, sessionLostHistory: false, cts.Token);
+                    resendOptions.Prompt = skillDirectives + resendPrompt;
+                }
 
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     _activeSession!,
@@ -7540,21 +7558,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         try
         {
-            // Ensure the target session is live, but never fall back to creating a fresh
-            // (empty) one — a brand-new session would have no history to truncate.
-            if (_activeSession is null
-                || !string.Equals(_activeSession.SessionId, chat.CopilotSessionId, StringComparison.Ordinal))
-            {
-                var resumed = await EnsureSessionAsync(chat, ct, allowCreateFallback: false);
-                if (!resumed
-                    || _activeSession is null
-                    || !string.Equals(_activeSession.SessionId, chat.CopilotSessionId, StringComparison.Ordinal))
-                {
-                    return false;
-                }
-            }
-
-            var events = await _activeSession.GetEventsAsync(ct);
+            var session = await GetOrResumeSessionAsync(chat, ct);
+            if (session is null)
+                return false;
+            var events = await session.GetEventsAsync(ct);
 
             // The edited turn is the (retainedUserCount)-th genuine user turn (0-based).
             // SelectEditTruncationTarget skips SDK/CLI-injected user messages (e.g. a
@@ -7567,7 +7574,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             // Truncating at the target user event drops it and everything after, leaving exactly
             // the retained history; the edit is then resent as a normal turn.
-            await _activeSession.Rpc.History.TruncateAsync(target.Id.ToString(), ct);
+            await session.Rpc.History.TruncateAsync(target.Id.ToString(), ct);
             return true;
         }
         catch

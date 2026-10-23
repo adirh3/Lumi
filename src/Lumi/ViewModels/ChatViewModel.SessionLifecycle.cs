@@ -363,6 +363,7 @@ public partial class ChatViewModel
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)?.Name ?? Loc.Author_Lumi
             : Loc.Author_Lumi;
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        runtime.LastSessionActivityUtc = DateTimeOffset.UtcNow;
         var sessionTurnSequence = runtime.LifecycleTurnSequence;
         var capabilities = GetCapabilities(chat, workDir);
         var nativeMcpServersByToolCallId = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -1072,6 +1073,7 @@ public partial class ChatViewModel
 
         var sessionSubscription = session.On<SessionEvent>(evt =>
         {
+            runtime.LastSessionActivityUtc = DateTimeOffset.UtcNow;
             try
             {
             switch (evt)

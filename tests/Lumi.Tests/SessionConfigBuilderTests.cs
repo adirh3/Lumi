@@ -14,6 +14,19 @@ public sealed class SessionConfigBuilderTests
     [InlineData("create")]
     [InlineData("resume")]
     [InlineData("lightweight")]
+    public void SessionTelemetry_IsDisabledWithoutDisablingHistory(string sessionKind)
+    {
+        var config = BuildWithTools(sessionKind, []);
+
+        Assert.False(config.EnableSessionTelemetry);
+        Assert.Equal(sessionKind != "lightweight", config.EnableSessionStore);
+        Assert.Equal(sessionKind != "lightweight", config.InfiniteSessions!.Enabled);
+    }
+
+    [Theory]
+    [InlineData("create")]
+    [InlineData("resume")]
+    [InlineData("lightweight")]
     public async Task LumiTools_PreloadWithoutChangingTheirContract(string sessionKind)
     {
         using var cts = new CancellationTokenSource();

@@ -48,6 +48,7 @@ public sealed class ChatSessionStore : IDisposable
     private readonly HashSet<ChatViewModel> _surfaces = [];
     private readonly LinkedList<ChatViewModel> _idleSurfacesLru = new();
     private readonly SemaphoreSlim _acquireChatLock = new(1, 1);
+    private readonly DispatcherTimer _idleSessionTimer;
     private readonly Dictionary<Guid, object> _pendingMessageReleases = [];
     private Task _evictedMessagesRelease = Task.CompletedTask;
     private bool _isDisposed;
@@ -107,6 +108,9 @@ public sealed class ChatSessionStore : IDisposable
         OrchestrationService = _orchestrationService;
         _copilotService.Reconnected += OnCopilotReconnected;
         _copilotService.PluginsChanged += OnPluginsChanged;
+        _idleSessionTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        _idleSessionTimer.Tick += OnIdleSessionTimer;
+        _idleSessionTimer.Start();
     }
 
     /// <summary>
@@ -243,6 +247,28 @@ public sealed class ChatSessionStore : IDisposable
 
     public IReadOnlyList<ChatViewModel> SnapshotSurfaces() => _surfaces.ToArray();
 
+    internal async Task ReleaseIdleSessionsAsync(DateTimeOffset utcNow)
+    {
+        if (_isDisposed)
+            return;
+
+        foreach (var surface in _surfaces.ToArray())
+            surface.ReleaseIdleSessionRuntimes(utcNow);
+        await _copilotService.ReleaseIdleSuggestionSessionAsync(utcNow);
+    }
+
+    private async void OnIdleSessionTimer(object? sender, EventArgs args)
+    {
+        try
+        {
+            await ReleaseIdleSessionsAsync(DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning("[Chat] Could not release idle Copilot sessions: {0}", ex);
+        }
+    }
+
     public async Task<string?> SetChatPausedAsync(Chat chat, bool paused)
     {
         ThrowIfDisposed();
@@ -299,6 +325,8 @@ public sealed class ChatSessionStore : IDisposable
             return;
 
         _isDisposed = true;
+        _idleSessionTimer.Stop();
+        _idleSessionTimer.Tick -= OnIdleSessionTimer;
         _copilotService.Reconnected -= OnCopilotReconnected;
         _copilotService.PluginsChanged -= OnPluginsChanged;
         if (_ownsCapabilityCatalog)

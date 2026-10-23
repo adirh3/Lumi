@@ -102,6 +102,7 @@ public sealed class LightweightSessionOptions
             EnableConfigDiscovery = enableCapabilityDiscovery && EnableSdkConfigDiscovery,
             SkillProvider = skillProvider,
             EnableSessionStore = true,
+            EnableSessionTelemetry = false,
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
@@ -156,6 +157,7 @@ public sealed class LightweightSessionOptions
             EnableConfigDiscovery = enableCapabilityDiscovery && EnableSdkConfigDiscovery,
             SkillProvider = skillProvider,
             EnableSessionStore = true,
+            EnableSessionTelemetry = false,
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
@@ -178,8 +180,8 @@ public sealed class LightweightSessionOptions
 
     /// <summary>
     /// Builds a lightweight single-purpose <see cref="SessionConfig"/> for helper flows.
-    /// The SDK currently has no public transient-session API, so these sessions are
-    /// configured to be as cheap as possible and should be explicitly deleted after use.
+    /// One-shot callers delete the session after use. A warm helper must use native
+    /// transient queries rather than append unrelated requests to its conversation.
     /// </summary>
     public static SessionConfig BuildLightweight(LightweightSessionOptions options)
     {
@@ -194,6 +196,7 @@ public sealed class LightweightSessionOptions
             ConfigDirectory = options.ConfigDir ?? GetDefaultConfigDir(),
             EnableConfigDiscovery = EnableLightweightConfigDiscovery,
             EnableSessionStore = false,
+            EnableSessionTelemetry = false,
             RequestExtensions = false,
             RequestCanvasRenderer = false,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = false },

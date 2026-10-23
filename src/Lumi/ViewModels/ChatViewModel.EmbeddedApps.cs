@@ -178,7 +178,10 @@ public partial class ChatViewModel
         if (_isDisposed || !HoldsApp(chat, message))
             throw new InvalidOperationException(Loc.Apps_Unavailable);
         if (reuseLive && _sessionCache.TryGetValue(chat.Id, out var live) && live.SessionId == chat.CopilotSessionId)
+        {
+            GetOrCreateRuntimeState(chat.Id).LastSessionActivityUtc = DateTimeOffset.UtcNow;
             return live;
+        }
         return await GetOrResumeSessionAsync(chat, cancellationToken)
             ?? throw new InvalidOperationException(Loc.Apps_NoSession);
     }

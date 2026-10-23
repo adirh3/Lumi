@@ -66,6 +66,9 @@ public class ByokOnlyRequestBlockedException : InvalidOperationException
 
 public class CopilotService : IAsyncDisposable
 {
+    internal static readonly TimeSpan IdleSessionTimeout = TimeSpan.FromMinutes(30);
+    internal const string DisableClientTelemetryArgument = "--disable-client-telemetry";
+
     private static readonly MethodInfo? RemoveSessionFromClientMethod = typeof(CopilotSession).GetMethod(
         "RemoveFromClient",
         BindingFlags.Instance | BindingFlags.NonPublic,
@@ -85,6 +88,7 @@ public class CopilotService : IAsyncDisposable
     private IDisposable? _lifecycleSub;
     private CopilotSession? _suggestionSession;
     private string? _suggestionSessionModelSignature;
+    private DateTimeOffset _suggestionSessionLastUsedUtc;
     private readonly SemaphoreSlim _suggestionGate = new(1, 1);
     internal ByokRateLimiter ByokRateLimiter { get; } = new();
 
@@ -105,6 +109,14 @@ public class CopilotService : IAsyncDisposable
 
         _modelCatalog.Changed += snapshot => ModelCatalogChanged?.Invoke(snapshot);
     }
+
+    internal static CopilotClientOptions BuildClientOptions(string? cliPath) => new()
+    {
+        Connection = RuntimeConnection.ForStdio(cliPath ?? "copilot", [DisableClientTelemetryArgument]),
+        LogLevel = CopilotLogLevel.Error,
+        ExtensionLaunchProvider = new CopilotExtensionLaunchProvider(),
+        SessionIdleTimeoutSeconds = 0,
+    };
 
     private CopilotClient RequireClient()
         => _client ?? throw new InvalidOperationException("Not connected");
@@ -320,12 +332,7 @@ public class CopilotService : IAsyncDisposable
 
             oldClient = _client;
             var cliPath = FindCliPath();
-            var clientOptions = new CopilotClientOptions
-            {
-                Connection = RuntimeConnection.ForStdio(cliPath ?? "copilot"),
-                LogLevel = CopilotLogLevel.Error,
-                ExtensionLaunchProvider = new CopilotExtensionLaunchProvider(),
-            };
+            var clientOptions = BuildClientOptions(cliPath);
             if (IsolatedRuntimeHome is { } isolatedHome)
             {
                 Directory.CreateDirectory(isolatedHome);
@@ -1294,7 +1301,7 @@ public class CopilotService : IAsyncDisposable
             var legacyPsi = new ProcessStartInfo
             {
                 FileName = cliPath,
-                Arguments = "--no-auto-update login",
+                Arguments = $"--no-auto-update {DisableClientTelemetryArgument} login",
                 UseShellExecute = true,
             };
             using var legacyProcess = Process.Start(legacyPsi);
@@ -1310,7 +1317,7 @@ public class CopilotService : IAsyncDisposable
         var psi = new ProcessStartInfo
         {
             FileName = cliPath,
-            Arguments = "--no-auto-update login",
+            Arguments = $"--no-auto-update {DisableClientTelemetryArgument} login",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -2197,13 +2204,8 @@ public class CopilotService : IAsyncDisposable
         "FREQUENT-REQUESTS LIST: you may also receive a list of the user's frequently-typed requests. Treat it as low-priority reference, NOT a menu: include one only if it is a genuinely natural next step for THIS conversation. Usually none fit — then ignore the list entirely. Never suggest something merely because it is frequent, and ignore any list item that looks like a test, debug, setup, or system command, or is unrelated to the current topic. " +
         "Output ONLY a JSON array of exactly 3 strings, nothing else. Example: [\"Compare the LG G4 and Sony A95L\", \"Which handles glare better?\", \"Show cheaper alternatives under $1500\"]";
 
-    private async Task<CopilotSession> GetOrCreateSuggestionSessionAsync(CancellationToken ct)
+    private async Task<CopilotSession> GetOrCreateSuggestionSessionAsync(SessionConfig config, CancellationToken ct)
     {
-        var config = await BuildLightweightSessionConfigAsync(new LightweightSessionOptions
-        {
-            SystemPrompt = SuggestionSystemPrompt,
-            Streaming = false
-        }, ct).ConfigureAwait(false);
         var signature = GetLightweightSessionModelSignature(config);
         if (_suggestionSession is not null && _suggestionSessionModelSignature == signature)
             return _suggestionSession;
@@ -2213,7 +2215,30 @@ public class CopilotService : IAsyncDisposable
         await DisposeAndDeleteSessionAsync(previous).ConfigureAwait(false);
         _suggestionSession = await CreateSessionAsync(config, ct).ConfigureAwait(false);
         _suggestionSessionModelSignature = signature;
+        _suggestionSessionLastUsedUtc = DateTimeOffset.UtcNow;
         return _suggestionSession;
+    }
+
+    internal async Task ReleaseIdleSuggestionSessionAsync(DateTimeOffset utcNow)
+    {
+        if (!await _suggestionGate.WaitAsync(0).ConfigureAwait(false))
+            return;
+
+        try
+        {
+            if (_suggestionSession is null
+                || utcNow - _suggestionSessionLastUsedUtc < IdleSessionTimeout)
+                return;
+
+            var session = _suggestionSession;
+            _suggestionSession = null;
+            _suggestionSessionModelSignature = null;
+            await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
+        }
+        finally
+        {
+            _suggestionGate.Release();
+        }
     }
 
     private bool IsBackgroundCopilotBlocked
@@ -2240,6 +2265,63 @@ public class CopilotService : IAsyncDisposable
             return null;
         }
 
+        var question = BuildSuggestionQuestion(assistantMessage, userMessage, userHistorySummary);
+
+        await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
+        CopilotSession? session = null;
+        try
+        {
+            var config = await BuildLightweightSessionConfigAsync(new LightweightSessionOptions
+            {
+                SystemPrompt = SuggestionSystemPrompt,
+                Streaming = false
+            }, ct).ConfigureAwait(false);
+            session = await GetOrCreateSuggestionSessionAsync(config, ct).ConfigureAwait(false);
+            using var queryCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            queryCancellation.CancelAfter(TimeSpan.FromSeconds(60));
+
+            string? raw;
+            try
+            {
+                var result = await session.Rpc.Ui.EphemeralQueryAsync(
+                    question, queryCancellation.Token).ConfigureAwait(false);
+                raw = result.Answer;
+            }
+            catch (Exception ex) when (!queryCancellation.IsCancellationRequested
+                && IsMissingSessionError(null, ex.Message))
+            {
+                Debug.WriteLine("[Lumi] Suggestion session expired; recreating the warm helper.");
+                _suggestionSession = null;
+                await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
+                session = null;
+                session = await GetOrCreateSuggestionSessionAsync(config, queryCancellation.Token).ConfigureAwait(false);
+                var result = await session.Rpc.Ui.EphemeralQueryAsync(
+                    question, queryCancellation.Token).ConfigureAwait(false);
+                raw = result.Answer;
+            }
+
+            return ParseSuggestions(raw);
+        }
+        catch
+        {
+            if (session is not null)
+            {
+                if (ReferenceEquals(_suggestionSession, session))
+                    _suggestionSession = null;
+                await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
+            }
+            throw;
+        }
+        finally
+        {
+            _suggestionSessionLastUsedUtc = DateTimeOffset.UtcNow;
+            _suggestionGate.Release();
+        }
+    }
+
+    internal static string BuildSuggestionQuestion(
+        string assistantMessage, string? userMessage, string? userHistorySummary)
+    {
         var contextBuilder = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(userMessage))
         {
@@ -2258,37 +2340,8 @@ public class CopilotService : IAsyncDisposable
             contextBuilder.AppendLine(Truncate(userHistorySummary.Trim(), 1400));
         }
 
-        var context = contextBuilder.ToString().Trim();
-
-        // Truncate to keep the request lightweight
-        if (context.Length > 3600)
-            context = context[..3600];
-
-        await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
-        CopilotSession? session = null;
-        try
-        {
-            session = await GetOrCreateSuggestionSessionAsync(ct).ConfigureAwait(false);
-            var result = await session.SendAndWaitAsync(
-                 new MessageOptions { Prompt = context },
-                 TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
-            return ParseSuggestions(result?.Data?.Content);
-        }
-        catch
-        {
-            // Session may be stale — discard so next call creates a fresh one
-            if (session is not null)
-            {
-                if (ReferenceEquals(_suggestionSession, session))
-                    _suggestionSession = null;
-                await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
-            }
-            throw;
-        }
-        finally
-        {
-            _suggestionGate.Release();
-        }
+        var context = Truncate(contextBuilder.ToString().Trim(), 3600);
+        return $"{SuggestionSystemPrompt}\n\n{context}";
     }
 
     private static List<string>? ParseSuggestions(string? raw)

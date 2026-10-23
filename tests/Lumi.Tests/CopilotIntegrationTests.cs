@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using Lumi.Services.Permissions;
 using Lumi.Services.Sharing;
 using Lumi.ViewModels;
@@ -42,7 +43,7 @@ namespace Lumi.Tests;
 /// 13. Session hooks — OnPreToolUse and OnErrorOccurred wired correctly
 /// 14. Session list + delete — CRUD lifecycle
 /// 15. Title generation — lightweight throwaway session
-/// 16. Suggestion generation — parse JSON array from throwaway session
+/// 16. Suggestion generation — stateless queries on a warm helper session
 /// 17. Concurrent sessions — independent contexts
 /// 18. Streaming event lifecycle — correct event ordering
 /// 19. Reasoning effort — config propagation
@@ -809,6 +810,329 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         Assert.Contains(uniqueWord, reply, StringComparison.OrdinalIgnoreCase);
         await session2.DisposeAsync();
+    }
+
+    [SkippableTheory]
+    [InlineData("foreground", true, false)]
+    [InlineData("background", true, false)]
+    [InlineData("resend", true, false)]
+    [InlineData("edit", true, false)]
+    [InlineData("model", true, false)]
+    [InlineData("foreground", false, false)]
+    [InlineData("foreground", true, true)]
+    [InlineData("background", true, true)]
+    [InlineData("resend", true, true)]
+    [InlineData("edit", true, true)]
+    [InlineData("model", true, true)]
+    public async Task ExpiredCachedChat_ResumesSavedHistoryOrRebuildsWhenMissing(
+        string sendKind, bool savedHistoryExists, bool lumiOwnsRelease)
+    {
+        SkipIfDisabled();
+        var model = await _service.GetBackgroundModelIdAsync();
+        using var ui = HeadlessTestSession.Start();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        await ui.Dispatch(async () =>
+        {
+            var settings = new UserSettings
+            {
+                PreferredModel = model,
+                AutoSaveChats = false,
+                AutoGenerateTitles = false,
+                EnableMemoryAutoSave = false,
+                EnableMemoryAutoMaintenance = false,
+                SuggestFollowUps = false
+            };
+            var store = new DataStore(new AppData { Settings = settings });
+            using var viewModel = new ChatViewModel(store, _service);
+            viewModel.SelectedModel = model;
+            var word = $"Zephyr{Random.Shared.Next(10000, 99999)}";
+            viewModel.PromptText = $"For this conversation, the test word is {word}. Reply only OK. Do not use tools.";
+            await viewModel.SendMessageCommand.ExecuteAsync(null);
+            await WaitForReplyAsync(1);
+            if (sendKind == "edit")
+            {
+                viewModel.PromptText = "Reply only SECOND. Do not use tools.";
+                await viewModel.SendMessageCommand.ExecuteAsync(null);
+                await WaitForReplyAsync(2);
+            }
+
+            var chat = Assert.IsType<Chat>(viewModel.CurrentChat);
+            var sessionId = chat.CopilotSessionId;
+            Assert.False(string.IsNullOrWhiteSpace(sessionId));
+
+            if (lumiOwnsRelease)
+            {
+                viewModel.ReleaseIdleSessionRuntimes(
+                    DateTimeOffset.UtcNow + CopilotService.IdleSessionTimeout + TimeSpan.FromSeconds(1));
+                Assert.False(viewModel.HasLiveCopilotRuntimeForCurrentChat());
+                Assert.Equal(sessionId, chat.CopilotSessionId);
+            }
+            else
+            {
+                // An unexpected native close must remain resumable too.
+                await _service.Client!.Rpc.Sessions.CloseAsync(sessionId!, deadline.Token);
+                Assert.True(viewModel.HasLiveCopilotRuntimeForCurrentChat());
+            }
+            if (!savedHistoryExists)
+            {
+                Assert.True(DataStore.UsesIsolatedProfile);
+                Assert.True(Guid.TryParse(sessionId, out _));
+                File.Delete(Path.Combine(DataStore.CopilotConfigDir, "session-state", sessionId!, "events.jsonl"));
+            }
+            const string question = "What is the test word? Reply with just the word. Do not use tools.";
+            if (sendKind == "background")
+                await viewModel.SendExternalMessageAsync(chat, question, "Test job", deadline.Token);
+            else if (sendKind == "resend")
+                await viewModel.ResendFromMessageAsync(chat.Messages.First(message => message.Role == "user"), wasEdited: false);
+            else if (sendKind == "edit")
+            {
+                var editedMessage = chat.Messages.Last(message => message.Role == "user");
+                editedMessage.Content = question;
+                await viewModel.ResendFromMessageAsync(editedMessage, wasEdited: true);
+            }
+            else if (sendKind == "model")
+            {
+                var alternate = (await _service.Client!.ListModelsAsync(deadline.Token))
+                    .First(candidate => candidate.Id != model);
+                viewModel.SelectedModel = alternate.Id;
+                typeof(ChatViewModel).GetMethod("CancelPendingMidSessionModelSync",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(viewModel, null);
+                if (!lumiOwnsRelease)
+                {
+                    var switched = (Task<bool>)typeof(ChatViewModel).GetMethod("SwitchModelMidSessionAsync",
+                        BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(viewModel, [alternate.Id, null, null, deadline.Token])!;
+                    Assert.False(await switched);
+                    var detachedCache = (Dictionary<Guid, CopilotSession>)typeof(ChatViewModel)
+                        .GetField("_sessionCache", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewModel)!;
+                    Assert.False(detachedCache.ContainsKey(chat.Id));
+                    Assert.Null(typeof(ChatViewModel).GetField(
+                        "_activeSession", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewModel));
+                    Assert.Equal(sessionId, chat.CopilotSessionId);
+                }
+                viewModel.PromptText = question;
+                await viewModel.SendMessageCommand.ExecuteAsync(null);
+            }
+            else
+            {
+                viewModel.PromptText = question;
+                await viewModel.SendMessageCommand.ExecuteAsync(null);
+            }
+            await WaitForReplyAsync(sendKind == "resend" ? 1 : 2);
+
+            Assert.Same(chat, viewModel.CurrentChat);
+            if (savedHistoryExists)
+            {
+                Assert.Equal(sessionId, chat.CopilotSessionId);
+                if (sendKind != "resend")
+                {
+                    var cache = (Dictionary<Guid, CopilotSession>)typeof(ChatViewModel)
+                        .GetField("_sessionCache", BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .GetValue(viewModel)!;
+                    var nativeUsers = (await cache[chat.Id].GetEventsAsync(deadline.Token))
+                        .OfType<UserMessageEvent>().ToList();
+                    Assert.Equal(2, nativeUsers.Count);
+                    Assert.DoesNotContain(word, nativeUsers[^1].Data.Content, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            else
+                Assert.NotEqual(sessionId, chat.CopilotSessionId);
+            if (sendKind != "resend")
+                Assert.Contains(word, chat.Messages.Last(message => message.Role == "assistant").Content,
+                    StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(chat.Messages, message => message.Role == "error");
+
+            async Task WaitForReplyAsync(int count)
+            {
+                while (viewModel.IsBusy || viewModel.IsSessionActive
+                    || (viewModel.CurrentChat?.Messages.Count(message =>
+                        message.Role == "assistant" && !string.IsNullOrWhiteSpace(message.Content)) ?? 0) < count)
+                {
+                    Assert.DoesNotContain(viewModel.CurrentChat?.Messages ?? [],
+                        message => message.Role == "error");
+                    await Task.Delay(25, deadline.Token);
+                }
+            }
+        }, deadline.Token);
+    }
+
+    [SkippableFact]
+    public async Task ModelSelection_AfterClosedSession_DefersResumeAndKeepsLatestChoice()
+    {
+        SkipIfDisabled();
+        var model = await _service.GetBackgroundModelIdAsync();
+        var alternate = (await _service.Client!.ListModelsAsync()).First(candidate => candidate.Id != model).Id;
+        using var ui = HeadlessTestSession.Start();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        await ui.Dispatch(async () =>
+        {
+            var store = new DataStore(new AppData
+            {
+                Settings = new UserSettings
+                {
+                    PreferredModel = model,
+                    AutoSaveChats = false,
+                    AutoGenerateTitles = false,
+                    EnableMemoryAutoSave = false,
+                    EnableMemoryAutoMaintenance = false,
+                    SuggestFollowUps = false
+                }
+            });
+            var provider = new PausedCapabilityProvider();
+            using var catalog = new CapabilityCatalog(new LumiCapabilityProvider(store), provider);
+            using var vm = new ChatViewModel(store, _service, capabilityCatalog: catalog)
+            {
+                SelectedModel = model,
+                PromptText = "Reply only READY. Do not use tools."
+            };
+            await vm.SendMessageCommand.ExecuteAsync(null);
+            while (vm.IsBusy || vm.IsSessionActive)
+                await Task.Delay(25, deadline.Token);
+            var chat = Assert.IsType<Chat>(vm.CurrentChat);
+            var originalId = chat.CopilotSessionId;
+            Assert.False(string.IsNullOrWhiteSpace(originalId));
+            await _service.Client.Rpc.Sessions.CloseAsync(originalId!, deadline.Token);
+            provider.Pause();
+            try
+            {
+                vm.SelectedModel = alternate;
+                var activeSession = typeof(ChatViewModel).GetField(
+                    "_activeSession", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                while (activeSession.GetValue(vm) is not null && !provider.Entered.Task.IsCompleted)
+                    await Task.Delay(25, deadline.Token);
+                Assert.Null(activeSession.GetValue(vm));
+                Assert.False(provider.Entered.Task.IsCompleted, "A picker change must not load a closed session.");
+                vm.SelectedModel = model;
+            }
+            finally
+            {
+                provider.Resume();
+            }
+
+            vm.PromptText = "Reply only LATEST. Do not use tools.";
+            await vm.SendMessageCommand.ExecuteAsync(null);
+            while (vm.IsBusy || vm.IsSessionActive)
+                await Task.Delay(25, deadline.Token);
+            var cache = (Dictionary<Guid, CopilotSession>)typeof(ChatViewModel).GetField(
+                "_sessionCache", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(vm)!;
+            var actualModel = (await cache[chat.Id].Rpc.Model.GetCurrentAsync(deadline.Token)).ModelId;
+            Assert.Equal(model, vm.SelectedModel);
+            Assert.Equal(model, actualModel);
+            Assert.Equal(originalId, chat.CopilotSessionId);
+            Assert.DoesNotContain(chat.Messages, message => message.Role == "error");
+        }, deadline.Token);
+    }
+
+    private sealed class PausedCapabilityProvider : ICapabilityProvider
+    {
+        private TaskCompletionSource? _resume;
+        public string Id => "model-resume-fixture";
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Pause() => _resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Resume()
+        {
+            var resume = _resume;
+            _resume = null;
+            resume?.TrySetResult();
+        }
+        public async Task<CapabilityProviderResult> LoadAsync(CapabilityQuery query, CancellationToken cancellationToken)
+        {
+            if (_resume is { } resume)
+            {
+                Entered.TrySetResult();
+                await resume.Task.WaitAsync(cancellationToken);
+            }
+            return CapabilityProviderResult.Empty;
+        }
+    }
+
+    [SkippableTheory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ExpiredCachedChat_DeliversPendingExternalSkillAfterResume(bool resend, bool lumiOwnsRelease)
+    {
+        SkipIfDisabled();
+        const string skillName = "idle-skill-fixture";
+        var root = Path.Combine(DataStore.CopilotConfigDir, $"skill-recovery-{Guid.NewGuid():N}");
+        var skillDirectory = Path.Combine(root, ".github", "skills", skillName);
+        Directory.CreateDirectory(skillDirectory);
+        await File.WriteAllTextAsync(Path.Combine(skillDirectory, "SKILL.md"),
+            $"---\nname: {skillName}\ndescription: A synthetic idle recovery check.\n---\n\nAnswer the user's request briefly. Do not use any shell or network tools.");
+        var model = await _service.GetBackgroundModelIdAsync();
+        using var ui = HeadlessTestSession.Start();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        await ui.Dispatch(async () =>
+        {
+            var project = new Project { Name = "Skill recovery fixture", WorkingDirectory = root };
+            var chat = new Chat { Title = "Skill recovery fixture", ProjectId = project.Id };
+            var store = new DataStore(new AppData
+            {
+                Settings = new UserSettings
+                {
+                    PreferredModel = model,
+                    AutoSaveChats = false,
+                    AutoGenerateTitles = false,
+                    EnableMemoryAutoSave = false,
+                    EnableMemoryAutoMaintenance = false,
+                    SuggestFollowUps = false
+                },
+                Projects = [project],
+                Chats = [chat]
+            });
+            using var viewModel = new ChatViewModel(store, _service)
+            {
+                CurrentChat = chat,
+                SelectedModel = model,
+                PromptText = "Reply only READY. Do not use tools."
+            };
+            await viewModel.SendMessageCommand.ExecuteAsync(null);
+            await WaitForReplyAsync();
+            var sessionId = chat.CopilotSessionId;
+            Assert.False(string.IsNullOrWhiteSpace(sessionId));
+            if (lumiOwnsRelease)
+            {
+                viewModel.ReleaseIdleSessionRuntimes(
+                    DateTimeOffset.UtcNow + CopilotService.IdleSessionTimeout + TimeSpan.FromSeconds(1));
+                Assert.False(viewModel.HasLiveCopilotRuntimeForCurrentChat());
+            }
+            else
+            {
+                await _service.Client!.Rpc.Sessions.CloseAsync(sessionId!, deadline.Token);
+                Assert.True(viewModel.HasLiveCopilotRuntimeForCurrentChat());
+            }
+            viewModel.RegisterSkillIdByName(skillName);
+            Assert.Contains(skillName, chat.ActiveExternalSkillNames);
+
+            if (resend)
+                await viewModel.ResendFromMessageAsync(chat.Messages.First(message => message.Role == "user"), wasEdited: false);
+            else
+            {
+                viewModel.PromptText = "Reply only DONE.";
+                await viewModel.SendMessageCommand.ExecuteAsync(null);
+            }
+            await WaitForReplyAsync();
+
+            Assert.Equal(sessionId, chat.CopilotSessionId);
+            var cache = (Dictionary<Guid, CopilotSession>)typeof(ChatViewModel)
+                .GetField("_sessionCache", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(viewModel)!;
+            var nativeUsers = (await cache[chat.Id].GetEventsAsync(deadline.Token))
+                .OfType<UserMessageEvent>().ToList();
+            Assert.Contains(skillName, nativeUsers[^1].Data.Content);
+            Assert.DoesNotContain(chat.Messages, message => message.Role == "error");
+
+            async Task WaitForReplyAsync()
+            {
+                while (viewModel.IsBusy || viewModel.IsSessionActive)
+                {
+                    Assert.DoesNotContain(chat.Messages, message => message.Role == "error");
+                    await Task.Delay(25, deadline.Token);
+                }
+                Assert.Contains(chat.Messages, message => message.Role == "assistant"
+                    && !string.IsNullOrWhiteSpace(message.Content));
+            }
+        }, deadline.Token);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1803,15 +2127,18 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.NotEmpty(suggestions!);
         var second = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
         Assert.NotEqual(first.SessionId, second.SessionId);
-        var secondUsage = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var secondSubscription = second.On<AssistantUsageEvent>(evt =>
+        var queryCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable GHCP001 // Suggestions use the SDK's native transient-query lifecycle.
+        using var secondSubscription = second.On<UiEphemeralQueryEvent>(evt =>
         {
-            if (evt.Data?.Model is { } model)
-                secondUsage.TrySetResult(model);
+            if (evt.Data.Phase == UIEphemeralQueryPhase.Completed)
+                queryCompleted.TrySetResult();
         });
+#pragma warning restore GHCP001
         await _service.GenerateSuggestionsAsync("It is available with subtitles.", "Does it have subtitles?");
         Assert.Same(second, sessionField.GetValue(_service));
-        Assert.Equal(secondModel, await secondUsage.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        await queryCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(secondModel, (await second.Rpc.Model.GetCurrentAsync()).ModelId);
         _output.WriteLine($"BACKGROUND_MODEL_OVERRIDE={secondModel}");
 
         settings.UseBYOKOnly = true;
@@ -2013,6 +2340,57 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.NotNull(suggestions);
         Assert.True(suggestions!.Count >= 1, "Should return at least 1 suggestion");
         Assert.All(suggestions, s => Assert.False(string.IsNullOrWhiteSpace(s)));
+    }
+
+    [SkippableFact]
+    public async Task SuggestionGeneration_ReusesStatelessHelperAndRecreatesAnExpiredSession()
+    {
+        SkipIfDisabled();
+        var sessionField = typeof(CopilotService).GetField(
+            "_suggestionSession", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        Assert.NotEmpty((await _service.GenerateSuggestionsAsync(
+            "The OLED television has better contrast.", "Compare these televisions."))!);
+        var first = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
+        Assert.NotEmpty((await _service.GenerateSuggestionsAsync(
+            "The soup needs another ten minutes.", "When is dinner ready?"))!);
+        Assert.Same(first, sessionField.GetValue(_service));
+        Assert.DoesNotContain(await first.GetEventsAsync(),
+            evt => evt is UserMessageEvent or AssistantMessageEvent);
+
+        // Closing the server-side session reproduces the stale handle left by the idle sweeper.
+        await _service.Client!.Rpc.Sessions.CloseAsync(first.SessionId);
+        Assert.NotEmpty((await _service.GenerateSuggestionsAsync(
+            "The trip takes two hours.", "When should we leave?"))!);
+        var replacement = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
+        Assert.NotEqual(first.SessionId, replacement.SessionId);
+        Assert.DoesNotContain(await replacement.GetEventsAsync(),
+            evt => evt is UserMessageEvent or AssistantMessageEvent);
+
+        var lastUse = (DateTimeOffset)typeof(CopilotService).GetField(
+            "_suggestionSessionLastUsedUtc", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_service)!;
+        await _service.ReleaseIdleSuggestionSessionAsync(lastUse + CopilotService.IdleSessionTimeout - TimeSpan.FromTicks(1));
+        Assert.Same(replacement, sessionField.GetValue(_service));
+        var gate = (SemaphoreSlim)typeof(CopilotService).GetField(
+            "_suggestionGate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_service)!;
+        await gate.WaitAsync();
+        try
+        {
+            await _service.ReleaseIdleSuggestionSessionAsync(lastUse + CopilotService.IdleSessionTimeout);
+            Assert.Same(replacement, sessionField.GetValue(_service));
+        }
+        finally
+        {
+            gate.Release();
+        }
+        await _service.ReleaseIdleSuggestionSessionAsync(lastUse + CopilotService.IdleSessionTimeout);
+        Assert.Null(sessionField.GetValue(_service));
+        Assert.NotEmpty((await _service.GenerateSuggestionsAsync(
+            "The garden needs watering.", "How should I care for these plants?"))!);
+        var afterIdleRelease = Assert.IsType<CopilotSession>(sessionField.GetValue(_service));
+        Assert.NotEqual(replacement.SessionId, afterIdleRelease.SessionId);
+        Assert.DoesNotContain(await afterIdleRelease.GetEventsAsync(),
+            evt => evt is UserMessageEvent or AssistantMessageEvent);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
