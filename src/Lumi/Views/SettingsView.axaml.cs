@@ -23,8 +23,8 @@ public partial class SettingsView : UserControl, IDisposable
 {
     private static readonly string?[] PageNames =
         ["PageProfile", "PageGeneral", "PageMobile", "PageAppearance", "PageChat",
-         "PageAI", "PagePrivacy", "PageAbout", null, "PagePermissions"];
-    private static readonly int[] PageOrder = [0, 1, 2, 3, 4, 9, 5, 6, 7];
+         "PageAI", "PagePrivacy", "PageAbout", null, "PagePermissions", "PageAiFeatures"];
+    private static readonly int[] PageOrder = [0, 1, 2, 3, 4, 9, 5, 10, 6, 7];
     private readonly Control?[] _pages = new Control?[PageNames.Length];
     private StackPanel? _pagesHost;
     private StackPanel? _allPagesStack;
@@ -393,6 +393,13 @@ public partial class SettingsView : UserControl, IDisposable
         if (e.Source is not StrataSetting setting) return;
         if (DataContext is not SettingsViewModel vm) return;
 
+        // AI features share one row template, so each row reverts its own feature rather than a named setting.
+        if (setting.DataContext is AiFeatureViewModel feature)
+        {
+            feature.RevertCommand.Execute(null);
+            return;
+        }
+
         var header = setting.Header;
         if (_revertActions.TryGetValue(header ?? "", out var action))
             action(vm);
@@ -420,19 +427,15 @@ public partial class SettingsView : UserControl, IDisposable
         [Loc.Setting_ShowToolCalls] = vm => vm.RevertShowToolCallsCommand.Execute(null),
         [Loc.Setting_ShowReasoning] = vm => vm.RevertShowReasoningCommand.Execute(null),
         [Loc.Setting_ExpandReasoningWhileStreaming] = vm => vm.RevertExpandReasoningWhileStreamingCommand.Execute(null),
-        [Loc.Setting_SuggestFollowUps] = vm => vm.RevertSuggestFollowUpsCommand.Execute(null),
         [Loc.Get("Permissions_DefaultMode")] = vm => vm.RevertDefaultApprovalModeCommand.Execute(null),
         [Loc.Get("Permissions_OnItsOwn")] = vm => vm.RevertAwayApprovalBehaviorCommand.Execute(null),
-        [Loc.Setting_AutoGenerateTitles] = vm => vm.RevertAutoGenerateTitlesCommand.Execute(null),
         [Loc.Setting_GlobalCustomInstructions] = vm => vm.RevertGlobalCustomInstructionsCommand.Execute(null),
         [Loc.Setting_PreferredModel] = vm => vm.RevertDefaultModelSelectionCommand.Execute(null),
         [Loc.Setting_BackgroundModel] = vm => vm.RevertBackgroundModelCommand.Execute(null),
         [Loc.Setting_UseMcpProxy] = vm => vm.RevertUseMcpProxyCommand.Execute(null),
         [Loc.Setting_UseLazyMcpInitialization] = vm => vm.RevertUseLazyMcpInitializationCommand.Execute(null),
         [Loc.Setting_McpToolTimeout] = vm => vm.RevertMcpToolTimeoutCommand.Execute(null),
-        [Loc.Setting_AutoSaveMemories] = vm => vm.RevertEnableMemoryAutoSaveCommand.Execute(null),
         [Loc.Setting_AutoMaintainMemories] = vm => vm.RevertEnableMemoryAutoMaintenanceCommand.Execute(null),
-        [Loc.Setting_DailyBriefs] = vm => vm.RevertEnableDailyBriefsCommand.Execute(null),
         [Loc.Setting_AutoSaveChats] = vm => vm.RevertAutoSaveChatsCommand.Execute(null),
     };
 

@@ -62,7 +62,7 @@ public sealed class LumiMcpTools
     public Task<string> Navigate(
         [Description("Page name to navigate to.")] string? page = null,
         [Description("Optional numeric page index from the debug map.")] int? index = null,
-        [Description("Optional settings subpage: profile, memories, general, appearance, chat, models, privacy, about.")] string? settingsPage = null,
+        [Description("Optional settings subpage: profile, memories, general, appearance, chat, permissions, models, ai-features, mobile, privacy, about.")] string? settingsPage = null,
         [Description("Optional debug bridge instance id to target.")] string? targetInstanceId = null,
         [Description("Optional Lumi app/debug bridge process id to target.")] int? targetProcessId = null)
         => InvokeAsync("lumi_navigate", Args(

@@ -1066,18 +1066,6 @@
           <ToggleSwitch IsChecked="{Binding ExpandReasoningWhileStreaming}" IsEnabled="{Binding ShowReasoning}" />
         </sc:StrataSetting>
       </sc:StrataSettingGroup>
-
-      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Helpers}" Description="{loc:Str SettingsGroupDesc_Helpers}"
-                             st:SettingsChrome.Icon="{StaticResource St.Icon.Bulb}">
-        <sc:StrataSetting Header="{loc:Str Setting_SuggestFollowUps}" Description="{loc:Str SettingDesc_SuggestFollowUps}"
-                          IsModified="{Binding IsSuggestFollowUpsModified}">
-          <ToggleSwitch x:Name="SuggestFollowUpsToggle" IsChecked="{Binding SuggestFollowUps}" />
-        </sc:StrataSetting>
-        <sc:StrataSetting Header="{loc:Str Setting_AutoGenerateTitles}" Description="{loc:Str SettingDesc_AutoGenerateTitles}"
-                          IsModified="{Binding IsAutoGenerateTitlesModified}">
-          <ToggleSwitch IsChecked="{Binding AutoGenerateTitles}" />
-        </sc:StrataSetting>
-      </sc:StrataSettingGroup>
     </StackPanel>
 
     </ControlTemplate>
@@ -1642,30 +1630,19 @@
               </sc:StrataModelPicker.SelectedModelTemplate>
             </sc:StrataModelPicker>
           </sc:StrataSetting>
-          <sc:StrataSetting x:Name="BackgroundModelSetting"
-                            Header="{loc:Str Setting_BackgroundModel}"
-                            Description="{loc:Str SettingDesc_BackgroundModel}"
-                            IsModified="{Binding IsBackgroundModelModified}">
-            <StackPanel Spacing="6">
-              <sc:StrataModelPicker x:Name="BackgroundModelPicker" Width="300"
-                                    Models="{Binding AvailableBackgroundModels}"
-                                    PickerOpenedCommand="{Binding RefreshModelCatalogCommand}"
-                                    SelectedModel="{Binding BackgroundModel, Mode=TwoWay}">
-                <sc:StrataModelPicker.ModelItemTemplate>
-                  <DataTemplate>
-                    <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
-                  </DataTemplate>
-                </sc:StrataModelPicker.ModelItemTemplate>
-              </sc:StrataModelPicker>
-              <TextBlock x:Name="BackgroundModelStatusText"
-                         Text="{Binding BackgroundModelStatus}"
-                         IsVisible="{Binding BackgroundModelStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                         FontSize="{DynamicResource Font.SizeCaption}"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         TextWrapping="Wrap" MaxWidth="300" />
-            </StackPanel>
+          <!-- Lumi's own uses of AI, and the model they run on, have a page of their own. -->
+          <sc:StrataSetting x:Name="AiFeaturesLinkSetting"
+                            Header="{loc:Str Setting_AiFeaturesLink}"
+                            Description="{loc:Str SettingDesc_AiFeaturesLink}">
+            <Button x:Name="OpenAiFeaturesFromModelsButton" Classes="mg-button motion-action"
+                    Command="{Binding OpenAiFeaturesCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="{loc:Str Button_OpenAiFeatures}" />
+                <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronRight}" Width="13" Height="13" StrokeThickness="2"
+                                   VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+              </StackPanel>
+            </Button>
           </sc:StrataSetting>
-        <TextBlock Classes="st-note" Text="{loc:Str SettingDesc_BackgroundModelAuto}" />
       </sc:StrataSettingGroup>
 
       <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Instructions}" Description="{loc:Str SettingsGroupDesc_Instructions}"
@@ -1727,6 +1704,190 @@
     </StackPanel>
 
     </ControlTemplate>
+    <ControlTemplate x:Key="PageAiFeatures" x:DataType="vm:SettingsViewModel">
+    <!-- ═══ Page 10: AI Features ═══ -->
+    <!-- Every way Lumi uses AI on its own, in one place. Each feature says what it does, when it runs and what it
+         reads, with its switch and its model; features without a model of their own use the default model. -->
+    <StackPanel x:Name="PageAiFeatures" Classes="st-page motion-surface" IsVisible="False">
+      <StackPanel.DataTemplates>
+        <DataTemplate DataType="vm:AiFeatureViewModel">
+          <sc:StrataSetting Classes="ai-feature" Classes.off="{Binding !IsOn}"
+                            Header="{Binding Title}"
+                            Description="{Binding Description}"
+                            ShowSeparator="{Binding ShowSeparator}"
+                            IsModified="{Binding IsModified}"
+                            st:SettingsChrome.Icon="{Binding Id, Converter={x:Static conv:AiFeatureIconConverter.Instance}}"
+                            st:SettingsChrome.SearchText="{Binding SearchText}">
+            <st:SettingsChrome.Details>
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <WrapPanel ItemSpacing="6" LineSpacing="6" VerticalAlignment="Center">
+                  <Border Classes="mg-chip st-fact">
+                    <DockPanel>
+                      <sc:StrataLineIcon DockPanel.Dock="Left" Data="{x:Static sc:StrataIcons.Clock}" />
+                      <TextBlock Text="{Binding WhenText}" />
+                    </DockPanel>
+                  </Border>
+                  <Border Classes="mg-chip st-fact">
+                    <DockPanel>
+                      <sc:StrataLineIcon DockPanel.Dock="Left" Data="{x:Static conv:AiFeatureIconConverter.Eye}" />
+                      <TextBlock Text="{Binding ReadsText}" />
+                    </DockPanel>
+                  </Border>
+                  <Border Classes="mg-chip warning st-fact" IsVisible="{Binding IsBlocked}">
+                    <DockPanel>
+                      <sc:StrataLineIcon DockPanel.Dock="Left" Data="{x:Static sc:StrataIcons.Alert}" />
+                      <TextBlock Text="{loc:Str AiFeatures_Blocked}" />
+                    </DockPanel>
+                  </Border>
+                </WrapPanel>
+                <!-- The feature's own model, or the default model ("Default · …"). -->
+                <sc:StrataModelPicker Grid.Column="1" Width="NaN" MinWidth="120" MaxWidth="240"
+                                      HorizontalAlignment="Right" VerticalAlignment="Center"
+                                      AutomationProperties.Name="{Binding ModelPickerName}"
+                                      Models="{Binding ModelChoices}"
+                                      PickerOpenedCommand="{Binding RefreshModelsCommand}"
+                                      SelectedModel="{Binding ModelChoice, Mode=TwoWay}">
+                  <sc:StrataModelPicker.ModelItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding Converter={x:Static conv:ModelDisplayConverter.Instance}}" />
+                    </DataTemplate>
+                  </sc:StrataModelPicker.ModelItemTemplate>
+                  <sc:StrataModelPicker.SelectedModelTemplate>
+                    <DataTemplate>
+                      <TextBlock TextTrimming="CharacterEllipsis"
+                                 Text="{Binding $parent[sc:StrataModelPicker].((vm:AiFeatureViewModel)DataContext).ModelLabel}" />
+                    </DataTemplate>
+                  </sc:StrataModelPicker.SelectedModelTemplate>
+                </sc:StrataModelPicker>
+              </Grid>
+            </st:SettingsChrome.Details>
+            <ToggleSwitch IsChecked="{Binding IsOn}" IsVisible="{Binding CanTurnOff}"
+                          AutomationProperties.Name="{Binding Title}" />
+          </sc:StrataSetting>
+        </DataTemplate>
+      </StackPanel.DataTemplates>
+
+      <Grid Classes="st-header" ColumnDefinitions="Auto,*">
+        <Border Classes="mg-tile st-header-tile">
+          <PathIcon Data="{StaticResource St.Icon.AiFeatures}" Foreground="{DynamicResource St.Hue.AiFeatures}" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Classes="mg-page-title" Text="{loc:Str Settings_AiFeatures}" />
+          <TextBlock Classes="mg-page-lede" Text="{loc:Str Settings_AiFeaturesDesc}" />
+        </StackPanel>
+      </Grid>
+
+      <!-- At a glance: how much runs on its own, and on what; one switch pauses all of it. -->
+      <Border x:Name="AiFeaturesOverview" Classes="st-hero"
+              st:SettingsChrome.SearchText="{loc:Str AiFeatures_OverviewKeywords}">
+        <Panel>
+          <Border Classes="st-hero-glow" />
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="18" Margin="22,20">
+            <Border Classes="st-avatar st-ai-orb" Classes.off="{Binding AreAllAiFeaturesOff}">
+              <PathIcon Data="{StaticResource St.Icon.AiFeatures}" />
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+              <TextBlock x:Name="AiFeaturesSummaryText" Classes="st-hero-title" Text="{Binding AiFeaturesSummary}" />
+              <TextBlock Classes="st-hero-text" Text="{Binding AiFeaturesSummaryDetail}" />
+            </StackPanel>
+            <Button x:Name="ToggleAllAiFeaturesButton" Grid.Column="2" Classes="mg-button motion-action"
+                    VerticalAlignment="Center" Command="{Binding ToggleAllAiFeaturesCommand}">
+              <TextBlock Text="{Binding ToggleAllAiFeaturesLabel}" />
+            </Button>
+          </Grid>
+        </Panel>
+      </Border>
+
+      <sc:StrataSettingGroup Header="{loc:Str AiFeatures_ModelGroup}" Description="{loc:Str AiFeatures_ModelGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Chip}">
+        <sc:StrataSetting x:Name="BackgroundModelSetting"
+                          Header="{loc:Str Setting_BackgroundModel}"
+                          Description="{loc:Str SettingDesc_BackgroundModel}"
+                          st:SettingsChrome.SearchText="{loc:Str SettingKeywords_BackgroundModel}"
+                          IsModified="{Binding IsBackgroundModelModified}">
+          <StackPanel Spacing="6">
+            <sc:StrataModelPicker x:Name="BackgroundModelPicker" Width="300"
+                                  Models="{Binding AvailableBackgroundModels}"
+                                  PickerOpenedCommand="{Binding RefreshModelCatalogCommand}"
+                                  SelectedModel="{Binding BackgroundModel, Mode=TwoWay}">
+              <sc:StrataModelPicker.ModelItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding Converter={x:Static conv:ModelDisplayConverter.Instance}}" />
+                </DataTemplate>
+              </sc:StrataModelPicker.ModelItemTemplate>
+            </sc:StrataModelPicker>
+            <TextBlock x:Name="BackgroundModelStatusText"
+                       Text="{Binding BackgroundModelStatus}"
+                       IsVisible="{Binding BackgroundModelStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       TextWrapping="Wrap" MaxWidth="300" />
+          </StackPanel>
+        </sc:StrataSetting>
+        <TextBlock Classes="st-note" Text="{loc:Str SettingDesc_BackgroundModelAuto}" />
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str AiFeatures_ChatGroup}" Description="{loc:Str AiFeatures_ChatGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Chat}">
+        <ItemsControl x:Name="ChatAiFeaturesList" ItemsSource="{Binding ChatAiFeatures}" />
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str AiFeatures_ContextGroup}" Description="{loc:Str AiFeatures_ContextGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Memories}">
+        <ItemsControl x:Name="ContextAiFeaturesList" ItemsSource="{Binding ContextAiFeatures}" />
+      </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str AiFeatures_RequestGroup}" Description="{loc:Str AiFeatures_RequestGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Bulb}">
+        <ItemsControl x:Name="RequestedAiFeaturesList" ItemsSource="{Binding RequestedAiFeatures}" />
+      </sc:StrataSettingGroup>
+
+      <!-- AI that is set up where it is used: listed so nothing that uses AI is left out of this page. -->
+      <sc:StrataSettingGroup Header="{loc:Str AiFeatures_ElsewhereGroup}" Description="{loc:Str AiFeatures_ElsewhereGroupDesc}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.External}">
+        <sc:StrataSetting Classes="ai-feature"
+                          Header="{loc:Str AiFeatures_AutoReview}"
+                          Description="{loc:Str AiFeatures_AutoReviewDesc}"
+                          st:SettingsChrome.Icon="{x:Static sc:StrataIcons.ShieldCheck}">
+          <st:SettingsChrome.Details>
+            <WrapPanel ItemSpacing="6" LineSpacing="6">
+              <Border Classes="mg-chip st-fact" Classes.accent="{Binding IsAutoReviewDefault}">
+                <DockPanel>
+                  <sc:StrataLineIcon DockPanel.Dock="Left" Data="{x:Static sc:StrataIcons.Shield}" />
+                  <TextBlock Text="{Binding AutoReviewStatus}" />
+                </DockPanel>
+              </Border>
+            </WrapPanel>
+          </st:SettingsChrome.Details>
+          <Button x:Name="AiFeaturesPermissionsButton" Classes="mg-button motion-action"
+                  Command="{Binding OpenPermissionsPageCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="{loc:Str AiFeatures_OpenPermissions}" />
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronRight}" Width="13" Height="13" StrokeThickness="2"
+                                 VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+            </StackPanel>
+          </Button>
+        </sc:StrataSetting>
+        <sc:StrataSetting Classes="ai-feature"
+                          Header="{loc:Str AiFeatures_Dictation}"
+                          Description="{loc:Str AiFeatures_DictationDesc}"
+                          st:SettingsChrome.Icon="{x:Static sc:StrataIcons.Mic}"
+                          IsVisible="{Binding IsDictationAvailable}">
+          <st:SettingsChrome.Details>
+            <WrapPanel ItemSpacing="6" LineSpacing="6">
+              <Border Classes="mg-chip success st-fact">
+                <DockPanel>
+                  <sc:StrataLineIcon DockPanel.Dock="Left" Data="{x:Static sc:StrataIcons.Lock}" />
+                  <TextBlock Text="{loc:Str AiFeatures_OnThisComputer}" />
+                </DockPanel>
+              </Border>
+            </WrapPanel>
+          </st:SettingsChrome.Details>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+    </StackPanel>
+
+    </ControlTemplate>
     <ControlTemplate x:Key="PagePrivacy" x:DataType="vm:SettingsViewModel">
     <!-- ═══ Page 6: Privacy & Data ═══ -->
     <StackPanel x:Name="PagePrivacy" Classes="st-page motion-surface" IsVisible="False">
@@ -1742,18 +1903,22 @@
 
       <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Memory}" Description="{loc:Str SettingsGroupDesc_Memory}"
                              st:SettingsChrome.Icon="{StaticResource St.Icon.Memories}">
-        <sc:StrataSetting Header="{loc:Str Setting_AutoSaveMemories}" Description="{loc:Str SettingDesc_AutoSaveMemories}"
-                          IsModified="{Binding IsEnableMemoryAutoSaveModified}">
-          <ToggleSwitch IsChecked="{Binding EnableMemoryAutoSave}" />
+        <!-- What learns from chats with AI is switched where every AI feature is. -->
+        <sc:StrataSetting x:Name="AiFeaturesPrivacyLinkSetting"
+                          Header="{loc:Str Setting_AiFeaturesPrivacyLink}"
+                          Description="{loc:Str SettingDesc_AiFeaturesPrivacyLink}">
+          <Button x:Name="OpenAiFeaturesFromPrivacyButton" Classes="mg-button motion-action"
+                  Command="{Binding OpenAiFeaturesCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="{loc:Str Button_OpenAiFeatures}" />
+              <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.ChevronRight}" Width="13" Height="13" StrokeThickness="2"
+                                 VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+            </StackPanel>
+          </Button>
         </sc:StrataSetting>
         <sc:StrataSetting Header="{loc:Str Setting_AutoMaintainMemories}" Description="{loc:Str SettingDesc_AutoMaintainMemories}"
                           IsModified="{Binding IsEnableMemoryAutoMaintenanceModified}">
           <ToggleSwitch IsChecked="{Binding EnableMemoryAutoMaintenance}" />
-        </sc:StrataSetting>
-        <sc:StrataSetting Header="{loc:Str Setting_DailyBriefs}" Description="{loc:Str SettingDesc_DailyBriefs}"
-                          st:SettingsChrome.SearchText="{loc:Str SettingKeywords_DailyBriefs}"
-                          IsModified="{Binding IsEnableDailyBriefsModified}">
-          <ToggleSwitch x:Name="DailyBriefsToggle" IsChecked="{Binding EnableDailyBriefs}" />
         </sc:StrataSetting>
         <sc:StrataSetting Header="{loc:Str Setting_CleanUpMemories}" Description="{Binding MemoryCleanupStatus}">
           <Button Classes="mg-button motion-action" Content="{loc:Str Button_CleanUpMemories}"

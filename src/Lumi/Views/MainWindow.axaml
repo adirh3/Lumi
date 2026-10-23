@@ -2862,6 +2862,12 @@
                       <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_AIModels}" />
                     </StackPanel>
                   </ListBoxItem>
+                  <ListBoxItem x:Name="SettingsAiFeaturesItem" AutomationProperties.Name="{loc:Str Settings_AiFeatures}">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.AiFeatures}" Foreground="{DynamicResource St.Hue.AiFeatures}" />
+                      <TextBlock Classes="settings-nav-label" Text="{loc:Str Settings_AiFeatures}" />
+                    </StackPanel>
+                  </ListBoxItem>
                   <ListBoxItem>
                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                       <PathIcon Classes="settings-nav-icon" Data="{StaticResource St.Icon.Mobile}" Foreground="{DynamicResource St.Hue.Mobile}" />

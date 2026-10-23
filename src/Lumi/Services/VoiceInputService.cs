@@ -92,7 +92,10 @@ internal sealed class VoiceInputService : IDisposable
     public event Action<VoiceInputError>? Error;
 
     public VoiceInputState State => _state;
-    public bool IsAvailable => IsSupportedPlatform(
+    public bool IsAvailable => IsSupportedOnThisComputer;
+
+    /// <summary>Dictation runs on this operating system and processor.</summary>
+    internal static bool IsSupportedOnThisComputer => IsSupportedPlatform(
         OperatingSystem.IsWindows() ? OSPlatform.Windows
         : OperatingSystem.IsLinux() ? OSPlatform.Linux
         : OperatingSystem.IsMacOS() ? OSPlatform.OSX : default,

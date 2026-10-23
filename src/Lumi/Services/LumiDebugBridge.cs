@@ -1282,6 +1282,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
         });
         SetBool("enableMemoryAutoSave", value => settings.EnableMemoryAutoSave = _mainViewModel.SettingsVM.EnableMemoryAutoSave = value);
         SetBool("enableMemoryAutoMaintenance", value => settings.EnableMemoryAutoMaintenance = _mainViewModel.SettingsVM.EnableMemoryAutoMaintenance = value);
+        SetBool("enableCodingHelpers", value => settings.EnableCodingHelpers = _mainViewModel.SettingsVM.EnableCodingHelpers = value);
         SetBool("autoSaveChats", value => settings.AutoSaveChats = _mainViewModel.SettingsVM.AutoSaveChats = value);
 
         if (changed.Count > 0)
@@ -1721,6 +1722,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "about" or "updates" or "update" => 7,
             "memories" or "memory" => SettingsViewModel.MemoriesPageIndex,
             "permissions" or "approvals" => SettingsViewModel.PermissionsPageIndex,
+            "aifeatures" or "features" or "helpers" or "backgroundai" => SettingsViewModel.AiFeaturesPageIndex,
             _ => throw new InvalidOperationException($"Unknown settings page '{page}'.")
         };
     }
@@ -2089,6 +2091,8 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             _dataStore.Data.Settings.AutoGenerateTitles,
             _dataStore.Data.Settings.PreferredModel,
             _dataStore.Data.Settings.BackgroundModel,
+            _dataStore.Data.Settings.AiFeatureModels,
+            _dataStore.Data.Settings.EnableCodingHelpers,
             _dataStore.Data.Settings.ReasoningEffort,
             _dataStore.Data.Settings.ContextWindowTier,
             _dataStore.Data.Settings.EnableMemoryAutoSave,

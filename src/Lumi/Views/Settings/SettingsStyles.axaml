@@ -271,6 +271,147 @@
     <Setter Property="Margin" Value="0,12,0,2" />
   </Style>
 
+  <!-- ══════════════════════════ AI features ══════════════════════════ -->
+  <!-- A feature on Settings → AI Features: its glyph, what it does, and under that its facts and model
+       (SettingsChrome.Details), with its switch at the right. Part names match the row template above, so
+       :modified, :highlighted and revert behave as on every row. -->
+  <Style Selector="sc|StrataSetting.ai-feature">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <StackPanel>
+          <Border Name="PART_Separator" Classes="st-row-divider" IsVisible="{TemplateBinding ShowSeparator}" />
+          <Border Name="PART_RowBorder" Classes="st-row">
+            <Grid Name="PART_Row" ColumnDefinitions="Auto,Auto,*,Auto" RowDefinitions="Auto,Auto">
+              <Border Name="PART_HighlightBar" Classes="st-row-highlight" Grid.RowSpan="2">
+                <Border.Transitions>
+                  <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.25" Easing="CubicEaseOut" />
+                  </Transitions>
+                </Border.Transitions>
+              </Border>
+              <Border Name="PART_FeatureTile" Grid.Column="1" Grid.RowSpan="2" Classes="st-feature-tile">
+                <sc:StrataLineIcon Data="{TemplateBinding (st:SettingsChrome.Icon)}" />
+              </Border>
+              <StackPanel Name="PART_Labels" Grid.Column="2" Classes="st-row-labels">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Name="PART_HeaderText" Classes="st-row-title" Text="{TemplateBinding Header}">
+                    <TextBlock.Transitions>
+                      <Transitions>
+                        <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+                      </Transitions>
+                    </TextBlock.Transitions>
+                  </TextBlock>
+                  <Button Name="PART_RevertButton" Classes="subtle st-revert"
+                          IsVisible="False" Opacity="0" RenderTransformOrigin="0.5,0.5" RenderTransform="scale(0.85)"
+                          ToolTip.Tip="{loc:Str Settings_RevertToDefault}"
+                          AutomationProperties.Name="{loc:Str Settings_RevertToDefault}">
+                    <Button.Transitions>
+                      <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+                        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+                      </Transitions>
+                    </Button.Transitions>
+                    <PathIcon Data="{StaticResource St.Icon.Undo}" />
+                  </Button>
+                </StackPanel>
+                <TextBlock Name="PART_Description" Classes="st-row-caption"
+                           Text="{TemplateBinding Description}"
+                           IsVisible="{TemplateBinding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
+              <ContentPresenter Name="PART_Content" Grid.Column="3"
+                                Content="{TemplateBinding SettingContent}"
+                                VerticalAlignment="Top" Margin="0,2,0,0" />
+              <ContentPresenter Name="PART_Details" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2"
+                                Content="{TemplateBinding (st:SettingsChrome.Details)}"
+                                IsVisible="{TemplateBinding (st:SettingsChrome.Details), Converter={x:Static ObjectConverters.IsNotNull}}"
+                                Margin="0,10,0,0" />
+            </Grid>
+          </Border>
+        </StackPanel>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <!-- The row holds a second choice (its model), so it stays calm under the pointer. -->
+  <Style Selector="sc|StrataSetting.ai-feature:pointerover /template/ Border#PART_RowBorder">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.st-feature-tile">
+    <Setter Property="Width" Value="36" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="CornerRadius" Value="11" />
+    <Setter Property="Margin" Value="0,0,14,0" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.TileBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.st-feature-tile sc|StrataLineIcon">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="StrokeThickness" Value="1.8" />
+    <Setter Property="Foreground" Value="{DynamicResource St.Hue.AiFeatures}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- A feature that's off quiets its glyph and its facts; its switch says why. -->
+  <Style Selector="sc|StrataSetting.ai-feature.off /template/ Border#PART_FeatureTile">
+    <Setter Property="Opacity" Value="0.45" />
+  </Style>
+  <Style Selector="sc|StrataSetting.ai-feature /template/ ContentPresenter#PART_Details">
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="sc|StrataSetting.ai-feature.off /template/ ContentPresenter#PART_Details">
+    <Setter Property="Opacity" Value="0.55" />
+  </Style>
+  <!-- A fact about a feature: when it runs, what it reads, where it runs. Its words wrap inside the chip
+       when the row is narrow, so the radius suits one line or two. -->
+  <Style Selector="Border.st-fact">
+    <Setter Property="Padding" Value="8,3,10,4" />
+    <Setter Property="CornerRadius" Value="10" />
+  </Style>
+  <Style Selector="Border.st-fact TextBlock">
+    <Setter Property="MaxWidth" Value="360" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="TextTrimming" Value="None" />
+  </Style>
+  <Style Selector="Border.st-fact sc|StrataLineIcon">
+    <Setter Property="Width" Value="12" />
+    <Setter Property="Height" Value="12" />
+    <Setter Property="StrokeThickness" Value="2" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="Margin" Value="0,2,5,0" />
+  </Style>
+  <Style Selector="Border.st-fact.warning sc|StrataLineIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+  </Style>
+  <Style Selector="Border.st-fact.success sc|StrataLineIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+  </Style>
+  <Style Selector="Border.st-fact.accent sc|StrataLineIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <!-- AI Features' summary: Lumi's sparkles, which go quiet when nothing runs on its own. -->
+  <Style Selector="Border.st-ai-orb">
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.st-ai-orb.off">
+    <Setter Property="Opacity" Value="0.35" />
+  </Style>
+
   <!-- ══════════════════════════ Choice controls ══════════════════════════ -->
   <!-- A row that opens (the AI accounts' endpoints & models), drawn like the rows around it. -->
   <Style Selector="Expander.st-disclosure">

@@ -221,6 +221,7 @@ public sealed class MemoryAgentService
                 new LightweightSessionOptions
                 {
                     SystemPrompt = BuildSystemPrompt(),
+                    Feature = AiFeatureIds.Memories,
                     Streaming = true,
                     Tools = memoryTools
                 },

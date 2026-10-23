@@ -14,13 +14,17 @@ public sealed class CodingToolService
 {
     private readonly CopilotService _copilotService;
     private readonly Func<CancellationToken> _getCancellationToken;
+    private readonly Func<bool> _isEnabled;
 
     private static void Log(string message) => Debug.WriteLine($"[CodingTools] {message}");
 
-    public CodingToolService(CopilotService copilotService, Func<CancellationToken> getCancellationToken)
+    /// <param name="isEnabled">Settings → AI Features → Coding helpers. A session created before it was turned off still
+    /// lists the tools until it is reconfigured, so each call checks it too.</param>
+    public CodingToolService(CopilotService copilotService, Func<CancellationToken> getCancellationToken, Func<bool>? isEnabled = null)
     {
         _copilotService = copilotService;
         _getCancellationToken = getCancellationToken;
+        _isEnabled = isEnabled ?? (static () => true);
     }
 
     public List<AIFunction> BuildCodingTools()
@@ -110,6 +114,9 @@ public sealed class CodingToolService
     /// </summary>
     private async Task<string> RunSubAgentAsync(string systemPrompt, string userMessage, CancellationToken ct)
     {
+        if (!_isEnabled())
+            return "Coding helpers are turned off in Settings → AI Features. Do this work yourself instead.";
+
         if (!_copilotService.IsConnected)
             return "Error: Copilot is not connected.";
 
@@ -119,6 +126,7 @@ public sealed class CodingToolService
                 new LightweightSessionOptions
                 {
                     SystemPrompt = systemPrompt,
+                    Feature = Lumi.Models.AiFeatureIds.CodingHelpers,
                     Streaming = false
                 },
                 async (session, innerCt) =>

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using Avalonia.Threading;
 using GitHub.Copilot;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -105,7 +106,12 @@ public sealed class BackgroundModelSettingsTests
             Assert.Equal("High", main.ChatVM.SelectedQuality);
             Assert.Equal("Long", main.ChatVM.SelectedContextWindowTier);
             Assert.Equal("auto", data.Settings.BackgroundModel);
-            Assert.Contains(byokOnly ? "BYOK" : "GPT 6 Luna", main.SettingsVM.BackgroundModelStatus);
+            // Only your own accounts: Auto runs on the default external model, or says it can't run.
+            var status = main.SettingsVM.BackgroundModelStatus ?? "";
+            if (byokOnly)
+                Assert.True(status == Loc.SettingStatus_BackgroundModelByokOnly || status.Contains("BYOK"), status);
+            else
+                Assert.Contains("GPT 6 Luna", status);
         }, CancellationToken.None);
     }
 
@@ -229,7 +235,7 @@ public sealed class BackgroundModelSettingsTests
         try
         {
             vm.UseBYOKOnly = true;
-            Assert.Contains("BYOK", vm.BackgroundModelStatus);
+            Assert.Equal(Loc.SettingStatus_BackgroundModelByokOnly, vm.BackgroundModelStatus);
             vm.BackgroundModel = "byok:private";
             Assert.Null(vm.BackgroundModelStatus);
         }

@@ -24,4 +24,15 @@ public static class SettingsChrome
     public static string? GetSearchText(StyledElement element) => element.GetValue(SearchTextProperty);
 
     public static void SetSearchText(StyledElement element, string? value) => element.SetValue(SearchTextProperty, value);
+
+    /// <summary>
+    /// Content shown under a row's description by rows styled to show it (an AI feature's facts and model), while
+    /// the row's own content keeps its place at the right.
+    /// </summary>
+    public static readonly AttachedProperty<object?> DetailsProperty =
+        AvaloniaProperty.RegisterAttached<StyledElement, object?>("Details", typeof(SettingsChrome));
+
+    public static object? GetDetails(StyledElement element) => element.GetValue(DetailsProperty);
+
+    public static void SetDetails(StyledElement element, object? value) => element.SetValue(DetailsProperty, value);
 }

@@ -705,9 +705,10 @@ public class CopilotService : IAsyncDisposable
                 ? UserSettings.AutomaticBackgroundModel
                 : model.Trim();
 
-    internal static string? ResolveConfiguredBackgroundModel(UserSettings? settings, bool isGitHubAuthenticated)
+    /// <param name="feature">An <see cref="AiFeatureIds"/> id: its own model choice wins over the background model.</param>
+    internal static string? ResolveConfiguredBackgroundModel(UserSettings? settings, bool isGitHubAuthenticated, string? feature = null)
     {
-        var selection = NormalizeBackgroundModel(settings?.BackgroundModel);
+        var selection = NormalizeBackgroundModel(settings?.GetAiFeatureModel(feature) ?? settings?.BackgroundModel);
         if (selection != UserSettings.AutomaticBackgroundModel)
             return selection;
         return settings is not null && UsesExternalRuntime(settings, isGitHubAuthenticated)
@@ -716,10 +717,14 @@ public class CopilotService : IAsyncDisposable
 
     /// <summary>Uses the explicit helper preference; Auto uses the external default when needed,
     /// otherwise the cheapest usable Copilot model.</summary>
-    public async Task<string> GetBackgroundModelIdAsync(CancellationToken ct = default)
+    public Task<string> GetBackgroundModelIdAsync(CancellationToken ct = default)
+        => GetBackgroundModelIdAsync(feature: null, ct);
+
+    /// <summary>The model <paramref name="feature"/> runs on: its own choice, else the background model.</summary>
+    public async Task<string> GetBackgroundModelIdAsync(string? feature, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        var selection = ResolveConfiguredBackgroundModel(_settingsProvider?.Invoke(), _isGitHubAuthenticated == true);
+        var selection = ResolveConfiguredBackgroundModel(_settingsProvider?.Invoke(), _isGitHubAuthenticated == true, feature);
         if (selection is not null)
             return selection;
 
@@ -728,7 +733,7 @@ public class CopilotService : IAsyncDisposable
             models = await GetModelsAsync(ct).ConfigureAwait(false);
 
         var selected = SelectCheapestModelId(models)
-            ?? throw new InvalidOperationException("No usable Copilot model is available for background AI. Choose a background model in Settings.");
+            ?? throw new InvalidOperationException("No usable Copilot model is available for Lumi's AI features. Choose a model in Settings → AI Features.");
         var selectedModel = models.First(model => model.Id == selected);
         if (GetModelTokenCost(selectedModel) is null && GetModelCostMultiplier(selectedModel) is null)
             Debug.WriteLine($"[Lumi] Background Auto selected {selected} by name; the catalog reports no comparable billing costs.");
@@ -900,14 +905,14 @@ public class CopilotService : IAsyncDisposable
         if (options.Provider is null)
         {
             var selectedModel = string.IsNullOrWhiteSpace(options.Model)
-                ? await GetBackgroundModelIdAsync(ct).ConfigureAwait(false)
+                ? await GetBackgroundModelIdAsync(options.Feature, ct).ConfigureAwait(false)
                 : options.Model;
             var route = ByokConfigHelper.ResolveSessionModelRoute(
                 _settingsProvider?.Invoke() ?? new UserSettings(),
                 selectedModel,
                 keyStore: _secureKeyStore);
             if (route.IsInvalidByok)
-                throw new InvalidOperationException("The selected background BYOK model is missing, disabled, or invalid. Update it in Settings.");
+                throw new InvalidOperationException("The model chosen for this AI feature is missing, disabled, or invalid. Update it in Settings → AI Features.");
             config.Model = route.WireModelId;
             config.Provider = route.Provider;
             config.ModelCapabilities ??= ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, null);
@@ -2127,6 +2132,7 @@ public class CopilotService : IAsyncDisposable
             new LightweightSessionOptions
             {
                 SystemPrompt = Sharing.PromptDraftBuilder.SystemPrompt,
+                Feature = AiFeatureIds.SharedPrompts,
                 Streaming = false
             },
             async (session, innerCt) =>
@@ -2150,9 +2156,9 @@ public class CopilotService : IAsyncDisposable
     {
         if (_client is null) return null;
 
-        if (IsBackgroundCopilotBlocked)
+        if (IsHelperBlocked(AiFeatureIds.ChatTitles))
         {
-            Debug.WriteLine("[Lumi] Title generation skipped: BYOK Only requires a BYOK background model.");
+            Debug.WriteLine("[Lumi] Title generation skipped: BYOK Only requires a BYOK model for chat titles.");
             return null;
         }
 
@@ -2166,6 +2172,7 @@ public class CopilotService : IAsyncDisposable
             new LightweightSessionOptions
             {
                 SystemPrompt = systemContent,
+                Feature = AiFeatureIds.ChatTitles,
                 Streaming = false
             },
             async (session, innerCt) =>
@@ -2241,9 +2248,10 @@ public class CopilotService : IAsyncDisposable
         }
     }
 
-    private bool IsBackgroundCopilotBlocked
+    /// <summary>With BYOK Only, a helper whose model isn't one of the user's own accounts can't run.</summary>
+    internal bool IsHelperBlocked(string? feature)
         => IsUseByokOnly && !ByokConfigHelper.IsByokModel(
-            ResolveConfiguredBackgroundModel(_settingsProvider?.Invoke(), _isGitHubAuthenticated == true));
+            ResolveConfiguredBackgroundModel(_settingsProvider?.Invoke(), _isGitHubAuthenticated == true, feature));
 
     public Task<List<string>?> GenerateSuggestionsAsync(
         string assistantMessage,
@@ -2259,9 +2267,9 @@ public class CopilotService : IAsyncDisposable
     {
         if (_client is null) return null;
 
-        if (IsBackgroundCopilotBlocked)
+        if (IsHelperBlocked(AiFeatureIds.FollowUps))
         {
-            Debug.WriteLine("[Lumi] Suggestions skipped: BYOK Only requires a BYOK background model.");
+            Debug.WriteLine("[Lumi] Suggestions skipped: BYOK Only requires a BYOK model for follow-up suggestions.");
             return null;
         }
 
@@ -2274,6 +2282,7 @@ public class CopilotService : IAsyncDisposable
             var config = await BuildLightweightSessionConfigAsync(new LightweightSessionOptions
             {
                 SystemPrompt = SuggestionSystemPrompt,
+                Feature = AiFeatureIds.FollowUps,
                 Streaming = false
             }, ct).ConfigureAwait(false);
             session = await GetOrCreateSuggestionSessionAsync(config, ct).ConfigureAwait(false);

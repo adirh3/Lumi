@@ -1676,7 +1676,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _ownsCapabilityCatalog = capabilityCatalog is null;
         _capabilityCatalog = capabilityCatalog ?? CapabilityCatalog.CreateDefault(dataStore, copilotService);
         _memoryAgentService = new MemoryAgentService(dataStore, copilotService);
-        _codingToolService = new CodingToolService(copilotService, GetCurrentCancellationToken);
+        _codingToolService = new CodingToolService(copilotService, GetCurrentCancellationToken,
+            () => dataStore.Data.Settings.EnableCodingHelpers);
         _selectedModel = dataStore.Data.Settings.PreferredModel;
 
         _transcriptBuilder = CreateTranscriptBuilder(subagentRunsChanged: RefreshSubagentRunState);

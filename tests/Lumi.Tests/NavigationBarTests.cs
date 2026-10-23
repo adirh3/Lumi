@@ -99,9 +99,10 @@ public sealed class NavigationBarTests
         Assert.Equal(0, Row(0));
         Assert.Equal(1, Row(SettingsViewModel.MemoriesPageIndex));
         Assert.Equal(2, Row(1));
-        // Permissions follows Chat; About stays the last row.
+        // Permissions follows Chat, AI Features follows AI & Models; About stays the last row.
         Assert.Equal(Row(4) + 1, Row(SettingsViewModel.PermissionsPageIndex));
-        var lastPage = SettingsViewModel.PermissionsPageIndex;
+        Assert.Equal(Row(SettingsViewModel.AiModelsPageIndex) + 1, Row(SettingsViewModel.AiFeaturesPageIndex));
+        var lastPage = SettingsViewModel.AiFeaturesPageIndex;
         Assert.Equal(lastPage, Row(SettingsViewModel.AboutPageIndex));
 
         var rows = Enumerable.Range(0, lastPage + 1).Select(Row).ToList();

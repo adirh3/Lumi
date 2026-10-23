@@ -15,10 +15,12 @@ public class ModelDisplayConverter : IValueConverter
 {
     public static readonly ModelDisplayConverter Instance = new();
 
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is string model && model == UserSettings.AutomaticBackgroundModel
-            ? Loc.Setting_BackgroundModelAuto
-            : ChatViewModel.FormatModelDisplay(value as string) ?? value;
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
+    {
+        UserSettings.AutomaticBackgroundModel => Loc.Setting_BackgroundModelAuto,
+        SettingsViewModel.DefaultAiFeatureModel => Loc.Get("AiFeatures_DefaultModelChoice"),
+        _ => ChatViewModel.FormatModelDisplay(value as string) ?? value
+    };
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

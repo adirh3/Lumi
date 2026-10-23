@@ -59,6 +59,7 @@ public static class OnboardingPersonalizer
             new LightweightSessionOptions
             {
                 SystemPrompt = BuildSystemPrompt(Loc.Culture),
+                Feature = Lumi.Models.AiFeatureIds.Welcome,
                 Streaming = false,
             },
             async (session, innerCt) =>

@@ -31,7 +31,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     // The Settings sidebar, top to bottom, as page indices: you, the app, then intelligence and
     // connections, then data and Lumi itself.
-    private static readonly int[] SidebarPageOrder = [0, MemoriesPageIndex, 1, 3, 4, PermissionsPageIndex, AiModelsPageIndex, 2, 6, AboutPageIndex];
+    private static readonly int[] SidebarPageOrder = [0, MemoriesPageIndex, 1, 3, 4, PermissionsPageIndex, AiModelsPageIndex, AiFeaturesPageIndex, 2, 6, AboutPageIndex];
 
     /// <summary>Row of a page in the Settings sidebar; -1 when it has none.</summary>
     public static int SidebarPositionForPage(int pageIndex) => Array.IndexOf(SidebarPageOrder, pageIndex);
@@ -81,8 +81,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             RefreshApprovalRules();
     }
 
-    // Indexed by page, so Memories (MemoriesPageIndex) and Permissions (PermissionsPageIndex) come
-    // last although the sidebar lists them under Profile and after Chat.
+    // Indexed by page, so Memories (MemoriesPageIndex), Permissions (PermissionsPageIndex) and AI Features
+    // (AiFeaturesPageIndex) come last although the sidebar lists them under Profile, after Chat and after AI & Models.
     public ObservableCollection<string> Pages { get; } =
     [
         Loc.Settings_Profile,
@@ -94,7 +94,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         Loc.Settings_PrivacyData,
         Loc.Settings_About,
         Loc.Settings_Memories,
-        Loc.Get("Settings_Permissions")
+        Loc.Get("Settings_Permissions"),
+        Loc.Get("Settings_AiFeatures")
     ];
 
     // ── General ──
@@ -633,6 +634,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _autoGenerateTitles = s.AutoGenerateTitles;
         _suggestFollowUps = s.SuggestFollowUps;
         InitializePermissions(s);
+        InitializeAiFeatures(s);
         InitializeAppearanceOptions();
 
         // AI
@@ -1327,10 +1329,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     }
 
     private void SyncAvailableBackgroundModels(IReadOnlyList<string> models)
-        => ModelSelectionHelper.SyncAvailableModels(
+    {
+        ModelSelectionHelper.SyncAvailableModels(
             AvailableBackgroundModels,
             [UserSettings.AutomaticBackgroundModel, .. models],
             BackgroundModel);
+        SyncAiFeatureModelChoices(models);
+    }
 
     private void RebuildModelOptions()
         => ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
@@ -2089,8 +2094,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsShowToolCallsModified => ShowToolCalls != _defaults.ShowToolCalls;
     public bool IsShowReasoningModified => ShowReasoning != _defaults.ShowReasoning;
     public bool IsExpandReasoningWhileStreamingModified => ExpandReasoningWhileStreaming != _defaults.ExpandReasoningWhileStreaming;
-    public bool IsAutoGenerateTitlesModified => AutoGenerateTitles != _defaults.AutoGenerateTitles;
-    public bool IsSuggestFollowUpsModified => SuggestFollowUps != _defaults.SuggestFollowUps;
 
     public bool IsDefaultModelSelectionModified => PreferredModel != _defaults.PreferredModel
         || ReasoningEffort != _defaults.ReasoningEffort
@@ -2103,9 +2106,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsUseLazyMcpInitializationModified => UseLazyMcpInitialization != _defaults.UseLazyMcpInitialization;
     public bool IsMcpToolTimeoutModified => McpToolTimeoutSeconds != _defaults.McpToolTimeoutSeconds;
     public bool IsContextWindowTierModified => ContextWindowTier != _defaults.ContextWindowTier;
-    public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
     public bool IsEnableMemoryAutoMaintenanceModified => EnableMemoryAutoMaintenance != _defaults.EnableMemoryAutoMaintenance;
-    public bool IsEnableDailyBriefsModified => EnableDailyBriefs != _defaults.EnableDailyBriefs;
     public bool IsAutoSaveChatsModified => AutoSaveChats != _defaults.AutoSaveChats;
 
     private void NotifyModified()
@@ -2130,8 +2131,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsShowToolCallsModified));
         OnPropertyChanged(nameof(IsShowReasoningModified));
         OnPropertyChanged(nameof(IsExpandReasoningWhileStreamingModified));
-        OnPropertyChanged(nameof(IsAutoGenerateTitlesModified));
-        OnPropertyChanged(nameof(IsSuggestFollowUpsModified));
         OnPropertyChanged(nameof(IsDefaultApprovalModeModified));
         OnPropertyChanged(nameof(IsAwayApprovalBehaviorModified));
         OnPropertyChanged(nameof(IsAppearanceCustomized));
@@ -2144,9 +2143,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsUseLazyMcpInitializationModified));
         OnPropertyChanged(nameof(IsMcpToolTimeoutModified));
         OnPropertyChanged(nameof(IsContextWindowTierModified));
-        OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoMaintenanceModified));
-        OnPropertyChanged(nameof(IsEnableDailyBriefsModified));
         OnPropertyChanged(nameof(IsAutoSaveChatsModified));
     }
 
@@ -2188,8 +2185,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertShowToolCalls() => ShowToolCalls = _defaults.ShowToolCalls;
     [RelayCommand] private void RevertShowReasoning() => ShowReasoning = _defaults.ShowReasoning;
     [RelayCommand] private void RevertExpandReasoningWhileStreaming() => ExpandReasoningWhileStreaming = _defaults.ExpandReasoningWhileStreaming;
-    [RelayCommand] private void RevertAutoGenerateTitles() => AutoGenerateTitles = _defaults.AutoGenerateTitles;
-    [RelayCommand] private void RevertSuggestFollowUps() => SuggestFollowUps = _defaults.SuggestFollowUps;
 
     [RelayCommand]
     private void RevertDefaultModelSelection()
@@ -2203,9 +2198,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertUseMcpProxy() => UseMcpProxy = _defaults.UseMcpProxy;
     [RelayCommand] private void RevertUseLazyMcpInitialization() => UseLazyMcpInitialization = _defaults.UseLazyMcpInitialization;
     [RelayCommand] private void RevertMcpToolTimeout() => McpToolTimeoutSeconds = _defaults.McpToolTimeoutSeconds;
-    [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;
     [RelayCommand] private void RevertEnableMemoryAutoMaintenance() => EnableMemoryAutoMaintenance = _defaults.EnableMemoryAutoMaintenance;
-    [RelayCommand] private void RevertEnableDailyBriefs() => EnableDailyBriefs = _defaults.EnableDailyBriefs;
     [RelayCommand] private void RevertAutoSaveChats() => AutoSaveChats = _defaults.AutoSaveChats;
 
     // ── Restart indicator ──
@@ -2386,6 +2379,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ResetPermissions(defaults);
         PreferredModel = defaults.PreferredModel;
         BackgroundModel = defaults.BackgroundModel;
+        ResetAiFeatureModels();
+        EnableCodingHelpers = defaults.EnableCodingHelpers;
         ReasoningEffort = defaults.ReasoningEffort;
         UseMcpProxy = defaults.UseMcpProxy;
         UseLazyMcpInitialization = defaults.UseLazyMcpInitialization;

@@ -503,6 +503,7 @@ public sealed class ContextCuratorService : IAsyncDisposable
             new LightweightSessionOptions
             {
                 SystemPrompt = scope.SystemPrompt,
+                Feature = AiFeatureIds.DailyBriefs,
                 Streaming = true,
                 Tools = scope.BuildTools(),
             },

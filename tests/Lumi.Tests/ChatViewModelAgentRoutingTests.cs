@@ -932,6 +932,34 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
+    public void BuildCustomTools_LeavesOutCodingHelpersWhileTheyAreTurnedOff()
+    {
+        using var harness = CreateHarness(new AppData { Settings = new UserSettings { EnableCodingHelpers = false } });
+
+        var toolNames = InvokeBuildCustomTools(harness.ViewModel).Select(tool => tool.Name).ToArray();
+
+        Assert.DoesNotContain(toolNames, static name => name is "code_review" or "generate_tests" or "explain_code" or "analyze_project");
+        Assert.Contains("lumi_fetch", toolNames);
+    }
+
+    [Fact]
+    public async Task CodingHelperTurnedOffAfterASessionStarted_DeclinesWithoutAHelperSession()
+    {
+        var enabled = true;
+        var tools = new CodingToolService(TestCopilot.Shared, () => CancellationToken.None, () => enabled).BuildCodingTools();
+        enabled = false;
+
+        var result = await tools.Single(tool => tool.Name == "code_review").InvokeAsync(new AIFunctionArguments
+        {
+            ["code"] = "int x = 1;",
+            ["language"] = "csharp",
+            ["context"] = null,
+        });
+
+        Assert.Contains("turned off", result?.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildCustomTools_NoAgentInjectsAllLumiToolCategories()
     {
         using var harness = CreateHarness(new AppData());

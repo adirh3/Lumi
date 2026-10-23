@@ -282,8 +282,8 @@ Default fallbacks stay within accounts you have already connected. Provider-side
 paid overage and auto-reload settings still apply. A model catalog entry is not a
 guarantee of paid entitlement or reliable tool use.
 
-The **Background model** setting controls helpers such as titles, suggestions and
-memory processing. An explicit choice takes precedence. **Auto** uses the cheapest
+The **Default model** in **Settings → AI Features** controls Lumi's own AI features such as
+titles, suggestions and memory processing. An explicit choice takes precedence. **Auto** uses the cheapest
 usable Copilot model while GitHub is signed in, even if another account is the
 chat default. Without a GitHub sign-in, or with **Use only your own accounts**
 turned on, Auto uses the default external model. Stale or removed connections fail
@@ -409,8 +409,8 @@ window-wide default. Chip and selection fills still provide contrast independent
   chats start with. **All** shows the one across projects and the three most recently updated; **Show all**
   or the chip lists every brief, and search finds brief text too. Open one to read it, correct it (Lumi
   keeps your edits unless newer chats show they're out of date) or clear it; **Update now** reads the chats
-  since the last review without waiting for the night. A project's page links to its brief. **Privacy &
-  Data → Daily Briefs** turns them off.
+  since the last review without waiting for the night. A project's page links to its brief. **Settings →
+  AI Features → Daily Briefs** turns them off.
 - **Settings** lists its pages under a search box and your profile card. Search finds a setting by its
   name (forgiving a typo), the words of its description, or the choices it offers — `ocean` finds the
   accent color, `compact` the density. Clearing chats or memories and resetting settings ask once more
@@ -558,11 +558,18 @@ platforms and secure authentication. Source attachments are never included autom
 Prompt packs use format version 2; older Lumi versions show an update-required message.
 Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior is unchanged.
 
-### Background AI models
+### AI Features
 
-**Settings > AI & Models > Background Model** controls all of Lumi's internal AI helpers:
+**Settings > AI Features** is the one place for every way Lumi uses AI on its own. Each feature says
+what it does, when it runs and what it reads, and carries its switch and its model. Features that run
+by themselves (chat titles, follow-up suggestions, automatic memories, daily briefs and coding helpers)
+can be turned off one by one, or all at once from the summary at the top; Share prompt drafts and the
+welcome tour run only when asked, so they have no switch. Every feature runs on the **Default model**
+unless you choose a model for it in its row. The page also lists the AI that is set up where it is
+used: Auto-review (an approval mode, in **Permissions**) and on-device dictation. **AI & Models** and
+**Privacy & Data** link to it.
 
-| Use case | When it runs | What the model does |
+| Feature | When it runs | What the model does |
 |---|---|---|
 | Chat titles | A new conversation starts, when automatic titles are enabled | Produces a short title from the first user message |
 | Follow-up suggestions | An eligible assistant reply completes | Proposes three concise next messages using the current exchange and frequently typed requests as low-priority context |
@@ -570,7 +577,7 @@ Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior
 | Daily briefs | Once a night at 05:00 (or at the first chance after it), for each project with chats that day and then once across projects, when Daily Briefs is on; or on **Update now** | Reads the day's chats with read-only chat tools, rewrites the project's brief, and repairs, merges or removes memories with evidence from the chats (only with automatic memories on). A missed night is caught up a day at a time, three days on the first run and at most a week |
 | Onboarding personalization | The first-run getting-to-know-you step, prefetched once the user allows a look around (or skips it) | Turns a short local summary of projects, known apps, top sites and recent-file counts — never paths or document contents — into Lumi's first words, three tailored questions and three first tasks in one tool-free call; built-in fallbacks apply when it is unavailable |
 | Reusable prompt drafts | You choose Share prompt on a completed reply | Turns the bounded, redacted conversation snapshot into a portable task |
-| Coding helpers | The assistant invokes `code_review`, `generate_tests`, `explain_code`, or `analyze_project` | Performs the requested specialized analysis in an isolated, tool-free session |
+| Coding helpers | The assistant invokes `code_review`, `generate_tests`, `explain_code`, or `analyze_project`, when Coding Helpers is on (turned off, new and reconfigured chats don't get the tools) | Performs the requested specialized analysis in an isolated, tool-free session |
 
 The default is **Auto**, including for existing profiles. It selects the lowest estimated
 Copilot AI-credit cost for a standard **1K input + 1K output** token sample, normalizing each model's
@@ -585,7 +592,9 @@ marks the cost as unavailable rather than claiming a known price. A missing cata
 an error, never a silent fallback to an expensive default.
 
 All helpers resolve through `CopilotService.BuildLightweightSessionConfigAsync` and
-`SessionConfigBuilder.BuildLightweight`. One-shot sessions are disposed and deleted; suggestions
+`SessionConfigBuilder.BuildLightweight`, which picks the model chosen for the feature a session names
+(`LightweightSessionOptions.Feature`, saved in `UserSettings.AiFeatureModels`) or else the default
+model. One-shot sessions are disposed and deleted; suggestions
 keep one serialized, warm helper and use the SDK's transient no-tools query API. Each query carries
 its own instructions and bounded current-exchange context without adding a conversation turn, so
 unrelated requests do not accumulate in the helper's history. The helper is replaced if it expired
@@ -595,7 +604,7 @@ the next helper request without interrupting current work or changing any chat's
 
 An explicit choice can be a Copilot model or a configured **BYOK** model. BYOK helpers use the
 same endpoint, credential store, capability overrides, and per-model rate limiter as chats.
-**Use only your own accounts** (BYOK only) still blocks every non-BYOK inference request: choose a BYOK background model to
+**Use only your own accounts** (BYOK only) still blocks every non-BYOK inference request: choose a BYOK default model (or one for a feature) to
 run helpers in that mode. Auto does not guess private-provider prices or silently inherit the
 source chat's model, including for Share prompt.
 

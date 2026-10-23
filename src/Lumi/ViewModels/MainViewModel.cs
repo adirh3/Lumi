@@ -126,7 +126,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         "Debug-only agent map\n" +
         "Nav: #NavChat=0, #NavLibrary=8, #NavJobs=1, #NavCustomize (last section), #NavSettings=7 (or Memories=5)\n" +
         "Customize: #CustomizeDiscoverTab=9, #CustomizeLumisTab=4, #CustomizeSkillsTab=3, #CustomizeMcpTab=6, #CustomizeProjectsTab=2\n" +
-        "Settings: #SettingsMemoriesItem=5 · Chat list project switcher: #ProjectSwitchButton, #ProjectSwitcherManageButton, #ProjectEditButton\n" +
+        "Settings: #SettingsMemoriesItem=5, #SettingsAiFeaturesItem (AI Features) · Chat list project switcher: #ProjectSwitchButton, #ProjectSwitcherManageButton, #ProjectEditButton\n" +
         "Chat controls: #PageChat, #ChatShell, #Transcript, #Composer, #SearchInput\n" +
         "CLI: --skip-onboarding --debug-agent-harness opens fixture, --test-chat-stress checks tools, --test-mcp-native checks SDK MCP";
 
@@ -614,6 +614,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 _chatSessionStore.ApplyToSurfaces(surface => surface.RebuildTranscriptAndHistory());
             else if (args.PropertyName == nameof(SettingsViewModel.SuggestFollowUps))
                 _chatSessionStore.ApplyToSurfaces(surface => surface.ApplySuggestFollowUpsSetting());
+            // Lumi's tools are fixed when a session starts; open chats take the change before their next message.
+            else if (args.PropertyName == nameof(SettingsViewModel.EnableCodingHelpers))
+                _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateAgentSession());
             else if (args.PropertyName == nameof(SettingsViewModel.IsAuthenticated))
             {
                 if (SettingsVM.IsAuthenticated)

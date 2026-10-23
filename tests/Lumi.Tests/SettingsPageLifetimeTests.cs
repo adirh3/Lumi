@@ -25,6 +25,7 @@ public sealed class SettingsPageLifetimeTests
     [InlineData(6, "PagePrivacy")]
     [InlineData(7, "PageAbout")]
     [InlineData(9, "PagePermissions")]
+    [InlineData(10, "PageAiFeatures")]
     public async Task OnlyTheSelectedPageIsConstructed(int index, string name)
     {
         using var session = HeadlessTestSession.Start();
@@ -109,7 +110,7 @@ public sealed class SettingsPageLifetimeTests
                 Pump(window);
                 vm.SearchQuery = "notifications";
                 Pump(window);
-                Assert.Equal(9, Pages(view).Count());
+                Assert.Equal(10, Pages(view).Count());
                 Assert.True(view.FindSettingsControl<Control>("PageGeneral")!.IsEffectivelyVisible);
                 vm.SearchQuery = "";
                 Pump(window);
@@ -317,7 +318,7 @@ public sealed class SettingsPageLifetimeTests
                 Pump(window);
                 Assert.NotEmpty(replacement.SearchResultSummary);
                 Assert.True(view.FindSettingsControl<Control>("PageAppearance")!.IsEffectivelyVisible);
-                Assert.Equal(9, Pages(view).Count());
+                Assert.Equal(10, Pages(view).Count());
             }
             finally { window.Close(); }
         }, CancellationToken.None);

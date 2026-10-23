@@ -1679,9 +1679,28 @@ public class ContextBrief
     public bool EditedByUser { get; set; }
 }
 
+/// <summary>
+/// Lumi's own uses of AI, as Settings → AI Features lists them. Each runs in a helper session on the model the
+/// user chose for it (<see cref="UserSettings.AiFeatureModels"/>), or on <see cref="UserSettings.BackgroundModel"/>.
+/// </summary>
+public static class AiFeatureIds
+{
+    public const string ChatTitles = "chat-titles";
+    public const string FollowUps = "follow-ups";
+    public const string Memories = "memories";
+    public const string DailyBriefs = "daily-briefs";
+    public const string CodingHelpers = "coding-helpers";
+    public const string SharedPrompts = "shared-prompts";
+    public const string Welcome = "welcome";
+
+    public static readonly IReadOnlyList<string> All =
+        [ChatTitles, FollowUps, Memories, DailyBriefs, CodingHelpers, SharedPrompts, Welcome];
+}
+
 public class UserSettings
 {
     private List<ApprovalRule> _approvalRules = [];
+    private Dictionary<string, string> _aiFeatureModels = [];
 
     // ── General ──
     public string? UserName { get; set; }
@@ -1783,6 +1802,21 @@ public class UserSettings
 
     /// <summary>Model for Lumi's internal AI helpers, independent of chat and agent model choices.</summary>
     public string BackgroundModel { get; set; } = AutomaticBackgroundModel;
+
+    /// <summary>
+    /// Models chosen for single AI features, by <see cref="AiFeatureIds"/> id. A feature without an entry runs on
+    /// <see cref="BackgroundModel"/>.
+    /// </summary>
+    public Dictionary<string, string> AiFeatureModels { get => _aiFeatureModels; set => _aiFeatureModels = value ?? []; }
+
+    /// <summary>The model chosen for <paramref name="feature"/>, or null when it follows <see cref="BackgroundModel"/>.</summary>
+    public string? GetAiFeatureModel(string? feature)
+        => feature is not null && AiFeatureModels.TryGetValue(feature, out var model) && !string.IsNullOrWhiteSpace(model)
+            ? model.Trim()
+            : null;
+
+    /// <summary>Agents may hand code review, tests, explanations and project analysis to a focused helper session.</summary>
+    public bool EnableCodingHelpers { get; set; } = true;
 
     /// <summary>
     /// Model ids the user pinned in the composer's model picker, in pin order. Pinned models are

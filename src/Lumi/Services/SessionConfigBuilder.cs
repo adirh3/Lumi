@@ -14,6 +14,10 @@ public sealed class LightweightSessionOptions
 {
     public required string SystemPrompt { get; init; }
     public string? Model { get; init; }
+
+    /// <summary>The AI feature (<see cref="AiFeatureIds"/>) the session serves. Without <see cref="Model"/>, it picks the
+    /// feature's model, or the background model when the feature follows it.</summary>
+    public string? Feature { get; init; }
     public bool Streaming { get; init; }
     public string? WorkingDirectory { get; init; }
     public string? ConfigDir { get; init; }
