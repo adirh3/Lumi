@@ -3038,12 +3038,13 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
     public Task WorkingEntranceDoesNotReplayWhenBusyAndStreamingNotificationsOverlap() =>
         RunUiAsync(360, (shell, view, window) =>
         {
-            PumpFrame(window);
             var indicator = Required<StrataTypingIndicator>(view, "ChatTyping");
             var starts = 0;
             indicator.PropertyChanged += (_, e) =>
             {
-                if (e.Property == Visual.OpacityProperty && indicator.Opacity == 1)
+                // The running-state style also restores opacity; only the entrance writes it locally.
+                if (e.Property == Visual.OpacityProperty && e.Priority == Avalonia.Data.BindingPriority.LocalValue
+                    && indicator.Opacity == 1)
                     starts++;
             };
             shell.Chat.IsBusy = true;
