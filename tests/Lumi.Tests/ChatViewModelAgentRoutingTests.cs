@@ -932,9 +932,9 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
-    public void BuildCustomTools_LeavesOutCodingHelpersWhileTheyAreTurnedOff()
+    public void BuildCustomTools_DoesNotExposeRetiredCodingHelpers()
     {
-        using var harness = CreateHarness(new AppData { Settings = new UserSettings { EnableCodingHelpers = false } });
+        using var harness = CreateHarness(new AppData());
 
         var toolNames = InvokeBuildCustomTools(harness.ViewModel).Select(tool => tool.Name).ToArray();
 
@@ -943,20 +943,19 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
-    public async Task CodingHelperTurnedOffAfterASessionStarted_DeclinesWithoutAHelperSession()
+    public void BuildCustomTools_RetiredOnlyAgentDoesNotGainOtherLumiTools()
     {
-        var enabled = true;
-        var tools = new CodingToolService(TestCopilot.Shared, () => CancellationToken.None, () => enabled).BuildCodingTools();
-        enabled = false;
-
-        var result = await tools.Single(tool => tool.Name == "code_review").InvokeAsync(new AIFunctionArguments
+        var agent = new LumiAgent
         {
-            ["code"] = "int x = 1;",
-            ["language"] = "csharp",
-            ["context"] = null,
-        });
+            Name = "Legacy reviewer",
+            ToolNames = ["code_review", "generate_tests", "explain_code", "analyze_project"]
+        };
+        var data = new AppData { Agents = [agent] };
+        Assert.True(DataStore.RemoveRetiredCodingHelpers(data));
+        using var harness = CreateHarness(data);
 
-        Assert.Contains("turned off", result?.ToString(), StringComparison.Ordinal);
+        Assert.Empty(InvokeBuildCustomTools(harness.ViewModel, agent));
+        Assert.True(agent.HasToolRestrictions);
     }
 
     [Fact]
@@ -972,7 +971,6 @@ public sealed class ChatViewModelAgentRoutingTests
         Assert.Contains("ask_question", toolNames);
         Assert.Contains("manage_current_chat", toolNames);
         Assert.Contains("manage_lumis", toolNames);
-        Assert.Contains("code_review", toolNames);
         Assert.Equal(NativeBrowserLogic.IsEmbeddedBrowserAvailable,
             toolNames.Contains(ToolDisplayHelper.BrowserOpenToolName));
         if (OperatingSystem.IsWindows())

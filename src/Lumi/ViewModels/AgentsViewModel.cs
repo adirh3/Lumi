@@ -440,10 +440,6 @@ public partial class AgentsViewModel : ObservableObject
         ("manage_chats", "Manage Chats", "Utility", "Create, list, message, and track other chats — act as a manager orchestrating chats across projects."),
         ("search_chats", "Search Chats", "Utility", "Search the user's past chats by topic, keyword, person, or time."),
         ("read_chat", "Read Chat", "Utility", "Open and read the transcript of a past chat by id, title, or phrase."),
-        ("code_review", "Code Review", "Coding", "Expert code review for bugs, security, performance, and best practices."),
-        ("generate_tests", "Generate Tests", "Coding", "Generate comprehensive unit tests for source code."),
-        ("explain_code", "Explain Code", "Coding", "Deep code explanation with call flow and pattern identification."),
-        ("analyze_project", "Analyze Project", "Coding", "Analyze project architecture, tech stack, and structure."),
     ];
 
     /// <summary>Friendly name for a Lumi tool id (legacy ids included); unknown ids are shown as written.</summary>
@@ -487,7 +483,6 @@ public partial class AgentsViewModel : ObservableObject
         "Browser" => Loc.Lumis_ToolGroup_Browser,
         "Desktop" => Loc.Lumis_ToolGroup_Desktop,
         "Utility" => Loc.Lumis_ToolGroup_Utility,
-        "Coding" => Loc.Lumis_ToolGroup_Coding,
         _ => group
     };
 

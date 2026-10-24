@@ -92,25 +92,21 @@ public sealed class AiFeatureSettingsTests
     }
 
     [Fact]
-    public void FeatureModelsAndCodingHelpersPersistAndOlderProfilesGetDefaults()
+    public void FeatureModelsPersistAndOlderProfilesGetDefaults()
     {
         var legacy = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;
         Assert.Empty(legacy.AiFeatureModels);
-        Assert.True(legacy.EnableCodingHelpers);
         Assert.Empty(JsonSerializer.Deserialize("""{"aiFeatureModels":null}""", AppDataJsonContext.Default.UserSettings)!.AiFeatureModels);
 
         legacy.AiFeatureModels[AiFeatureIds.DailyBriefs] = "gpt-6-sol";
-        legacy.EnableCodingHelpers = false;
         var restored = JsonSerializer.Deserialize(
             JsonSerializer.Serialize(legacy, AppDataJsonContext.Default.UserSettings), AppDataJsonContext.Default.UserSettings)!;
         Assert.Equal("gpt-6-sol", restored.GetAiFeatureModel(AiFeatureIds.DailyBriefs));
-        Assert.False(restored.EnableCodingHelpers);
 
         // The saved index is copied field by field: what isn't copied is lost on the next save.
         var data = new AppData { Settings = legacy };
         var snapshot = AppDataSnapshotFactory.CreateIndexSnapshot(data, includeChats: false).Settings;
         Assert.Equal("gpt-6-sol", snapshot.GetAiFeatureModel(AiFeatureIds.DailyBriefs));
-        Assert.False(snapshot.EnableCodingHelpers);
         Assert.NotSame(legacy.AiFeatureModels, snapshot.AiFeatureModels);
     }
 
@@ -121,7 +117,7 @@ public sealed class AiFeatureSettingsTests
         using var vm = CreateVm(data);
         var settings = data.Settings;
 
-        Assert.Equal(Loc.Get("AiFeatures_SummaryAllOn", 5), vm.AiFeaturesSummary);
+        Assert.Equal(Loc.Get("AiFeatures_SummaryAllOn", 4), vm.AiFeaturesSummary);
         Feature(vm, AiFeatureIds.ChatTitles).IsOn = false;
         Feature(vm, AiFeatureIds.FollowUps).IsOn = false;
         Feature(vm, AiFeatureIds.Memories).IsOn = false;
@@ -130,24 +126,24 @@ public sealed class AiFeatureSettingsTests
         Assert.False(settings.SuggestFollowUps);
         Assert.False(settings.EnableMemoryAutoSave);
         Assert.False(settings.EnableDailyBriefs);
-        Assert.True(settings.EnableCodingHelpers);
-        Assert.Equal(Loc.Get("AiFeatures_SummarySome", 1, 5), vm.AiFeaturesSummary);
+        Assert.True(vm.AreAllAiFeaturesOff);
+        Assert.Equal(Loc.Get("AiFeatures_SummaryAllOff"), vm.AiFeaturesSummary);
         Assert.True(Feature(vm, AiFeatureIds.Memories).IsModified);
 
         // Changes made elsewhere (reset, the debug bridge) show on the feature.
         vm.EnableMemoryAutoSave = true;
         Assert.True(Feature(vm, AiFeatureIds.Memories).IsOn);
+        Assert.Equal(Loc.Get("AiFeatures_SummarySome", 1, 4), vm.AiFeaturesSummary);
 
         vm.ToggleAllAiFeaturesCommand.Execute(null);
         Assert.True(vm.AreAllAiFeaturesOff);
-        Assert.False(settings.EnableCodingHelpers);
         Assert.False(settings.EnableMemoryAutoSave);
         Assert.Equal(Loc.Get("AiFeatures_TurnAllOn"), vm.ToggleAllAiFeaturesLabel);
 
         vm.ToggleAllAiFeaturesCommand.Execute(null);
         Assert.All(vm.AiFeatures.Where(static feature => feature.CanTurnOff), static feature => Assert.True(feature.IsOn));
         Assert.True(settings.AutoGenerateTitles && settings.SuggestFollowUps && settings.EnableMemoryAutoSave
-                    && settings.EnableDailyBriefs && settings.EnableCodingHelpers);
+                    && settings.EnableDailyBriefs);
     }
 
     [Fact]
@@ -164,6 +160,8 @@ public sealed class AiFeatureSettingsTests
         }
 
         Assert.Equal(AiFeatureIds.All.Order(), vm.AiFeatures.Select(static feature => feature.Id).Order());
+        Assert.DoesNotContain(vm.AiFeatures, static feature => feature.Id == "coding-helpers");
+        Assert.Equal(4, vm.AiFeatures.Count(static feature => feature.CanTurnOff));
         Assert.Equal(vm.AiFeatures.Count,
             vm.ChatAiFeatures.Count + vm.ContextAiFeatures.Count + vm.RequestedAiFeatures.Count);
     }
@@ -206,7 +204,7 @@ public sealed class AiFeatureSettingsTests
         {
             Settings = new UserSettings
             {
-                EnableCodingHelpers = false,
+                EnableMemoryAutoSave = false,
                 AiFeatureModels = { [AiFeatureIds.Memories] = "gpt-6-sol" }
             }
         };
@@ -214,7 +212,7 @@ public sealed class AiFeatureSettingsTests
 
         vm.ResetSettingsCommand.Execute(null);
 
-        Assert.True(data.Settings.EnableCodingHelpers);
+        Assert.True(data.Settings.EnableMemoryAutoSave);
         Assert.Empty(data.Settings.AiFeatureModels);
         Assert.All(vm.AiFeatures, static feature => Assert.False(feature.IsModified));
     }

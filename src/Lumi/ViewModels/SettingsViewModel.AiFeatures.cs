@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
-using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
@@ -28,10 +27,8 @@ public partial class SettingsViewModel
     private static readonly HashSet<string> AiFeatureSources =
     [
         nameof(AutoGenerateTitles), nameof(SuggestFollowUps), nameof(EnableMemoryAutoSave), nameof(EnableDailyBriefs),
-        nameof(EnableCodingHelpers), nameof(BackgroundModelStatus), nameof(DefaultApprovalMode)
+        nameof(BackgroundModelStatus), nameof(DefaultApprovalMode)
     ];
-
-    [ObservableProperty] private bool _enableCodingHelpers;
 
     private AiFeatureViewModel[]? _aiFeatures;
     private IReadOnlyList<string> _aiFeatureCatalogModels = [];
@@ -70,18 +67,6 @@ public partial class SettingsViewModel
     public bool IsAutoReviewDefault => DefaultApprovalMode == ApprovalMode.AutoReview;
 
     public bool IsDictationAvailable => VoiceInputService.IsSupportedOnThisComputer;
-
-    // Loading, not changing: skip the change handler that saves.
-#pragma warning disable MVVMTK0034
-    private void InitializeAiFeatures(UserSettings settings) => _enableCodingHelpers = settings.EnableCodingHelpers;
-#pragma warning restore MVVMTK0034
-
-    partial void OnEnableCodingHelpersChanged(bool value)
-    {
-        _dataStore.Data.Settings.EnableCodingHelpers = value;
-        Save();
-        NotifyModified();
-    }
 
     [RelayCommand]
     private void ToggleAllAiFeatures()
@@ -197,9 +182,7 @@ public partial class SettingsViewModel
                 () => EnableMemoryAutoSave, on => EnableMemoryAutoSave = on),
             new(this, AiFeatureIds.DailyBriefs, "DailyBriefs", AiFeatureGroup.MemoryAndContext, isFirstInGroup: false,
                 () => EnableDailyBriefs, on => EnableDailyBriefs = on),
-            new(this, AiFeatureIds.CodingHelpers, "CodingHelpers", AiFeatureGroup.WhenAsked, isFirstInGroup: true,
-                () => EnableCodingHelpers, on => EnableCodingHelpers = on),
-            new(this, AiFeatureIds.SharedPrompts, "SharedPrompts", AiFeatureGroup.WhenAsked, isFirstInGroup: false),
+            new(this, AiFeatureIds.SharedPrompts, "SharedPrompts", AiFeatureGroup.WhenAsked, isFirstInGroup: true),
             new(this, AiFeatureIds.Welcome, "Welcome", AiFeatureGroup.WhenAsked, isFirstInGroup: false),
         ];
     }

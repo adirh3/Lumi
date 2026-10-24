@@ -26,7 +26,6 @@ public sealed class AiFeatureIconConverter : IValueConverter
         AiFeatureIds.FollowUps => StrataIcons.Lightbulb,
         AiFeatureIds.Memories => StrataIcons.Bookmark,
         AiFeatureIds.DailyBriefs => StrataIcons.Document,
-        AiFeatureIds.CodingHelpers => StreamGeometry.Parse("M8.5 7.5 4 12l4.5 4.5 M15.5 7.5 20 12l-4.5 4.5 M13.5 5l-3 14"),
         AiFeatureIds.SharedPrompts => StreamGeometry.Parse(
             "M12 14.5v-11 M7.75 7.75 12 3.5l4.25 4.25 M5 11.5v7A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-7"),
         AiFeatureIds.Welcome => StrataIcons.Hand,

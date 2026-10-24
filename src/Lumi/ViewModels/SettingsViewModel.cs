@@ -634,7 +634,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _autoGenerateTitles = s.AutoGenerateTitles;
         _suggestFollowUps = s.SuggestFollowUps;
         InitializePermissions(s);
-        InitializeAiFeatures(s);
         InitializeAppearanceOptions();
 
         // AI
@@ -2380,7 +2379,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         PreferredModel = defaults.PreferredModel;
         BackgroundModel = defaults.BackgroundModel;
         ResetAiFeatureModels();
-        EnableCodingHelpers = defaults.EnableCodingHelpers;
         ReasoningEffort = defaults.ReasoningEffort;
         UseMcpProxy = defaults.UseMcpProxy;
         UseLazyMcpInitialization = defaults.UseLazyMcpInitialization;

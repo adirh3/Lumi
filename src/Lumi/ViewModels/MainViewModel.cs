@@ -614,9 +614,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 _chatSessionStore.ApplyToSurfaces(surface => surface.RebuildTranscriptAndHistory());
             else if (args.PropertyName == nameof(SettingsViewModel.SuggestFollowUps))
                 _chatSessionStore.ApplyToSurfaces(surface => surface.ApplySuggestFollowUpsSetting());
-            // Lumi's tools are fixed when a session starts; open chats take the change before their next message.
-            else if (args.PropertyName == nameof(SettingsViewModel.EnableCodingHelpers))
-                _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateAgentSession());
             else if (args.PropertyName == nameof(SettingsViewModel.IsAuthenticated))
             {
                 if (SettingsVM.IsAuthenticated)

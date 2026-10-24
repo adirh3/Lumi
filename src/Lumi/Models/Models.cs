@@ -1689,12 +1689,11 @@ public static class AiFeatureIds
     public const string FollowUps = "follow-ups";
     public const string Memories = "memories";
     public const string DailyBriefs = "daily-briefs";
-    public const string CodingHelpers = "coding-helpers";
     public const string SharedPrompts = "shared-prompts";
     public const string Welcome = "welcome";
 
     public static readonly IReadOnlyList<string> All =
-        [ChatTitles, FollowUps, Memories, DailyBriefs, CodingHelpers, SharedPrompts, Welcome];
+        [ChatTitles, FollowUps, Memories, DailyBriefs, SharedPrompts, Welcome];
 }
 
 public class UserSettings
@@ -1814,9 +1813,6 @@ public class UserSettings
         => feature is not null && AiFeatureModels.TryGetValue(feature, out var model) && !string.IsNullOrWhiteSpace(model)
             ? model.Trim()
             : null;
-
-    /// <summary>Agents may hand code review, tests, explanations and project analysis to a focused helper session.</summary>
-    public bool EnableCodingHelpers { get; set; } = true;
 
     /// <summary>
     /// Model ids the user pinned in the composer's model picker, in pin order. Pinned models are

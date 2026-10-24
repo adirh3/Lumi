@@ -576,12 +576,16 @@ Existing skill/Lumi/MCP packs remain version 1 and their sharing/import behavior
 
 **Settings > AI Features** is the one place for every way Lumi uses AI on its own. Each feature says
 what it does, when it runs and what it reads, and carries its switch and its model. Features that run
-by themselves (chat titles, follow-up suggestions, automatic memories, daily briefs and coding helpers)
+by themselves (chat titles, follow-up suggestions, automatic memories and daily briefs)
 can be turned off one by one, or all at once from the summary at the top; Share prompt drafts and the
 welcome tour run only when asked, so they have no switch. Every feature runs on the **Default model**
 unless you choose a model for it in its row. The page also lists the AI that is set up where it is
 used: Auto-review (an approval mode, in **Permissions**) and on-device dictation. **AI & Models** and
 **Privacy & Data** link to it.
+
+Code review, test writing, code explanations and project analysis use the chat agent and Copilot's
+native agents rather than separate Lumi coding-helper tools. Existing built-in coding instructions
+and tool selections are updated on startup; older tool calls keep their transcript labels.
 
 | Feature | When it runs | What the model does |
 |---|---|---|
@@ -591,7 +595,6 @@ used: Auto-review (an approval mode, in **Permissions**) and on-device dictation
 | Daily briefs | Once a night at 05:00 (or at the first chance after it), for each project with chats that day and then once across projects, when Daily Briefs is on; or on **Update now** | Reads the day's chats with read-only chat tools, rewrites the project's brief, and repairs, merges or removes memories with evidence from the chats (only with automatic memories on). A missed night is caught up a day at a time, three days on the first run and at most a week |
 | Onboarding personalization | The first-run getting-to-know-you step, prefetched once the user allows a look around (or skips it) | Turns a short local summary of projects, known apps, top sites and recent-file counts — never paths or document contents — into Lumi's first words, three tailored questions and three first tasks in one tool-free call; built-in fallbacks apply when it is unavailable |
 | Reusable prompt drafts | You choose Share prompt on a completed reply | Turns the bounded, redacted conversation snapshot into a portable task |
-| Coding helpers | The assistant invokes `code_review`, `generate_tests`, `explain_code`, or `analyze_project`, when Coding Helpers is on (turned off, new and reconfigured chats don't get the tools) | Performs the requested specialized analysis in an isolated, tool-free session |
 
 The default is **Auto**, including for existing profiles. It selects the lowest estimated
 Copilot AI-credit cost for a standard **1K input + 1K output** token sample, normalizing each model's

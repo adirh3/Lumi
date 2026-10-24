@@ -142,6 +142,11 @@ public partial class DataStore : IChatContentSearch
         {
             Save();
         }
+        if (RemoveRetiredCodingHelpers(_data))
+        {
+            Save();
+            SyncSkillFiles();
+        }
         if (RemoveRetiredFeatureManagerSkill(_data))
         {
             Save();
@@ -1301,7 +1306,7 @@ public partial class DataStore : IChatContentSearch
                 - Run `git diff` to see recent changes
                 - Read source files around the error location
                 - Execute test commands to verify the fix
-                - Use `code_review` tool to spot related issues
+                - Review the surrounding code for related issues
 
                 Never guess. Follow the evidence. The bug is always logical — code does exactly what it's told.
                 """
@@ -1316,7 +1321,7 @@ public partial class DataStore : IChatContentSearch
             Content = """
                 # Code Reviewer Pro
 
-                You are a senior engineer conducting a professional code review. Use the `code_review` tool for automated analysis, then layer on your own expertise.
+                You are a senior engineer conducting a professional code review. Inspect the actual diff and surrounding repository code, and verify each finding.
 
                 ## Review Process
 
@@ -1325,20 +1330,20 @@ public partial class DataStore : IChatContentSearch
                 - Is this a new feature, bug fix, refactor, or optimization?
                 - What's the scope of impact?
 
-                ### 2. Automated Analysis
-                Use the `code_review` tool to get an initial automated review of the code. This handles:
+                ### 2. Inspect the Change
+                Read the diff and relevant callers, dependencies, and tests. Check for:
                 - Bug detection
                 - Security vulnerability scanning
                 - Performance issue identification
                 - Code quality checks
 
-                ### 3. Human-Level Review (your added value)
-                Go beyond what automated tools catch:
+                ### 3. Verify Findings
+                Check findings against the change's intent and supported behavior:
                 - **Design intent** — Does the approach make sense for the problem?
                 - **Maintainability** — Will the next developer understand this in 6 months?
                 - **Edge cases** — What inputs or states haven't been considered?
                 - **Integration risk** — How does this change interact with the rest of the system?
-                - **Missing tests** — Use `generate_tests` to create test suggestions
+                - **Missing tests** — Identify missing regression coverage and suggest focused tests
                 - **Documentation** — Are public APIs and complex logic documented?
 
                 ### 4. Feedback Style
@@ -1371,7 +1376,6 @@ public partial class DataStore : IChatContentSearch
             SkillIds = [architectureSkill.Id, debugSkill.Id, codeReviewSkill.Id],
             HasExplicitToolSelection = true,
             ToolNames = [
-                "code_review", "generate_tests", "explain_code", "analyze_project",
                 "lumi_fetch",
                 "announce_file", "skill", "recall_memory", "manage_current_chat",
                 .. CodingLumiBrowserTools
@@ -1408,27 +1412,27 @@ public partial class DataStore : IChatContentSearch
                 - Verify the fix doesn't break anything else
 
                 ### 🔍 Code Review
-                You have a `code_review` tool that performs deep automated analysis. Use it when:
+                Review the actual changes and surrounding code when:
                 - The user asks for a code review
                 - You want to validate code quality before delivering
                 - You need to check for security vulnerabilities
                 - You want a second opinion on code you've written
 
                 ### 🧪 Test Generation
-                You have a `generate_tests` tool that creates comprehensive test suites. Use it when:
+                Write focused tests using the project's existing framework when:
                 - The user asks for tests
                 - You've written new code that should be tested
                 - You want to verify edge case coverage
                 - You need to understand existing code through its test cases
 
                 ### 📖 Code Explanation
-                You have an `explain_code` tool for deep analysis. Use it when:
+                Read the implementation and its callers to explain code when:
                 - The user needs to understand complex unfamiliar code
                 - You need to analyze a large codebase section
                 - Teaching-level explanation is needed
 
                 ### 🏗️ Project Analysis
-                You have an `analyze_project` tool for project-level understanding. Use it when:
+                Inspect the repository, project configuration, and dependencies when:
                 - Working with a new codebase for the first time
                 - The user asks about project structure or architecture
                 - You need to understand the tech stack and conventions before making changes
@@ -1449,7 +1453,7 @@ public partial class DataStore : IChatContentSearch
                 2. **Plan** — Think through the approach before writing code. For complex tasks, outline the plan first
                 3. **Implement** — Write clean, correct code following the project's conventions
                 4. **Verify** — Run the code, check for errors, test edge cases
-                5. **Review** — Use `code_review` on your own output for important changes
+                5. **Review** — Check important changes against their callers, tests, and intended behavior
                 6. **Deliver** — Present the solution clearly with any caveats or follow-up suggestions
 
                 ## Language & Framework Expertise
@@ -1509,6 +1513,79 @@ public partial class DataStore : IChatContentSearch
         data.Settings.CodingLumiBrowserToolsSeeded = true;
         return true;
     }
+
+    internal static bool RemoveRetiredCodingHelpers(AppData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        var changed = data.Settings.AiFeatureModels.Remove("coding-helpers");
+        foreach (var agent in data.Agents)
+        {
+            if (agent.ToolNames.RemoveAll(static name =>
+                    name is "code_review" or "generate_tests" or "explain_code" or "analyze_project") > 0)
+            {
+                // An empty legacy allowlist must not become unrestricted after its last tool is removed.
+                if (agent.ToolNames.Count == 0)
+                    agent.HasExplicitToolSelection = true;
+                changed = true;
+            }
+
+            if (!agent.IsBuiltIn || !agent.Name.Equals("Coding Lumi", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var prompt = RetireCodingHelperInstructions(agent.SystemPrompt);
+            if (prompt != agent.SystemPrompt)
+            {
+                agent.SystemPrompt = prompt;
+                changed = true;
+            }
+        }
+
+        foreach (var skill in data.Skills)
+        {
+            if (!skill.IsBuiltIn
+                || !(skill.Name.Equals("Debug Expert", StringComparison.OrdinalIgnoreCase)
+                     || skill.Name.Equals("Code Reviewer Pro", StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            var content = RetireCodingHelperInstructions(skill.Content);
+            if (content != skill.Content)
+            {
+                skill.Content = content;
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    // Replace only factory-authored wording; keep custom instructions, identities, and skill links.
+    private static string RetireCodingHelperInstructions(string text) => text
+        .Replace("- Use `code_review` tool to spot related issues",
+            "- Review the surrounding code for related issues", StringComparison.Ordinal)
+        .Replace("Use the `code_review` tool for automated analysis, then layer on your own expertise.",
+            "Inspect the actual diff and surrounding repository code, and verify each finding.", StringComparison.Ordinal)
+        .Replace("Use the `code_review` tool for an initial pass covering bugs, security, performance, and code quality. Treat every automated result as a hypothesis, not an instruction:",
+            "Inspect the diff and surrounding code for bugs, security, performance, and code quality. Treat every finding as a hypothesis, not an instruction:", StringComparison.Ordinal)
+        .Replace("### 2. Automated Analysis", "### 2. Inspect the Change", StringComparison.Ordinal)
+        .Replace("Use the `code_review` tool to get an initial automated review of the code. This handles:",
+            "Read the diff and relevant callers, dependencies, and tests. Check for:", StringComparison.Ordinal)
+        .Replace("### 3. Human-Level Review (your added value)", "### 3. Verify Findings", StringComparison.Ordinal)
+        .Replace("Go beyond what automated tools catch:",
+            "Check findings against the change's intent and supported behavior:", StringComparison.Ordinal)
+        .Replace("Use `generate_tests` to create test suggestions",
+            "Identify missing regression coverage and suggest focused tests", StringComparison.Ordinal)
+        .Replace("Use `generate_tests` only for a concrete gap in changed behavior;",
+            "Add focused tests only for a concrete gap in changed behavior;", StringComparison.Ordinal)
+        .Replace("You have a `code_review` tool that performs deep automated analysis. Use it when:",
+            "Review the actual changes and surrounding code when:", StringComparison.Ordinal)
+        .Replace("You have a `generate_tests` tool that creates comprehensive test suites. Use it when:",
+            "Write focused tests using the project's existing framework when:", StringComparison.Ordinal)
+        .Replace("You have an `explain_code` tool for deep analysis. Use it when:",
+            "Read the implementation and its callers to explain code when:", StringComparison.Ordinal)
+        .Replace("You have an `analyze_project` tool for project-level understanding. Use it when:",
+            "Inspect the repository, project configuration, and dependencies when:", StringComparison.Ordinal)
+        .Replace("Use `code_review` on your own output for important changes",
+            "Check important changes against their callers, tests, and intended behavior", StringComparison.Ordinal);
 
     private void EnsureCurrentChatManagementTool()
     {

@@ -56,7 +56,6 @@ internal static class AppDataSnapshotFactory
                 PreferredModel = settings.PreferredModel,
                 BackgroundModel = settings.BackgroundModel,
                 AiFeatureModels = new Dictionary<string, string>(settings.AiFeatureModels),
-                EnableCodingHelpers = settings.EnableCodingHelpers,
                 FavoriteModelIds = settings.FavoriteModelIds is null ? [] : [.. settings.FavoriteModelIds],
                 ReasoningEffort = settings.ReasoningEffort,
                 GlobalCustomInstructions = settings.GlobalCustomInstructions,

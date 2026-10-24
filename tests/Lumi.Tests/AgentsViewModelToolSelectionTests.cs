@@ -8,6 +8,13 @@ namespace Lumi.Tests;
 public sealed class AgentsViewModelToolSelectionTests
 {
     [Fact]
+    public void RetiredCodingHelpers_AreNotSelectable()
+    {
+        Assert.DoesNotContain(GetVisibleToolNames(),
+            static name => name is "code_review" or "generate_tests" or "explain_code" or "analyze_project");
+    }
+
+    [Fact]
     public void DesktopBatchTool_IsSelectableOnlyOnWindows()
     {
         var names = GetVisibleToolNames();

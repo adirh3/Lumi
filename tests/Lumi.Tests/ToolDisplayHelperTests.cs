@@ -7,6 +7,21 @@ namespace Lumi.Tests;
 public class ToolDisplayHelperTests
 {
     [Theory]
+    [InlineData("code_review", "Reviewing code", "🔍")]
+    [InlineData("generate_tests", "Generating tests", "🧪")]
+    [InlineData("explain_code", "Explaining code", "📖")]
+    [InlineData("analyze_project", "Analyzing project", "🏗")]
+    public void RetiredCodingHelpers_KeepHistoricalTranscriptLabels(string toolName, string expectedName, string expectedGlyph)
+    {
+        var (name, _) = ToolDisplayHelper.GetFriendlyToolDisplay(toolName, null, "{}");
+
+        Assert.Equal(expectedName, name);
+        Assert.Equal(expectedName, ToolDisplayHelper.FormatToolStatusName(toolName));
+        Assert.Equal(expectedGlyph, ToolDisplayHelper.GetToolGlyph(toolName));
+        Assert.NotEmpty(ToolDisplayHelper.GetToolIconKey(toolName));
+    }
+
+    [Theory]
     [InlineData(ToolDisplayHelper.BrowserTabsToolName, "Managing browser tabs", "🌐", "{\"action\":\"switch\",\"tabId\":\"tab-alpha\"}", "switch: tab-alpha")]
     [InlineData(ToolDisplayHelper.BrowserTabsToolName, "Managing browser tabs", "🌐", "{\"action\":\"new\",\"url\":\"https://example.test\"}", "new: https://example.test")]
     [InlineData(ToolDisplayHelper.BrowserScreenshotToolName, "Taking browser screenshot", "📷", "{\"tabId\":\"tab-alpha\"}", "tab-alpha")]

@@ -155,8 +155,6 @@ public partial class ChatViewModel
         tools.AddRange(BuildWebTools());
         if (NativeBrowserLogic.IsEmbeddedBrowserAvailable)
             tools.AddRange(BuildBrowserTools(chatId));
-        if (_dataStore.Data.Settings.EnableCodingHelpers)
-            tools.AddRange(_codingToolService.BuildCodingTools());
         if (OperatingSystem.IsWindows())
             tools.AddRange(BuildUIAutomationTools(chatId));
 
