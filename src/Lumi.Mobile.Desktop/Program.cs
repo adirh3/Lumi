@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Lumi.Mobile;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 #if DEBUG
 using AvaloniaMcp.Diagnostics;
 #endif
@@ -26,6 +27,8 @@ public static class Program
             Environment.SetEnvironmentVariable("LUMI_MOBILE_DATA_DIR", dir);
         }
 
+        // Set culture before the builder loads App/theme XAML, not only before the shell's views.
+        Strings.Load(new MobileSettingsStore().Load().Language);
         var device = ReadOption(args, "--device");
         var host = ReadOption(args, "--host");
 #if DEBUG

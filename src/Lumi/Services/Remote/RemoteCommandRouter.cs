@@ -72,7 +72,7 @@ internal sealed class RemoteCommandRouter
             RemoteProtocol.Actions.ConfigureChat => await ConfigureChatAsync(command),
             RemoteProtocol.Actions.ConfigureFeature => await ConfigureFeatureAsync(command),
             RemoteProtocol.Actions.PinModel => await PinModelAsync(command),
-            _ => Fail($"Unknown remote action '{command.Action}'.")
+            _ => Fail(Loc.Get("Remote_UnknownAction", command.Action))
         };
     }
 
@@ -169,7 +169,7 @@ internal sealed class RemoteCommandRouter
             if (command.GetBool("open") ?? true)
                 await _main.OpenChatByIdAsync(chat.Id).ConfigureAwait(true);
 
-            return Success("Chat created.", chat.Id);
+            return Success(Loc.Remote_ChatCreated, chat.Id);
         }
 
         catch (OperationCanceledException)
@@ -185,67 +185,67 @@ internal sealed class RemoteCommandRouter
     private async Task<RemoteCommandResult> MarkChatReadAsync(RemoteCommand command)
     {
         if (ResolveExplicitChat(command) is not { } chat)
-            return Fail("Chat not found.");
+            return Fail(Loc.Remote_ChatNotFound);
 
         if (!chat.HasUnreadMessages)
-            return Success("Chat available.", chat.Id);
+            return Success(Loc.Remote_ChatAvailable, chat.Id);
 
         if (command.GetInt("readThroughMessageCount") is { } readThroughMessageCount &&
             RemoteProjector.GetEffectiveMessageCount(chat) > readThroughMessageCount)
         {
-            return Success("Newer activity remains unread.", chat.Id);
+            return Success(Loc.Remote_NewerActivityUnread, chat.Id);
         }
 
         chat.HasUnreadMessages = false;
         _dataStore.MarkChatChanged(chat);
         await _dataStore.SaveAsync().ConfigureAwait(true);
         _main.RefreshChatList();
-        return Success("Chat marked read.", chat.Id);
+        return Success(Loc.Remote_ChatMarkedRead, chat.Id);
     }
 
     private async Task<RemoteCommandResult> DeleteChatAsync(RemoteCommand command)
     {
         if (!command.Arguments.ContainsKey("chatId"))
-            return Fail("chatId is required.");
+            return Fail(Loc.Get("Remote_ArgumentRequired", "chatId"));
         if (ResolveExplicitChat(command) is not { } chat)
-            return Fail("Chat not found.");
+            return Fail(Loc.Remote_ChatNotFound);
         if (_main.IsChatFirstTurnReserved(chat.Id))
-            return Fail("That chat is starting its first turn and cannot be deleted yet.", chat.Id);
+            return Fail(Loc.Remote_FirstTurnDeleteBlocked, chat.Id);
 
         return await _main.DeleteChatKeepingWorktreeAsync(chat).ConfigureAwait(true)
-            ? Success("Chat deleted.", chat.Id)
-            : Fail("Chat could not be deleted.", chat.Id);
+            ? Success(Loc.Remote_ChatDeleted, chat.Id)
+            : Fail(Loc.Remote_ChatDeleteFailed, chat.Id);
     }
 
     private async Task<RemoteCommandResult> RenameChatAsync(RemoteCommand command)
     {
         if (!command.Arguments.ContainsKey("chatId"))
-            return Fail("chatId is required.");
+            return Fail(Loc.Get("Remote_ArgumentRequired", "chatId"));
         if (ResolveExplicitChat(command) is not { } chat)
-            return Fail("Chat not found.");
+            return Fail(Loc.Remote_ChatNotFound);
         if (command.Get("title") is not { Length: > 0 } title)
-            return Fail("title is required.");
+            return Fail(Loc.Get("Remote_ArgumentRequired", "title"));
 
         chat.Title = title.Trim();
         chat.UpdatedAt = DateTimeOffset.Now;
         _dataStore.MarkChatChanged(chat);
         await _dataStore.SaveAsync().ConfigureAwait(true);
         _main.RefreshChatList();
-        return Success("Chat renamed.", chat.Id);
+        return Success(Loc.Remote_ChatRenamed, chat.Id);
     }
 
     private async Task<RemoteCommandResult> PinChatAsync(RemoteCommand command)
     {
         if (!command.Arguments.ContainsKey("chatId"))
-            return Fail("chatId is required.");
+            return Fail(Loc.Get("Remote_ArgumentRequired", "chatId"));
         if (ResolveExplicitChat(command) is not { } chat)
-            return Fail("Chat not found.");
+            return Fail(Loc.Remote_ChatNotFound);
 
         chat.IsPinned = command.GetBool("pinned") ?? !chat.IsPinned;
         _dataStore.MarkChatChanged(chat);
         await _dataStore.SaveAsync().ConfigureAwait(true);
         _main.RefreshChatList();
-        return Success(chat.IsPinned ? "Chat pinned." : "Chat unpinned.", chat.Id);
+        return Success(chat.IsPinned ? Loc.Remote_ChatPinned : Loc.Remote_ChatUnpinned, chat.Id);
     }
 
     /// <summary>
@@ -256,15 +256,15 @@ internal sealed class RemoteCommandRouter
     private async Task<RemoteCommandResult> PinModelAsync(RemoteCommand command)
     {
         if (command.Get("model") is not { Length: > 0 } model)
-            return Fail("model is required.");
+            return Fail(Loc.Get("Remote_ArgumentRequired", "model"));
         if (command.GetBool("pinned") is not { } pinned)
-            return Fail("pinned is required.");
+            return Fail(Loc.Get("Remote_ArgumentRequired", "pinned"));
 
         var favorites = _dataStore.Data.Settings.FavoriteModelIds ??= [];
         if (pinned)
         {
             if (!_main.ChatVM.AvailableModels.Contains(model, StringComparer.Ordinal))
-                return Fail("That model isn't available on this PC.");
+                return Fail(Loc.Remote_ModelUnavailable);
             if (!favorites.Contains(model, StringComparer.Ordinal))
                 favorites.Add(model);
         }
@@ -274,13 +274,13 @@ internal sealed class RemoteCommandRouter
         }
 
         await _dataStore.SaveAsync().ConfigureAwait(true);
-        return Success(pinned ? "Model pinned." : "Model unpinned.");
+        return Success(pinned ? Loc.Remote_ModelPinned : Loc.Remote_ModelUnpinned);
     }
 
     private async Task<RemoteCommandResult> SendMessageAsync(RemoteCommand command, CancellationToken cancellationToken, InteractionReceipt? interactionReceipt = null)
     {
         if (command.Get("message") is not { Length: > 0 } message)
-            return Fail("message is required.");
+            return Fail(Loc.Get("Remote_ArgumentRequired", "message"));
 
         if (command is
             {
@@ -292,7 +292,7 @@ internal sealed class RemoteCommandRouter
                 string.Equals(candidate.LastRemoteDeviceId, deviceId, StringComparison.Ordinal)
                 && string.Equals(candidate.LastRemoteRequestId, requestId, StringComparison.Ordinal));
             if (acceptedChat is not null)
-                return Success("Message already accepted.", acceptedChat.Id);
+                return Success(Loc.Remote_MessageAlreadyAccepted, acceptedChat.Id);
         }
 
         // A phone that defers chat creation has no id to send. Falling through to ResolveChat there
@@ -301,7 +301,7 @@ internal sealed class RemoteCommandRouter
         var startsNewChat = command.GetBool("newChat") == true;
         var chat = startsNewChat ? null : ResolveChat(command);
         if (!startsNewChat && command.Arguments.ContainsKey("chatId") && chat is null)
-            return Fail("Chat not found.");
+            return Fail(Loc.Remote_ChatNotFound);
 
         var createdChat = false;
         if (chat is null)
@@ -330,15 +330,15 @@ internal sealed class RemoteCommandRouter
 
             var owner = await ResolveChatOwnerAsync(chat).ConfigureAwait(true);
             if (owner is null)
-                return Fail("Lumi could not open that chat.", chat.Id);
+                return Fail(Loc.Remote_ChatOpenFailed, chat.Id);
             if (owner.CurrentChat?.Id != chat.Id)
-                return Fail("Lumi could not activate that chat's surface.", chat.Id);
+                return Fail(Loc.Remote_ChatSurfaceActivationFailed, chat.Id);
 
             if (chat.IsPaused)
                 return Fail(Loc.Get("Chat_PausedSendBlocked"), chat.Id);
 
             if (owner.IsExternalSendReserved(chat.Id))
-                return Fail("That chat is already starting a turn.", chat.Id);
+                return Fail(Loc.Remote_ChatAlreadyStartingTurn, chat.Id);
 
             if (command.GetBool("stopAndSend") == true && owner.IsChatBusy(chat.Id))
             {
@@ -352,15 +352,15 @@ internal sealed class RemoteCommandRouter
                         cancellationToken)
                     .ConfigureAwait(true);
                 return stopAndSendAccepted
-                    ? Success("Current turn stopped and message queued.", chat.Id)
-                    : Fail("Lumi could not stop and send that message.", chat.Id);
+                    ? Success(Loc.Remote_TurnStoppedMessageQueued, chat.Id)
+                    : Fail(Loc.Remote_StopAndSendFailed, chat.Id);
             }
 
             // Readiness chooses send versus steer, never whether to honor an explicit session Stop.
             if (owner.IsAssistantBusy(chat.Id))
             {
                 if (command.GetBool("steer") != true)
-                    return Fail("That chat is already running.", chat.Id);
+                    return Fail(Loc.Remote_ChatAlreadyRunning, chat.Id);
 
                 // Real steering injects into the live Copilot turn. Route through the surface that
                 // owns that runtime; a detached chat must never steer the main window's surface.
@@ -368,8 +368,8 @@ internal sealed class RemoteCommandRouter
                     .SteerExternalMessageAsync(chat, message, "Lumi Mobile")
                     .ConfigureAwait(true);
                 return accepted
-                    ? Success("Message steered.", chat.Id)
-                    : Fail("Lumi could not steer that message.", chat.Id);
+                    ? Success(Loc.Remote_MessageSteered, chat.Id)
+                    : Fail(Loc.Remote_MessageSteerFailed, chat.Id);
             }
 
             var initiallyEmpty = chat.MessageCount == 0 && chat.Messages.Count == 0;
@@ -377,14 +377,14 @@ internal sealed class RemoteCommandRouter
                 ? owner.TryReserveExternalSend(chat.Id)
                 : null;
             if (initiallyEmpty && firstTurnReservation is null)
-                return Fail("That chat is already starting a turn.", chat.Id);
+                return Fail(Loc.Remote_ChatAlreadyStartingTurn, chat.Id);
             if (!initiallyEmpty && owner.IsExternalSendReserved(chat.Id))
-                return Fail("That chat is already starting a turn.", chat.Id);
+                return Fail(Loc.Remote_ChatAlreadyStartingTurn, chat.Id);
 
             var previousProjectId = chat.ProjectId;
             var previousWorktreePath = chat.WorktreePath;
             if (firstTurnReservation?.IsCancellationRequested == true)
-                return Fail("The pending turn start was canceled.", chat.Id);
+                return Fail(Loc.Remote_PendingTurnStartCanceled, chat.Id);
 
             var projectChangeError = await PrepareProjectChangeAsync(
                     owner,
@@ -406,7 +406,7 @@ internal sealed class RemoteCommandRouter
                         return Fail(restoreError, chat.Id);
                 }
 
-                return Fail("The pending turn start was canceled.", chat.Id);
+                return Fail(Loc.Remote_PendingTurnStartCanceled, chat.Id);
             }
 
             var explicitWorktree = command.GetBool("worktree");
@@ -416,7 +416,7 @@ internal sealed class RemoteCommandRouter
                 !string.IsNullOrWhiteSpace(chat.WorktreePath))
             {
                 return Fail(
-                    "A worktree can only be detached before the first message.",
+                    Loc.Remote_WorktreeDetachBeforeFirstMessage,
                     chat.Id);
             }
 
@@ -457,7 +457,7 @@ internal sealed class RemoteCommandRouter
                 var canCreateWorktree = createdChat
                                         || emptyChat;
                 if (!hadReusableWorktree && !canCreateWorktree)
-                    return Fail("A worktree can only be created before the first message.", chat.Id);
+                    return Fail(Loc.Remote_WorktreeCreateBeforeFirstMessage, chat.Id);
 
                 if (!hadReusableWorktree)
                 {
@@ -481,7 +481,7 @@ internal sealed class RemoteCommandRouter
                 if (cleanupError is not null)
                     return Fail(cleanupError, chat.Id);
 
-                return Fail("The pending turn start was canceled.", chat.Id);
+                return Fail(Loc.Remote_PendingTurnStartCanceled, chat.Id);
             }
 
             // Acknowledge only after the message has been persisted and the runtime marked active.
@@ -510,7 +510,7 @@ internal sealed class RemoteCommandRouter
             // A later project edit or Stop is a new action; reporting this accepted request as failed
             // would invite a duplicate retry and could remove the worktree from under the live turn.
             if (startResult.Accepted)
-                return Success("Message sent.", chat.Id);
+                return Success(Loc.Remote_MessageSent, chat.Id);
 
             if (firstTurnReservation is not null &&
                 !owner.IsExternalProjectContextCurrent(
@@ -526,7 +526,7 @@ internal sealed class RemoteCommandRouter
                 if (cleanupError is not null)
                     return Fail(cleanupError, chat.Id);
 
-                return Fail("The chat project changed while its turn was starting.", chat.Id);
+                return Fail(Loc.Remote_ProjectChangedWhileStartingTurn, chat.Id);
             }
             if (firstTurnReservation?.IsCancellationRequested == true)
             {
@@ -538,12 +538,12 @@ internal sealed class RemoteCommandRouter
                 if (cleanupError is not null)
                     return Fail(cleanupError, chat.Id);
 
-                return Fail("The pending turn start was canceled.", chat.Id);
+                return Fail(Loc.Remote_PendingTurnStartCanceled, chat.Id);
             }
             if (!string.IsNullOrWhiteSpace(startResult.Error))
                 return Fail(startResult.Error, chat.Id);
 
-            return Fail("Lumi could not start that message.", chat.Id);
+            return Fail(Loc.Remote_MessageStartFailed, chat.Id);
 
             async Task<ChatViewModel.ExternalMessageStartResult> StartInjectedMessageAsync()
             {
@@ -595,32 +595,32 @@ internal sealed class RemoteCommandRouter
     private async Task<RemoteCommandResult> StopGenerationAsync(RemoteCommand command)
     {
         if (ResolveChat(command) is not { } chat)
-            return Fail("Chat not found.");
+            return Fail(Loc.Remote_ChatNotFound);
 
         var owner = await ResolveChatOwnerAsync(chat).ConfigureAwait(true);
         if (owner is null || owner.CurrentChat?.Id != chat.Id)
-            return Fail("Lumi could not activate that chat's live surface.", chat.Id);
+            return Fail(Loc.Remote_ChatLiveSurfaceActivationFailed, chat.Id);
 
         if (owner.CancelExternalSendReservation(chat.Id))
-            return Success("Pending turn start canceled.", chat.Id);
+            return Success(Loc.Remote_PendingTurnStartCanceledSuccess, chat.Id);
 
         if (!owner.IsChatBusy(chat.Id))
-            return Success("That chat is already stopped.", chat.Id);
+            return Success(Loc.Remote_ChatAlreadyStopped, chat.Id);
 
         var error = await owner.TryStopGenerationAsync().ConfigureAwait(true);
         return error is null
-            ? Success("Generation stopped.", chat.Id)
+            ? Success(Loc.Remote_GenerationStopped, chat.Id)
             : Fail(error, chat.Id);
     }
 
     private async Task<RemoteCommandResult> UpdateInteractionAsync(RemoteCommand command, CancellationToken cancellationToken)
     {
         if (ResolveExplicitChat(command) is not { } chat)
-            return Fail("chatId must identify an existing chat.");
+            return Fail(Loc.Remote_ExistingChatRequired);
         if (!Guid.TryParse(command.Get("messageId"), out var messageId)
             || command.Get("blockId") is not { Length: > 0 } blockId
             || command.Get("state") is not { Length: > 0 } stateJson)
-            return Fail("messageId, blockId, and state are required.", chat.Id);
+            return Fail(Loc.Remote_InteractionArgumentsRequired, chat.Id);
 
         try
         {
@@ -637,14 +637,14 @@ internal sealed class RemoteCommandRouter
             }
 
             if (message is null)
-                return Fail("That answer is no longer in this chat.", chat.Id);
+                return Fail(Loc.Remote_AnswerNoLongerInChat, chat.Id);
             if (message.ToolName == "ask_input")
             {
                 if (owner is null)
-                    return Fail("This input request has ended. Ask Lumi again to continue.", chat.Id);
+                    return Fail(Loc.Remote_InputRequestEnded, chat.Id);
                 var inputResult = await owner.RequestInputInteractionAsync(
                     chat, message, blockId, stateJson, command.Get("action")).ConfigureAwait(true);
-                return inputResult.Accepted ? Success("Inputs received.", chat.Id) : Fail(inputResult.Error!, chat.Id);
+                return inputResult.Accepted ? Success(Loc.Remote_InputsReceived, chat.Id) : Fail(inputResult.Error!, chat.Id);
             }
             var updated = InteractiveResponseState.Update(message, blockId, stateJson);
             _dataStore.MarkChatChanged(chat);
@@ -652,7 +652,7 @@ internal sealed class RemoteCommandRouter
             await SaveInteractionChatAsync(chat, cancellationToken).ConfigureAwait(true);
             var action = command.Get("action");
             if (string.IsNullOrEmpty(action))
-                return Success("Interaction saved.", chat.Id);
+                return Success(Loc.Remote_InteractionSaved, chat.Id);
             var text = InteractiveSubmission.Build(updated.Definition, updated.State, action);
             var receipt = InteractiveResponseState.CreateReceipt(message, updated.Definition, updated.State, action, Loc.Culture.Name);
             var result = await SendMessageAsync(
@@ -681,17 +681,17 @@ internal sealed class RemoteCommandRouter
     private async Task<RemoteCommandResult> AnswerQuestionAsync(RemoteCommand command)
     {
         if (command.Get("questionId") is not { Length: > 0 } questionId)
-            return Fail("questionId is required.");
+            return Fail(Loc.Get("Remote_ArgumentRequired", "questionId"));
 
         if (ResolveChat(command) is not { } chat)
-            return Fail("Chat not found.");
+            return Fail(Loc.Remote_ChatNotFound);
 
         var owner = await ResolveChatOwnerAsync(chat).ConfigureAwait(true);
         if (owner is null)
-            return Fail("Lumi could not find that chat's live surface.", chat.Id);
+            return Fail(Loc.Remote_ChatLiveSurfaceNotFound, chat.Id);
 
         owner.SubmitQuestionAnswer(questionId, command.Get("answer") ?? "");
-        return Success("Answer submitted.", chat.Id);
+        return Success(Loc.Remote_AnswerSubmitted, chat.Id);
     }
 
     /// <summary>
@@ -707,7 +707,7 @@ internal sealed class RemoteCommandRouter
     private async Task<RemoteCommandResult> ConfigureChatAsync(RemoteCommand command)
     {
         if (ResolveChat(command) is not { } chat)
-            return Fail("Chat not found.");
+            return Fail(Loc.Remote_ChatNotFound);
         if (!TryResolveProjectSelection(command, out var projectSelection, out var projectError))
             return Fail(projectError, chat.Id);
         if (!TryResolveAgentSelection(command, out var agentSelection, out var agentError))
@@ -715,10 +715,10 @@ internal sealed class RemoteCommandRouter
 
         var chatVm = await ResolveChatOwnerAsync(chat).ConfigureAwait(true);
         if (chatVm is null || chatVm.CurrentChat?.Id != chat.Id)
-            return Fail("Lumi could not activate that chat's surface.", chat.Id);
+            return Fail(Loc.Remote_ChatSurfaceActivationFailed, chat.Id);
 
         if (projectSelection.IsSpecified && chatVm.IsExternalSendReserved(chat.Id))
-            return Fail("That chat is already starting a turn.", chat.Id);
+            return Fail(Loc.Remote_ChatAlreadyStartingTurn, chat.Id);
 
         var projectChangeError = await PrepareProjectChangeAsync(
                 chatVm,
@@ -730,10 +730,10 @@ internal sealed class RemoteCommandRouter
 
         var applied = ApplyChatConfiguration(chatVm, command, projectSelection, agentSelection);
         if (applied.Count == 0)
-            return Fail("Nothing to configure.", chat.Id);
+            return Fail(Loc.Remote_NothingToConfigure, chat.Id);
 
         await _dataStore.SaveAsync().ConfigureAwait(true);
-        return Success($"Updated {string.Join(", ", applied.Distinct())}.", chat.Id);
+        return Success(Loc.Get("Remote_ConfigurationUpdated", string.Join(", ", applied.Distinct())), chat.Id);
     }
 
     private List<string> ApplyChatConfiguration(
@@ -761,7 +761,7 @@ internal sealed class RemoteCommandRouter
                 setupChat.LastModelUsed = model;
             else
                 chatVm.SelectedModel = model;
-            applied.Add("model");
+            applied.Add(Loc.Chat_ContextWindow_Model);
         }
 
         // Quality and tier are set after the model on purpose: changing the model rebuilds both
@@ -773,7 +773,7 @@ internal sealed class RemoteCommandRouter
                     chatVm.NormalizeReasoningEffortFor(chatVm.SelectedModel, quality);
             else
                 chatVm.SelectedQuality = quality;
-            applied.Add("quality");
+            applied.Add(Loc.Remote_ConfigurationQuality);
         }
 
         if (command.Get("contextWindowTier") is { Length: > 0 } tier)
@@ -783,7 +783,7 @@ internal sealed class RemoteCommandRouter
                     chatVm.NormalizeContextWindowTierFor(chatVm.SelectedModel, tier);
             else
                 chatVm.SelectedContextWindowTier = tier;
-            applied.Add("context window");
+            applied.Add(Loc.Chat_ContextWindow_Title);
         }
 
         if (agentSelection.IsSpecified)
@@ -795,7 +795,7 @@ internal sealed class RemoteCommandRouter
             else
                 chatVm.SetActiveAgent(null);
 
-            applied.Add("agent");
+            applied.Add(Loc.Capability_KindLumi);
         }
 
         if (projectSelection.IsSpecified)
@@ -806,31 +806,31 @@ internal sealed class RemoteCommandRouter
                 _dataStore.MarkChatChanged(chat);
                 chatVm.OnCurrentChatProjectChangedExternally();
             }
-            applied.Add("project");
+            applied.Add(Loc.Library_Field_Project);
         }
 
         foreach (var skill in command.GetList("addSkills") ?? [])
         {
             chatVm.AddSkillByName(skill);
-            applied.Add("skill");
+            applied.Add(Loc.Capability_KindSkill);
         }
 
         foreach (var skill in command.GetList("removeSkills") ?? [])
         {
             chatVm.RemoveSkillByName(skill);
-            applied.Add("skill");
+            applied.Add(Loc.Capability_KindSkill);
         }
 
         foreach (var mcp in command.GetList("addMcps") ?? [])
         {
             chatVm.AddMcpServer(mcp);
-            applied.Add("MCP");
+            applied.Add(Loc.Capability_KindMcp);
         }
 
         foreach (var mcp in command.GetList("removeMcps") ?? [])
         {
             chatVm.RemoveMcpByName(mcp);
-            applied.Add("MCP");
+            applied.Add(Loc.Capability_KindMcp);
         }
 
         return applied;
@@ -850,7 +850,7 @@ internal sealed class RemoteCommandRouter
 
         if (chat.MessageCount > 0 || chat.Messages.Count > 0)
         {
-            return "A chat with messages cannot change projects while it is attached to a worktree.";
+            return Loc.Remote_WorktreeProjectChangeBlocked;
         }
 
         return await chatVm
@@ -877,7 +877,7 @@ internal sealed class RemoteCommandRouter
                 || !_dataStore.Data.Projects.Any(project => project.Id == projectId))
             {
                 selection = default;
-                error = "Project not found.";
+                error = Loc.Remote_ProjectNotFound;
                 return false;
             }
 
@@ -905,7 +905,7 @@ internal sealed class RemoteCommandRouter
         if (project is null)
         {
             selection = default;
-            error = "Project not found.";
+            error = Loc.Remote_ProjectNotFound;
             return false;
         }
 
@@ -932,7 +932,7 @@ internal sealed class RemoteCommandRouter
                 || _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == agentId) is not { } agent)
             {
                 selection = default;
-                error = "Lumi not found.";
+                error = Loc.Remote_AgentNotFound;
                 return false;
             }
 
@@ -1052,7 +1052,7 @@ internal sealed class RemoteCommandRouter
                     _main.ChatVM.CurrentChat?.Id,
                     command.Get("sourceChatIdentifier"),
                     command.GetList("chatEventTypes")),
-                _ => throw new InvalidOperationException($"Unknown feature resource '{resource}'.")
+                _ => throw new InvalidOperationException(Loc.Get("Remote_UnknownFeatureResource", resource))
             };
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)

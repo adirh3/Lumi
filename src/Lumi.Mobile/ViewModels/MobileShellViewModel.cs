@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.Input;
 using Lumi.Mobile.Layout;
 using Lumi.Mobile.Services;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -266,6 +267,11 @@ public sealed partial class MobileShellViewModel :
 
     [ObservableProperty] private MobileLayoutState _layout = MobileLayoutState.From(390, 844);
     [ObservableProperty] private ThemePreference _theme = ThemePreference.System;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEnglishLanguage))]
+    [NotifyPropertyChangedFor(nameof(IsHebrewLanguage))]
+    [NotifyPropertyChangedFor(nameof(LanguageRestartRequired))]
+    private string _language = "";
     [ObservableProperty] private string _userName = "";
 
     /// <summary>The page stacked over the conversation, if any.</summary>
@@ -318,6 +324,8 @@ public sealed partial class MobileShellViewModel :
     {
         _store = store ?? new MobileSettingsStore();
         _settings = _store.Load();
+        Strings.Load(_settings.Language);
+        _language = Strings.Language;
         _post = post ?? (action => Dispatcher.UIThread.Post(action));
 
         Client = client ?? new LumiRemoteClient(_settings.DeviceId, _settings.DeviceName);
@@ -338,6 +346,8 @@ public sealed partial class MobileShellViewModel :
         SearchChatList = new ChatListViewModel(this);
         Chat = new MobileChatViewModel(this, _post);
         Library = new LibraryViewModel(this);
+        NewChatBrief = Strings.Get("NewChatBrief");
+        StartSetupsTitle = Strings.Get("UsualSetups");
         Connect = new ConnectViewModel(
             Client,
             Discovery,
@@ -546,16 +556,16 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(Greeting))]
     [NotifyPropertyChangedFor(nameof(GreetingParts))]
     private bool _hasDesktopNewChat;
-    [ObservableProperty] private string _newChatBrief = "Ask a question or get something done on your PC.";
-    [ObservableProperty] private string _startSetupsTitle = "Your usual setups";
+    [ObservableProperty] private string _newChatBrief = "";
+    [ObservableProperty] private string _startSetupsTitle = "";
     private string? _desktopGreeting;
 
     internal void ApplyNewChatExperience(RemoteNewChatExperience? experience)
     {
         _desktopGreeting = experience?.Greeting;
         HasDesktopNewChat = experience is not null;
-        NewChatBrief = experience?.Brief ?? "Ask a question or get something done on your PC.";
-        StartSetupsTitle = experience?.SetupsTitle ?? "Your usual setups";
+        NewChatBrief = experience?.Brief ?? Strings.Get("NewChatBrief");
+        StartSetupsTitle = experience?.SetupsTitle ?? Strings.Get("UsualSetups");
         StartSetups = experience?.Setups.Take(3).Select(setup => new ChatStartSetup(setup)).ToArray() ?? [];
         Chat.ApplyNewChatStarters(experience?.Starters);
         RefreshSetupSelection();
@@ -584,12 +594,12 @@ public sealed partial class MobileShellViewModel :
     {
         if (!CanUseStartSetup())
         {
-            Chat.ErrorText = "Setups are available before the first message.";
+            Chat.ErrorText = Strings.Get("SetupsBeforeFirstMessage");
             return;
         }
         if (setup is null || !StartSetups.Contains(setup))
         {
-            Chat.ErrorText = "That setup is no longer available. Choose another setup.";
+            Chat.ErrorText = Strings.Get("SetupUnavailable");
             return;
         }
 
@@ -671,10 +681,10 @@ public sealed partial class MobileShellViewModel :
 
     public string ActionChatTitle => ActionChat?.Title ?? "";
 
-    public string PinActionLabel => ActionChat?.IsPinned == true ? "Unpin chat" : "Pin chat";
+    public string PinActionLabel => Strings.Get(ActionChat?.IsPinned == true ? "UnpinChat" : "PinChat");
 
-    public string ChatActionsTitle => IsRenamingChat ? "Rename chat"
-        : IsConfirmingChatDelete ? "Delete this chat?" : "Chat actions";
+    public string ChatActionsTitle => Strings.Get(IsRenamingChat ? "RenameChat"
+        : IsConfirmingChatDelete ? "DeleteChatQuestion" : "ChatActions");
 
     public bool ShowChatActionList => !IsRenamingChat && !IsConfirmingChatDelete;
 
@@ -787,7 +797,7 @@ public sealed partial class MobileShellViewModel :
                 return false;
 
             if (!result.Ok)
-                ChatActionError = result.Error ?? "This action didn't complete. Please try again.";
+                ChatActionError = result.Error ?? Strings.Get("ActionIncomplete");
             return result.Ok;
         }
         finally
@@ -841,12 +851,12 @@ public sealed partial class MobileShellViewModel :
     public bool HasActiveProject => ActiveProjectId.HasValue;
 
     /// <summary>The chat list's title, as the desktop's project switcher names it.</summary>
-    public string ProjectSwitcherTitle => ActiveProject ?? "All chats";
+    public string ProjectSwitcherTitle => ActiveProject ?? Strings.Get("AllChats");
 
     /// <summary>"4 projects" beside All chats; nothing once one project is the lens.</summary>
     public string ProjectSwitcherMeta => HasActiveProject || Projects.Count == 0
         ? ""
-        : Projects.Count == 1 ? "1 project" : $"{Projects.Count} projects";
+        : Projects.Count == 1 ? Strings.Get("ProjectCountOne") : Strings.Get("ProjectCountMany", Projects.Count);
 
     /// <summary>The open project's initial on its hue; empty while every chat is in view.</summary>
     public ChatIdentityMark ProjectSwitcherMark => ActiveProjectId is { } id && ActiveProject is { } name
@@ -1019,19 +1029,19 @@ public sealed partial class MobileShellViewModel :
 
     public string WebAppUpdateTitle => WebAppUpdateState switch
     {
-        WebAppUpdateState.Downloading => "Downloading update",
-        WebAppUpdateState.Ready => "Update ready",
-        WebAppUpdateState.Applying => "Applying update",
-        WebAppUpdateState.Failed => "Update couldn't finish",
+        WebAppUpdateState.Downloading => Strings.Get("UpdateDownloading"),
+        WebAppUpdateState.Ready => Strings.Get("UpdateReady"),
+        WebAppUpdateState.Applying => Strings.Get("UpdateApplying"),
+        WebAppUpdateState.Failed => Strings.Get("UpdateFailed"),
         _ => ""
     };
 
     public string WebAppUpdateMessage => WebAppUpdateState switch
     {
-        WebAppUpdateState.Downloading => "You can keep using Lumi while the verified app downloads.",
-        WebAppUpdateState.Ready => "Wait for downloads and actions, finish or clear drafts and question replies, then close editors. Lumi will update automatically when it's safe.",
-        WebAppUpdateState.Applying => "Reopening Lumi with the new build. Your pairing is kept.",
-        WebAppUpdateState.Failed => "Your current app and pairing are kept. Try again when connected.",
+        WebAppUpdateState.Downloading => Strings.Get("UpdateDownloadingHelp"),
+        WebAppUpdateState.Ready => Strings.Get("UpdateReadyHelp"),
+        WebAppUpdateState.Applying => Strings.Get("UpdateApplyingHelp"),
+        WebAppUpdateState.Failed => Strings.Get("UpdateFailedHelp"),
         _ => ""
     };
 
@@ -1074,7 +1084,7 @@ public sealed partial class MobileShellViewModel :
 
             return informational is { Length: > 0 }
                 ? informational.Split('+')[0]
-                : assembly.GetName().Version?.ToString() ?? "unknown";
+                : assembly.GetName().Version?.ToString() ?? Strings.Get("Unknown");
         }
     }
 
@@ -1099,13 +1109,15 @@ public sealed partial class MobileShellViewModel :
                 return _desktopGreeting;
             var part = DateTime.Now.Hour switch
             {
-                < 5 => "Still up",
-                < 12 => "Good morning",
-                < 18 => "Good afternoon",
-                _ => "Good evening"
+                < 5 => Strings.Get("GreetingLateNight"),
+                < 12 => Strings.Get("GreetingMorning"),
+                < 18 => Strings.Get("GreetingAfternoon"),
+                _ => Strings.Get("GreetingEvening")
             };
 
-            return string.IsNullOrWhiteSpace(UserName) ? $"{part}." : $"{part}, {UserName}.";
+            return string.IsNullOrWhiteSpace(UserName)
+                ? Strings.Get("GreetingWithoutName", part)
+                : Strings.Get("GreetingWithName", part, UserName);
         }
     }
 
@@ -1122,7 +1134,7 @@ public sealed partial class MobileShellViewModel :
     /// <summary>The details popup is titled by the chat it configures; a blank chat is a new chat.</summary>
     public string ChatDetailsTitle => Chat.HasChat && !string.IsNullOrWhiteSpace(Chat.Title)
         ? Chat.Title
-        : "New chat";
+        : Strings.Get("NewChat");
 
     // ── The open chat's own actions ─────────────────────────────────────────────────────────
     //
@@ -1136,8 +1148,8 @@ public sealed partial class MobileShellViewModel :
 
     public string OpenChatPinLabel =>
         CanManageOpenChat && ChatList.FindLoadedChat(Chat.ChatId) is { IsPinned: true }
-            ? "Unpin chat"
-            : "Pin chat";
+            ? Strings.Get("UnpinChat")
+            : Strings.Get("PinChat");
 
     /// <summary>The open chat as its list row when shown, else as its loaded summary.</summary>
     private ChatListItemViewModel? OpenChatRow()
@@ -1184,7 +1196,7 @@ public sealed partial class MobileShellViewModel :
         if (result.Ok)
             ChatList.SetPinned(chatId, pinned);
         else if (Chat.ChatId == chatId)
-            Chat.ErrorText = result.Error ?? "This action didn't complete. Please try again.";
+            Chat.ErrorText = result.Error ?? Strings.Get("ActionIncomplete");
         OnPropertyChanged(nameof(OpenChatPinLabel));
     }
 
@@ -1238,10 +1250,10 @@ public sealed partial class MobileShellViewModel :
         return Client.IsEventStreamActive ? Task.CompletedTask : StartAsync();
     }
 
-    public string ConnectionStateLabel => IsGatewaySignInRequired ? "Sign-in required"
+    public string ConnectionStateLabel => Strings.Get(IsGatewaySignInRequired ? "SignInRequired"
         : IsConnectionOffline && !IsConnected ? "Offline"
         : !IsConnected ? "Reconnecting"
-        : IsHostReady ? "Connected" : "Getting ready";
+        : IsHostReady ? "Connected" : "GettingReady");
 
     /// <summary>
     /// A paired phone must never fail silently. The chat remains readable while reconnecting, but a
@@ -1254,24 +1266,24 @@ public sealed partial class MobileShellViewModel :
         get
         {
             if (IsGatewaySignInRequired)
-                return ConnectionMessage ?? "Microsoft sign-in needs attention. Your Lumi pairing is kept.";
+                return ConnectionMessage ?? Strings.Get("MicrosoftSignInAttention");
 
             if (!IsConnected)
             {
-                var host = string.IsNullOrWhiteSpace(HostName) ? "your PC" : HostName;
+                var host = string.IsNullOrWhiteSpace(HostName) ? Strings.Get("YourPc") : HostName;
                 if (IsConnectionOffline)
                 {
                     return _connection.IsNetworkAvailable
-                        ? $"Can't reach {host}. Make sure it's awake and online, then retry."
-                        : $"This phone is offline. Lumi reconnects to {host} when the network is back.";
+                        ? Strings.Get("CantReachHost", host)
+                        : Strings.Get("PhoneOffline", host);
                 }
                 return string.IsNullOrWhiteSpace(ConnectionMessage)
-                    ? $"Reconnecting to {host}..."
-                    : $"Reconnecting to {host}... {ConnectionMessage}";
+                    ? Strings.Get("ReconnectingToHost", host)
+                    : Strings.Get("ReconnectingToHostReason", host, ConnectionMessage);
             }
 
             return string.IsNullOrWhiteSpace(ConnectionMessage)
-                ? "Lumi is getting ready..."
+                ? Strings.Get("LumiGettingReady")
                 : ConnectionMessage!;
         }
     }
@@ -1399,8 +1411,8 @@ public sealed partial class MobileShellViewModel :
     /// <summary>One pane: the button returns to the list. Two panes: it shows or hides the list.</summary>
     public bool ShowBackToChats => IsPaired && !CanDockDrawer;
 
-    public string NavigationToggleLabel => !CanDockDrawer ? "Back to chats"
-        : IsNavigationOpen ? "Hide chats" : "Show chats";
+    public string NavigationToggleLabel => Strings.Get(!CanDockDrawer ? "BackToChats"
+        : IsNavigationOpen ? "HideChats" : "ShowChats");
 
     /// <summary>Physical hinge gap kept empty between a docked drawer and the conversation.</summary>
     public double HingeGapWidth => Layout.HingeSize;
@@ -1526,10 +1538,10 @@ public sealed partial class MobileShellViewModel :
 
     public string SettingsDetailTitle => VisibleSettingsSection switch
     {
-        SettingsSection.Appearance => "Appearance",
-        SettingsSection.Connection => "Connection",
-        SettingsSection.About => "About",
-        _ => "Settings"
+        SettingsSection.Appearance => Strings.Get("Appearance"),
+        SettingsSection.Connection => Strings.Get("Connection"),
+        SettingsSection.About => Strings.Get("About"),
+        _ => Strings.Get("Settings")
     };
 
     partial void OnSettingsSectionChanged(SettingsSection value) => NotifySettingsSectionChanged();
@@ -1923,7 +1935,26 @@ public sealed partial class MobileShellViewModel :
     }
 
     /// <summary>The theme in words, beside Appearance in the Settings list.</summary>
-    public string ThemeLabel => Theme.ToString();
+    public string ThemeLabel => Strings.Get(Theme.ToString());
+
+    public bool IsEnglishLanguage => Language == "en";
+
+    public bool IsHebrewLanguage => Language == "he";
+
+    public bool LanguageRestartRequired => Language != Strings.Language;
+
+    partial void OnLanguageChanged(string value)
+    {
+        _settings.Language = value;
+        _store.Save(_settings);
+    }
+
+    [RelayCommand]
+    private void SelectLanguage(string? language)
+    {
+        if (language is "en" or "he")
+            Language = language;
+    }
 
     /// <summary>Selected-state helpers for the settings segmented control.</summary>
     public bool IsSystemTheme => Theme == ThemePreference.System;
@@ -2148,7 +2179,7 @@ public sealed partial class MobileShellViewModel :
             return Task.CompletedTask;
 
         ConnectionMessage =
-            $"This phone is already paired with {HostName}. Disconnect it before connecting to another PC.";
+            Strings.Get("AlreadyPaired", HostName);
         return Task.CompletedTask;
     }
 
@@ -2483,13 +2514,13 @@ public sealed partial class MobileShellViewModel :
                     _connectionLifetime.Token);
                 if (!result.Ok)
                 {
-                    ConnectionMessage = result.Error ?? "Lumi could not revoke this phone. Try again while the PC is online.";
+                    ConnectionMessage = result.Error ?? Strings.Get("RevokeFailed");
                     return;
                 }
             }
             catch (OperationCanceledException)
             {
-                ConnectionMessage = "Lumi could not revoke this phone. Try again while the PC is online.";
+                ConnectionMessage = Strings.Get("RevokeFailed");
                 return;
             }
         }
@@ -2736,7 +2767,7 @@ public sealed partial class MobileShellViewModel :
                     .FirstOrDefault(chat => chat.Id == activeChatId);
 
             ResetTranscriptNavigation();
-            Chat.Reset(activeChatId, activeChat?.Title ?? "Chat", activeChat?.LastModelUsed);
+            Chat.Reset(activeChatId, activeChat?.Title ?? Strings.Get("Chat"), activeChat?.LastModelUsed);
             Chat.IsLoading = true;
             ChatList.SelectedChatId = activeChatId;
             didAdoptDesktopChat = true;
@@ -3007,7 +3038,7 @@ public sealed partial class MobileShellViewModel :
 
         ResetTranscriptNavigation();
         ChatList.SelectedChatId = Guid.Empty;
-        Chat.Reset(Guid.Empty, "New chat");
+        Chat.Reset(Guid.Empty, Strings.Get("NewChat"));
     }
 
     public Task RefreshTranscriptAsync()
@@ -3203,11 +3234,11 @@ public sealed partial class MobileShellViewModel :
                     .ConfigureAwait(false);
 
                 if (transcript is null)
-                    error = Client.StateMessage ?? "Could not load this activity from your PC.";
+                    error = Client.StateMessage ?? Strings.Get("LoadActivityFailed");
                 else if (transcript.ChatId != request.ChatId)
                 {
                     transcript = null;
-                    error = "Lumi returned activity for a different chat.";
+                    error = Strings.Get("WrongChatActivity");
                 }
             }
             catch (OperationCanceledException) when (requestCts.IsCancellationRequested)
@@ -3216,7 +3247,7 @@ public sealed partial class MobileShellViewModel :
             }
             catch (Exception ex)
             {
-                error = "Could not load this activity from your PC.";
+                error = Strings.Get("LoadActivityFailed");
                 Trace.TraceWarning($"[Mobile] Transcript refresh failed: {ex}");
             }
             finally
@@ -3767,7 +3798,7 @@ public sealed partial class MobileShellViewModel :
             {
                 result = new RemoteCommandResult
                 {
-                    Error = "The PC connection changed before this action completed.",
+                    Error = Strings.Get("ConnectionChangedAction"),
                     RequestId = command.RequestId,
                     IsOutcomeUnknown = true
                 };
@@ -3794,7 +3825,7 @@ public sealed partial class MobileShellViewModel :
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
-            return new RemoteUploadResponse { Error = "The PC connection changed during the upload." };
+            return new RemoteUploadResponse { Error = Strings.Get("ConnectionChangedUpload") };
         }
     }
 

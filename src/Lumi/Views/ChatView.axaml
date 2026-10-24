@@ -3502,7 +3502,7 @@
           <PathIcon Width="11" Height="11" Margin="2,0,2,0"
                     Foreground="{DynamicResource Brush.TextTertiary}"
                     Data="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-          <TextBox x:Name="SearchInput" Width="140" PlaceholderText="Find…" />
+          <TextBox x:Name="SearchInput" Width="140"           PlaceholderText="{loc:Str Chat_SearchPlaceholder}" />
           <TextBlock x:Name="SearchMatchCounter" Classes="caption"
                      Foreground="{DynamicResource Brush.TextTertiary}"
                      VerticalAlignment="Center" Margin="2,0"
@@ -3510,19 +3510,19 @@
           <Border Width="1" Height="14" Background="{DynamicResource Brush.BorderSubtle}"
                   VerticalAlignment="Center" Margin="2,0" />
           <Button x:Name="SearchPrevBtn" Classes="search-nav"
-                  ToolTip.Tip="Previous (Shift+Enter)">
+                  ToolTip.Tip="{loc:Str Chat_SearchPrevious}">
             <PathIcon Width="10" Height="10"
                       Foreground="{DynamicResource Brush.TextSecondary}"
                       Data="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z" />
           </Button>
           <Button x:Name="SearchNextBtn" Classes="search-nav"
-                  ToolTip.Tip="Next (Enter)">
+                  ToolTip.Tip="{loc:Str Chat_SearchNext}">
             <PathIcon Width="10" Height="10"
                       Foreground="{DynamicResource Brush.TextSecondary}"
                       Data="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
           </Button>
           <Button x:Name="SearchCloseBtn" Classes="search-nav"
-                  ToolTip.Tip="Close (Esc)">
+                  ToolTip.Tip="{loc:Str Chat_SearchClose}">
             <PathIcon Width="8" Height="8"
                       Foreground="{DynamicResource Brush.TextTertiary}"
                       Data="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -3996,6 +3996,7 @@
                                 <DataTemplate DataType="vm:SessionActivityItem">
                                   <sc:StrataAgentRun Classes="list session-task task"
                                                      Classes.command="{Binding IsCommand}"
+                                                     StatusLabel="{loc:Str Subagent_StatusRunning}"
                                                      AgentName="{Binding Owner}"
                                                      Title="{Binding Title}"
                                                      Initial="{Binding Initial}"

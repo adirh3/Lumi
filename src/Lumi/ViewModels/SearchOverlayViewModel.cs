@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Localization;
 using Lumi.Services;
 
 namespace Lumi.ViewModels;
@@ -41,7 +42,7 @@ public class SearchResultGroup
     public List<SearchResultItem> Items { get; init; } = [];
     public bool HasMore => TotalCount > Items.Count;
     public string CountText => TotalCount.ToString();
-    public string ViewAllText => $"View all {TotalCount}";
+    public string ViewAllText => Loc.Get(nameof(Loc.Search_ViewAll), TotalCount);
 
     private Geometry? _categoryGeometry;
     public Geometry? CategoryGeometry => _categoryGeometry ??=
@@ -184,15 +185,15 @@ public partial class SearchOverlayViewModel : ObservableObject
     public string ResultsHeading => SelectedCategory is { } category
         ? GetCategoryLabel(category)
         : HasSearchQuery
-            ? "Best matches"
-            : "Recent";
+            ? Loc.Search_BestMatches
+            : Loc.Search_Recent;
     public string SearchStatusText => BuildSearchStatusText();
     public string EmptyStateTitle => SelectedCategory is { } category
-        ? $"No {GetCategoryLabel(category).ToLowerInvariant()} found"
-        : "No results found";
+        ? Loc.Get(nameof(Loc.Search_NoCategoryResults), GetCategoryLabel(category).ToLower(Loc.Culture))
+        : Loc.Search_NoResultsFound;
     public string EmptyStateHint => SelectedCategory is null
-        ? "Try fewer words, a broader phrase, or another category."
-        : "Try a broader phrase or switch back to All.";
+        ? Loc.Search_EmptyAllHint
+        : Loc.Search_EmptyCategoryHint;
 
     /// <summary>Raised when a result is selected (navigate to it).</summary>
     public event Action<SearchResultItem>? ResultSelected;
@@ -660,7 +661,7 @@ public partial class SearchOverlayViewModel : ObservableObject
 
         categories.Insert(0, new SearchCategoryFilterItem
         {
-            Label = "All",
+            Label = Loc.Sidebar_All,
             Icon = IconSearch,
             Count = TotalResultCount,
             IsSelected = SelectedCategory is null
@@ -797,7 +798,7 @@ public partial class SearchOverlayViewModel : ObservableObject
 
         var hasQuery = !string.IsNullOrWhiteSpace(SearchQuery);
         if (!hasQuery)
-            return IsSearchIndicatorVisible ? "Loading recent items..." : "Recent items";
+            return IsSearchIndicatorVisible ? Loc.Search_LoadingRecent : Loc.Search_RecentItems;
 
         if (!IsSearchIndicatorVisible)
         {
@@ -805,12 +806,14 @@ public partial class SearchOverlayViewModel : ObservableObject
                 return FormatResultCount();
 
             // A fast search is still resolving: stay quiet instead of flashing "No results".
-            return IsSearchPending ? "" : "No results";
+            return IsSearchPending ? "" : Loc.Search_NoResults;
         }
 
         // The individual phase flags flip on every keystroke, so a phase-specific message would swap back
         // and forth at typing cadence. One stable message covers the whole debounced loading window.
-        return ResultCount == 0 ? "Searching..." : $"{FormatResultCount()} · searching...";
+        return ResultCount == 0
+            ? Loc.Search_Searching
+            : Loc.Get(nameof(Loc.Search_ResultsSearching), FormatResultCount());
     }
 
     private string FormatResultCount()
@@ -820,9 +823,9 @@ public partial class SearchOverlayViewModel : ObservableObject
             : TotalResultCount;
 
         if (activeTotal > ResultCount)
-            return $"{ResultCount} of {activeTotal} results";
+            return Loc.Get(nameof(Loc.Search_VisibleResults), ResultCount, activeTotal);
 
-        return activeTotal == 1 ? "1 result" : $"{activeTotal} results";
+        return activeTotal == 1 ? Loc.Search_OneResult : Loc.Get(nameof(Loc.Search_ManyResults), activeTotal);
     }
 
     private string BuildSelectedCategorySummary()
@@ -832,8 +835,8 @@ public partial class SearchOverlayViewModel : ObservableObject
 
         var count = _availableGroups
             .FirstOrDefault(group => group.CategoryKey == selectedCategory)?.TotalCount ?? 0;
-        var noun = count == 1 ? "result" : "results";
-        return $"{GetCategoryLabel(selectedCategory)} · {count} {noun}";
+        var countText = count == 1 ? Loc.Search_OneResult : Loc.Get(nameof(Loc.Search_ManyResults), count);
+        return Loc.Get(nameof(Loc.Search_CategoryResults), GetCategoryLabel(selectedCategory), countText);
     }
 
     private int GetSelectedCategoryFilterIndex()
@@ -940,15 +943,15 @@ public partial class SearchOverlayViewModel : ObservableObject
 
     private static string GetCategoryLabel(GlobalSearchCategory category) => category switch
     {
-        GlobalSearchCategory.Chats => "Chats",
-        GlobalSearchCategory.BackgroundJobs => "Jobs",
-        GlobalSearchCategory.Projects => "Projects",
-        GlobalSearchCategory.Skills => "Skills",
-        GlobalSearchCategory.Lumis => "Agents",
-        GlobalSearchCategory.Memories => "Memories",
-        GlobalSearchCategory.McpServers => "Connectors",
-        GlobalSearchCategory.Settings => "Settings",
-        _ => "Results"
+        GlobalSearchCategory.Chats => Loc.NavLabel_Chats,
+        GlobalSearchCategory.BackgroundJobs => Loc.NavLabel_Jobs,
+        GlobalSearchCategory.Projects => Loc.Projects_Title,
+        GlobalSearchCategory.Skills => Loc.Skills_Title,
+        GlobalSearchCategory.Lumis => Loc.Lumis_Title,
+        GlobalSearchCategory.Memories => Loc.Memories_Title,
+        GlobalSearchCategory.McpServers => Loc.Mcp_Title,
+        GlobalSearchCategory.Settings => Loc.NavLabel_Settings,
+        _ => Loc.Search_ResultsHeading
     };
 
     private static string GetCategoryIcon(GlobalSearchCategory category) => category switch

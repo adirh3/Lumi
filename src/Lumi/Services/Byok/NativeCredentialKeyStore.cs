@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 
 namespace Lumi.Services.Byok;
 
@@ -88,7 +89,7 @@ internal sealed class NativeCredentialKeyStore : ISecureKeyStore
         // security -w prints non-ASCII/non-printable passwords as hex, not their original
         // bytes. This store intentionally accepts printable API keys, not arbitrary blobs.
         if (secret.Length > 16 * 1024 || secret.Any(ch => ch < ' ' || ch > '~'))
-            throw new ArgumentException("Native storage requires a printable API key of a supported length.", nameof(secret));
+            throw new ArgumentException(Loc.Credentials_InvalidApiKey, nameof(secret));
 
         var info = CreateStartInfo();
         string input;
@@ -102,7 +103,7 @@ internal sealed class NativeCredentialKeyStore : ISecureKeyStore
             input = "add-generic-password -U -s " + QuoteSecurityArgument(ServiceName) +
                 " -a " + QuoteSecurityArgument(target) + " -w " + QuoteSecurityArgument(secret) + "\n";
             if (Encoding.UTF8.GetByteCount(input) >= 4096)
-                throw new ArgumentException("The API key is too long for macOS native storage.", nameof(secret));
+                throw new ArgumentException(Loc.Credentials_MacKeyTooLong, nameof(secret));
         }
         else
         {
@@ -139,24 +140,29 @@ internal sealed class NativeCredentialKeyStore : ISecureKeyStore
     {
         if (result.ExitCode != 0)
             throw new InvalidOperationException(
-                $"Native credential storage could not {operation} the API key (exit {result.ExitCode}). " +
+                string.Format(operation switch
+                {
+                    "read" => Loc.Credentials_ReadFailed,
+                    "store" => Loc.Credentials_StoreFailed,
+                    _ => Loc.Credentials_DeleteFailed
+                }, result.ExitCode) + " " +
                 (_platform == NativePlatform.MacOS
-                    ? "Unlock your macOS keychain and try again."
-                    : "Check that your desktop Secret Service is running, unlock your keyring, and try again."));
+                    ? Loc.Credentials_UnlockMac
+                    : Loc.Credentials_UnlockLinux));
     }
 
     private void EnsureSupported()
     {
         if (!IsSupported)
             throw new PlatformNotSupportedException(
-                "Native credential storage is unavailable. Install the platform's keychain tools or explicitly choose an environment variable or stored-key mode.");
+                Loc.Credentials_Unavailable);
     }
 
     private static string MakeTarget(string key)
     {
         ArgumentNullException.ThrowIfNull(key);
         if (key.Length > 512 || key.Any(char.IsControl))
-            throw new ArgumentException("The credential identifier is invalid.", nameof(key));
+            throw new ArgumentException(Loc.Credentials_InvalidId, nameof(key));
         return KeyPrefix + key;
     }
 
@@ -190,15 +196,15 @@ internal sealed class NativeCredentialKeyStore : ISecureKeyStore
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            throw new TimeoutException("Native credential storage timed out. Unlock your keychain or keyring and try again.");
+            throw new TimeoutException(Loc.Credentials_TimedOut);
         }
         catch (Win32Exception)
         {
-            throw new InvalidOperationException("The native credential storage tool could not be started. Check its installation and try again.");
+            throw new InvalidOperationException(Loc.Credentials_StartFailed);
         }
         catch (IOException)
         {
-            throw new InvalidOperationException("Communication with native credential storage failed. Try again.");
+            throw new InvalidOperationException(Loc.Credentials_CommunicationFailed);
         }
     }
 
@@ -226,7 +232,7 @@ internal sealed class NativeCredentialKeyStore : ISecureKeyStore
     {
         using var process = new Process { StartInfo = info };
         if (!process.Start())
-            throw new InvalidOperationException("The native credential storage tool could not be started.");
+            throw new InvalidOperationException(Loc.Credentials_ProcessStartFailed);
         try
         {
             var output = ReadBoundedAsync(process.StandardOutput, cancellationToken);
@@ -265,7 +271,7 @@ internal sealed class NativeCredentialKeyStore : ISecureKeyStore
         while ((read = await reader.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) != 0)
         {
             if (value.Length + read > MaximumOutputCharacters)
-                throw new InvalidOperationException("The native credential storage tool returned too much data.");
+                throw new InvalidOperationException(Loc.Credentials_ResponseTooLarge);
             value.Append(buffer, 0, read);
         }
         return value.ToString();

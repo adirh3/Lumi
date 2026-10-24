@@ -515,6 +515,21 @@ it too.
 Keep copyright and license notices when redistributing Lumi. Dependencies keep
 their own licenses and notices; including Lumi's notice does not replace them.
 
+### Localization
+
+Lumi supports English and Hebrew. Desktop UI text lives in
+`src/Lumi/Resources/Strings/en.json` and `he.json`; the source generator exposes typed `Loc` properties,
+`Loc.Get` for formatted messages, and `{loc:Str Key}` for XAML. Keep both catalogs in sync, including
+format arguments. Labels, notifications, validation errors, transcript chrome, search results and
+the human-readable parts of exported capability packs use these resources.
+
+The mobile companion uses `src/Lumi.Mobile/Localization/ChatSessionStrings.resx` and its Hebrew
+counterpart. Shared Strata controls keep their reusable English/Hebrew wording in their own label
+catalog. Localize display text, not wire values, model IDs, file paths, authored prompts or user
+content. Built-in capability descriptions have localized display text while their saved defaults,
+stable names and user customizations remain intact. `LocalizationCoverageTests` checks desktop
+catalog/format parity, XAML keys, Hebrew search and presentation, and embedded-app startup messages.
+
 ### Local StrataTheme Development
 
 The current project files reference `StrataTheme` and `StrataSearch` directly from

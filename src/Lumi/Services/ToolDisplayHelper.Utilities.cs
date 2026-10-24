@@ -19,8 +19,8 @@ public static partial class ToolDisplayHelper
     private const int MaxFailedToolOutputChars = 8000;
     private const int MaxRawFailedToolOutputChars = MaxFailedToolOutputChars * 4;
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
-    private static readonly string FailedToolOutputTruncationMarker =
-        $"{Environment.NewLine}{Environment.NewLine}[Output truncated]";
+    private static string FailedToolOutputTruncationMarker =>
+        $"{Environment.NewLine}{Environment.NewLine}{Loc.Tool_OutputTruncated}";
 
     /// <summary>Extensions for intermediary/script files that shouldn't appear as attachment chips.</summary>
     private static readonly HashSet<string> ScriptExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -66,8 +66,8 @@ public static partial class ToolDisplayHelper
             "browser_find" or BrowserFindToolName => Loc.Tool_FindingElement,
             "browser_do" or BrowserDoToolName => Loc.Tool_Action,
             "browser_js" or BrowserJsToolName => Loc.Tool_BrowserEvaluate,
-            BrowserTabsToolName => "Managing browser tabs",
-            BrowserScreenshotToolName => "Taking browser screenshot",
+            BrowserTabsToolName => Loc.Tool_ManagingBrowserTabs,
+            BrowserScreenshotToolName => Loc.Tool_BrowserScreenshot,
             "save_memory" => Loc.Tool_Remembering,
             "update_memory" => Loc.Tool_UpdatingMemory,
             "delete_memory" => Loc.Tool_Forgetting,
@@ -79,11 +79,16 @@ public static partial class ToolDisplayHelper
             "skill" => (displaySkillName ?? ExtractJsonField(argsJson, "skill")) is { Length: > 0 } nativeSkillName
                 ? string.Format(Loc.Tool_UsingNamedSkill, nativeSkillName)
                 : Loc.Tool_FetchingSkill,
-            "manage_projects" => "Managing Lumi projects",
-            "manage_skills" => "Managing Lumi skills",
-            "manage_lumis" => "Managing agents",
-            "manage_mcps" => "Managing connectors",
-            "manage_memories" => "Managing memories",
+            "manage_projects" => Loc.Tool_ManagingProjects,
+            "manage_skills" => Loc.Tool_ManagingSkills,
+            "manage_lumis" => Loc.Tool_ManagingAgents,
+            "manage_mcps" => Loc.Tool_ManagingConnectors,
+            "manage_memories" => Loc.Tool_ManagingMemories,
+            "manage_current_chat" => string.Equals(ExtractJsonField(argsJson, "action"), "get", StringComparison.OrdinalIgnoreCase)
+                ? Loc.Tool_InspectingCurrentChat : Loc.Tool_UpdatingCurrentChat,
+            "manage_chats" => Loc.Tool_OrchestratingChats,
+            "search_chats" => Loc.Tool_SearchingChats,
+            "read_chat" => Loc.Tool_ReadingChat,
             "ask_question" => Loc.Tool_AskingQuestion,
             "ask_input" => Loc.Tool_AskingQuestion,
             "code_review" => Loc.Tool_ReviewingCode,
@@ -101,7 +106,7 @@ public static partial class ToolDisplayHelper
             "ui_type" => Loc.Tool_TypingInControl,
             "ui_read" => Loc.Tool_ReadingControl,
             "sql" => GetCommandTitle(argsJson) ?? Loc.Tool_RunningQuery,
-            "task" => string.Format(Loc.Tool_RunningAgent, ExtractJsonField(argsJson, "agent_type") ?? "agent"),
+            "task" => string.Format(Loc.Tool_RunningAgent, ExtractJsonField(argsJson, "agent_type") ?? Loc.Tool_DefaultAgent),
             _ => !string.IsNullOrWhiteSpace(toolTitle) ? toolTitle.Trim() : FormatSnakeCaseToTitle(toolName)
         };
     }
@@ -410,11 +415,11 @@ public static partial class ToolDisplayHelper
         var message = NormalizeDisplayText(error.Message)?.Trim();
         var code = NormalizeDisplayText(error.Code)?.Trim();
         if (string.IsNullOrWhiteSpace(message))
-            return string.IsNullOrWhiteSpace(code) ? null : $"code: {code}";
+            return string.IsNullOrWhiteSpace(code) ? null : string.Format(Loc.Tool_ErrorCode, code);
 
         return string.IsNullOrWhiteSpace(code)
             ? message
-            : $"{message} (code: {code})";
+            : string.Format(Loc.Tool_ErrorWithCode, message, code);
     }
 
     private static string? LimitFailedToolOutput(string? output)

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -320,8 +321,8 @@ public sealed class MemoryMaintenanceResult
     public string ToDisplayText()
     {
         if (Reviewed == 0)
-            return "No memories to clean up.";
+            return Loc.Memories_NoMaintenanceNeeded;
 
-        return $"Cleaned up {Reviewed} memories: {Merged} merged, {Archived} archived, {Deleted} deleted, {Rewritten} rewritten. {Active} active memories remain.";
+        return string.Format(Loc.Memories_MaintenanceResult, Reviewed, Merged, Archived, Deleted, Rewritten, Active);
     }
 }

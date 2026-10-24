@@ -71,7 +71,7 @@ public partial class ChatViewModel
         string worktreePath)
     {
         if (!_dataStore.TrySetChatWorktreePath(targetChat, worktreePath))
-            return "Lumi could not restore the chat's previous worktree.";
+            return Loc.Git_WorktreeRestoreFailed;
 
         if (CurrentChat?.Id == targetChat.Id)
         {
@@ -1651,9 +1651,9 @@ public partial class ChatViewModel
                 var reset = snapshot.ResetDate;
 
                 if (total > 0)
-                    QuotaDisplayText = $"{used:N0} / {total:N0} requests ({QuotaRemainingPercent:N0}% remaining)";
+                    QuotaDisplayText = Loc.Get(nameof(Loc.Chat_QuotaRequestsRemaining), used, total, QuotaRemainingPercent);
                 else
-                    QuotaDisplayText = $"{QuotaRemainingPercent:N0}% remaining";
+                    QuotaDisplayText = Loc.Get(nameof(Loc.Chat_QuotaRemaining), QuotaRemainingPercent);
 
                 // Cache in settings for display
                 var settings = _dataStore.Data.Settings;
@@ -1972,7 +1972,7 @@ public partial class ChatViewModel
                 IsWorktreeMode = true;
             }
             Trace.TraceWarning($"[Chat] Worktree removal failed for {targetChat.Id}: {ex}");
-            return $"Lumi could not remove the worktree: {ex.Message}";
+            return Loc.Get(nameof(Loc.Git_WorktreeRemoveFailed), ex.Message);
         }
     }
 
@@ -1992,9 +1992,9 @@ public partial class ChatViewModel
             if (cleanupReservation is null)
             {
                 if (isShared)
-                    return "The pending turn was canceled, but its worktree is used by another chat and was kept.";
+                    return Loc.Git_CanceledSharedWorktreeKept;
 
-                return "The pending turn was canceled, but its worktree is already being cleaned up and was kept.";
+                return Loc.Git_CanceledWorktreeCleaningUpKept;
             }
 
             if (CurrentChat?.Id == targetChat.Id)
@@ -2014,7 +2014,7 @@ public partial class ChatViewModel
                     .ConfigureAwait(true))
             {
                 await RestoreTargetAssociationAsync().ConfigureAwait(true);
-                return "The pending turn was canceled, but its worktree may contain changes and was kept.";
+                return Loc.Git_CanceledChangedWorktreeKept;
             }
 
             worktreeRemoved = true;
@@ -2060,7 +2060,7 @@ public partial class ChatViewModel
             }
 
             Trace.TraceWarning($"[Chat] Canceled worktree cleanup failed for {targetChat.Id}: {ex}");
-            return $"Lumi could not remove the canceled worktree: {ex.Message}";
+            return Loc.Get(nameof(Loc.Git_CanceledWorktreeRemoveFailed), ex.Message);
         }
         finally
         {
@@ -2096,7 +2096,7 @@ public partial class ChatViewModel
         var projectDir = project?.WorkingDirectory;
         if (!GitService.IsGitRepo(projectDir ?? ""))
             return new ExternalWorktreeCreationResult(
-                "That project is not a Git repository, so Lumi could not create a worktree.",
+                Loc.Git_WorktreeRequiresRepository,
                 null,
                 null,
                 CreatedByThisCall: false);
@@ -2117,7 +2117,7 @@ public partial class ChatViewModel
             if (path is null)
             {
                 return new ExternalWorktreeCreationResult(
-                    "Lumi could not create a worktree for this chat.",
+                    Loc.Git_WorktreeCreateFailedForChat,
                     null,
                     null,
                     CreatedByThisCall: false);
@@ -2134,8 +2134,7 @@ public partial class ChatViewModel
                     if (cleanupReservation is null || isShared)
                     {
                         return new ExternalWorktreeCreationResult(
-                            $"The chat project changed while Lumi was creating its worktree. " +
-                            $"The worktree at \"{path}\" is in use and was kept.",
+                            Loc.Get(nameof(Loc.Git_ProjectChangedSharedWorktreeKept), path),
                             path,
                             projectDir,
                             CreatedByThisCall: true);
@@ -2147,8 +2146,7 @@ public partial class ChatViewModel
                     if (!removed)
                     {
                         return new ExternalWorktreeCreationResult(
-                            $"The chat project changed while Lumi was creating its worktree. " +
-                            $"The worktree at \"{path}\" may contain changes and was kept.",
+                            Loc.Get(nameof(Loc.Git_ProjectChangedWorktreeWithChangesKept), path),
                             path,
                             projectDir,
                             CreatedByThisCall: true);
@@ -2156,7 +2154,7 @@ public partial class ChatViewModel
                 }
 
                 return new ExternalWorktreeCreationResult(
-                    "The chat project changed while Lumi was creating its worktree.",
+                    Loc.Git_ProjectChangedDuringWorktreeCreate,
                     null,
                     null,
                     CreatedByThisCall: false);
@@ -2174,7 +2172,7 @@ public partial class ChatViewModel
                         await GitService.RemoveWorktreeIfCleanAsync(projectDir!, path).ConfigureAwait(true);
                 }
                 return new ExternalWorktreeCreationResult(
-                    "That worktree is being cleaned up and cannot be attached to the chat.",
+                    Loc.Git_WorktreeCleaningUpAttachBlocked,
                     null,
                     null,
                     CreatedByThisCall: false);
@@ -2235,8 +2233,8 @@ public partial class ChatViewModel
 
                     return new ExternalWorktreeCreationResult(
                         removed
-                            ? $"Lumi could not persist the worktree: {saveException.Message}"
-                            : $"Lumi could not persist the worktree. The directory at \"{path}\" was kept: {saveException.Message}",
+                            ? Loc.Get(nameof(Loc.Git_WorktreePersistFailed), saveException.Message)
+                            : Loc.Get(nameof(Loc.Git_WorktreePersistFailedKept), path, saveException.Message),
                         removed ? null : path,
                         removed ? null : projectDir,
                         CreatedByThisCall: !removed && creation.CreatedByThisCall);
@@ -2260,7 +2258,7 @@ public partial class ChatViewModel
             }
 
             return new ExternalWorktreeCreationResult(
-                $"Lumi could not create the worktree: {ex.Message}",
+                Loc.Get(nameof(Loc.Git_WorktreeCreateFailed), ex.Message),
                 null,
                 null,
                 CreatedByThisCall: false);

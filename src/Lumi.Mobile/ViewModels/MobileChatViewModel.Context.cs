@@ -4,6 +4,7 @@ using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StrataTheme.Controls;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -117,38 +118,38 @@ public sealed partial class MobileChatViewModel
     /// </summary>
     public bool HasComposerContext => HasAgent || HasProject || SkillChips.Count > 0;
 
-    public string AgentSummary => HasAgent ? AgentName! : "None";
+    public string AgentSummary => HasAgent ? AgentName! : Strings.Get("None");
 
-    public string ProjectSummary => HasProject ? ProjectName! : "None";
+    public string ProjectSummary => HasProject ? ProjectName! : Strings.Get("None");
 
-    public string SkillsSummary => Summarize(SkillChips, "skills");
+    public string SkillsSummary => Summarize(SkillChips, "SkillsCount");
 
-    public string ConnectorsSummary => Summarize(McpChips, "connectors");
+    public string ConnectorsSummary => Summarize(McpChips, "ConnectorsCount");
 
     public string ContextPickerTitle => ContextPickerKind switch
     {
-        ContextPickerKind.Agent => "Agent",
-        ContextPickerKind.Project => "Project",
-        ContextPickerKind.Skills => "Skills",
-        _ => "Connectors"
+        ContextPickerKind.Agent => Strings.Get("Agent"),
+        ContextPickerKind.Project => Strings.Get("Project"),
+        ContextPickerKind.Skills => Strings.Get("Skills"),
+        _ => Strings.Get("Connectors")
     };
 
     public string ContextPickerDescription => ContextPickerKind switch
     {
-        ContextPickerKind.Agent => "An agent brings its own instructions, skills and tools.",
-        ContextPickerKind.Project => "Where this chat lives, and whose instructions it follows.",
-        ContextPickerKind.Skills => "What Lumi can reach for in this chat.",
-        _ => "Apps and services Lumi can use in this chat."
+        ContextPickerKind.Agent => Strings.Get("AgentPickerDescription"),
+        ContextPickerKind.Project => Strings.Get("ProjectPickerDescription"),
+        ContextPickerKind.Skills => Strings.Get("SkillsPickerDescription"),
+        _ => Strings.Get("ConnectorsPickerDescription")
     };
 
     public bool IsContextPickerEmpty => ContextOptions.All(static option => option.IsNone);
 
     public string ContextPickerEmptyText => ContextPickerKind switch
     {
-        ContextPickerKind.Agent => "Your PC has no agents yet. Create one in Customize.",
-        ContextPickerKind.Project => "Your PC has no projects yet. Create one in Customize.",
-        ContextPickerKind.Skills => "Your PC has no skills yet. Create one in Customize.",
-        _ => "No connectors are on. Turn one on in Customize to use it here."
+        ContextPickerKind.Agent => Strings.Get("NoAgentsOnPc"),
+        ContextPickerKind.Project => Strings.Get("NoProjectsOnPc"),
+        ContextPickerKind.Skills => Strings.Get("NoSkillsOnPc"),
+        _ => Strings.Get("NoConnectorsEnabled")
     };
 
     private void InitializeComposerContext()
@@ -281,7 +282,7 @@ public sealed partial class MobileChatViewModel
         {
             case ContextPickerKind.Agent:
                 ContextOptions.Add(new ContextOption(
-                    ContextPickerKind.Agent, "", "No agent", null, null, "Lumi on its own", isNone: true));
+                    ContextPickerKind.Agent, "", Strings.Get("NoAgent"), null, null, Strings.Get("LumiOnItsOwn"), isNone: true));
                 AddCatalog(AvailableAgents, ContextPickerKind.Agent, enabled: true);
                 if (HasAgent && !ContextOptions.Any(option => !option.IsNone && IsContextOptionSelected(option)))
                     ContextOptions.Insert(1, new ContextOption(
@@ -289,7 +290,7 @@ public sealed partial class MobileChatViewModel
                 break;
             case ContextPickerKind.Project:
                 ContextOptions.Add(new ContextOption(
-                    ContextPickerKind.Project, "", "No project", null, null, "A chat of its own",
+                    ContextPickerKind.Project, "", Strings.Get("NoProject"), null, null, Strings.Get("ChatOfItsOwn"),
                     isNone: true, isEnabled: CanPickProject));
                 AddCatalog(AvailableProjects, ContextPickerKind.Project, enabled: CanPickProject);
                 if (HasProject && !ContextOptions.Any(option => !option.IsNone && IsContextOptionSelected(option)))
@@ -357,10 +358,10 @@ public sealed partial class MobileChatViewModel
     private static bool SameName(string? left, string? right) =>
         string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
 
-    private static string Summarize(IReadOnlyList<StrataComposerChip> chips, string plural) => chips.Count switch
+    private static string Summarize(IReadOnlyList<StrataComposerChip> chips, string countKey) => chips.Count switch
     {
-        0 => "None",
+        0 => Strings.Get("None"),
         1 => chips[0].Name,
-        _ => $"{chips.Count} {plural}"
+        _ => Strings.Get(countKey, chips.Count)
     };
 }

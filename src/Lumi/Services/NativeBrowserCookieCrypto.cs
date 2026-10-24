@@ -1,6 +1,7 @@
 using System;
 using System.Security.Cryptography;
 using System.Text;
+using Lumi.Localization;
 
 namespace Lumi.Services;
 
@@ -46,7 +47,7 @@ internal static class NativeBrowserCookieCrypto
     internal static bool RequiresSafeStorageKey(ReadOnlySpan<byte> encrypted, bool isLinux)
     {
         if (encrypted.Length < 3)
-            throw new CryptographicException("The Chromium encrypted cookie is truncated.");
+            throw new CryptographicException(Loc.Cookies_EncryptedTruncated);
 
         if (encrypted.StartsWith("v10"u8))
             return !isLinux;
@@ -54,10 +55,10 @@ internal static class NativeBrowserCookieCrypto
             return true;
         if (encrypted.StartsWith("v20"u8))
             throw new NotSupportedException(
-                "Chromium v20/app-bound cookie encryption cannot be imported on Linux or macOS.");
+                Loc.Cookies_AppBoundUnsupported);
 
         throw new NotSupportedException(
-            "Unsupported Chromium cookie encryption. Lumi supports v10/v11 AES-128-CBC on Linux and macOS.");
+            Loc.Cookies_EncryptionUnsupported);
     }
 
     internal static string DecryptValue(
@@ -67,12 +68,12 @@ internal static class NativeBrowserCookieCrypto
         var requiresSafeStorage = RequiresSafeStorageKey(encrypted, isLinux);
         var key = requiresSafeStorage
             ? safeStorageKey ?? throw new InvalidOperationException(
-                "This cookie requires the browser's Safe Storage key. Unlock the OS keychain/keyring and retry.")
+                Loc.Cookies_StorageKeyRequired)
             : LegacyLinuxKey;
 
         var ciphertext = encrypted[3..];
         if (ciphertext.IsEmpty || ciphertext.Length % 16 != 0)
-            throw new CryptographicException("The Chromium encrypted cookie has invalid AES-CBC length.");
+            throw new CryptographicException(Loc.Cookies_EncryptedLengthInvalid);
 
         Span<byte> iv = stackalloc byte[16];
         iv.Fill((byte)' ');
@@ -87,8 +88,7 @@ internal static class NativeBrowserCookieCrypto
         catch (CryptographicException)
         {
             throw new CryptographicException(
-                "Cannot decrypt a Chromium cookie with this browser's Safe Storage key. " +
-                "The key may have changed or the cookie database may be damaged.");
+                Loc.Cookies_DecryptFailed);
         }
 
         try
@@ -101,7 +101,7 @@ internal static class NativeBrowserCookieCrypto
                     || !CryptographicOperations.FixedTimeEquals(value[..expectedHash.Length], expectedHash))
                 {
                     throw new CryptographicException(
-                        "Chromium cookie host verification failed. The Safe Storage key or cookie database is incorrect.");
+                        Loc.Cookies_HostVerificationFailed);
                 }
 
                 value = value[expectedHash.Length..];
@@ -113,7 +113,7 @@ internal static class NativeBrowserCookieCrypto
             }
             catch (DecoderFallbackException)
             {
-                throw new CryptographicException("The decrypted Chromium cookie is not valid UTF-8.");
+                throw new CryptographicException(Loc.Cookies_Utf8Invalid);
             }
         }
         finally

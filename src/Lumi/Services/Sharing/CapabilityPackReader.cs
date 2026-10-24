@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Lumi.Localization;
 
 namespace Lumi.Services.Sharing;
 
@@ -182,7 +183,7 @@ public static class CapabilityPackReader
     {
         var versionText = frontmatter.GetString("lumi-pack")?.Trim();
         if (!int.TryParse(versionText, out var version) || version < 1)
-            return PackReadResult.Fail(PackReadError.MalformedFrontmatter, "lumi-pack must be a version number");
+            return PackReadResult.Fail(PackReadError.MalformedFrontmatter, Loc.Import_PackVersionInvalid);
         if (version > CapabilityPackWriter.FormatVersion)
             return PackReadResult.Fail(PackReadError.NewerVersion);
 
@@ -198,7 +199,7 @@ public static class CapabilityPackReader
             {
                 case CapabilityPackWriter.PromptBlockTag:
                     if (prompt is not null)
-                        return PackReadResult.Fail(PackReadError.InvalidPrompt, "A pack may contain only one prompt.");
+                        return PackReadResult.Fail(PackReadError.InvalidPrompt, Loc.Import_OnePromptOnly);
                     try
                     {
                         prompt = PromptSharing.Parse(block.Content);
@@ -245,7 +246,7 @@ public static class CapabilityPackReader
         {
             if (prompt is null || lumi is not null || skills.Count > 0 || servers.Count > 0
                 || !string.Equals(frontmatter.GetString("kind"), "prompt", StringComparison.OrdinalIgnoreCase))
-                return PackReadResult.Fail(PackReadError.InvalidPrompt, "A prompt pack must contain only a reusable prompt.");
+                return PackReadResult.Fail(PackReadError.InvalidPrompt, Loc.Import_PromptOnly);
             return PackReadResult.Ok(new CapabilityPack
             {
                 Kind = SharedCapabilityKind.Prompt,
@@ -494,7 +495,7 @@ public static class CapabilityPackReader
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Host.Length > 0)
             return uri.Host;
 
-        return GetString(element, "command") is { Length: > 0 } command ? PackText.HumanizeName(Path.GetFileNameWithoutExtension(command)) : "MCP server";
+        return GetString(element, "command") is { Length: > 0 } command ? PackText.HumanizeName(Path.GetFileNameWithoutExtension(command)) : Loc.Share_PackMcpServer;
     }
 
     private static bool TryGetObject(JsonElement element, string name, out JsonElement value)

@@ -6,6 +6,7 @@ using Avalonia.Android;
 using Avalonia.Media;
 using Lumi.Mobile;
 using Lumi.Mobile.Services;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Android;
 
@@ -30,6 +31,8 @@ public class MainApplication : AvaloniaAndroidApplication<App>
         MobilePlatformServices.NetworkMonitor = new AndroidNetworkMonitor(this);
         MobilePlatformServices.ProducedFileOpener = new AndroidProducedFileOpener(this);
         MobilePlatformServices.TextShare = new AndroidTextShareService(this);
+        // Strata/theme defaults read the culture when their types and XAML are first loaded.
+        Strings.Load(new MobileSettingsStore().Load().Language);
         MobilePlatformServices.DeviceNameOverride = ResolveDeviceName();
         System.Diagnostics.Trace.Listeners.Add(new LogcatTraceListener());
         CrashReporter.Install();
@@ -45,7 +48,7 @@ public class MainApplication : AvaloniaAndroidApplication<App>
         var model = Build.Model?.Trim();
         return string.IsNullOrWhiteSpace(model)
             || model.StartsWith("sdk_", StringComparison.OrdinalIgnoreCase)
-            ? "Android phone"
+            ? Strings.Get("AndroidPhone")
             : model;
     }
 }

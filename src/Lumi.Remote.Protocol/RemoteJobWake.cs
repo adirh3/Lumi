@@ -17,14 +17,18 @@ public sealed record RemoteJobWake(
         author?.StartsWith(AuthorPrefix, StringComparison.OrdinalIgnoreCase) == true
         && content?.StartsWith(ContentPrefix, StringComparison.OrdinalIgnoreCase) == true;
 
-    public static RemoteJobWake Parse(string? author, string content)
+    public static RemoteJobWake Parse(
+        string? author,
+        string content,
+        string fallbackJobName = "Background job",
+        string fallbackWakeSignal = "Wake signal received.")
     {
         var firstLine = content.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
         var name = author?.StartsWith(AuthorPrefix, StringComparison.OrdinalIgnoreCase) == true
             ? author[AuthorPrefix.Length..].Trim()
             : firstLine.StartsWith(ContentPrefix, StringComparison.OrdinalIgnoreCase)
                 ? firstLine[ContentPrefix.Length..].Trim()
-                : "Background job";
+                : fallbackJobName;
         var context = Section(content, "Trigger context:", "Respond as Lumi");
         var outputIndex = context.IndexOf("Full script output:", StringComparison.OrdinalIgnoreCase);
         var signalSource = outputIndex < 0 ? context : context[..outputIndex];
@@ -41,7 +45,7 @@ public sealed record RemoteJobWake(
         return new RemoteJobWake(
             name,
             Section(content, "Job instructions:", "Trigger context:"),
-            string.IsNullOrWhiteSpace(signal) ? "Wake signal received." : Preview(signal, 260),
+            string.IsNullOrWhiteSpace(signal) ? fallbackWakeSignal : Preview(signal, 260),
             exitCode,
             LineValue(context, "Started:"),
             LineValue(context, "Completed:"),

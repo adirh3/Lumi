@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Lumi.Models;
+using Lumi.Localization;
 
 namespace Lumi.Services;
 
@@ -842,7 +843,7 @@ public partial class DataStore : IChatContentSearch
                 "Use PowerShell with COM automation or python-docx to create Word documents.",
                 "Use PowerShell with COM automation or openpyxl to create spreadsheets.",
                 "Use PowerShell with COM automation or python-pptx to create presentations.",
-                "Creates beautiful interactive websites from chat content and opens them in Lumi's browser",
+                Loc.GetEnglish(nameof(Loc.BuiltIn_WebsiteCreator_Description)),
                 "Transform any content from the conversation into a beautiful, modern, interactive single-page website and present it in Lumi's built-in browser.",
                 """
                 5. **Save the file** — Use the `create` tool to write the HTML file. Use this exact path format:
@@ -863,7 +864,7 @@ public partial class DataStore : IChatContentSearch
             "Use `python-docx` to create Word documents.",
             "Use `openpyxl` to create spreadsheets.",
             "Use `python-pptx` to create presentations.",
-            "Creates beautiful interactive websites from chat content and opens them in a browser",
+            Loc.GetEnglish(nameof(Loc.BuiltIn_WebsiteCreatorPortable_Description)),
             "Transform any content from the conversation into a beautiful, modern, interactive single-page website and present it in a browser.",
             """
             5. **Save the file** — Use the `create` tool to write the HTML file:
@@ -942,7 +943,7 @@ public partial class DataStore : IChatContentSearch
             new Skill
             {
                 Name = "Document Creator",
-                Description = "Creates Word, Excel, and PowerPoint documents from user descriptions",
+                Description = Loc.GetEnglish(nameof(Loc.BuiltIn_DocumentCreator_Description)),
                 IconGlyph = "📄",
                 IsBuiltIn = true,
                 Content = $"""
@@ -964,7 +965,7 @@ public partial class DataStore : IChatContentSearch
             new Skill
             {
                 Name = "Web Researcher",
-                Description = "Searches the web and summarizes findings on any topic",
+                Description = Loc.GetEnglish(nameof(Loc.BuiltIn_WebResearcher_Description)),
                 IconGlyph = "🔍",
                 IsBuiltIn = true,
                 Content = """
@@ -985,7 +986,7 @@ public partial class DataStore : IChatContentSearch
             new Skill
             {
                 Name = "File Organizer",
-                Description = "Helps organize, rename, and manage files and folders",
+                Description = Loc.GetEnglish(nameof(Loc.BuiltIn_FileOrganizer_Description)),
                 IconGlyph = "📁",
                 IsBuiltIn = true,
                 Content = """
@@ -1006,7 +1007,7 @@ public partial class DataStore : IChatContentSearch
             new Skill
             {
                 Name = "Code Helper",
-                Description = "Writes, explains, and debugs code in any language",
+                Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CodeHelper_Description)),
                 IconGlyph = "💻",
                 IsBuiltIn = true,
                 Content = """
@@ -1027,7 +1028,7 @@ public partial class DataStore : IChatContentSearch
             new Skill
             {
                 Name = "Email Drafter",
-                Description = "Composes professional emails based on context and tone",
+                Description = Loc.GetEnglish(nameof(Loc.BuiltIn_EmailDrafter_Description)),
                 IconGlyph = "✉️",
                 IsBuiltIn = true,
                 Content = """
@@ -1117,7 +1118,7 @@ public partial class DataStore : IChatContentSearch
             new LumiAgent
             {
                 Name = "Daily Planner",
-                Description = "Plans your day, manages tasks, and keeps you on track",
+                Description = Loc.GetEnglish(nameof(Loc.BuiltIn_DailyPlanner_Description)),
                 IconGlyph = "📋",
                 IsBuiltIn = true,
                 SystemPrompt = """
@@ -1138,7 +1139,7 @@ public partial class DataStore : IChatContentSearch
             new LumiAgent
             {
                 Name = "Creative Writer",
-                Description = "Helps with writing, storytelling, and creative content",
+                Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CreativeWriter_Description)),
                 IconGlyph = "✍️",
                 IsBuiltIn = true,
                 SystemPrompt = """
@@ -1159,7 +1160,7 @@ public partial class DataStore : IChatContentSearch
             new LumiAgent
             {
                 Name = "Learning Lumi",
-                Description = "Learns about you from your computer to create personalized skills and agents",
+                Description = Loc.GetEnglish(nameof(Loc.BuiltIn_LearningLumi_Description)),
                 IconGlyph = "🧠",
                 IsBuiltIn = true,
                 IsLearningAgent = true,
@@ -1213,7 +1214,7 @@ public partial class DataStore : IChatContentSearch
         var architectureSkill = new Skill
         {
             Name = "Architecture Advisor",
-            Description = "Expert software architecture guidance: system design, patterns, scalability, and trade-off analysis",
+            Description = Loc.GetEnglish(nameof(Loc.BuiltIn_ArchitectureAdvisor_Description)),
             IconGlyph = "🏛️",
             IsBuiltIn = true,
             Content = """
@@ -1260,7 +1261,7 @@ public partial class DataStore : IChatContentSearch
         var debugSkill = new Skill
         {
             Name = "Debug Expert",
-            Description = "Systematic debugging methodology: isolate, reproduce, diagnose, and fix bugs efficiently",
+            Description = Loc.GetEnglish(nameof(Loc.BuiltIn_DebugExpert_Description)),
             IconGlyph = "🐛",
             IsBuiltIn = true,
             Content = """
@@ -1315,7 +1316,7 @@ public partial class DataStore : IChatContentSearch
         var codeReviewSkill = new Skill
         {
             Name = "Code Reviewer Pro",
-            Description = "Professional code review process: security, performance, design, and team standards",
+            Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CodeReviewer_Description)),
             IconGlyph = "🔍",
             IsBuiltIn = true,
             Content = """
@@ -1370,7 +1371,7 @@ public partial class DataStore : IChatContentSearch
         _data.Agents.Add(new LumiAgent
         {
             Name = "Coding Lumi",
-            Description = "Elite coding agent: writes, reviews, debugs, tests, and architects software",
+            Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CodingLumi_Description)),
             IconGlyph = "⚡",
             IsBuiltIn = true,
             SkillIds = [architectureSkill.Id, debugSkill.Id, codeReviewSkill.Id],

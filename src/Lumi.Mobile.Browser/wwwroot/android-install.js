@@ -1,5 +1,6 @@
 const parameters = new URLSearchParams(globalThis.location.search);
 const version = parameters.get('version')?.trim() || '';
+await globalThis.lumiLocalization?.ready;
 
 const validVersion = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(version);
 const apkUrl = validVersion
@@ -11,7 +12,9 @@ download.href = apkUrl;
 
 const versionLabel = document.querySelector('#version-label');
 if (validVersion)
-    versionLabel.textContent = `Lumi ${version}, matching this desktop release.`;
+    versionLabel.textContent = globalThis.lumiLocalization?.text(
+        'AndroidVersionMatching', `Lumi ${version}, matching this desktop release.`, version)
+        ?? `Lumi ${version}, matching this desktop release.`;
 
 const openLumi = document.querySelector('#open-lumi');
 const server = globalThis.location.origin;

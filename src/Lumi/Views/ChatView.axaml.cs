@@ -173,7 +173,7 @@ public partial class ChatView : UserControl
             return;
         if (_subscribedVm is null)
         {
-            request.Completion = Task.FromResult(new InteractiveActionResult(false, "That answer is no longer open."));
+            request.Completion = Task.FromResult(new InteractiveActionResult(false, Loc.Chat_InteractionClosed));
             return;
         }
         request.Completion = _subscribedVm.RequestInteractionAsync(
@@ -1888,6 +1888,9 @@ public partial class ChatView : UserControl
             "files:" => ClipboardTextSection.Files,
             "used skills:" => ClipboardTextSection.UsedSkills,
             "sources:" => ClipboardTextSection.Sources,
+            _ when line.Equals(Loc.Chat_ClipboardFilesHeading, StringComparison.OrdinalIgnoreCase) => ClipboardTextSection.Files,
+            _ when line.Equals(Loc.Chat_ClipboardSkillsHeading, StringComparison.OrdinalIgnoreCase) => ClipboardTextSection.UsedSkills,
+            _ when line.Equals(Loc.Chat_ClipboardSourcesHeading, StringComparison.OrdinalIgnoreCase) => ClipboardTextSection.Sources,
             _ => ClipboardTextSection.None
         };
 
@@ -2289,9 +2292,9 @@ public partial class ChatView : UserControl
         if (!string.IsNullOrWhiteSpace(payload.Text))
             sb.Append(payload.Text.Trim());
 
-        AppendClipboardSection(sb, "Files", payload.AttachmentPaths);
-        AppendClipboardSection(sb, "Used skills", payload.SkillNames);
-        AppendClipboardSection(sb, "Sources", payload.Sources);
+        AppendClipboardSection(sb, Loc.Chat_ClipboardFilesHeading, payload.AttachmentPaths);
+        AppendClipboardSection(sb, Loc.Chat_ClipboardSkillsHeading, payload.SkillNames);
+        AppendClipboardSection(sb, Loc.Chat_ClipboardSourcesHeading, payload.Sources);
 
         return sb.ToString();
     }
@@ -2304,7 +2307,7 @@ public partial class ChatView : UserControl
         if (sb.Length > 0)
             sb.AppendLine().AppendLine();
 
-        sb.AppendLine($"{heading}:");
+        sb.AppendLine(heading);
         foreach (var value in values)
             sb.Append("- ").AppendLine(value);
     }
@@ -2824,11 +2827,11 @@ public partial class ChatView : UserControl
         if (_searchHits.Count == 0)
         {
             var hasQuery = !string.IsNullOrWhiteSpace(_searchInput?.Text);
-            _searchMatchCounter.Text = hasQuery ? "No results" : "";
+            _searchMatchCounter.Text = hasQuery ? Loc.Search_NoResults : "";
         }
         else
         {
-            _searchMatchCounter.Text = $"{_currentHitIndex + 1} of {_searchHits.Count}";
+            _searchMatchCounter.Text = Loc.Get("Chat_SearchPosition", _currentHitIndex + 1, _searchHits.Count);
         }
     }
 

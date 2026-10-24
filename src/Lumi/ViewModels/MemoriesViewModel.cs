@@ -28,7 +28,9 @@ public partial class MemoriesViewModel : ObservableObject
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty] private string _editKey = "";
     [ObservableProperty] private string _editContent = "";
-    [ObservableProperty] private string _editCategory = DefaultCategory;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EditCategoryDisplay))]
+    private string _editCategory = DefaultCategory;
     [ObservableProperty] private string _searchQuery = "";
 
     /// <summary>The open memory differs from what is stored.</summary>
@@ -90,6 +92,7 @@ public partial class MemoriesViewModel : ObservableObject
     public string SaveBarText => IsNewMemory ? Loc.Mg_NotSavedYet : Loc.Mg_Unsaved;
     public string DiscardButtonText => IsNewMemory ? Loc.Common_Cancel : Loc.Mg_Discard;
     public string DetailTitle => string.IsNullOrWhiteSpace(EditKey) ? Loc.Memories_NewTitle : EditKey;
+    public string EditCategoryDisplay => Loc.GetMemoryCategoryDisplay(EditCategory);
     public string DeleteConfirmText => string.Format(CultureInfo.CurrentCulture, Loc.Mg_DeleteConfirm, DetailTitle);
     public bool HasAnyMemories => ActiveMemories().Any();
 
@@ -223,7 +226,7 @@ public partial class MemoriesViewModel : ObservableObject
                 static memory =>
                 [
                     SearchField.Primary(memory.Key, 3.3),
-                    new SearchField(memory.Category, 1.5),
+                    new SearchField(Loc.GetMemoryCategoryDisplay(memory.Category), 1.5),
                     SearchField.Content(memory.Content, 1.1)
                 ],
                 static memory => new SearchSortMetadata(Text: $"{memory.Category} {memory.Key}"))
@@ -240,7 +243,7 @@ public partial class MemoriesViewModel : ObservableObject
         foreach (var group in Memories.GroupBy(CategoryOf, StringComparer.OrdinalIgnoreCase))
         {
             var cards = group.Select(memory => new MemoryCard(memory, DescribeScope(memory), EditMemory)).ToList();
-            MemoryGroups.Add(new MemoryGroup(group.Key, cards));
+            MemoryGroups.Add(new MemoryGroup(Loc.GetMemoryCategoryDisplay(group.Key), cards));
         }
 
         CategoryFilters.Clear();
@@ -259,7 +262,7 @@ public partial class MemoriesViewModel : ObservableObject
 
         foreach (var (name, count) in categories)
         {
-            CategoryFilters.Add(new ManagementFilterOption(name, name, count, SelectCategory)
+            CategoryFilters.Add(new ManagementFilterOption(name, Loc.GetMemoryCategoryDisplay(name), count, SelectCategory)
             {
                 IsSelected = string.Equals(name, CategoryFilter, StringComparison.OrdinalIgnoreCase)
             });
@@ -267,9 +270,9 @@ public partial class MemoriesViewModel : ObservableObject
 
         CategorySuggestions.Clear();
         if (!categories.Any(category => string.Equals(category.Name, DefaultCategory, StringComparison.OrdinalIgnoreCase)))
-            CategorySuggestions.Add(new ManagementFilterOption(DefaultCategory, DefaultCategory, 0, ChooseCategory));
+            CategorySuggestions.Add(new ManagementFilterOption(DefaultCategory, Loc.GetMemoryCategoryDisplay(DefaultCategory), 0, ChooseCategory));
         foreach (var (name, count) in categories)
-            CategorySuggestions.Add(new ManagementFilterOption(name, name, count, ChooseCategory));
+            CategorySuggestions.Add(new ManagementFilterOption(name, Loc.GetMemoryCategoryDisplay(name), count, ChooseCategory));
         MarkChosenCategory();
 
         // The sidebar follows the open memory one way; re-announcing it re-selects the row after a rebuild.

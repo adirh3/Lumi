@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -51,7 +52,7 @@ public sealed class LumiFeatureManager
             "update" => UpdateProject(identifier, name, instructions, workingDirectory, clearWorkingDirectory,
                 additionalContextDirectories, clearAdditionalContextDirectories),
             "delete" => DeleteProject(identifier),
-            _ => InvalidAction("projects", action)
+            _ => InvalidAction(Loc.FeatureManager_ResourceProjects, action)
         };
     }
 
@@ -74,7 +75,7 @@ public sealed class LumiFeatureManager
             "update" => UpdateSkill(identifier, name, description, content, iconGlyph, updateMode, editOldString, editNewString),
             "import" => ImportSkill(identifier),
             "delete" => DeleteSkill(identifier),
-            _ => InvalidAction("skills", action)
+            _ => InvalidAction(Loc.FeatureManager_ResourceSkills, action)
         };
     }
 
@@ -96,7 +97,7 @@ public sealed class LumiFeatureManager
             "create" => CreateLumi(name, description, systemPrompt, iconGlyph, skillIdentifiers, toolNames, mcpServerIdentifiers),
             "update" => UpdateLumi(identifier, name, description, systemPrompt, iconGlyph, skillIdentifiers, toolNames, mcpServerIdentifiers),
             "delete" => DeleteLumi(identifier),
-            _ => InvalidAction("Lumis", action)
+            _ => InvalidAction(Loc.FeatureManager_ResourceAgents, action)
         };
     }
 
@@ -123,7 +124,7 @@ public sealed class LumiFeatureManager
             "create" => CreateMcp(name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, isEnabled),
             "update" => UpdateMcp(identifier, name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, clearTimeout, isEnabled),
             "delete" => DeleteMcp(identifier),
-            _ => InvalidAction("MCP servers", action)
+            _ => InvalidAction(Loc.FeatureManager_ResourceConnectors, action)
         };
     }
 
@@ -141,7 +142,7 @@ public sealed class LumiFeatureManager
             "create" => CreateMemory(key, content, category),
             "update" => UpdateMemory(identifier, key, content, category),
             "delete" => DeleteMemory(identifier),
-            _ => InvalidAction("memories", action)
+            _ => InvalidAction(Loc.FeatureManager_ResourceMemories, action)
         };
     }
 
@@ -185,7 +186,7 @@ public sealed class LumiFeatureManager
             "pause" or "disable" => SetJobEnabled(identifier, enabled: false),
             "resume" or "enable" => SetJobEnabled(identifier, enabled: true),
             "run" or "run_now" or "run-now" => RunJobSoon(identifier),
-            _ => InvalidAction("background jobs", action)
+            _ => InvalidAction(Loc.FeatureManager_ResourceJobs, action)
         };
 
         // Keep the next prompt's background-job inventory current without changing session lifecycle.
@@ -219,12 +220,12 @@ public sealed class LumiFeatureManager
         var normalizedName = NormalizeOrNull(name);
         var normalizedPrompt = NormalizeOrNull(prompt);
         if (normalizedName is null)
-            return Failure("Background job name is required.");
+            return Failure(Loc.FeatureManager_JobNameRequired);
         if (normalizedPrompt is null)
-            return Failure("Background job prompt/instructions are required.");
+            return Failure(Loc.FeatureManager_JobPromptRequired);
         var jobs = _dataStore.SnapshotBackgroundJobs();
         if (HasConflictingLabel(jobs, normalizedName, static job => job.Name, static job => job.Id))
-            return Failure($"A background job named \"{normalizedName}\" already exists.");
+            return Failure(Loc.Get("FeatureManager_JobDuplicateName", normalizedName));
 
         var chatLookup = ResolveChat(chatIdentifier, defaultChatId);
         if (!chatLookup.Success)
@@ -239,15 +240,15 @@ public sealed class LumiFeatureManager
         {
             var sourceChatLookup = ResolveChat(sourceChatIdentifier, defaultChatId: null);
             if (!sourceChatLookup.Success)
-                return Failure($"Source {sourceChatLookup.Error}");
+                return Failure(Loc.Get("FeatureManager_SourceError", sourceChatLookup.Error!));
             if (sourceChatLookup.Item!.Id == chatLookup.Item!.Id)
-                return Failure("A chat-event job must observe a different chat than the chat it wakes.");
+                return Failure(Loc.FeatureManager_JobDifferentChatRequired);
             if (BackgroundJobSchedule.WouldCreateChatEventCycle(
                     jobs,
                     sourceChatLookup.Item.Id,
                     chatLookup.Item.Id))
             {
-                return Failure("This chat-event subscription would create a trigger cycle between chats.");
+                return Failure(Loc.FeatureManager_JobTriggerCycle);
             }
             if (!ChatLifecycleEventTypes.TryNormalize(
                     chatEventTypes,
@@ -297,7 +298,7 @@ public sealed class LumiFeatureManager
             : null;
 
         _dataStore.AddBackgroundJob(job);
-        return Success($"Background job created.\n{DescribeJob(job)}");
+        return Success(Loc.Get("FeatureManager_JobCreated", DescribeJob(job)));
     }
 
     private FeatureChangeResult UpdateJob(
@@ -328,7 +329,7 @@ public sealed class LumiFeatureManager
             identifier,
             static job => job.Id,
             static job => job.Name,
-            "background job");
+            Loc.FeatureManager_EntityJob);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -338,7 +339,7 @@ public sealed class LumiFeatureManager
             && scriptContent is null && scriptLanguage is null
             && isTemporary is null && isEnabled is null && runNow is null
             && sourceChatIdentifier is null && chatEventTypes is null)
-            return Failure("No background job changes were provided.");
+            return Failure(Loc.FeatureManager_JobNoChanges);
 
         var job = lookup.Item!;
         lock (job.SyncRoot)
@@ -361,7 +362,7 @@ public sealed class LumiFeatureManager
             {
                 var sourceChatLookup = ResolveChat(sourceChatIdentifier, defaultChatId: null);
                 if (!sourceChatLookup.Success)
-                    return Failure($"Source {sourceChatLookup.Error}");
+                    return Failure(Loc.Get("FeatureManager_SourceError", sourceChatLookup.Error!));
                 proposedSourceChatId = sourceChatLookup.Item!.Id;
             }
 
@@ -369,16 +370,16 @@ public sealed class LumiFeatureManager
             if (proposedTriggerType == BackgroundJobTriggerTypes.ChatEvent)
             {
                 if (proposedSourceChatId is null)
-                    return Failure("Chat-event background jobs require sourceChatIdentifier.");
+                    return Failure(Loc.FeatureManager_JobSourceRequired);
                 if (proposedSourceChatId == proposedTargetChatId)
-                    return Failure("A chat-event job must observe a different chat than the chat it wakes.");
+                    return Failure(Loc.FeatureManager_JobDifferentChatRequired);
                 if (BackgroundJobSchedule.WouldCreateChatEventCycle(
                         _dataStore.SnapshotBackgroundJobs(),
                         proposedSourceChatId.Value,
                         proposedTargetChatId,
                         excludedJobId: job.Id))
                 {
-                    return Failure("This chat-event subscription would create a trigger cycle between chats.");
+                    return Failure(Loc.FeatureManager_JobTriggerCycle);
                 }
                 if (!ChatLifecycleEventTypes.TryNormalize(
                         chatEventTypes is null ? proposedChatEventTypes : chatEventTypes,
@@ -399,9 +400,9 @@ public sealed class LumiFeatureManager
             {
                 var normalizedName = NormalizeOrNull(name);
                 if (normalizedName is null)
-                    return Failure("Background job name cannot be empty.");
+                    return Failure(Loc.FeatureManager_JobNameEmpty);
                 if (HasConflictingLabel(_dataStore.SnapshotBackgroundJobs(), normalizedName, static item => item.Name, static item => item.Id, job.Id))
-                    return Failure($"A background job named \"{normalizedName}\" already exists.");
+                    return Failure(Loc.Get("FeatureManager_JobDuplicateName", normalizedName));
                 candidate.Name = normalizedName;
             }
 
@@ -412,7 +413,7 @@ public sealed class LumiFeatureManager
             {
                 var normalizedPrompt = NormalizeOrNull(prompt);
                 if (normalizedPrompt is null)
-                    return Failure("Background job prompt cannot be empty.");
+                    return Failure(Loc.FeatureManager_JobPromptEmpty);
                 candidate.Prompt = normalizedPrompt;
             }
 
@@ -462,7 +463,7 @@ public sealed class LumiFeatureManager
 
         _dataStore.MarkBackgroundJobsChanged();
 
-        return Success($"Background job updated.\n{DescribeJob(job)}");
+        return Success(Loc.Get("FeatureManager_JobUpdated", DescribeJob(job)));
     }
 
     private static BackgroundJob CreateJobUpdateCandidate(BackgroundJob source)
@@ -530,7 +531,7 @@ public sealed class LumiFeatureManager
         {
             if (string.IsNullOrWhiteSpace(job.ScriptContent))
             {
-                error = "Script background jobs require scriptContent.";
+                error = Loc.FeatureManager_JobScriptRequired;
                 return false;
             }
 
@@ -541,13 +542,13 @@ public sealed class LumiFeatureManager
         {
             if (job.SourceChatId is null)
             {
-                error = "Chat-event background jobs require sourceChatIdentifier.";
+                error = Loc.FeatureManager_JobSourceRequired;
                 return false;
             }
 
             if (job.SourceChatId == job.ChatId)
             {
-                error = "A chat-event job must observe a different chat than the chat it wakes.";
+                error = Loc.FeatureManager_JobDifferentChatRequired;
                 return false;
             }
 
@@ -583,7 +584,7 @@ public sealed class LumiFeatureManager
         if (scheduleType == BackgroundJobScheduleTypes.Monthly
             && (job.MonthlyDay < 1 || job.MonthlyDay > 31))
         {
-            error = "Monthly day must be between 1 and 31.";
+            error = Loc.Jobs_ValidationMonthlyDay;
             return false;
         }
 
@@ -604,13 +605,13 @@ public sealed class LumiFeatureManager
             identifier,
             static job => job.Id,
             static job => job.Name,
-            "background job");
+            Loc.FeatureManager_EntityJob);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
         var job = lookup.Item!;
         _dataStore.RemoveBackgroundJob(job);
-        return Success($"Background job deleted: {job.Name}.");
+        return Success(Loc.Get("FeatureManager_JobDeleted", job.Name));
     }
 
     private FeatureChangeResult SetJobEnabled(string? identifier, bool enabled)
@@ -620,7 +621,7 @@ public sealed class LumiFeatureManager
             identifier,
             static job => job.Id,
             static job => job.Name,
-            "background job");
+            Loc.FeatureManager_EntityJob);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -634,7 +635,7 @@ public sealed class LumiFeatureManager
                 job.ChatId,
                 excludedJobId: job.Id))
         {
-            return Failure("This chat-event subscription would create a trigger cycle between chats.");
+            return Failure(Loc.FeatureManager_JobTriggerCycle);
         }
 
         lock (job.SyncRoot)
@@ -646,7 +647,9 @@ public sealed class LumiFeatureManager
         }
 
         _dataStore.MarkBackgroundJobsChanged();
-        return Success(enabled ? $"Background job resumed.\n{DescribeJob(job)}" : $"Background job paused.\n{DescribeJob(job)}");
+        return Success(Loc.Get(
+            enabled ? "FeatureManager_JobResumed" : "FeatureManager_JobPaused",
+            DescribeJob(job)));
     }
 
     private FeatureChangeResult RunJobSoon(string? identifier)
@@ -656,7 +659,7 @@ public sealed class LumiFeatureManager
             identifier,
             static job => job.Id,
             static job => job.Name,
-            "background job");
+            Loc.FeatureManager_EntityJob);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -670,7 +673,7 @@ public sealed class LumiFeatureManager
         }
 
         _dataStore.MarkBackgroundJobsChanged();
-        return Success($"Background job queued to run now.\n{DescribeJob(job)}");
+        return Success(Loc.Get("FeatureManager_JobQueued", DescribeJob(job)));
     }
 
     private string ListJobs(string? query)
@@ -691,9 +694,11 @@ public sealed class LumiFeatureManager
             .ToList();
 
         if (jobs.Count == 0)
-            return string.IsNullOrWhiteSpace(query) ? "No background jobs found." : $"No background jobs matched \"{query}\".";
+            return string.IsNullOrWhiteSpace(query)
+                ? Loc.FeatureManager_JobsNone
+                : Loc.Get("FeatureManager_JobsNoMatch", query);
 
-        return "Background jobs:\n" + string.Join("\n", jobs.Select(DescribeJob));
+        return Loc.Get("FeatureManager_JobsList", string.Join("\n", jobs.Select(DescribeJob)));
     }
 
     private FeatureChangeResult CreateProject(
@@ -704,9 +709,9 @@ public sealed class LumiFeatureManager
     {
         var normalizedName = NormalizeOrNull(name);
         if (normalizedName is null)
-            return Failure("Project name is required.");
+            return Failure(Loc.FeatureManager_ProjectNameRequired);
         if (HasConflictingLabel(_dataStore.Data.Projects, normalizedName, static project => project.Name, static project => project.Id))
-            return Failure($"A project named \"{normalizedName}\" already exists.");
+            return Failure(Loc.Get("FeatureManager_ProjectDuplicateName", normalizedName));
 
         var project = new Project
         {
@@ -717,7 +722,7 @@ public sealed class LumiFeatureManager
         };
 
         _dataStore.Data.Projects.Add(project);
-        return Success($"Project created: {project.Name}.");
+        return Success(Loc.Get("FeatureManager_ProjectCreated", project.Name));
     }
 
     private FeatureChangeResult UpdateProject(
@@ -734,7 +739,7 @@ public sealed class LumiFeatureManager
             identifier,
             static project => project.Id,
             static project => project.Name,
-            "project");
+            Loc.FeatureManager_EntityProject);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -745,15 +750,15 @@ public sealed class LumiFeatureManager
             && clearWorkingDirectory != true
             && additionalContextDirectories is null
             && clearAdditionalContextDirectories != true)
-            return Failure("No project changes were provided.");
+            return Failure(Loc.FeatureManager_ProjectNoChanges);
 
         if (name is not null)
         {
             var normalizedName = NormalizeOrNull(name);
             if (normalizedName is null)
-                return Failure("Project name cannot be empty.");
+                return Failure(Loc.FeatureManager_ProjectNameEmpty);
             if (HasConflictingLabel(_dataStore.Data.Projects, normalizedName, static item => item.Name, static item => item.Id, project.Id))
-                return Failure($"A project named \"{normalizedName}\" already exists.");
+                return Failure(Loc.Get("FeatureManager_ProjectDuplicateName", normalizedName));
             project.Name = normalizedName;
         }
 
@@ -770,7 +775,7 @@ public sealed class LumiFeatureManager
         else if (additionalContextDirectories is not null)
             project.AdditionalContextDirectories = ProjectContextDirectoryHelper.NormalizeFolderList(additionalContextDirectories);
 
-        return Success($"Project updated.\n{DescribeProject(project)}");
+        return Success(Loc.Get("FeatureManager_ProjectUpdated", DescribeProject(project)));
     }
 
     private FeatureChangeResult DeleteProject(string? identifier)
@@ -780,7 +785,7 @@ public sealed class LumiFeatureManager
             identifier,
             static project => project.Id,
             static project => project.Name,
-            "project");
+            Loc.FeatureManager_EntityProject);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -794,7 +799,7 @@ public sealed class LumiFeatureManager
         }
 
         _dataStore.Data.Projects.Remove(project);
-        return Success($"Project deleted: {project.Name}. Unassigned {affectedChats} chat(s).");
+        return Success(Loc.Get("FeatureManager_ProjectDeleted", project.Name, affectedChats));
     }
 
     private string ListProjects(string? query)
@@ -810,9 +815,11 @@ public sealed class LumiFeatureManager
             .ToList();
 
         if (projects.Count == 0)
-            return string.IsNullOrWhiteSpace(query) ? "No Lumi projects found." : $"No Lumi projects matched \"{query}\".";
+            return string.IsNullOrWhiteSpace(query)
+                ? Loc.FeatureManager_ProjectsNone
+                : Loc.Get("FeatureManager_ProjectsNoMatch", query);
 
-        return "Projects:\n" + string.Join("\n", projects.Select(DescribeProject));
+        return Loc.Get("FeatureManager_ProjectsList", string.Join("\n", projects.Select(DescribeProject)));
     }
 
     private const int SkillOversizeWarningBytes = 12_288; // 12 KB
@@ -821,22 +828,22 @@ public sealed class LumiFeatureManager
     {
         var mode = NormalizeUpdateMode(updateMode);
         if (mode is null)
-            return Failure($"Unknown updateMode \"{updateMode}\". Use replace, patch, append, prepend, or replaceSection.");
+            return Failure(Loc.Get("FeatureManager_UpdateModeUnknown", updateMode!));
         if (mode != "replace")
-            return Failure($"updateMode '{mode}' requires an existing skill. Create the skill with full content first, then edit it.");
+            return Failure(Loc.Get("FeatureManager_UpdateModeRequiresSkill", mode));
 
         var normalizedName = NormalizeOrNull(name);
         var normalizedContent = NormalizeOrNull(content);
         if (normalizedName is null)
-            return Failure("Skill name is required.");
+            return Failure(Loc.FeatureManager_SkillNameRequired);
         if (normalizedContent is null)
-            return Failure("Skill content is required.");
+            return Failure(Loc.FeatureManager_SkillContentRequired);
         if (HasConflictingLabel(_dataStore.Data.Skills, normalizedName, static skill => skill.Name, static skill => skill.Id))
-            return Failure($"A skill named \"{normalizedName}\" already exists.");
+            return Failure(Loc.Get("FeatureManager_SkillDuplicateName", normalizedName));
         if (ValidateSkillMirrorScalars(normalizedName, NormalizeOrNull(description)) is { } scalarError)
             return Failure(scalarError);
         if (_dataStore.SkillFileNameConflicts(normalizedName))
-            return Failure($"Skill name \"{normalizedName}\" maps to the same mirror file as an existing skill. Choose a more distinct name.");
+            return Failure(Loc.Get("FeatureManager_SkillMirrorConflict", normalizedName));
 
         var skill = new Skill
         {
@@ -847,7 +854,7 @@ public sealed class LumiFeatureManager
         };
 
         _dataStore.Data.Skills.Add(skill);
-        return SkillSuccess(skill, "Skill created.");
+        return SkillSuccess(skill, Loc.FeatureManager_SkillCreated);
     }
 
     private FeatureChangeResult UpdateSkill(
@@ -865,7 +872,7 @@ public sealed class LumiFeatureManager
             identifier,
             static skill => skill.Id,
             static skill => skill.Name,
-            "skill");
+            Loc.FeatureManager_EntitySkill);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -873,12 +880,12 @@ public sealed class LumiFeatureManager
 
         var mode = NormalizeUpdateMode(updateMode);
         if (mode is null)
-            return Failure($"Unknown updateMode \"{updateMode}\". Use replace, patch, append, prepend, or replaceSection.");
+            return Failure(Loc.Get("FeatureManager_UpdateModeUnknown", updateMode!));
 
         var contentEditRequested = mode != "replace" || content is not null;
         var metadataChange = name is not null || description is not null || iconGlyph is not null;
         if (!contentEditRequested && !metadataChange)
-            return Failure("No skill changes were provided.");
+            return Failure(Loc.FeatureManager_SkillNoChanges);
 
         // Stage and validate every requested change before mutating the skill, so a failed
         // content edit can never leave a half-applied rename or metadata change behind.
@@ -887,11 +894,11 @@ public sealed class LumiFeatureManager
         {
             stagedName = NormalizeOrNull(name);
             if (stagedName is null)
-                return Failure("Skill name cannot be empty.");
+                return Failure(Loc.FeatureManager_SkillNameEmpty);
             if (HasConflictingLabel(_dataStore.Data.Skills, stagedName, static item => item.Name, static item => item.Id, skill.Id))
-                return Failure($"A skill named \"{stagedName}\" already exists.");
+                return Failure(Loc.Get("FeatureManager_SkillDuplicateName", stagedName));
             if (_dataStore.SkillFileNameConflicts(stagedName, skill.Id))
-                return Failure($"Skill name \"{stagedName}\" maps to the same mirror file as an existing skill. Choose a more distinct name.");
+                return Failure(Loc.Get("FeatureManager_SkillMirrorConflict", stagedName));
         }
 
         var stagedDescription = description is not null ? NormalizeOrNull(description) ?? "" : null;
@@ -905,7 +912,7 @@ public sealed class LumiFeatureManager
             if (!ok)
                 return Failure(error!);
             if (string.IsNullOrWhiteSpace(newContent))
-                return Failure("Skill content cannot be empty.");
+                return Failure(Loc.FeatureManager_SkillContentEmpty);
             stagedContent = newContent;
         }
 
@@ -925,7 +932,7 @@ public sealed class LumiFeatureManager
         if (stagedContent is not null)
             skill.Content = stagedContent;
 
-        return SkillSuccess(skill, "Skill updated.");
+        return SkillSuccess(skill, Loc.FeatureManager_SkillUpdated);
     }
 
     private FeatureChangeResult ImportSkill(string? identifier)
@@ -935,14 +942,14 @@ public sealed class LumiFeatureManager
             identifier,
             static skill => skill.Id,
             static skill => skill.Name,
-            "skill");
+            Loc.FeatureManager_EntitySkill);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
         var skill = lookup.Item!;
         var path = _dataStore.GetSkillFilePath(skill.Name);
         if (!File.Exists(path))
-            return Failure($"Skill file not found on disk: {path}. Nothing to import.");
+            return Failure(Loc.Get("FeatureManager_SkillFileNotFound", path));
 
         string raw;
         try
@@ -951,29 +958,29 @@ public sealed class LumiFeatureManager
         }
         catch (IOException ex)
         {
-            return Failure($"Failed to read skill file: {ex.Message}");
+            return Failure(Loc.Get("FeatureManager_SkillReadFailed", ex.Message));
         }
 
         var (ok, importedName, importedDescription, body, error) = ParseSkillMarkdown(raw);
         if (!ok)
             return Failure(error!);
         if (string.IsNullOrWhiteSpace(body))
-            return Failure("Imported skill body is empty.");
+            return Failure(Loc.FeatureManager_SkillImportBodyEmpty);
 
         var newName = NormalizeOrNull(importedName);
         if (newName is null)
-            return Failure("Imported skill name cannot be empty.");
+            return Failure(Loc.FeatureManager_SkillImportNameEmpty);
         var newDescription = NormalizeOrNull(importedDescription) ?? "";
 
         if (!string.Equals(newName, skill.Name, StringComparison.Ordinal)
             && HasConflictingLabel(_dataStore.Data.Skills, newName, static item => item.Name, static item => item.Id, skill.Id))
         {
-            return Failure($"A skill named \"{newName}\" already exists.");
+            return Failure(Loc.Get("FeatureManager_SkillDuplicateName", newName));
         }
         if (ValidateSkillMirrorScalars(newName, newDescription) is { } importScalarError)
             return Failure(importScalarError);
         if (_dataStore.SkillFileNameConflicts(newName, skill.Id))
-            return Failure($"Imported skill name \"{newName}\" maps to the same mirror file as an existing skill.");
+            return Failure(Loc.Get("FeatureManager_SkillImportMirrorConflict", newName));
 
         // Back up before mutating anything, so a backup failure leaves the skill untouched.
         if (TryBackupSkillContent(skill, body!) is { } importBackupError)
@@ -982,7 +989,7 @@ public sealed class LumiFeatureManager
         skill.Name = newName;
         skill.Description = newDescription;
         skill.Content = body!;
-        return SkillSuccess(skill, $"Skill imported from {Path.GetFileName(path)}.");
+        return SkillSuccess(skill, Loc.Get("FeatureManager_SkillImported", Path.GetFileName(path)));
     }
 
     /// <summary>Backs up the skill's current content before it is overwritten. Returns an error
@@ -1000,11 +1007,11 @@ public sealed class LumiFeatureManager
         }
         catch (IOException ex)
         {
-            return $"Failed to back up existing skill content, so no changes were made: {ex.Message}";
+            return Loc.Get("FeatureManager_SkillBackupFailed", ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
-            return $"Failed to back up existing skill content, so no changes were made: {ex.Message}";
+            return Loc.Get("FeatureManager_SkillBackupFailed", ex.Message);
         }
     }
 
@@ -1013,9 +1020,9 @@ public sealed class LumiFeatureManager
     private static string? ValidateSkillMirrorScalars(string? name, string? description)
     {
         if (name is not null && IsMirrorUnsafeScalar(name))
-            return "Skill name cannot contain line breaks or start with a frontmatter delimiter (---).";
+            return Loc.FeatureManager_SkillNameInvalidScalar;
         if (description is not null && IsMirrorUnsafeScalar(description))
-            return "Skill description cannot contain line breaks or start with a frontmatter delimiter (---).";
+            return Loc.FeatureManager_SkillDescriptionInvalidScalar;
         return null;
     }
 
@@ -1031,9 +1038,9 @@ public sealed class LumiFeatureManager
 
         var message = new StringBuilder();
         message.Append(headline).Append('\n').Append(DescribeSkill(skill));
-        message.Append($"\nVerified {bytes} bytes saved (sha256:{hash}).");
+        message.Append(Loc.Get("FeatureManager_SkillVerified", bytes, hash));
         if (bytes > SkillOversizeWarningBytes)
-            message.Append($"\n⚠ Skill is {FormatKb(bytes)}; the model may not load the full body — consider compressing.");
+            message.Append(Loc.Get("FeatureManager_SkillSizeWarning", FormatKb(bytes)));
 
         return Success(message.ToString(), syncSkillFiles: true, skillContentBytes: bytes, skillContentHash: hash)
             with { SkillIds = [skill.Id] };
@@ -1051,36 +1058,36 @@ public sealed class LumiFeatureManager
             case "replace":
                 var normalized = NormalizeOrNull(content);
                 return normalized is null
-                    ? (false, null, "Skill content cannot be empty.")
+                    ? (false, null, Loc.FeatureManager_SkillContentEmpty)
                     : (true, normalized, null);
             case "patch":
                 return ApplyPatch(currentContent, editOldString, editNewString);
             case "append":
                 return string.IsNullOrEmpty(editNewString)
-                    ? (false, null, "editNewString is required for updateMode 'append'.")
+                    ? (false, null, Loc.Get("FeatureManager_EditNewStringRequired", "append"))
                     : (true, currentContent + "\n" + editNewString, null);
             case "prepend":
                 return string.IsNullOrEmpty(editNewString)
-                    ? (false, null, "editNewString is required for updateMode 'prepend'.")
+                    ? (false, null, Loc.Get("FeatureManager_EditNewStringRequired", "prepend"))
                     : (true, editNewString + "\n" + currentContent, null);
             case "replacesection":
                 return ApplyReplaceSection(currentContent, editOldString, editNewString);
             default:
-                return (false, null, $"Unsupported updateMode '{mode}'.");
+                return (false, null, Loc.Get("FeatureManager_UpdateModeUnsupported", mode));
         }
     }
 
     private static (bool Ok, string? Content, string? Error) ApplyPatch(string content, string? editOldString, string? editNewString)
     {
         if (string.IsNullOrEmpty(editOldString))
-            return (false, null, "editOldString is required for updateMode 'patch'.");
+            return (false, null, Loc.FeatureManager_PatchOldStringRequired);
 
         var replacement = editNewString ?? "";
         var count = CountOccurrences(content, editOldString);
         if (count == 0)
-            return (false, null, "Patch failed: old string not found in the skill content.");
+            return (false, null, Loc.FeatureManager_PatchNotFound);
         if (count > 1)
-            return (false, null, $"Patch failed: old string matched {count} times; add more surrounding context to make it unique.");
+            return (false, null, Loc.Get("FeatureManager_PatchAmbiguous", count));
 
         var idx = content.IndexOf(editOldString, StringComparison.Ordinal);
         var result = string.Concat(content.AsSpan(0, idx), replacement, content.AsSpan(idx + editOldString.Length));
@@ -1091,11 +1098,11 @@ public sealed class LumiFeatureManager
     {
         var heading = NormalizeOrNull(headingLine);
         if (heading is null)
-            return (false, null, "editOldString (the section heading, e.g. \"## Deliver via M365\") is required for updateMode 'replaceSection'.");
+            return (false, null, Loc.FeatureManager_SectionHeadingRequired);
 
         var level = HeadingLevel(heading);
         if (level <= 0)
-            return (false, null, $"editOldString \"{heading}\" is not a markdown heading (it must start with '#').");
+            return (false, null, Loc.Get("FeatureManager_SectionHeadingInvalid", heading));
 
         var lines = content.Split('\n');
         var inCode = ComputeFencedCodeMask(lines);
@@ -1113,9 +1120,9 @@ public sealed class LumiFeatureManager
             }
         }
         if (start < 0)
-            return (false, null, $"Section heading not found: \"{heading}\".");
+            return (false, null, Loc.Get("FeatureManager_SectionHeadingNotFound", heading));
         if (matches > 1)
-            return (false, null, $"Section heading \"{heading}\" matched {matches} times; duplicate headings are ambiguous — make the heading unique before using replaceSection.");
+            return (false, null, Loc.Get("FeatureManager_SectionHeadingAmbiguous", heading, matches));
 
         var end = lines.Length;
         for (var j = start + 1; j < lines.Length; j++)
@@ -1225,11 +1232,11 @@ public sealed class LumiFeatureManager
     private static (bool Ok, string? Name, string? Description, string? Body, string? Error) ParseSkillMarkdown(string raw)
     {
         if (string.IsNullOrEmpty(raw))
-            return (false, null, null, null, "Malformed frontmatter: file is empty.");
+            return (false, null, null, null, Loc.FeatureManager_FrontmatterEmpty);
 
         var (first, firstNext) = ReadLine(raw, 0);
         if (first.Trim() != "---")
-            return (false, null, null, null, "Malformed frontmatter: file must begin with a '---' line.");
+            return (false, null, null, null, Loc.FeatureManager_FrontmatterOpeningRequired);
 
         var pos = firstNext;
         string? name = null;
@@ -1257,7 +1264,7 @@ public sealed class LumiFeatureManager
             catch (JsonException ex)
             {
                 return (false, null, null, null,
-                    $"Malformed frontmatter: invalid quoted value for '{key}': {ex.Message}");
+                    Loc.Get("FeatureManager_FrontmatterQuotedValueInvalid", key, ex.Message));
             }
             if (key.Equals("name", StringComparison.OrdinalIgnoreCase))
                 name = value;
@@ -1266,9 +1273,9 @@ public sealed class LumiFeatureManager
         }
 
         if (!closed)
-            return (false, null, null, null, "Malformed frontmatter: missing closing '---'.");
+            return (false, null, null, null, Loc.FeatureManager_FrontmatterClosingRequired);
         if (string.IsNullOrWhiteSpace(name))
-            return (false, null, null, null, "Malformed frontmatter: missing 'name'.");
+            return (false, null, null, null, Loc.FeatureManager_FrontmatterNameRequired);
 
         // Skip exactly one blank separator line between frontmatter and body (matches the mirror layout).
         if (pos < raw.Length)
@@ -1324,7 +1331,7 @@ public sealed class LumiFeatureManager
             identifier,
             static skill => skill.Id,
             static skill => skill.Name,
-            "skill");
+            Loc.FeatureManager_EntitySkill);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -1349,7 +1356,7 @@ public sealed class LumiFeatureManager
         _dataStore.Data.Skills.Remove(skill);
         _dataStore.DeleteSkillBundle(skill.Id);
         return Success(
-            $"Skill deleted: {skill.Name}. Removed from {removedFromAgents} Lumi(s) and {removedFromChats} chat(s).",
+            Loc.Get("FeatureManager_SkillDeleted", skill.Name, removedFromAgents, removedFromChats),
             syncSkillFiles: true);
     }
 
@@ -1364,8 +1371,10 @@ public sealed class LumiFeatureManager
             .ToList();
 
         var message = skills.Count == 0
-            ? string.IsNullOrWhiteSpace(query) ? "No Lumi skills found." : $"No Lumi skills matched \"{query}\"."
-            : "Skills:\n" + string.Join("\n", skills.Select(DescribeSkill));
+            ? string.IsNullOrWhiteSpace(query)
+                ? Loc.FeatureManager_SkillsNone
+                : Loc.Get("FeatureManager_SkillsNoMatch", query)
+            : Loc.Get("FeatureManager_SkillsList", string.Join("\n", skills.Select(DescribeSkill)));
         return new FeatureChangeResult(message, SkillIds: skills.Select(skill => skill.Id).ToArray());
     }
 
@@ -1380,9 +1389,9 @@ public sealed class LumiFeatureManager
     {
         var normalizedName = NormalizeOrNull(name);
         if (normalizedName is null)
-            return Failure("Lumi name is required.");
+            return Failure(Loc.FeatureManager_AgentNameRequired);
         if (HasConflictingLabel(_dataStore.Data.Agents, normalizedName, static agent => agent.Name, static agent => agent.Id))
-            return Failure($"A Lumi named \"{normalizedName}\" already exists.");
+            return Failure(Loc.Get("FeatureManager_AgentDuplicateName", normalizedName));
 
         var skillIdsResult = ResolveSkillIds(skillIdentifiers);
         if (!skillIdsResult.Success)
@@ -1406,7 +1415,7 @@ public sealed class LumiFeatureManager
         };
 
         _dataStore.Data.Agents.Add(agent);
-        return Success($"Lumi created.\n{DescribeLumi(agent)}");
+        return Success(Loc.Get("FeatureManager_AgentCreated", DescribeLumi(agent)));
     }
 
     private FeatureChangeResult UpdateLumi(
@@ -1424,22 +1433,22 @@ public sealed class LumiFeatureManager
             identifier,
             static agent => agent.Id,
             static agent => agent.Name,
-            "Lumi");
+            Loc.FeatureManager_EntityAgent);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
         var agent = lookup.Item!;
         if (name is null && description is null && systemPrompt is null && iconGlyph is null
             && skillIdentifiers is null && toolNames is null && mcpServerIdentifiers is null)
-            return Failure("No Lumi changes were provided.");
+            return Failure(Loc.FeatureManager_AgentNoChanges);
 
         if (name is not null)
         {
             var normalizedName = NormalizeOrNull(name);
             if (normalizedName is null)
-                return Failure("Lumi name cannot be empty.");
+                return Failure(Loc.FeatureManager_AgentNameEmpty);
             if (HasConflictingLabel(_dataStore.Data.Agents, normalizedName, static item => item.Name, static item => item.Id, agent.Id))
-                return Failure($"A Lumi named \"{normalizedName}\" already exists.");
+                return Failure(Loc.Get("FeatureManager_AgentDuplicateName", normalizedName));
             agent.Name = normalizedName;
         }
 
@@ -1474,7 +1483,7 @@ public sealed class LumiFeatureManager
             agent.McpServerIds = mcpIdsResult.Items!;
         }
 
-        return Success($"Lumi updated.\n{DescribeLumi(agent)}");
+        return Success(Loc.Get("FeatureManager_AgentUpdated", DescribeLumi(agent)));
     }
 
     private FeatureChangeResult DeleteLumi(string? identifier)
@@ -1484,7 +1493,7 @@ public sealed class LumiFeatureManager
             identifier,
             static agent => agent.Id,
             static agent => agent.Name,
-            "Lumi");
+            Loc.FeatureManager_EntityAgent);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -1498,7 +1507,7 @@ public sealed class LumiFeatureManager
         }
 
         _dataStore.Data.Agents.Remove(agent);
-        return Success($"Lumi deleted: {agent.Name}. Unassigned {affectedChats} chat(s).");
+        return Success(Loc.Get("FeatureManager_AgentDeleted", agent.Name, affectedChats));
     }
 
     private string ListLumis(string? query)
@@ -1513,9 +1522,11 @@ public sealed class LumiFeatureManager
             .ToList();
 
         if (agents.Count == 0)
-            return string.IsNullOrWhiteSpace(query) ? "No Lumi agents found." : $"No Lumi agents matched \"{query}\".";
+            return string.IsNullOrWhiteSpace(query)
+                ? Loc.FeatureManager_AgentsNone
+                : Loc.Get("FeatureManager_AgentsNoMatch", query);
 
-        return "Lumis:\n" + string.Join("\n", agents.Select(DescribeLumi));
+        return Loc.Get("FeatureManager_AgentsList", string.Join("\n", agents.Select(DescribeLumi)));
     }
 
     private FeatureChangeResult CreateMcp(
@@ -1533,28 +1544,28 @@ public sealed class LumiFeatureManager
     {
         var normalizedName = NormalizeOrNull(name);
         if (normalizedName is null)
-            return Failure("MCP server name is required.");
+            return Failure(Loc.FeatureManager_ConnectorNameRequired);
         if (HasConflictingLabel(_dataStore.Data.McpServers, normalizedName, static server => server.Name, static server => server.Id))
-            return Failure($"An MCP server named \"{normalizedName}\" already exists.");
+            return Failure(Loc.Get("FeatureManager_ConnectorDuplicateName", normalizedName));
 
         var normalizedType = serverType is null ? "local" : NormalizeServerType(serverType);
         if (normalizedType is null)
-            return Failure("MCP server type must be \"local\" or \"remote\".");
+            return Failure(Loc.FeatureManager_ConnectorTypeInvalid);
 
         if (!TryParseKeyValueEntries(envEntries, out var env, out var envError))
             return Failure(envError!);
         if (!TryParseKeyValueEntries(headerEntries, out var headers, out var headerError))
             return Failure(headerError!);
         if (timeout is < 0)
-            return Failure("MCP timeout cannot be negative.");
+            return Failure(Loc.FeatureManager_ConnectorTimeoutNegative);
 
         var normalizedCommand = NormalizeOrNull(command);
         var normalizedUrl = NormalizeOrNull(url);
 
         if (normalizedType == "local" && normalizedCommand is null)
-            return Failure("Local MCP servers require a command.");
+            return Failure(Loc.FeatureManager_ConnectorCommandRequired);
         if (normalizedType == "remote" && normalizedUrl is null)
-            return Failure("Remote MCP servers require a URL.");
+            return Failure(Loc.FeatureManager_ConnectorUrlRequired);
 
         var server = new McpServer
         {
@@ -1572,7 +1583,7 @@ public sealed class LumiFeatureManager
         };
 
         _dataStore.Data.McpServers.Add(server);
-        return Success($"MCP server created.\n{DescribeMcp(server)}", mcpCatalogChanged: true);
+        return Success(Loc.Get("FeatureManager_ConnectorCreated", DescribeMcp(server)), mcpCatalogChanged: true);
     }
 
     private FeatureChangeResult UpdateMcp(
@@ -1595,7 +1606,7 @@ public sealed class LumiFeatureManager
             identifier,
             static server => server.Id,
             static server => server.Name,
-            "MCP server");
+            Loc.FeatureManager_EntityConnector);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -1603,42 +1614,42 @@ public sealed class LumiFeatureManager
         if (name is null && description is null && serverType is null && command is null && args is null
             && url is null && envEntries is null && headerEntries is null && toolNames is null
             && timeout is null && clearTimeout != true && isEnabled is null)
-            return Failure("No MCP server changes were provided.");
+            return Failure(Loc.FeatureManager_ConnectorNoChanges);
 
         var previousName = server.Name;
         var previousType = server.ServerType;
         var normalizedType = serverType is null ? server.ServerType : NormalizeServerType(serverType);
         if (serverType is not null && normalizedType is null)
-            return Failure("MCP server type must be \"local\" or \"remote\".");
+            return Failure(Loc.FeatureManager_ConnectorTypeInvalid);
 
         if (!TryParseKeyValueEntries(envEntries, out var env, out var envError))
             return Failure(envError!);
         if (!TryParseKeyValueEntries(headerEntries, out var headers, out var headerError))
             return Failure(headerError!);
-        if (envEntries is not null && !TryKeepSavedValues(env!, server.Env, "Environment variable", out var keepEnvError))
+        if (envEntries is not null && !TryKeepSavedValues(env!, server.Env, Loc.FeatureManager_EnvironmentVariable, out var keepEnvError))
             return Failure(keepEnvError!);
-        if (headerEntries is not null && !TryKeepSavedValues(headers!, server.Headers, "Header", out var keepHeaderError))
+        if (headerEntries is not null && !TryKeepSavedValues(headers!, server.Headers, Loc.FeatureManager_Header, out var keepHeaderError))
             return Failure(keepHeaderError!);
         if (ContainsRedactionMarker(url) || args?.Any(ContainsRedactionMarker) == true)
-            return Failure("An argument or URL contains a placeholder such as <REDACTED>, which would replace the saved value. Leave args or url out to keep them, or ask the user for the real value.");
+            return Failure(Loc.FeatureManager_ConnectorArgumentPlaceholder);
         if (timeout is < 0)
-            return Failure("MCP timeout cannot be negative.");
+            return Failure(Loc.FeatureManager_ConnectorTimeoutNegative);
 
         var normalizedCommand = command is null ? null : NormalizeOrNull(command);
         var normalizedUrl = url is null ? null : NormalizeOrNull(url);
 
         if (normalizedType == "local" && normalizedCommand is null && previousType != "local")
-            return Failure("Switching an MCP server to local requires a command.");
+            return Failure(Loc.FeatureManager_ConnectorSwitchLocalCommandRequired);
         if (normalizedType == "remote" && normalizedUrl is null && previousType != "remote")
-            return Failure("Switching an MCP server to remote requires a URL.");
+            return Failure(Loc.FeatureManager_ConnectorSwitchRemoteUrlRequired);
 
         if (name is not null)
         {
             var normalizedName = NormalizeOrNull(name);
             if (normalizedName is null)
-                return Failure("MCP server name cannot be empty.");
+                return Failure(Loc.FeatureManager_ConnectorNameEmpty);
             if (HasConflictingLabel(_dataStore.Data.McpServers, normalizedName, static item => item.Name, static item => item.Id, server.Id))
-                return Failure($"An MCP server named \"{normalizedName}\" already exists.");
+                return Failure(Loc.Get("FeatureManager_ConnectorDuplicateName", normalizedName));
             server.Name = normalizedName;
         }
 
@@ -1698,7 +1709,7 @@ public sealed class LumiFeatureManager
             RenameMcpInChats(previousName, server.Name);
 
         return Success(
-            $"MCP server updated.\n{DescribeMcp(server)}",
+            Loc.Get("FeatureManager_ConnectorUpdated", DescribeMcp(server)),
             renamedMcpOldName: !string.Equals(previousName, server.Name, StringComparison.Ordinal) ? previousName : null,
             renamedMcpNewName: !string.Equals(previousName, server.Name, StringComparison.Ordinal) ? server.Name : null,
             mcpCatalogChanged: true);
@@ -1711,7 +1722,7 @@ public sealed class LumiFeatureManager
             identifier,
             static server => server.Id,
             static server => server.Name,
-            "MCP server");
+            Loc.FeatureManager_EntityConnector);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
@@ -1727,7 +1738,7 @@ public sealed class LumiFeatureManager
         _dataStore.Data.McpServers.Remove(server);
 
         return Success(
-            $"MCP server deleted: {server.Name}. Removed from {removedFromLumis} Lumi(s) and {removedFromChats} chat(s).",
+            Loc.Get("FeatureManager_ConnectorDeleted", server.Name, removedFromLumis, removedFromChats),
             deletedMcpName: server.Name,
             mcpCatalogChanged: true);
     }
@@ -1745,9 +1756,11 @@ public sealed class LumiFeatureManager
             .ToList();
 
         if (servers.Count == 0)
-            return string.IsNullOrWhiteSpace(query) ? "No MCP servers found." : $"No MCP servers matched \"{query}\".";
+            return string.IsNullOrWhiteSpace(query)
+                ? Loc.FeatureManager_ConnectorsNone
+                : Loc.Get("FeatureManager_ConnectorsNoMatch", query);
 
-        return "MCP servers:\n" + string.Join("\n", servers.Select(DescribeMcp));
+        return Loc.Get("FeatureManager_ConnectorsList", string.Join("\n", servers.Select(DescribeMcp)));
     }
 
     private FeatureChangeResult CreateMemory(string? key, string? content, string? category)
@@ -1755,11 +1768,11 @@ public sealed class LumiFeatureManager
         var normalizedKey = NormalizeOrNull(key);
         var normalizedContent = NormalizeOrNull(content);
         if (normalizedKey is null)
-            return Failure("Memory key is required.");
+            return Failure(Loc.FeatureManager_MemoryKeyRequired);
         if (normalizedContent is null)
-            return Failure("Memory content is required.");
+            return Failure(Loc.FeatureManager_MemoryContentRequired);
         if (_dataStore.Data.Memories.Any(m => string.Equals(m.Key, normalizedKey, StringComparison.OrdinalIgnoreCase)))
-            return Failure($"A memory with the key \"{normalizedKey}\" already exists. Use update instead.");
+            return Failure(Loc.Get("FeatureManager_MemoryDuplicateKeyUseUpdate", normalizedKey));
 
         var memory = new Memory
         {
@@ -1772,7 +1785,7 @@ public sealed class LumiFeatureManager
         };
 
         _dataStore.Data.Memories.Add(memory);
-        return Success($"Memory created.\n{DescribeMemory(memory)}");
+        return Success(Loc.Get("FeatureManager_MemoryCreated", DescribeMemory(memory)));
     }
 
     private FeatureChangeResult UpdateMemory(string? identifier, string? key, string? content, string? category)
@@ -1782,22 +1795,22 @@ public sealed class LumiFeatureManager
             identifier,
             static memory => memory.Id,
             static memory => memory.Key,
-            "memory");
+            Loc.FeatureManager_EntityMemory);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
         var memory = lookup.Item!;
         if (key is null && content is null && category is null)
-            return Failure("No memory changes were provided.");
+            return Failure(Loc.FeatureManager_MemoryNoChanges);
 
         if (key is not null)
         {
             var normalizedKey = NormalizeOrNull(key);
             if (normalizedKey is null)
-                return Failure("Memory key cannot be empty.");
+                return Failure(Loc.FeatureManager_MemoryKeyEmpty);
             if (_dataStore.Data.Memories.Any(m =>
                     m.Id != memory.Id && string.Equals(m.Key, normalizedKey, StringComparison.OrdinalIgnoreCase)))
-                return Failure($"A memory with the key \"{normalizedKey}\" already exists.");
+                return Failure(Loc.Get("FeatureManager_MemoryDuplicateKey", normalizedKey));
             memory.Key = normalizedKey;
         }
 
@@ -1805,7 +1818,7 @@ public sealed class LumiFeatureManager
         {
             var normalizedContent = NormalizeOrNull(content);
             if (normalizedContent is null)
-                return Failure("Memory content cannot be empty.");
+                return Failure(Loc.FeatureManager_MemoryContentEmpty);
             memory.Content = normalizedContent;
         }
 
@@ -1814,7 +1827,7 @@ public sealed class LumiFeatureManager
 
         memory.Source = MemorySources.AfterUserEdit(memory.Source);
         memory.UpdatedAt = DateTimeOffset.Now;
-        return Success($"Memory updated.\n{DescribeMemory(memory)}");
+        return Success(Loc.Get("FeatureManager_MemoryUpdated", DescribeMemory(memory)));
     }
 
     private FeatureChangeResult DeleteMemory(string? identifier)
@@ -1824,13 +1837,13 @@ public sealed class LumiFeatureManager
             identifier,
             static memory => memory.Id,
             static memory => memory.Key,
-            "memory");
+            Loc.FeatureManager_EntityMemory);
         if (!lookup.Success)
             return Failure(lookup.Error!);
 
         var memory = lookup.Item!;
         _dataStore.Data.Memories.Remove(memory);
-        return Success($"Memory deleted: {memory.Key}.");
+        return Success(Loc.Get("FeatureManager_MemoryDeleted", memory.Key));
     }
 
     private string ListMemories(string? query)
@@ -1846,25 +1859,29 @@ public sealed class LumiFeatureManager
             .ToList();
 
         if (memories.Count == 0)
-            return string.IsNullOrWhiteSpace(query) ? "No memories found." : $"No memories matched \"{query}\".";
+            return string.IsNullOrWhiteSpace(query)
+                ? Loc.FeatureManager_MemoriesNone
+                : Loc.Get("FeatureManager_MemoriesNoMatch", query);
 
-        return "Memories:\n" + string.Join("\n", memories.Select(DescribeMemory));
+        return Loc.Get("FeatureManager_MemoriesList", string.Join("\n", memories.Select(DescribeMemory)));
     }
 
     private string DescribeProject(Project project)
     {
         var chatCount = _dataStore.Data.Chats.Count(chat => chat.ProjectId == project.Id);
-        var workingDirectory = project.WorkingDirectory ?? "(none)";
+        var workingDirectory = project.WorkingDirectory ?? Loc.FeatureManager_None;
         var contextDirectories = project.AdditionalContextDirectories.Count == 0
-            ? "(none)"
+            ? Loc.FeatureManager_None
             : string.Join("; ", project.AdditionalContextDirectories);
-        return $"- {project.Id} | {project.Name} | chats: {chatCount} | workdir: {workingDirectory} | context folders: {contextDirectories} | instructions: {Preview(project.Instructions)}";
+        return Loc.Get(
+            "FeatureManager_ProjectSummary",
+            project.Id, project.Name, chatCount, workingDirectory, contextDirectories, Preview(project.Instructions));
     }
 
     private static string DescribeSkill(Skill skill)
     {
-        var builtIn = skill.IsBuiltIn ? "built-in" : "custom";
-        return $"- {skill.Id} | {skill.IconGlyph} {skill.Name} | {builtIn} | {Preview(skill.Description)}";
+        var builtIn = skill.IsBuiltIn ? Loc.FeatureManager_BuiltIn : Loc.FeatureManager_Custom;
+        return $"- {skill.Id} | {skill.IconGlyph} {skill.Name} | {builtIn} | {Preview(skill.DisplayDescription)}";
     }
 
     private string DescribeLumi(LumiAgent agent)
@@ -1872,12 +1889,14 @@ public sealed class LumiFeatureManager
         var linkedSkills = ResolveNames(agent.SkillIds, _dataStore.Data.Skills, static skill => skill.Id, static skill => skill.Name);
         var linkedMcps = ResolveNames(agent.McpServerIds, _dataStore.Data.McpServers, static server => server.Id, static server => server.Name);
         var tools = !agent.HasToolRestrictions
-            ? "all Lumi tools"
+            ? Loc.Capability_AllTools
             : agent.ToolNames.Count == 0
-                ? "no Lumi tools"
+                ? Loc.Capability_NoTools
                 : string.Join(", ", agent.ToolNames);
-        var builtIn = agent.IsBuiltIn ? "built-in" : "custom";
-        return $"- {agent.Id} | {agent.IconGlyph} {agent.Name} | {builtIn} | skills: {linkedSkills} | MCPs: {linkedMcps} | Lumi tools: {tools} | {Preview(agent.Description)}";
+        var builtIn = agent.IsBuiltIn ? Loc.FeatureManager_BuiltIn : Loc.FeatureManager_Custom;
+        return Loc.Get(
+            "FeatureManager_AgentSummary",
+            agent.Id, agent.IconGlyph, agent.Name, builtIn, linkedSkills, linkedMcps, tools, Preview(agent.DisplayDescription));
     }
 
     private static string DescribeMcp(McpServer server)
@@ -1885,27 +1904,39 @@ public sealed class LumiFeatureManager
         var endpoint = server.ServerType == "remote"
             ? server.Url
             : $"{server.Command}{(server.Args.Count > 0 ? $" {string.Join(' ', server.Args)}" : "")}";
-        var tools = server.Tools.Count == 0 ? "all tools" : string.Join(", ", server.Tools);
-        return $"- {server.Id} | {server.Name} | {server.ServerType} | enabled: {server.IsEnabled} | timeout: {server.Timeout?.ToString() ?? "default"} | tools: {tools} | endpoint: {endpoint} | {Preview(server.Description)}";
+        var tools = server.Tools.Count == 0 ? Loc.FeatureManager_AllTools : string.Join(", ", server.Tools);
+        return Loc.Get(
+            "FeatureManager_ConnectorSummary",
+            server.Id, server.Name, server.ServerType, server.IsEnabled,
+            server.Timeout?.ToString() ?? Loc.FeatureManager_Default, tools, endpoint!, Preview(server.Description));
     }
 
     private static string DescribeMemory(Memory memory)
     {
-        return $"- {memory.Id} | {memory.Key} | category: {memory.Category} | updated: {memory.UpdatedAt:yyyy-MM-dd HH:mm} | {Preview(memory.Content)}";
+        return Loc.Get(
+            "FeatureManager_MemorySummary",
+            memory.Id, memory.Key, Loc.GetMemoryCategoryDisplay(memory.Category), memory.UpdatedAt, Preview(memory.Content));
     }
 
     private string DescribeJob(BackgroundJob job)
     {
         lock (job.SyncRoot)
         {
-            var chatTitle = _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.ChatId)?.Title ?? "(missing chat)";
-            var next = job.NextRunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "(none)";
-            var last = job.LastRunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "(never)";
-            var exit = job.LastScriptExitCode.HasValue ? $" | exit: {job.LastScriptExitCode}" : "";
-            var source = job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
-                ? $" | source: {_dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.SourceChatId)?.Title ?? "(missing chat)"}"
+            var chatTitle = _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.ChatId)?.Title ?? Loc.FeatureManager_MissingChat;
+            var next = job.NextRunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? Loc.FeatureManager_None;
+            var last = job.LastRunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? Loc.FeatureManager_Never;
+            var exit = job.LastScriptExitCode.HasValue
+                ? Loc.Get("FeatureManager_JobExit", job.LastScriptExitCode.Value)
                 : "";
-            return $"- {job.Id} | {job.Name} | {(job.IsEnabled ? "enabled" : "paused")} | {BackgroundJobSchedule.Describe(job)} | chat: {chatTitle}{source} | temporary: {job.IsTemporary} | next: {next} | last: {last} | status: {job.LastRunStatus}{exit} | {Preview(job.Description)}";
+            var source = job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
+                ? Loc.Get("FeatureManager_JobSource",
+                    _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.SourceChatId)?.Title ?? Loc.FeatureManager_MissingChat)
+                : "";
+            return Loc.Get(
+                "FeatureManager_JobSummary",
+                job.Id, job.Name, job.IsEnabled ? Loc.FeatureManager_Enabled : Loc.FeatureManager_Paused,
+                BackgroundJobSchedule.Describe(job), chatTitle, source, job.IsTemporary,
+                next, last, job.LastRunStatus, exit, Preview(job.Description));
         }
     }
 
@@ -1916,7 +1947,7 @@ public sealed class LumiFeatureManager
         Func<T, string> getName)
     {
         if (ids.Count == 0)
-            return "(none)";
+            return Loc.FeatureManager_None;
 
         var names = items
             .Where(item => ids.Contains(getId(item)))
@@ -1924,7 +1955,7 @@ public sealed class LumiFeatureManager
             .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return names.Count == 0 ? "(none)" : string.Join(", ", names);
+        return names.Count == 0 ? Loc.FeatureManager_None : string.Join(", ", names);
     }
 
     private static string NormalizeAction(string action)
@@ -1978,7 +2009,7 @@ public sealed class LumiFeatureManager
 
     private static string Preview(string? text, int maxLength = 80)
     {
-        var normalized = NormalizeOrNull(text) ?? "(empty)";
+        var normalized = NormalizeOrNull(text) ?? Loc.FeatureManager_Empty;
         return normalized.Length <= maxLength
             ? normalized
             : normalized[..(maxLength - 1)].TrimEnd() + "…";
@@ -1986,7 +2017,7 @@ public sealed class LumiFeatureManager
 
     private static FeatureChangeResult InvalidAction(string entityName, string? action)
     {
-        return Failure($"Unsupported {entityName} action: {action ?? "(null)"}. Use list, create, update, or delete.");
+        return Failure(Loc.Get("FeatureManager_UnsupportedAction", entityName, action ?? "(null)"));
     }
 
     private static FeatureChangeResult Failure(string message)
@@ -2015,13 +2046,13 @@ public sealed class LumiFeatureManager
     {
         var normalizedIdentifier = NormalizeOrNull(identifier);
         if (normalizedIdentifier is null)
-            return LookupResult<T>.Fail($"{entityName} identifier is required.");
+            return LookupResult<T>.Fail(Loc.Get("FeatureManager_IdentifierRequired", entityName));
 
         if (Guid.TryParse(normalizedIdentifier, out var id))
         {
             var byId = items.FirstOrDefault(item => getId(item) == id);
             return byId is null
-                ? LookupResult<T>.Fail($"{entityName} not found: {normalizedIdentifier}")
+                ? LookupResult<T>.Fail(Loc.Get("FeatureManager_NotFound", entityName, normalizedIdentifier))
                 : LookupResult<T>.Ok(byId);
         }
 
@@ -2031,11 +2062,11 @@ public sealed class LumiFeatureManager
 
         return matches.Count switch
         {
-            0 => LookupResult<T>.Fail($"{entityName} not found: {normalizedIdentifier}"),
+            0 => LookupResult<T>.Fail(Loc.Get("FeatureManager_NotFound", entityName, normalizedIdentifier)),
             1 => LookupResult<T>.Ok(matches[0]),
             _ => LookupResult<T>.Fail(
-                $"Multiple {entityName}s match \"{normalizedIdentifier}\". Use an ID instead.\n"
-                + string.Join("\n", matches.Select(item => $"- {getId(item)} | {getLabel(item)}")))
+                Loc.Get("FeatureManager_AmbiguousIdentifier", entityName, normalizedIdentifier,
+                    string.Join("\n", matches.Select(item => $"- {getId(item)} | {getLabel(item)}"))))
         };
     }
 
@@ -2046,7 +2077,7 @@ public sealed class LumiFeatureManager
             _dataStore.Data.Skills,
             static skill => skill.Id,
             static skill => skill.Name,
-            "skill");
+            Loc.FeatureManager_EntitySkill);
     }
 
     private LookupManyResult ResolveMcpIds(IEnumerable<string>? identifiers)
@@ -2056,7 +2087,7 @@ public sealed class LumiFeatureManager
             _dataStore.Data.McpServers,
             static server => server.Id,
             static server => server.Name,
-            "MCP server");
+            Loc.FeatureManager_EntityConnector);
     }
 
     private LookupResult<Chat> ResolveChat(string? identifier, Guid? defaultChatId)
@@ -2066,7 +2097,7 @@ public sealed class LumiFeatureManager
         {
             var defaultChat = _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == defaultChatId.Value);
             return defaultChat is null
-                ? LookupResult<Chat>.Fail($"chat not found: {defaultChatId.Value}")
+                ? LookupResult<Chat>.Fail(Loc.Get("FeatureManager_NotFound", Loc.FeatureManager_EntityChat, defaultChatId.Value))
                 : LookupResult<Chat>.Ok(defaultChat);
         }
 
@@ -2075,7 +2106,7 @@ public sealed class LumiFeatureManager
             normalizedIdentifier,
             static chat => chat.Id,
             static chat => chat.Title,
-            "chat");
+            Loc.FeatureManager_EntityChat);
     }
 
     private static bool TrySetRunAt(BackgroundJob job, string? runAt, out string? error)
@@ -2103,7 +2134,7 @@ public sealed class LumiFeatureManager
             return true;
         }
 
-        error = $"Could not parse runAt value \"{runAt}\". Use a local date/time like 2026-04-25 08:00.";
+        error = Loc.Get("FeatureManager_RunAtInvalid", runAt);
         return false;
     }
 
@@ -2151,14 +2182,14 @@ public sealed class LumiFeatureManager
                 if (!ContainsRedactionMarker(entries[key]))
                     continue;
 
-                error = $"{kind} \"{key}\" contains a placeholder, which would replace its saved value. Pass {key}=[REDACTED] alone to keep it, or ask the user for the real value.";
+                error = Loc.Get("FeatureManager_PlaceholderWouldReplaceValue", kind, key);
                 return false;
             }
 
             var existing = saved.FirstOrDefault(pair => string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase));
             if (string.IsNullOrEmpty(existing.Value))
             {
-                error = $"{kind} \"{key}\" has no saved value to keep. Ask the user for its value instead of passing a placeholder.";
+                error = Loc.Get("FeatureManager_PlaceholderHasNoSavedValue", kind, key);
                 return false;
             }
 
@@ -2193,7 +2224,7 @@ public sealed class LumiFeatureManager
             var separatorIndex = entry.IndexOf('=');
             if (separatorIndex <= 0)
             {
-                error = $"Invalid key/value entry: \"{entry}\". Use KEY=VALUE format.";
+                error = Loc.Get("FeatureManager_KeyValueFormatInvalid", entry);
                 values = null;
                 return false;
             }
@@ -2202,7 +2233,7 @@ public sealed class LumiFeatureManager
             var value = entry[(separatorIndex + 1)..].Trim();
             if (key.Length == 0)
             {
-                error = $"Invalid key/value entry: \"{entry}\". The key cannot be empty.";
+                error = Loc.Get("FeatureManager_KeyValueKeyEmpty", entry);
                 values = null;
                 return false;
             }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services.Sharing;
@@ -271,17 +272,17 @@ public static class CapabilityPackWriter
             builder.Append(description).Append("\n\n");
         }
 
-        builder.Append("> **Lumi capability pack** · ").Append(DescribeContents(pack)).Append('\n');
+        builder.Append("> **").Append(Loc.Share_PackLabel).Append("** · ").Append(DescribeContents(pack)).Append('\n');
         builder.Append(">\n");
         builder.Append(pack.Prompt is not null
-            ? "> Open **Import** in Lumi to preview this prompt, supply your own inputs and open a new chat draft. Nothing is sent or installed automatically.\n"
-            : "> To add it, open Lumi and choose **Import**, or drop this file onto Lumi. You will see everything inside before anything is added, and nothing runs until you turn it on.\n");
+            ? "> " + Loc.Share_PackPromptInstructions + "\n"
+            : "> " + Loc.Share_PackImportInstructions + "\n");
         var keys = pack.McpServers.SelectMany(static server => server.RequiredKeys).Distinct(StringComparer.Ordinal).ToList();
         if (keys.Count > 0)
         {
             builder.Append(">\n");
-            builder.Append("> 🔒 Secrets were removed before sharing. You will add your own: ")
-                .Append(string.Join(", ", keys.Select(PackText.InlineCode))).Append('\n');
+            builder.Append("> 🔒 ").AppendFormat(Loc.Share_PackSecrets,
+                string.Join(", ", keys.Select(PackText.InlineCode))).Append('\n');
         }
 
         builder.Append('\n');
@@ -294,9 +295,9 @@ public static class CapabilityPackWriter
         {
             if (prose)
             {
-                builder.Append("## Reusable prompt\n\n");
+                builder.Append("## ").Append(Loc.Share_PackReusablePrompt).Append("\n\n");
                 PackText.AppendFence(builder, "text", PromptSharing.ComposeText(prompt));
-                builder.Append("## Portable prompt data\n\n");
+                builder.Append("## ").Append(Loc.Share_PackPromptData).Append("\n\n");
             }
             PackText.AppendFence(builder, "json " + PromptBlockTag, PromptSharing.Write(prompt));
         }
@@ -304,14 +305,14 @@ public static class CapabilityPackWriter
         if (pack.Lumi is { } lumi)
         {
             if (prose)
-                builder.Append("## ").Append(lumi.IconGlyph).Append(' ').Append(PackText.SingleLine(lumi.Name)).Append(" · Lumi\n\n");
+                builder.Append("## ").Append(lumi.IconGlyph).Append(' ').Append(PackText.SingleLine(lumi.Name)).Append(" · ").Append(Loc.App_Name).Append("\n\n");
             PackText.AppendFence(builder, "markdown " + LumiBlockTag, WriteLumiDocument(lumi));
         }
 
         foreach (var skill in pack.Skills)
         {
             if (prose)
-                builder.Append("## ").Append(skill.IconGlyph).Append(' ').Append(PackText.SingleLine(skill.Name)).Append(" · Skill\n\n");
+                builder.Append("## ").Append(skill.IconGlyph).Append(' ').Append(PackText.SingleLine(skill.Name)).Append(" · ").Append(Loc.FieldLabel_Skill).Append("\n\n");
             PackText.AppendFence(builder, "markdown " + SkillBlockTag, WriteSkillMarkdown(skill));
         }
 
@@ -323,13 +324,13 @@ public static class CapabilityPackWriter
                 continue;
             }
 
-            builder.Append("## 🔌 ").Append(PackText.SingleLine(server.Name)).Append(" · MCP server\n\n");
-            builder.Append(server.IsRemote ? "Connects to: " : "Runs on your computer: ")
-                .Append(PackText.InlineCode(server.CommandLine)).Append("\n\n");
+            builder.Append("## 🔌 ").Append(PackText.SingleLine(server.Name)).Append(" · ").Append(Loc.Share_PackMcpServer).Append("\n\n");
+            builder.AppendFormat(server.IsRemote ? Loc.Share_PackConnectsTo : Loc.Share_PackRunsOnComputer,
+                PackText.InlineCode(server.CommandLine)).Append("\n\n");
             if (server.RequiredKeys.Count > 0)
             {
-                builder.Append("Needs: ").Append(string.Join(", ", server.RequiredKeys.Select(PackText.InlineCode)))
-                    .Append(" (not included; add your own)\n\n");
+                builder.AppendFormat(Loc.Share_PackNeeds,
+                    string.Join(", ", server.RequiredKeys.Select(PackText.InlineCode))).Append("\n\n");
             }
 
             PackText.AppendFence(builder, "json " + McpBlockTag, WriteMcpConfig([server]));
@@ -358,13 +359,13 @@ public static class CapabilityPackWriter
     {
         var parts = new List<string>();
         if (pack.Prompt is not null)
-            parts.Add("1 reusable prompt");
+            parts.Add(Loc.Share_PackOnePrompt);
         if (pack.Lumi is not null)
-            parts.Add("1 Lumi");
+            parts.Add(Loc.Share_PackOneLumi);
         if (pack.Skills.Count > 0)
-            parts.Add(pack.Skills.Count == 1 ? "1 skill" : pack.Skills.Count.ToString(CultureInfo.InvariantCulture) + " skills");
+            parts.Add(pack.Skills.Count == 1 ? Loc.Share_PackOneSkill : string.Format(Loc.Share_PackSkills, pack.Skills.Count));
         if (pack.McpServers.Count > 0)
-            parts.Add(pack.McpServers.Count == 1 ? "1 MCP server" : pack.McpServers.Count.ToString(CultureInfo.InvariantCulture) + " MCP servers");
+            parts.Add(pack.McpServers.Count == 1 ? Loc.Share_PackOneServer : string.Format(Loc.Share_PackServers, pack.McpServers.Count));
         return string.Join(" · ", parts);
     }
 

@@ -293,7 +293,7 @@ public partial class ChatViewModel
 
     private string GetUnexpectedAbortMessage()
         => _copilotService.State is ConnectionState.Disconnected or ConnectionState.Error
-            ? "Connection to Copilot was lost."
+            ? Loc.Status_ConnectionLost
             : Loc.Status_CopilotStoppedResponding;
 
     /// <summary>Surfaces an unexpected mid-turn abort as a retryable connection-loss style failure.
@@ -732,7 +732,7 @@ public partial class ChatViewModel
                 PublishTerminalChatLifecycleEventOnce(
                     chat,
                     ChatLifecycleEventTypes.Aborted,
-                    "The recovered chat run aborted unexpectedly.");
+                    Loc.Status_RecoveredRunAborted);
                 return;
             }
 
@@ -742,7 +742,7 @@ public partial class ChatViewModel
             PublishTerminalChatLifecycleEventOnce(
                 chat,
                 ChatLifecycleEventTypes.Aborted,
-                "The recovered chat run was stopped by the user.");
+                Loc.Status_RecoveredRunStopped);
 
             if (CurrentChat?.Id == chat.Id)
             {
@@ -774,7 +774,7 @@ public partial class ChatViewModel
             PublishTerminalChatLifecycleEventOnce(
                 chat,
                 ChatLifecycleEventTypes.Aborted,
-                "The recovered Copilot session shut down before completing.");
+                Loc.Status_RecoveredSessionShutdownIncomplete);
             DetachSessionAfterRemoteShutdown(
                 chat,
                 wasActive: string.Equals(_activeSession?.SessionId, chat.CopilotSessionId, StringComparison.Ordinal));

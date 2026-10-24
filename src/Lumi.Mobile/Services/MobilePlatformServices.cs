@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Input;
 using Avalonia.Platform;
 using Lumi.Mobile.Views;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Services;
 
@@ -282,7 +283,7 @@ internal static class ProducedFileExport
             || !CryptographicOperations.FixedTimeEquals(expectedHash, actualHash))
         {
             throw new IOException(
-                $"The saved file did not match the download ({actualLength} of {expectedLength} bytes).");
+                Strings.Get("SavedFileLengthMismatch", actualLength, expectedLength));
         }
 
         return actualLength;

@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services.EmbeddedApps;
@@ -54,7 +55,7 @@ internal sealed class EmbeddedAppHost : IAsyncDisposable
         else
         {
             if (string.IsNullOrEmpty(launch.Html))
-                throw new InvalidOperationException("The connector did not supply an app interface.");
+                throw new InvalidOperationException(Loc.Apps_InterfaceMissing);
             _resourceCsp = BuildResourceCsp(launch.MetadataJson);
         }
 
@@ -93,7 +94,7 @@ internal sealed class EmbeddedAppHost : IAsyncDisposable
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || uri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(uri.UserInfo))
-            throw new InvalidOperationException("Only HTTP and HTTPS links without embedded credentials are supported.");
+            throw new InvalidOperationException(Loc.Apps_WebLinksOnly);
         return uri;
     }
 
@@ -109,7 +110,7 @@ internal sealed class EmbeddedAppHost : IAsyncDisposable
             if (csp.ValueKind == JsonValueKind.Undefined || !csp.TryGetProperty(name, out var domains))
                 return fallback;
             if (domains.ValueKind != JsonValueKind.Array)
-                throw new FormatException("App CSP domains must be an array.");
+                throw new FormatException(Loc.Apps_CspArrayRequired);
             var sources = new List<string>();
             foreach (var domain in domains.EnumerateArray())
             {
@@ -119,7 +120,7 @@ internal sealed class EmbeddedAppHost : IAsyncDisposable
                     || uri.Scheme is not ("http" or "https" or "ws" or "wss")
                     || !string.IsNullOrEmpty(uri.UserInfo) || uri.AbsolutePath != "/" || !string.IsNullOrEmpty(uri.Query)
                     || !string.IsNullOrEmpty(uri.Fragment))
-                    throw new FormatException("The app requested an invalid CSP domain.");
+                    throw new FormatException(Loc.Apps_CspDomainInvalid);
                 sources.Add(source);
             }
             return sources.Count == 0 ? fallback : string.Join(' ', sources);
@@ -258,19 +259,19 @@ internal sealed class EmbeddedAppHost : IAsyncDisposable
     private async Task DispatchAsync(HttpListenerRequest request, HttpListenerResponse response)
     {
         if (request.ContentLength64 > MaximumRequestBytes)
-            throw new InvalidOperationException("The app request is too large.");
+            throw new InvalidOperationException(Loc.Apps_RequestTooLarge);
         using var buffer = new MemoryStream();
         var bytes = new byte[8192];
         int count;
         while ((count = await request.InputStream.ReadAsync(bytes, _lifetime.Token).ConfigureAwait(false)) > 0)
         {
             if (buffer.Length + count > MaximumRequestBytes)
-                throw new InvalidOperationException("The app request is too large.");
+                throw new InvalidOperationException(Loc.Apps_RequestTooLarge);
             buffer.Write(bytes, 0, count);
         }
         using var document = JsonDocument.Parse(buffer.ToArray());
         var method = document.RootElement.GetProperty("method").GetString()
-            ?? throw new FormatException("The app request has no method.");
+            ?? throw new FormatException(Loc.Apps_RequestMethodMissing);
         var parameters = document.RootElement.TryGetProperty("params", out var supplied) ? supplied : default;
         JsonNode? result = new JsonObject();
         switch (method)
@@ -281,7 +282,7 @@ internal sealed class EmbeddedAppHost : IAsyncDisposable
             case "failed":
                 var message = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("message", out var text)
                     ? text.GetString() : null;
-                Failed?.Invoke(string.IsNullOrWhiteSpace(message) ? "The app stopped loading."
+                Failed?.Invoke(string.IsNullOrWhiteSpace(message) ? Loc.Apps_LoadStopped
                     : message.Length > MaximumFailureChars ? message[..MaximumFailureChars] : message);
                 break;
             default:
@@ -305,16 +306,29 @@ internal sealed class EmbeddedAppHost : IAsyncDisposable
         ["hostContext"] = _hostContext.DeepClone(),
     };
 
-    private static string Page(string content, string script) =>
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
+    private string Page(string content, string script)
+    {
+        var labels = new JsonObject
+        {
+            ["startFailed"] = Loc.Apps_StartFailed,
+            ["loadFailed"] = Loc.Apps_LoadHttpFailed,
+            ["canvasMissing"] = Loc.Apps_CanvasInterfaceMissing,
+            ["interfaceMissing"] = Loc.Apps_InterfaceMissing,
+            ["sandboxFailed"] = Loc.Apps_SandboxStartFailed,
+            ["requestFailed"] = Loc.Apps_BridgeRequestFailed,
+            ["sandboxOrigin"] = Loc.Apps_SandboxOriginInvalid
+        };
+        return $"<!doctype html><html lang=\"{Loc.Culture.Name}\" dir=\"{(Loc.IsRightToLeft ? "rtl" : "ltr")}\"><head>"
+        + $"<title>{WebUtility.HtmlEncode(_launch.Title)}</title><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
         + "<style>:root{color-scheme:light dark}html,body{height:100%;margin:0;background:transparent}"
-        + "iframe{display:block;width:100%;height:100%;border:0}</style></head><body>"
+        + $"iframe{{display:block;width:100%;height:100%;border:0}}</style></head><body data-lumi-labels=\"{WebUtility.HtmlEncode(labels.ToJsonString())}\">"
         + content + "<script type=\"module\" src=\"./" + script + "\"></script></body></html>";
+    }
 
     private static async Task WriteAssetAsync(HttpListenerResponse response, string name)
     {
         await using var asset = typeof(EmbeddedAppHost).Assembly.GetManifestResourceStream("Lumi.Assets.EmbeddedApps." + name)
-            ?? throw new InvalidOperationException("The app viewer's bridge has not been built.");
+            ?? throw new InvalidOperationException(Loc.Apps_BridgeMissing);
         response.ContentType = "text/javascript; charset=utf-8";
         await asset.CopyToAsync(response.OutputStream).ConfigureAwait(false);
     }

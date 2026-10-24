@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:views="using:Lumi.Views"
+             xmlns:loc="using:Lumi.Localization"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:sa="using:StrataTheme.Animation"
              mc:Ignorable="d"
@@ -578,17 +579,17 @@
               <TextBox x:Name="SearchOverlayInput"
                        Grid.Column="1"
                        Classes="search-input"
-                       PlaceholderText="Search chats, projects, skills, memories…"
+                       PlaceholderText="{loc:Str Search_Placeholder}"
                        Text="{Binding SearchQuery, Mode=TwoWay}"
-                       AutomationProperties.Name="Search Lumi"
+                       AutomationProperties.Name="{loc:Str Search_AccessibleName}"
                        VerticalAlignment="Center" />
 
               <Button Grid.Column="2"
                       Classes="icon-button"
                       IsVisible="{Binding HasSearchQuery}"
                       Click="OnClearSearchClick"
-                      AutomationProperties.Name="Clear search"
-                      ToolTip.Tip="Clear search">
+                      AutomationProperties.Name="{loc:Str Workspace_ClearSearch}"
+                      ToolTip.Tip="{loc:Str Workspace_ClearSearch}">
                 <sc:StrataLineIcon Data="{StaticResource Search.Glyph.Clear}"
                                    Width="14"
                                    Height="14"
@@ -649,12 +650,12 @@
                           VerticalAlignment="Center"
                           Spacing="6"
                           IsVisible="False">
-                <TextBlock Text="Searching…"
+                <TextBlock Text="{loc:Str Search_Searching}"
                            FontSize="14"
                            FontWeight="Medium"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            HorizontalAlignment="Center" />
-                <TextBlock Text="Looking through your chats and saved content"
+                <TextBlock Text="{loc:Str Search_SearchingDescription}"
                            FontSize="12"
                            Foreground="{DynamicResource Brush.TextTertiary}"
                            HorizontalAlignment="Center" />
@@ -784,22 +785,22 @@
                       <Border Classes="keycap"><TextBlock Text="↑" /></Border>
                       <Border Classes="keycap"><TextBlock Text="↓" /></Border>
                     </StackPanel>
-                    <TextBlock Classes="hint-label" Text="Navigate" />
+                    <TextBlock Classes="hint-label" Text="{loc:Str Search_Navigate}" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Spacing="6">
                     <Border Classes="keycap"><TextBlock Text="↵" /></Border>
-                    <TextBlock Classes="hint-label" Text="Open" />
+                    <TextBlock Classes="hint-label" Text="{loc:Str Search_Open}" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasCategoryFilters}">
                     <StackPanel Orientation="Horizontal" Spacing="3">
                       <Border Classes="keycap"><TextBlock Text="Ctrl" /></Border>
                       <Border Classes="keycap"><TextBlock Text="Tab" /></Border>
                     </StackPanel>
-                    <TextBlock Classes="hint-label" Text="Filter" />
+                    <TextBlock Classes="hint-label" Text="{loc:Str Search_Filter}" />
                   </StackPanel>
                   <StackPanel Orientation="Horizontal" Spacing="6">
                     <Border Classes="keycap"><TextBlock Text="Esc" /></Border>
-                    <TextBlock Classes="hint-label" Text="Close" />
+                    <TextBlock Classes="hint-label" Text="{loc:Str Search_Close}" />
                   </StackPanel>
                 </StackPanel>
               </Grid>

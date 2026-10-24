@@ -1,4 +1,5 @@
 using System.Linq;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
@@ -20,7 +21,8 @@ internal static class TranscriptSearchText
         switch (message.Role)
         {
             case "user" when RemoteJobWake.IsJobWake(message.Author, message.Content):
-                return JobWake(RemoteJobWake.Parse(message.Author, message.Content));
+                return JobWake(RemoteJobWake.Parse(message.Author, message.Content,
+                    Loc.Jobs_WakeFallbackName, Loc.Jobs_WakeFallbackSignal));
             case "user" when message.InteractionReceipt is { } receipt:
                 return Receipt(receipt);
             case "user" or "assistant" or "error":

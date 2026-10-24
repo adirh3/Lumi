@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Data.Converters;
 using Lumi.Mobile.ViewModels;
 using Lumi.Remote.Protocol;
 
@@ -6,6 +7,9 @@ namespace Lumi.Mobile.Views;
 
 public partial class GitChangesView : UserControl
 {
+    public static readonly FuncValueConverter<string?, string> KindConverter =
+        new(MobileChatViewModel.GitKindDisplay);
+
     public GitChangesView()
     {
         InitializeComponent();

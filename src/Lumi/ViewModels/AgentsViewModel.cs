@@ -336,7 +336,7 @@ public partial class AgentsViewModel : ObservableObject
                 static agent =>
                 [
                     SearchField.Primary(agent.Name, 3.4),
-                    new SearchField(agent.Description, 1.8),
+                    new SearchField(agent.DisplayDescription, 1.8),
                     SearchField.Content(agent.SystemPrompt, 0.95)
                 ],
                 static agent => new SearchSortMetadata(Text: agent.Name))
@@ -374,7 +374,7 @@ public partial class AgentsViewModel : ObservableObject
         foreach (var skill in _dataStore.Data.Skills.OrderBy(s => s.Name))
         {
             var isAssigned = agent?.SkillIds.Contains(skill.Id) == true;
-            var toggle = new SkillToggle(skill.Id, skill.Name, skill.IconGlyph, skill.Description, isAssigned);
+            var toggle = new SkillToggle(skill.Id, skill.Name, skill.IconGlyph, skill.DisplayDescription, isAssigned);
             toggle.PropertyChanged += OnToggleChanged;
             AvailableSkills.Add(toggle);
         }
@@ -405,51 +405,51 @@ public partial class AgentsViewModel : ObservableObject
         NotifySelectionCounts();
     }
 
-    private static readonly (string Name, string DisplayName, string Group, string Description)[] KnownTools =
+    private static readonly (string Name, string DisplayNameKey, string Group, string DescriptionKey)[] KnownTools =
     [
-        ("lumi_fetch", "Fetch Webpage", "Web", "Fetch a webpage and return its text content."),
-        (ToolDisplayHelper.BrowserOpenToolName, "Open Browser", "Browser", "Open a URL in the browser with persistent cookies/sessions."),
-        (ToolDisplayHelper.BrowserLookToolName, "Browser Look", "Browser", "Get the current page state with interactive elements."),
-        (ToolDisplayHelper.BrowserFindToolName, "Browser Find", "Browser", "Find and rank interactive elements by query."),
-        (ToolDisplayHelper.BrowserDoToolName, "Browser Interact", "Browser", "Click, type, press keys, select, scroll in the browser."),
-        (ToolDisplayHelper.BrowserJsToolName, "Browser JavaScript", "Browser", "Run JavaScript in the browser page context."),
-        (ToolDisplayHelper.BrowserTabsToolName, "Browser Tabs", "Browser", "List, create, switch, and close browser tabs using stable tab IDs."),
-        (ToolDisplayHelper.BrowserScreenshotToolName, "Browser Screenshot", "Browser", "Inspect a browser viewport image for visual layout, canvas content, and icons."),
-        ("ui_list_windows", "List Windows", "Desktop", "List all visible windows on the desktop."),
-        ("ui_inspect", "Inspect Window", "Desktop", "Inspect the UI element tree of a window."),
-        ("ui_do", "Automate Window", "Desktop", "Run an ordered batch of UI actions and verify the result in one call."),
-        ("ui_screenshot", "Screenshot Window", "Desktop", "Capture a window without focusing it and return the image to the model."),
-        ("ui_click_at", "Click Screenshot", "Desktop", "Click image-relative coordinates from a recent window capture, with explicit foreground permission."),
-        ("ui_find", "Find UI Element", "Desktop", "Find UI elements matching a search query."),
-        ("ui_click", "Click Element", "Desktop", "Click a UI element by its number."),
-        ("ui_type", "Type Text", "Desktop", "Type or set text in a UI element."),
-        ("ui_press_keys", "Press Keys", "Desktop", "Send keyboard shortcuts or key presses."),
-        ("ui_read", "Read Element", "Desktop", "Read detailed information about a UI element."),
-        ("announce_file", "Announce File", "Utility", "Announce a produced file, optionally opening its preview."),
-        ("skill", "Load Lumi Skill", "Utility", "Allow the native skill tool to load Lumi-owned skills. Copilot's file-based skills are unchanged."),
-        ("ask_question", "Ask Question", "Utility", "Ask the user a question with predefined options."),
-        ("ask_input", "Request Input", "Utility", "Collect related fields or a shortlist selection and continue the same task."),
-        ("recall_memory", "Recall Memory", "Utility", "Search and recall stored memories about the user."),
-        ("manage_projects", "Manage Projects", "Utility", "List, create, update, or delete Lumi projects on explicit request."),
-        ("manage_skills", "Manage Skills", "Utility", "List, create, update, or delete Lumi skills on explicit request."),
-        ("manage_lumis", "Manage Agents", "Utility", "List, create, update, or delete Lumi agents on explicit request."),
-        ("manage_mcps", "Manage Connectors", "Utility", "List, create, update, or delete Lumi connectors on explicit request."),
-        ("manage_jobs", "Manage Jobs", "Utility", "Create, pause, resume, or delete scheduled, script, and chat-event background jobs on explicit request."),
-        ("manage_memories", "Manage Memories", "Utility", "List, create, update, or delete Lumi memories on explicit request."),
-        ("manage_current_chat", "Manage Current Chat", "Utility", "Inspect or update this chat's title and linked worktree workspace."),
-        ("manage_chats", "Manage Chats", "Utility", "Create, list, message, and track other chats — act as a manager orchestrating chats across projects."),
-        ("search_chats", "Search Chats", "Utility", "Search the user's past chats by topic, keyword, person, or time."),
-        ("read_chat", "Read Chat", "Utility", "Open and read the transcript of a past chat by id, title, or phrase."),
+        ("lumi_fetch", nameof(Loc.Lumis_ToolFetch), "Web", nameof(Loc.Lumis_ToolFetchDesc)),
+        (ToolDisplayHelper.BrowserOpenToolName, nameof(Loc.Lumis_ToolBrowserOpen), "Browser", nameof(Loc.Lumis_ToolBrowserOpenDesc)),
+        (ToolDisplayHelper.BrowserLookToolName, nameof(Loc.Lumis_ToolBrowserLook), "Browser", nameof(Loc.Lumis_ToolBrowserLookDesc)),
+        (ToolDisplayHelper.BrowserFindToolName, nameof(Loc.Lumis_ToolBrowserFind), "Browser", nameof(Loc.Lumis_ToolBrowserFindDesc)),
+        (ToolDisplayHelper.BrowserDoToolName, nameof(Loc.Lumis_ToolBrowserDo), "Browser", nameof(Loc.Lumis_ToolBrowserDoDesc)),
+        (ToolDisplayHelper.BrowserJsToolName, nameof(Loc.Lumis_ToolBrowserJs), "Browser", nameof(Loc.Lumis_ToolBrowserJsDesc)),
+        (ToolDisplayHelper.BrowserTabsToolName, nameof(Loc.Lumis_ToolBrowserTabs), "Browser", nameof(Loc.Lumis_ToolBrowserTabsDesc)),
+        (ToolDisplayHelper.BrowserScreenshotToolName, nameof(Loc.Lumis_ToolBrowserScreenshot), "Browser", nameof(Loc.Lumis_ToolBrowserScreenshotDesc)),
+        ("ui_list_windows", nameof(Loc.Lumis_ToolListWindows), "Desktop", nameof(Loc.Lumis_ToolListWindowsDesc)),
+        ("ui_inspect", nameof(Loc.Lumis_ToolInspectWindow), "Desktop", nameof(Loc.Lumis_ToolInspectWindowDesc)),
+        ("ui_do", nameof(Loc.Lumis_ToolAutomateWindow), "Desktop", nameof(Loc.Lumis_ToolAutomateWindowDesc)),
+        ("ui_screenshot", nameof(Loc.Lumis_ToolScreenshotWindow), "Desktop", nameof(Loc.Lumis_ToolScreenshotWindowDesc)),
+        ("ui_click_at", nameof(Loc.Lumis_ToolClickScreenshot), "Desktop", nameof(Loc.Lumis_ToolClickScreenshotDesc)),
+        ("ui_find", nameof(Loc.Lumis_ToolFindElement), "Desktop", nameof(Loc.Lumis_ToolFindElementDesc)),
+        ("ui_click", nameof(Loc.Lumis_ToolClickElement), "Desktop", nameof(Loc.Lumis_ToolClickElementDesc)),
+        ("ui_type", nameof(Loc.Lumis_ToolTypeText), "Desktop", nameof(Loc.Lumis_ToolTypeTextDesc)),
+        ("ui_press_keys", nameof(Loc.Lumis_ToolPressKeys), "Desktop", nameof(Loc.Lumis_ToolPressKeysDesc)),
+        ("ui_read", nameof(Loc.Lumis_ToolReadElement), "Desktop", nameof(Loc.Lumis_ToolReadElementDesc)),
+        ("announce_file", nameof(Loc.Lumis_ToolAnnounceFile), "Utility", nameof(Loc.Lumis_ToolAnnounceFileDesc)),
+        ("skill", nameof(Loc.Lumis_ToolLoadSkill), "Utility", nameof(Loc.Lumis_ToolLoadSkillDesc)),
+        ("ask_question", nameof(Loc.Lumis_ToolAskQuestion), "Utility", nameof(Loc.Lumis_ToolAskQuestionDesc)),
+        ("ask_input", nameof(Loc.Lumis_ToolRequestInput), "Utility", nameof(Loc.Lumis_ToolRequestInputDesc)),
+        ("recall_memory", nameof(Loc.Lumis_ToolRecallMemory), "Utility", nameof(Loc.Lumis_ToolRecallMemoryDesc)),
+        ("manage_projects", nameof(Loc.Lumis_ToolManageProjects), "Utility", nameof(Loc.Lumis_ToolManageProjectsDesc)),
+        ("manage_skills", nameof(Loc.Lumis_ToolManageSkills), "Utility", nameof(Loc.Lumis_ToolManageSkillsDesc)),
+        ("manage_lumis", nameof(Loc.Lumis_ToolManageAgents), "Utility", nameof(Loc.Lumis_ToolManageAgentsDesc)),
+        ("manage_mcps", nameof(Loc.Lumis_ToolManageConnectors), "Utility", nameof(Loc.Lumis_ToolManageConnectorsDesc)),
+        ("manage_jobs", nameof(Loc.Lumis_ToolManageJobs), "Utility", nameof(Loc.Lumis_ToolManageJobsDesc)),
+        ("manage_memories", nameof(Loc.Lumis_ToolManageMemories), "Utility", nameof(Loc.Lumis_ToolManageMemoriesDesc)),
+        ("manage_current_chat", nameof(Loc.Lumis_ToolManageCurrentChat), "Utility", nameof(Loc.Lumis_ToolManageCurrentChatDesc)),
+        ("manage_chats", nameof(Loc.Lumis_ToolManageChats), "Utility", nameof(Loc.Lumis_ToolManageChatsDesc)),
+        ("search_chats", nameof(Loc.Lumis_ToolSearchChats), "Utility", nameof(Loc.Lumis_ToolSearchChatsDesc)),
+        ("read_chat", nameof(Loc.Lumis_ToolReadChat), "Utility", nameof(Loc.Lumis_ToolReadChatDesc)),
     ];
 
     /// <summary>Friendly name for a Lumi tool id (legacy ids included); unknown ids are shown as written.</summary>
     internal static string GetToolDisplayName(string toolName)
     {
         var runtimeName = ToolDisplayHelper.ToRuntimeToolName(toolName);
-        foreach (var (name, displayName, _, _) in KnownTools)
+        foreach (var (name, displayNameKey, _, _) in KnownTools)
         {
             if (string.Equals(name, runtimeName, StringComparison.Ordinal))
-                return displayName;
+                return Loc.Get(displayNameKey);
         }
 
         return toolName;
@@ -461,13 +461,13 @@ public partial class AgentsViewModel : ObservableObject
         var toolNames = agent?.ToolNames ?? [];
         var runtimeToolNames = ToolDisplayHelper.ToRuntimeToolNames(toolNames);
         var hasRestrictions = agent?.HasToolRestrictions == true;
-        foreach (var (name, displayName, group, description) in KnownTools)
+        foreach (var (name, displayNameKey, group, descriptionKey) in KnownTools)
         {
             // Use the same browser availability policy as session registration and Settings.
             if (!IsToolGroupAvailable(group))
                 continue;
             var isAssigned = !hasRestrictions || runtimeToolNames.Contains(name);
-            var toggle = new ToolToggle(name, displayName, group, description, isAssigned);
+            var toggle = new ToolToggle(name, Loc.Get(displayNameKey), group, Loc.Get(descriptionKey), isAssigned);
             toggle.PropertyChanged += OnToggleChanged;
             AvailableTools.Add(toggle);
         }

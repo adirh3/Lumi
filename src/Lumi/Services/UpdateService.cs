@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 using Velopack;
 using Velopack.Sources;
 
@@ -411,7 +412,7 @@ public sealed class UpdateService
                 if (closeResult.FailedProcessIds.Count > 0
                     || remainingBlockers.All(static process => !process.CanClose))
                 {
-                    BlockerErrorMessage = "Some processes could not be closed automatically.";
+                    BlockerErrorMessage = Loc.Update_BlockersCouldNotClose;
                 }
 
                 SetStatus(UpdateStatus.BlockedByProcesses);
@@ -455,9 +456,9 @@ public sealed class UpdateService
     private void LaunchUpdateAndRequestShutdown(UpdateInfo update)
     {
         if (_manager is null)
-            throw new InvalidOperationException("The update manager is not initialized.");
+            throw new InvalidOperationException(Loc.Update_ManagerNotInitialized);
         if (RestartRequested is null)
-            throw new InvalidOperationException("No application shutdown handler is registered.");
+            throw new InvalidOperationException(Loc.Update_ShutdownUnavailable);
 
         _restartLauncher.Launch(_manager, update.TargetFullRelease);
         RestartRequested.Invoke();

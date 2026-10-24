@@ -17,6 +17,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 using Lumi.Mobile.Behaviors;
 using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
@@ -133,7 +134,7 @@ public partial class ChatDetailView : UserControl
         if (_shell is null || request.Source is not Control { DataContext: TranscriptItemViewModel item }
             || item is not (AssistantItemViewModel or InputRequestItemViewModel))
         {
-            request.Completion = Task.FromResult(new InteractiveActionResult(false, "That answer is no longer open."));
+            request.Completion = Task.FromResult(new InteractiveActionResult(false, Strings.Get("AnswerClosed")));
             request.Handled = true;
             return;
         }
@@ -469,7 +470,7 @@ public partial class ChatDetailView : UserControl
         {
             var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                Title = "Attach to Lumi",
+                Title = Strings.Get("AttachToLumi"),
                 AllowMultiple = true
             });
 
@@ -506,8 +507,8 @@ public partial class ChatDetailView : UserControl
         catch (Exception ex)
         {
             shell.Chat.ErrorText = ex is OutOfMemoryException
-                ? "That file is too large for this phone to send."
-                : "That file could not be attached.";
+                ? Strings.Get("PhoneAttachTooLarge")
+                : Strings.Get("AttachFileFailed");
             Trace.TraceWarning($"[Mobile] Attach failed: {ex}");
         }
         finally
@@ -589,10 +590,9 @@ public partial class ChatDetailView : UserControl
 
     private static string FileTooLargeMessage(string fileName, long? size) =>
         size is { } knownSize
-            ? $"{fileName} is too large to send ({knownSize / (1024 * 1024)} MB). The limit is "
-              + $"{RemoteProtocol.MaxUploadBytes / (1024 * 1024)} MB."
-            : $"{fileName} is too large to send. The limit is "
-              + $"{RemoteProtocol.MaxUploadBytes / (1024 * 1024)} MB.";
+            ? Strings.Get("FileTooLargeKnownSize", fileName, knownSize / (1024 * 1024),
+                RemoteProtocol.MaxUploadBytes / (1024 * 1024))
+            : Strings.Get("FileTooLargeUnknownSize", fileName, RemoteProtocol.MaxUploadBytes / (1024 * 1024));
 
     /// <summary>Best-effort size probe; a provider that cannot answer returns 0 so the read proceeds.</summary>
     private static async Task<long> TryGetSizeAsync(IStorageFile file)
@@ -1269,7 +1269,7 @@ public partial class ChatDetailView : UserControl
         {
             button.Classes.Set("copied", false);
             if (_shell is { } shell)
-                shell.Chat.ErrorText = "The answer could not be copied.";
+                shell.Chat.ErrorText = Strings.Get("CopyAnswerFailed");
             Trace.TraceWarning($"[Mobile] Answer copy failed: {ex}");
             return;
         }
@@ -1289,7 +1289,7 @@ public partial class ChatDetailView : UserControl
         if (!MobilePlatformServices.TextShare.TryShare(answer.SelectionText, _shell?.Chat.Title)
             && _shell is { } shell)
         {
-            shell.Chat.ErrorText = "The answer could not be shared.";
+            shell.Chat.ErrorText = Strings.Get("ShareAnswerFailed");
         }
     }
 
@@ -1306,12 +1306,12 @@ public partial class ChatDetailView : UserControl
         try
         {
             if (!await launcher.LaunchUriAsync(uri) && _shell is { } shell)
-                shell.Chat.ErrorText = "That source could not be opened.";
+                shell.Chat.ErrorText = Strings.Get("OpenSourceFailed");
         }
         catch (Exception ex)
         {
             if (_shell is { } shell)
-                shell.Chat.ErrorText = "That source could not be opened.";
+                shell.Chat.ErrorText = Strings.Get("OpenSourceFailed");
             Trace.TraceWarning($"[Mobile] Source launch failed: {ex}");
         }
     }
@@ -1340,7 +1340,7 @@ public partial class ChatDetailView : UserControl
             downloadedPath = await shell.DownloadProducedFileAsync(shell.Chat.ChatId, messageId, fileName);
             if (downloadedPath is null)
             {
-                shell.Chat.ErrorText = shell.ConnectionMessage ?? "That file could not be downloaded.";
+                shell.Chat.ErrorText = shell.ConnectionMessage ?? Strings.Get("DownloadFileFailed");
                 return;
             }
 
@@ -1355,7 +1355,7 @@ public partial class ChatDetailView : UserControl
             var destination = await topLevel.StorageProvider.SaveFilePickerAsync(
                 new FilePickerSaveOptions
                 {
-                    Title = "Save Lumi file",
+                    Title = Strings.Get("SaveLumiFile"),
                     SuggestedFileName = fileName
                 });
             if (destination is null)
@@ -1368,11 +1368,11 @@ public partial class ChatDetailView : UserControl
                 CancellationToken.None);
 
             if (!await topLevel.Launcher.LaunchFileAsync(destination))
-                shell.Chat.ErrorText = "The file was downloaded, but this phone could not open it.";
+                shell.Chat.ErrorText = Strings.Get("DownloadedFileCannotOpen");
         }
         catch (Exception ex)
         {
-            shell.Chat.ErrorText = "That file could not be opened.";
+            shell.Chat.ErrorText = Strings.Get("OpenFileFailed");
             Trace.TraceWarning($"[Mobile] Produced file launch failed: {ex}");
         }
         finally

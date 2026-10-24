@@ -885,7 +885,7 @@ public sealed class ApprovalRule
 
 public class Chat : INotifyPropertyChanged
 {
-    private string _title = "New Chat";
+    private string _title = Loc.Sidebar_NewChat;
     private Guid? _tagId;
     private ChatTag? _tag;
     private bool _isRunning;
@@ -1258,6 +1258,8 @@ public class Skill
     public string Content { get; set; } = ""; // Markdown instructions
     public string IconGlyph { get; set; } = "⚡";
     public bool IsBuiltIn { get; set; }
+    [JsonIgnore]
+    public string DisplayDescription => IsBuiltIn ? Loc.GetBuiltInDescription(Name, Description) : Description;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 }
 
@@ -1269,6 +1271,8 @@ public class LumiAgent
     public string SystemPrompt { get; set; } = "";
     public string IconGlyph { get; set; } = "✦";
     public bool IsBuiltIn { get; set; }
+    [JsonIgnore]
+    public string DisplayDescription => IsBuiltIn ? Loc.GetBuiltInDescription(Name, Description) : Description;
     public bool IsLearningAgent { get; set; }
     public List<Guid> SkillIds { get; set; } = [];
     public List<string> ToolNames { get; set; } = [];
@@ -1351,7 +1355,7 @@ public static class ChatLifecycleEventTypes
 
                 if (eventType is null)
                 {
-                    error = $"Unsupported chat event '{token}'. Use turn_start, turn_end, idle, error, aborted, or *.";
+                    error = string.Format(Loc.Jobs_UnsupportedChatEvent, token);
                     normalized = [];
                     return false;
                 }

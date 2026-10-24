@@ -1,4 +1,5 @@
 using System.Globalization;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Services;
 
@@ -169,14 +170,14 @@ public sealed record RemoteTransportStatsSnapshot(
 
     /// <summary>A one-line summary for Settings and the log.</summary>
     public string Summary =>
-        string.Create(
-            CultureInfo.InvariantCulture,
-            $"{Count(RequestCount, "request")}, {FormatBytes(ResponseBytes + FrameBytes)} received, " +
-            $"{Count(FrameCount, "live update")}, {Count(Math.Max(0, StreamConnects - 1), "reconnect")}") +
+        Strings.Get("TransportSummary",
+            Count(RequestCount, "TransportRequestOne", "TransportRequestMany"),
+            FormatBytes(ResponseBytes + FrameBytes),
+            Count(FrameCount, "TransportLiveUpdateOne", "TransportLiveUpdateMany"),
+            Count(Math.Max(0, StreamConnects - 1), "TransportReconnectOne", "TransportReconnectMany")) +
         (Transcripts > 0
-            ? string.Create(
-                CultureInfo.InvariantCulture,
-                $", {TranscriptsUnchanged} of {Count(Transcripts, "chat reload")} already up to date")
+            ? Strings.Get("TransportUnchanged", TranscriptsUnchanged,
+                Count(Transcripts, "TransportChatReloadOne", "TransportChatReloadMany"))
             : "");
 
     /// <summary>A multi-line breakdown for logs and diagnostics.</summary>
@@ -208,8 +209,8 @@ public sealed record RemoteTransportStatsSnapshot(
         }
     }
 
-    private static string Count(long count, string noun) =>
-        string.Create(CultureInfo.InvariantCulture, $"{count} {noun}{(count == 1 ? "" : "s")}");
+    private static string Count(long count, string oneKey, string manyKey) =>
+        Strings.Get(count == 1 ? oneKey : manyKey, count);
 
     private static string FormatBytes(long bytes) => bytes switch
     {

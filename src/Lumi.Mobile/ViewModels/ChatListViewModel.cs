@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Mobile.Localization;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -43,9 +44,9 @@ public sealed partial class ChatListItemViewModel : ObservableObject
     public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
 
     public string AccessibilityName => Title
-        + (IsRunning ? ", Running" : "")
+        + (IsRunning ? Strings.Get("RunningSuffix") : "")
         + (HasBackgroundActivity ? $", {ChatSessionStrings.ReadyWithBackgroundActivity}" : "")
-        + (HasUnreadMessages ? ", Unread" : "");
+        + (HasUnreadMessages ? Strings.Get("UnreadSuffix") : "");
 
     public ChatListItemViewModel(RemoteChat chat) => Update(chat);
 
@@ -107,8 +108,8 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     private int _totalChatCount;
     private int _matchingChatCount;
     private int _visibleChatCount;
-    private string _pinnedGroupLabel = "Pinned";
-    private string _todayGroupLabel = "Today";
+    private string _pinnedGroupLabel = Strings.Get("Pinned");
+    private string _todayGroupLabel = Strings.Get("Today");
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSearchQuery))]
@@ -156,7 +157,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
     public bool HasMoreChats => _serverPaged ? _serverHasMore : VisibleChatCount < MatchingChatCount;
 
-    public string VisibleChatCountLabel => $"{VisibleChatCount:N0} of {MatchingChatCount:N0} shown";
+    public string VisibleChatCountLabel => Strings.Get("VisibleChatCount", VisibleChatCount, MatchingChatCount);
 
     public bool IsEmpty => MatchingChatCount == 0;
 
@@ -164,19 +165,19 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
     public bool ShowEmptyState => IsEmpty && !IsRefreshing && string.IsNullOrEmpty(LoadErrorText);
 
-    public string EmptyTitle => HasSearchQuery ? "No chats found" : "Your next idea starts here";
+    public string EmptyTitle => Strings.Get(HasSearchQuery ? "NoChatsFound" : "NextIdeaStartsHere");
 
     public string EmptyDescription => HasSearchQuery
-        ? "Try a different word or a shorter phrase."
+        ? Strings.Get("TryDifferentSearch")
         : ProjectFilterId.HasValue
-            ? "Start a chat in this project, or show all chats."
-            : "Start a new chat. Your conversations will appear here and on your PC.";
+            ? Strings.Get("ProjectEmptyChats")
+            : Strings.Get("EmptyChatsDescription");
 
     public string ResultsLabel => IsRefreshing
-        ? HasSearchQuery ? "Searching your chats..." : "Updating chats..."
+        ? Strings.Get(HasSearchQuery ? "SearchingChats" : "UpdatingChats")
         : HasSearchQuery
-            ? $"{MatchingChatCount:N0} {(MatchingChatCount == 1 ? "result" : "results")}"
-            : "Recent chats";
+            ? Strings.Get(MatchingChatCount == 1 ? "ResultCountOne" : "ResultCountMany", MatchingChatCount)
+            : Strings.Get("RecentChats");
 
     [RelayCommand]
     private void ClearSearch() => SearchText = "";
@@ -470,7 +471,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         {
             Id = incoming.Id,
             Title = string.IsNullOrWhiteSpace(incoming.Title)
-                ? existing?.Title ?? "New chat"
+                ? existing?.Title ?? Strings.Get("NewChat")
                 : incoming.Title,
             Preview = incoming.Preview ?? existing?.Preview,
             ProjectId = incoming.ProjectId ?? existing?.ProjectId,
@@ -697,7 +698,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
                 else if (page is null && generation == Volatile.Read(ref _reloadGeneration)
                          && !cancellationToken.IsCancellationRequested)
                 {
-                    LoadErrorText = "Couldn't load more chats. Check your PC connection and try again.";
+                    LoadErrorText = Strings.Get("LoadMoreChatsFailed");
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -772,7 +773,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             else if (page is null && generation == Volatile.Read(ref _reloadGeneration)
                      && !cancellationToken.IsCancellationRequested)
             {
-                LoadErrorText = "Couldn't update your chats. Check your PC connection and try again.";
+                LoadErrorText = Strings.Get("UpdateChatsFailed");
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -837,7 +838,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     private void NewChat()
     {
         SelectedChatId = Guid.Empty;
-        ChatActivated?.Invoke(Guid.Empty, "New chat", null);
+        ChatActivated?.Invoke(Guid.Empty, Strings.Get("NewChat"), null);
     }
 
     public void Dispose()

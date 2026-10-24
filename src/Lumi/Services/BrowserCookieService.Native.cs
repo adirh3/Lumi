@@ -11,6 +11,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 using Microsoft.Data.Sqlite;
 
 namespace Lumi.Services;
@@ -133,10 +134,10 @@ public sealed class BrowserCookieService
     public static Task<IReadOnlyList<Cookie>> ReadCookiesAsync(BrowserProfile profile) => Task.Run(() =>
     {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
-            throw new PlatformNotSupportedException("Native browser cookie import requires Linux or macOS.");
+            throw new PlatformNotSupportedException(Loc.Cookies_NativePlatformRequired);
 
         var cookieFile = FindCookieFile(Path.Combine(profile.Browser.UserDataPath, profile.Path))
-            ?? throw new FileNotFoundException("The selected browser profile has no readable cookie database.");
+            ?? throw new FileNotFoundException(Loc.Cookies_DatabaseMissing);
 
         try
         {
@@ -150,7 +151,7 @@ public sealed class BrowserCookieService
         {
             Debug.WriteLine($"[BrowserCookies] Cannot read cookie database (SQLite {error.SqliteErrorCode}).");
             throw new InvalidOperationException(
-                "Cannot read the browser cookie database. Close the source browser and retry.", error);
+                Loc.Cookies_ReadFailed, error);
         }
         catch (Exception error)
         {
@@ -200,7 +201,7 @@ public sealed class BrowserCookieService
         string sourcePath, string appDirectory, Func<SqliteConnection, T> read)
     {
         if (OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException("Native cookie snapshots require a non-Windows platform.");
+            throw new PlatformNotSupportedException(Loc.Cookies_NativeSnapshotPlatformRequired);
 
         var directory = Path.Combine(appDirectory, $"native-cookie-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory, PrivateDirectoryMode);
@@ -244,7 +245,7 @@ public sealed class BrowserCookieService
             {
                 Debug.WriteLine($"[BrowserCookies] Private cookie snapshot cleanup failed ({error.GetType().Name}).");
                 throw new IOException(
-                    "Could not remove the private cookie snapshot from Lumi's application directory.", error);
+                    Loc.Cookies_SnapshotCleanupFailed, error);
             }
         }
     }
@@ -290,7 +291,7 @@ public sealed class BrowserCookieService
                 Convert.ToString(versionCommand.ExecuteScalar(), CultureInfo.InvariantCulture),
                 NumberStyles.None, CultureInfo.InvariantCulture, out var version) || version < 1)
         {
-            throw new InvalidDataException("The Chromium cookie database has no valid schema version.");
+            throw new InvalidDataException(Loc.Cookies_SchemaInvalid);
         }
 
         using var command = connection.CreateCommand();
@@ -316,7 +317,7 @@ public sealed class BrowserCookieService
                     }
                     catch (Exception error) when (error is ArgumentOutOfRangeException or OverflowException)
                     {
-                        throw new InvalidDataException("The Chromium cookie has an invalid expiry timestamp.");
+                        throw new InvalidDataException(Loc.Cookies_ExpiryInvalid);
                     }
 
                     if (expires <= DateTime.UtcNow)
@@ -347,7 +348,7 @@ public sealed class BrowserCookieService
                 catch (CookieException)
                 {
                     throw new NotSupportedException(
-                        "A Chromium cookie cannot be represented by the native browser cookie API. Import was not completed.");
+                        Loc.Cookies_ValueUnsupported);
                 }
             }
 
@@ -366,20 +367,18 @@ public sealed class BrowserCookieService
         if (isLinux)
         {
             var application = NativeBrowserCookieCrypto.GetLinuxKeyringApplication(browserName)
-                ?? throw new NotSupportedException("This browser has no supported Linux Safe Storage lookup.");
+                ?? throw new NotSupportedException(Loc.Cookies_LinuxStorageUnsupported);
             password = ReadSecret(
                 "secret-tool", ["lookup", "application", application],
-                "Cannot read this browser's libsecret Safe Storage key. Install secret-tool (libsecret), " +
-                "unlock the desktop keyring, and retry. KWallet-only and other non-libsecret stores are not supported.");
+                Loc.Cookies_LinuxStorageReadFailed);
         }
         else
         {
             var product = NativeBrowserCookieCrypto.GetMacKeychainProduct(browserName)
-                ?? throw new NotSupportedException("This browser has no supported macOS Safe Storage lookup.");
+                ?? throw new NotSupportedException(Loc.Cookies_MacStorageUnsupported);
             password = ReadSecret(
                 "/usr/bin/security", ["find-generic-password", "-w", "-s", $"{product} Safe Storage", "-a", product],
-                "Cannot read this browser's Safe Storage key from the macOS login keychain. " +
-                "Unlock the keychain, allow access to the browser's Safe Storage item, and retry.");
+                Loc.Cookies_MacStorageReadFailed);
         }
 
         return NativeBrowserCookieCrypto.DeriveSafeStorageKey(password, isLinux);
@@ -430,7 +429,7 @@ public sealed class BrowserCookieService
                 Debug.WriteLine("[BrowserCookies] Could not terminate a timed-out Safe Storage helper.");
             }
 
-            throw new TimeoutException("Safe Storage lookup timed out after 30 seconds. " + failureMessage);
+            throw new TimeoutException(string.Format(Loc.Cookies_StorageTimedOut, failureMessage));
         }
 
         // Never expose stderr/stdout in an error: stdout is the encryption password.

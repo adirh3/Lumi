@@ -207,10 +207,10 @@ public static partial class ToolDisplayHelper
             {
                 var action = ExtractJsonField(argsJson, "action");
                 var target = ExtractJsonField(argsJson, "tabId") ?? ExtractJsonField(argsJson, "url");
-                return ("Managing browser tabs", target is null ? action : $"{action}: {target}");
+                return (Loc.Tool_ManagingBrowserTabs, target is null ? action : $"{action}: {target}");
             }
             case BrowserScreenshotToolName:
-                return ("Taking browser screenshot", ExtractJsonField(argsJson, "tabId"));
+                return (Loc.Tool_BrowserScreenshot, ExtractJsonField(argsJson, "tabId"));
             case "save_memory":
                 return (Loc.Tool_Remembering, ExtractJsonField(argsJson, "key"));
             case "update_memory":
@@ -231,15 +231,15 @@ public static partial class ToolDisplayHelper
                     : (Loc.Tool_FetchingSkill, null);
             }
             case "manage_projects":
-                return ("Managing Lumi projects", ExtractJsonField(argsJson, "action"));
+                return (Loc.Tool_ManagingProjects, ExtractJsonField(argsJson, "action"));
             case "manage_skills":
-                return ("Managing Lumi skills", ExtractJsonField(argsJson, "action"));
+                return (Loc.Tool_ManagingSkills, ExtractJsonField(argsJson, "action"));
             case "manage_lumis":
-                return ("Managing agents", ExtractJsonField(argsJson, "action"));
+                return (Loc.Tool_ManagingAgents, ExtractJsonField(argsJson, "action"));
             case "manage_mcps":
-                return ("Managing connectors", ExtractJsonField(argsJson, "action"));
+                return (Loc.Tool_ManagingConnectors, ExtractJsonField(argsJson, "action"));
             case "manage_memories":
-                return ("Managing memories", ExtractJsonField(argsJson, "action"));
+                return (Loc.Tool_ManagingMemories, ExtractJsonField(argsJson, "action"));
             case "manage_current_chat":
             {
                 var action = ExtractJsonField(argsJson, "action");
@@ -249,8 +249,8 @@ public static partial class ToolDisplayHelper
                     ? action
                     : string.IsNullOrWhiteSpace(action) ? target : $"{action}: {target}";
                 var label = string.Equals(action, "get", StringComparison.OrdinalIgnoreCase)
-                    ? "Inspecting current chat"
-                    : "Updating current chat";
+                    ? Loc.Tool_InspectingCurrentChat
+                    : Loc.Tool_UpdatingCurrentChat;
                 return (label, string.IsNullOrWhiteSpace(info) ? null : info);
             }
             case "manage_chats":
@@ -262,15 +262,15 @@ public static partial class ToolDisplayHelper
                 var info = string.IsNullOrWhiteSpace(target)
                     ? action
                     : string.IsNullOrWhiteSpace(action) ? target : $"{action}: {target}";
-                return ("Orchestrating chats", string.IsNullOrWhiteSpace(info) ? null : info);
+                return (Loc.Tool_OrchestratingChats, string.IsNullOrWhiteSpace(info) ? null : info);
             }
             case "search_chats":
             {
                 var query = ExtractJsonField(argsJson, "query");
-                return ("Searching chats", string.IsNullOrWhiteSpace(query) ? "recent chats" : query);
+                return (Loc.Tool_SearchingChats, string.IsNullOrWhiteSpace(query) ? Loc.Tool_RecentChats : query);
             }
             case "read_chat":
-                return ("Reading chat", ExtractJsonField(argsJson, "chat"));
+                return (Loc.Tool_ReadingChat, ExtractJsonField(argsJson, "chat"));
             case "ask_question":
             case "ask_input":
                 return (Loc.Tool_AskingQuestion, null);
@@ -309,7 +309,7 @@ public static partial class ToolDisplayHelper
                     SummarizeQuery(ExtractJsonField(argsJson, "query")));
             case "task":
             {
-                var agentType = FormatAgentName(ExtractJsonField(argsJson, "agent_type")) ?? "Agent";
+                var agentType = FormatAgentName(ExtractJsonField(argsJson, "agent_type")) ?? Loc.FieldLabel_Agent;
                 var desc = ExtractJsonField(argsJson, "description");
                 return (string.Format(Loc.Tool_RunningAgent, agentType), desc);
             }
@@ -344,11 +344,11 @@ public static partial class ToolDisplayHelper
             var mode = GetSubagentModeLabel(argsJson);
             var sb = new StringBuilder();
             if (!string.IsNullOrWhiteSpace(taskDescription))
-                sb.AppendLine($"**Task:** {taskDescription}");
+                sb.AppendLine($"**{Loc.Subagent_Task}:** {taskDescription}");
             if (!string.IsNullOrWhiteSpace(agentDescription))
-                sb.AppendLine($"**Agent:** {agentDescription}");
+                sb.AppendLine($"**{Loc.FieldLabel_Agent}:** {agentDescription}");
             if (!string.IsNullOrWhiteSpace(mode))
-                sb.AppendLine($"**Mode:** {mode}");
+                sb.AppendLine($"**{Loc.FieldLabel_Mode}:** {mode}");
             return sb.Length > 0 ? sb.ToString().TrimEnd() : null;
         }
 
@@ -365,7 +365,7 @@ public static partial class ToolDisplayHelper
                 case "web_fetch":
                 {
                     var url = GetString(root, "url");
-                    return url is not null ? $"**URL:** {url}" : null;
+                    return url is not null ? $"**{Loc.FieldLabel_URL}:** {url}" : null;
                 }
                 case "view":
                 {
@@ -374,11 +374,11 @@ public static partial class ToolDisplayHelper
                     var fileName = GetDisplayFileName(path);
                     var dir = Path.GetDirectoryName(path);
                     if (string.IsNullOrEmpty(Path.GetExtension(path)))
-                        return $"**Path:** `{path}`";
+                        return $"**{Loc.FieldLabel_Path}:** `{path}`";
                     var sb = new StringBuilder();
-                    sb.AppendLine($"**File:** `{fileName}`");
+                    sb.AppendLine($"**{Loc.FieldLabel_File}:** `{fileName}`");
                     if (!string.IsNullOrEmpty(dir))
-                        sb.AppendLine($"**Location:** `{dir}`");
+                        sb.AppendLine($"**{Loc.FieldLabel_Location}:** `{dir}`");
                     return sb.ToString().TrimEnd();
                 }
                 case "powershell":
@@ -400,15 +400,15 @@ public static partial class ToolDisplayHelper
                     var prompt = GetString(root, "prompt");
                     if (prompt is null) break;
                     var truncated = prompt.Length > 200 ? prompt[..197] + "..." : prompt;
-                    return $"**Prompt:** {truncated}";
+                    return $"**{Loc.FieldLabel_Prompt}:** {truncated}";
                 }
                 case "fetch_skill":
-                    return GetString(root, "name") is { } skillName ? $"**Skill:** {skillName}" : null;
+                    return GetString(root, "name") is { } skillName ? $"**{Loc.FieldLabel_Skill}:** {skillName}" : null;
                 case "skill":
                     return (displaySkillName ?? GetString(root, "skill")) is { } nativeSkillName
-                        ? $"**Skill:** {nativeSkillName}" : null;
+                        ? $"**{Loc.FieldLabel_Skill}:** {nativeSkillName}" : null;
                 case "report_intent":
-                    return GetString(root, "intent") is { } intent ? $"Intent: {intent}" : null;
+                    return GetString(root, "intent") is { } intent ? $"{Loc.FieldLabel_Intent}: {intent}" : null;
                 case "read_powershell":
                 case "stop_powershell":
                     return null;
@@ -427,9 +427,9 @@ public static partial class ToolDisplayHelper
                     var fn = GetDisplayFileName(path);
                     var dir = Path.GetDirectoryName(path);
                     var sb = new StringBuilder();
-                    sb.AppendLine($"**File:** `{fn}`");
+                    sb.AppendLine($"**{Loc.FieldLabel_File}:** `{fn}`");
                     if (!string.IsNullOrEmpty(dir))
-                        sb.AppendLine($"**Location:** `{dir}`");
+                        sb.AppendLine($"**{Loc.FieldLabel_Location}:** `{dir}`");
                     return sb.ToString().TrimEnd();
                 }
                 case "multi_replace_string_in_file":
@@ -445,8 +445,8 @@ public static partial class ToolDisplayHelper
                         }
                         if (firstFile is not null)
                             return count > 1
-                                ? $"**File:** `{firstFile}` (+{count - 1} more)"
-                                : $"**File:** `{firstFile}`";
+                                ? string.Format(Loc.Tool_FileAndMore, firstFile, count - 1)
+                                : $"**{Loc.FieldLabel_File}:** `{firstFile}`";
                     }
                     break;
                 }
@@ -455,9 +455,9 @@ public static partial class ToolDisplayHelper
                     var key = GetString(root, "key");
                     var content = GetString(root, "content");
                     if (key is null) break;
-                    var result = $"**Key:** {key}";
+                    var result = $"**{Loc.FieldLabel_Key}:** {key}";
                     if (content is not null)
-                        result += $"\n**Content:** {(content.Length > 120 ? content[..120] + "\u2026" : content)}";
+                        result += $"\n**{Loc.FieldLabel_Content}:** {(content.Length > 120 ? content[..120] + "\u2026" : content)}";
                     return result;
                 }
                 case "update_memory":
@@ -466,15 +466,15 @@ public static partial class ToolDisplayHelper
                     var content = GetString(root, "content");
                     var newKey = GetString(root, "newKey");
                     if (key is null) break;
-                    var result = $"**Key:** {key}";
-                    if (newKey is not null) result += $"\n**New key:** {newKey}";
+                    var result = $"**{Loc.FieldLabel_Key}:** {key}";
+                    if (newKey is not null) result += $"\n**{Loc.FieldLabel_NewKey}:** {newKey}";
                     if (content is not null)
-                        result += $"\n**Content:** {(content.Length > 120 ? content[..120] + "\u2026" : content)}";
+                        result += $"\n**{Loc.FieldLabel_Content}:** {(content.Length > 120 ? content[..120] + "\u2026" : content)}";
                     return result;
                 }
                 case "delete_memory":
                 case "recall_memory":
-                    return GetString(root, "key") is { } k ? $"**Key:** {k}" : null;
+                    return GetString(root, "key") is { } k ? $"**{Loc.FieldLabel_Key}:** {k}" : null;
             }
 
             return FormatGenericArgs(root);
@@ -522,7 +522,7 @@ public static partial class ToolDisplayHelper
                 return FormatAgentName(suffix) ?? suffix;
         }
 
-        return !string.IsNullOrWhiteSpace(author) ? author : "Agent";
+        return !string.IsNullOrWhiteSpace(author) ? author : Loc.FieldLabel_Agent;
     }
 
     public static string? GetSubagentTaskDescription(string toolName, string? argsJson)
@@ -544,7 +544,14 @@ public static partial class ToolDisplayHelper
 
     /// <summary>Single-parse overload — see <see cref="SubagentPayload"/>.</summary>
     public static string? GetSubagentModeLabel(in SubagentPayload payload)
-        => string.IsNullOrWhiteSpace(payload.Mode) ? null : FormatAgentName(payload.Mode);
+        => payload.Mode?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => null,
+            "background" => Loc.Tool_ModeBackground,
+            "sync" => Loc.Tool_ModeSync,
+            "async" => Loc.Tool_ModeAsync,
+            _ => FormatAgentName(payload.Mode)
+        };
 
     public static string? GetSubagentModelName(string? argsJson)
         => ExtractJsonField(argsJson, "model");

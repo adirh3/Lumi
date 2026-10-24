@@ -4,6 +4,7 @@ using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -84,7 +85,7 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
     [ObservableProperty] private string? _kind;
 
     /// <summary>The label for the item's full content on its page ("Instructions", "Command").</summary>
-    [ObservableProperty] private string _bodyLabel = "Details";
+    [ObservableProperty] private string _bodyLabel = Strings.Get("Details");
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasFacts))]
@@ -122,7 +123,7 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
 
     public bool ShowBadge => HasBadge && !HasSwitch;
 
-    public string SwitchLabel => $"{Name}: {(IsEnabled ? "on" : "off")}";
+    public string SwitchLabel => Strings.Get("SwitchState", Name, Strings.Get(IsEnabled ? "SwitchOn" : "SwitchOff"));
 
     /// <summary>Agents and skills wear their own emoji; the other sections their line icon.</summary>
     public bool UsesGlyph => Section is LibrarySection.Skills or LibrarySection.Lumis;
@@ -137,11 +138,11 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
 
     /// <summary>Why an item that opens read-only can't be edited here.</summary>
     public string? ReadOnlyNote => CanEdit ? null
-        : IsBuiltIn ? "Built into Lumi. To change it, make a copy on your PC."
+        : IsBuiltIn ? Strings.Get("LibraryBuiltInNote")
         : Section switch
         {
-            LibrarySection.McpServers => "Connectors are set up on your PC. You can turn this one on or off here.",
-            LibrarySection.Jobs => "Jobs are edited on your PC. You can turn this one on or off here.",
+            LibrarySection.McpServers => Strings.Get("LibraryConnectorNote"),
+            LibrarySection.Jobs => Strings.Get("LibraryJobNote"),
             _ => null
         };
 
@@ -167,11 +168,11 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
 
     public bool HasActions => CanEdit || Section is LibrarySection.McpServers or LibrarySection.Jobs;
 
-    public string ActionsLabel => $"Actions for {Name}";
+    public string ActionsLabel => Strings.Get("ActionsForNamed", Name);
 
     public bool HasEnabledState => Section is LibrarySection.McpServers or LibrarySection.Jobs;
 
-    public string EnabledStateText => IsEnabled ? "Enabled" : "Disabled";
+    public string EnabledStateText => Strings.Get(IsEnabled ? "Enabled" : "Disabled");
 
     internal void UpdateFrom(LibraryEntryViewModel source)
     {
@@ -319,15 +320,15 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     public string ScopeTitle => _scope switch
     {
-        LibraryScope.Customize => "Customize",
-        LibraryScope.Jobs => "Jobs",
-        LibraryScope.Memories => "Memories",
-        _ => "Library"
+        LibraryScope.Customize => Strings.Get("Customize"),
+        LibraryScope.Jobs => Strings.Get("Jobs"),
+        LibraryScope.Memories => Strings.Get("Memories"),
+        _ => Strings.Get("Library")
     };
 
     /// <summary>The line under Jobs' title, as on the desktop's Jobs page: how many run and how many wait.</summary>
     public string? ScopeSummary => _scope == LibraryScope.Jobs && _library.Jobs.Count > 0
-        ? $"{_library.Jobs.Count(job => job.IsEnabled)} on · {_library.Jobs.Count(job => !job.IsEnabled)} paused"
+        ? Strings.Get("JobsSummary", _library.Jobs.Count(job => job.IsEnabled), _library.Jobs.Count(job => !job.IsEnabled))
         : null;
 
     /// <summary>
@@ -447,17 +448,16 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
     }
 
-    public string EditorTitle => $"{(IsCreating ? "New" : "Edit")} {SingularName(Section)}";
+    public string EditorTitle => Strings.Get(IsCreating ? "LibraryNewItem" : "LibraryEditItem", SingularName(Section));
     public string PageTitle => IsEditing ? EditorTitle : ScopeTitle;
     public bool ShowCreateButton => CanCreate && !IsEditing;
     public bool IsSaving => SaveCommand.IsRunning;
-    public string SaveButtonText => IsSaving ? "Saving…" : "Save";
+    public string SaveButtonText => Strings.Get(IsSaving ? "Saving" : "Save");
     public bool CanEditFields => IsEditing && !IsEditorLoading && !HasEditorLoadFailed && !IsSaving;
     public bool HasUnsavedChanges => IsEditing && !IsEditorLoading && CurrentDraft != _originalDraft;
 
     public string DiscardDescription =>
-        $"Your changes to “{(string.IsNullOrWhiteSpace(EditName) ? EditorTitle : EditName)}” will be lost. " +
-        "Nothing will be deleted from your PC.";
+        Strings.Get("LibraryDiscardDescription", string.IsNullOrWhiteSpace(EditName) ? EditorTitle : EditName);
 
     private (string, string, string, string, string) CurrentDraft =>
         (EditName, EditDescription, EditBody, EditGlyph, EditWorkingDirectory);
@@ -503,15 +503,14 @@ public sealed partial class LibraryViewModel : ObservableObject
     private bool _isConfirmingDelete;
 
     public string ActionEntryName => ActionEntry?.Name ?? "";
-    public string ActionSheetTitle => IsConfirmingDelete ? "Delete from Library?" : ActionEntryName;
+    public string ActionSheetTitle => IsConfirmingDelete ? Strings.Get("LibraryDeleteQuestion") : ActionEntryName;
     public bool CanEditActionEntry => ActionEntry?.CanEdit == true;
     public bool CanDeleteActionEntry => ActionEntry?.CanEdit == true;
     public bool IsActionBusy => ToggleEnabledCommand.IsRunning || ConfirmDeleteActionEntryCommand.IsRunning;
     public string ToggleActionText =>
-        $"{(ActionEntry?.IsEnabled == true ? "Disable" : "Enable")} {SingularName(ActionEntry?.Section ?? Section)}";
+        Strings.Get(ActionEntry?.IsEnabled == true ? "LibraryDisableItem" : "LibraryEnableItem", SingularName(ActionEntry?.Section ?? Section));
     public string DeleteConfirmationDescription =>
-        $"Delete “{ActionEntryName}” from your shared Library? " +
-        "It will be deleted on your PC as well as this phone. This cannot be undone.";
+        Strings.Get("LibraryDeleteDescription", ActionEntryName);
 
     /// <summary>Only MCP servers and jobs have an enabled state worth toggling.</summary>
     public bool CanToggleActionEntry =>
@@ -645,7 +644,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     public ObservableCollection<string> SectionNames { get; } =
-        ["Projects", "Skills", "Agents", "Memories", "Connectors", "Jobs"];
+        [Strings.Get("Projects"), Strings.Get("Skills"), Strings.Get("Agents"),
+         Strings.Get("Memories"), Strings.Get("Connectors"), Strings.Get("Jobs")];
 
     public int SectionIndex
     {
@@ -686,41 +686,41 @@ public sealed partial class LibraryViewModel : ObservableObject
     public bool IsEmpty => Entries.Count == 0;
     public bool HasSearchQuery => !string.IsNullOrWhiteSpace(SearchText);
     public bool IsNoResults => IsEmpty && HasSearchQuery;
-    public string EmptyTitle => IsNoResults ? $"No {PluralName} found" : $"No {PluralName} yet";
+    public string EmptyTitle => Strings.Get(IsNoResults ? "LibraryNoResults" : "LibraryEmptyYet", PluralName);
     public string EmptyDescription => IsNoResults
-        ? $"Try another name or clear the search to see all {PluralName}."
+        ? Strings.Get("LibrarySearchHelp", PluralName)
         : Section switch
         {
-            LibrarySection.McpServers => "Add connectors on your PC. You can enable or disable them here.",
-            LibrarySection.Jobs => "Create jobs on your PC. You can enable or disable them here.",
-            _ => $"Use + to add {(Section == LibrarySection.Lumis ? "an" : "a")} {SingularName(Section)}, or add one on your PC. Your Library is shared."
+            LibrarySection.McpServers => Strings.Get("LibraryAddConnectors"),
+            LibrarySection.Jobs => Strings.Get("LibraryAddJobs"),
+            _ => Strings.Get(Section == LibrarySection.Lumis ? "LibraryAddAgent" : "LibraryAddItem", SingularName(Section))
         };
 
     /// <summary>The selected section's own name, shown over its list.</summary>
     public string SectionTitle => SectionNames[(int)Section];
 
     /// <summary>The filter field's prompt, in sentence case like the desktop's ("Search agents").</summary>
-    public string SearchPlaceholder => $"Search {PluralName}";
+    public string SearchPlaceholder => Strings.Get("LibrarySearch", PluralName);
 
     /// <summary>A short line for the detail pane while nothing is open in it.</summary>
     public string DetailPlaceholder => Section switch
     {
-        LibrarySection.McpServers => "Choose a connector to see what it does. Switch it on or off right on its row.",
-        LibrarySection.Jobs => "Choose a job to see when it runs and open its chat. Switch it on or off right on its row.",
-        _ => $"Choose {(Section == LibrarySection.Lumis ? "an" : "a")} {SingularName(Section)} to open it, or add one with +."
+        LibrarySection.McpServers => Strings.Get("LibraryChooseConnector"),
+        LibrarySection.Jobs => Strings.Get("LibraryChooseJob"),
+        _ => Strings.Get(Section == LibrarySection.Lumis ? "LibraryChooseAgent" : "LibraryChooseItem", SingularName(Section))
     };
 
     private string PluralName => SectionNames[SectionIndex].ToLowerInvariant();
 
     private static string SingularName(LibrarySection section) => section switch
     {
-        LibrarySection.Projects => "project",
-        LibrarySection.Skills => "skill",
-        LibrarySection.Lumis => "agent",
-        LibrarySection.Memories => "memory",
-        LibrarySection.McpServers => "connector",
-        LibrarySection.Jobs => "job",
-        _ => "item"
+        LibrarySection.Projects => Strings.Get("ProjectSingular"),
+        LibrarySection.Skills => Strings.Get("SkillSingular"),
+        LibrarySection.Lumis => Strings.Get("AgentSingular"),
+        LibrarySection.Memories => Strings.Get("MemorySingular"),
+        LibrarySection.McpServers => Strings.Get("ConnectorSingular"),
+        LibrarySection.Jobs => Strings.Get("JobSingular"),
+        _ => Strings.Get("ItemSingular")
     };
 
     /// <summary>Only resources with a meaningful phone editor allow creating from mobile.</summary>
@@ -729,11 +729,11 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     public string BodyLabel => Section switch
     {
-        LibrarySection.Projects => "Instructions",
-        LibrarySection.Skills => "Skill content",
-        LibrarySection.Lumis => "System prompt",
-        LibrarySection.Memories => "Content",
-        _ => "Details"
+        LibrarySection.Projects => Strings.Get("Instructions"),
+        LibrarySection.Skills => Strings.Get("SkillContent"),
+        LibrarySection.Lumis => Strings.Get("SystemPrompt"),
+        LibrarySection.Memories => Strings.Get("Content"),
+        _ => Strings.Get("Details")
     };
 
     public bool ShowGlyphEditor => Section is LibrarySection.Skills or LibrarySection.Lumis;
@@ -755,7 +755,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     /// <summary>How many memories Lumi keeps, shown with the profile in Settings.</summary>
     public int MemoryCount => _library.Memories.Count;
 
-    public string MemoryCountLabel => MemoryCount == 1 ? "1 memory" : $"{MemoryCount} memories";
+    public string MemoryCountLabel => MemoryCount == 1 ? Strings.Get("MemoryCountOne") : Strings.Get("MemoryCountMany", MemoryCount);
 
     internal void ResetHostState()
     {
@@ -853,9 +853,9 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         static string? GroupOf(LibraryEntryViewModel entry) => entry.Section switch
         {
-            LibrarySection.Lumis or LibrarySection.Skills => entry.IsBuiltIn ? "Built in" : "Yours",
-            LibrarySection.Jobs => entry.IsEnabled ? "On" : "Paused",
-            LibrarySection.McpServers => entry.IsEnabled ? "On" : "Off",
+            LibrarySection.Lumis or LibrarySection.Skills => Strings.Get(entry.IsBuiltIn ? "BuiltIn" : "Yours"),
+            LibrarySection.Jobs => Strings.Get(entry.IsEnabled ? "On" : "Paused"),
+            LibrarySection.McpServers => Strings.Get(entry.IsEnabled ? "On" : "Off"),
             _ => null
         };
 
@@ -875,9 +875,9 @@ public sealed partial class LibraryViewModel : ObservableObject
             Description = p.Instructions,
             Subtitle = p.Instructions,
             Glyph = "◆",
-            Kind = "Project",
-            BodyLabel = "Instructions",
-            Badge = p.ChatCount > 0 ? $"{p.ChatCount} {(p.ChatCount == 1 ? "chat" : "chats")}" : null
+            Kind = Strings.Get("Project"),
+            BodyLabel = Strings.Get("Instructions"),
+            Badge = p.ChatCount > 0 ? Strings.Get(p.ChatCount == 1 ? "ChatCountOne" : "ChatCountMany", p.ChatCount) : null
         }),
 
         // Yours first, then Lumi's own, each in the PC's order.
@@ -890,8 +890,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             Subtitle = s.Description,
             Glyph = s.IconGlyph,
             IsBuiltIn = s.IsBuiltIn,
-            Kind = s.IsBuiltIn ? "Skill · Built in" : "Skill",
-            BodyLabel = "Skill content"
+            Kind = Strings.Get(s.IsBuiltIn ? "SkillBuiltIn" : "Skill"),
+            BodyLabel = Strings.Get("SkillContent")
         }),
 
         LibrarySection.Lumis => _library.Lumis.OrderBy(l => l.IsBuiltIn).Select(l => new LibraryEntryViewModel
@@ -903,12 +903,12 @@ public sealed partial class LibraryViewModel : ObservableObject
             Subtitle = l.Description,
             Glyph = l.IconGlyph,
             IsBuiltIn = l.IsBuiltIn,
-            Kind = l.IsBuiltIn ? "Agent · Built in" : "Agent",
-            BodyLabel = "Instructions",
-            Badge = l.SkillCount > 0 ? $"{l.SkillCount} {(l.SkillCount == 1 ? "skill" : "skills")}" : null,
+            Kind = Strings.Get(l.IsBuiltIn ? "AgentBuiltIn" : "Agent"),
+            BodyLabel = Strings.Get("Instructions"),
+            Badge = l.SkillCount > 0 ? Strings.Get(l.SkillCount == 1 ? "SkillCountOne" : "SkillCountMany", l.SkillCount) : null,
             Facts = FactList(
-                ("Skills", l.SkillCount > 0 ? l.SkillCount.ToString(System.Globalization.CultureInfo.CurrentCulture) : null),
-                ("Tools", l.ToolCount > 0 ? l.ToolCount.ToString(System.Globalization.CultureInfo.CurrentCulture) : null))
+                (Strings.Get("Skills"), l.SkillCount > 0 ? l.SkillCount.ToString(System.Globalization.CultureInfo.CurrentCulture) : null),
+                (Strings.Get("Tools"), l.ToolCount > 0 ? l.ToolCount.ToString(System.Globalization.CultureInfo.CurrentCulture) : null))
         }),
 
         LibrarySection.Memories => _library.Memories.Select(m => new LibraryEntryViewModel
@@ -919,8 +919,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             Description = m.Content,
             Subtitle = m.Content,
             Glyph = "◇",
-            Kind = "Memory",
-            BodyLabel = "Content",
+            Kind = Strings.Get("Memory"),
+            BodyLabel = Strings.Get("Content"),
             Badge = m.Category
         }),
 
@@ -930,13 +930,13 @@ public sealed partial class LibraryViewModel : ObservableObject
             Identifier = s.Id.ToString(),
             Name = s.Name,
             Description = s.Description,
-            Subtitle = s.Description ?? (IsLocalServer(s) ? "Runs on your PC" : "Online service"),
+            Subtitle = s.Description ?? Strings.Get(IsLocalServer(s) ? "RunsOnPc" : "OnlineService"),
             Glyph = "⬡",
             IsEnabled = s.IsEnabled,
-            Kind = IsLocalServer(s) ? "Connector · On your PC" : "Connector · Online",
-            BodyLabel = IsLocalServer(s) ? "Command" : "Address",
-            Badge = s.ToolCount > 0 ? $"{s.ToolCount} tools" : null,
-            Facts = FactList(("Tools", s.ToolCount > 0 ? s.ToolCount.ToString(System.Globalization.CultureInfo.CurrentCulture) : null))
+            Kind = Strings.Get(IsLocalServer(s) ? "ConnectorOnPc" : "ConnectorOnline"),
+            BodyLabel = Strings.Get(IsLocalServer(s) ? "Command" : "Address"),
+            Badge = s.ToolCount > 0 ? Strings.Get("ToolCount", s.ToolCount) : null,
+            Facts = FactList((Strings.Get("Tools"), s.ToolCount > 0 ? s.ToolCount.ToString(System.Globalization.CultureInfo.CurrentCulture) : null))
         }),
 
         LibrarySection.Jobs => _library.Jobs.OrderBy(j => !j.IsEnabled).Select(j => new LibraryEntryViewModel
@@ -948,14 +948,14 @@ public sealed partial class LibraryViewModel : ObservableObject
             Subtitle = JoinParts(j.ScheduleSummary ?? j.Description, j.LastRunStatus),
             Glyph = "◷",
             IsEnabled = j.IsEnabled,
-            Kind = $"Job · {TriggerLabel(j.TriggerType)}",
-            BodyLabel = "Prompt",
+            Kind = Strings.Get("JobTrigger", TriggerLabel(j.TriggerType)),
+            BodyLabel = Strings.Get("Prompt"),
             Badge = j.LastRunStatus,
             ChatId = j.ChatId == Guid.Empty ? null : j.ChatId,
             Facts = FactList(
-                ("Runs", j.ScheduleSummary),
-                ("Last run", j.LastRunStatus),
-                ("Watches", j.SourceChatTitle))
+                (Strings.Get("Runs"), j.ScheduleSummary),
+                (Strings.Get("LastRun"), j.LastRunStatus),
+                (Strings.Get("Watches"), j.SourceChatTitle))
         }),
 
         _ => []
@@ -966,10 +966,10 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     private static string TriggerLabel(string? trigger) => trigger?.ToLowerInvariant() switch
     {
-        "time" => "Scheduled",
-        "script" => "Wake script",
-        "chat_event" or "chatevent" or "chat-event" => "Follows a chat",
-        _ => "Automation"
+        "time" => Strings.Get("Scheduled"),
+        "script" => Strings.Get("WakeScript"),
+        "chat_event" or "chatevent" or "chat-event" => Strings.Get("FollowsChat"),
+        _ => Strings.Get("Automation")
     };
 
     private static string? JoinParts(params string?[] parts)
@@ -1066,7 +1066,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             if (detail is null)
             {
-                ViewStatus = "Lumi could not load the full details. Try again when your PC is connected.";
+                ViewStatus = Strings.Get("LibraryFullDetailsFailed");
                 return;
             }
 
@@ -1075,7 +1075,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
             if (generation == _viewGeneration)
-                ViewStatus = $"Could not load the full details. {ex.Message}";
+                ViewStatus = Strings.Get("LibraryFullDetailsFailedReason", ex.Message);
         }
         finally
         {
@@ -1125,20 +1125,20 @@ public sealed partial class LibraryViewModel : ObservableObject
                     .With("isEnabled", enabled.ToString()));
             if (!result.Ok)
             {
-                StatusMessage = result.Error ?? result.Message ?? "Could not change this item. Please try again.";
+                StatusMessage = result.Error ?? result.Message ?? Strings.Get("LibraryChangeFailed");
                 entry.RefreshEnabled();
                 return;
             }
 
             entry.IsEnabled = enabled;
-            const string done = "Done.";
+            var done = Strings.Get("DonePeriod");
             var message = await RefreshAfterSuccessAsync(done);
             if (message != done)
                 StatusMessage = message;
         }
         catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
-            StatusMessage = $"Could not change this item. {ex.Message}";
+            StatusMessage = Strings.Get("LibraryChangeFailedReason", ex.Message);
             entry.RefreshEnabled();
         }
         finally
@@ -1169,14 +1169,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         EditGlyph = "";
         EditWorkingDirectory = "";
         RememberDraft();
-        StatusMessage = "Loading full details…";
+        StatusMessage = Strings.Get("LibraryLoadingFullDetails");
 
         try
         {
             if (_sink is not IRemoteLibraryDetailSink detailSink)
             {
                 HasEditorLoadFailed = true;
-                StatusMessage = "This item cannot be edited from this connection.";
+                StatusMessage = Strings.Get("LibraryCannotEdit");
                 return;
             }
 
@@ -1193,7 +1193,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             if (detail is null)
             {
                 HasEditorLoadFailed = true;
-                StatusMessage = "Lumi could not load the full item. Try again when your PC is connected.";
+                StatusMessage = Strings.Get("LibraryFullItemFailed");
                 return;
             }
 
@@ -1210,7 +1210,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             if (generation == _editorGeneration)
             {
                 HasEditorLoadFailed = true;
-                StatusMessage = $"Could not load this item. {ex.Message}";
+                StatusMessage = Strings.Get("LibraryLoadItemFailedReason", ex.Message);
             }
         }
         finally
@@ -1294,7 +1294,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (EditName.Trim().Length == 0)
         {
-            StatusMessage = "Give it a name first.";
+            StatusMessage = Strings.Get("LibraryNameRequired");
             return;
         }
 
@@ -1342,11 +1342,11 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             if (!result.Ok)
             {
-                StatusMessage = result.Error ?? result.Message ?? "Could not save. Your changes are still here.";
+                StatusMessage = result.Error ?? result.Message ?? Strings.Get("LibrarySaveFailed");
                 return;
             }
 
-            var message = await RefreshAfterSuccessAsync(result.Message ?? "Saved on your PC.");
+            var message = await RefreshAfterSuccessAsync(result.Message ?? Strings.Get("LibrarySavedOnPcMessage"));
             if (!IsCurrentEditor())
                 return;
 
@@ -1356,7 +1356,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
             if (IsCurrentEditor())
-                StatusMessage = $"Could not save. Your changes are still here. {ex.Message}";
+                StatusMessage = Strings.Get("LibrarySaveFailedReason", ex.Message);
         }
 
         bool IsCurrentEditor() => generation == _editorGeneration
@@ -1401,11 +1401,11 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             if (!result.Ok)
             {
-                StatusMessage = result.Error ?? result.Message ?? "Could not delete this item. Please try again.";
+                StatusMessage = result.Error ?? result.Message ?? Strings.Get("LibraryDeleteFailed");
                 return;
             }
 
-            var message = await RefreshAfterSuccessAsync("Deleted from your shared Library.");
+            var message = await RefreshAfterSuccessAsync(Strings.Get("LibraryDeleted"));
             if (generation != _actionGeneration)
                 return;
 
@@ -1415,7 +1415,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
             if (generation == _actionGeneration)
-                StatusMessage = $"Could not delete this item. {ex.Message}";
+                StatusMessage = Strings.Get("LibraryDeleteFailedReason", ex.Message);
         }
     }
 
@@ -1445,12 +1445,12 @@ public sealed partial class LibraryViewModel : ObservableObject
 
             if (!result.Ok)
             {
-                StatusMessage = result.Error ?? result.Message ?? "Could not change this item. Please try again.";
+                StatusMessage = result.Error ?? result.Message ?? Strings.Get("LibraryChangeFailed");
                 return;
             }
 
             entry.IsEnabled = enabled;
-            var message = await RefreshAfterSuccessAsync(enabled ? "Enabled on your PC." : "Disabled on your PC.");
+            var message = await RefreshAfterSuccessAsync(Strings.Get(enabled ? "EnabledOnPc" : "DisabledOnPc"));
             if (generation != _actionGeneration)
                 return;
 
@@ -1460,7 +1460,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
             if (generation == _actionGeneration)
-                StatusMessage = $"Could not change this item. {ex.Message}";
+                StatusMessage = Strings.Get("LibraryChangeFailedReason", ex.Message);
         }
     }
 
@@ -1474,7 +1474,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
-            return $"{message} The list could not refresh. Reconnect to your PC to reload it.";
+            return Strings.Get("LibraryRefreshFailed", message);
         }
     }
 }

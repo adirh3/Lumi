@@ -141,7 +141,7 @@ internal static partial class McpConnectorIssues
             McpConnectorIssueKind.StillStarting,
             Loc.Connector_Issue_StillStarting,
             JoinSections(
-                $"Lumi waited {waited.TotalSeconds:0} seconds for connector '{displayName}' to finish starting. Its tools appear once it is ready.",
+                string.Format(Loc.Connector_StillStartingDetails, waited.TotalSeconds, displayName),
                 DescribeTarget(config, definition)));
 
     /// <summary>The connector changed, or Lumi worked on it; the chat reconnects it with its next message.</summary>
@@ -336,14 +336,14 @@ internal static partial class McpConnectorIssues
     {
         var url = SecretRedactor.RedactUrl(probe.Url, out _);
         var outcome = probe.Failure is { } failure
-            ? $"Lumi's check: POST {url} failed: {Sanitize(failure, secrets)}"
-            : $"Lumi's check: POST {url} returned {probe.StatusCode} {probe.ReasonPhrase}".TrimEnd() + ".";
+            ? string.Format(Loc.Connector_ProbeFailed, url, Sanitize(failure, secrets))
+            : string.Format(Loc.Connector_ProbeReturned, url, probe.StatusCode, probe.ReasonPhrase).TrimEnd() + ".";
         if (string.IsNullOrWhiteSpace(probe.Body))
             return outcome;
 
         var body = Sanitize(probe.Body, secrets).Trim();
         if (body.Length > MaxProbeBodyLength)
-            body = body[..MaxProbeBodyLength] + "… (truncated)";
+            body = body[..MaxProbeBodyLength] + Loc.Connector_DetailsTruncated;
         return $"{outcome}\n{body}";
     }
 
@@ -353,20 +353,20 @@ internal static partial class McpConnectorIssues
         if (definition is not null)
         {
             lines.Add(IsRemote(config, definition) == true
-                ? "Address: " + SecretRedactor.RedactUrl(definition.Url, out _)
-                : "Command: " + FormatCommand(definition.Command, definition.Args));
+                ? Loc.FieldLabel_Address + ": " + SecretRedactor.RedactUrl(definition.Url, out _)
+                : Loc.FieldLabel_Command + ": " + FormatCommand(definition.Command, definition.Args));
         }
         else if (config is McpStdioServerConfig local)
         {
-            lines.Add("Command: " + FormatCommand(local.Command, local.Args ?? []));
+            lines.Add(Loc.FieldLabel_Command + ": " + FormatCommand(local.Command, local.Args ?? []));
         }
         else if (config is McpHttpServerConfig remote)
         {
-            lines.Add("Address: " + SecretRedactor.RedactUrl(remote.Url, out _));
+            lines.Add(Loc.FieldLabel_Address + ": " + SecretRedactor.RedactUrl(remote.Url, out _));
         }
 
         if (config is McpStdioServerConfig { WorkingDirectory: { Length: > 0 } workingDirectory })
-            lines.Add("Working directory: " + workingDirectory);
+            lines.Add(Loc.FieldLabel_WorkingDirectory + ": " + workingDirectory);
         return string.Join('\n', lines);
     }
 

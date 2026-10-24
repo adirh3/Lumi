@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia.Threading;
 using GitHub.Copilot;
+using Lumi.Localization;
 using Lumi.Services;
 
 namespace Lumi.ViewModels;
@@ -67,7 +68,7 @@ public partial class ChatViewModel
             if (origin is not null)
                 PublishDesktopRefresh(origin, origin with
                 {
-                    StatusText = $"Preview unavailable: {ex.Message}",
+                    StatusText = Loc.Get(nameof(Loc.Desktop_PreviewFailed), ex.Message),
                     NewFrame = null
                 });
         }
@@ -90,13 +91,13 @@ public partial class ChatViewModel
         try
         {
             var capture = await Task.Run(() => _uiAutomation.CaptureWindow(title, maxWidth)).ConfigureAwait(false);
-            PublishCapture(chatId, "Window screenshot", "Screenshot captured without focusing the window", capture);
+            PublishCapture(chatId, Loc.Lumis_ToolScreenshotWindow, Loc.Desktop_CapturedWithoutFocus, capture);
             return CreateDesktopScreenshotContent(capture);
         }
         catch (Exception ex) when (IsDesktopCaptureFailure(ex))
         {
             Trace.TraceWarning($"[UIAutomation] Screenshot failed: {ex.Message}");
-            await PublishDesktopOperationAsync(chatId, "Window screenshot", ex.Message, title, null, false).ConfigureAwait(false);
+            await PublishDesktopOperationAsync(chatId, Loc.Lumis_ToolScreenshotWindow, ex.Message, title, null, false).ConfigureAwait(false);
             return new ToolResultAIContent(new ToolResultObject
             {
                 ResultType = "failure",
@@ -144,15 +145,15 @@ public partial class ChatViewModel
                 {
                     if (!success.GetBoolean())
                         return (document.RootElement.TryGetProperty("error", out var error)
-                            ? error.GetString() ?? "Automation did not complete" : "Automation did not complete", true);
+                            ? error.GetString() ?? Loc.Desktop_AutomationIncomplete : Loc.Desktop_AutomationIncomplete, true);
                     if (document.RootElement.TryGetProperty("completedSteps", out var completed))
-                        return ($"Completed {completed.GetInt32()} actions", false);
+                        return (Loc.Get(nameof(Loc.Desktop_CompletedActions), completed.GetInt32()), false);
                 }
             }
             catch (JsonException ex)
             {
                 Trace.TraceWarning($"[DesktopPreview] Invalid operation result: {ex.Message}");
-                return ("Could not read the automation result", true);
+                return (Loc.Desktop_AutomationResultUnreadable, true);
             }
         }
         var firstLine = result.Split('\n', 2)[0].Trim();

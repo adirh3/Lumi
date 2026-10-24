@@ -183,18 +183,27 @@ public sealed class BrowserPlatformWiringTests
     [Theory]
     [InlineData("en")]
     [InlineData("he")]
-    public async Task CookieImportHintsMatchTheHostWithoutChangingWindowsWording(string language)
+    public async Task CookieImportHintsMatchTheHostAndLanguageWithoutChangingEnglishWindowsWording(string language)
     {
         using var session = HeadlessTestSession.Start();
         string?[]? browserHints = null;
         string?[]? settingsHints = null;
         string? linuxSessionHint = null;
+        IReadOnlyDictionary<string, string>? localizedHints = null;
         await session.Dispatch(() =>
         {
             Loc.Load(language);
             try
             {
                 linuxSessionHint = Loc.Browser_LinuxTabSessionHint;
+                localizedHints = new[]
+                {
+                    nameof(Loc.Browser_ImportBrowserClosedHint),
+                    nameof(Loc.Browser_ImportCloseBrowserHint),
+                    nameof(Loc.Browser_ImportAuthorizeHint),
+                    nameof(Loc.Browser_ImportCredentialHint),
+                    nameof(Loc.Browser_ImportCopiedHint)
+                }.ToDictionary(static key => key, static key => Loc.Get(key));
                 var browser = new BrowserView();
                 var onboarding = browser.FindControl<Border>("CookieOnboardingOverlay");
                 browserHints = onboarding?.GetLogicalDescendants().OfType<TextBlock>()
@@ -215,8 +224,16 @@ public sealed class BrowserPlatformWiringTests
         Assert.NotNull(browserHints);
         Assert.NotNull(settingsHints);
         Assert.NotNull(linuxSessionHint);
-        AssertCookieHints(browserHints, linuxSessionHint);
-        AssertCookieHints(settingsHints, linuxSessionHint);
+        Assert.NotNull(localizedHints);
+        if (language == "en")
+        {
+            Assert.Equal("• The selected browser will be briefly closed",
+                localizedHints[nameof(Loc.Browser_ImportBrowserClosedHint)]);
+            Assert.Equal("• Windows may ask for your password to authorize",
+                localizedHints[nameof(Loc.Browser_ImportAuthorizeHint)]);
+        }
+        AssertCookieHints(browserHints, linuxSessionHint, localizedHints);
+        AssertCookieHints(settingsHints, linuxSessionHint, localizedHints);
     }
 
     private static Canvas? AssertWindowHost(Window window)
@@ -250,31 +267,34 @@ public sealed class BrowserPlatformWiringTests
 #endif
     }
 
-    private static void AssertCookieHints(IEnumerable<string?> hints, string linuxSessionHint)
+    private static void AssertCookieHints(
+        IEnumerable<string?> hints,
+        string linuxSessionHint,
+        IReadOnlyDictionary<string, string> localizedHints)
     {
         var text = hints.ToArray();
         if (OperatingSystem.IsWindows())
         {
-            Assert.Contains("• The selected browser will be briefly closed", text);
-            Assert.Contains("• Windows may ask for your password to authorize", text);
+            Assert.Contains(localizedHints[nameof(Loc.Browser_ImportBrowserClosedHint)], text);
+            Assert.Contains(localizedHints[nameof(Loc.Browser_ImportAuthorizeHint)], text);
         }
         else
         {
-            Assert.Contains("• Close the selected browser first if its cookie database is locked", text);
-            Assert.Contains("• Your system may ask to unlock its credential store", text);
-            Assert.DoesNotContain("• The selected browser will be briefly closed", text);
-            Assert.DoesNotContain("• Windows may ask for your password to authorize", text);
+            Assert.Contains(localizedHints[nameof(Loc.Browser_ImportCloseBrowserHint)], text);
+            Assert.Contains(localizedHints[nameof(Loc.Browser_ImportCredentialHint)], text);
+            Assert.DoesNotContain(localizedHints[nameof(Loc.Browser_ImportBrowserClosedHint)], text);
+            Assert.DoesNotContain(localizedHints[nameof(Loc.Browser_ImportAuthorizeHint)], text);
         }
 
         if (OperatingSystem.IsLinux())
         {
             Assert.Contains(linuxSessionHint, text);
-            Assert.DoesNotContain("• Your cookies will be copied into Lumi's browser", text);
+            Assert.DoesNotContain(localizedHints[nameof(Loc.Browser_ImportCopiedHint)], text);
         }
         else
         {
             Assert.DoesNotContain(linuxSessionHint, text);
-            Assert.Contains("• Your cookies will be copied into Lumi's browser", text);
+            Assert.Contains(localizedHints[nameof(Loc.Browser_ImportCopiedHint)], text);
         }
     }
 

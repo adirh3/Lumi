@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:views="using:Lumi.Mobile.Views"
              xmlns:sc="using:StrataTheme.Controls"
@@ -7,6 +8,7 @@
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              x:Class="Lumi.Mobile.Views.MobileSettingsView"
              x:DataType="vm:MobileShellViewModel"
+             FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
              Background="{DynamicResource Brush.Surface0}">
 
   <Panel>
@@ -36,7 +38,7 @@
               MaxWidth="620"
               HorizontalAlignment="Stretch"
               Margin="{DynamicResource Mobile.Page.HeaderMargin}">
-          <TextBlock x:Name="SettingsTitle" Text="Settings" Classes="place-title" />
+          <TextBlock x:Name="SettingsTitle" Text="{loc:Str Settings}" Classes="place-title" />
           <views:WebAppUpdateBannerView x:Name="SettingsUpdateBanner" Grid.Row="1" />
         </Grid>
       </Border>
@@ -61,7 +63,7 @@
               <StackPanel>
                 <Button x:Name="SettingsProfileRow" Classes="list-row"
                         IsVisible="{Binding UserName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                        AutomationProperties.Name="{Binding UserName, StringFormat='{}{0}: profile and memories'}"
+                        AutomationProperties.Name="{Binding UserName, StringFormat={loc:Str ProfileNamed}}"
                         Command="{Binding ShowMemoriesCommand}">
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                     <Border Width="36" Height="36" CornerRadius="18" VerticalAlignment="Center"
@@ -72,7 +74,7 @@
                     </Border>
                     <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                       <TextBlock Text="{Binding UserName}" Classes="row-title" />
-                      <TextBlock Text="{Binding Library.MemoryCountLabel, StringFormat='Profile · {0}'}" Classes="row-meta" />
+                      <TextBlock Text="{Binding Library.MemoryCountLabel, StringFormat={loc:Str ProfileMemories}}" Classes="row-meta" />
                     </StackPanel>
                     <PathIcon Grid.Column="2" Classes="row-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
                   </Grid>
@@ -82,7 +84,7 @@
                           IsVisible="{Binding UserName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                   <Button x:Name="SettingsConnectionRow" Classes="list-row"
                           Classes.selected="{Binding IsConnectionSectionVisible}"
-                          AutomationProperties.Name="{Binding HostName, StringFormat='Connection: {0}'}"
+                          AutomationProperties.Name="{Binding HostName, StringFormat={loc:Str ConnectionNamed}}"
                           Command="{Binding OpenSettingsSectionCommand}" CommandParameter="Connection">
                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                       <Border Classes="row-tile">
@@ -106,13 +108,13 @@
             <Border x:Name="SettingsPagesCard" Classes="group-card">
               <StackPanel>
                 <Button x:Name="SettingsMemoriesRow" Classes="list-row"
-                        AutomationProperties.Name="Memories"
+                        AutomationProperties.Name="{loc:Str Memories}"
                         Command="{Binding ShowMemoriesCommand}">
                   <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                     <Border Classes="row-tile">
                       <PathIcon Data="{DynamicResource Mobile.Icon.Memory}" Foreground="{DynamicResource Brush.Hue.Memory}" />
                     </Border>
-                    <TextBlock Grid.Column="1" Text="Memories" Classes="row-title" />
+                    <TextBlock Grid.Column="1" Text="{loc:Str Memories}" Classes="row-title" />
                     <TextBlock Grid.Column="2" Text="{Binding Library.MemoryCount}" Classes="row-value" />
                     <PathIcon Grid.Column="3" Classes="row-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
                   </Grid>
@@ -121,13 +123,13 @@
                   <Border Classes="row-divider" />
                   <Button x:Name="SettingsAppearanceRow" Classes="list-row"
                           Classes.selected="{Binding IsAppearanceSectionVisible}"
-                          AutomationProperties.Name="Appearance"
+                          AutomationProperties.Name="{loc:Str Appearance}"
                           Command="{Binding OpenSettingsSectionCommand}" CommandParameter="Appearance">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                       <Border Classes="row-tile">
                         <PathIcon Data="{DynamicResource Mobile.Icon.Palette}" Foreground="{DynamicResource Brush.Hue.Appearance}" />
                       </Border>
-                      <TextBlock Grid.Column="1" Text="Appearance" Classes="row-title" />
+                      <TextBlock Grid.Column="1" Text="{loc:Str Appearance}" Classes="row-title" />
                       <TextBlock Grid.Column="2" Text="{Binding ThemeLabel}" Classes="row-value" />
                       <PathIcon Grid.Column="3" Classes="row-chevron" IsVisible="{Binding IsSinglePane}"
                                 Data="{DynamicResource Mobile.Icon.ChevronRight}" />
@@ -138,13 +140,13 @@
                   <Border Classes="row-divider" />
                   <Button x:Name="SettingsAboutRow" Classes="list-row"
                           Classes.selected="{Binding IsAboutSectionVisible}"
-                          AutomationProperties.Name="About"
+                          AutomationProperties.Name="{loc:Str About}"
                           Command="{Binding OpenSettingsSectionCommand}" CommandParameter="About">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                       <Border Classes="row-tile">
                         <PathIcon Data="{DynamicResource Mobile.Icon.Info}" Foreground="{DynamicResource Brush.Hue.About}" />
                       </Border>
-                      <TextBlock Grid.Column="1" Text="About" Classes="row-title" />
+                      <TextBlock Grid.Column="1" Text="{loc:Str About}" Classes="row-title" />
                       <TextBlock Grid.Column="2" Text="{Binding AppVersion}" Classes="row-value" />
                       <PathIcon Grid.Column="3" Classes="row-chevron" IsVisible="{Binding IsSinglePane}"
                                 Data="{DynamicResource Mobile.Icon.ChevronRight}" />
@@ -192,7 +194,7 @@
               Margin="{DynamicResource Mobile.Page.HeaderMargin}">
           <Button x:Name="SettingsBackButton" Grid.Column="0" Classes="chat-header-action floating-action"
                   IsVisible="{Binding IsSinglePane}"
-                  AutomationProperties.Name="Back to Settings"
+                  AutomationProperties.Name="{loc:Str BackToSettings}"
                   Command="{Binding GoBackCommand}">
             <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
                       Data="{DynamicResource Mobile.Icon.Back}" />
@@ -215,52 +217,71 @@
                       HorizontalAlignment="Stretch"
                       Margin="{DynamicResource Mobile.Page.FormContentMargin}">
 
-            <sc:StrataSettingGroup x:Name="AppearanceSettings" Header="Theme" Classes="mobile"
+            <sc:StrataSettingGroup x:Name="AppearanceSettings" Header="{loc:Str Theme}" Classes="mobile"
                                    IsVisible="{Binding IsAppearanceSectionVisible}">
               <!-- Three-way rather than a dark switch: "match my phone" is what most people want, and on
                    Android the OS flips it on a schedule the app has no other way to follow. -->
-              <sc:StrataSetting Header="Light or dark" Classes="mobile stacked"
-                                Description="Choose a look, or match your phone.">
+              <sc:StrataSetting Header="{loc:Str LightOrDark}" Classes="mobile stacked"
+                                Description="{loc:Str ThemeDescription}">
                 <Grid x:Name="ThemeOptions" ColumnDefinitions="*,*,*" ColumnSpacing="8">
                   <Button Grid.Column="0" x:Name="ThemeSystemButton" Classes="theme-option"
                           Classes.selected="{Binding IsSystemTheme}"
                           Command="{Binding SelectThemeCommand}" CommandParameter="System"
-                          Content="System" />
+                          Content="{loc:Str System}" />
                   <Button Grid.Column="1" x:Name="ThemeLightButton" Classes="theme-option"
                           Classes.selected="{Binding IsLightTheme}"
                           Command="{Binding SelectThemeCommand}" CommandParameter="Light"
-                          Content="Light" />
+                          Content="{loc:Str Light}" />
                   <Button Grid.Column="2" x:Name="ThemeDarkButton" Classes="theme-option"
                           Classes.selected="{Binding IsDarkTheme}"
                           Command="{Binding SelectThemeCommand}" CommandParameter="Dark"
-                          Content="Dark" />
+                          Content="{loc:Str Dark}" />
                 </Grid>
+              </sc:StrataSetting>
+            </sc:StrataSettingGroup>
+
+            <sc:StrataSettingGroup Header="{loc:Str Language}" Classes="mobile"
+                                   IsVisible="{Binding IsAppearanceSectionVisible}">
+              <sc:StrataSetting Header="{loc:Str Language}" Classes="mobile stacked"
+                                Description="{loc:Str LanguageDescription}">
+                <StackPanel Spacing="10">
+                  <Grid ColumnDefinitions="*,*" ColumnSpacing="8" FlowDirection="LeftToRight">
+                    <Button x:Name="LanguageEnglishButton" Classes="theme-option" Content="English"
+                            Classes.selected="{Binding IsEnglishLanguage}"
+                            Command="{Binding SelectLanguageCommand}" CommandParameter="en" />
+                    <Button x:Name="LanguageHebrewButton" Grid.Column="1" Classes="theme-option" Content="עברית"
+                            Classes.selected="{Binding IsHebrewLanguage}"
+                            Command="{Binding SelectLanguageCommand}" CommandParameter="he" />
+                  </Grid>
+                  <TextBlock Text="{loc:Str LanguageRestart}" Classes="supporting" TextWrapping="Wrap"
+                             IsVisible="{Binding LanguageRestartRequired}" />
+                </StackPanel>
               </sc:StrataSetting>
             </sc:StrataSettingGroup>
 
             <StackPanel x:Name="ConnectionSettings" Spacing="16"
                         IsVisible="{Binding IsConnectionSectionVisible}">
-              <sc:StrataSettingGroup Header="This connection" Classes="mobile">
-                <sc:StrataSetting Header="PC" Classes="mobile" Description="{Binding HostName}" />
-                <sc:StrataSetting Header="Status" Classes="mobile" Description="{Binding ConnectionStateLabel}" />
-                <sc:StrataSetting Header="This device" Classes="mobile" Description="{Binding DeviceName}" />
-                <sc:StrataSetting Header="Refresh connection" Classes="mobile stacked"
-                                  Description="Bring your chats and library up to date.">
+              <sc:StrataSettingGroup Header="{loc:Str ThisConnection}" Classes="mobile">
+                <sc:StrataSetting Header="{loc:Str Pc}" Classes="mobile" Description="{Binding HostName}" />
+                <sc:StrataSetting Header="{loc:Str Status}" Classes="mobile" Description="{Binding ConnectionStateLabel}" />
+                <sc:StrataSetting Header="{loc:Str ThisDevice}" Classes="mobile" Description="{Binding DeviceName}" />
+                <sc:StrataSetting Header="{loc:Str RefreshConnection}" Classes="mobile stacked"
+                                  Description="{loc:Str RefreshConnectionHelp}">
                   <Button x:Name="RefreshButton" Classes="touch open-action"
                           HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                           Command="{Binding RefreshCommand}">
-                    <TextBlock Text="Refresh" Foreground="{Binding $parent[Button].Foreground}" />
+                    <TextBlock Text="{loc:Str Refresh}" Foreground="{Binding $parent[Button].Foreground}" />
                   </Button>
                 </sc:StrataSetting>
-                <sc:StrataSetting x:Name="ConnectionActivitySetting" Header="Connection activity" Classes="mobile"
+                <sc:StrataSetting x:Name="ConnectionActivitySetting" Header="{loc:Str ConnectionActivity}" Classes="mobile"
                                   IsVisible="{Binding ConnectionDiagnostics, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                   Description="{Binding ConnectionDiagnostics}" />
-                <sc:StrataSetting x:Name="ReloadWebAppSetting" Header="Browser sign-in" Classes="mobile stacked"
+                <sc:StrataSetting x:Name="ReloadWebAppSetting" Header="{loc:Str BrowserSignIn}" Classes="mobile stacked"
                                   IsVisible="{Binding CanReloadWebApp}"
-                                  Description="Reload through your browser if sign-in has expired. Pairing is kept; unsent text is not.">
+                                  Description="{loc:Str BrowserSignInHelp}">
                   <Button x:Name="ReloadWebAppButton" Classes="touch open-action"
                           HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                          Content="Reload web app"
+                          Content="{loc:Str ReloadWebApp}"
                           Command="{Binding ReloadWebAppCommand}" />
                 </sc:StrataSetting>
               </sc:StrataSettingGroup>
@@ -271,19 +292,19 @@
               <StackPanel Spacing="8">
                 <Button x:Name="ForgetButton" Classes="touch subtle"
                         Foreground="{DynamicResource Brush.DangerDefault}"
-                        Content="Disconnect from this PC"
+                        Content="{loc:Str DisconnectPc}"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                         Command="{Binding OpenDisconnectConfirmationCommand}" />
-                <TextBlock Text="Your chats and files stay on your PC." Classes="muted"
+                <TextBlock Text="{loc:Str ChatsStayOnPc}" Classes="muted"
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
               </StackPanel>
             </StackPanel>
 
             <sc:StrataSettingGroup x:Name="AboutSettings" Header="Lumi" Classes="mobile"
                                    IsVisible="{Binding IsAboutSectionVisible}">
-              <sc:StrataSetting Header="App version" Classes="mobile" Description="{Binding AppVersion}" />
-              <sc:StrataSetting Header="Your assistant" Classes="mobile"
-                                Description="Lumi on your phone works with Lumi on your PC: your chats, files and tools stay there." />
+              <sc:StrataSetting Header="{loc:Str AppVersion}" Classes="mobile" Description="{Binding AppVersion}" />
+              <sc:StrataSetting Header="{loc:Str YourAssistant}" Classes="mobile"
+                                Description="{loc:Str AboutDescription}" />
             </sc:StrataSettingGroup>
           </StackPanel>
           </Border>
@@ -302,8 +323,8 @@
 
   <sc:StrataBottomSheet x:Name="DisconnectSheet" Classes="safe-area"
                         IsOpen="{Binding IsDisconnectConfirmationOpen, Mode=TwoWay}"
-                        Title="Disconnect from this PC?"
-                        Description="This phone loses access and returns to setup. Your chats and files stay on the PC.">
+                        Title="{loc:Str DisconnectQuestion}"
+                        Description="{loc:Str DisconnectDescription}">
     <Border>
       <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="16,0,16,8" Spacing="10">
@@ -316,19 +337,19 @@
             </Grid>
           </Border>
           <Button x:Name="ConfirmDisconnectButton" Classes="sheet-action destructive"
-                  Content="Disconnect and revoke access"
+                  Content="{loc:Str DisconnectRevoke}"
                   Command="{Binding ForgetPcCommand}" />
-          <Button x:Name="CancelDisconnectButton" Classes="sheet-action" Content="Keep connected"
+          <Button x:Name="CancelDisconnectButton" Classes="sheet-action" Content="{loc:Str KeepConnected}"
                   Command="{Binding CancelDisconnectCommand}" />
           <TextBlock Text="{Binding ConnectionMessage}" Classes="sheet-body" Margin="8,4"
                      IsVisible="{Binding ConnectionMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           <StackPanel Spacing="10" Margin="0,12,0,0">
             <StackPanel Spacing="2" Margin="8,0">
-              <TextBlock Text="Can't reach your PC?" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeMeta}" />
-              <TextBlock Text="Remove the saved connection from this phone only. Its access on the PC stays active."
+              <TextBlock Text="{loc:Str CantReachPcQuestion}" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeMeta}" />
+              <TextBlock Text="{loc:Str RemoveLocalConnectionHelp}"
                          Classes="sheet-body" FontSize="{DynamicResource Font.SizeMeta}" LineHeight="{DynamicResource Font.LineHeightMeta}" />
             </StackPanel>
-            <Button x:Name="ForgetLocalButton" Classes="sheet-action" Content="Remove from this phone only"
+            <Button x:Name="ForgetLocalButton" Classes="sheet-action" Content="{loc:Str RemoveLocalConnection}"
                     IsEnabled="{Binding !ForgetPcCommand.IsRunning}"
                     Command="{Binding ForgetPcLocallyCommand}" />
           </StackPanel>

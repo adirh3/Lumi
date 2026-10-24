@@ -18,6 +18,38 @@ public static partial class Loc
     /// <summary>Whether the current language is right-to-left.</summary>
     public static bool IsRightToLeft => Culture.TextInfo.IsRightToLeft;
 
+    /// <summary>Localizes the built-in default category for display without changing stored or custom category names.</summary>
+    public static string GetMemoryCategoryDisplay(string category)
+        => string.IsNullOrWhiteSpace(category) || string.Equals(category.Trim(), "General", StringComparison.OrdinalIgnoreCase)
+            ? Memories_DefaultCategory
+            : category;
+
+    internal static string GetEnglish(string key) => _lang_en[_keyIndex[key]];
+
+    internal static string GetBuiltInDescription(string name, string description)
+    {
+        var key = name switch
+        {
+            "Document Creator" => nameof(BuiltIn_DocumentCreator_Description),
+            "Web Researcher" => nameof(BuiltIn_WebResearcher_Description),
+            "File Organizer" => nameof(BuiltIn_FileOrganizer_Description),
+            "Code Helper" => nameof(BuiltIn_CodeHelper_Description),
+            "Email Drafter" => nameof(BuiltIn_EmailDrafter_Description),
+            "Website Creator" => description == GetEnglish(nameof(BuiltIn_WebsiteCreatorPortable_Description))
+                ? nameof(BuiltIn_WebsiteCreatorPortable_Description) : nameof(BuiltIn_WebsiteCreator_Description),
+            "Daily Planner" => nameof(BuiltIn_DailyPlanner_Description),
+            "Creative Writer" => nameof(BuiltIn_CreativeWriter_Description),
+            "Learning Lumi" => nameof(BuiltIn_LearningLumi_Description),
+            "Architecture Advisor" => nameof(BuiltIn_ArchitectureAdvisor_Description),
+            "Debug Expert" => nameof(BuiltIn_DebugExpert_Description),
+            "Code Reviewer Pro" => nameof(BuiltIn_CodeReviewer_Description),
+            "Coding Lumi" => nameof(BuiltIn_CodingLumi_Description),
+            _ => null
+        };
+        // Stored defaults stay canonical for agents and sharing; a user's edits stay their own text.
+        return key is not null && description == GetEnglish(key) ? Get(key) : description;
+    }
+
     /// <summary>
     /// Activates the given language. English is used as fallback for missing keys.
     /// </summary>

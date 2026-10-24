@@ -1,4 +1,5 @@
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -11,7 +12,7 @@ public sealed partial class MobileShellViewModel : IRemoteGitChangesSink
         using var request = CreateConnectionRequest();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(request.Token, cancellationToken);
         return await Client.GetGitChangesAsync(chatId, linked.Token)
-            ?? throw new InvalidOperationException(Client.StateMessage ?? "Git changes could not be loaded.");
+            ?? throw new InvalidOperationException(Client.StateMessage ?? Strings.Get("GitLoadFailed"));
     }
 
     public async Task<RemoteGitDiff?> GetGitDiffAsync(
@@ -20,6 +21,6 @@ public sealed partial class MobileShellViewModel : IRemoteGitChangesSink
         using var request = CreateConnectionRequest();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(request.Token, cancellationToken);
         return await Client.GetGitDiffAsync(chatId, scopeId, path, linked.Token)
-            ?? throw new InvalidOperationException(Client.StateMessage ?? "The file diff could not be loaded.");
+            ?? throw new InvalidOperationException(Client.StateMessage ?? Strings.Get("GitDiffLoadFailed"));
     }
 }

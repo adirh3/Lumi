@@ -14,6 +14,14 @@ interface Configuration {
 }
 
 const startTimeoutMs = 30000;
+const labels: {
+  startFailed: string;
+  loadFailed: string;
+  canvasMissing: string;
+  interfaceMissing: string;
+  sandboxFailed: string;
+  requestFailed: string;
+} = JSON.parse(document.body.dataset.lumiLabels!);
 const frame = document.querySelector<HTMLIFrameElement>("#view")!;
 let bridge: AppBridge | undefined;
 let settled = false;
@@ -33,7 +41,7 @@ async function rpc<T>(method: string, params: unknown): Promise<T> {
     body: JSON.stringify({ method, params }),
   });
   const body: { result?: T; error?: string } = await response.json();
-  if (!response.ok || body.error) throw new Error(body.error || `Request failed (${response.status})`);
+  if (!response.ok || body.error) throw new Error(body.error || labels.requestFailed.replace("{0}", String(response.status)));
   return body.result as T;
 }
 
@@ -52,21 +60,21 @@ function fail(error: unknown): void {
   else settle("failed", { message });
 }
 
-const startTimeout = setTimeout(() => fail(new Error("The app did not start.")), startTimeoutMs);
+const startTimeout = setTimeout(() => fail(new Error(labels.startFailed)), startTimeoutMs);
 
 async function start(): Promise<void> {
   const response = await fetch("./config", { credentials: "omit" });
-  if (!response.ok) throw new Error(`Could not load this app (${response.status})`);
+  if (!response.ok) throw new Error(labels.loadFailed.replace("{0}", String(response.status)));
   const config: Configuration = await response.json();
   document.title = config.title;
   if (config.kind === "canvas") {
-    if (!config.url) throw new Error("This canvas has no web interface.");
+    if (!config.url) throw new Error(labels.canvasMissing);
     frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-downloads");
     frame.addEventListener("load", () => settle("ready", {}), { once: true });
     frame.src = config.url;
     return;
   }
-  if (!config.html) throw new Error("The connector did not supply an app interface.");
+  if (!config.html) throw new Error(labels.interfaceMissing);
 
   bridge = new AppBridge(null, { name: "Lumi", version: config.hostVersion }, {
     serverTools: {},
@@ -95,7 +103,7 @@ async function start(): Promise<void> {
   const proxyReady = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       window.removeEventListener("message", ready);
-      reject(new Error("The app sandbox did not initialize."));
+      reject(new Error(labels.sandboxFailed));
     }, 15000);
     function ready(event: MessageEvent): void {
       if (event.source !== frame.contentWindow || event.origin !== sandboxOrigin

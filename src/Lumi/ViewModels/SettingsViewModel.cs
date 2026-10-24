@@ -174,7 +174,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             ? null
             : _copilotService.UsesExternalModel
                 ? string.Format(Loc.SettingStatus_BackgroundModelAuto,
-                    ChatViewModel.FormatModelDisplay(PreferredModel), "BYOK")
+                    ChatViewModel.FormatModelDisplay(PreferredModel), Loc.EasyConnect_AccountsTitle)
             : UseBYOKOnly
                 ? Loc.SettingStatus_BackgroundModelByokOnly
                 : _automaticBackgroundModel is not { } model
@@ -330,7 +330,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _enableMemoryAutoMaintenance;
     [ObservableProperty] private bool _enableDailyBriefs;
     [ObservableProperty] private bool _isMemoryCleanupRunning;
-    [ObservableProperty] private string _memoryCleanupStatus = "Memory cleanup has not run yet.";
+    [ObservableProperty] private string _memoryCleanupStatus = Loc.Settings_MemoryCleanupNotRun;
     [ObservableProperty] private bool _autoSaveChats;
     [ObservableProperty] private string _browserCookieStatus = "";
     [ObservableProperty] private BrowserCookieService.BrowserProfile? _cookieImportProfile;
@@ -1492,7 +1492,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             ConnectionProviderId = source.ConnectionProviderId,
             CredentialExpiresAt = source.CredentialExpiresAt,
             Account = source.Account?.Clone(),
-            Name = source.Name + " (copy)",
+            Name = Loc.Get(nameof(Loc.Settings_Byok_CopyName), source.Name),
             ProviderType = source.ProviderType,
             BaseUrl = source.BaseUrl,
             WireApi = source.WireApi,
@@ -1593,7 +1593,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         var copy = CloneByokModel(source);
         copy.SupportedReasoningEfforts = ParseReasoningEfforts(EditingByokSupportedReasoningEffortsText);
         copy.Id = Guid.NewGuid().ToString("N");
-        copy.DisplayName += " (copy)";
+        copy.DisplayName = Loc.Get(nameof(Loc.Settings_Byok_CopyName), copy.DisplayName);
         BeginByokModelEdit(copy, isNew: true);
     }
 
@@ -2247,7 +2247,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         _dataStore.Data.Memories.Clear();
         Save();
-        MemoryCleanupStatus = "All memories were cleared.";
+        MemoryCleanupStatus = Loc.Settings_MemoriesCleared;
         SettingsChanged?.Invoke();
     }
 
@@ -2258,7 +2258,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             return;
 
         IsMemoryCleanupRunning = true;
-        MemoryCleanupStatus = "Cleaning up memories...";
+        MemoryCleanupStatus = Loc.Settings_MemoryCleanupRunning;
         try
         {
             var result = await new MemoryMaintenanceService(_dataStore).RunAsync();
@@ -2287,30 +2287,30 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ArgumentNullException.ThrowIfNull(profile);
         CookieImportSucceeded = false;
         IsCookieImportInProgress = true;
-        CookieImportStatus = "Importing cookies...";
+        CookieImportStatus = Loc.Settings_CookieImportRunning;
         try
         {
             var count = await BrowserService.ImportCookiesAsync(profile).WaitAsync(TimeSpan.FromSeconds(45));
             if (count <= 0)
             {
-                CookieImportStatus = "No cookies imported. Close the selected browser and try again.";
+                CookieImportStatus = Loc.Settings_CookieImportEmpty;
                 BrowserCookieStatus = CookieImportStatus;
                 return;
             }
 
-            CookieImportStatus = $"Imported {count:N0} cookies!";
+            CookieImportStatus = Loc.Get(nameof(Loc.Settings_CookieImportSucceeded), count);
             MarkCookiesImported();
             await Task.Delay(1000);
             CookieImportSucceeded = true;
         }
         catch (TimeoutException)
         {
-            CookieImportStatus = "Cookie import timed out. Close the browser and try again.";
+            CookieImportStatus = Loc.Settings_CookieImportTimedOut;
             BrowserCookieStatus = CookieImportStatus;
         }
         catch (Exception ex)
         {
-            CookieImportStatus = $"Error: {ex.Message}";
+            CookieImportStatus = Loc.Get(nameof(Loc.Status_Error), ex.Message);
             BrowserCookieStatus = CookieImportStatus;
         }
         finally
@@ -2338,15 +2338,15 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            BrowserCookieStatus = $"Could not reset browser cookies: {ex.Message}";
+            BrowserCookieStatus = Loc.Get(nameof(Loc.Settings_CookieResetFailed), ex.Message);
         }
     }
 
     public void RefreshBrowserCookieStatus()
     {
         BrowserCookieStatus = _dataStore.Data.Settings.HasImportedBrowserCookies
-            ? "Cookies are imported for Lumi browser."
-            : "Cookies are not imported yet.";
+            ? Loc.Settings_CookiesImported
+            : Loc.Settings_CookiesNotImported;
     }
 
     [RelayCommand]

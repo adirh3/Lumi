@@ -2488,8 +2488,8 @@
                             </Border>
                             <StackPanel Spacing="1" VerticalAlignment="Center">
                               <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
-                              <TextBlock Classes="mg-side-subtitle" Text="{Binding Description}"
-                                         IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                              <TextBlock Classes="mg-side-subtitle" Text="{Binding DisplayDescription}"
+                                         IsVisible="{Binding DisplayDescription, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                             </StackPanel>
                           </DockPanel>
                         </Panel>
@@ -2583,8 +2583,8 @@
                             </Border>
                             <StackPanel Spacing="1" VerticalAlignment="Center">
                               <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
-                              <TextBlock Classes="mg-side-subtitle" Text="{Binding Description}"
-                                         IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                              <TextBlock Classes="mg-side-subtitle" Text="{Binding DisplayDescription}"
+                                         IsVisible="{Binding DisplayDescription, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                             </StackPanel>
                           </DockPanel>
                         </Panel>

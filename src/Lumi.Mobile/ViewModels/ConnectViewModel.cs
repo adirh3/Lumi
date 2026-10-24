@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Mobile.Services;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -81,7 +82,7 @@ public sealed partial class ConnectViewModel : ObservableObject
 
     public bool CanChooseDifferentPc => !HasFixedEndpoint;
 
-    public string PairActionText => HasFixedEndpoint ? "Connect web app" : "Connect phone";
+    public string PairActionText => Strings.Get(HasFixedEndpoint ? "ConnectWebApp" : "ConnectPhone");
 
     private string _targetBaseUrl = "";
 
@@ -107,8 +108,8 @@ public sealed partial class ConnectViewModel : ObservableObject
         ManualAddress = request.BaseUrl;
         Step = ConnectStep.FindPc;
         StatusText = RequiresTrustedAddressConfirmation(request.BaseUrl)
-            ? "Your PC address is ready. Confirm the trusted local network, then tap Continue."
-            : "Your PC address is ready. Review it below, then tap Continue.";
+            ? Strings.Get("AddressReadyTrust")
+            : Strings.Get("AddressReady");
         return Task.CompletedTask;
     }
 
@@ -145,13 +146,13 @@ public sealed partial class ConnectViewModel : ObservableObject
             return;
         if (!AllowInsecureLanDiscovery)
         {
-            ErrorText = "Confirm trusted-network access before searching your LAN.";
+            ErrorText = Strings.Get("ConfirmLanSearch");
             return;
         }
 
         IsSearching = true;
         ErrorText = null;
-        StatusText = "Looking for Lumi on your network…";
+        StatusText = Strings.Get("LookingForLumi");
         var searchCts = new CancellationTokenSource();
         var previous = Interlocked.Exchange(ref _searchCts, searchCts);
         previous?.Cancel();
@@ -177,7 +178,7 @@ public sealed partial class ConnectViewModel : ObservableObject
             }
 
             StatusText = Hosts.Count == 0
-                ? "No Lumi found. Make sure Lumi is open on your PC with phone access turned on, or type its address below."
+                ? Strings.Get("NoLumiFound")
                 : null;
         }
         catch (OperationCanceledException) when (searchCts.IsCancellationRequested)
@@ -203,7 +204,7 @@ public sealed partial class ConnectViewModel : ObservableObject
             return Task.CompletedTask;
         if (!AllowInsecureLanDiscovery && RequiresTrustedAddressConfirmation(host.BaseUrl))
         {
-            ErrorText = "Local-network connections are unencrypted. Enable the LAN option before continuing.";
+            ErrorText = Strings.Get("EnableLanBeforeContinuing");
             return Task.CompletedTask;
         }
 
@@ -217,7 +218,7 @@ public sealed partial class ConnectViewModel : ObservableObject
         var baseUrl = LumiRemoteClient.NormalizeBaseUrl(address);
         if (!AllowInsecureLanDiscovery && RequiresTrustedAddressConfirmation(baseUrl))
         {
-            ErrorText = "Direct LAN connections are unencrypted. Enable the LAN option only on a network you trust.";
+            ErrorText = Strings.Get("DirectLanWarning");
             return Task.CompletedTask;
         }
 
@@ -244,7 +245,7 @@ public sealed partial class ConnectViewModel : ObservableObject
     private async Task BeginPairingAsync(string baseUrl, string displayName)
     {
         ErrorText = null;
-        StatusText = "Saying hello…";
+        StatusText = Strings.Get("SayingHello");
         Step = ConnectStep.Connecting;
 
         try
@@ -254,7 +255,7 @@ public sealed partial class ConnectViewModel : ObservableObject
 
             if (hello is null)
             {
-                ErrorText = "Lumi didn't answer at that address.";
+                ErrorText = Strings.Get("AddressNoAnswer");
                 Step = ConnectStep.FindPc;
                 return;
             }
@@ -262,7 +263,7 @@ public sealed partial class ConnectViewModel : ObservableObject
             if (!RemoteProtocol.IsCompatibleVersion(hello.ProtocolVersion)
                 || !RemoteProtocol.HasRequiredCapabilities(hello.Capabilities))
             {
-                ErrorText = "That Lumi is a different version. Update both apps and try again.";
+                ErrorText = Strings.Get("VersionMismatch");
                 Step = ConnectStep.FindPc;
                 return;
             }
@@ -281,9 +282,14 @@ public sealed partial class ConnectViewModel : ObservableObject
             PairingCode = "";
             Step = ConnectStep.EnterCode;
         }
+        catch (UriFormatException)
+        {
+            ErrorText = Strings.Get("InvalidPcAddress");
+            Step = ConnectStep.FindPc;
+        }
         catch (OperationCanceledException)
         {
-            ErrorText = "That address took too long to answer.";
+            ErrorText = Strings.Get("AddressTimeout");
             Step = ConnectStep.FindPc;
         }
         catch (Exception ex)
@@ -300,7 +306,7 @@ public sealed partial class ConnectViewModel : ObservableObject
             return;
 
         ErrorText = null;
-        StatusText = "Pairing…";
+        StatusText = Strings.Get("Pairing");
         Step = ConnectStep.Connecting;
 
         try
@@ -310,7 +316,7 @@ public sealed partial class ConnectViewModel : ObservableObject
 
             if (!response.Ok)
             {
-                ErrorText = response.Error ?? "Pairing failed.";
+                ErrorText = response.Error ?? Strings.Get("PairingFailed");
                 Step = ConnectStep.EnterCode;
                 return;
             }
@@ -321,7 +327,7 @@ public sealed partial class ConnectViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            ErrorText = "Pairing took too long.";
+            ErrorText = Strings.Get("PairingTimeout");
             Step = ConnectStep.EnterCode;
         }
         catch (Exception ex)

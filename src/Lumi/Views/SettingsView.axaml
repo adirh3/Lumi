@@ -2162,13 +2162,13 @@
           <TextBlock Classes="mg-meta mg-mono" Text="{Binding OsVersion}" MaxWidth="360" />
         </sc:StrataSetting>
         <sc:StrataSetting x:Name="DebugTransparencySetting"
-                          Header="Window Transparency (Debug)"
+                          Header="{loc:Str Settings_DebugTransparency}"
                           IsVisible="False">
-          <TextBlock x:Name="DebugTransparencyValue" Classes="mg-meta mg-mono" Text="Unavailable" />
+          <TextBlock x:Name="DebugTransparencyValue" Classes="mg-meta mg-mono" Text="{loc:Str Settings_DebugUnavailable}" />
         </sc:StrataSetting>
         <sc:StrataSetting x:Name="DebugFpsOverlaySetting"
-                          Header="FPS Overlay (Debug)"
-                          Description="Show Avalonia's debug FPS counter overlay."
+                          Header="{loc:Str Settings_DebugFpsOverlay}"
+                          Description="{loc:Str Settings_DebugFpsDescription}"
                           IsVisible="False">
           <ToggleSwitch x:Name="DebugFpsOverlayToggle" />
         </sc:StrataSetting>
@@ -2426,7 +2426,7 @@
 
     <!-- ═══ Cookie Import Dialog ═══ -->
     <sc:StrataDialog x:Name="CookieImportDialog"
-                     Title="Import browser cookies"
+                     Title="{loc:Str Browser_ImportDialogTitle}"
                      MaxDialogWidth="460">
       <sc:StrataDialog.DialogContent>
         <StackPanel Spacing="16">
@@ -2445,7 +2445,7 @@
           <!-- Description -->
           <TextBlock TextWrapping="Wrap" TextAlignment="Center" Classes="caption"
                      Foreground="{DynamicResource Brush.TextSecondary}"
-                     Text="Sign into websites without logging in again. Lumi can import your cookies from an installed browser so you're already authenticated." />
+                     Text="{loc:Str Browser_ImportDescription}" />
 
           <!-- Browser/profile picker (populated in code-behind) -->
           <StackPanel x:Name="CookieProfilePicker" Spacing="4" />
@@ -2458,16 +2458,16 @@
             <StackPanel Spacing="4">
               <TextBlock Classes="caption" TextWrapping="Wrap"
                          Foreground="{DynamicResource Brush.TextTertiary}"
-                         Text="• The selected browser will be briefly closed" />
+                         Text="{OnPlatform Windows={loc:Str Browser_ImportBrowserClosedHint}, Default={loc:Str Browser_ImportCloseBrowserHint}}" />
               <TextBlock Classes="caption" TextWrapping="Wrap"
                          Foreground="{DynamicResource Brush.TextTertiary}"
-                         Text="• Windows may ask for your password to authorize" />
+                         Text="{OnPlatform Windows={loc:Str Browser_ImportAuthorizeHint}, Default={loc:Str Browser_ImportCredentialHint}}" />
+              <TextBlock x:Name="CookieCopiedHint" Classes="caption" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         Text="{loc:Str Browser_ImportCopiedHint}" />
               <TextBlock Classes="caption" TextWrapping="Wrap"
                          Foreground="{DynamicResource Brush.TextTertiary}"
-                         Text="• Your cookies will be copied into Lumi's browser" />
-              <TextBlock Classes="caption" TextWrapping="Wrap"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         Text="• Your original browser data is never modified" />
+                         Text="{loc:Str Browser_ImportOriginalDataHint}" />
             </StackPanel>
           </Border>
 
@@ -2476,7 +2476,7 @@
             <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsCookieImportInProgress}" />
             <TextBlock x:Name="CookieImportStatusText" Classes="caption"
                        Foreground="{DynamicResource Brush.TextSecondary}"
-                       HorizontalAlignment="Center" Text="Preparing…" />
+                       HorizontalAlignment="Center" Text="{loc:Str Browser_ImportPreparing}" />
           </StackPanel>
 
           <!-- Actions -->
@@ -2484,11 +2484,11 @@
             <Button x:Name="CookieImportButton" Classes="accent motion-action"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center"
-                    Content="Import cookies" />
+                    Content="{loc:Str Browser_ImportCookies}" />
             <Button x:Name="CookieImportCancelButton" Classes="subtle motion-action"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center"
-                    Content="Cancel" />
+                    Content="{loc:Str Common_Cancel}" />
           </StackPanel>
 
         </StackPanel>

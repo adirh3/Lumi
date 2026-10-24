@@ -568,14 +568,14 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             && !RemoteDevTunnelHost.IsAllowedOrigin(request.Header("Origin"), DevTunnelOrigin))
         {
             return RemoteHttpPreflightResult.Reject(
-                403, "Open the private Microsoft Dev Tunnel link and sign in to its owner account.");
+                403, Loc.Remote_PrivateDevTunnelRequired);
         }
 
         if (!IsAllowedHost(request, localEndPoint))
         {
             return RemoteHttpPreflightResult.Reject(
                 403,
-                "Use this PC's Lumi address instead of another hostname.");
+                Loc.Remote_LocalHostRequired);
         }
 
         if (!IsAllowedCaller(
@@ -588,7 +588,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         {
             return RemoteHttpPreflightResult.Reject(
                 403,
-                "Connect through Tailscale, or select Local Wi-Fi in Lumi Settings.");
+                Loc.Remote_TrustedConnectionRequired);
         }
 
         var path = request.Path.TrimEnd('/');
@@ -608,16 +608,16 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return RemoteHttpPreflightResult.Allow(0);
 
         if (!TryAuthorize(request, out _))
-            return RemoteHttpPreflightResult.Reject(401, "Pair this device with Lumi first.");
+            return RemoteHttpPreflightResult.Reject(401, Loc.Remote_PairDeviceFirst);
 
         if (path == RemoteProtocol.Routes.Upload)
         {
             if (request.ContentLength is < 0 or > RemoteProtocol.MaxUploadBytes)
-                return RemoteHttpPreflightResult.Reject(413, "That file is too large to send.");
+                return RemoteHttpPreflightResult.Reject(413, Loc.Remote_UploadTooLarge);
             if (request.Header(RemoteProtocol.UploadFileNameHeader) is not { Length: > 0 } encodedName)
-                return RemoteHttpPreflightResult.Reject(400, "A file name is required.");
+                return RemoteHttpPreflightResult.Reject(400, Loc.Remote_FileNameRequired);
             if (encodedName.Length > 8 * 1024)
-                return RemoteHttpPreflightResult.Reject(400, "The file name is too large.");
+                return RemoteHttpPreflightResult.Reject(400, Loc.Remote_FileNameTooLarge);
             return RemoteHttpPreflightResult.Allow(RemoteProtocol.MaxUploadBytes, streamBody: true);
         }
 
@@ -632,7 +632,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 && !RemoteDevTunnelHost.IsAllowedOrigin(context.Request.Header("Origin"), DevTunnelOrigin))
             {
                 await WriteErrorAsync(
-                        context, 403, "Open the private Microsoft Dev Tunnel link and sign in to its owner account.",
+                        context, 403, Loc.Remote_PrivateDevTunnelRequired,
                         cancellationToken)
                     .ConfigureAwait(false);
                 return;
@@ -643,7 +643,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 await WriteErrorAsync(
                         context,
                         403,
-                        "Use this PC's Lumi address instead of another hostname.",
+                        Loc.Remote_LocalHostRequired,
                         cancellationToken)
                     .ConfigureAwait(false);
                 return;
@@ -666,7 +666,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 await WriteErrorAsync(
                         context,
                         403,
-                        "Connect through Tailscale, or select Local Wi-Fi in Lumi Settings.",
+                        Loc.Remote_TrustedConnectionRequired,
                         cancellationToken)
                     .ConfigureAwait(false);
                 return;
@@ -697,7 +697,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
             if (!_securityStateReady)
             {
-                await WriteErrorAsync(context, 503, "Lumi is still loading phone security state.", cancellationToken)
+                await WriteErrorAsync(context, 503, Loc.Remote_PhoneSecurityLoading, cancellationToken)
                     .ConfigureAwait(false);
                 return;
             }
@@ -710,7 +710,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
             if (!TryAuthorize(context.Request, out var device))
             {
-                await WriteErrorAsync(context, 401, "Pair this device with Lumi first.", cancellationToken)
+                await WriteErrorAsync(context, 401, Loc.Remote_PairDeviceFirst, cancellationToken)
                     .ConfigureAwait(false);
                 return;
             }
@@ -760,7 +760,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     await HandleEventsAsync(context, device, cancellationToken).ConfigureAwait(false);
                     return;
                 default:
-                    await WriteErrorAsync(context, 404, $"Unknown route '{path}'.", cancellationToken)
+                    await WriteErrorAsync(context, 404, Loc.Get("Remote_UnknownRoute", path), cancellationToken)
                         .ConfigureAwait(false);
                     return;
             }
@@ -788,12 +788,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         if (!string.Equals(context.Request.Method, "GET", StringComparison.OrdinalIgnoreCase))
         {
-            await WriteErrorAsync(context, 405, "Git inspection only supports GET.", cancellationToken);
+            await WriteErrorAsync(context, 405, Loc.Remote_GitGetOnly, cancellationToken);
             return;
         }
         if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId) || chatId == Guid.Empty)
         {
-            await WriteErrorAsync(context, 400, "An explicit chatId is required.", cancellationToken);
+            await WriteErrorAsync(context, 400, Loc.Remote_ExplicitChatRequired, cancellationToken);
             return;
         }
         var scope = await Dispatcher.UIThread.InvokeAsync(() =>
@@ -806,18 +806,18 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         });
         if (scope is null)
         {
-            await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken);
+            await WriteErrorAsync(context, 404, Loc.Remote_ChatNotFound, cancellationToken);
             return;
         }
         var filePath = context.Request.QueryValue("path");
         if (isDiff && (string.IsNullOrWhiteSpace(filePath) || filePath.Length > 2048))
         {
-            await WriteErrorAsync(context, 400, "A listed file path is required.", cancellationToken);
+            await WriteErrorAsync(context, 400, Loc.Remote_GitFilePathRequired, cancellationToken);
             return;
         }
         if (isDiff && !string.Equals(scope.ScopeId, context.Request.QueryValue("scopeId"), StringComparison.Ordinal))
         {
-            await WriteErrorAsync(context, 409, "The chat workspace changed. Refresh Git changes.", cancellationToken);
+            await WriteErrorAsync(context, 409, Loc.Remote_GitWorkspaceChanged, cancellationToken);
             return;
         }
         using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -842,19 +842,19 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             });
             if (!stillCurrent)
             {
-                await WriteErrorAsync(context, 409, "The chat workspace changed. Refresh Git changes.", cancellationToken);
+                await WriteErrorAsync(context, 409, Loc.Remote_GitWorkspaceChanged, cancellationToken);
                 return;
             }
             if (Encoding.UTF8.GetByteCount(json) > RemoteProtocol.MaxGitJsonBytes)
             {
-                await WriteErrorAsync(context, 413, "Git response is too large for mobile.", cancellationToken);
+                await WriteErrorAsync(context, 413, Loc.Remote_GitResponseTooLarge, cancellationToken);
                 return;
             }
             await context.WriteJsonAsync(json, cancellationToken).ConfigureAwait(false);
         }
         catch (ArgumentException)
         {
-            await WriteErrorAsync(context, 400, "Invalid repository file.", cancellationToken);
+            await WriteErrorAsync(context, 400, Loc.Remote_GitInvalidFile, cancellationToken);
         }
         catch (System.IO.FileNotFoundException ex)
         {
@@ -862,12 +862,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            await WriteErrorAsync(context, 408, "Git inspection timed out. Try refreshing.", cancellationToken);
+            await WriteErrorAsync(context, 408, Loc.Remote_GitInspectionTimedOut, cancellationToken);
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException
             or System.ComponentModel.Win32Exception)
         {
-            await WriteErrorAsync(context, 500, "Git changes could not be read. Check the repository on desktop.", cancellationToken);
+            await WriteErrorAsync(context, 500, Loc.Remote_GitReadFailed, cancellationToken);
         }
     }
 
@@ -901,21 +901,20 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         if (request is null || string.IsNullOrWhiteSpace(request.DeviceId))
         {
-            response.Error = "deviceId is required.";
+            response.Error = Loc.Get("Remote_ArgumentRequired", "deviceId");
         }
         else
         {
             switch (TryConsumePairingCode(request.Code))
             {
                 case PairingCodeResult.NoActiveCode:
-                    response.Error =
-                        "No pairing code is active. Open Settings → Phone on your PC and tap Pair a device.";
+                    response.Error = Loc.Remote_NoActivePairingCode;
                     break;
                 case PairingCodeResult.Incorrect:
-                    response.Error = "That pairing code is not correct.";
+                    response.Error = Loc.Remote_IncorrectPairingCode;
                     break;
                 case PairingCodeResult.AttemptsExhausted:
-                    response.Error = "Too many incorrect pairing attempts. Generate a new code on your PC.";
+                    response.Error = Loc.Remote_PairingAttemptsExhausted;
                     status = 429;
                     pairingStateChanged = true;
                     break;
@@ -928,7 +927,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                         _dataStore.UpsertRemotePairedDevice(new RemotePairedDevice
                         {
                             DeviceId = request.DeviceId,
-                            DeviceName = string.IsNullOrWhiteSpace(request.DeviceName) ? "Phone" : request.DeviceName,
+                            DeviceName = string.IsNullOrWhiteSpace(request.DeviceName) ? Loc.Remote_UnknownDevice : request.DeviceName,
                             Token = token,
                             PairedAt = DateTimeOffset.Now,
                             LastSeenAt = DateTimeOffset.Now
@@ -966,7 +965,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var json = JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot);
         if (Encoding.UTF8.GetByteCount(json) > RemoteProtocol.MaxSnapshotJsonBytes)
         {
-            await WriteErrorAsync(context, 507, "The mobile snapshot exceeds the protocol limit.", cancellationToken)
+            await WriteErrorAsync(context, 507, Loc.Remote_SnapshotTooLarge, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1001,21 +1000,21 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var identifier = context.Request.QueryValue("identifier");
         if (!Guid.TryParse(identifier, out var id))
         {
-            await WriteErrorAsync(context, 400, "identifier is required.", cancellationToken).ConfigureAwait(false);
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentRequired", "identifier"), cancellationToken).ConfigureAwait(false);
             return;
         }
 
         var item = await Dispatcher.UIThread.InvokeAsync(() => BuildLibraryItem(resource, id));
         if (item is null)
         {
-            await WriteErrorAsync(context, 404, "Library item not found.", cancellationToken).ConfigureAwait(false);
+            await WriteErrorAsync(context, 404, Loc.Remote_LibraryItemNotFound, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         var json = JsonSerializer.Serialize(item, RemoteJsonContext.Default.RemoteLibraryItem);
         if (Encoding.UTF8.GetByteCount(json) > RemoteProtocol.MaxLibraryItemJsonBytes)
         {
-            await WriteErrorAsync(context, 413, "That library item is too large for mobile editing.", cancellationToken)
+            await WriteErrorAsync(context, 413, Loc.Remote_LibraryItemTooLarge, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1101,7 +1100,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId)
             || !Guid.TryParse(context.Request.QueryValue("messageId"), out var messageId))
         {
-            await WriteErrorAsync(context, 400, "chatId and messageId are required.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Remote_ChatMessageArgumentsRequired, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1128,7 +1127,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         if (capture.Chat is null)
         {
-            await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken).ConfigureAwait(false);
+            await WriteErrorAsync(context, 404, Loc.Remote_ChatNotFound, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -1144,7 +1143,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var path = RemoteProjector.ExtractJsonField(content, "filePath");
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
-            await WriteErrorAsync(context, 404, "That produced file is no longer available.", cancellationToken)
+            await WriteErrorAsync(context, 404, Loc.Remote_ProducedFileUnavailable, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1152,7 +1151,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var file = new FileInfo(path);
         if (file.Length > RemoteProtocol.MaxDownloadBytes)
         {
-            await WriteErrorAsync(context, 413, "That produced file is too large to open on mobile.", cancellationToken)
+            await WriteErrorAsync(context, 413, Loc.Remote_ProducedFileTooLarge, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1174,7 +1173,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var query = (context.Request.QueryValue("q") ?? "").Trim();
         if (query.Length > RemoteProtocol.MobileStatusValueLimit)
         {
-            await WriteErrorAsync(context, 400, "q is too long.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentTooLong", "q"), cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1184,14 +1183,14 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(rawChatId)
             && !Guid.TryParse(rawChatId, out _))
         {
-            await WriteErrorAsync(context, 400, "chatId is invalid.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentInvalid", "chatId"), cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
         if (!string.IsNullOrWhiteSpace(rawProjectId)
             && !Guid.TryParse(rawProjectId, out _))
         {
-            await WriteErrorAsync(context, 400, "projectId is invalid.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentInvalid", "projectId"), cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1210,12 +1209,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             {
                 chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == explicitChatId);
                 if (chat is null)
-                    return (Directory: (string?)null, Error: "Chat not found.");
+                    return (Directory: (string?)null, Error: Loc.Remote_ChatNotFound);
             }
             else if (projectId is { } explicitProjectId
                      && _dataStore.Data.Projects.All(candidate => candidate.Id != explicitProjectId))
             {
-                return (Directory: (string?)null, Error: "Project not found.");
+                return (Directory: (string?)null, Error: Loc.Remote_ProjectNotFound);
             }
 
             var directory = ResolveFileSuggestionDirectory(
@@ -1223,14 +1222,14 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 chat,
                 projectId);
             if (directory is null)
-                return (Directory: (string?)null, Error: "Project folder is not available.");
+                return (Directory: (string?)null, Error: Loc.Remote_ProjectFolderUnavailable);
 
             return (Directory: (string?)directory, Error: (string?)null);
         });
 
         if (resolution.Directory is null)
         {
-            await WriteErrorAsync(context, 404, resolution.Error ?? "Search location not found.", cancellationToken)
+            await WriteErrorAsync(context, 404, resolution.Error ?? Loc.Remote_SearchLocationNotFound, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1346,7 +1345,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             await WriteErrorAsync(
                     context,
                     400,
-                    "chatId, messageId and imageIndex are required.",
+                    Loc.Remote_InlineImageArgumentsRequired,
                     cancellationToken)
                 .ConfigureAwait(false);
             return;
@@ -1376,7 +1375,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         if (capture.Chat is null)
         {
-            await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken)
+            await WriteErrorAsync(context, 404, Loc.Remote_ChatNotFound, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1408,7 +1407,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             await WriteErrorAsync(
                     context,
                     404,
-                    "That inline image is no longer available.",
+                    Loc.Remote_InlineImageUnavailable,
                     cancellationToken)
                 .ConfigureAwait(false);
             return;
@@ -1443,7 +1442,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 await WriteErrorAsync(
                         context,
                         ex is InvalidDataException ? 413 : 404,
-                        "That remote inline image could not be loaded safely.",
+                        Loc.Remote_RemoteInlineImageLoadFailed,
                         cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -1460,7 +1459,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             await WriteErrorAsync(
                     context,
                     404,
-                    "That inline image is no longer available.",
+                    Loc.Remote_InlineImageUnavailable,
                     cancellationToken)
                 .ConfigureAwait(false);
             return;
@@ -1472,7 +1471,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             await WriteErrorAsync(
                     context,
                     413,
-                    "That inline image is too large for mobile.",
+                    Loc.Remote_InlineImageTooLarge,
                     cancellationToken)
                 .ConfigureAwait(false);
             return;
@@ -1497,7 +1496,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId))
         {
-            await WriteErrorAsync(context, 400, "chatId is required.", cancellationToken).ConfigureAwait(false);
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentRequired", "chatId"), cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -1514,7 +1513,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 await WriteErrorAsync(
                     context,
                     400,
-                    "beforeMessageIndex must be a positive exclusive raw-message index.",
+                    Loc.Remote_InvalidBeforeMessageIndex,
                     cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -1616,7 +1615,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         if (capture is null)
         {
-            await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken).ConfigureAwait(false);
+            await WriteErrorAsync(context, 404, Loc.Remote_ChatNotFound, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -1699,7 +1698,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId))
         {
-            await WriteErrorAsync(context, 400, "chatId is required.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentRequired", "chatId"), cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1707,7 +1706,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var activityId = context.Request.QueryValue("activityId");
         if (string.IsNullOrWhiteSpace(activityId))
         {
-            await WriteErrorAsync(context, 400, "activityId is required.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentRequired", "activityId"), cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1743,7 +1742,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         if (capture is null)
         {
-            await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken)
+            await WriteErrorAsync(context, 404, Loc.Remote_ChatNotFound, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1773,7 +1772,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             capture.RunningBackgroundToolCallIds);
         if (details is null)
         {
-            await WriteErrorAsync(context, 404, "Activity not found.", cancellationToken)
+            await WriteErrorAsync(context, 404, Loc.Remote_ActivityNotFound, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -1890,7 +1889,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var command = Deserialize(context.Request.Body, RemoteJsonContext.Default.RemoteCommand);
         if (command is null || string.IsNullOrWhiteSpace(command.Action))
         {
-            await WriteErrorAsync(context, 400, "action is required.", cancellationToken).ConfigureAwait(false);
+            await WriteErrorAsync(context, 400, Loc.Get("Remote_ArgumentRequired", "action"), cancellationToken).ConfigureAwait(false);
             return;
         }
         command.AuthenticatedDeviceId = device.DeviceId;
@@ -1898,7 +1897,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         {
             var mismatch = new RemoteCommandResult
             {
-                Error = $"Remote protocol {RemoteProtocol.Version} is required.",
+                Error = Loc.Get("Remote_ProtocolRequired", RemoteProtocol.Version),
                 RequestId = command.RequestId
             };
             await context.WriteJsonAsync(
@@ -1927,8 +1926,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         return await RevokeDeviceAsync(device.DeviceId, cancellationToken).ConfigureAwait(false)
-            ? new RemoteCommandResult { Ok = true, Message = "Device revoked." }
-            : new RemoteCommandResult { Ok = false, Error = "Lumi could not persist the device revocation." };
+            ? new RemoteCommandResult { Ok = true, Message = Loc.Remote_DeviceRevoked }
+            : new RemoteCommandResult { Ok = false, Error = Loc.Remote_DeviceRevocationSaveFailed };
     }
 
     public async Task<bool> RevokeDeviceAsync(
@@ -1977,7 +1976,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         {
             return Task.FromResult(new RemoteCommandResult
             {
-                Error = "requestId must be 128 characters or fewer.",
+                Error = Loc.Remote_RequestIdTooLong,
                 RequestId = requestId
             });
         }
@@ -1996,7 +1995,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 {
                     return Task.FromResult(new RemoteCommandResult
                     {
-                        Error = "That requestId was already used for a different command.",
+                        Error = Loc.Remote_RequestIdReused,
                         RequestId = requestId
                     });
                 }
@@ -2011,7 +2010,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             {
                 return Task.FromResult(new RemoteCommandResult
                 {
-                    Error = "Lumi is still processing too many remote commands. Try again shortly.",
+                    Error = Loc.Remote_CommandCapacityReached,
                     RequestId = requestId
                 });
             }
@@ -2130,7 +2129,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         if (context.RequestBody is not { } requestBody)
         {
-            await WriteErrorAsync(context, 400, "A raw upload body is required.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Remote_RawUploadBodyRequired, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -2144,21 +2143,21 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         }
         catch (Exception ex) when (ex is FormatException or DecoderFallbackException)
         {
-            await WriteErrorAsync(context, 400, "The file name header is invalid.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Remote_InvalidFileNameHeader, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
 
         if (originalName.Length > RemoteProtocol.MobileFileNameLimit)
         {
-            await WriteErrorAsync(context, 400, "The file name is too large.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Remote_FileNameTooLarge, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
 
         if (context.Request.ContentLength > RemoteProtocol.MaxUploadBytes)
         {
-            await WriteErrorAsync(context, 413, "That file is too large to send.", cancellationToken).ConfigureAwait(false);
+            await WriteErrorAsync(context, 413, Loc.Remote_UploadTooLarge, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -2183,7 +2182,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 await WriteErrorAsync(
                         context,
                         507,
-                        "Lumi's temporary mobile upload storage is full. Remove old attachments or try again later.",
+                        Loc.Remote_UploadStorageFull,
                         cancellationToken)
                     .ConfigureAwait(false);
                 return;
@@ -2242,7 +2241,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             {
                 // A random-name collision is extraordinarily unlikely, but retry it atomically.
                 if (attempt == maxNameAttempts)
-                    throw new IOException("Lumi could not allocate a unique upload path.", ex);
+                    throw new IOException(Loc.Remote_UploadPathAllocationFailed, ex);
             }
             catch
             {
@@ -2261,7 +2260,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             }
         }
 
-        throw new IOException("Lumi could not allocate a unique upload path.");
+        throw new IOException(Loc.Remote_UploadPathAllocationFailed);
     }
 
     internal static string SanitizeUploadDisplayName(string originalName)
@@ -2280,7 +2279,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 : character;
         }).ToArray());
 
-        return string.IsNullOrWhiteSpace(sanitized) ? "attachment" : sanitized;
+        return string.IsNullOrWhiteSpace(sanitized) ? Loc.Remote_AttachmentFallbackName : sanitized;
     }
 
     internal static string GetSafeUploadExtension(string displayName)
@@ -2310,7 +2309,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         if (_hub is not { } hub)
         {
-            await WriteErrorAsync(context, 500, "Remote server is not running.", cancellationToken).ConfigureAwait(false);
+            await WriteErrorAsync(context, 500, Loc.Remote_ServerNotRunning, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -2327,7 +2326,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var snapshotJson = JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot);
         if (Encoding.UTF8.GetByteCount(snapshotJson) > RemoteProtocol.MaxSnapshotJsonBytes)
         {
-            await WriteErrorAsync(context, 507, "The mobile snapshot exceeds the protocol limit.", cancellationToken)
+            await WriteErrorAsync(context, 507, Loc.Remote_SnapshotTooLarge, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -2375,7 +2374,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         if (_hub is not { } hub)
         {
-            await WriteErrorAsync(context, 500, "Remote server is not running.", cancellationToken)
+            await WriteErrorAsync(context, 500, Loc.Remote_ServerNotRunning, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -2385,7 +2384,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             RemoteJsonContext.Default.RemoteEventSubscription);
         if (subscription is null || subscription.Generation < 0)
         {
-            await WriteErrorAsync(context, 400, "A valid subscription is required.", cancellationToken)
+            await WriteErrorAsync(context, 400, Loc.Remote_ValidSubscriptionRequired, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }

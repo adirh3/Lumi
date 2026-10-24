@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -122,21 +123,21 @@ public static class BackgroundJobSchedule
         Normalize(job);
 
         if (job.TriggerType == BackgroundJobTriggerTypes.Script)
-            return "Wake script: runs once, then wakes Lumi when it exits";
+            return Loc.Jobs_DescribeScript;
 
         if (job.TriggerType == BackgroundJobTriggerTypes.ChatEvent)
-            return $"Chat event: {ChatLifecycleEventTypes.Describe(job.ChatEventTypes)}";
+            return string.Format(Loc.Jobs_DescribeChatEvent, ChatLifecycleEventTypes.Describe(job.ChatEventTypes));
 
         return job.ScheduleType switch
         {
-            BackgroundJobScheduleTypes.Daily => $"Every day at {job.DailyTime}",
-            BackgroundJobScheduleTypes.Weekly => $"Every {FormatDays(job.DaysOfWeek)} at {job.DailyTime}",
-            BackgroundJobScheduleTypes.Monthly => $"Monthly on day {job.MonthlyDay} at {job.DailyTime}",
+            BackgroundJobScheduleTypes.Daily => string.Format(Loc.Jobs_DescribeDaily, job.DailyTime),
+            BackgroundJobScheduleTypes.Weekly => string.Format(Loc.Jobs_DescribeWeekly, FormatDays(job.DaysOfWeek), job.DailyTime),
+            BackgroundJobScheduleTypes.Monthly => string.Format(Loc.Jobs_DescribeMonthly, job.MonthlyDay, job.DailyTime),
             BackgroundJobScheduleTypes.Once => job.RunAt.HasValue
-                ? $"Once at {job.RunAt.Value.LocalDateTime:g}"
-                : "Once when enabled",
-            BackgroundJobScheduleTypes.Cron => $"Advanced schedule: {job.CronExpression}",
-            _ => $"Every {FormatInterval(job.IntervalMinutes)}"
+                ? string.Format(Loc.Jobs_DescribeOnce, job.RunAt.Value.LocalDateTime)
+                : Loc.Jobs_DescribeOnceEnabled,
+            BackgroundJobScheduleTypes.Cron => string.Format(Loc.Jobs_DescribeCron, job.CronExpression),
+            _ => string.Format(Loc.Jobs_DescribeInterval, FormatInterval(job.IntervalMinutes))
         };
     }
 
@@ -185,7 +186,7 @@ public static class BackgroundJobSchedule
             return true;
 
         if (string.IsNullOrWhiteSpace(error))
-            error = "Cron expression must use five fields: minute hour day-of-month month day-of-week.";
+            error = Loc.Jobs_CronFiveFields;
         return false;
     }
 
@@ -195,7 +196,7 @@ public static class BackgroundJobSchedule
         if (TryParseDaysOfWeek(value, out _))
             return true;
 
-        error = "Enter weekdays like Mon,Wed,Fri or weekdays.";
+        error = Loc.Jobs_InvalidWeekdays;
         return false;
     }
 
@@ -205,7 +206,7 @@ public static class BackgroundJobSchedule
         if (TryParseDailyTime(value, out _))
             return true;
 
-        error = "Enter a local time like 08:00.";
+        error = Loc.Jobs_InvalidDailyTime;
         return false;
     }
 
@@ -379,17 +380,17 @@ public static class BackgroundJobSchedule
     private static string FormatDays(string daysOfWeek)
     {
         if (!TryParseDaysOfWeek(daysOfWeek, out var days) || days.Count == 0)
-            return "weekdays";
+            return Loc.Jobs_Weekdays;
 
         var set = days.ToHashSet();
         if (set.SetEquals([DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday]))
             return "weekdays";
         if (set.SetEquals([DayOfWeek.Saturday, DayOfWeek.Sunday]))
-            return "weekends";
+            return Loc.Jobs_Weekends;
         if (set.Count == 7)
-            return "day";
+            return Loc.Jobs_IntervalDay;
 
-        return string.Join(", ", days.Select(static day => day.ToString()[..3]));
+        return string.Join(", ", days.Select(static day => Loc.Culture.DateTimeFormat.GetAbbreviatedDayName(day)));
     }
 
     private static bool TryParseCron(string expression, out CronSchedule cron, out string error)
@@ -400,7 +401,7 @@ public static class BackgroundJobSchedule
         var fields = (expression ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (fields.Length != 5)
         {
-            error = "Cron expression must use five fields: minute hour day-of-month month day-of-week.";
+            error = Loc.Jobs_CronFiveFields;
             return false;
         }
 
@@ -440,7 +441,7 @@ public static class BackgroundJobSchedule
             {
                 if (!int.TryParse(part[(slashIndex + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out step) || step < 1)
                 {
-                    error = $"Invalid cron step in '{field}'.";
+                    error = string.Format(Loc.Jobs_InvalidCronStep, field);
                     return false;
                 }
 
@@ -462,7 +463,7 @@ public static class BackgroundJobSchedule
                     || !TryParseCronValue(range[0], aliases, out start)
                     || !TryParseCronValue(range[1], aliases, out end))
                 {
-                    error = $"Invalid cron range '{part}'.";
+                    error = string.Format(Loc.Jobs_InvalidCronRange, part);
                     return false;
                 }
             }
@@ -472,7 +473,7 @@ public static class BackgroundJobSchedule
             }
             else
             {
-                error = $"Invalid cron value '{part}'.";
+                error = string.Format(Loc.Jobs_InvalidCronValue, part);
                 return false;
             }
 
@@ -483,13 +484,13 @@ public static class BackgroundJobSchedule
 
             if (start < min || start > max || end < min || end > max)
             {
-                error = $"Cron value '{part}' is outside {min}-{max}.";
+                error = string.Format(Loc.Jobs_CronOutsideRange, part, min, max);
                 return false;
             }
 
             if (start > end && !(normalizeSevenToZero && start > 0 && end == 0))
             {
-                error = $"Cron range '{part}' is reversed.";
+                error = string.Format(Loc.Jobs_CronReversedRange, part);
                 return false;
             }
 
@@ -527,16 +528,16 @@ public static class BackgroundJobSchedule
         if (minutes % (24 * 60) == 0)
         {
             var days = minutes / (24 * 60);
-            return days == 1 ? "day" : $"{days} days";
+            return days == 1 ? Loc.Jobs_IntervalDay : string.Format(Loc.Jobs_IntervalDays, days);
         }
 
         if (minutes % 60 == 0)
         {
             var hours = minutes / 60;
-            return hours == 1 ? "hour" : $"{hours} hours";
+            return hours == 1 ? Loc.Jobs_IntervalHour : string.Format(Loc.Jobs_IntervalHours, hours);
         }
 
-        return minutes == 1 ? "minute" : $"{minutes} minutes";
+        return minutes == 1 ? Loc.Jobs_IntervalMinute : string.Format(Loc.Jobs_IntervalMinutes, minutes);
     }
 
     private static readonly IReadOnlyDictionary<string, int> MonthAliases = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)

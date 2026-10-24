@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Lumi.Localization;
 
 namespace Lumi.Services.Sharing;
 
@@ -114,7 +115,7 @@ public static class SkillToolTargets
             }
         }
 
-        throw new IOException("Too many skills with this name already exist in " + skillsDirectory + ".");
+        throw new IOException(string.Format(Loc.Share_TooManySkillCopies, skillsDirectory));
     }
 
     /// <summary>Writes the skill where <see cref="PlanInstall"/> puts it, atomically, and returns that plan.</summary>

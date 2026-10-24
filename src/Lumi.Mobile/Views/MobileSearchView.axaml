@@ -8,6 +8,7 @@
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              x:Class="Lumi.Mobile.Views.MobileSearchView"
+             FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.Surface0}">
 
@@ -35,7 +36,7 @@
               HorizontalAlignment="Stretch"
               Margin="{DynamicResource Mobile.Page.HeaderMargin}">
           <Button x:Name="SearchBackButton" Grid.Column="0" Classes="chat-header-action floating-action"
-                  AutomationProperties.Name="Back to chat"
+                  AutomationProperties.Name="{loc:Str BackToChat}"
                   Command="{Binding GoBackCommand}">
             <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
                       Data="{DynamicResource Mobile.Icon.Back}" />
@@ -46,8 +47,8 @@
             <sc:StrataBackdropBlur Classes="floating-frost" Margin="0,2"
                                    CornerRadius="{Binding #SearchField.CornerRadius}" />
             <TextBox x:Name="SearchField" Classes="mobile list-filter floating-field no-focus-accent"
-                     PlaceholderText="Search chats"
-                     AutomationProperties.Name="Search your chats"
+                     PlaceholderText="{loc:Str SearchChats}"
+                     AutomationProperties.Name="{loc:Str SearchYourChats}"
                      textInput:TextInputOptions.ContentType="Search"
                      textInput:TextInputOptions.ReturnKeyType="Search"
                      Text="{Binding SearchChatList.SearchText}">
@@ -58,7 +59,7 @@
           </Panel>
           <Button x:Name="ClearSearchButton" Grid.Column="2" Classes="chat-header-action floating-action"
                   Margin="6,0,0,0"
-                  AutomationProperties.Name="Clear search"
+                  AutomationProperties.Name="{loc:Str ClearSearch}"
                   IsVisible="{Binding SearchChatList.HasSearchQuery}"
                   Command="{Binding SearchChatList.ClearSearchCommand}">
             <PathIcon Width="20" Height="20"
@@ -84,9 +85,9 @@
 
             <Border IsVisible="{Binding HasActiveProject}" Classes="mobile-card" Padding="12,4" Margin="0,0,0,12">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBlock Text="{Binding ActiveProject, StringFormat='In {0}'}" Classes="supporting"
+                <TextBlock Text="{Binding ActiveProject, StringFormat={loc:Str InProjectNamed}}" Classes="supporting"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxLines="1" />
-                <Button Grid.Column="1" Classes="touch subtle" Content="All chats"
+                <Button Grid.Column="1" Classes="touch subtle" Content="{loc:Str AllChats}"
                         Command="{Binding ClearProjectCommand}" />
               </Grid>
             </Border>
@@ -99,7 +100,7 @@
                     IsVisible="{Binding SearchChatList.LoadErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
               <StackPanel Spacing="12">
                 <TextBlock Text="{Binding SearchChatList.LoadErrorText}" Classes="supporting" />
-                <Button Classes="touch" Content="Try again" Command="{Binding SearchChatList.RetryLoadCommand}"
+                <Button Classes="touch" Content="{loc:Str TryAgain}" Command="{Binding SearchChatList.RetryLoadCommand}"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
               </StackPanel>
             </Border>
@@ -113,7 +114,7 @@
                          HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
               <TextBlock Text="{Binding SearchChatList.EmptyDescription}" Classes="supporting"
                          TextAlignment="Center" />
-              <Button Classes="touch subtle" Content="Clear search"
+              <Button Classes="touch subtle" Content="{loc:Str ClearSearch}"
                       IsVisible="{Binding SearchChatList.HasSearchQuery}"
                       Command="{Binding SearchChatList.ClearSearchCommand}"
                       HorizontalAlignment="Center" Margin="0,8,0,0" />
@@ -163,7 +164,7 @@
                             <Binding Path="Preview" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
                           </MultiBinding>
                         </DockPanel.IsVisible>
-                        <TextBlock DockPanel.Dock="Left" Classes="conversation-working" Text="Working"
+                        <TextBlock DockPanel.Dock="Left" Classes="conversation-working" Text="{loc:Str Working}"
                                    Margin="0,0,8,0" IsVisible="{Binding IsRunning}" />
                         <Border DockPanel.Dock="Left" Classes="project-chip" Margin="0,0,6,0"
                                 IsVisible="{Binding HasProject}">
@@ -185,7 +186,7 @@
                     Margin="0,12,0,4"
                     IsVisible="{Binding SearchChatList.HasMoreChats}"
                     Command="{Binding SearchChatList.LoadMoreChatsCommand}">
-              <TextBlock Text="Load more chats" Foreground="{DynamicResource Brush.TextSecondary}" />
+              <TextBlock Text="{loc:Str LoadMoreChats}" Foreground="{DynamicResource Brush.TextSecondary}" />
             </Button>
           </StackPanel>
           </Border>

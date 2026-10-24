@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.X86;
 using System.Security.Cryptography;
+using Lumi.Localization;
 using Whisper.net;
 using Whisper.net.LibraryLoader;
 
@@ -154,7 +155,7 @@ internal sealed class VoiceModelStore
             var received = await CopyAsync(file, partialPath, hash, before, progress, cancellationToken);
             if (received != file.Size
                 || file.Sha256 is not null && !string.Equals(Convert.ToHexStringLower(hash.GetHashAndReset()), file.Sha256, StringComparison.Ordinal))
-                throw new VoiceInputException(VoiceInputErrorKind.Download, "The downloaded voice model was incomplete or damaged.");
+                throw new VoiceInputException(VoiceInputErrorKind.Download, Loc.Voice_DownloadDamaged);
 
             File.Move(partialPath, file.Path);
         }
@@ -184,7 +185,7 @@ internal sealed class VoiceModelStore
                 try { read = await source.ReadAsync(buffer, stall.Token); }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
-                    throw new VoiceInputException(VoiceInputErrorKind.Download, "The download stopped receiving data.");
+                    throw new VoiceInputException(VoiceInputErrorKind.Download, Loc.Voice_DownloadStalled);
                 }
 
                 if (read == 0)

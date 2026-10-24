@@ -10,6 +10,7 @@ using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Browser;
 
@@ -19,7 +20,7 @@ internal sealed class BrowserHostEnvironment(string origin) : IMobileHostEnviron
 
     public string? FixedBaseUrl { get; } = origin.TrimEnd('/');
 
-    public string FixedEndpointName => "This Lumi PC";
+    public string FixedEndpointName => Strings.Get("ThisLumiPc");
 
     public Action? ReloadWebApp => BrowserInterop.ReloadWebApp;
 
@@ -65,11 +66,14 @@ internal sealed class BrowserMobileSettingsStore(string origin) : IMobileSetting
         }
 
         settings ??= new MobileConnectionSettings();
+        if (settings.Language.Length == 0)
+            settings.Language = BrowserInterop.GetLanguage();
+        Strings.Load(settings.Language);
         settings.BaseUrl = origin;
         if (settings.DeviceId.Length == 0)
             settings.DeviceId = Guid.NewGuid().ToString("n");
         if (settings.DeviceName.Length == 0)
-            settings.DeviceName = "Lumi Web App";
+            settings.DeviceName = Strings.Get("LumiWebApp");
         return settings;
     }
 
@@ -309,7 +313,7 @@ internal sealed class BrowserRemoteDownloadStore : IRemoteDownloadStore
                     break;
                 total += read;
                 if (total > maxBytes)
-                    throw new InvalidDataException("The download exceeds the browser limit.");
+                    throw new InvalidDataException(Strings.Get("BrowserDownloadLimit"));
                 await buffer.WriteAsync(rented.AsMemory(0, read), cancellationToken);
             }
         }
@@ -443,6 +447,9 @@ internal static partial class BrowserInterop
 
     [JSImport("getOrigin", "./browserHost.js")]
     internal static partial string GetOrigin();
+
+    [JSImport("getLanguage", "./browserHost.js")]
+    internal static partial string GetLanguage();
 
     [JSImport("getStorageItem", "./browserHost.js")]
     internal static partial string? GetStorageItem(string key);

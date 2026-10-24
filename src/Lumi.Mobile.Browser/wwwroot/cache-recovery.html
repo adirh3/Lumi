@@ -10,9 +10,10 @@
 <body>
   <main class="lumi-splash">
     <strong>Lumi</strong>
-    <span id="cache-recovery-status" role="status">Refreshing the web app...</span>
-    <button id="cache-recovery-retry" type="button" hidden>Try again</button>
+    <span id="cache-recovery-status" role="status" data-lumi-string="WebRefreshing">Refreshing the web app...</span>
+    <button id="cache-recovery-retry" type="button" data-lumi-string="TryAgain" hidden>Try again</button>
   </main>
+  <script src="./localization.js"></script>
   <script src="./cache-recovery.js"></script>
 </body>
 </html>

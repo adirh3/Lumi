@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -96,11 +97,11 @@ public sealed partial class MobileChatViewModel
     public bool IsGitFileOpen => SelectedGitFile is not null;
     public string SelectedGitFilePath => SelectedGitFile?.Path ?? "";
     public string SelectedGitFileName => SelectedGitFilePath[(SelectedGitFilePath.LastIndexOf('/') + 1)..];
-    public string SelectedGitFileStatus => SelectedGitFile?.Kind ?? "";
-    public string GitHeaderTitle => IsGitShortLayout && IsGitFileOpen ? SelectedGitFileName : "Git changes";
+    public string SelectedGitFileStatus => GitKindDisplay(SelectedGitFile?.Kind);
+    public string GitHeaderTitle => IsGitShortLayout && IsGitFileOpen ? SelectedGitFileName : Strings.Get("GitChanges");
     public string GitHeaderSubtitle => IsGitShortLayout
-        ? IsGitFileOpen ? $"{GitDiffStats} · Read-only" : $"Read-only · {GitRepositoryLabel}"
-        : "READ-ONLY";
+        ? IsGitFileOpen ? Strings.Get("ReadOnlyAfter", GitDiffStats) : Strings.Get("ReadOnlyBefore", GitRepositoryLabel)
+        : Strings.Get("ReadOnlyHeader");
     public bool ShowGitExpandedScope => !IsGitShortLayout;
     public bool ShowGitFileHeader => IsGitFileOpen && !IsGitShortLayout;
     public bool ShowGitCompactFileNavigation => IsGitFileOpen && IsGitShortLayout;
@@ -109,8 +110,8 @@ public sealed partial class MobileChatViewModel
     public string GitTotalAdditionsText => $"+{GitFiles.Sum(file => (long)(file.LinesAdded ?? 0)):N0}";
     public string GitTotalDeletionsText => $"−{GitFiles.Sum(file => (long)(file.LinesRemoved ?? 0)):N0}";
     public string GitStatsScopeText => GitFilesTruncated || GitFiles.Any(file => !file.IsBinary && !file.LinesAdded.HasValue)
-        ? "Known text changes · partial"
-        : "Total text changes";
+        ? Strings.Get("GitKnownTextChanges")
+        : Strings.Get("GitTotalTextChanges");
     public bool HasGitDiffText => !string.IsNullOrWhiteSpace(GitDiffText);
     public bool HasGitMessage => !string.IsNullOrWhiteSpace(GitMessage);
     public bool HasGitError => !string.IsNullOrWhiteSpace(GitError);
@@ -120,11 +121,28 @@ public sealed partial class MobileChatViewModel
     public bool IsGitListLoading => IsGitLoading && !IsGitFileOpen;
     public bool IsGitDiffLoading => IsGitLoading && IsGitFileOpen;
     public bool ShowGitTextPlaceholder => IsGitFileOpen && !IsGitLoading && !HasGitDiffText && !HasGitError;
-    public string GitBackLabel => IsGitFileOpen ? "Back to changed files" : "Back to chat";
+    public string GitBackLabel => Strings.Get(IsGitFileOpen ? "BackToChangedFiles" : "BackToChat");
     public string GitFileCountText =>
-        $"{GitFiles.Count} changed {(GitFiles.Count == 1 ? "file" : "files")}{(GitFilesTruncated ? " · Limited" : "")}";
+        Strings.Get(GitFiles.Count == 1 ? "GitChangedFileOne" : "GitChangedFileMany", GitFiles.Count)
+        + (GitFilesTruncated ? Strings.Get("LimitedSuffix") : "");
     public string GitFilePositionText =>
-        SelectedGitFileIndex is var index && index >= 0 ? $"{index + 1} of {GitFiles.Count}" : "";
+        SelectedGitFileIndex is var index && index >= 0 ? Strings.Get("PositionOfCount", index + 1, GitFiles.Count) : "";
+
+    internal static string GitKindDisplay(string? kind) => kind switch
+    {
+        "Modified" => Strings.Get("GitKindModified"),
+        "Added" => Strings.Get("GitKindAdded"),
+        "Deleted" => Strings.Get("GitKindDeleted"),
+        "Renamed" => Strings.Get("GitKindRenamed"),
+        "Copied" => Strings.Get("GitKindCopied"),
+        "Untracked" => Strings.Get("GitKindUntracked"),
+        "Type changed" => Strings.Get("GitKindTypeChanged"),
+        "Conflicted" => Strings.Get("GitKindConflicted"),
+        "Recreated" => Strings.Get("GitKindRecreated"),
+        "Submodule" => Strings.Get("GitKindSubmodule"),
+        "Unknown" => Strings.Get("GitKindUnknown"),
+        _ => kind ?? ""
+    };
 
     private int SelectedGitFileIndex
     {
@@ -182,18 +200,18 @@ public sealed partial class MobileChatViewModel
         GitMessage = null;
         _gitListMessage = null;
         _gitScopeId = null;
-        GitScopeLabel = $"Chat: {Title}";
-        GitRepositoryLabel = "Resolving project / worktree…";
+        GitScopeLabel = Strings.Get("ChatNamed", Title);
+        GitRepositoryLabel = Strings.Get("GitResolvingScope");
         if (ChatId == Guid.Empty)
         {
-            GitRepositoryLabel = "No repository selected";
-            GitMessage = "Open a chat to inspect its project or worktree.";
+            GitRepositoryLabel = Strings.Get("GitNoRepositorySelected");
+            GitMessage = Strings.Get("GitOpenChat");
             return;
         }
         if (_sink is not IRemoteGitChangesSink { SupportsGitChanges: true } sink)
         {
-            GitRepositoryLabel = "Project / worktree scope unavailable";
-            GitMessage = "Update Lumi on desktop to view Git changes from your phone.";
+            GitRepositoryLabel = Strings.Get("GitScopeUnavailable");
+            GitMessage = Strings.Get("GitUpdateRequired");
             return;
         }
         var chatId = ChatId;
@@ -206,31 +224,31 @@ public sealed partial class MobileChatViewModel
             if (!IsCurrentGitRequest(chatId, version))
                 return;
             if (changes is null || changes.ChatId != chatId)
-                throw new InvalidOperationException("Git changes could not be loaded.");
+                throw new InvalidOperationException(Strings.Get("GitLoadFailed"));
             _gitScopeId = changes.ScopeId;
-            GitScopeLabel = $"Chat: {Title}\n{changes.ScopeLabel} · Read-only";
+            GitScopeLabel = Strings.Get("GitScopeDescription", Title, changes.ScopeLabel);
             GitRepositoryLabel = changes.ScopeLabel;
             GitFiles = changes.Files;
             GitFilesTruncated = changes.IsTruncated;
             GitMessage = _gitListMessage = changes.Message;
             if (GitFiles.Count == 0 && string.IsNullOrWhiteSpace(GitMessage))
                 GitMessage = _gitListMessage = changes.IsRepository
-                    ? "Your working tree is clean. Refresh after making changes on desktop."
-                    : "This chat has no available Git repository.";
+                    ? Strings.Get("GitWorkingTreeClean")
+                    : Strings.Get("GitNoRepository");
         }
         catch (OperationCanceledException)
         {
             if (IsCurrentGitRequest(chatId, version))
             {
-                GitRepositoryLabel = "Project / worktree scope unavailable";
-                GitError = "Git request cancelled. Refresh to try again.";
+                GitRepositoryLabel = Strings.Get("GitScopeUnavailable");
+                GitError = Strings.Get("GitCancelled");
             }
         }
         catch (Exception ex)
         {
             if (IsCurrentGitRequest(chatId, version))
             {
-                GitRepositoryLabel = "Project / worktree scope unavailable";
+                GitRepositoryLabel = Strings.Get("GitScopeUnavailable");
                 GitError = ex.Message;
             }
         }
@@ -264,21 +282,21 @@ public sealed partial class MobileChatViewModel
             if (!IsCurrentGitRequest(chatId, version))
                 return;
             if (diff is null || diff.ChatId != chatId || diff.ScopeId != scopeId || diff.Path != file.Path)
-                throw new InvalidOperationException("The workspace changed. Refresh Git changes.");
+                throw new InvalidOperationException(Strings.Get("GitWorkspaceChanged"));
             GitDiffText = diff.UnifiedDiff;
             GitMessage = diff.Message ?? (diff.IsTruncated
-                ? "This diff is truncated on mobile. Open desktop for the full file."
+                ? Strings.Get("GitDiffTruncated")
                 : string.IsNullOrWhiteSpace(diff.UnifiedDiff)
-                    ? "No text diff is available for this file (binary, empty, or metadata-only change)."
+                    ? Strings.Get("GitNoTextDiff")
                     : null);
-            GitDiffStats = file.IsBinary ? "Binary file"
+            GitDiffStats = file.IsBinary ? Strings.Get("BinaryFile")
                 : diff.IsTruncated && file.LinesAdded.HasValue ? FileLineStatistics(file)
-                : $"+{diff.LinesAdded:N0}  −{diff.LinesRemoved:N0}{(diff.IsTruncated ? " · Preview only" : "")}";
+                : $"+{diff.LinesAdded:N0}  −{diff.LinesRemoved:N0}{(diff.IsTruncated ? Strings.Get("PreviewOnlySuffix") : "")}";
         }
         catch (OperationCanceledException)
         {
             if (IsCurrentGitRequest(chatId, version))
-                GitError = "Git request cancelled. Refresh to try again.";
+                GitError = Strings.Get("GitCancelled");
         }
         catch (Exception ex)
         {
@@ -304,7 +322,7 @@ public sealed partial class MobileChatViewModel
     }
 
     private static string FileLineStatistics(RemoteGitFile file) => file.IsBinary
-        ? "Binary file"
+        ? Strings.Get("BinaryFile")
         : file.LinesAdded.HasValue && file.LinesRemoved.HasValue
             ? $"+{file.LinesAdded:N0}  −{file.LinesRemoved:N0}"
             : "";

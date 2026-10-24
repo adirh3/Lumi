@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Lumi.Localization;
 using Lumi.Models;
 using StrataTheme.Controls;
 
@@ -13,11 +14,11 @@ internal static class InteractiveResponseState
         {
             var definition = InteractiveDefinition.Parse(kind, input);
             if (definition.Id != blockId)
-                throw new FormatException("That input is no longer in this request.");
+                throw new FormatException(Loc.Interaction_InputGone);
             return definition;
         }
         if (message.Role != "assistant")
-            throw new FormatException("Interactive state belongs to an assistant answer.");
+            throw new FormatException(Loc.Interaction_AssistantRequired);
         InteractiveDefinition? result = null;
         foreach (var block in MarkdownParser.Parse(MarkdownParser.NormalizeLineEndings(message.Content)))
         {
@@ -27,10 +28,10 @@ internal static class InteractiveResponseState
             if (definition.Id != blockId)
                 continue;
             if (result is not null)
-                throw new FormatException("The response contains duplicate interaction ids.");
+                throw new FormatException(Loc.Interaction_DuplicateIds);
             result = definition;
         }
-        return result ?? throw new FormatException("That interaction is no longer present in this answer.");
+        return result ?? throw new FormatException(Loc.Interaction_Gone);
     }
 
     public static InteractionReceipt CreateReceipt(
@@ -49,7 +50,7 @@ internal static class InteractiveResponseState
         ChatMessage message, string blockId, string stateJson)
     {
         if (stateJson.Length > Lumi.Remote.Protocol.RemoteProtocol.MobileAssistantTextLimit)
-            throw new FormatException("This interaction's input is too large to save.");
+            throw new FormatException(Loc.Interaction_InputTooLarge);
         var definition = FindDefinition(message, blockId);
         var state = InteractiveState.Parse(stateJson);
         state.Validate(definition);

@@ -26,7 +26,7 @@ public partial class GitFileChangeViewModel : ObservableObject
     public string? Directory => Change.Directory;
     public string? RepoRelativeDirectory => Change.RepoRelativeDirectory;
     public string KindIcon => Change.KindIcon;
-    public string KindLabel => Change.KindLabel;
+    public string KindLabel => Change.DisplayKindLabel;
     public GitChangeKind Kind => Change.Kind;
     public int LinesAdded => Change.LinesAdded;
     public int LinesRemoved => Change.LinesRemoved;

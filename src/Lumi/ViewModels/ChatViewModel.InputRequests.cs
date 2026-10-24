@@ -103,7 +103,7 @@ public partial class ChatViewModel
             {
                 var expectedAction = updated.Definition is InteractiveForm ? "submit" : "use";
                 if (action != expectedAction)
-                    throw new FormatException("This request accepts the requested choices, not a follow-up action.");
+                    throw new FormatException(Loc.Chat_InputFollowUpNotAllowed);
                 _ = InteractiveSubmission.Build(updated.Definition, updated.State, action);
                 await SaveChatAsync(chat, saveIndex: false);
                 if (!IsPendingQuestion(questionId))

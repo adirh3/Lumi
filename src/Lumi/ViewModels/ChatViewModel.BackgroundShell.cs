@@ -181,7 +181,7 @@ public partial class ChatViewModel
                 // A task can finish between listing it and cancellation.
                 var remaining = await session.Rpc.Tasks.ListAsync();
                 if (remaining.Tasks.Any(task => GetRunningTaskId(task) == id))
-                    throw new InvalidOperationException($"Copilot could not stop background task {id}.");
+                    throw new InvalidOperationException(Loc.Get(nameof(Loc.Chat_BackgroundStopFailed), id));
             }
         }
 
@@ -562,16 +562,16 @@ public partial class ChatViewModel
         var totalSeconds = (long)Math.Max(0, Math.Floor(elapsed.TotalSeconds));
 
         if (totalSeconds < 60)
-            return $"{totalSeconds}s";
+            return Loc.Get(nameof(Loc.Chat_DurationSeconds), totalSeconds);
 
         var minutes = totalSeconds / 60;
         var seconds = totalSeconds % 60;
 
         if (minutes < 60)
-            return $"{minutes}m {seconds:D2}s";
+            return Loc.Get(nameof(Loc.Chat_ElapsedMinutesSeconds), minutes, seconds);
 
         var hours = minutes / 60;
         minutes %= 60;
-        return $"{hours}h {minutes:D2}m";
+        return Loc.Get(nameof(Loc.Chat_ElapsedHoursMinutes), hours, minutes);
     }
 }

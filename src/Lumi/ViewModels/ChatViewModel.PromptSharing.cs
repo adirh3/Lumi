@@ -1,5 +1,6 @@
 using Lumi.Services.Sharing;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Localization;
 
 namespace Lumi.ViewModels;
 
@@ -24,7 +25,7 @@ public partial class ChatViewModel
     public void RequestSharePrompt(Guid messageId)
     {
         if (CurrentChat is not { } chat)
-            throw new InvalidOperationException("There is no chat to share a prompt from.");
+            throw new InvalidOperationException(Loc.Prompt_NoChatToShare);
 
         var platform = OperatingSystem.IsWindows() ? "Windows" : OperatingSystem.IsMacOS() ? "macOS" : "Linux";
         if (!HasTranscriptHistory)

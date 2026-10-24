@@ -7,6 +7,7 @@ using Avalonia.Platform.Storage;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using System.Runtime.InteropServices.JavaScript;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Browser;
 
@@ -16,6 +17,8 @@ internal static class Program
     {
         await JSHost.ImportAsync("./browserHost.js", "/app/browserHost.js");
         await JSHost.ImportAsync("./pwaHost.js", "/app/pwaHost.js");
+        // The pre-runtime page and Strata/theme XAML must use the same startup language.
+        Strings.Load(BrowserInterop.GetLanguage());
         var host = new BrowserHostEnvironment(BrowserInterop.GetOrigin());
         var nativeTextInputOverlayPresenter = new BrowserNativeTextInputOverlayPresenter();
         MobilePlatformServices.HostEnvironment = host;

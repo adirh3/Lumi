@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
+using Lumi.Localization;
 
 namespace Lumi.Services;
 
@@ -133,7 +134,7 @@ internal sealed class VoiceInputService : IDisposable
                 return _session.Started.Task;
             if (!IsAvailable)
             {
-                Error?.Invoke(new VoiceInputError(VoiceInputErrorKind.Failed, "Voice input is not supported on this platform or CPU architecture."));
+                Error?.Invoke(new VoiceInputError(VoiceInputErrorKind.Failed, Loc.Voice_UnsupportedPlatform));
                 return Task.CompletedTask;
             }
 

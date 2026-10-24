@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Services;
 
@@ -41,7 +42,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     internal static readonly TimeSpan EventSilenceDeadline = TimeSpan.FromSeconds(90);
     internal const int MaxConcurrentMarkdownImageDownloads = 3;
     internal const long MarkdownImageCacheByteLimit = 256L * 1024 * 1024;
-    private const string RequestTimeoutMessage = "Lumi took too long to answer.";
+    private static string RequestTimeoutMessage => Strings.Get("RequestTimeout");
     private static readonly SemaphoreSlim MarkdownImageDownloadGate =
         new(MaxConcurrentMarkdownImageDownloads, MaxConcurrentMarkdownImageDownloads);
     private static readonly object MarkdownImageCacheSync = new();
@@ -269,7 +270,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             InvalidateCompatibility(normalizedBaseUrl);
             SetState(
                 RemoteLinkState.Error,
-                $"This phone requires Lumi remote protocol {RemoteProtocol.Version} with scoped events.");
+                Strings.Get("ProtocolRequired", RemoteProtocol.Version));
         }
 
         return hello;
@@ -302,7 +303,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 Token = token;
             }
 
-            return parsed ?? new RemotePairResponse { Error = "Lumi returned an unreadable response." };
+            return parsed ?? new RemotePairResponse { Error = Strings.Get("UnreadableResponse") };
         }
         catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
         {
@@ -350,7 +351,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             _hasCompatibleBootstrap = false;
             SetState(
                 RemoteLinkState.Error,
-                $"This phone requires Lumi remote protocol {RemoteProtocol.Version} with scoped events.");
+                Strings.Get("ProtocolRequired", RemoteProtocol.Version));
             return null;
         }
 
@@ -522,7 +523,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             return new RemoteCommandResult
             {
-                Error = "Not connected to a Lumi desktop.",
+                Error = Strings.Get("NotConnectedToDesktop"),
                 RequestId = requestId
             };
         }
@@ -530,7 +531,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             return new RemoteCommandResult
             {
-                Error = "Waiting for a compatible Lumi desktop connection.",
+                Error = Strings.Get("WaitingCompatibleDesktop"),
                 RequestId = requestId
             };
         }
@@ -604,10 +605,10 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
                 return new CommandAttempt(new RemoteCommandResult
                 {
-                    Error = "This device is no longer paired with Lumi.",
+                    Error = Strings.Get("NoLongerPaired"),
                     RequestId = requestId
                 }, IsAuthoritative: true);
             }
@@ -617,7 +618,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             {
                 return new CommandAttempt(new RemoteCommandResult
                 {
-                    Error = "Lumi returned an unreadable response.",
+                    Error = Strings.Get("UnreadableResponse"),
                     RequestId = requestId
                 }, IsAuthoritative: false);
             }
@@ -815,7 +816,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 .ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
                 return null;
             }
 
@@ -833,7 +834,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             if (response.Content.Headers.ContentLength is { } declared
                 && declared > RemoteProtocol.MaxDownloadBytes)
             {
-                SetRequestFailure("That produced file is too large to open on mobile.");
+                SetRequestFailure(Strings.Get("ProducedFileTooLarge"));
                 return null;
             }
 
@@ -875,7 +876,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                         break;
                     total += read;
                     if (total > RemoteProtocol.MaxDownloadBytes)
-                        throw new InvalidDataException("The produced file exceeds the mobile download limit.");
+                        throw new InvalidDataException(Strings.Get("ProducedFileDownloadLimit"));
                     await destination.WriteAsync(buffer.AsMemory(0, read), deadline.Token).ConfigureAwait(false);
                 }
             }
@@ -968,7 +969,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     .ConfigureAwait(false);
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                    SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
                     return null;
                 }
                 if (!response.IsSuccessStatusCode
@@ -1091,7 +1092,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 .ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
                 return null;
             }
             if (!response.IsSuccessStatusCode
@@ -1253,10 +1254,10 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         if (BaseUrl is not { Length: > 0 })
-            return new RemoteUploadResponse { Error = "Not connected to a Lumi desktop." };
+            return new RemoteUploadResponse { Error = Strings.Get("NotConnectedToDesktop") };
 
         if (content.Length > RemoteProtocol.MaxUploadBytes)
-            return new RemoteUploadResponse { Error = "That file is too large to send." };
+            return new RemoteUploadResponse { Error = Strings.Get("FileTooLargeToSend") };
 
         using var deadline = CreateDeadline(cancellationToken, _uploadDeadline);
         try
@@ -1282,12 +1283,12 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
-                return new RemoteUploadResponse { Error = "This device is no longer paired with Lumi." };
+                SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
+                return new RemoteUploadResponse { Error = Strings.Get("NoLongerPaired") };
             }
 
             return JsonSerializer.Deserialize(body, RemoteJsonContext.Default.RemoteUploadResponse)
-                   ?? new RemoteUploadResponse { Error = "Lumi returned an unreadable response." };
+                   ?? new RemoteUploadResponse { Error = Strings.Get("UnreadableResponse") };
         }
         catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
         {
@@ -1396,7 +1397,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 .ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
                 return;
             }
 
@@ -1542,7 +1543,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     .ConfigureAwait(false);
 
                 // A clean end-of-stream means the desktop closed the connection: reconnect promptly.
-                SetState(RemoteLinkState.Disconnected, "Lumi closed the connection.");
+                SetState(RemoteLinkState.Disconnected, Strings.Get("ConnectionClosed"));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -1550,7 +1551,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             }
             catch (UnauthorizedAccessException)
             {
-                SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
                 return;
             }
             catch (RemoteGatewaySignInException ex)
@@ -1629,7 +1630,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                         || snapshot.IsPartial)
                     {
                         _hasCompatibleBootstrap = false;
-                        throw new InvalidDataException("Lumi did not send a valid bootstrap snapshot.");
+                        throw new InvalidDataException(Strings.Get("InvalidBootstrap"));
                     }
 
                     if (!IsSupportedProtocol(snapshot.ProtocolVersion)
@@ -1637,7 +1638,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     {
                         InvalidateCompatibility(BaseUrl ?? "");
                         throw new RemoteProtocolMismatchException(
-                            $"This phone requires Lumi remote protocol {RemoteProtocol.Version} with scoped events.");
+                            Strings.Get("ProtocolRequired", RemoteProtocol.Version));
                     }
 
                     _compatibleBaseUrl = BaseUrl;
@@ -1660,7 +1661,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
 
         if (awaitingBootstrapSnapshot)
-            throw new InvalidDataException("Lumi closed the stream before the bootstrap snapshot.");
+            throw new InvalidDataException(Strings.Get("ConnectionClosedBeforeBootstrap"));
     }
 
     private async Task ReadEventLinesAsync(
@@ -1695,7 +1696,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
-                    throw new TimeoutException("Lumi's live connection stopped responding.");
+                    throw new TimeoutException(Strings.Get("LiveConnectionTimeout"));
                 }
 
                 if (read == 0)
@@ -1710,20 +1711,20 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                             line.Length--;
                         var text = line.ToString();
                         if (Encoding.UTF8.GetByteCount(text) > RemoteProtocol.MaxSseLineBytes)
-                            throw new InvalidDataException("SSE line is too large.");
+                            throw new InvalidDataException(Strings.Get("SseLineTooLarge"));
                         consumeLine(text);
                         line.Clear();
                         continue;
                     }
 
                     if (line.Length >= RemoteProtocol.MaxSseLineBytes)
-                        throw new InvalidDataException("SSE line is too large.");
+                        throw new InvalidDataException(Strings.Get("SseLineTooLarge"));
                     line.Append(character);
                 }
             }
 
             if (line.Length > 0)
-                throw new InvalidDataException("SSE stream ended with an unterminated line.");
+                throw new InvalidDataException(Strings.Get("SseLineUnterminated"));
         }
         finally
         {
@@ -1782,7 +1783,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 .ConfigureAwait(false);
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                SetState(RemoteLinkState.Unauthorized, Strings.Get("NoLongerPaired"));
                 return default;
             }
 
@@ -1832,7 +1833,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         if (content.Headers.ContentLength is { } declared && declared > maxBytes)
-            throw new InvalidDataException($"Response exceeds the {maxBytes:N0}-byte protocol limit.");
+            throw new InvalidDataException(Strings.Get("ResponseProtocolLimit", maxBytes));
 
         await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var output = new MemoryStream(Math.Min(maxBytes, 64 * 1024));
@@ -1846,7 +1847,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 if (read == 0)
                     break;
                 if (output.Length + read > maxBytes)
-                    throw new InvalidDataException($"Response exceeds the {maxBytes:N0}-byte protocol limit.");
+                    throw new InvalidDataException(Strings.Get("ResponseProtocolLimit", maxBytes));
                 output.Write(buffer, 0, read);
             }
 
@@ -1966,7 +1967,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     private static string Describe(Exception ex) => ex switch
     {
         RemoteGatewaySignInException => ex.Message,
-        HttpRequestException => "Can't reach Lumi. Check that your PC is awake and on the same Wi-Fi.",
+        HttpRequestException => Strings.Get("CantReachLumi"),
         TaskCanceledException => RequestTimeoutMessage,
         _ => ex.Message
     };
@@ -1993,7 +1994,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         var reason = string.IsNullOrWhiteSpace(response.ReasonPhrase)
             ? ""
             : $" ({response.ReasonPhrase})";
-        return $"Lumi returned HTTP {(int)response.StatusCode}{reason}.";
+        return Strings.Get("HttpResponseError", (int)response.StatusCode, reason);
     }
 
     public async ValueTask DisposeAsync()

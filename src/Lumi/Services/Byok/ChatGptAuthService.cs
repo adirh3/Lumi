@@ -162,7 +162,7 @@ public sealed class ChatGptAuthService : IDisposable
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
-            throw new OperationCanceledException("ChatGPT sign-in was canceled.");
+            throw new OperationCanceledException(Loc.ChatGpt_SignInCanceled);
         }
         catch (OperationCanceledException) when (flow.IsCancellationRequested)
         {
@@ -171,7 +171,7 @@ public sealed class ChatGptAuthService : IDisposable
         catch (SocketException)
         {
             throw new ProviderOAuthException(
-                "Lumi could not open the local sign-in callback. Check local networking or firewall settings and try again.");
+                Loc.EasyConnect_CallbackUnavailable);
         }
         finally
         {

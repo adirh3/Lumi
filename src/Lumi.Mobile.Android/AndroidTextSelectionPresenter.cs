@@ -9,6 +9,7 @@ using Android.Views.InputMethods;
 using Android.Widget;
 using Lumi.Mobile.Services;
 using ActionMode = Android.Views.ActionMode;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Android;
 
@@ -43,7 +44,7 @@ internal sealed class AndroidTextSelectionPresenter(Activity activity) : ITextSe
         var accent = dark ? Color.Rgb(0xA5, 0xB4, 0xFC) : Color.Rgb(0x4F, 0x46, 0xE5);
 
         // Sizes in sp, at the shared rungs (sheet title, body), so the panel follows the phone's font size.
-        var title = new TextView(_activity) { Text = "Select text", TextSize = 20.5f };
+        var title = new TextView(_activity) { Text = Strings.Get("SelectText"), TextSize = 20.5f };
         title.SetTextColor(ink);
         AndroidAppTypeface.ApplySemiBold(title);
         title.SetPadding(Dp(24), Dp(22), Dp(24), Dp(6));
@@ -71,7 +72,7 @@ internal sealed class AndroidTextSelectionPresenter(Activity activity) : ITextSe
 
         var done = new TextView(_activity)
         {
-            Text = "Done", TextSize = 16f, Gravity = GravityFlags.Center, Clickable = true, Focusable = true
+            Text = Strings.Get("Done"), TextSize = 16f, Gravity = GravityFlags.Center, Clickable = true, Focusable = true
         };
         done.SetTextColor(accent);
         AndroidAppTypeface.ApplySemiBold(done);
@@ -191,8 +192,8 @@ public sealed class NativeSelectionCallback(Activity activity, EditText editor)
         if (menu is null)
             return false;
 
-        menu.Add(0, CopyItemId, 0, "Copy")?.SetShowAsAction(ShowAsAction.Always);
-        menu.Add(0, SelectAllItemId, 1, "Select all")?.SetShowAsAction(ShowAsAction.Never);
+        menu.Add(0, CopyItemId, 0, Strings.Get("Copy"))?.SetShowAsAction(ShowAsAction.Always);
+        menu.Add(0, SelectAllItemId, 1, Strings.Get("SelectAll"))?.SetShowAsAction(ShowAsAction.Never);
         return true;
     }
 
@@ -213,7 +214,7 @@ public sealed class NativeSelectionCallback(Activity activity, EditText editor)
                     && activity.GetSystemService(Context.ClipboardService)
                         is global::Android.Content.ClipboardManager clipboard)
                 {
-                    clipboard.PrimaryClip = ClipData.NewPlainText("Lumi text", selected);
+                    clipboard.PrimaryClip = ClipData.NewPlainText(Strings.Get("LumiText"), selected);
                 }
                 mode?.Finish();
                 return true;

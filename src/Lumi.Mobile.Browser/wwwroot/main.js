@@ -6,6 +6,8 @@ import {
 } from './browserHost.js';
 
 let retryStartup = () => window.location.reload();
+const uiText = (key, fallback, ...args) =>
+    globalThis.lumiLocalization?.text(key, fallback, ...args) ?? fallback;
 configureBrowserRecovery(() => retryStartup());
 document.getElementById('startup-retry').addEventListener('click', () => retryStartup());
 
@@ -17,8 +19,8 @@ const showFatalError = error => {
     const message = String(error?.message || error);
     splash.querySelector('span').textContent =
         !navigator.onLine
-            ? 'You are offline. Connect to the internet and try again.'
-            : `Lumi could not start: ${message}`;
+            ? uiText('WebOffline', 'You are offline. Connect to the internet and try again.')
+            : uiText('WebStartFailed', `Lumi could not start: ${message}`, message);
     document.getElementById('startup-retry').hidden = false;
 };
 
@@ -26,6 +28,7 @@ window.addEventListener('error', event => showFatalError(event.error || event.me
 window.addEventListener('unhandledrejection', event => showFatalError(event.reason));
 
 try {
+    await globalThis.lumiLocalization?.ready;
     const {
         configureAppLifecycle,
         configureAppUpdates,

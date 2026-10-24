@@ -204,7 +204,7 @@ public partial class SkillChipItem
     public SkillChipItem(SkillReference skill, Action? openAction)
     {
         Name = skill.Name;
-        Description = skill.Description;
+        Description = Loc.GetBuiltInDescription(skill.Name, skill.Description);
         _openAction = openAction;
     }
 
@@ -298,7 +298,11 @@ public sealed class JobWakeItem : TranscriptItem
     public JobWakeItem(ChatMessageViewModel source, bool showTimestamps)
         : base($"message:job-wake:{source.Message.Id}")
     {
-        var details = Lumi.Remote.Protocol.RemoteJobWake.Parse(source.Author, source.Content);
+        var details = Lumi.Remote.Protocol.RemoteJobWake.Parse(
+            source.Author,
+            source.Content,
+            fallbackJobName: Loc.Jobs_WakeFallbackName,
+            fallbackWakeSignal: Loc.Jobs_WakeFallbackSignal);
         SearchText = TranscriptSearchText.JobWake(details);
         JobName = details.JobName;
         TimestampText = showTimestamps ? source.TimestampText : "";
@@ -842,7 +846,9 @@ public partial class SingleToolItem : TranscriptItem
                 TerminalPreviewItem tp => tp.DurationMs,
                 _ => 0
             };
-            var duration = ms <= 0 ? null : ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0} ms";
+            var duration = ms <= 0 ? null : ms >= 1000
+                ? Loc.Get(nameof(Loc.Tool_DurationSeconds), ms / 1000)
+                : Loc.Get(nameof(Loc.Tool_DurationMilliseconds), ms);
             var meta = string.IsNullOrWhiteSpace(detail)
                 ? duration
                 : duration is null ? detail : $"{detail} · {duration}";

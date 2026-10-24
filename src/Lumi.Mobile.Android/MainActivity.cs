@@ -18,6 +18,7 @@ using Lumi.Mobile.Layout;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.Views;
 using Object = Java.Lang.Object;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Android;
 
@@ -235,7 +236,7 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
         {
             Toast.MakeText(
                     this,
-                    "Local network access is required to connect to your Lumi PC.",
+                    Strings.Get("LocalNetworkPermissionRequired"),
                     ToastLength.Long)
                 ?.Show();
         }

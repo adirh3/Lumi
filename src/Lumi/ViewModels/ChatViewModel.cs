@@ -671,16 +671,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     internal static string BuildMcpOAuthOpenedMessage(string displayName)
-        => $"Lumi opened your browser to sign in to connector '{displayName}'. " +
-           "Finish signing in and it reconnects automatically.";
+        => Loc.Get(nameof(Loc.Connector_SignInBrowserOpenedMessage), displayName);
 
     internal static string BuildMcpOAuthWindowOpenedMessage(string displayName)
-        => $"A Microsoft sign-in window opened for connector '{displayName}'. " +
-           "Finish signing in there and it reconnects automatically.";
+        => Loc.Get(nameof(Loc.Connector_SignInWindowOpenedMessage), displayName);
 
     internal static string BuildMcpOAuthFailureMessage(string displayName, string failure)
-        => $"Lumi couldn't sign in to connector '{displayName}' automatically " +
-           $"({failure}). Open it in Customize → Connectors to sign in.";
+        => Loc.Get(nameof(Loc.Connector_SignInFailedMessage), displayName, failure);
 
     /// <summary>
     /// Records the final OAuth issue for a session+server and shows it, so later repeated
@@ -1131,7 +1128,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public string TokenUsageSummary => HasContextUsage
         ? $"{ContextUsagePercent}%"
         : HasTokenUsage ? Loc.Get("Chat_ContextWindow_ChipLabel") : "";
-    public string TokenUsageSuffixText => HasContextUsage ? "context" : "";
+    public string TokenUsageSuffixText => HasContextUsage ? Loc.Chat_ContextSuffix : "";
     public string TokenInputDisplay => $"{TotalInputTokens:N0}";
     public string TokenOutputDisplay => $"{TotalOutputTokens:N0}";
     public string TokenTotalDisplay => $"{TotalInputTokens + TotalOutputTokens:N0}";
@@ -1175,8 +1172,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private static string FormatTokenCount(long tokens) => tokens switch
     {
         < 1_000 => $"{tokens}",
-        < 1_000_000 => $"{tokens / 1_000.0:0.#}K",
-        _ => $"{tokens / 1_000_000.0:0.##}M"
+        < 1_000_000 => Loc.Get(nameof(Loc.ModelPicker_CompactThousands), (tokens / 1_000.0).ToString("0.#", Loc.Culture)),
+        _ => Loc.Get(nameof(Loc.ModelPicker_CompactMillions), (tokens / 1_000_000.0).ToString("0.##", Loc.Culture))
     };
 
     private static long NormalizeTokenCount(double tokens)
@@ -3077,9 +3074,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             if (!string.IsNullOrWhiteSpace(internalSkill.Content))
                 return internalSkill.Content;
-            return string.IsNullOrWhiteSpace(internalSkill.Description)
-                ? "_This skill has no content yet._"
-                : internalSkill.Description;
+            return string.IsNullOrWhiteSpace(internalSkill.DisplayDescription)
+                ? Loc.Chat_SkillHasNoContent
+                : internalSkill.DisplayDescription;
         }
 
         // Content captured from the SDK's skill.invoked event renders directly — this is the only
@@ -3103,7 +3100,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         return string.IsNullOrWhiteSpace(skill.Description)
-            ? "_No content is available for this skill._"
+            ? Loc.Chat_SkillContentUnavailable
             : skill.Description;
     }
 
@@ -3519,7 +3516,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         validateDelivery?.Invoke();
 
         var targetChat = _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.ChatId)
-            ?? throw new InvalidOperationException($"Background job chat not found: {job.ChatId}");
+            ?? throw new InvalidOperationException(Loc.Get(nameof(Loc.Jobs_BackgroundChatMissing), job.ChatId));
 
         // ── Non-BYOK block ──
         // Background jobs run without a UI prompt, so enforce the block explicitly before any
@@ -3530,8 +3527,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (IsModelBlockedByByokOnlyFlag(bgModel, targetChat))
         {
             throw new ByokOnlyRequestBlockedException(
-                "Background job was blocked because \"Block internal Copilot requests (BYOK Only)\" is on and " +
-                "the chat's model is not a BYOK model. Assign a BYOK model to this chat.");
+                Loc.Jobs_ByokOnlyBlocked);
         }
 
             var prompt = BuildBackgroundJobPrompt(job, triggerContext);
@@ -3625,18 +3621,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             throw new InvalidOperationException(Loc.Get("Chat_PausedSendBlocked"));
         if (HasPendingAssistantWork(targetChat.Id)
             || IsExternalSendReservedByAnother(targetChat.Id, reservationToken))
-            throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
+            throw new InvalidOperationException(Loc.Get(nameof(Loc.Chat_AlreadyRunning), targetChat.Title));
         if (reservationToken is { } initialReservationToken
             && IsExternalSendReservationCanceled(targetChat.Id, initialReservationToken))
         {
-            throw new OperationCanceledException("The pending turn start was canceled.");
+            throw new OperationCanceledException(Loc.Chat_TurnStartCanceled);
         }
         if (reservationToken is not null &&
             !IsExternalProjectContextCurrent(
                 targetChat,
                 reservedProjectId,
                 reservedProjectDirectory))
-            throw new InvalidOperationException("The chat project changed while its turn was starting.");
+            throw new InvalidOperationException(Loc.Chat_ProjectChangedDuringStart);
 
         await _dataStore.LoadChatMessagesAsync(targetChat, cancellationToken);
         validateBeforeSend?.Invoke();
@@ -3678,7 +3674,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (mustDeferSessionRefresh && (hasModelOverride || hasEffortOverride))
         {
             if (CurrentChat?.Id != targetChat.Id)
-                throw new InvalidOperationException("Lumi could not queue a configuration change on that chat's surface.");
+                throw new InvalidOperationException(Loc.Chat_ConfigurationQueueFailed);
             ApplyModelSelection(
                 targetChat.LastModelUsed,
                 targetChat.LastReasoningEffortUsed,
@@ -3712,14 +3708,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (reservationToken is { } activeReservationToken
             && IsExternalSendReservationCanceled(targetChat.Id, activeReservationToken))
         {
-            throw new OperationCanceledException("The pending turn start was canceled.");
+            throw new OperationCanceledException(Loc.Chat_TurnStartCanceled);
         }
         if (reservationToken is not null &&
             !IsExternalProjectContextCurrent(
                 targetChat,
                 reservedProjectId,
                 reservedProjectDirectory))
-            throw new InvalidOperationException("The chat project changed while its turn was starting.");
+            throw new InvalidOperationException(Loc.Chat_ProjectChangedDuringStart);
 
         validateBeforeSend?.Invoke();
         // Jobs and other chats drive this turn; a message from the phone is still the user.
@@ -4043,14 +4039,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException) when (cts is not null && !cts.IsCancellationRequested)
         {
             ClearPendingTurnTracking(targetChat.Id);
-            var errorText = string.Format(Loc.Status_Error, "Background job session cancelled unexpectedly.");
+            var errorText = string.Format(Loc.Status_Error, Loc.Status_BackgroundSessionCanceled);
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
             PublishTerminalChatLifecycleEventOnce(
                 targetChat,
                 ChatLifecycleEventTypes.Error,
-                "Background job session cancelled unexpectedly.");
+                Loc.Status_BackgroundSessionCanceled);
             if (CurrentChat?.Id == targetChat.Id)
             {
                 StatusText = errorText;
@@ -4843,7 +4839,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     PromptText = prompt;
                     ReplaceReferencedChats(referencedChats);
                 }
-                StatusText = "That worktree is no longer available. Choose a workspace and try again.";
+                StatusText = Loc.Git_WorktreeUnavailable;
                 return;
             }
 
@@ -4873,7 +4869,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     PromptText = prompt;
                     ReplaceReferencedChats(referencedChats);
                 }
-                StatusText = "That worktree is being cleaned up. Choose a workspace and try again.";
+                StatusText = Loc.Git_WorktreeCleaningUp;
                 return;
             }
             _pendingProjectId = null;
@@ -5230,14 +5226,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException) when (cts is not null && !cts.IsCancellationRequested)
         {
             // SDK cancelled internally (e.g. MCP server failure) — surface as error
-            var errorText = string.Format(Loc.Status_Error, "Session cancelled unexpectedly. A connector may have failed to connect.");
+            var errorText = string.Format(Loc.Status_Error, Loc.Status_SessionCanceled);
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
             PublishTerminalChatLifecycleEventOnce(
                 targetChat,
                 ChatLifecycleEventTypes.Error,
-                "Session cancelled unexpectedly. A connector may have failed to connect.");
+                Loc.Status_SessionCanceled);
             // Terminal failure with no further session events to release the queue.
             FailQueuedBusySends(targetChat.Id);
             ClearPendingTurnTracking(targetChat.Id);
@@ -5567,7 +5563,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 #pragma warning disable GHCP001
         var result = await session.Rpc.AbortAsync(cancellationToken: cancellationToken);
         if (!result.Success)
-            throw new InvalidOperationException(result.Error ?? "Copilot did not accept the stop request.");
+            throw new InvalidOperationException(result.Error ?? Loc.Status_StopRejected);
 #pragma warning restore GHCP001
 
         return true;
@@ -6156,7 +6152,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public Task<string?> TryStopGenerationAsync(bool resolvePendingSteersAsFailed = true) =>
         CurrentChat is { } chat
             ? StopGenerationInternal(chat, resolvePendingSteersAsFailed)
-            : Task.FromResult<string?>("No active chat to stop.");
+            : Task.FromResult<string?>(Loc.Status_NoChatToStop);
 
     /// <summary>Core stop/abort path shared by the Stop button and the inline "Send now" steer action.</summary>
     /// <param name="resolvePendingSteersAsFailed">
@@ -6262,7 +6258,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             Trace.TraceWarning($"[Chat] Abort failed for {chatId}: {ex}");
-            var error = $"Could not stop this turn cleanly: {ex.Message}";
+            var error = Loc.Get(nameof(Loc.Status_StopFailed), ex.Message);
             SetManualStopRequested(chatId, false);
             if (IsCopilotTransportError(ex))
             {
@@ -6294,7 +6290,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             PublishTerminalChatLifecycleEventOnce(
                 chat,
                 ChatLifecycleEventTypes.Aborted,
-                "The chat run was stopped by the user.");
+                Loc.Status_RunStopped);
         }
         ClearPendingTurnTracking(chatId);
 
@@ -7515,12 +7511,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void AppendResendSessionUnavailable(Chat chat)
     {
-        StatusText = "Session expired. Please start a new chat.";
+        StatusText = Loc.Status_SessionExpiredStartNew;
         var errorMsg = new ChatMessage
         {
             Role = "error",
             Author = Loc.Author_Lumi,
-            Content = "Session expired. Please start a new chat to continue."
+            Content = Loc.Status_SessionExpiredContinue
         };
         chat.Messages.Add(errorMsg);
         PublishTerminalChatLifecycleEventOnce(

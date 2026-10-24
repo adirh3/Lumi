@@ -20,19 +20,20 @@
     <div class="lumi-splash avalonia-splash">
       <img src="./icons/lumi-192.png" alt="">
       <strong>Lumi</strong>
-      <span role="status">Opening Lumi...</span>
-      <button id="startup-retry" type="button" hidden>Try again</button>
+      <span role="status" data-lumi-string="WebOpening">Opening Lumi...</span>
+      <button id="startup-retry" type="button" data-lumi-string="TryAgain" hidden>Try again</button>
     </div>
   </div>
   <dialog id="lumi-recovery" class="lumi-recovery" role="alertdialog"
           aria-labelledby="lumi-recovery-title" aria-describedby="lumi-recovery-message" hidden>
     <div>
-      <h1 id="lumi-recovery-title">Lumi needs to reload</h1>
+      <h1 id="lumi-recovery-title" data-lumi-string="WebNeedsReload">Lumi needs to reload</h1>
       <p id="lumi-recovery-message"></p>
-      <button id="lumi-reload" type="button">Reload Lumi</button>
-      <p class="lumi-recovery-note">Saved chats stay on your computer. Reloading may discard unsent text.</p>
+      <button id="lumi-reload" type="button" data-lumi-string="WebReload">Reload Lumi</button>
+      <p class="lumi-recovery-note" data-lumi-string="WebReloadNote">Saved chats stay on your computer. Reloading may discard unsent text.</p>
     </div>
   </dialog>
+  <script src="./localization.js"></script>
   <script type="module" src="./main.js"></script>
 </body>
 </html>

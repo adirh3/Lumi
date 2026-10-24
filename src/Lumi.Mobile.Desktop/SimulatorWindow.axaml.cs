@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Lumi.Mobile.Layout;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Desktop;
 
@@ -67,7 +68,7 @@ public partial class SimulatorWindow : Window
             _devicePicker.SelectedIndex = index;
         else
             Console.Error.WriteLine(
-                $"Unknown device '{name}'. Known devices: {string.Join(", ", SimulatedDevice.All.Select(d => d.Name))}");
+                Strings.Get("SimulatorUnknownDevice", name, string.Join(", ", SimulatedDevice.All.Select(d => d.Name))));
     }
 
     private static int IndexOf(Func<SimulatedDevice, bool> predicate)
@@ -151,11 +152,13 @@ public partial class SimulatorWindow : Window
             return;
 
         var layout = shell.Layout;
-        var hinge = layout.HingeSize > 0 ? $" · hinge {layout.HingeSize:0.#} dp"
-            : layout.FoldPosition > 0 ? $" · fold at {layout.FoldPosition:0} dp" : "";
-        var panes = layout.CanShowThreePanes ? "three panes" : layout.CanShowTwoPanes ? "two panes" : "one pane";
+        var hinge = layout.HingeSize > 0 ? Strings.Get("SimulatorHinge", layout.HingeSize)
+            : layout.FoldPosition > 0 ? Strings.Get("SimulatorFoldPosition", layout.FoldPosition) : "";
+        var panes = Strings.Get(layout.CanShowThreePanes ? "SimulatorThreePanes"
+            : layout.CanShowTwoPanes ? "SimulatorTwoPanes" : "SimulatorOnePane");
 
         _readout.Text =
-            $"{layout.Width:0}×{layout.Height:0} dp · {panes}{(layout.IsShortHeight ? " · short" : "")}{hinge}";
+            Strings.Get("SimulatorReadout", layout.Width, layout.Height, panes,
+                layout.IsShortHeight ? Strings.Get("SimulatorShort") : "", hinge);
     }
 }

@@ -200,8 +200,8 @@ public sealed partial class DiscoverCard : ObservableObject
 
     internal static string FormatCount(int count) => count switch
     {
-        >= 1_000_000 => (count / 1_000_000d).ToString("0.#", CultureInfo.CurrentCulture) + "M",
-        >= 1_000 => (count / 1_000d).ToString("0.#", CultureInfo.CurrentCulture) + "k",
+        >= 1_000_000 => Loc.Get(nameof(Loc.ModelPicker_CompactMillions), (count / 1_000_000d).ToString("0.#", CultureInfo.CurrentCulture)),
+        >= 1_000 => Loc.Get(nameof(Loc.Discover_CompactThousands), count / 1_000d),
         _ => count.ToString(CultureInfo.CurrentCulture),
     };
 }

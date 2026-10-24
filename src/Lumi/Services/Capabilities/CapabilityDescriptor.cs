@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services.Capabilities;
@@ -36,22 +37,22 @@ public sealed record CapabilityOrigin(string Id, string Label, int Rank)
     public const string UnknownId = "other";
 
     /// <summary>Lumi's own store (skills, Lumis and MCP servers managed inside the app).</summary>
-    public static readonly CapabilityOrigin Lumi = new(LumiId, "Lumi", 0);
+    public static CapabilityOrigin Lumi => new(LumiId, Loc.App_Name, 0);
 
     /// <summary>Discovered from the current project/workspace folders.</summary>
-    public static readonly CapabilityOrigin Project = new(ProjectId, "Project", 10);
+    public static CapabilityOrigin Project => new(ProjectId, Loc.CapabilitySource_Project, 10);
 
     /// <summary>Discovered from workspace-level configuration (for example a workspace MCP config).</summary>
-    public static readonly CapabilityOrigin Workspace = new(WorkspaceId, "Workspace", 20);
+    public static CapabilityOrigin Workspace => new(WorkspaceId, Loc.CapabilitySource_Workspace, 20);
 
     /// <summary>Discovered from the signed-in user's Copilot profile (<c>~/.copilot</c>).</summary>
-    public static readonly CapabilityOrigin Personal = new(PersonalId, "Personal", 30);
+    public static CapabilityOrigin Personal => new(PersonalId, Loc.CapabilitySource_Personal, 30);
 
     /// <summary>Provided by a remote Copilot configuration.</summary>
-    public static readonly CapabilityOrigin Remote = new(RemoteId, "Remote", 40);
+    public static CapabilityOrigin Remote => new(RemoteId, Loc.Discover_Remote, 40);
 
     /// <summary>Shipped by the Copilot runtime itself.</summary>
-    public static readonly CapabilityOrigin BuiltIn = new(BuiltInId, "Built-in", 60);
+    public static CapabilityOrigin BuiltIn => new(BuiltInId, Loc.CapabilitySource_BuiltIn, 60);
 
     /// <summary>Reported by the SDK with a source Lumi does not have a friendlier name for.</summary>
     public static readonly CapabilityOrigin Other = new(UnknownId, "Copilot", 70);
@@ -59,8 +60,8 @@ public sealed record CapabilityOrigin(string Id, string Label, int Rank)
     /// <summary>Installed by a Copilot plugin. The plugin name is carried in the label.</summary>
     public static CapabilityOrigin ForPlugin(string? pluginName)
         => string.IsNullOrWhiteSpace(pluginName)
-            ? new CapabilityOrigin(PluginId, "Plugin", 50)
-            : new CapabilityOrigin(PluginId, $"Plugin · {pluginName.Trim()}", 50);
+            ? new CapabilityOrigin(PluginId, Loc.Discover_KindPlugin, 50)
+            : new CapabilityOrigin(PluginId, $"{Loc.Discover_KindPlugin} · {pluginName.Trim()}", 50);
 
     /// <summary>True for capabilities Lumi itself owns and can edit.</summary>
     public bool IsLumi => string.Equals(Id, LumiId, StringComparison.Ordinal);

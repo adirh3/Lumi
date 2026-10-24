@@ -47,7 +47,7 @@ public partial class ChatViewModel
         Guid messageId, string blockId, string stateJson, string? action)
     {
         if (CurrentChat is not { } chat || FindInteractionMessage(chat, messageId) is not { } message)
-            return new(false, "That answer is no longer open.");
+            return new(false, Loc.Chat_InteractionAnswerClosed);
         if (message.ToolName == "ask_input")
             return await RequestInputInteractionAsync(chat, message, blockId, stateJson, action);
         try
@@ -59,7 +59,7 @@ public partial class ChatViewModel
             if (action is null)
                 return new(true);
             if (CurrentChat?.Id != chat.Id || !CanSubmitInteractions)
-                return new(false, "Wait for Lumi's reply to finish before continuing.");
+                return new(false, Loc.Chat_InteractionWaitForReply);
 
             var request = InteractiveSubmission.Build(updated.Definition, updated.State, action);
             var receipt = InteractiveResponseState.CreateReceipt(message, updated.Definition, updated.State, action, InteractionLanguage);
@@ -69,7 +69,7 @@ public partial class ChatViewModel
                 _dataStore.Data.Settings.UserName ?? Loc.Author_You,
                 interactionReceipt: receipt);
             if (!result.Accepted)
-                return new(false, result.Error ?? "Lumi could not accept this request. Your choices are saved.");
+                return new(false, result.Error ?? Loc.Chat_InteractionNotAccepted);
             InteractiveResponseState.Acknowledge(message, blockId, action, updated.State);
             _dataStore.MarkChatChanged(chat);
             RefreshInteractionState(messageId);
@@ -84,7 +84,7 @@ public partial class ChatViewModel
         }
         catch (OperationCanceledException)
         {
-            return new(false, "The request was canceled. Your choices are kept.");
+            return new(false, Loc.Chat_InteractionCanceled);
         }
     }
 

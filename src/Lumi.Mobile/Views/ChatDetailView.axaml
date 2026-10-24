@@ -9,6 +9,7 @@
              xmlns:sa="using:StrataTheme.Animation"
              x:Class="Lumi.Mobile.Views.ChatDetailView"
              x:DataType="vm:MobileShellViewModel"
+             FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
              sc:StrataTextSelection.IsTouchSelectionEnabled="False"
              Background="{DynamicResource Brush.ChatCanvas}">
 
@@ -734,14 +735,14 @@
           <sc:StrataChatMessage.Content>
             <StackPanel Spacing="8">
               <!-- Spaced as the desktop's bubbles are (Segoe UI's own line height, 1.33 of the text's size). -->
-              <SelectableTextBlock x:Name="UserMessageText" Text="{Binding Text}"
+              <SelectableTextBlock x:Name="UserMessageText" Text="{Binding Text, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
                                    IsVisible="{Binding Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                    TextWrapping="Wrap"
                                    FontSize="{DynamicResource Font.SizeBody}"
                                    LineHeight="{DynamicResource Font.LineHeightBody}"
                                    Foreground="{DynamicResource Brush.TextPrimary}"
                                    behaviors:NativeTextSelection.IsEnabled="True"
-                                   behaviors:NativeTextSelection.Text="{Binding Text}" />
+                                   behaviors:NativeTextSelection.Text="{Binding Text, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" />
               <ItemsControl x:Name="UserAttachments" ItemsSource="{Binding Attachments}"
                             IsVisible="{Binding HasAttachments}">
                 <ItemsControl.ItemsPanel>
@@ -774,13 +775,13 @@
     <DataTemplate DataType="vm:JobWakeItemViewModel">
       <Button x:Name="JobWakeEvent" Classes="transcript-card" Margin="0,14,0,8"
               Command="{Binding OpenCommand}"
-              AutomationProperties.Name="{Binding Details.JobName, StringFormat='Job wake: {0}'}">
+              AutomationProperties.Name="{Binding Details.JobName, StringFormat={loc:Str JobWakeNamed}}">
         <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
           <sc:StrataLineIcon Width="17" Height="17" Margin="0,2,11,0" VerticalAlignment="Top"
                              Data="{x:Static sc:StrataIcons.Clock}"
                              Foreground="{DynamicResource Brush.TextTertiary}" />
           <StackPanel Grid.Column="1" Spacing="2">
-            <TextBlock Text="Background job woke this chat"
+            <TextBlock Text="{loc:Str JobWokeChat}"
                        FontSize="{DynamicResource Font.SizeCaption}"
                        Foreground="{DynamicResource Brush.TextTertiary}" />
             <TextBlock Text="{Binding Details.JobName}"
@@ -815,7 +816,7 @@
       <StackPanel Margin="0,6,0,4" Spacing="6">
         <!-- IsInline drops StrataMarkdown's card surface. An answer is the page, not a document
              pinned to it, and a card border here would just be a bubble by another name. -->
-        <sc:StrataMarkdown Markdown="{Binding Text}"
+        <sc:StrataMarkdown Markdown="{Binding Text, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
                            InteractionStates="{Binding InteractionStates}"
                            InteractionLanguage="{Binding InteractionLanguage}"
                            InteractionTouchMode="True"
@@ -839,7 +840,7 @@
                                        FileSize="{Binding Extension, Converter={x:Static views:FileTypeLabelConverter.Instance}}"
                                        IconImage="{Binding FileName, Converter={x:Static views:FileTypeIconConverter.Instance}}"
                                        Status="Completed" IsRemovable="False"
-                                       AutomationProperties.Name="{Binding FileName, StringFormat='Open {0}'}"
+                                       AutomationProperties.Name="{Binding FileName, StringFormat={loc:Str OpenNamed}}"
                                        OpenRequested="OnProducedFileOpenRequested" />
             </DataTemplate>
           </ItemsControl.ItemTemplate>
@@ -867,7 +868,7 @@
                     Classes="answer-actions" Classes.can-share="{Binding CanShare}"
                     Margin="-23.5,-4,0,-10" IsVisible="{Binding ShowAnswerActions}">
           <Button x:Name="CopyAnswerButton" Classes="answer-action leading"
-                  AutomationProperties.Name="Copy answer"
+                  AutomationProperties.Name="{loc:Str CopyAnswer}"
                   Click="OnCopyAnswerClick">
             <Panel Classes="answer-glyph-host">
               <Border Classes="answer-halo" />
@@ -884,7 +885,7 @@
             </Panel>
           </Button>
           <Button x:Name="ShareAnswerButton" Classes="answer-action trailing"
-                  AutomationProperties.Name="Share answer"
+                  AutomationProperties.Name="{loc:Str ShareAnswer}"
                   IsVisible="{Binding CanShare}"
                   Click="OnShareAnswerClick">
             <Panel Classes="answer-glyph-host">
@@ -973,7 +974,7 @@
                       Icon="{x:Static sc:StrataIcons.Lightbulb}"
                       IsActive="{Binding IsStreaming}" MaxContentHeight="320">
         <sc:StrataThink.Content>
-          <TextBlock Margin="8,0,8,6" Text="{Binding Text}" TextWrapping="Wrap"
+          <TextBlock Margin="8,0,8,6" Text="{Binding Text, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" TextWrapping="Wrap"
                      FontSize="{DynamicResource Font.SizeMeta}" LineHeight="{DynamicResource Font.LineHeightMeta}"
                      Foreground="{DynamicResource Brush.TextSecondary}" />
         </sc:StrataThink.Content>
@@ -992,8 +993,8 @@
                                  ToolName="{Binding DisplayName}"
                                  Icon="{Binding IconKey, Converter={x:Static views:TranscriptIconConverter.Instance}}"
                                  Status="{Binding Status}"
-                                 InputParameters="{Binding Input}"
-                                 MoreInfo="{Binding Output}" />
+                                 InputParameters="{Binding Input, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
+                                 MoreInfo="{Binding Output, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" />
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
@@ -1002,13 +1003,14 @@
     <!-- A command, from a host that sends it on its own. -->
     <DataTemplate DataType="vm:TerminalItemViewModel">
       <sc:StrataTerminalPreview Classes="single-step" Margin="0,3" HorizontalAlignment="Left" ToolName="{Binding ToolName}"
-                                Command="{Binding Command}" Output="{Binding Output}"
+                                Command="{Binding Command, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" Output="{Binding Output, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
                                 Status="{Binding Status}" />
     </DataTemplate>
 
     <!-- A question Lumi asks: Strata's glass card, folded to one line once answered. -->
     <DataTemplate DataType="vm:QuestionItemViewModel">
       <sc:StrataQuestionCard x:Name="QuestionCard" TouchMode="True" Margin="0,4"
+                             FreeTextPlaceholder="{loc:Str AnswerPlaceholder}"
                              Question="{Binding Text}"
                              OptionsList="{Binding Options}"
                              AllowFreeText="{Binding AllowFreeText}"
@@ -1032,7 +1034,7 @@
                                      FileSize="{Binding Extension, Converter={x:Static views:FileTypeLabelConverter.Instance}}"
                                      IconImage="{Binding FileName, Converter={x:Static views:FileTypeIconConverter.Instance}}"
                                      Status="Completed" IsRemovable="False"
-                                     AutomationProperties.Name="{Binding FileName, StringFormat='Open {0}'}"
+                                     AutomationProperties.Name="{Binding FileName, StringFormat={loc:Str OpenNamed}}"
                                      OpenRequested="OnProducedFileOpenRequested" />
           </DataTemplate>
         </ItemsControl.ItemTemplate>
@@ -1046,7 +1048,7 @@
           <sc:StrataLineIcon Width="17" Height="17" Margin="0,2,10,0" VerticalAlignment="Top"
                              Data="{x:Static sc:StrataIcons.Alert}"
                              Foreground="{DynamicResource Brush.DangerDefault}" />
-          <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap"
+          <TextBlock Grid.Column="1" Text="{Binding Text, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" TextWrapping="Wrap"
                      FontSize="{DynamicResource Font.SizeMeta}" LineHeight="{DynamicResource Font.LineHeightMeta}"
                      Foreground="{DynamicResource Brush.TextSecondary}" />
         </Grid>
@@ -1109,8 +1111,8 @@
                room the title leaves. It opens the chat's details. -->
           <Button x:Name="HeaderDetailsButton" Grid.Column="1" Classes="chat-controls floating-action"
                   Classes.no-mark="{Binding !HasChatHeaderMark}"
-                  AutomationProperties.Name="{Binding ChatDetailsTitle, StringFormat='Chat details: {0}'}"
-                  AutomationProperties.HelpText="Model, reasoning effort, context, plan, workspace and chat actions"
+                  AutomationProperties.Name="{Binding ChatDetailsTitle, StringFormat={loc:Str ChatDetailsNamed}}"
+                  AutomationProperties.HelpText="{loc:Str ChatDetailsHelp}"
                   Command="{Binding Chat.OpenRunSettingsSheetCommand}">
               <Grid ColumnDefinitions="Auto,*,Auto">
                 <Border x:Name="HeaderMark" Classes="chat-mark" Margin="0,0,10,0"
@@ -1133,7 +1135,7 @@
           </Button>
 
             <Button x:Name="NewChatButton" Grid.Column="2" Classes="chat-header-action new-conversation floating-action"
-                    AutomationProperties.Name="Start a new chat"
+                    AutomationProperties.Name="{loc:Str StartNewChat}"
                     IsVisible="{Binding ShowHeaderNewChat}"
                     Command="{Binding ChatList.NewChatCommand}">
               <sc:StrataLineIcon Classes="header-glyph accent" Data="{x:Static sc:StrataIcons.Pencil}" />
@@ -1167,13 +1169,13 @@
                          Foreground="{DynamicResource Brush.TextSecondary}" />
               <Button x:Name="RetryConnectionButton"
                       IsVisible="{Binding ShowRetryConnectionAction}"
-                      Content="Retry"
+                      Content="{loc:Str Retry}"
                       Classes="accent touch"
                       HorizontalAlignment="Left"
                       Command="{Binding RetryConnectionCommand}" />
               <Button x:Name="GatewaySignInButton"
                       IsVisible="{Binding ShowGatewaySignInAction}"
-                      Content="Sign in again"
+                      Content="{loc:Str SignInAgain}"
                       Classes="accent touch"
                       HorizontalAlignment="Left"
                       Command="{Binding ReloadWebAppCommand}" />
@@ -1222,7 +1224,7 @@
                       IsVisible="{Binding Chat.HasEarlierMessages}">
             <Button x:Name="EarlierActivityButton"
                     Classes="subtle transcript-nav"
-                    Content="Earlier activity"
+                    Content="{loc:Str EarlierActivity}"
                     Command="{Binding LoadEarlierActivityCommand}"
                     IsEnabled="{Binding Chat.CanNavigateTranscript}" />
             <TextBlock Text="{Binding Chat.WindowSummary}"
@@ -1231,7 +1233,7 @@
                        Foreground="{DynamicResource Brush.TextTertiary}" />
           </StackPanel>
 
-          <ItemsControl x:Name="Transcript" ItemsSource="{Binding Chat.Turns}">
+          <ItemsControl x:Name="Transcript" ItemsSource="{Binding Chat.Turns}" FlowDirection="LeftToRight">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TranscriptTurnViewModel">
                 <views:TranscriptTurnView Margin="0,0,0,10" />
@@ -1254,7 +1256,7 @@
                     IsEnabled="{Binding Chat.CanNavigateTranscript}" />
             <Button x:Name="ReturnToLatestButton"
                     Classes="subtle transcript-nav"
-                    Content="Return to latest"
+                    Content="{loc:Str ReturnToLatest}"
                     Command="{Binding ReturnToLatestCommand}"
                     IsEnabled="{Binding Chat.CanNavigateTranscript}" />
           </StackPanel>
@@ -1279,7 +1281,7 @@
         <Border x:Name="ChatLoadingOverlay" IsVisible="False"
                 IsHitTestVisible="False" Padding="{Binding SafeAreaSides}">
           <StackPanel Margin="0,14,0,0" Spacing="24"
-                      AutomationProperties.Name="Loading conversation">
+                      AutomationProperties.Name="{loc:Str LoadingConversation}">
             <Border Height="58" Width="210" HorizontalAlignment="Right" CornerRadius="18"
                     Background="{DynamicResource Brush.Surface2}" />
             <StackPanel Spacing="12" Margin="0,8,20,0"
@@ -1294,7 +1296,7 @@
               <Border Height="10" Margin="0,0,42,0" CornerRadius="5" Background="{DynamicResource Brush.Surface2}" />
               <Border Height="10" Margin="0,0,90,0" CornerRadius="5" Background="{DynamicResource Brush.Surface2}" />
             </StackPanel>
-            <TextBlock Text="Loading conversation..." Classes="muted" />
+            <TextBlock Text="{loc:Str LoadingConversationEllipsis}" Classes="muted" />
           </StackPanel>
         </Border>
         </Grid>
@@ -1323,6 +1325,7 @@
                                     IsVisible="{Binding Chat.IsWorking}"
                                     AutomationProperties.Name="{Binding Chat.WorkingStatusText}" />
           <sc:StrataChatComposer x:Name="Composer"
+                               FlowDirection="LeftToRight"
                                Classes="mobile"
                                IsCompact="True"
                                MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
@@ -1334,7 +1337,7 @@
                                CanAttach="True"
                                AttachCommand="{Binding Chat.PickAttachmentCommand}"
                                CanVoice="False"
-                               Placeholder="Message Lumi"
+                               Placeholder="{loc:Str MessageLumi}"
                                SendCommand="{Binding Chat.SendCommand}"
                                StopCommand="{Binding Chat.StopCommand}"
                                StopAndSendCommand="{Binding Chat.StopAndSendCommand}"
@@ -1354,7 +1357,16 @@
                                AvailableAgents="{Binding Chat.AvailableAgents}"
                                AvailableSkills="{Binding Chat.AvailableSkills}"
                                AvailableMcps="{Binding Chat.AvailableMcps}"
-                               McpHeader="CONNECTORS"
+                               McpHeader="{loc:Str ConnectorsHeader}"
+                               AddFilesLabel="{loc:Str ComposerFilesPhotos}"
+                               AddRecentChatsLabel="{loc:Str RecentChats}"
+                               AddAllChatsLabel="{loc:Str AllChats}"
+                               AddSkillsLabel="{loc:Str Skills}"
+                               AddAgentsLabel="{loc:Str Agents}"
+                               AddConnectorsLabel="{loc:Str Connectors}"
+                               AddProjectLabel="{loc:Str Project}"
+                               McpErrorDetailsLabel="{loc:Str Details}"
+                               McpCopyErrorDetailsLabel="{loc:Str CopyDetails}"
                                AvailableProjects="{Binding Chat.AvailableProjects}"
                                AvailableFiles="{Binding Chat.AvailableFiles}"
                                AgentRemovedCommand="{Binding Chat.RemoveAgentCommand}"
@@ -1369,7 +1381,7 @@
               <!-- The desktop's +, on a quiet disc that answers the send orb across the composer: files
                    and photos, then an agent, project, skills and connectors. -->
               <Button x:Name="ComposerAttachButton" Classes="composer-add"
-                      AutomationProperties.Name="Add files, an agent, skills and more"
+                      AutomationProperties.Name="{loc:Str AddFilesAndContext}"
                       Command="{Binding Chat.OpenAddSheetCommand}">
                 <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Plus}" />
               </Button>
@@ -1377,7 +1389,7 @@
           <sc:StrataChatComposer.ToolbarContent>
               <!-- The model, beside send as on the desktop: its name and a chevron that opens the picker. -->
               <Button x:Name="ComposerModelButton" Classes="composer-model"
-                      AutomationProperties.Name="{Binding Chat.ModelDisplayName, StringFormat='Model: {0}'}"
+                      AutomationProperties.Name="{Binding Chat.ModelDisplayName, StringFormat={loc:Str ModelNamed}}"
                       Command="{Binding Chat.OpenModelSheetCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="5">
                   <TextBlock Text="{Binding Chat.ModelDisplayName}" VerticalAlignment="Center"
@@ -1398,7 +1410,7 @@
               <StackPanel x:Name="ComposerContext" Orientation="Horizontal">
                 <Button x:Name="ComposerProjectChip" Classes="context-chip project"
                         IsVisible="{Binding Chat.HasProject}"
-                        AutomationProperties.Name="{Binding Chat.ProjectName, StringFormat='Project: {0}'}"
+                        AutomationProperties.Name="{Binding Chat.ProjectName, StringFormat={loc:Str ProjectNamed}}"
                         Command="{Binding Chat.OpenContextPickerCommand}" CommandParameter="Project">
                   <Border Classes="context-chip-surface">
                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -1411,7 +1423,7 @@
                 </Button>
                 <Button x:Name="ComposerAgentChip" Classes="context-chip agent"
                         IsVisible="{Binding Chat.HasAgent}"
-                        AutomationProperties.Name="{Binding Chat.AgentName, StringFormat='Agent: {0}'}"
+                        AutomationProperties.Name="{Binding Chat.AgentName, StringFormat={loc:Str AgentNamed}}"
                         Command="{Binding Chat.OpenContextPickerCommand}" CommandParameter="Agent">
                   <Border Classes="context-chip-surface">
                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -1431,7 +1443,7 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="sc:StrataComposerChip">
                       <Button Classes="context-chip skill"
-                              AutomationProperties.Name="{Binding Name, StringFormat='Skill: {0}'}"
+                              AutomationProperties.Name="{Binding Name, StringFormat={loc:Str SkillNamed}}"
                               Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.OpenContextPickerCommand}"
                               CommandParameter="Skills">
                         <Border Classes="context-chip-surface">
@@ -1465,7 +1477,7 @@
                       <TextBlock Text="{Binding FileName}" VerticalAlignment="Center"
                                  TextTrimming="CharacterEllipsis" MaxWidth="170" />
                       <Button Classes="chip-remove"
-                              AutomationProperties.Name="{Binding FileName, StringFormat='Remove {0}'}"
+                              AutomationProperties.Name="{Binding FileName, StringFormat={loc:Str RemoveNamed}}"
                               Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.RemoveAttachmentCommand}"
                               CommandParameter="{Binding}">
                         <PathIcon Width="12" Height="12"
@@ -1527,7 +1539,7 @@
                         Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.UseSuggestionCommand}"
                         CommandParameter="{Binding EffectivePrompt}"
                         AutomationProperties.Name="{Binding Text}"
-                        AutomationProperties.HelpText="Adds this to your message">
+                        AutomationProperties.HelpText="{loc:Str AddsToMessage}">
                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                     <sc:StrataLineIcon IsVisible="{Binding !HasGlyph}"
                                        Data="{Binding IconKey, Converter={x:Static views:TranscriptIconConverter.Instance}}" />
@@ -1561,7 +1573,7 @@
                             Classes.selected="{Binding IsSelected}"
                             Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).UseStartSetupCommand}"
                             CommandParameter="{Binding}"
-                            AutomationProperties.Name="{Binding Title, StringFormat='Start with {0}'}"
+                            AutomationProperties.Name="{Binding Title, StringFormat={loc:Str StartWithNamed}}"
                             AutomationProperties.HelpText="{Binding Description}">
                       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="11">
                         <Panel Width="36" Height="36" VerticalAlignment="Center">
@@ -1589,7 +1601,7 @@
             </ScrollViewer>
           </StackPanel>
           <TextBlock x:Name="WelcomeUpdateNote"
-                     Text="Update Lumi on your PC to see your usual setups here."
+                     Text="{loc:Str SetupsRequireUpdate}"
                      IsVisible="{Binding !HasDesktopNewChat}" Classes="muted"
                      TextAlignment="Center" TextWrapping="Wrap" Margin="24,0,24,12" />
         </StackPanel>
@@ -1605,7 +1617,7 @@
                           Classes="safe-area"
                           Classes.side-panel="{Binding Chat.UseSidePanels}"
                           IsOpen="{Binding Chat.IsPlanOpen, Mode=TwoWay}"
-                          Title="Plan">
+                          Title="{loc:Str Plan}">
       <ScrollViewer Classes="mobile-scroll plan-scroll"
                     Padding="24,0,24,0"
                     HorizontalScrollBarVisibility="Disabled"
@@ -1618,7 +1630,7 @@
         -->
         <Border x:Name="PlanSheetSideInset" Padding="{Binding SafeAreaSides}">
           <StackPanel Margin="0,0,0,12">
-            <sc:StrataMarkdown Markdown="{Binding Chat.PlanContent}" IsInline="True" />
+            <sc:StrataMarkdown Markdown="{Binding Chat.PlanContent, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" IsInline="True" />
           </StackPanel>
         </Border>
       </ScrollViewer>
@@ -1628,7 +1640,7 @@
                           Classes="safe-area"
                           Classes.side-panel="{Binding Chat.UseSidePanels}"
                           IsOpen="{Binding Chat.IsSourcesSheetOpen, Mode=TwoWay}"
-                          Title="Sources">
+                          Title="{loc:Str Sources}">
       <Border x:Name="SourcesSheetSideInset">
         <ContentControl Content="{Binding Chat.SelectedSourceAnswer}">
           <ContentControl.ContentTemplate>
@@ -1647,7 +1659,7 @@
                                        FontWeight="Medium"
                                        TextWrapping="Wrap" MaxLines="2"
                                        TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding Snippet}"
+                            <TextBlock Text="{Binding Snippet, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
                                        IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                        FontSize="{DynamicResource Font.SizeMeta}"
                                        Foreground="{DynamicResource Brush.TextSecondary}"
@@ -1677,7 +1689,7 @@
                           Classes="safe-area"
                           Classes.side-panel="{Binding Chat.UseSidePanels}"
                           IsOpen="{Binding Chat.IsActivitySheetOpen, Mode=TwoWay}"
-                          Title="How Lumi worked">
+                          Title="{loc:Str HowLumiWorked}">
       <Border x:Name="ActivitySheetSideInset">
         <ContentControl Content="{Binding Chat.SelectedActivity}">
           <ContentControl.ContentTemplate>
@@ -1760,9 +1772,9 @@
                             </Border>
                             <Border Classes="transcript-well" IsVisible="{Binding ShowTechnicalDetails}">
                               <StackPanel Spacing="8">
-                                <TextBlock Classes="console-text" Text="{Binding Input}"
+                                <TextBlock Classes="console-text" Text="{Binding Input, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
                                            IsVisible="{Binding Input, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                <TextBlock Classes="console-text" Text="{Binding Output}" MaxLines="12"
+                                <TextBlock Classes="console-text" Text="{Binding Output, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" MaxLines="12"
                                            TextTrimming="CharacterEllipsis"
                                            Foreground="{DynamicResource Brush.TextTertiary}"
                                            IsVisible="{Binding Output, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -1791,7 +1803,7 @@
 
     <sc:StrataBottomSheet x:Name="JobWakeSheet" Classes="safe-area"
                           IsOpen="{Binding Chat.IsJobWakeSheetOpen, Mode=TwoWay}"
-                          Title="Job details">
+                          Title="{loc:Str JobDetails}">
       <Border x:Name="JobWakeSideInset">
         <ScrollViewer Classes="mobile-scroll" MaxHeight="560" HorizontalScrollBarVisibility="Disabled">
           <ContentControl Content="{Binding Chat.SelectedJobWake}" Margin="{DynamicResource Mobile.Sheet.ContentMargin}">
@@ -1813,39 +1825,39 @@
                     </Border.IsVisible>
                     <StackPanel Spacing="10">
                       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" IsVisible="{Binding HasStarted}">
-                        <TextBlock Text="Started" Classes="sheet-body" />
+                        <TextBlock Text="{loc:Str Started}" Classes="sheet-body" />
                         <TextBlock Grid.Column="1" Text="{Binding Details.StartedText}" FontSize="{DynamicResource Font.SizeMeta}"
                                    TextAlignment="Right" TextWrapping="Wrap" />
                       </Grid>
                       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" IsVisible="{Binding HasCompleted}">
-                        <TextBlock Text="Completed" Classes="sheet-body" />
+                        <TextBlock Text="{loc:Str Completed}" Classes="sheet-body" />
                         <TextBlock Grid.Column="1" Text="{Binding Details.CompletedText}" FontSize="{DynamicResource Font.SizeMeta}"
                                    TextAlignment="Right" TextWrapping="Wrap" />
                       </Grid>
                       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" IsVisible="{Binding HasExitCode}">
-                        <TextBlock Text="Exit code" Classes="sheet-body" />
+                        <TextBlock Text="{loc:Str ExitCode}" Classes="sheet-body" />
                         <TextBlock Grid.Column="1" Text="{Binding Details.ExitCode}" FontSize="{DynamicResource Font.SizeMeta}"
                                    TextAlignment="Right" TextWrapping="Wrap" />
                       </Grid>
                     </StackPanel>
                   </Border>
                   <StackPanel Spacing="8" IsVisible="{Binding HasInstructions}">
-                    <TextBlock Text="Instructions" Classes="sheet-label" Margin="4,0" />
+                    <TextBlock Text="{loc:Str Instructions}" Classes="sheet-label" Margin="4,0" />
                     <Border Classes="sheet-card">
-                      <SelectableTextBlock Text="{Binding Details.Instructions}"
+                      <SelectableTextBlock Text="{Binding Details.Instructions, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
                                            FontSize="{DynamicResource Font.SizeMeta}" LineHeight="{DynamicResource Font.LineHeightMeta}" TextWrapping="Wrap"
                                            behaviors:NativeTextSelection.IsEnabled="True"
-                                           behaviors:NativeTextSelection.Text="{Binding Details.Instructions}" />
+                                           behaviors:NativeTextSelection.Text="{Binding Details.Instructions, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" />
                     </Border>
                   </StackPanel>
                   <StackPanel Spacing="8" IsVisible="{Binding HasOutput}">
-                    <TextBlock Text="Output" Classes="sheet-label" Margin="4,0" />
+                    <TextBlock Text="{loc:Str Output}" Classes="sheet-label" Margin="4,0" />
                     <Border Classes="sheet-card">
-                      <SelectableTextBlock Text="{Binding Details.OutputText}"
+                      <SelectableTextBlock Text="{Binding Details.OutputText, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
                                            FontFamily="{DynamicResource Font.FamilyMono}"
                                            FontSize="13.5" LineHeight="20" TextWrapping="Wrap"
                                            behaviors:NativeTextSelection.IsEnabled="True"
-                                           behaviors:NativeTextSelection.Text="{Binding Details.OutputText}" />
+                                           behaviors:NativeTextSelection.Text="{Binding Details.OutputText, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" />
                     </Border>
                   </StackPanel>
                 </StackPanel>
@@ -1865,7 +1877,7 @@
     <sc:StrataBottomSheet x:Name="AddSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsAddSheetOpen, Mode=TwoWay}"
-                          Title="Add to this chat">
+                          Title="{loc:Str AddToChat}">
       <Border x:Name="AddSheetSideInset">
         <StackPanel Margin="0,0,0,8">
           <Button x:Name="AddFilesButton" Classes="sheet-item"
@@ -1874,18 +1886,18 @@
               <Border Classes="row-tile">
                 <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Paperclip}" />
               </Border>
-              <TextBlock Grid.Column="1" Text="Files and photos" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="{loc:Str FilesAndPhotos}" VerticalAlignment="Center" />
             </Grid>
           </Button>
 
-          <TextBlock Text="For this chat" Classes="sheet-label" />
+          <TextBlock Text="{loc:Str ForThisChat}" Classes="sheet-label" />
           <Button x:Name="AddAgentButton" Classes="sheet-item"
                   Command="{Binding Chat.OpenContextPickerCommand}" CommandParameter="Agent">
             <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
               <Border Classes="row-tile agent">
                 <PathIcon Data="{DynamicResource Mobile.Icon.Sparkle}" />
               </Border>
-              <TextBlock Grid.Column="1" Text="Agent" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="{loc:Str Agent}" VerticalAlignment="Center" />
               <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.AgentSummary}" />
               <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
             </Grid>
@@ -1897,7 +1909,7 @@
               <Border Classes="row-tile project">
                 <PathIcon Data="{DynamicResource Mobile.Icon.Folder}" />
               </Border>
-              <TextBlock Grid.Column="1" Text="Project" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="{loc:Str Project}" VerticalAlignment="Center" />
               <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.ProjectSummary}" />
               <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
             </Grid>
@@ -1908,7 +1920,7 @@
               <Border Classes="row-tile skill">
                 <PathIcon Data="{DynamicResource Mobile.Icon.Bolt}" />
               </Border>
-              <TextBlock Grid.Column="1" Text="Skills" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="{loc:Str Skills}" VerticalAlignment="Center" />
               <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.SkillsSummary}" />
               <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
             </Grid>
@@ -1919,7 +1931,7 @@
               <Border Classes="row-tile connector">
                 <PathIcon Data="{DynamicResource Mobile.Icon.Plug}" />
               </Border>
-              <TextBlock Grid.Column="1" Text="Connectors" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="{loc:Str Connectors}" VerticalAlignment="Center" />
               <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.ConnectorsSummary}" />
               <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
             </Grid>
@@ -1984,8 +1996,8 @@
     <sc:StrataBottomSheet x:Name="ContextSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsContextSheetOpen, Mode=TwoWay}"
-                          Title="Context window"
-                          Description="How much of the conversation the model keeps in view.">
+                          Title="{loc:Str ContextWindow}"
+                          Description="{loc:Str ContextDescription}">
       <Border x:Name="ContextSheetSideInset">
         <ScrollViewer Classes="mobile-scroll" MaxHeight="440" HorizontalScrollBarVisibility="Disabled">
         <ItemsControl ItemsSource="{Binding Chat.ContextTierOptions}" Margin="0,0,0,4">
@@ -2015,8 +2027,8 @@
     <sc:StrataBottomSheet x:Name="EffortSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsEffortSheetOpen, Mode=TwoWay}"
-                          Title="Reasoning effort"
-                          Description="More effort gives more thorough answers, but takes longer.">
+                          Title="{loc:Str ReasoningEffort}"
+                          Description="{loc:Str EffortDescription}">
       <Border x:Name="EffortSheetSideInset">
         <StackPanel Margin="{DynamicResource Mobile.Sheet.ContentMargin}" Spacing="4">
           <TextBlock Text="{Binding Chat.EffortLabel}"
@@ -2025,7 +2037,7 @@
 
           <Slider x:Name="EffortSlider"
                   MinHeight="{DynamicResource Touch.MinTarget}"
-                  AutomationProperties.Name="Reasoning effort"
+                  AutomationProperties.Name="{loc:Str ReasoningEffort}"
                   Minimum="0"
                   Maximum="{Binding Chat.EffortMax}"
                   Value="{Binding Chat.EffortIndex, Mode=TwoWay}"
@@ -2035,9 +2047,9 @@
 
           <!-- The ends of the scale, so the slider reads without having to drag it to find out. -->
           <Grid ColumnDefinitions="*,*" Margin="0,0,0,12">
-            <TextBlock Grid.Column="0" Text="Faster" Classes="muted"
+            <TextBlock Grid.Column="0" Text="{loc:Str Faster}" Classes="muted"
                        HorizontalAlignment="Left" />
-            <TextBlock Grid.Column="1" Text="More thorough" Classes="muted"
+            <TextBlock Grid.Column="1" Text="{loc:Str MoreThorough}" Classes="muted"
                        HorizontalAlignment="Right" />
           </Grid>
         </StackPanel>

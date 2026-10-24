@@ -187,9 +187,10 @@ public partial class ConnectModelChoice(ProviderModel model) : ObservableObject
         => Model = ProviderConnectionService.WithFoundryReasoning(SourceModel, wireApi);
 
     internal static string FormatTokens(int tokens) => tokens >= 1_000_000
-        ? (tokens / 1_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "M"
-        : tokens >= 1_000 ? (tokens / 1_000d).ToString("0", CultureInfo.InvariantCulture) + "K"
-        : tokens.ToString(CultureInfo.InvariantCulture);
+        ? Loc.Get(nameof(Loc.ModelPicker_CompactMillions), (tokens / 1_000_000d).ToString("0.#", CultureInfo.CurrentCulture))
+        : tokens >= 1_000
+            ? Loc.Get(nameof(Loc.ModelPicker_CompactThousands), (tokens / 1_000d).ToString("0", CultureInfo.CurrentCulture))
+            : tokens.ToString(CultureInfo.CurrentCulture);
 }
 
 /// <summary>

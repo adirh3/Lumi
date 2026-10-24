@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Lumi.Localization;
 #if WINDOWS
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
@@ -48,7 +49,7 @@ public sealed class NativeFilePreviewHost : NativeControlHost, IDisposable
             // there, outside our preview initialization, and would terminate the application.
             var parent = TopLevel.GetTopLevel(this)?.TryGetPlatformHandle();
             if (parent is not { HandleDescriptor: "HWND", Handle: not 0 })
-                throw new PlatformNotSupportedException("A native Windows preview window is not available.");
+                throw new PlatformNotSupportedException(Loc.Preview_NativeWindowUnavailable);
             VerifyNativeWindowSupport(parent.Handle);
             base.OnAttachedToVisualTree(e);
 
@@ -74,7 +75,7 @@ public sealed class NativeFilePreviewHost : NativeControlHost, IDisposable
 #if WINDOWS
             StartPreview();
 #else
-            ReportFailure("Native document previews are only supported on Windows.");
+            ReportFailure(Loc.Preview_WindowsOnly);
 #endif
         }, DispatcherPriority.Loaded);
     }
@@ -167,14 +168,14 @@ public sealed class NativeFilePreviewHost : NativeControlHost, IDisposable
         try
         {
             if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
-                throw new InvalidOperationException("Windows preview handlers require an STA UI thread.");
+                throw new InvalidOperationException(Loc.Preview_StaRequired);
             if (_nativeControl is not { HandleDescriptor: "HWND", Handle: not 0 })
-                throw new PlatformNotSupportedException("A native Windows preview window is not available.");
+                throw new PlatformNotSupportedException(Loc.Preview_NativeWindowUnavailable);
 
             ArgumentException.ThrowIfNullOrWhiteSpace(_filePath);
             var path = Path.GetFullPath(_filePath);
             if ((File.GetAttributes(path) & FileAttributes.Directory) != 0)
-                throw new NotSupportedException("A document preview requires a file, not a directory.");
+                throw new NotSupportedException(Loc.Preview_FileRequired);
             var clsid = FindPreviewHandler(Path.GetExtension(path));
             var handler = CreatePreviewHandler(clsid);
             _handler = handler;
@@ -218,7 +219,7 @@ public sealed class NativeFilePreviewHost : NativeControlHost, IDisposable
             }
             else
             {
-                throw new NotSupportedException("The registered preview handler has no supported initialization interface.");
+                throw new NotSupportedException(Loc.Preview_InitializationUnsupported);
             }
 
             if (_releasePending)
@@ -426,9 +427,8 @@ public sealed class NativeFilePreviewHost : NativeControlHost, IDisposable
         {
             var error = Marshal.GetLastWin32Error();
             throw new Win32Exception(error, extendedStyle == layered
-                ? "Windows could not create the document preview window. Lumi's executable must declare Windows 8 or later support in its application manifest. "
-                    + new Win32Exception(error).Message
-                : "Windows could not create the document preview window. " + new Win32Exception(error).Message);
+                ? Loc.Get("Preview_WindowCreationManifest", new Win32Exception(error).Message)
+                : Loc.Get("Preview_WindowCreationFailed", new Win32Exception(error).Message));
         }
 
         if (!DestroyWindow(probe))
@@ -473,16 +473,16 @@ public sealed class NativeFilePreviewHost : NativeControlHost, IDisposable
     internal static Guid FindPreviewHandler(string extension)
     {
         if (string.IsNullOrWhiteSpace(extension))
-            throw new NotSupportedException("The file has no extension with a registered preview handler.");
+            throw new NotSupportedException(Loc.Preview_NoExtension);
 
         // AssocQueryString wraps IQueryAssociations, including extension/ProgID and user defaults.
         // If the default application has no handler, also consult the extension's system ProgID.
         var value = QueryPreviewAssociation(extension, 0)
             ?? QueryPreviewAssociation(extension, 0x800 /* INIT_FIXED_PROGID */);
         if (value is null)
-            throw new NotSupportedException($"No Windows preview handler is registered for '{extension}'.");
+            throw new NotSupportedException(Loc.Get("Preview_HandlerNotRegistered", extension));
         if (!Guid.TryParse(value, out var clsid) || clsid == Guid.Empty)
-            throw new NotSupportedException($"The Windows preview handler registration for '{extension}' is invalid.");
+            throw new NotSupportedException(Loc.Get("Preview_HandlerRegistrationInvalid", extension));
         return clsid;
     }
 
@@ -502,7 +502,7 @@ public sealed class NativeFilePreviewHost : NativeControlHost, IDisposable
             or unchecked((int)0x80070003) /* ERROR_PATH_NOT_FOUND */)
             return null;
         Marshal.ThrowExceptionForHR(result);
-        throw new NotSupportedException($"The Windows preview handler registration for '{extension}' is invalid.");
+        throw new NotSupportedException(Loc.Get("Preview_HandlerRegistrationInvalid", extension));
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -657,11 +657,11 @@ internal sealed class ReadOnlyPreviewStream(FileStream file) : IStream
                 0 => 0,
                 1 => _position,
                 2 => file.Length,
-                _ => throw new COMException("Invalid stream seek origin.", unchecked((int)0x80030001))
+                _ => throw new COMException(message: Loc.Preview_InvalidSeekOrigin, errorCode: unchecked((int)0x80030001))
             };
             var position = checked(start + offset);
             if (position < 0)
-                throw new COMException("Cannot seek before the start of the preview stream.", unchecked((int)0x80030001));
+                throw new COMException(message: Loc.Preview_SeekBeforeStart, errorCode: unchecked((int)0x80030001));
             _position = position;
             if (newPosition != 0)
                 Marshal.WriteInt64(newPosition, position);
@@ -709,7 +709,7 @@ internal sealed class ReadOnlyPreviewStream(FileStream file) : IStream
                 var written = Marshal.ReadInt32(writtenPointer);
                 totalWritten += written;
                 if (written != read)
-                    throw new COMException("The destination did not accept all preview stream data.", unchecked((int)0x80030070));
+                    throw new COMException(message: Loc.Preview_StreamWriteIncomplete, errorCode: unchecked((int)0x80030070));
             }
         }
         finally
@@ -730,9 +730,9 @@ internal sealed class ReadOnlyPreviewStream(FileStream file) : IStream
     public void UnlockRegion(long offset, long count, int type) => throw Unsupported();
 
     private static COMException ReadOnly() =>
-        new("The preview stream is read-only.", unchecked((int)0x80030005)); // STG_E_ACCESSDENIED
+        new(message: Loc.Preview_StreamReadOnly, errorCode: unchecked((int)0x80030005)); // STG_E_ACCESSDENIED
 
     private static COMException Unsupported() =>
-        new("The preview stream does not support transactions or region locking.", unchecked((int)0x80030001));
+        new(message: Loc.Preview_StreamOperationUnsupported, errorCode: unchecked((int)0x80030001));
 }
 #endif

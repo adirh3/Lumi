@@ -602,13 +602,13 @@ public partial class BackgroundJobsViewModel : ObservableObject
         {
             if (EditSourceChat is null)
             {
-                ValidationMessage = "Choose the source chat to observe.";
+                ValidationMessage = Loc.Jobs_ValidationSourceChat;
                 return false;
             }
 
             if (EditSourceChat.Id == EditChat?.Id)
             {
-                ValidationMessage = "The source chat must differ from the chat this job wakes.";
+                ValidationMessage = Loc.Jobs_ValidationDifferentChats;
                 return false;
             }
 
@@ -619,7 +619,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
                     EditChat.Id,
                     excludedJobId: SelectedJob?.Id))
             {
-                ValidationMessage = "This subscription would create a trigger cycle between chats.";
+                ValidationMessage = Loc.Jobs_ValidationTriggerCycle;
                 return false;
             }
 
@@ -655,7 +655,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
 
         if (IsMonthlySchedule && (EditMonthlyDay < 1 || EditMonthlyDay > 31))
         {
-            ValidationMessage = "Monthly day must be between 1 and 31.";
+            ValidationMessage = Loc.Jobs_ValidationMonthlyDay;
             return false;
         }
 
@@ -675,19 +675,19 @@ public partial class BackgroundJobsViewModel : ObservableObject
         ValidationMessage = "";
         if (string.IsNullOrWhiteSpace(EditName))
         {
-            ValidationMessage = "Name is required.";
+            ValidationMessage = Loc.Jobs_ValidationName;
             return;
         }
 
         if (string.IsNullOrWhiteSpace(EditPrompt))
         {
-            ValidationMessage = "Job instructions are required.";
+            ValidationMessage = Loc.Jobs_ValidationInstructions;
             return;
         }
 
         if (EditChat is null)
         {
-            ValidationMessage = "Choose the chat this job belongs to.";
+            ValidationMessage = Loc.Jobs_ValidationTargetChat;
             return;
         }
 
@@ -696,7 +696,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
 
         if (IsScriptTrigger && string.IsNullOrWhiteSpace(EditScriptContent))
         {
-            ValidationMessage = "Wake scripts need a script.";
+            ValidationMessage = Loc.Jobs_ValidationScript;
             return;
         }
 
@@ -711,7 +711,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
         DateTimeOffset? parsedRunAt = null;
         if (IsTimeTrigger && IsOnceSchedule && !TryParseRunAt(EditRunAt, out parsedRunAt))
         {
-            ValidationMessage = "Run once date/time could not be parsed.";
+            ValidationMessage = Loc.Jobs_ValidationRunAt;
             return;
         }
 
@@ -816,7 +816,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
                 job.ChatId,
                 excludedJobId: job.Id))
         {
-            ValidationMessage = "This subscription would create a trigger cycle between chats.";
+            ValidationMessage = Loc.Jobs_ValidationTriggerCycle;
             return;
         }
 

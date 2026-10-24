@@ -211,7 +211,7 @@ public class TranscriptBuilder
             {
                 Name = internalSkill.Name,
                 Glyph = internalSkill.IconGlyph,
-                Description = internalSkill.Description
+                Description = internalSkill.DisplayDescription
             };
 
         return _resolveSkill?.Invoke(skillName);
@@ -3032,16 +3032,20 @@ public class TranscriptBuilder
     {
         var totalSeconds = Math.Max(1, (long)Math.Round(duration.TotalSeconds));
         if (totalSeconds < 60)
-            return $"{totalSeconds}s";
+            return Loc.Get(nameof(Loc.Chat_DurationSeconds), totalSeconds);
 
         var minutes = totalSeconds / 60;
         var seconds = totalSeconds % 60;
         if (minutes < 60)
-            return seconds == 0 ? $"{minutes}m" : $"{minutes}m {seconds}s";
+            return seconds == 0
+                ? Loc.Get(nameof(Loc.Chat_DurationMinutes), minutes)
+                : Loc.Get(nameof(Loc.Chat_DurationMinutesSeconds), minutes, seconds);
 
         var hours = minutes / 60;
         minutes %= 60;
-        return minutes == 0 ? $"{hours}h" : $"{hours}h {minutes}m";
+        return minutes == 0
+            ? Loc.Get(nameof(Loc.Chat_DurationHours), hours)
+            : Loc.Get(nameof(Loc.Chat_DurationHoursMinutes), hours, minutes);
     }
 
     /// <summary>

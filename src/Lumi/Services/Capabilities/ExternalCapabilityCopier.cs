@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services.Sharing;
 
@@ -159,13 +160,13 @@ public static class ExternalCapabilityCopier
     internal static string UniqueName(string name, IEnumerable<string> taken)
     {
         var existing = taken.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var trimmed = string.IsNullOrWhiteSpace(name) ? "Copy" : name.Trim();
+        var trimmed = string.IsNullOrWhiteSpace(name) ? Loc.External_CopyTitle : name.Trim();
         if (!existing.Contains(trimmed))
             return trimmed;
 
-        var candidate = $"{trimmed} (copy)";
+        var candidate = string.Format(Loc.External_CopyName, trimmed);
         for (var i = 2; existing.Contains(candidate); i++)
-            candidate = $"{trimmed} (copy {i})";
+            candidate = string.Format(Loc.External_CopyNameNumbered, trimmed, i);
         return candidate;
     }
 

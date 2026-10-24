@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using GitHub.Copilot;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services.Byok;
 
@@ -170,13 +171,13 @@ public static class ByokConfigHelper
     public static string? ValidateBaseUrl(string? url)
     {
         if (string.IsNullOrWhiteSpace(url))
-            return "Base URL is required.";
+            return Loc.Byok_BaseUrlRequired;
 
         if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri))
-            return "Base URL must be an absolute URL (e.g. https://api.example.com).";
+            return Loc.Byok_BaseUrlInvalid;
 
         if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-            return "Base URL must use http or https.";
+            return Loc.Byok_BaseUrlSchemeInvalid;
 
         return null;
     }
@@ -201,10 +202,10 @@ public static class ByokConfigHelper
     public static string? ValidateEndpoint(ByokEndpoint endpoint)
     {
         if (string.IsNullOrWhiteSpace(endpoint.Name))
-            return "Endpoint name is required.";
+            return Loc.Byok_EndpointNameRequired;
 
         if (string.IsNullOrWhiteSpace(endpoint.ProviderType))
-            return "Provider type is required.";
+            return Loc.Byok_ProviderTypeRequired;
 
         var urlError = ValidateBaseUrl(endpoint.BaseUrl);
         if (urlError is not null)
@@ -212,10 +213,10 @@ public static class ByokConfigHelper
 
         // wireApi applies only to openai/azure providers; anthropic omits it entirely.
         if (endpoint.ProviderType != "anthropic" && string.IsNullOrWhiteSpace(endpoint.WireApi))
-            return "API format is required (completions or responses).";
+            return Loc.Byok_ApiFormatRequired;
 
         if (endpoint.ProviderType == "azure" && string.IsNullOrWhiteSpace(endpoint.AzureApiVersion))
-            return "Azure provider requires an API version.";
+            return Loc.Byok_AzureVersionRequired;
 
         // Note: an empty ApiKeyEnvVar in EnvVar mode is intentionally allowed — ResolveApiKey
         // falls back to LUMI_BYOK_API_KEY in that case, so there's nothing to validate here.
@@ -230,19 +231,19 @@ public static class ByokConfigHelper
     public static string? ValidateModel(ByokModel model, ByokEndpoint? endpoint)
     {
         if (string.IsNullOrWhiteSpace(model.DisplayName))
-            return "Display name is required.";
+            return Loc.Byok_DisplayNameRequired;
 
         if (string.IsNullOrWhiteSpace(model.ModelId))
-            return "Model ID is required.";
+            return Loc.Byok_ModelIdRequired;
 
         if (string.IsNullOrWhiteSpace(model.EndpointId))
-            return "Endpoint is required.";
+            return Loc.Byok_EndpointRequired;
 
         if (endpoint is null)
-            return "Endpoint is missing.";
+            return Loc.Byok_EndpointMissing;
 
         if (!string.Equals(endpoint.Id, model.EndpointId, StringComparison.Ordinal))
-            return "Endpoint mismatch.";
+            return Loc.Byok_EndpointMismatch;
 
         // Advanced token/rate limits: NormalizeModel already converted <=0 to null, so a
         // non-null value here that is still negative means the JSON contained a value the
@@ -386,7 +387,7 @@ public static class ByokConfigHelper
         NormalizeEndpoint(endpoint);
         var validationError = ValidateEndpoint(endpoint);
         if (validationError is not null)
-            throw new InvalidOperationException($"Invalid BYOK endpoint configuration: {validationError}");
+            throw new InvalidOperationException(string.Format(Loc.Byok_EndpointConfigurationInvalid, validationError));
 
         if (IsChatGptEndpoint(endpoint))
         {

@@ -708,7 +708,7 @@ public partial class ChatViewModel
                  [Description("Tree depth, 1-8, when compact=false. Compact inspection finds controls at all depths.")] int depth = 5,
                  [Description("Maximum elements to return, 1-500, default 160. Use ui_find for a missing specific target.")] int maxElements = 160,
                  [Description("Default true: relevant visible controls at every depth, actions before long text. False: a hierarchical tree for layout/debugging.")] bool compact = true) =>
-                    RunDesktopOperationAsync(chatId, "Inspect window",
+                    RunDesktopOperationAsync(chatId, Loc.Lumis_ToolInspectWindow,
                         () => _uiAutomation.InspectWindow(title, depth, maxElements, compact), title),
                 "ui_inspect",
                 "First call for a named app: read its current controls and status directly. Automatically restores a minimized target without activating it, so the user need not restore it manually. Returns relevant controls at every depth with stable IDs, values and enabled/selected state. Follows owned dialogs. Use the result to answer status questions or choose actions; avoid redundant listing, searches or screenshots when this already contains the answer."),
@@ -719,7 +719,7 @@ public partial class ChatViewModel
                  [Description("Return one compact UI observation after all steps; default true. Set false when the final step already reads/verifies the result.")] bool observe = true,
                  [Description("Default false: background-safe automation, without activating windows or moving the pointer. Set true only when foreground keyboard/mouse interaction is acceptable to the user.")] bool allowForeground = false,
                  CancellationToken cancellationToken = default) =>
-                    RunDesktopOperationAsync(chatId, allowForeground ? "Automate window (foreground allowed)" : "Automate window in background",
+                    RunDesktopOperationAsync(chatId, allowForeground ? Loc.Desktop_AutomateForeground : Loc.Desktop_AutomateBackground,
                         () => _uiAutomation.ExecuteSteps(title, steps, observe, cancellationToken, allowForeground), title,
                         cancellationToken: cancellationToken),
                 "ui_do",
@@ -729,14 +729,14 @@ public partial class ChatViewModel
             AIFunctionFactory.Create(
                 ([Description("Unique window title or hwnd:0x... selector.")] string title,
                  [Description("Substring of name, automation ID, value, type, class or help text. Use id:AutomationId, name:Exact name or type:ControlType for targeted native search.")] string query) =>
-                    RunDesktopOperationAsync(chatId, "Find control", () => _uiAutomation.FindElements(title, query), title),
+                    RunDesktopOperationAsync(chatId, Loc.Lumis_ToolFindElement, () => _uiAutomation.FindElements(title, query), title),
                 "ui_find",
                 "Search a window's UI using native provider-side filtering, without reading every control property individually. Matches values too, so grid cells and rows are found by their contents even when scrolled out of view. Returns stable element numbers. Prefer this for a known target or a large/deep tree."),
 
             AIFunctionFactory.Create(
                 ([Description("Element number from ui_inspect or ui_find")] int elementId,
                  [Description("Default false. Allow foreground activation and a physical pointer fallback only when acceptable to the user.")] bool allowForeground = false) =>
-                    RunDesktopOperationAsync(chatId, "Click control",
+                    RunDesktopOperationAsync(chatId, Loc.Lumis_ToolClickElement,
                         () => _uiAutomation.ClickElement(elementId, allowForeground), elementId: elementId),
                 "ui_click",
                 "Activate one indexed control using background-safe native patterns. Pointer-only controls report that foreground permission is required instead of stealing focus. Prefer ui_do for multiple actions."),
@@ -745,7 +745,7 @@ public partial class ChatViewModel
                 ([Description("Element number from ui_inspect or ui_find")] int elementId,
                  [Description("Text to type or set in the element")] string text,
                  [Description("Default false. Permit foreground keyboard fallback only when acceptable to the user.")] bool allowForeground = false) =>
-                    RunDesktopOperationAsync(chatId, "Set control text",
+                    RunDesktopOperationAsync(chatId, Loc.Lumis_ToolTypeText,
                         () => _uiAutomation.TypeText(elementId, text, allowForeground), elementId: elementId),
                 "ui_type",
                 "Replace an editable control's contents using its Value pattern, native undo-aware edit messages for documents, or focused keyboard input. Empty text clears the field. Target an Edit/Document, not the window. Prefer ui_do for several fields."),
@@ -754,14 +754,14 @@ public partial class ChatViewModel
                 ([Description("Key combination to send, e.g. 'Ctrl+N', 'Ctrl+S', 'Alt+F4', 'Enter', 'Tab', 'Ctrl+Shift+T'. Single keys: A-Z, 0-9, F1-F12, Enter, Tab, Escape, Delete, Home, End, PageUp, PageDown, Up, Down, Left, Right, Space.")] string keys,
                  [Description("Optional element number to focus. If omitted, targets the last inspected window or its active owned dialog.")] int? elementId = null,
                  [Description("Must be explicitly true for physical keyboard input. Default false leaves the desktop untouched.")] bool allowForeground = false) =>
-                    RunDesktopOperationAsync(chatId, "Send keyboard shortcut",
+                    RunDesktopOperationAsync(chatId, Loc.Lumis_ToolPressKeys,
                         () => _uiAutomation.SendKeys(keys, elementId, allowForeground), elementId: elementId),
                 "ui_press_keys",
                 "Send physical keyboard input to a verified target. Requires allowForeground=true; this may interrupt the user. Prefer background-safe UIA actions when possible."),
 
             AIFunctionFactory.Create(
                 ([Description("Element number from ui_inspect or ui_find")] int elementId) =>
-                    RunDesktopOperationAsync(chatId, "Read control", () => _uiAutomation.ReadElement(elementId), elementId: elementId),
+                    RunDesktopOperationAsync(chatId, Loc.Lumis_ToolReadElement, () => _uiAutomation.ReadElement(elementId), elementId: elementId),
                 "ui_read",
                 "Read detailed information about a UI element: type, name, value, toggle state, selection state, supported interactions, bounds, and more."),
 
@@ -780,7 +780,7 @@ public partial class ChatViewModel
                  [Description("left or right; default left.")] string button = "left",
                  [Description("1 or 2 for left clicks; right clicks require 1.")] int clickCount = 1,
                  [Description("Must be explicitly true. Coordinate clicks activate the captured window and use the physical mouse.")] bool allowForeground = false) =>
-                    RunDesktopOperationAsync(chatId, "Click screenshot coordinate",
+                    RunDesktopOperationAsync(chatId, Loc.Lumis_ToolClickScreenshot,
                         () => _uiAutomation.ClickAt(captureId, x, y, button, clickCount, allowForeground)),
                 "ui_click_at",
                 "Click a point identified in a ui_screenshot image. Explicit foreground permission is required. Rejects expired/superseded captures, changed window identity/geometry/DPI, out-of-image coordinates and covered points. Consumes the capture after clicking. Prefer semantic ui_do actions for non-intrusive background use."),

@@ -1,10 +1,11 @@
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services;
 
 internal static class InteractionHistory
 {
-    public const string InterruptedReceiptError = "The session ended before a reply was confirmed. The submitted inputs are kept.";
+    public static string InterruptedReceiptError => Loc.Interaction_Interrupted;
 
     public static bool SettleInterrupted(Chat chat) => SettleInterrupted(chat.Messages);
 

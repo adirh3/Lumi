@@ -8,6 +8,7 @@
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              xmlns:input="using:Avalonia.Input"
              x:Class="Lumi.Mobile.Views.MobileDrawerView"
+             FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.NavigationSurface}">
 
@@ -39,7 +40,7 @@
           <TextBlock x:Name="DrawerTitle" Text="Lumi" Classes="place-title" />
           <!-- Search opens full screen, where the keyboard has room. -->
           <Button x:Name="DrawerSearchButton" Grid.Column="1" Classes="chat-header-action floating-action"
-                  AutomationProperties.Name="Search chats" Command="{Binding OpenSearchCommand}">
+                  AutomationProperties.Name="{loc:Str SearchChats}" Command="{Binding OpenSearchCommand}">
             <sc:StrataLineIcon Classes="header-glyph" Data="{x:Static sc:StrataIcons.Search}" />
           </Button>
           <!-- New chat in the accent, at the top right of the screen: here when the list is a screen of its
@@ -47,7 +48,7 @@
           <Button x:Name="DrawerNewChatButton" Grid.Column="2" Classes="chat-header-action new-conversation floating-action"
                   Margin="6,0,0,0"
                   IsVisible="{Binding ShowListNewChat}"
-                  AutomationProperties.Name="Start a new chat"
+                  AutomationProperties.Name="{loc:Str StartNewChat}"
                   Command="{Binding ChatList.NewChatCommand}">
             <sc:StrataLineIcon Classes="header-glyph accent" Data="{x:Static sc:StrataIcons.Pencil}" />
           </Button>
@@ -57,7 +58,7 @@
                opens them. -->
           <Button x:Name="DrawerProjectButton" Grid.Row="1" Grid.ColumnSpan="3"
                   Classes="project-switcher floating-action"
-                  AutomationProperties.Name="{Binding ProjectSwitcherTitle, StringFormat='Select project: {0}'}"
+                  AutomationProperties.Name="{Binding ProjectSwitcherTitle, StringFormat={loc:Str SelectProjectNamed}}"
                   Command="{Binding OpenProjectPickerCommand}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto">
               <Panel VerticalAlignment="Center" Margin="0,0,10,0">
@@ -104,11 +105,11 @@
                              Foreground="{DynamicResource Brush.TextSecondary}" />
                   <Button x:Name="DrawerRetryConnectionButton"
                           IsVisible="{Binding ShowRetryConnectionAction}"
-                          Content="Retry" Classes="accent touch" HorizontalAlignment="Left"
+                          Content="{loc:Str Retry}" Classes="accent touch" HorizontalAlignment="Left"
                           Command="{Binding RetryConnectionCommand}" />
                   <Button x:Name="DrawerGatewaySignInButton"
                           IsVisible="{Binding ShowGatewaySignInAction}"
-                          Content="Sign in again" Classes="accent touch" HorizontalAlignment="Left"
+                          Content="{loc:Str SignInAgain}" Classes="accent touch" HorizontalAlignment="Left"
                           Command="{Binding ReloadWebAppCommand}" />
                 </StackPanel>
               </Grid>
@@ -132,7 +133,7 @@
                 IsVisible="{Binding ChatList.LoadErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
           <StackPanel Spacing="8">
             <TextBlock Text="{Binding ChatList.LoadErrorText}" Classes="supporting" />
-            <Button Classes="touch" Content="Try again" Command="{Binding ChatList.RetryLoadCommand}"
+            <Button Classes="touch" Content="{loc:Str TryAgain}" Command="{Binding ChatList.RetryLoadCommand}"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
           </StackPanel>
         </Border>
@@ -159,7 +160,7 @@
               <Button Classes="drawer-chat drawer-conversation" Classes.selected="{Binding IsSelected}"
                       Classes.unread="{Binding HasUnreadMessages}" Classes.running="{Binding IsRunning}"
                       AutomationProperties.Name="{Binding AccessibilityName}"
-                      AutomationProperties.HelpText="Long press for chat actions"
+                      AutomationProperties.HelpText="{loc:Str LongPressChatActions}"
                       input:InputElement.IsHoldingEnabled="True"
                       input:InputElement.IsHoldWithMouseEnabled="True"
                       Holding="OnChatRowHolding"
@@ -203,7 +204,7 @@
                 Margin="10,8,10,10"
                 IsVisible="{Binding ChatList.HasMoreChats}"
                 Command="{Binding ChatList.LoadMoreChatsCommand}">
-          <TextBlock Text="Load more chats" Foreground="{DynamicResource Brush.TextSecondary}" />
+          <TextBlock Text="{loc:Str LoadMoreChats}" Foreground="{DynamicResource Brush.TextSecondary}" />
         </Button>
         </StackPanel>
       </ScrollViewer>

@@ -301,7 +301,7 @@
                          PlaceholderText="{loc:Str Memories_KeyPlaceholder}" />
                 <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,8,0,0">
                   <Border Classes="mg-chip hue">
-                    <TextBlock Text="{Binding EditCategory}" />
+                    <TextBlock Text="{Binding EditCategoryDisplay}" />
                   </Border>
                   <Button Classes="mg-pill-link" IsVisible="{Binding IsProjectMemory}"
                           Command="{Binding OpenProjectCommand}">

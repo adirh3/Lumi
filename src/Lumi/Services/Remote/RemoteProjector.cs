@@ -369,7 +369,7 @@ internal static class RemoteProjector
             {
                 Id = skill.Id,
                 Name = BoundRequired(skill.Name, RemoteProtocol.MobileMetadataTextLimit),
-                Description = BoundOptional(skill.Description, RemoteProtocol.MobileLibraryPreviewLimit),
+                Description = BoundOptional(skill.DisplayDescription, RemoteProtocol.MobileLibraryPreviewLimit),
                 IconGlyph = BoundRequired(skill.IconGlyph, RemoteProtocol.MobileMetadataTextLimit),
                 IsBuiltIn = skill.IsBuiltIn
             }).ToList(),
@@ -377,7 +377,7 @@ internal static class RemoteProjector
             {
                 Id = agent.Id,
                 Name = BoundRequired(agent.Name, RemoteProtocol.MobileMetadataTextLimit),
-                Description = BoundOptional(agent.Description, RemoteProtocol.MobileLibraryPreviewLimit),
+                Description = BoundOptional(agent.DisplayDescription, RemoteProtocol.MobileLibraryPreviewLimit),
                 IconGlyph = BoundRequired(agent.IconGlyph, RemoteProtocol.MobileMetadataTextLimit),
                 IsBuiltIn = agent.IsBuiltIn,
                 SkillCount = agent.SkillIds.Count,
@@ -828,7 +828,7 @@ internal static class RemoteProjector
             {
                 Id = "omitted-activity-tools",
                 Name = "omitted",
-                DisplayName = $"{omittedToolCount} more actions omitted",
+                DisplayName = Loc.Get("Remote_ActionsOmitted", omittedToolCount),
                 Category = "other",
                 Status = omittedToolStatus
             });
@@ -1534,7 +1534,7 @@ internal static class RemoteProjector
         toolGroup.Tools!.Add(call);
         toolGroup.Label = toolGroup.Tools.Count == 1
             ? call.DisplayName
-            : string.Format(CultureInfo.CurrentCulture, "{0} steps", toolGroup.Tools.Count);
+            : Loc.Get("Subagent_Steps", toolGroup.Tools.Count);
         toolGroup.Status = toolGroup.Tools.Any(tool => tool.Status == "InProgress")
             ? "InProgress"
             : toolGroup.Tools.Any(tool => tool.Status == "Failed") ? "Failed" : "Completed";
@@ -1616,13 +1616,13 @@ internal static class RemoteProjector
             && latestRunningTool is null
             && hasReasoning)
         {
-            activity.Label = "Thinking...";
+            activity.Label = Loc.Remote_ThinkingProgress;
         }
         else if ((activity.ActionCount ?? 0) == 0
                  && activity.FileChanges.Count == 0
                  && hasReasoning)
         {
-            activity.Label = "Thought through the response";
+            activity.Label = Loc.Remote_ThoughtThroughResponse;
         }
         else
         {
@@ -1672,19 +1672,21 @@ internal static class RemoteProjector
         {
             activity.Label = latestRunningTool?.Category switch
             {
-                "research" => "Researching...",
-                "verify" => "Verifying...",
-                "work" => "Making changes...",
+                "research" => Loc.Remote_Researching,
+                "verify" => Loc.Remote_Verifying,
+                "work" => Loc.Remote_MakingChanges,
                 _ => latestRunningTool?.DisplayName is { Length: > 0 } label
                     ? $"{label}..."
-                    : "Working..."
+                    : Loc.Remote_Working
             };
             return;
         }
 
         activity.Label = activity.FileChanges is { Count: > 0 }
-            ? activity.FileChanges.Count == 1 ? "1 file changed" : $"{activity.FileChanges.Count} files changed"
-            : "Activity";
+            ? activity.FileChanges.Count == 1
+                ? Loc.FileChanges_One
+                : Loc.Get("FileChanges_N", activity.FileChanges.Count)
+            : Loc.Workspace_Activity;
     }
 
     private static string MergeActivityStatus(string? current, string incoming)
@@ -1800,7 +1802,7 @@ internal static class RemoteProjector
     {
         var description = ToolDisplayHelper.GetSubagentDescription(content)
                           ?? ToolDisplayHelper.ExtractJsonField(content, "description")
-                          ?? "Subagent activity";
+                          ?? Loc.Remote_SubagentActivity;
         var name = ToolDisplayHelper.ExtractJsonField(content, "agentDisplayName")
                    ?? ToolDisplayHelper.ExtractJsonField(content, "agentName");
         return string.IsNullOrWhiteSpace(name)
@@ -2089,7 +2091,7 @@ internal static class RemoteProjector
     {
         Id = message.Id.ToString("N"),
         Kind = RemoteProtocol.ItemKinds.Reasoning,
-        Label = "Thinking",
+        Label = Loc.Author_Thinking,
         Text = RemoteProtocol.TruncateForMobile(
             message.Content,
             RemoteProtocol.MobileReasoningTextLimit),
@@ -2227,8 +2229,7 @@ internal static class RemoteProjector
                     {
                         Id = "mobile-wire-limit",
                         Kind = RemoteProtocol.ItemKinds.Error,
-                        Text = FormattableString.Invariant(
-                            $"{omittedItems} activity items omitted on mobile because their metadata exceeded the response limit. Open desktop for full activity.")
+                        Text = Loc.Get("Remote_ActivityItemsOmitted", omittedItems)
                     }
                 ]
             }
@@ -2302,7 +2303,7 @@ internal static class RemoteProjector
             {
                 Id = "omitted-activity-tools-wire-limit",
                 Name = "omitted",
-                DisplayName = $"{omittedTools} actions omitted to fit the mobile response limit",
+                DisplayName = Loc.Get("Remote_ActionsOmittedResponseLimit", omittedTools),
                 Category = "other",
                 Status = AggregateActivityStatus(omittedToolStatuses)
             });
@@ -2311,8 +2312,8 @@ internal static class RemoteProjector
         {
             details.FileChanges.Add(new RemoteFileChange
             {
-                Path = $"{omittedFiles} more files omitted",
-                FileName = "More files",
+                Path = Loc.Get("Remote_MoreFilesOmitted", omittedFiles),
+                FileName = Loc.Remote_MoreFiles,
                 Operation = "Omitted"
             });
         }
@@ -2326,7 +2327,7 @@ internal static class RemoteProjector
                 {
                     Id = "activity-details-wire-limit",
                     Name = "omitted",
-                    DisplayName = $"{totalOmitted} activity details omitted on mobile",
+                    DisplayName = Loc.Get("Remote_ActivityDetailsOmitted", totalOmitted),
                     Category = "other",
                     Status = "Completed"
                 }
@@ -2617,8 +2618,7 @@ internal static class RemoteProjector
                     $"{itemId}-omitted-tools",
                     RemoteProtocol.MobileIdentifierLimit),
                 Name = "omitted",
-                DisplayName = FormattableString.Invariant(
-                    $"{omitted} more tool calls omitted on mobile"),
+                DisplayName = Loc.Get("Remote_ToolCallsOmitted", omitted),
                 Status = "Completed"
             });
         }
@@ -2686,8 +2686,8 @@ internal static class RemoteProjector
             var omitted = fileChanges.Count - retainedCount;
             bounded.Add(new RemoteFileChange
             {
-                Path = $"{omitted} more files",
-                FileName = $"+{omitted} more files",
+                Path = Loc.Get("Remote_MoreFilesCount", omitted),
+                FileName = Loc.Get("Remote_MoreFilesCountBadge", omitted),
                 Operation = "Omitted"
             });
         }
@@ -2763,8 +2763,7 @@ internal static class RemoteProjector
         new()
         {
             Path = "",
-            FileName = FormattableString.Invariant(
-                $"{omitted} more attachments omitted on mobile")
+            FileName = Loc.Get("Remote_AttachmentsOmitted", omitted)
         };
 
     private static List<RemoteSource>? BuildSources(IReadOnlyList<SearchSource> sources)
@@ -2854,8 +2853,7 @@ internal static class RemoteProjector
     private static RemoteSource OmittedSource(int omitted) =>
         new()
         {
-            Title = FormattableString.Invariant(
-                $"{omitted} more sources omitted on mobile")
+            Title = Loc.Get("Remote_SourcesOmitted", omitted)
         };
 
     private static List<string> ParseOptions(string? optionsJson)
@@ -2946,8 +2944,7 @@ internal static class RemoteProjector
         var omitted = meaningfulCount - options.Count;
         if (omitted > 0)
         {
-            options.Add(FormattableString.Invariant(
-                $"[{omitted} more options omitted on mobile]"));
+            options.Add(Loc.Get("Remote_OptionsOmitted", omitted));
         }
 
         return options;
@@ -2970,8 +2967,7 @@ internal static class RemoteProjector
 
         if (hasOmitted)
         {
-            bounded.Add(FormattableString.Invariant(
-                $"[{options.Count - retainedCount} more options omitted on mobile]"));
+            bounded.Add(Loc.Get("Remote_OptionsOmitted", options.Count - retainedCount));
         }
 
         return bounded;

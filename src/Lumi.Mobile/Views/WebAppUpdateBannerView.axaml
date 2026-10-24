@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:sc="using:StrataTheme.Controls"
              x:Class="Lumi.Mobile.Views.WebAppUpdateBannerView"
@@ -16,11 +17,11 @@
                    Foreground="{DynamicResource Brush.TextSecondary}" />
         <ProgressBar IsIndeterminate="True" Height="3"
                      IsVisible="{Binding IsWebAppUpdating}" />
-        <Button x:Name="ApplyWebAppUpdateButton" Content="Update now" Classes="accent touch"
+        <Button x:Name="ApplyWebAppUpdateButton" Content="{loc:Str UpdateNow}" Classes="accent touch"
                 HorizontalAlignment="Left"
                 IsVisible="{Binding ShowApplyWebAppUpdateAction}"
                 Command="{Binding ApplyWebAppUpdateCommand}" />
-        <Button x:Name="CheckWebAppUpdateButton" Content="Try again" Classes="touch"
+        <Button x:Name="CheckWebAppUpdateButton" Content="{loc:Str TryAgain}" Classes="touch"
                 HorizontalAlignment="Left"
                 IsVisible="{Binding ShowCheckWebAppUpdateAction}"
                 Command="{Binding CheckWebAppUpdateCommand}" />

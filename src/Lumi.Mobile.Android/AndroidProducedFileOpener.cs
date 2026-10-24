@@ -2,6 +2,7 @@ using Android.Content;
 using Android.Webkit;
 using AndroidX.Core.Content;
 using Lumi.Mobile.Services;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Android;
 
@@ -59,7 +60,7 @@ internal sealed class AndroidProducedFileOpener(Context context) : IProducedFile
                 return false;
             }
 
-            var chooser = Intent.CreateChooser(viewIntent, "Open with");
+            var chooser = Intent.CreateChooser(viewIntent, Strings.Get("OpenWith"));
             if (chooser is null)
                 return false;
             chooser.AddFlags(ActivityFlags.NewTask);

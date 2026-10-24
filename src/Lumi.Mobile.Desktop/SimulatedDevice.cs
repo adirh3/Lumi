@@ -1,4 +1,5 @@
 using Lumi.Mobile.Layout;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Desktop;
 
@@ -14,7 +15,28 @@ public sealed record SimulatedDevice(
     double HingeSize = 0,
     double HingePosition = 0)
 {
-    public override string ToString() => $"{Name}  ({Width:0}×{Height:0})";
+    // Name remains the stable CLI selector; only the simulator's presentation is translated.
+    public string DisplayName => Name switch
+    {
+        "Flip cover screen" => Strings.Get("SimFlipCover"),
+        "Compact phone" => Strings.Get("SimCompactPhone"),
+        "Fold — folded" => Strings.Get("SimFoldFolded"),
+        "Galaxy Z Fold7 — cover" => Strings.Get("SimGalaxyCover"),
+        "Galaxy Z Fold7 — cover landscape" => Strings.Get("SimGalaxyCoverLandscape"),
+        "Phone landscape" => Strings.Get("SimPhoneLandscape"),
+        "Galaxy Z Fold7 — open, large display size" => Strings.Get("SimGalaxyOpenLarge"),
+        "Fold — unfolded" => Strings.Get("SimFoldUnfolded"),
+        "Galaxy Z Fold7 — open" => Strings.Get("SimGalaxyOpen"),
+        "Galaxy Z Fold7 — book" => Strings.Get("SimGalaxyBook"),
+        "Galaxy Z Fold7 — tabletop" => Strings.Get("SimGalaxyTabletop"),
+        "Fold — tabletop" => Strings.Get("SimFoldTabletop"),
+        "Tablet" => Strings.Get("SimTablet"),
+        "Tablet landscape" => Strings.Get("SimTabletLandscape"),
+        "Large tablet landscape" => Strings.Get("SimLargeTabletLandscape"),
+        _ => Name
+    };
+
+    public override string ToString() => $"{DisplayName}  ({Width:0}×{Height:0})";
 
     /// <summary>The catalog the simulator offers, ordered smallest surface first.</summary>
     public static IReadOnlyList<SimulatedDevice> All { get; } =

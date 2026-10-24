@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -199,7 +200,13 @@ public static class ChatForkFactory
     /// </param>
     public static string BuildForkTitle(string? sourceTitle, string marker = ForkMarker)
     {
-        var title = string.IsNullOrWhiteSpace(sourceTitle) ? "Chat" : sourceTitle.Trim();
+        var title = string.IsNullOrWhiteSpace(sourceTitle) ? Loc.Jobs_FieldChat : sourceTitle.Trim();
+        marker = marker switch
+        {
+            ForkMarker => Loc.Chat_ForkSuffix,
+            CopyMarker => Loc.Chat_CopySuffix,
+            _ => marker
+        };
         var suffix = $" ({marker})";
 
         if (title.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))

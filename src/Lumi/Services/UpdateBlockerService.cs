@@ -9,6 +9,7 @@ using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 using Velopack.Locators;
 
 namespace Lumi.Services;
@@ -600,7 +601,7 @@ internal static class WindowsRestartManager
         var sessionKey = new StringBuilder(SessionKeyLength + 1);
         var result = RmStartSession(out var sessionHandle, 0, sessionKey);
         if (result != ErrorSuccess)
-            throw new Win32Exception(result, "Windows Restart Manager could not start an update scan.");
+            throw new Win32Exception(result, Loc.Update_BlockerScanStartFailed);
 
         try
         {
@@ -714,7 +715,7 @@ internal static class WindowsRestartManager
             }
 
             if (result is not (ErrorFileNotFound or ErrorPathNotFound or ErrorAccessDenied))
-                throw new Win32Exception(result, "Windows Restart Manager could not inspect Lumi's update files.");
+                throw new Win32Exception(result, Loc.Update_BlockerInspectFailed);
 
             foreach (var file in existingFiles)
             {
@@ -749,7 +750,7 @@ internal static class WindowsRestartManager
         if (result == ErrorSuccess)
             return [];
         if (result != ErrorMoreData)
-            throw new Win32Exception(result, "Windows Restart Manager could not list update blockers.");
+            throw new Win32Exception(result, Loc.Update_BlockerListFailed);
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
@@ -765,10 +766,10 @@ internal static class WindowsRestartManager
             if (result == ErrorSuccess)
                 return processInfos.Take((int)processInfoCount).ToArray();
             if (result != ErrorMoreData)
-                throw new Win32Exception(result, "Windows Restart Manager could not list update blockers.");
+                throw new Win32Exception(result, Loc.Update_BlockerListFailed);
         }
 
-        throw new Win32Exception(ErrorMoreData, "The update blocker list kept changing during the scan.");
+        throw new Win32Exception(ErrorMoreData, Loc.Update_BlockerListChanged);
     }
 
     private static UpdateBlockingProcess? CreateBlockingProcess(RM_PROCESS_INFO processInfo)
@@ -841,7 +842,7 @@ internal static class WindowsRestartManager
     {
         var processId = processInfo.Process.dwProcessId;
         var displayName = string.IsNullOrWhiteSpace(processInfo.strAppName)
-            ? $"Process {processId}"
+            ? string.Format(Loc.Update_ProcessName, processId)
             : processInfo.strAppName.Trim();
         return new UpdateBlockingProcess(
             processId,
@@ -1192,7 +1193,7 @@ internal static class WindowsRestartManager
                         continue;
                     }
 
-                    var processName = $"Process {process.Id}";
+                    var processName = string.Format(Loc.Update_ProcessName, process.Id);
                     var processNameIsKnown = false;
                     try
                     {

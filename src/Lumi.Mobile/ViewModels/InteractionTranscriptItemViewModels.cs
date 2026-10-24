@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -13,7 +14,7 @@ public sealed partial class InputRequestItemViewModel : TranscriptItemViewModel
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSubmit))]
     private string _inputStatus = "Expired";
-    [ObservableProperty] private string _language = "en";
+    [ObservableProperty] private string _language = Strings.Language;
     public bool CanSubmit => InputStatus == "Waiting";
     public InputRequestItemViewModel(RemoteTranscriptItem item) : base(item) => Update(item);
     public override void Update(RemoteTranscriptItem item)
@@ -28,7 +29,7 @@ public sealed partial class InputRequestItemViewModel : TranscriptItemViewModel
             _pendingState = null;
         StateJson = request.Status == "Waiting" ? _pendingState ?? request.StateJson : request.StateJson;
         InputStatus = request.Status;
-        Language = item.InteractionLanguage ?? "en";
+        Language = item.InteractionLanguage ?? Strings.Language;
     }
     internal void Stage(string json)
     {
@@ -45,11 +46,11 @@ public sealed partial class InputRequestItemViewModel : TranscriptItemViewModel
 public sealed partial class InteractionReceiptItemViewModel : TranscriptItemViewModel
 {
     [ObservableProperty] private RemoteInteractionReceipt _receipt = new();
-    [ObservableProperty] private string _language = "en";
+    [ObservableProperty] private string _language = Strings.Language;
     public InteractionReceiptItemViewModel(RemoteTranscriptItem item) : base(item) => Update(item);
     public override void Update(RemoteTranscriptItem item)
     {
         Receipt = item.InteractionReceipt ?? new();
-        Language = item.InteractionLanguage ?? "en";
+        Language = item.InteractionLanguage ?? Strings.Language;
     }
 }

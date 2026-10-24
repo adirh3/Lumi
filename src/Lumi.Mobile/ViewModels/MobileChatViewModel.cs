@@ -5,6 +5,7 @@ using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 using StrataTheme.Controls;
 
 namespace Lumi.Mobile.ViewModels;
@@ -185,7 +186,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         if (_sink is not IRemoteActivityDetailSink detailsSink)
         {
-            activity.DetailsError = "Activity details are not available from this Lumi.";
+            activity.DetailsError = Strings.Get("ActivityDetailsUnavailable");
             return;
         }
 
@@ -212,7 +213,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
             if (details is null)
             {
-                activity.DetailsError = "Activity details could not be loaded.";
+                activity.DetailsError = Strings.Get("ActivityDetailsFailed");
                 return;
             }
 
@@ -220,7 +221,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            activity.DetailsError = $"Activity details could not be loaded: {ex.Message}";
+            activity.DetailsError = Strings.Get("ActivityDetailsFailedReason", ex.Message);
         }
         finally
         {
@@ -278,7 +279,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public bool IsLocalWorkspaceSelected => !UseWorktree;
 
-    public string WorkspaceSummary => UseWorktree ? "New worktree" : "Local checkout";
+    public string WorkspaceSummary => Strings.Get(UseWorktree ? "NewWorktree" : "LocalCheckout");
 
     public void ApplyRemoteProtocolVersion(int protocolVersion)
     {
@@ -461,7 +462,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             {
                 ApplyUploadError(
                     surface,
-                    result.Error ?? "Lumi could not receive that file.");
+                    result.Error ?? Strings.Get("ReceiveFileFailed"));
                 return;
             }
 
@@ -474,7 +475,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             if (!IsCurrentHost(hostGeneration))
                 return;
 
-            ApplyUploadError(surface, "Could not send that file to your PC.");
+            ApplyUploadError(surface, Strings.Get("SendFileFailed"));
             Trace.TraceWarning($"[Mobile] Upload failed: {ex}");
         }
         finally
@@ -545,11 +546,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public ObservableCollection<string> Suggestions { get; } = [];
 
     /// <summary>The three static starters shown when the desktop has nothing more specific.</summary>
-    private static readonly ChatStarter[] DefaultStarters =
+    private static ChatStarter[] DefaultStarters =>
     [
-        new("plan", "Plan my day"),
-        new("search", "Research a topic"),
-        new("create", "Create a document")
+        new("plan", Strings.Get("StarterPlanDay"), "Plan my day"),
+        new("search", Strings.Get("StarterResearch"), "Research a topic"),
+        new("create", Strings.Get("StarterCreateDocument"), "Create a document")
     ];
     private IReadOnlyList<ChatStarter>? _desktopStarters;
 
@@ -720,12 +721,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public bool CanNavigateTranscript => !IsLoading;
 
     public string NewerActivityLabel => HasNewerActivity
-        ? "Newer activity available"
-        : "Newer activity";
+        ? Strings.Get("NewerActivityAvailable")
+        : Strings.Get("NewerActivity");
 
     public string WindowSummary => TotalRawMessageCount == 0
         ? ""
-        : $"Activity {WindowStartMessageIndex + 1:N0}–{WindowEndMessageIndex:N0} of {TotalRawMessageCount:N0}";
+        : Strings.Get("ActivityWindow", WindowStartMessageIndex + 1, WindowEndMessageIndex, TotalRawMessageCount);
 
     /// <summary>
     /// The transcript-level "thinking" row. It is asserted optimistically in the same frame as the
@@ -735,11 +736,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public bool IsWorking => IsBusy || IsStreaming;
 
-    public string WorkingStatusText => IsAwaitingInput ? "Waiting for your input"
+    public string WorkingStatusText => IsAwaitingInput ? Strings.Get("WaitingForInput")
         : !string.IsNullOrWhiteSpace(StatusText) ? StatusText!
-        : ShowThinking ? "Thinking…"
-        : IsStreaming ? "Writing…"
-        : "Working…";
+        : ShowThinking ? Strings.Get("ThinkingEllipsis")
+        : IsStreaming ? Strings.Get("WritingEllipsis")
+        : Strings.Get("WorkingEllipsis");
 
     /// <summary>
     /// What Lumi is doing right now, in words — the label on the transcript's thinking row. The
@@ -747,7 +748,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// </summary>
     public string ProgressText => !string.IsNullOrWhiteSpace(StatusText)
         ? StatusText!
-        : "Thinking…";
+        : Strings.Get("ThinkingEllipsis");
 
     /// <summary>A single option is not a choice — hide the picker rather than show a dead control.</summary>
     public bool HasQualityLevels => QualityLevels.Count > 1;
@@ -758,19 +759,19 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// composer has to show what is currently in effect rather than making the user open a sheet to
     /// find out.
     /// </summary>
-    public string ModelDisplayName => DisplayModel(Model) ?? "Model";
+    public string ModelDisplayName => DisplayModel(Model) ?? Strings.Get("Model");
 
     public string ModelSummary => Model is { Length: > 0 }
         ? HasQualityLevels && Quality is { Length: > 0 } quality
-            ? $"{ModelDisplayName} · {quality}"
+            ? $"{ModelDisplayName} · {(Strings.Language == "he" ? EffortDisplay(quality) : quality)}"
             : ModelDisplayName
-        : "Model";
+        : Strings.Get("Model");
 
     public bool HasContextWindowTiers => ContextWindowTiers.Count > 1;
 
     public string ContextWindowLabel => string.IsNullOrWhiteSpace(ContextWindowTier)
-        ? SelectedModelDefaults is { ContextWindowTier: null } ? "Not supported" : "Set by desktop"
-        : ContextWindowTier!;
+        ? Strings.Get(SelectedModelDefaults is { ContextWindowTier: null } ? "NotSupported" : "SetByDesktop")
+        : ContextDisplay(ContextWindowTier!);
 
     public string RunSettingsSummary
     {
@@ -904,7 +905,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private void RefreshPickerOptions()
     {
-        var sections = StrataModelPicker.GetModelSections(OrderPinnedFirst(AvailableModels).Select(CreateModelRow).ToList());
+        var sections = StrataModelPicker.GetModelSections(
+            OrderPinnedFirst(AvailableModels).Select(CreateModelRow).ToList(), Strings.Get("PinnedModels"));
         var rows = sections.SelectMany(section => section.Models).Cast<ModelPickerOption>().ToList();
         SyncRows(ModelOptions, rows);
         for (var i = 0; i < sections.Count; i++)
@@ -919,7 +921,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         while (ModelGroups.Count > sections.Count)
             ModelGroups.RemoveAt(ModelGroups.Count - 1);
         SyncOptions(QualityOptions, QualityLevels, Quality, EffortDisplay);
-        SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier);
+        SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier, ContextDisplay);
 
         static void SyncRows(ObservableCollection<ModelPickerOption> target, IReadOnlyList<ModelPickerOption> source)
         {
@@ -1041,7 +1043,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         catch (Exception ex)
         {
             Trace.TraceWarning($"[Mobile] Pinning a model failed: {ex}");
-            result = new RemoteCommandResult { Error = "The PC didn't answer." };
+            result = new RemoteCommandResult { Error = Strings.Get("PcNoAnswer") };
         }
 
         // A newer tap on the same row owns it now. Switching PCs drops every pin in flight.
@@ -1060,7 +1062,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // place among them, and a pin the PC took anyway, as a catalog may already have said, stays.
         ShowModelPins();
         if (IsModelPinned(model) != pinned)
-            ModelPinError = $"Couldn't {(pinned ? "pin" : "unpin")} {option.Label}. {result.Error}".TrimEnd();
+            ModelPinError = Strings.Get(pinned ? "PinModelFailed" : "UnpinModelFailed", option.Label, result.Error).TrimEnd();
         RefreshPickerOptions();
     }
 
@@ -1103,13 +1105,26 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public string EffortLabel => Quality is { Length: > 0 } quality
         ? EffortDisplay(quality)
-        : SelectedModelDefaults is { Quality: null } ? "Not supported" : "Set by desktop";
+        : Strings.Get(SelectedModelDefaults is { Quality: null } ? "NotSupported" : "SetByDesktop");
 
     /// <summary>An effort level as the desktop names it: "High", and "X-High" for xhigh.</summary>
     internal static string EffortDisplay(string quality) => quality.ToLowerInvariant() switch
     {
-        "xhigh" => "X-High",
+        "none" => Strings.Get("EffortNone"),
+        "minimal" => Strings.Get("EffortMinimal"),
+        "low" => Strings.Get("EffortLow"),
+        "medium" => Strings.Get("EffortMedium"),
+        "high" => Strings.Get("EffortHigh"),
+        "xhigh" => Strings.Get("EffortXHigh"),
+        "max" => Strings.Get("EffortMax"),
         _ => quality.Length > 0 ? char.ToUpperInvariant(quality[0]) + quality[1..] : quality
+    };
+
+    internal static string ContextDisplay(string tier) => tier switch
+    {
+        "Default" => Strings.Get("ContextDefault"),
+        "Long context" => Strings.Get("ContextLong"),
+        _ => tier
     };
 
     [ObservableProperty]
@@ -1272,7 +1287,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>"18.2K / 128K tokens" — the detail behind the meter.</summary>
     public string ContextDetailText => HasContextUsage
-        ? $"{FormatTokens(ContextCurrentTokens)} / {FormatTokens(ContextTokenLimit)} tokens"
+        ? Strings.Get("ContextTokens", FormatTokens(ContextCurrentTokens), FormatTokens(ContextTokenLimit))
         : "";
 
     /// <summary>
@@ -2035,7 +2050,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         _pendingModelPins.Clear();
         ModelPinError = null;
         AvailableModels.Clear();
-        Reset(Guid.Empty, "New chat");
+        Reset(Guid.Empty, Strings.Get("NewChat"));
         _drafts.Clear();
         _surfaceMappings.Clear();
     }
@@ -2283,8 +2298,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (_pendingRetry is not { } pending || !epochChanged || SendCommand.IsRunning)
             return;
 
-        const string error =
-            "Lumi restarted before confirming this send. Refresh the transcript before retrying, or edit the message to send it as a new request.";
+        var error = Strings.Get("SendRestarted");
         var unsafeRetry = pending with { ReplayAllowed = false, ErrorText = error };
         var unresolved = CaptureCurrentDraft() with
         {
@@ -3113,7 +3127,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
              _now() - matchingRetry.CreatedAtUtc >= PendingRetryReplayWindow))
         {
             ErrorText =
-                "Lumi can no longer safely replay that send. Refresh the chat to confirm its outcome, or edit the message before sending again.";
+                Strings.Get("SendReplayUnavailable");
             return;
         }
         if (matchingRetry is not null)
@@ -3203,7 +3217,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 false,
                 effectiveSteer,
                 effectiveStopAndSend,
-                "Lumi could not send that message.",
+                Strings.Get("SendMessageFailed"),
                 echo);
             if (!surface.IsBlank)
                 ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
@@ -3245,7 +3259,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 IsAmbiguousFailure(result),
                 effectiveSteer,
                 effectiveStopAndSend,
-                result.Error ?? "Lumi could not send that message.",
+                result.Error ?? Strings.Get("SendMessageFailed"),
                 echo);
             if (!surface.IsBlank)
                 ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
@@ -3670,7 +3684,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ? pendingRequestId
             : Guid.NewGuid().ToString("N");
         _pendingStopRequestIds[chatId] = requestId;
-        StatusText = "Stopping…";
+        StatusText = Strings.Get("Stopping");
         var command = new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
         {
             RequestId = requestId
@@ -3689,8 +3703,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             {
                 return;
             }
-            ErrorText = $"Could not stop this turn: {ex.Message}";
-            StatusText = "Stopping…";
+            ErrorText = Strings.Get("StopTurnFailedReason", ex.Message);
+            StatusText = Strings.Get("Stopping");
             return;
         }
 
@@ -3705,7 +3719,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (IsAmbiguousFailure(result))
         {
             ErrorText = result.Error;
-            StatusText = "Stopping…";
+            StatusText = Strings.Get("Stopping");
             return;
         }
 
@@ -3716,7 +3730,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         if (!result.Ok)
         {
-            ErrorText = result.Error ?? "Lumi could not stop this turn.";
+            ErrorText = result.Error ?? Strings.Get("StopTurnFailed");
             StatusText = previousStatus;
             return;
         }
@@ -4244,7 +4258,7 @@ public sealed record ModelPickerOption(
     /// </summary>
     public string AccessibleName => string.IsNullOrWhiteSpace(Account) ? Label : $"{Label}, {Account}";
 
-    public string PinActionName => $"{(IsPinned ? "Unpin" : "Pin")} {AccessibleName}";
+    public string PinActionName => Strings.Get(IsPinned ? "UnpinNamed" : "PinNamed", AccessibleName);
 }
 
 /// <summary>One row in a picker sheet, carrying whether it is the current selection.</summary>

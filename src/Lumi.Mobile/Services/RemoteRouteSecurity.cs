@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Services;
 
@@ -29,7 +30,7 @@ public static class RemoteRouteSecurity
         if (!routeVerifier.IsTrustedTailscaleRoute(address))
         {
             throw new InvalidOperationException(
-                "Tailscale is not connected for this PC address. Reconnect Tailscale and try again.");
+                Strings.Get("TailscaleNotConnected"));
         }
     }
 

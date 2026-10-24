@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 
 namespace Lumi.Services;
 
@@ -135,7 +136,7 @@ public static partial class GitService
             return result;
 
         var shortSha = (await RunGitAsync(dir, "rev-parse --short HEAD", cancellationToken: cancellationToken).ConfigureAwait(false))?.Trim();
-        return string.IsNullOrWhiteSpace(shortSha) ? null : $"Detached {shortSha}";
+        return string.IsNullOrWhiteSpace(shortSha) ? null : string.Format(Loc.Git_DetachedBranch, shortSha);
     }
 
     /// <summary>
@@ -214,18 +215,18 @@ public static partial class GitService
     {
         var gitRoot = FindRepoRoot(dir);
         if (gitRoot is null)
-            return new GitBranchSyncResult(false, null, false, "The project is not inside a git repository.");
+            return new GitBranchSyncResult(false, null, false, Loc.Git_ProjectNotRepository);
 
         var defaultBranch = await GetDefaultBranchInfoAsync(gitRoot, cancellationToken).ConfigureAwait(false);
         if (defaultBranch is null)
-            return new GitBranchSyncResult(false, null, false, "Could not detect the repository default branch.");
+            return new GitBranchSyncResult(false, null, false, Loc.Git_DefaultBranchUnknown);
         if (string.IsNullOrWhiteSpace(defaultBranch.RemoteName))
         {
             return new GitBranchSyncResult(
                 false,
                 defaultBranch.BranchName,
                 false,
-                $"Default branch \"{defaultBranch.BranchName}\" has no detected remote.");
+                string.Format(Loc.Git_DefaultBranchNoRemote, defaultBranch.BranchName));
         }
 
         var remote = defaultBranch.RemoteName;
@@ -243,7 +244,7 @@ public static partial class GitService
                 false,
                 branch,
                 false,
-                $"Failed to fetch \"{remote}/{branch}\".");
+                string.Format(Loc.Git_FetchFailed, remote, branch));
         }
 
         var remoteCommit = await ResolveCommitAsync(gitRoot, remoteRef, cancellationToken).ConfigureAwait(false);
@@ -253,7 +254,7 @@ public static partial class GitService
                 false,
                 branch,
                 false,
-                $"Fetched \"{remote}/{branch}\", but its commit could not be resolved.");
+                string.Format(Loc.Git_FetchedCommitUnknown, remote, branch));
         }
 
         var localRef = $"refs/heads/{branch}";
@@ -265,12 +266,12 @@ public static partial class GitService
                 $"branch --force {QuoteGitArgument(branch)} {QuoteGitArgument(remoteRef)}",
                 cancellationToken: cancellationToken).ConfigureAwait(false);
             return createResult is null
-                ? new GitBranchSyncResult(false, branch, false, $"Could not create local branch \"{branch}\" from \"{remote}/{branch}\".")
-                : new GitBranchSyncResult(true, branch, true, $"Created local branch \"{branch}\" from \"{remote}/{branch}\".");
+                ? new GitBranchSyncResult(false, branch, false, string.Format(Loc.Git_CreateLocalBranchFailed, branch, remote))
+                : new GitBranchSyncResult(true, branch, true, string.Format(Loc.Git_CreatedLocalBranch, branch, remote));
         }
 
         var shouldFastForward = !string.Equals(localCommit, remoteCommit, StringComparison.OrdinalIgnoreCase);
-        var successMessage = $"Branch \"{branch}\" is already up to date.";
+        var successMessage = string.Format(Loc.Git_BranchUpToDate, branch);
         if (shouldFastForward)
         {
             var aheadBehind = await GetAheadBehindAsync(
@@ -279,12 +280,12 @@ public static partial class GitService
                 remoteRef,
                 cancellationToken).ConfigureAwait(false);
             if (aheadBehind is null)
-                return new GitBranchSyncResult(false, branch, false, $"Could not compare \"{branch}\" with \"{remote}/{branch}\".");
+                return new GitBranchSyncResult(false, branch, false, string.Format(Loc.Git_CompareBranchesFailed, branch, remote));
 
             if (aheadBehind.Value.RemoteOnly == 0)
             {
                 shouldFastForward = false;
-                successMessage = $"Branch \"{branch}\" already contains the latest \"{remote}/{branch}\" commits.";
+                successMessage = string.Format(Loc.Git_BranchContainsLatest, branch, remote);
             }
             else if (aheadBehind.Value.LocalOnly > 0)
             {
@@ -292,7 +293,7 @@ public static partial class GitService
                     false,
                     branch,
                     false,
-                    $"Branch \"{branch}\" has diverged from \"{remote}/{branch}\"; automatic sync was skipped.");
+                    string.Format(Loc.Git_BranchDiverged, branch, remote));
             }
         }
 
@@ -317,14 +318,14 @@ public static partial class GitService
                     WorktreeGitCommandTimeout,
                     cancellationToken).ConfigureAwait(false);
                 if (status is null)
-                    return new GitBranchSyncResult(false, branch, false, $"Could not inspect the \"{branch}\" worktree.");
+                    return new GitBranchSyncResult(false, branch, false, string.Format(Loc.Git_InspectWorktreeFailed, branch));
                 if (!string.IsNullOrWhiteSpace(status))
                 {
                     return new GitBranchSyncResult(
                         false,
                         branch,
                         false,
-                        $"Branch \"{branch}\" has uncommitted changes; automatic sync was skipped.");
+                        string.Format(Loc.Git_BranchHasChanges, branch));
                 }
             }
 
@@ -340,14 +341,14 @@ public static partial class GitService
                 WorktreeGitCommandTimeout,
                 cancellationToken).ConfigureAwait(false);
             if (localSubmoduleCommits is null)
-                return new GitBranchSyncResult(false, branch, false, $"Could not inspect local commits in the \"{branch}\" submodules.");
+                return new GitBranchSyncResult(false, branch, false, string.Format(Loc.Git_InspectSubmoduleCommitsFailed, branch));
             if (!string.IsNullOrWhiteSpace(localSubmoduleCommits))
             {
                 return new GitBranchSyncResult(
                     false,
                     branch,
                     false,
-                    $"Branch \"{branch}\" has local submodule commits; automatic sync was skipped.");
+                    string.Format(Loc.Git_BranchHasSubmoduleCommits, branch));
             }
 
             if (shouldFastForward)
@@ -358,9 +359,9 @@ public static partial class GitService
                     WorktreeGitCommandTimeout,
                     cancellationToken).ConfigureAwait(false);
                 if (mergeResult is null)
-                    return new GitBranchSyncResult(false, branch, false, $"Could not fast-forward \"{branch}\" to \"{remote}/{branch}\".");
+                    return new GitBranchSyncResult(false, branch, false, string.Format(Loc.Git_FastForwardFailed, branch, remote));
 
-                successMessage = $"Fast-forwarded \"{branch}\" to \"{remote}/{branch}\".";
+                successMessage = string.Format(Loc.Git_FastForwarded, branch, remote);
             }
 
             var syncResult = await RunGitAsync(
@@ -374,7 +375,7 @@ public static partial class GitService
                     false,
                     branch,
                     shouldFastForward,
-                    $"Could not synchronize submodule URLs in the \"{branch}\" worktree.");
+                    string.Format(Loc.Git_SyncSubmoduleUrlsFailed, branch));
             }
 
             // Each parent must reach its recorded commit before its child URLs are synchronized.
@@ -393,7 +394,7 @@ public static partial class GitService
             }
 
             return submoduleResult is null
-                ? new GitBranchSyncResult(false, branch, shouldFastForward, $"Could not update submodules in the \"{branch}\" worktree to their recorded commits.")
+                ? new GitBranchSyncResult(false, branch, shouldFastForward, string.Format(Loc.Git_UpdateSubmodulesFailed, branch))
                 : new GitBranchSyncResult(true, branch, shouldFastForward, successMessage);
         }
 
@@ -405,8 +406,8 @@ public static partial class GitService
             $"branch --force {QuoteGitArgument(branch)} {QuoteGitArgument(remoteRef)}",
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return updateResult is null
-            ? new GitBranchSyncResult(false, branch, false, $"Could not fast-forward local branch \"{branch}\".")
-            : new GitBranchSyncResult(true, branch, true, $"Fast-forwarded local branch \"{branch}\" to \"{remote}/{branch}\".");
+            ? new GitBranchSyncResult(false, branch, false, string.Format(Loc.Git_FastForwardLocalFailed, branch))
+            : new GitBranchSyncResult(true, branch, true, string.Format(Loc.Git_FastForwardedLocal, branch, remote));
     }
 
     /// <summary>
@@ -1121,6 +1122,17 @@ public class GitFileChange
         GitChangeKind.Untracked => "Untracked",
         GitChangeKind.Submodule => "Submodule",
         _ => "Unknown"
+    };
+
+    public string DisplayKindLabel => Kind switch
+    {
+        GitChangeKind.Modified => Loc.Git_FileKindModified,
+        GitChangeKind.Added => Loc.Git_FileKindAdded,
+        GitChangeKind.Deleted => Loc.Git_FileKindDeleted,
+        GitChangeKind.Renamed => Loc.Git_FileKindRenamed,
+        GitChangeKind.Untracked => Loc.Git_FileKindUntracked,
+        GitChangeKind.Submodule => Loc.Git_FileKindSubmodule,
+        _ => Loc.Git_FileKindUnknown
     };
 
     /// <summary>Reprojects a change collected inside a submodule so it reads relative to the parent

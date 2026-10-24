@@ -27,7 +27,7 @@ internal static class EmbeddedAppData
         if (completed.Result is not { } result || string.IsNullOrWhiteSpace(resourceUri))
             return null;
         if (string.IsNullOrWhiteSpace(serverName))
-            throw new InvalidOperationException("The app tool did not identify its connector.");
+            throw new InvalidOperationException(Loc.Apps_ConnectorMissing);
 
         var payload = JsonSerializer.SerializeToNode(result, EmbeddedAppJsonContext.Default.ToolExecutionCompleteResult)!.AsObject();
         var toolResult = new JsonObject
@@ -58,10 +58,10 @@ internal static class EmbeddedAppData
     {
         if (!MediaTypeHeaderValue.TryParse(mimeType, out var mime) || mime.MediaType != "text/html"
             || !mime.Parameters.Any(parameter => parameter.Name == "profile" && parameter.Value?.Trim('"') == "mcp-app"))
-            throw new InvalidOperationException("The connector returned an unsupported app content type.");
+            throw new InvalidOperationException(Loc.Apps_ContentTypeUnsupported);
         var html = text ?? (blob is null ? null : Encoding.UTF8.GetString(Convert.FromBase64String(blob)));
         if (string.IsNullOrWhiteSpace(html) || Encoding.UTF8.GetByteCount(html) > MaximumHtmlBytes)
-            throw new InvalidOperationException("The connector returned an empty or oversized app resource.");
+            throw new InvalidOperationException(Loc.Apps_ResourceInvalid);
         return html;
     }
 

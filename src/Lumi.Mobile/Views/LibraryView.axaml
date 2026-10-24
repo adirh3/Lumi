@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:views="using:Lumi.Mobile.Views"
              xmlns:sc="using:StrataTheme.Controls"
@@ -7,6 +8,7 @@
              xmlns:layout="using:Lumi.Mobile.Layout"
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              x:Class="Lumi.Mobile.Views.LibraryView"
+             FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
              x:DataType="vm:LibraryViewModel"
              Background="{DynamicResource Brush.Surface0}">
 
@@ -121,7 +123,7 @@
                         VerticalAlignment="Center" />
         <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
           <TextBlock x:Name="LibraryEntryName" Text="{Binding Name}" Classes="row-title" />
-          <TextBlock Text="{Binding Subtitle}" Classes="row-meta entry-subtitle"
+          <TextBlock Text="{Binding Subtitle, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" Classes="row-meta entry-subtitle"
                      IsVisible="{Binding HasSubtitle}" />
         </StackPanel>
         <TextBlock Grid.Column="2" Text="{Binding Badge}" Classes="row-value" MaxWidth="84"
@@ -188,7 +190,7 @@
                   Margin="16,8,16,4">
               <Button x:Name="LibraryBackButton" Grid.Column="0" Classes="chat-header-action floating-action" Margin="-4,0,8,0"
                       IsVisible="{Binding ShowBackButton}"
-                      AutomationProperties.Name="Back"
+                      AutomationProperties.Name="{loc:Str Back}"
                       Command="{Binding CloseCommand}">
                 <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
                           Data="{DynamicResource Mobile.Icon.Back}" />
@@ -202,7 +204,7 @@
               <!-- A place's own action, the title bar's glass button as New chat is beside the chat list's search. -->
               <Button x:Name="LibraryNewButton" Grid.Column="2" Classes="chat-header-action new-conversation floating-action"
                       IsVisible="{Binding ShowCreateButton}"
-                      AutomationProperties.Name="{Binding SectionTitle, StringFormat='New in {0}'}"
+                      AutomationProperties.Name="{Binding SectionTitle, StringFormat={loc:Str NewInSection}}"
                       Command="{Binding BeginCreateCommand}">
                 <sc:StrataLineIcon Classes="header-glyph accent" Data="{x:Static sc:StrataIcons.Plus}" />
               </Button>
@@ -276,7 +278,7 @@
                              Classes="supporting" />
                   <Button x:Name="LibraryClearSearchButton" Classes="touch subtle"
                           HorizontalAlignment="Left" IsVisible="{Binding IsNoResults}"
-                          Content="Clear search" Command="{Binding ClearSearchCommand}" />
+                          Content="{loc:Str ClearSearch}" Command="{Binding ClearSearchCommand}" />
                 </StackPanel>
               </Border>
 
@@ -371,7 +373,7 @@
                   Margin="8,8,12,4">
               <Button x:Name="EditCancelButton" Grid.Column="0" Classes="header-action"
                       Foreground="{DynamicResource Brush.TextSecondary}"
-                      Content="Cancel" Command="{Binding CancelEditCommand}" />
+                      Content="{loc:Str Cancel}" Command="{Binding CancelEditCommand}" />
               <TextBlock x:Name="LibraryTitle" Grid.Column="1" Text="{Binding PageTitle}"
                          FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                          HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -400,32 +402,33 @@
                           Margin="{DynamicResource Mobile.Page.FormContentMargin}">
                 <Button x:Name="LibraryRetryEditorButton" Classes="touch subtle"
                         IsVisible="{Binding HasEditorLoadFailed}" HorizontalAlignment="Left"
-                        Command="{Binding RetryEditorCommand}" Content="Try loading again" />
+                        Command="{Binding RetryEditorCommand}" Content="{loc:Str TryLoadingAgain}" />
                 <Border Classes="group-card" Padding="16">
                   <StackPanel Spacing="16" IsEnabled="{Binding CanEditFields}">
                     <StackPanel Spacing="6">
-                      <TextBlock x:Name="EditNameLabel" Text="Name" Classes="field-label" />
-                      <TextBox x:Name="EditNameBox" Classes="mobile" PlaceholderText="Name"
-                               AutomationProperties.Name="Name" Text="{Binding EditName}" />
+                      <TextBlock x:Name="EditNameLabel" Text="{loc:Str Name}" Classes="field-label" />
+                      <TextBox x:Name="EditNameBox" Classes="mobile" PlaceholderText="{loc:Str Name}"
+                               AutomationProperties.Name="{loc:Str Name}" Text="{Binding EditName}" />
                     </StackPanel>
 
                     <StackPanel Spacing="6" IsVisible="{Binding ShowDescriptionEditor}">
-                      <TextBlock x:Name="EditDescriptionLabel" Text="Description" Classes="field-label" />
-                      <TextBox x:Name="EditDescriptionBox" Classes="mobile" PlaceholderText="A short summary"
-                               AutomationProperties.Name="Description" Text="{Binding EditDescription}"
+                      <TextBlock x:Name="EditDescriptionLabel" Text="{loc:Str Description}" Classes="field-label" />
+                      <TextBox x:Name="EditDescriptionBox" Classes="mobile" PlaceholderText="{loc:Str ShortSummary}"
+                               AutomationProperties.Name="{loc:Str Description}" Text="{Binding EditDescription}"
                                TextWrapping="Wrap" />
                     </StackPanel>
 
                     <StackPanel Spacing="6" IsVisible="{Binding ShowGlyphEditor}">
-                      <TextBlock x:Name="EditGlyphLabel" Text="Icon" Classes="field-label" />
-                      <TextBox x:Name="EditGlyphBox" Classes="mobile" PlaceholderText="One emoji or symbol"
-                               AutomationProperties.Name="Icon" Text="{Binding EditGlyph}" MaxLength="4" />
+                      <TextBlock x:Name="EditGlyphLabel" Text="{loc:Str Icon}" Classes="field-label" />
+                      <TextBox x:Name="EditGlyphBox" Classes="mobile" PlaceholderText="{loc:Str EmojiOrSymbol}"
+                               AutomationProperties.Name="{loc:Str Icon}" Text="{Binding EditGlyph}" MaxLength="4" />
                     </StackPanel>
 
                     <StackPanel Spacing="6" IsVisible="{Binding ShowProjectWorkingDirectory}">
-                      <TextBlock x:Name="EditWorkingDirectoryLabel" Text="PC workspace" Classes="field-label" />
-                      <TextBox x:Name="EditWorkingDirectoryBox" Classes="mobile" PlaceholderText="A folder on your PC"
-                               AutomationProperties.Name="PC workspace" Text="{Binding EditWorkingDirectory}"
+                      <TextBlock x:Name="EditWorkingDirectoryLabel" Text="{loc:Str PcWorkspace}" Classes="field-label" />
+                      <TextBox x:Name="EditWorkingDirectoryBox" Classes="mobile" PlaceholderText="{loc:Str PcFolder}"
+                               AutomationProperties.Name="{loc:Str PcWorkspace}" Text="{Binding EditWorkingDirectory}"
+                               FlowDirection="LeftToRight"
                                textInput:TextInputOptions.ShowSuggestions="False" />
                     </StackPanel>
 
@@ -437,7 +440,7 @@
                     </StackPanel>
                   </StackPanel>
                 </Border>
-                <TextBlock Text="Changes are saved to your shared Library on your PC."
+                <TextBlock Text="{loc:Str LibrarySavedOnPc}"
                            Classes="muted" Margin="6,0" TextWrapping="Wrap" />
               </StackPanel>
             </ScrollViewer>
@@ -457,7 +460,7 @@
                         MaxWidth="720" HorizontalAlignment="Stretch" Margin="8,8,12,8">
                     <Button x:Name="LibraryViewerBackButton" Classes="chat-header-action floating-action" Margin="0,0,4,0"
                             IsVisible="{Binding !$parent[layout:ListDetailPanel].IsTwoPane}"
-                            AutomationProperties.Name="Back"
+                            AutomationProperties.Name="{loc:Str Back}"
                             Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).CloseViewCommand}">
                       <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
                                 Data="{DynamicResource Mobile.Icon.Back}" />
@@ -497,7 +500,7 @@
                   <ScrollViewer x:Name="LibraryViewerScroll" Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="LibraryViewer" Spacing="12" MaxWidth="720"
                                 HorizontalAlignment="Stretch" Margin="16,4,16,24">
-                      <TextBlock Text="{Binding Description}" Classes="supporting"
+                      <TextBlock Text="{Binding Description, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" Classes="supporting"
                                  IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
                       <!-- On or off, right where the item is described. -->
@@ -505,7 +508,7 @@
                         <Grid ColumnDefinitions="*,Auto" Margin="16,8,8,8" MinHeight="44">
                           <StackPanel Spacing="2" VerticalAlignment="Center">
                             <TextBlock Text="{Binding EnabledStateText}" Classes="row-title" />
-                            <TextBlock Text="Applies on your PC right away" Classes="row-meta" />
+                            <TextBlock Text="{loc:Str AppliesOnPc}" Classes="row-meta" />
                           </StackPanel>
                           <ToggleSwitch x:Name="LibraryViewerSwitch" Grid.Column="1"
                                         IsChecked="{Binding IsEnabled, Mode=OneWay}"
@@ -524,8 +527,8 @@
                               <PathIcon Data="{DynamicResource Mobile.Icon.Chat}" Foreground="{DynamicResource Brush.AccentText}" />
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                              <TextBlock Text="Open its chat" Classes="row-title" />
-                              <TextBlock Text="See what it found, or ask it something" Classes="row-meta" />
+                              <TextBlock Text="{loc:Str OpenJobChat}" Classes="row-title" />
+                              <TextBlock Text="{loc:Str OpenJobChatHelp}" Classes="row-meta" />
                             </StackPanel>
                             <PathIcon Grid.Column="2" Classes="row-chevron" Data="{DynamicResource Mobile.Icon.ChevronRight}" />
                           </Grid>
@@ -556,9 +559,9 @@
                       <Border Classes="group-card" Padding="16,14"
                               IsVisible="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).HasViewBody}">
                         <SelectableTextBlock x:Name="LibraryViewerBody" Classes="detail-body"
-                                             Text="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ViewBody}" />
+                                             Text="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ViewBody, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" />
                       </Border>
-                      <TextBlock Text="Loading details…" Classes="muted"
+                      <TextBlock Text="{loc:Str LoadingDetails}" Classes="muted"
                                  IsVisible="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).IsViewLoading}" />
                       <TextBlock Text="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).ViewStatus}"
                                  Classes="muted" TextWrapping="Wrap"
@@ -604,7 +607,7 @@
           <TextBlock x:Name="LibraryActionStatus" Text="{Binding StatusMessage}"
                      Classes="sheet-body" Margin="24,0,24,8"
                      IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-          <TextBlock Text="Working on your PC…" Classes="sheet-body" Margin="24,0,24,8"
+          <TextBlock Text="{loc:Str WorkingOnPc}" Classes="sheet-body" Margin="24,0,24,8"
                      IsVisible="{Binding IsActionBusy}" />
           <StackPanel x:Name="LibraryActionOptions" IsVisible="{Binding !IsConfirmingDelete}"
                       IsEnabled="{Binding !IsActionBusy}">
@@ -613,7 +616,7 @@
               <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
                 <PathIcon Classes="sheet-leading"
                           Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM5.92 19H5v-.92l9.06-9.06.92.92L5.92 19zM20.71 5.63l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83a1 1 0 0 0 0-1.41z" />
-                <TextBlock Grid.Column="1" Text="Edit" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{loc:Str Edit}" VerticalAlignment="Center" />
               </Grid>
             </Button>
             <Button x:Name="LibraryToggleButton" Classes="sheet-item"
@@ -629,7 +632,7 @@
               <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
                 <PathIcon Classes="sheet-leading"
                           Data="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z" />
-                <TextBlock Grid.Column="1" Text="Delete…" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{loc:Str DeleteEllipsis}" VerticalAlignment="Center" />
               </Grid>
             </Button>
           </StackPanel>
@@ -637,10 +640,10 @@
                       IsVisible="{Binding IsConfirmingDelete}" IsEnabled="{Binding !IsActionBusy}">
             <TextBlock Text="{Binding DeleteConfirmationDescription}" Classes="sheet-body" Margin="8,0" />
             <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-              <Button x:Name="LibraryKeepItemButton" Classes="sheet-action" Content="Cancel"
+              <Button x:Name="LibraryKeepItemButton" Classes="sheet-action" Content="{loc:Str Cancel}"
                       Command="{Binding CancelDeleteConfirmationCommand}" />
               <Button x:Name="LibraryConfirmDeleteButton" Grid.Column="1" Classes="sheet-action destructive"
-                      Content="Delete" Command="{Binding ConfirmDeleteActionEntryCommand}" />
+                      Content="{loc:Str Delete}" Command="{Binding ConfirmDeleteActionEntryCommand}" />
             </Grid>
           </StackPanel>
         </StackPanel>
@@ -649,14 +652,14 @@
 
     <sc:StrataBottomSheet x:Name="LibraryDiscardSheet" Classes="safe-area"
                           IsOpen="{Binding IsDiscardConfirmationOpen, Mode=TwoWay}"
-                          Title="Discard changes?"
+                          Title="{loc:Str DiscardQuestion}"
                           Description="{Binding DiscardDescription}">
       <Border>
         <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="16,4,16,8">
-          <Button x:Name="LibraryKeepEditingButton" Classes="sheet-action" Content="Keep editing"
+          <Button x:Name="LibraryKeepEditingButton" Classes="sheet-action" Content="{loc:Str KeepEditing}"
                   Command="{Binding KeepEditingCommand}" />
           <Button x:Name="LibraryDiscardChangesButton" Grid.Column="1" Classes="sheet-action destructive"
-                  Content="Discard" IsEnabled="{Binding !IsSaving}" Command="{Binding DiscardChangesCommand}" />
+                  Content="{loc:Str Discard}" IsEnabled="{Binding !IsSaving}" Command="{Binding DiscardChangesCommand}" />
         </Grid>
       </Border>
     </sc:StrataBottomSheet>

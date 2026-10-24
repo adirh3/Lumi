@@ -1,4 +1,5 @@
 using System.Globalization;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services.Sharing;
@@ -153,7 +154,7 @@ public static class CapabilityImporter
         var plannedServerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var source in pack.McpServers)
         {
-            var name = SafeName(Clean(source.Name), "MCP server");
+            var name = SafeName(Clean(source.Name), Loc.Share_PackMcpServer);
             var description = SafeDescription(Clean(source.Description));
             var command = source.IsRemote ? "" : CapabilityPackWriter.PlatformCommand(Clean(source.Command).Trim(), windows);
             var args = source.IsRemote ? [] : source.Args.Select(arg => Clean(arg)).ToList();
@@ -184,7 +185,7 @@ public static class CapabilityImporter
         PlannedLumi? lumi = null;
         if (pack.Lumi is { } sharedLumi)
         {
-            var name = SafeName(Clean(sharedLumi.Name), "Lumi");
+            var name = SafeName(Clean(sharedLumi.Name), Loc.App_Name);
             var finalName = UniqueName(name, candidate =>
                 data.Agents.Any(agent => agent.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase)));
             lumi = new PlannedLumi(
@@ -363,7 +364,7 @@ public static class CapabilityImporter
             return single;
 
         var fallbackName = PackText.SingleLine(fallback, MaxNameLength).TrimStart('-').Trim();
-        return fallbackName.Length > 0 ? fallbackName : "Imported";
+        return fallbackName.Length > 0 ? fallbackName : Loc.Import_DefaultName;
     }
 
     /// <summary>Single-line and never starting with a front matter delimiter, like every Lumi description.</summary>

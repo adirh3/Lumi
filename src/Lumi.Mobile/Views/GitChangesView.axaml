@@ -1,9 +1,12 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
              xmlns:proto="using:Lumi.Remote.Protocol"
              xmlns:sc="using:StrataTheme.Controls"
              x:Class="Lumi.Mobile.Views.GitChangesView"
+             FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
              x:DataType="vm:MobileChatViewModel"
              Background="{DynamicResource Brush.Surface0}">
   <UserControl.Styles>
@@ -39,23 +42,23 @@
           </StackPanel>
           <Button x:Name="GitCompactPreviousFileButton" Grid.Column="2" Classes="subtle git-touch"
                   IsVisible="{Binding ShowGitCompactFileNavigation}" Command="{Binding PreviousGitFileCommand}"
-                  ToolTip.Tip="Previous file" AutomationProperties.Name="Previous file">
+                  ToolTip.Tip="{loc:Str PreviousFile}" AutomationProperties.Name="{loc:Str PreviousFile}">
             <PathIcon Width="20" Height="20" Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
           </Button>
           <Button x:Name="GitCompactNextFileButton" Grid.Column="3" Classes="subtle git-touch"
                   IsVisible="{Binding ShowGitCompactFileNavigation}" Command="{Binding NextGitFileCommand}"
-                  ToolTip.Tip="Next file" AutomationProperties.Name="Next file">
+                  ToolTip.Tip="{loc:Str NextFile}" AutomationProperties.Name="{loc:Str NextFile}">
             <PathIcon Width="20" Height="20" Data="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z" />
           </Button>
           <Button x:Name="GitRefreshButton" Grid.Column="4" Classes="subtle git-touch"
-                  Command="{Binding RefreshGitChangesCommand}" ToolTip.Tip="Refresh changed files"
-                  AutomationProperties.Name="Refresh changed files">
+                  Command="{Binding RefreshGitChangesCommand}" ToolTip.Tip="{loc:Str RefreshChangedFiles}"
+                  AutomationProperties.Name="{loc:Str RefreshChangedFiles}">
             <PathIcon Width="22" Height="22"
                       Data="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.93 9h-2.02A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
           </Button>
           <Button x:Name="GitCloseButton" Grid.Column="5" Classes="subtle git-touch"
-                  Command="{Binding CloseGitChangesCommand}" ToolTip.Tip="Close Git changes"
-                  AutomationProperties.Name="Close Git changes">
+                  Command="{Binding CloseGitChangesCommand}" ToolTip.Tip="{loc:Str CloseGitChanges}"
+                  AutomationProperties.Name="{loc:Str CloseGitChanges}">
             <PathIcon Width="22" Height="22" Data="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.41 4.3 19.71l-1.42-1.42L9.17 12 2.88 5.71 4.3 4.29l6.29 6.3 6.29-6.3z" />
           </Button>
         </Grid>
@@ -64,7 +67,7 @@
                      MaxLines="1" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding GitScopeLabel}"
                      Foreground="{DynamicResource Brush.TextSecondary}"
                      FontSize="{DynamicResource Font.SizeCaption}" />
-          <TextBlock Text="{Binding Title, StringFormat='Chat: {0}'}" MaxLines="1"
+          <TextBlock Text="{Binding Title, StringFormat={loc:Str ChatNamed}}" MaxLines="1"
                      TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.TextTertiary}"
                      FontSize="{DynamicResource Font.SizeCaption}" />
         </StackPanel>
@@ -89,7 +92,7 @@
           <TextBlock Text="{Binding GitError}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                      ToolTip.Tip="{Binding GitError}" VerticalAlignment="Center"
                      Foreground="{DynamicResource Brush.DangerDefault}" />
-          <Button Grid.Column="1" Classes="subtle git-touch" Content="Retry" Margin="8,0,0,0"
+          <Button Grid.Column="1" Classes="subtle git-touch" Content="{loc:Str Retry}" Margin="8,0,0,0"
                   Command="{Binding RetryGitChangesCommand}" />
         </Grid>
       </Border>
@@ -106,7 +109,7 @@
         <Grid RowDefinitions="Auto,*">
           <StackPanel Margin="16,12,16,10" Spacing="3">
             <TextBlock Text="{Binding GitFileCountText}" FontWeight="SemiBold" />
-            <TextBlock Text="Select a file to review its changes" FontSize="{DynamicResource Font.SizeCaption}"
+            <TextBlock Text="{loc:Str SelectFileToReview}" FontSize="{DynamicResource Font.SizeCaption}"
                        Foreground="{DynamicResource Brush.TextTertiary}" TextTrimming="CharacterEllipsis" />
           </StackPanel>
           <ListBox x:Name="GitFileList" Grid.Row="1" ItemsSource="{Binding GitFiles}"
@@ -122,7 +125,7 @@
                   <StackPanel Spacing="5">
                     <TextBlock Text="{Binding Path}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                                ToolTip.Tip="{Binding Path}" />
-                    <TextBlock Text="{Binding Kind}" FontSize="{DynamicResource Font.SizeCaption}"
+                    <TextBlock Text="{Binding Kind, Converter={x:Static views:GitChangesView.KindConverter}}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
                     <StackPanel Orientation="Horizontal" Spacing="10"
                                 IsVisible="{Binding LinesAdded, Converter={x:Static ObjectConverters.IsNotNull}}">
@@ -133,9 +136,9 @@
                                  FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeCaption}"
                                  Foreground="{DynamicResource Brush.DangerDefault}" />
                     </StackPanel>
-                    <TextBlock Text="Binary file" IsVisible="{Binding IsBinary}"
+                    <TextBlock Text="{loc:Str BinaryFile}" IsVisible="{Binding IsBinary}"
                                FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}" />
-                    <TextBlock Text="Line counts unavailable" FontSize="{DynamicResource Font.SizeCaption}"
+                    <TextBlock Text="{loc:Str LineCountsUnavailable}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextTertiary}">
                       <TextBlock.IsVisible>
                         <MultiBinding Converter="{x:Static BoolConverters.And}">
@@ -156,11 +159,11 @@
           </ListBox>
           <StackPanel x:Name="GitEmptyState" Grid.Row="1" IsVisible="{Binding ShowGitEmptyState}"
                       Margin="28" Spacing="8" VerticalAlignment="Center">
-            <TextBlock Text="No changed files" FontWeight="SemiBold" HorizontalAlignment="Center" />
-            <TextBlock Text="Nothing to review in this scope." TextWrapping="Wrap" TextAlignment="Center"
+            <TextBlock Text="{loc:Str NoChangedFiles}" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Text="{loc:Str NothingToReview}" TextWrapping="Wrap" TextAlignment="Center"
                        Foreground="{DynamicResource Brush.TextSecondary}" />
           </StackPanel>
-          <TextBlock Grid.Row="1" Text="Reading repository changes…" IsVisible="{Binding IsGitListLoading}"
+          <TextBlock Grid.Row="1" Text="{loc:Str ReadingGitChanges}" IsVisible="{Binding IsGitListLoading}"
                      HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16"
                      Foreground="{DynamicResource Brush.TextSecondary}" />
         </Grid>
@@ -184,34 +187,35 @@
                            FontSize="{DynamicResource Font.SizeCaption}" />
               </StackPanel>
               <Button x:Name="GitPreviousFileButton" Grid.Column="1" Classes="subtle git-touch"
-                      Command="{Binding PreviousGitFileCommand}" ToolTip.Tip="Previous file"
-                      AutomationProperties.Name="Previous file">
+                      Command="{Binding PreviousGitFileCommand}" ToolTip.Tip="{loc:Str PreviousFile}"
+                      AutomationProperties.Name="{loc:Str PreviousFile}">
                 <PathIcon Width="20" Height="20" Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
               </Button>
               <TextBlock Grid.Column="2" Text="{Binding GitFilePositionText}" VerticalAlignment="Center"
                          FontSize="{DynamicResource Font.SizeCaption}" Margin="4,0" />
               <Button x:Name="GitNextFileButton" Grid.Column="3" Classes="subtle git-touch"
-                      Command="{Binding NextGitFileCommand}" ToolTip.Tip="Next file"
-                      AutomationProperties.Name="Next file">
+                      Command="{Binding NextGitFileCommand}" ToolTip.Tip="{loc:Str NextFile}"
+                      AutomationProperties.Name="{loc:Str NextFile}">
                 <PathIcon Width="20" Height="20" Data="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z" />
               </Button>
             </Grid>
           </StackPanel>
         </Border>
         <sc:StrataDiffView x:Name="GitSharedDiff" Grid.Row="1"
+                           FlowDirection="LeftToRight"
                            UnifiedDiffText="{Binding GitDiffText}" FilePath="{Binding SelectedGitFilePath}"
                            CodeFontSize="14" TouchMode="True" IsVisible="{Binding HasGitDiffText}" />
-        <TextBlock Grid.Row="1" Text="Loading file changes…" IsVisible="{Binding IsGitDiffLoading}"
+        <TextBlock Grid.Row="1" Text="{loc:Str LoadingFileChanges}" IsVisible="{Binding IsGitDiffLoading}"
                    HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24"
                    Foreground="{DynamicResource Brush.TextSecondary}" />
-        <TextBlock Grid.Row="1" Text="No text preview" IsVisible="{Binding ShowGitTextPlaceholder}"
+        <TextBlock Grid.Row="1" Text="{loc:Str NoTextPreview}" IsVisible="{Binding ShowGitTextPlaceholder}"
                    HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24"
                    Foreground="{DynamicResource Brush.TextSecondary}" />
         <StackPanel Grid.Row="1" IsVisible="{Binding !IsGitFileOpen}"
                     HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" Margin="24">
-          <TextBlock Text="Select a file" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
+          <TextBlock Text="{loc:Str SelectFile}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
                      HorizontalAlignment="Center" />
-          <TextBlock Text="Review the diff here. Your repository stays unchanged."
+          <TextBlock Text="{loc:Str GitReadOnlyHelp}"
                      Foreground="{DynamicResource Brush.TextSecondary}" TextWrapping="Wrap" TextAlignment="Center" />
         </StackPanel>
       </Grid>

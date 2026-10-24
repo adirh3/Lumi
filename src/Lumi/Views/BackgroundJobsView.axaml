@@ -510,10 +510,10 @@
                            Classes="caption"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            IsVisible="{Binding HasSelectedRunHistory}" />
-                <TextBlock Text="{Binding SelectedStartedText, StringFormat='Started {0}'}"
+                <TextBlock Text="{Binding SelectedStartedText, StringFormat={loc:Str Jobs_ResultStartedAt}}"
                            Classes="caption tertiary"
                            IsVisible="{Binding HasSelectedStarted}" />
-                <TextBlock Text="{Binding SelectedExitCodeText, StringFormat='Exit code {0}'}"
+                <TextBlock Text="{Binding SelectedExitCodeText, StringFormat={loc:Str Jobs_ResultExitCodeValue}}"
                            Classes="caption tertiary"
                            IsVisible="{Binding HasSelectedExitCode}" />
                 <TextBlock Text="{Binding SelectedLastRunSummary}"

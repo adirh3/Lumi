@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 using Lumi.Models;
 using StrataSearch;
 
@@ -92,52 +93,52 @@ public sealed class GlobalSearchService
 
     private static readonly SearchSettingEntry[] SettingsIndex =
     [
-        new("Your Name", "Profile", 0),
-        new("Language", "Profile", 0),
-        new("Launch at Startup", "General", 1),
-        new("Start Minimized", "General", 1),
-        new("Close to Tray", "General", 1),
-        new("Enable Notifications", "General", 1),
-        new("Detect Copied Capabilities", "General", 1),
-        new("Global Hotkey", "General", 1),
-        new("Keyboard Shortcuts", "General", 1),
-        new("Use Lumi on iPhone", "Mobile", 2),
-        new("Dark Mode", "Appearance", 3),
-        new("Theme", "Appearance", 3),
-        new("Accent Color", "Appearance", 3),
-        new("Window Material", "Appearance", 3),
-        new("Compact Density", "Appearance", 3),
-        new("Font Size", "Appearance", 3),
-        new("Ambient Presence", "Appearance", 3),
-        new("Animate Presence While Working", "Appearance", 3),
-        new("Show Animations", "Appearance", 3),
-        new("Send with Enter", "Chat", 4),
-        new("Show Timestamps", "Chat", 4),
-        new("Show Tool Calls", "Chat", 4),
-        new("Show Reasoning", "Chat", 4),
-        new("Expand Reasoning While Streaming", "Chat", 4),
-        new("AI Features", "AI Features", 10),
-        new("Default Model for AI Features", "AI Features", 10),
-        new("Background Model", "AI Features", 10),
-        new("Chat Titles", "AI Features", 10),
-        new("Auto Generate Titles", "AI Features", 10),
-        new("Follow-up Suggestions", "AI Features", 10),
-        new("Suggest Follow-ups", "AI Features", 10),
-        new("Automatic Memories", "AI Features", 10),
-        new("Auto Save Memories", "AI Features", 10),
-        new("Daily Briefs", "AI Features", 10),
-        new("Coding Helpers", "AI Features", 10),
-        new("GitHub Account", "AI & Models", 5),
-        new("AI Accounts", "AI & Models", 5),
-        new("Use Only Your Own Accounts", "AI & Models", 5),
-        new("Endpoints & Models", "AI & Models", 5),
-        new("Default Model & Reasoning", "AI & Models", 5),
-        new("Auto Save Chats", "Privacy & Data", 6),
-        new("Import Browser Cookies", "Privacy & Data", 6),
-        new("Clear All Chats", "Privacy & Data", 6),
-        new("Clear All Memories", "Privacy & Data", 6),
-        new("Reset All Settings", "Privacy & Data", 6),
-        new("Version", "About", 7)
+        new(nameof(Loc.Setting_YourName), nameof(Loc.Settings_Profile), 0),
+        new(nameof(Loc.FieldLabel_Language), nameof(Loc.Settings_Profile), 0),
+        new(nameof(Loc.Setting_LaunchAtStartup), nameof(Loc.Settings_General), 1),
+        new(nameof(Loc.Setting_StartMinimized), nameof(Loc.Settings_General), 1),
+        new(nameof(Loc.Setting_MinimizeToTray), nameof(Loc.Settings_General), 1),
+        new(nameof(Loc.Setting_EnableNotifications), nameof(Loc.Settings_General), 1),
+        new(nameof(Loc.Setting_OfferCopiedCapabilities), nameof(Loc.Settings_General), 1),
+        new(nameof(Loc.Setting_GlobalHotkey), nameof(Loc.Settings_General), 1),
+        new(nameof(Loc.Setting_KeyboardShortcuts), nameof(Loc.Settings_General), 1),
+        new(nameof(Loc.Search_SettingMobile), nameof(Loc.Settings_Mobile), 2),
+        new(nameof(Loc.Onboarding_DarkMode), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Search_SettingTheme), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Setting_AccentColor), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Setting_WindowMaterial), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Search_SettingCompactDensity), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Search_SettingFontSize), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Setting_AmbientPresence), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Setting_AnimatePresenceWhileWorking), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Setting_ShowAnimations), nameof(Loc.Settings_Appearance), 3),
+        new(nameof(Loc.Search_SettingSendWithEnter), nameof(Loc.Settings_Chat), 4),
+        new(nameof(Loc.Setting_ShowTimestamps), nameof(Loc.Settings_Chat), 4),
+        new(nameof(Loc.Setting_ShowToolCalls), nameof(Loc.Settings_Chat), 4),
+        new(nameof(Loc.Setting_ShowReasoning), nameof(Loc.Settings_Chat), 4),
+        new(nameof(Loc.Setting_ExpandReasoningWhileStreaming), nameof(Loc.Settings_Chat), 4),
+        new(nameof(Loc.Settings_AiFeatures), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.Search_SettingAiDefaultModel), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.Search_SettingBackgroundModel), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.AiFeature_ChatTitles), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.Search_SettingAutoTitles), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.AiFeature_FollowUps), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.Search_SettingSuggestFollowUps), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.AiFeature_Memories), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.Search_SettingAutoMemories), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.AiFeature_DailyBriefs), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.AiFeature_CodingHelpers), nameof(Loc.Settings_AiFeatures), 10),
+        new(nameof(Loc.Search_SettingGitHubAccount), nameof(Loc.Settings_AIModels), 5),
+        new(nameof(Loc.EasyConnect_AccountsTitle), nameof(Loc.Settings_AIModels), 5),
+        new(nameof(Loc.Settings_Byok_UseByokOnly), nameof(Loc.Settings_AIModels), 5),
+        new(nameof(Loc.EasyConnect_Advanced), nameof(Loc.Settings_AIModels), 5),
+        new(nameof(Loc.Setting_PreferredModel), nameof(Loc.Settings_AIModels), 5),
+        new(nameof(Loc.Search_SettingAutoSaveChats), nameof(Loc.Settings_PrivacyData), 6),
+        new(nameof(Loc.Setting_ImportCookies), nameof(Loc.Settings_PrivacyData), 6),
+        new(nameof(Loc.Setting_ClearAllChats), nameof(Loc.Settings_PrivacyData), 6),
+        new(nameof(Loc.Setting_ClearAllMemories), nameof(Loc.Settings_PrivacyData), 6),
+        new(nameof(Loc.Setting_ResetAllSettings), nameof(Loc.Settings_PrivacyData), 6),
+        new(nameof(Loc.Setting_Version), nameof(Loc.Settings_About), 7)
     ];
 
     /// <param name="chatContent">Finds chats by their messages; without it, chats are found by their titles.</param>
@@ -396,8 +397,8 @@ public sealed class GlobalSearchService
                 continue;
 
             var defaultSubtitle = chatCount == 0
-                ? "No chats"
-                : $"{chatCount} chat{(chatCount == 1 ? "" : "s")} · {FormatRelativeTime(sortTimestamp)}";
+                ? Loc.Search_NoChats
+                : $"{string.Format(chatCount == 1 ? Loc.Project_ChatCount : Loc.Project_ChatCounts, chatCount)} · {FormatRelativeTime(sortTimestamp)}";
 
             results.Add(new GlobalSearchMatch
             {
@@ -447,8 +448,8 @@ public sealed class GlobalSearchService
             if (!evaluation.IsMatch)
                 continue;
 
-            var status = job.IsEnabled ? "Enabled" : "Paused";
-            var next = job.NextRunAt.HasValue ? $" · next {FormatRelativeTime(job.NextRunAt.Value)}" : "";
+            var status = job.IsEnabled ? Loc.Jobs_StateEnabled : Loc.Jobs_StatePaused;
+            var next = job.NextRunAt.HasValue ? $" · {string.Format(Loc.Search_JobNext, FormatRelativeTime(job.NextRunAt.Value))}" : "";
             var subtitle = $"{status}{next} · {BackgroundJobSchedule.Describe(job)}";
 
             results.Add(new GlobalSearchMatch
@@ -486,13 +487,13 @@ public sealed class GlobalSearchService
                     ?
                     [
                         SearchField.Primary(skill.Name, 3.4),
-                        new SearchField(skill.Description, 1.8),
+                        new SearchField(skill.DisplayDescription, 1.8),
                         SearchField.Content(skill.Content, 0.95)
                     ]
                     :
                     [
                         SearchField.Primary(skill.Name, 3.4),
-                        new SearchField(skill.Description, 1.8)
+                        new SearchField(skill.DisplayDescription, 1.8)
                     ]);
 
             if (!evaluation.IsMatch)
@@ -502,7 +503,7 @@ public sealed class GlobalSearchService
             {
                 Category = GlobalSearchCategory.Skills,
                 Title = skill.Name,
-                Subtitle = BuildSecondarySubtitle(skill.Description, evaluation.BestContentSnippet),
+                Subtitle = BuildSecondarySubtitle(skill.DisplayDescription, evaluation.BestContentSnippet),
                 NavIndex = 3,
                 Item = skill,
                 Score = evaluation.Score
@@ -533,13 +534,13 @@ public sealed class GlobalSearchService
                     ?
                     [
                         SearchField.Primary(agent.Name, 3.4),
-                        new SearchField(agent.Description, 1.8),
+                        new SearchField(agent.DisplayDescription, 1.8),
                         SearchField.Content(agent.SystemPrompt, 0.95)
                     ]
                     :
                     [
                         SearchField.Primary(agent.Name, 3.4),
-                        new SearchField(agent.Description, 1.8)
+                        new SearchField(agent.DisplayDescription, 1.8)
                     ]);
 
             if (!evaluation.IsMatch)
@@ -549,7 +550,7 @@ public sealed class GlobalSearchService
             {
                 Category = GlobalSearchCategory.Lumis,
                 Title = agent.Name,
-                Subtitle = BuildSecondarySubtitle(agent.Description, evaluation.BestContentSnippet),
+                Subtitle = BuildSecondarySubtitle(agent.DisplayDescription, evaluation.BestContentSnippet),
                 NavIndex = 4,
                 Item = agent,
                 Score = evaluation.Score
@@ -580,13 +581,13 @@ public sealed class GlobalSearchService
                     ?
                     [
                         SearchField.Primary(memory.Key, 3.3),
-                        new SearchField(memory.Category, 1.5),
+                        new SearchField(Loc.GetMemoryCategoryDisplay(memory.Category), 1.5),
                         SearchField.Content(memory.Content, 1.1)
                     ]
                     :
                     [
                         SearchField.Primary(memory.Key, 3.3),
-                        new SearchField(memory.Category, 1.5)
+                        new SearchField(Loc.GetMemoryCategoryDisplay(memory.Category), 1.5)
                     ]);
 
             if (!evaluation.IsMatch)
@@ -594,7 +595,7 @@ public sealed class GlobalSearchService
 
             var defaultSubtitle = string.IsNullOrWhiteSpace(memory.Category)
                 ? TrimForSubtitle(memory.Content)
-                : $"[{memory.Category}] {TrimForSubtitle(memory.Content)}";
+                : $"[{Loc.GetMemoryCategoryDisplay(memory.Category)}] {TrimForSubtitle(memory.Content)}";
 
             results.Add(new GlobalSearchMatch
             {
@@ -728,8 +729,8 @@ public sealed class GlobalSearchService
             if (!context.InRange(job.UpdatedAt))
                 continue;
 
-            var status = job.IsEnabled ? "Enabled" : "Paused";
-            var next = job.NextRunAt.HasValue ? $" · next {FormatRelativeTime(job.NextRunAt.Value)}" : "";
+            var status = job.IsEnabled ? Loc.Jobs_StateEnabled : Loc.Jobs_StatePaused;
+            var next = job.NextRunAt.HasValue ? $" · {string.Format(Loc.Search_JobNext, FormatRelativeTime(job.NextRunAt.Value))}" : "";
             results.Add(new GlobalSearchMatch
             {
                 Category = GlobalSearchCategory.BackgroundJobs,
@@ -756,8 +757,8 @@ public sealed class GlobalSearchService
                 Category = GlobalSearchCategory.Projects,
                 Title = project.Name,
                 Subtitle = chatCount == 0
-                    ? "No chats"
-                    : $"{chatCount} chat{(chatCount == 1 ? "" : "s")} · {FormatRelativeTime(sortTimestamp)}",
+                    ? Loc.Search_NoChats
+                    : $"{string.Format(chatCount == 1 ? Loc.Project_ChatCount : Loc.Project_ChatCounts, chatCount)} · {FormatRelativeTime(sortTimestamp)}",
                 NavIndex = 2,
                 Item = project,
                 Score = BrowseBaseProjects + GetRecencyBoost(sortTimestamp, multiplier: 0.9),
@@ -775,7 +776,7 @@ public sealed class GlobalSearchService
             {
                 Category = GlobalSearchCategory.Skills,
                 Title = skill.Name,
-                Subtitle = skill.Description,
+                Subtitle = skill.DisplayDescription,
                 NavIndex = 3,
                 Item = skill,
                 Score = BrowseBaseSkills + GetRecencyBoost(skill.CreatedAt, multiplier: 0.45),
@@ -793,7 +794,7 @@ public sealed class GlobalSearchService
             {
                 Category = GlobalSearchCategory.Lumis,
                 Title = agent.Name,
-                Subtitle = agent.Description,
+                Subtitle = agent.DisplayDescription,
                 NavIndex = 4,
                 Item = agent,
                 Score = BrowseBaseAgents + GetRecencyBoost(agent.CreatedAt, multiplier: 0.45),
@@ -813,7 +814,7 @@ public sealed class GlobalSearchService
                 Title = memory.Key,
                 Subtitle = string.IsNullOrWhiteSpace(memory.Category)
                     ? TrimForSubtitle(memory.Content)
-                    : $"[{memory.Category}] {TrimForSubtitle(memory.Content)}",
+                    : $"[{Loc.GetMemoryCategoryDisplay(memory.Category)}] {TrimForSubtitle(memory.Content)}",
                 NavIndex = 5,
                 Item = memory,
                 Score = BrowseBaseMemories + GetRecencyBoost(memory.UpdatedAt, multiplier: 0.7),
@@ -861,8 +862,8 @@ public sealed class GlobalSearchService
 
         foreach (var job in snapshot.BackgroundJobs.OrderByDescending(static job => job.UpdatedAt).Take(4))
         {
-            var status = job.IsEnabled ? "Enabled" : "Paused";
-            var next = job.NextRunAt.HasValue ? $" · next {FormatRelativeTime(job.NextRunAt.Value)}" : "";
+            var status = job.IsEnabled ? Loc.Jobs_StateEnabled : Loc.Jobs_StatePaused;
+            var next = job.NextRunAt.HasValue ? $" · {string.Format(Loc.Search_JobNext, FormatRelativeTime(job.NextRunAt.Value))}" : "";
             results.Add(new GlobalSearchMatch
             {
                 Category = GlobalSearchCategory.BackgroundJobs,
@@ -889,8 +890,8 @@ public sealed class GlobalSearchService
                 Category = GlobalSearchCategory.Projects,
                 Title = project.Name,
                 Subtitle = chatCount == 0
-                    ? "No chats"
-                    : $"{chatCount} chat{(chatCount == 1 ? "" : "s")} · {FormatRelativeTime(sortTimestamp)}",
+                    ? Loc.Search_NoChats
+                    : $"{string.Format(chatCount == 1 ? Loc.Project_ChatCount : Loc.Project_ChatCounts, chatCount)} · {FormatRelativeTime(sortTimestamp)}",
                 NavIndex = 2,
                 Item = project,
                 Score = BrowseBaseProjects + GetRecencyBoost(sortTimestamp, multiplier: 0.9),
@@ -904,7 +905,7 @@ public sealed class GlobalSearchService
             {
                 Category = GlobalSearchCategory.Skills,
                 Title = skill.Name,
-                Subtitle = skill.Description,
+                Subtitle = skill.DisplayDescription,
                 NavIndex = 3,
                 Item = skill,
                 Score = BrowseBaseSkills + GetRecencyBoost(skill.CreatedAt, multiplier: 0.45),
@@ -918,7 +919,7 @@ public sealed class GlobalSearchService
             {
                 Category = GlobalSearchCategory.Lumis,
                 Title = agent.Name,
-                Subtitle = agent.Description,
+                Subtitle = agent.DisplayDescription,
                 NavIndex = 4,
                 Item = agent,
                 Score = BrowseBaseAgents + GetRecencyBoost(agent.CreatedAt, multiplier: 0.45),
@@ -934,7 +935,7 @@ public sealed class GlobalSearchService
                 Title = memory.Key,
                 Subtitle = string.IsNullOrWhiteSpace(memory.Category)
                     ? TrimForSubtitle(memory.Content)
-                    : $"[{memory.Category}] {TrimForSubtitle(memory.Content)}",
+                    : $"[{Loc.GetMemoryCategoryDisplay(memory.Category)}] {TrimForSubtitle(memory.Content)}",
                 NavIndex = 5,
                 Item = memory,
                 Score = BrowseBaseMemories + GetRecencyBoost(memory.UpdatedAt, multiplier: 0.7),
@@ -1107,13 +1108,13 @@ public sealed class GlobalSearchService
             age = TimeSpan.Zero;
 
         if (age < TimeSpan.FromMinutes(1))
-            return "just now";
+            return Loc.Library_Time_JustNow;
         if (age < TimeSpan.FromHours(1))
-            return $"{Math.Max(1, (int)age.TotalMinutes)}m ago";
+            return string.Format(Loc.Library_Time_MinutesAgo, Math.Max(1, (int)age.TotalMinutes));
         if (age < TimeSpan.FromDays(1))
-            return $"{Math.Max(1, (int)age.TotalHours)}h ago";
+            return string.Format(Loc.Library_Time_HoursAgo, Math.Max(1, (int)age.TotalHours));
         if (age < TimeSpan.FromDays(7))
-            return $"{Math.Max(1, (int)age.TotalDays)}d ago";
+            return string.Format(Loc.Library_Time_DaysAgo, Math.Max(1, (int)age.TotalDays));
         if (age < TimeSpan.FromDays(365))
             return timestamp.ToString("MMM d", CultureInfo.CurrentCulture);
 
@@ -1372,5 +1373,9 @@ public sealed class GlobalSearchService
         }
     }
 
-    private readonly record struct SearchSettingEntry(string Name, string Page, int PageIndex);
+    private readonly record struct SearchSettingEntry(string NameKey, string PageKey, int PageIndex)
+    {
+        public string Name => Loc.Get(NameKey);
+        public string Page => Loc.Get(PageKey);
+    }
 }

@@ -5,12 +5,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Interactivity;
-#if !WINDOWS
-using Avalonia.LogicalTree;
-using Lumi.Localization;
-#endif
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Lumi.Localization;
 using Lumi.Services;
 
 namespace Lumi.Views;
@@ -94,14 +91,8 @@ public partial class BrowserView : UserControl
             _tabsScroller.ScrollChanged += (_, _) => UpdateTabStripFades();
 
 #if !WINDOWS
-        if (OperatingSystem.IsLinux() && _cookieOnboardingOverlay is not null)
-        {
-            foreach (var hint in _cookieOnboardingOverlay.GetLogicalDescendants().OfType<TextBlock>())
-            {
-                if (hint.Text == "• Your cookies will be copied into Lumi's browser")
-                    hint.Text = Loc.Browser_LinuxTabSessionHint;
-            }
-        }
+        if (OperatingSystem.IsLinux() && this.FindControl<TextBlock>("CookieCopiedHint") is { } hint)
+            hint.Text = Loc.Browser_LinuxTabSessionHint;
 #endif
     }
 
@@ -288,7 +279,7 @@ public partial class BrowserView : UserControl
         {
             System.Diagnostics.Debug.WriteLine($"WebView2 init failed: {ex.Message}");
             if (ReferenceEquals(service, _browserService))
-                ShowBrowserError($"Browser initialization failed: {ex.Message}");
+                ShowBrowserError(Loc.Get("Browser_InitializationFailed", ex.Message));
         }
     }
 
@@ -479,7 +470,7 @@ public partial class BrowserView : UserControl
             _onboardingActions.IsVisible = true;
         if (_importProgressPanel is not null)
             _importProgressPanel.IsVisible = false;
-        SetImportStatus("Preparing…");
+        SetImportStatus(Loc.Browser_ImportPreparing);
 
         foreach (var (browser, profiles) in profilesByBrowser)
         {
@@ -532,7 +523,7 @@ public partial class BrowserView : UserControl
         // Show progress, hide actions
         if (_onboardingActions is not null) _onboardingActions.IsVisible = false;
         if (_importProgressPanel is not null) _importProgressPanel.IsVisible = true;
-        SetImportStatus("Importing cookies…");
+        SetImportStatus(Loc.Browser_ImportInProgress);
 
         try
         {
@@ -542,14 +533,14 @@ public partial class BrowserView : UserControl
 
             if (count <= 0)
             {
-                SetImportStatus("No cookies imported. Close the selected browser and try again.");
+                SetImportStatus(Loc.Browser_ImportNoCookies);
                 await System.Threading.Tasks.Task.Delay(2200);
                 if (_onboardingActions is not null) _onboardingActions.IsVisible = true;
                 if (_importProgressPanel is not null) _importProgressPanel.IsVisible = false;
                 return;
             }
 
-            SetImportStatus($"Imported {count:N0} cookies!");
+            SetImportStatus(Loc.Get("Browser_ImportSuccess", count));
             await System.Threading.Tasks.Task.Delay(1000);
 
             // Mark as imported
@@ -565,7 +556,7 @@ public partial class BrowserView : UserControl
         }
         catch (TimeoutException)
         {
-            SetImportStatus("Cookie import timed out. Close the browser and try again.");
+            SetImportStatus(Loc.Browser_ImportTimedOut);
             await System.Threading.Tasks.Task.Delay(2200);
 
             if (_onboardingActions is not null) _onboardingActions.IsVisible = true;
@@ -573,7 +564,7 @@ public partial class BrowserView : UserControl
         }
         catch (Exception ex)
         {
-            SetImportStatus($"Error: {ex.Message}");
+            SetImportStatus(Loc.Get("Browser_ImportError", ex.Message));
             await System.Threading.Tasks.Task.Delay(2000);
 
             // Reset UI so user can try again

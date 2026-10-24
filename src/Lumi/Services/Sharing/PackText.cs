@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Lumi.Localization;
 
 namespace Lumi.Services.Sharing;
 
@@ -346,7 +347,7 @@ internal sealed class Frontmatter
 
         if (start >= lines.Length || lines[start].TrimEnd() != "---")
         {
-            error = "the file must start with a --- line";
+            error = Loc.Import_FrontmatterStartMissing;
             return false;
         }
 
@@ -363,7 +364,7 @@ internal sealed class Frontmatter
 
         if (end < 0)
         {
-            error = "the closing --- line is missing";
+            error = Loc.Import_FrontmatterEndMissing;
             return false;
         }
 

@@ -1,9 +1,10 @@
 const parentOrigin = new URL(document.referrer).origin;
+const labels: { sandboxOrigin: string } = JSON.parse(document.body.dataset.lumiLabels!);
 if (window === window.top || parentOrigin === location.origin)
-  throw new Error("The app sandbox must have a different origin from its host.");
+  throw new Error(labels.sandboxOrigin);
 
 const inner = document.createElement("iframe");
-inner.title = "App";
+inner.title = document.title;
 inner.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
 document.body.append(inner);
 

@@ -1,3 +1,5 @@
+using Lumi.Localization;
+
 namespace Lumi.Services.Remote;
 
 internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
@@ -59,7 +61,7 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
         }
         if (assets is null)
         {
-            await context.WriteTextAsync("Lumi Web App is not installed.", cancellationToken, 404)
+            await context.WriteTextAsync(Loc.Remote_WebAppNotInstalled, cancellationToken, 404)
                 .ConfigureAwait(false);
             return;
         }
@@ -75,7 +77,7 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
         {
             if (fileLike || !assets.TryGet("index.html", context.Request, out asset))
             {
-                await context.WriteTextAsync("Not found.", cancellationToken, 404).ConfigureAwait(false);
+                await context.WriteTextAsync(Loc.Remote_ResourceNotFound, cancellationToken, 404).ConfigureAwait(false);
                 return;
             }
         }

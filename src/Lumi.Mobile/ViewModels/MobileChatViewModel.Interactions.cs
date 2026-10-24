@@ -3,6 +3,7 @@ using System.Text.Json;
 using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -31,15 +32,15 @@ public sealed partial class MobileChatViewModel
         string messageId, string blockId, string stateJson, string? action)
     {
         if (!SupportsInteractiveResponses)
-            return new(false, "Update Lumi on your PC to enable saved interactive replies.");
+            return new(false, Strings.Get("InteractiveUpdateRequired"));
         var chatId = ChatId;
         var hostGeneration = _hostGeneration;
         var item = Turns.SelectMany(turn => turn.Items)
             .FirstOrDefault(item => item.Id == messageId && item is AssistantItemViewModel or InputRequestItemViewModel);
         if (chatId == Guid.Empty || item is null)
-            return new(false, "That answer is no longer open.");
+            return new(false, Strings.Get("AnswerClosed"));
         if (action is not null && !(item is InputRequestItemViewModel input ? input.CanSubmit : CanSubmitInteractions))
-            return new(false, "Wait for Lumi's reply to finish before continuing.");
+            return new(false, Strings.Get("WaitForReply"));
         try
         {
             var state = InteractiveState.Parse(stateJson);
@@ -55,7 +56,7 @@ public sealed partial class MobileChatViewModel
             try
             {
                 if (hostGeneration != _hostGeneration || chatId != ChatId)
-                    return new(false, "The open chat or PC changed. This input wasn't sent to a different chat.");
+                    return new(false, Strings.Get("InteractionChatChanged"));
                 if (action is null && _interactionEditVersions.GetValueOrDefault(widgetKey) != editVersion)
                     return new(true);
                 var key = $"{widgetKey}:{action}:{state.Fingerprint()}";
@@ -73,8 +74,8 @@ public sealed partial class MobileChatViewModel
                     _interactionRequestIds.Remove(key);
                 if (!result.Ok)
                     return new(false, result.IsOutcomeUnknown
-                        ? "Lumi hasn't confirmed this action yet. Your choices are kept; retry checks the same request."
-                        : result.Error ?? "The interaction could not be saved.");
+                        ? Strings.Get("InteractionUnconfirmed")
+                        : result.Error ?? Strings.Get("InteractionSaveFailed"));
                 if (item is AssistantItemViewModel updated)
                     updated.ConfirmInteractionState(blockId, stateJson);
                 else if (item is InputRequestItemViewModel confirmed && action is not null)
@@ -96,7 +97,7 @@ public sealed partial class MobileChatViewModel
         }
         catch (OperationCanceledException)
         {
-            return new(false, "The connection was interrupted. Your choices are kept.");
+            return new(false, Strings.Get("InteractionInterrupted"));
         }
     }
 }

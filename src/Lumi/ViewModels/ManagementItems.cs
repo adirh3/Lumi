@@ -158,8 +158,8 @@ public sealed class SkillCard
     public Skill Model { get; }
     public string Name => Model.Name;
     public string Glyph => string.IsNullOrWhiteSpace(Model.IconGlyph) ? "⚡" : Model.IconGlyph;
-    public bool HasDescription => !string.IsNullOrWhiteSpace(Model.Description);
-    public string Summary => HasDescription ? Model.Description : ManagementText.PlainPreview(Model.Content, 180);
+    public bool HasDescription => !string.IsNullOrWhiteSpace(Model.DisplayDescription);
+    public string Summary => HasDescription ? Model.DisplayDescription : ManagementText.PlainPreview(Model.Content, 180);
     public bool HasSummary => !string.IsNullOrWhiteSpace(Summary);
     public bool IsBuiltIn => Model.IsBuiltIn;
     public int UsedByCount { get; }
@@ -184,8 +184,8 @@ public sealed class AgentCard
     public LumiAgent Model { get; }
     public string Name => Model.Name;
     public string Glyph => string.IsNullOrWhiteSpace(Model.IconGlyph) ? "✦" : Model.IconGlyph;
-    public bool HasDescription => !string.IsNullOrWhiteSpace(Model.Description);
-    public string Summary => HasDescription ? Model.Description : ManagementText.PlainPreview(Model.SystemPrompt, 180);
+    public bool HasDescription => !string.IsNullOrWhiteSpace(Model.DisplayDescription);
+    public string Summary => HasDescription ? Model.DisplayDescription : ManagementText.PlainPreview(Model.SystemPrompt, 180);
     public bool HasSummary => !string.IsNullOrWhiteSpace(Summary);
     public bool IsBuiltIn => Model.IsBuiltIn;
     public int ChatCount { get; }
@@ -249,7 +249,7 @@ public sealed class MemoryCard
     public string Key => Model.Key;
     public string Content => Model.Content;
     public bool HasContent => !string.IsNullOrWhiteSpace(Model.Content);
-    public string Category => string.IsNullOrWhiteSpace(Model.Category) ? MemoriesViewModel.DefaultCategory : Model.Category;
+    public string Category => Loc.GetMemoryCategoryDisplay(Model.Category);
     public bool IsProjectScoped => string.Equals(Model.Scope, MemoryScopes.Project, StringComparison.OrdinalIgnoreCase);
     public string ScopeLabel { get; }
     public string UpdatedLabel => ManagementText.Relative(Model.UpdatedAt);

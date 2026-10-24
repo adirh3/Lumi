@@ -20,6 +20,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+const uiText = (key, fallback, ...args) =>
+    globalThis.lumiLocalization?.text(key, fallback, ...args) ?? fallback;
+
 export function samplePointerPosition(samples, time) {
     const last = samples.at(-1);
     if (time >= last.time) {
@@ -61,7 +64,7 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
             'left:50%;transform:translateX(-50%);z-index:10000;pointer-events:none;' +
             'border-radius:8px;padding:2px 6px;background:#102b30e8;color:#b8f2e6;' +
             'font:10px system-ui;white-space:nowrap';
-        badge.textContent = 'Worker renderer starting';
+        badge.textContent = uiText('WorkerStarting', 'Worker renderer starting');
         document.body.appendChild(badge);
     }
 
@@ -74,7 +77,7 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
         status.error = threaded ? 'This experiment requires the single-threaded build.' :
             'Worker canvas presentation is unavailable in this browser.';
         if (badge)
-            badge.textContent = 'Normal renderer (worker unavailable)';
+            badge.textContent = uiText('WorkerUnavailable', 'Normal renderer (worker unavailable)');
         console.warn('[Lumi PWA] ' + status.error);
         return status;
     }
@@ -214,7 +217,7 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
         status.state = 'fallback';
         status.error = String(error?.message || error);
         if (badge)
-            badge.textContent = 'Normal renderer (worker stopped)';
+            badge.textContent = uiText('WorkerStopped', 'Normal renderer (worker stopped)');
         console.warn('[Lumi PWA] Worker renderer stopped; using normal rendering.', error);
         worker?.terminate();
         for (const remove of listeners)
@@ -430,7 +433,7 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
                     surface.canvas.style.opacity = '0';
                     status.state = 'active';
                     if (badge) {
-                        badge.textContent = 'Worker renderer';
+                        badge.textContent = uiText('WorkerRenderer', 'Worker renderer');
                         lastBadge = performance.now();
                         lastBadgePresented = status.presented;
                     }
@@ -452,7 +455,8 @@ export function installWorkerFrames({ threaded = false, showStatus = false } = {
             if (badge && performance.now() - lastBadge > 1000 && status.state === 'active' && status.clockHz) {
                 const now = performance.now();
                 const frames = Math.round((status.presented - lastBadgePresented) * 1000 / (now - lastBadge));
-                const text = `Worker renderer (${status.clockHz} Hz clock, ${frames} new frames/s)`;
+                const text = uiText('WorkerRendererStats',
+                    `Worker renderer (${status.clockHz} Hz clock, ${frames} new frames/s)`, status.clockHz, frames);
                 if (badge.textContent !== text)
                     badge.textContent = text;
                 lastBadge = now;

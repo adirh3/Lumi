@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.ViewModels;
 
@@ -322,7 +323,7 @@ public sealed class BackgroundJobService : IDisposable
                         job.IsEnabled = false;
                         job.NextRunAt = null;
                         job.LastRunStatus = BackgroundJobRunStatuses.Failed;
-                        job.LastRunSummary = "Linked source or target chat is unavailable.";
+                        job.LastRunSummary = Loc.Jobs_LinkedChatsUnavailable;
                         job.UpdatedAt = DateTimeOffset.Now;
                         changed = true;
                         continue;
@@ -337,7 +338,7 @@ public sealed class BackgroundJobService : IDisposable
                         job.IsEnabled = false;
                         job.NextRunAt = null;
                         job.LastRunStatus = BackgroundJobRunStatuses.Failed;
-                        job.LastRunSummary = "Chat-event subscription was paused because it forms a trigger cycle.";
+                        job.LastRunSummary = Loc.Jobs_EventCyclePaused;
                         job.UpdatedAt = DateTimeOffset.Now;
                         changed = true;
                         continue;
@@ -477,7 +478,7 @@ public sealed class BackgroundJobService : IDisposable
 
                     if (!JobHasValidChat(job))
                     {
-                        const string unavailableChatSummary = "Linked source or target chat is unavailable.";
+                        var unavailableChatSummary = Loc.Jobs_LinkedChatsUnavailable;
                         // Saving also wakes the scheduler, so only persist a real state transition.
                         if (!job.IsEnabled
                             && job.NextRunAt is null
@@ -652,9 +653,9 @@ public sealed class BackgroundJobService : IDisposable
             : BackgroundJobRunStatuses.Running;
         job.LastRunSummary = job.TriggerType switch
         {
-            BackgroundJobTriggerTypes.Script => "Lumi is sleeping until this script exits.",
-            BackgroundJobTriggerTypes.ChatEvent => "Matched chat event; waking the linked chat.",
-            _ => "Running..."
+            BackgroundJobTriggerTypes.Script => Loc.Jobs_WaitingForScript,
+            BackgroundJobTriggerTypes.ChatEvent => Loc.Jobs_EventMatched,
+            _ => Loc.Jobs_RunStarting
         };
         job.NextRunAt = null;
         job.LastScriptExitCode = null;
@@ -728,14 +729,14 @@ public sealed class BackgroundJobService : IDisposable
                 CompleteRun(
                     job,
                     BackgroundJobRunStatuses.Skipped,
-                    "Job was paused, changed, or deleted before invocation.",
+                    Loc.Jobs_ChangedBeforeInvocation,
                     DateTimeOffset.Now,
                     chatEventDelivery);
                 return;
             }
 
             if (chatEventDelivery is null && !JobHasValidChat(job))
-                throw new InvalidOperationException("Linked chat was deleted.");
+                throw new InvalidOperationException(Loc.Jobs_LinkedChatDeleted);
 
             var targetChatId = chatEventDelivery?.TargetChatId ?? job.ChatId;
             var chatInvocationLock = GetChatInvocationLock(targetChatId);
@@ -747,7 +748,7 @@ public sealed class BackgroundJobService : IDisposable
                     CompleteRun(
                         job,
                         BackgroundJobRunStatuses.Skipped,
-                        "Job was paused, changed, or deleted before invocation.",
+                        Loc.Jobs_ChangedBeforeInvocation,
                         DateTimeOffset.Now,
                         chatEventDelivery);
                     return;
@@ -757,7 +758,7 @@ public sealed class BackgroundJobService : IDisposable
                     CompleteRun(
                         job,
                         BackgroundJobRunStatuses.Skipped,
-                        "Job was paused, changed, or deleted before invocation.",
+                        Loc.Jobs_ChangedBeforeInvocation,
                         DateTimeOffset.Now,
                         chatEventDelivery);
                     return;
@@ -769,8 +770,8 @@ public sealed class BackgroundJobService : IDisposable
             }
 
             var summary = scriptResult is null
-                ? $"Invoked Lumi in chat at {DateTimeOffset.Now:t}."
-                : $"Script exited with code {scriptResult.ExitCode} and woke Lumi at {DateTimeOffset.Now:t}.";
+                ? string.Format(Loc.Jobs_InvokedAt, DateTimeOffset.Now)
+                : string.Format(Loc.Jobs_ScriptWokeAt, scriptResult.ExitCode, DateTimeOffset.Now);
             CompleteRun(
                 job,
                 BackgroundJobRunStatuses.Completed,
@@ -852,13 +853,13 @@ public sealed class BackgroundJobService : IDisposable
             {
                 job.IsEnabled = false;
                 job.NextRunAt = null;
-                job.LastRunSummary = $"{summary} Wake script is complete; create or run another script job to keep watching.";
+                job.LastRunSummary = string.Format(Loc.Jobs_ScriptCompleteSummary, summary);
             }
             else if (job.IsTemporary && status is BackgroundJobRunStatuses.Completed)
             {
                 job.IsEnabled = false;
                 job.NextRunAt = null;
-                job.LastRunSummary = $"{summary} Temporary job paused after this run.";
+                job.LastRunSummary = string.Format(Loc.Jobs_TemporaryCompleteSummary, summary);
             }
             else
             {
@@ -962,7 +963,7 @@ public sealed class BackgroundJobService : IDisposable
                 lock (job.SyncRoot)
                 {
                     job.LastRunStatus = BackgroundJobRunStatuses.Waiting;
-                    job.LastRunSummary = "Linked chat is busy; waiting to wake it.";
+                    job.LastRunSummary = Loc.Jobs_WaitingForBusyChat;
                     job.UpdatedAt = DateTimeOffset.Now;
                 }
 
@@ -1000,7 +1001,7 @@ public sealed class BackgroundJobService : IDisposable
     private async Task<ScriptTriggerResult> RunScriptTriggerAsync(BackgroundJob job, DateTimeOffset startedAt, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(job.ScriptContent))
-            return new ScriptTriggerResult(false, "Script is empty.", "", "", null);
+            return new ScriptTriggerResult(false, Loc.Jobs_ScriptEmpty, "", "", null);
 
         var language = BackgroundJobSchedule.NormalizeScriptLanguage(job.ScriptLanguage);
         var scriptPath = Path.Combine(Path.GetTempPath(), $"lumi-job-{job.Id:N}{GetScriptExtension(language)}");
@@ -1011,7 +1012,7 @@ public sealed class BackgroundJobService : IDisposable
             var psi = BuildScriptProcessStartInfo(language, scriptPath);
 
             using var process = Process.Start(psi)
-                ?? throw new InvalidOperationException($"Failed to start {language} background job script.");
+                ?? throw new InvalidOperationException(string.Format(Loc.Jobs_ScriptStartFailed, language));
 
             Task<string>? stdoutTask = null;
             Task<string>? stderrTask = null;
@@ -1022,7 +1023,7 @@ public sealed class BackgroundJobService : IDisposable
 
                 lock (job.SyncRoot)
                 {
-                    job.LastRunSummary = $"Watching script process {process.Id}. Lumi will wake this chat when it exits.";
+                    job.LastRunSummary = string.Format(Loc.Jobs_WatchingProcess, process.Id);
                     job.UpdatedAt = DateTimeOffset.Now;
                 }
 
@@ -1173,9 +1174,9 @@ public sealed class BackgroundJobService : IDisposable
                 var context = TryGetJsonString(root, "context")
                                ?? TryGetJsonString(root, "message")
                                ?? defaultContext;
-                var reason = TryGetJsonString(root, "reason") ?? "Script did not request invocation.";
+                var reason = TryGetJsonString(root, "reason") ?? Loc.Jobs_ScriptDidNotRequest;
                 return shouldInvoke
-                    ? new ScriptTriggerResult(true, "Script requested invocation.", BuildScriptWakeContext(context, formattedOutput, exitCode, startedAt, completedAt), outputPreview, exitCode)
+                    ? new ScriptTriggerResult(true, Loc.Jobs_ScriptRequested, BuildScriptWakeContext(context, formattedOutput, exitCode, startedAt, completedAt), outputPreview, exitCode)
                     : new ScriptTriggerResult(false, reason, context, outputPreview, exitCode);
             }
             catch (JsonException)
@@ -1192,7 +1193,7 @@ public sealed class BackgroundJobService : IDisposable
             var context = invokeLine["LUMI_INVOKE:".Length..].Trim();
             if (string.IsNullOrWhiteSpace(context))
                 context = defaultContext;
-            return new ScriptTriggerResult(true, "Script requested invocation.", BuildScriptWakeContext(context, formattedOutput, exitCode, startedAt, completedAt), outputPreview, exitCode);
+            return new ScriptTriggerResult(true, Loc.Jobs_ScriptRequested, BuildScriptWakeContext(context, formattedOutput, exitCode, startedAt, completedAt), outputPreview, exitCode);
         }
 
         var skipLine = lines.FirstOrDefault(line => line.StartsWith("LUMI_SKIP:", StringComparison.OrdinalIgnoreCase));
@@ -1200,11 +1201,11 @@ public sealed class BackgroundJobService : IDisposable
         {
             var reason = skipLine["LUMI_SKIP:".Length..].Trim();
             if (string.IsNullOrWhiteSpace(reason))
-                reason = "Script exited without waking Lumi.";
+                reason = Loc.Jobs_ScriptExitedWithoutWake;
             return new ScriptTriggerResult(false, reason, "", outputPreview, exitCode);
         }
 
-        return new ScriptTriggerResult(true, $"Script exited with code {exitCode}.", defaultContext, outputPreview, exitCode);
+        return new ScriptTriggerResult(true, string.Format(Loc.Jobs_ScriptExited, exitCode), defaultContext, outputPreview, exitCode);
     }
 
     private static string BuildScriptWakeContext(

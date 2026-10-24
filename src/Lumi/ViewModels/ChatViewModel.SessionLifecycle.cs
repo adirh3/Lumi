@@ -600,7 +600,7 @@ public partial class ChatViewModel
                     PublishTerminalChatLifecycleEventOnce(
                         chat,
                         ChatLifecycleEventTypes.Error,
-                        "Connection to Copilot was lost.");
+                        Loc.Status_ConnectionLost);
                 }
                 var wasActive = _activeSession == session;
                 if (shouldUpdateDisplayedChatUi)
@@ -614,7 +614,7 @@ public partial class ChatViewModel
                     _transcriptBuilder.FlushPendingFileEdits();
 
                     _transcriptBuilder.AddConnectionLostError(
-                        "Connection to Copilot was lost.",
+                        Loc.Status_ConnectionLost,
                         new RelayCommand(() => _ = RetryAfterConnectionLossAsync()));
                     ScrollToEndRequested?.Invoke();
                 }
@@ -760,7 +760,7 @@ public partial class ChatViewModel
                 var agentDisplayName = payload.AgentDisplayName
                     ?? toolMsg.Author
                     ?? agentName
-                    ?? "Agent";
+                    ?? Loc.Chat_BackgroundAgent;
                 var nextTranscript = updateTranscript ? transcript ?? string.Empty : payload.Transcript;
                 var nextReasoning = updateReasoning ? reasoning ?? string.Empty : payload.Reasoning;
 
@@ -1815,7 +1815,7 @@ public partial class ChatViewModel
                 case CommandQueuedEvent commandQueued:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    MarkRuntimeActive(runtime, $"Queued command: {commandQueued.Data.Command}", isStreaming: runtime.IsStreaming);
+                    MarkRuntimeActive(runtime, Loc.Get(nameof(Loc.Status_CommandQueued), commandQueued.Data.Command), isStreaming: runtime.IsStreaming);
                     if (IsDisplayedSession())
                         ApplyDisplayedRuntimeState(runtime);
                     });
@@ -2162,7 +2162,7 @@ public partial class ChatViewModel
                         var warnMsg = new ChatMessage
                         {
                             Role = "system",
-                            Author = "⚠ Warning",
+                            Author = Loc.Author_Warning,
                             Content = warn.Data.Message
                         };
                         chat.Messages.Add(warnMsg);
@@ -2246,7 +2246,7 @@ public partial class ChatViewModel
                                 PublishTerminalChatLifecycleEventOnce(
                                     chat,
                                     ChatLifecycleEventTypes.Aborted,
-                                    "The chat run aborted unexpectedly.");
+                                    Loc.Status_RunAborted);
                             }
 
                             return;
@@ -2258,7 +2258,7 @@ public partial class ChatViewModel
                             PublishTerminalChatLifecycleEventOnce(
                                 chat,
                                 ChatLifecycleEventTypes.Aborted,
-                                "The chat run was stopped by the user.");
+                                Loc.Status_RunStopped);
                         }
                         if (shouldUpdateDisplayedChatUi)
                         {
@@ -2328,7 +2328,7 @@ public partial class ChatViewModel
                                 PublishTerminalChatLifecycleEventOnce(
                                     chat,
                                     ChatLifecycleEventTypes.Error,
-                                    shutdown.Data.ErrorReason ?? "The Copilot session shut down with an error.");
+                                    shutdown.Data.ErrorReason ?? Loc.Status_SessionShutdownError);
                             }
                         }
                         else if (IsAuthoritativeSession())
@@ -2336,7 +2336,7 @@ public partial class ChatViewModel
                             PublishTerminalChatLifecycleEventOnce(
                                 chat,
                                 ChatLifecycleEventTypes.Aborted,
-                                "The Copilot session shut down before completing.");
+                                Loc.Status_SessionShutdownIncomplete);
                         }
                         if (isError && shouldUpdateDisplayedChatUi)
                         {
@@ -2404,7 +2404,7 @@ public partial class ChatViewModel
                     var subagentStartedAt = DateTimeOffset.UtcNow;
                     Dispatcher.UIThread.Post(() =>
                     {
-                    var displayName = subStart.Data.AgentDisplayName ?? subStart.Data.AgentName ?? "Agent";
+                    var displayName = subStart.Data.AgentDisplayName ?? subStart.Data.AgentName ?? Loc.Chat_BackgroundAgent;
                     MarkSessionBackgroundActive(runtime);
                     var subagentPayload = BuildSubagentPayloadJson(
                         description: string.Empty,
@@ -2791,8 +2791,8 @@ public partial class ChatViewModel
                             _ = RefreshPlan();
                             StagePlanCard(
                                 operation == PlanChangedOperation.Create
-                                    ? "Created a plan"
-                                    : "Updated the plan");
+                                    ? Loc.Plan_Created
+                                    : Loc.Plan_Updated);
                             PlanShowRequested?.Invoke();
                         }
                         else if (operation == PlanChangedOperation.Delete)
@@ -2813,7 +2813,7 @@ public partial class ChatViewModel
                     HasPlan = !string.IsNullOrWhiteSpace(exitPlanMode.Data.PlanContent);
                     PlanContent = exitPlanMode.Data.PlanContent;
                     runtime.StatusText = string.IsNullOrWhiteSpace(exitPlanMode.Data.Summary)
-                        ? "Plan ready to execute"
+                        ? Loc.Plan_Ready
                         : exitPlanMode.Data.Summary;
 
                     if (HasPlan)

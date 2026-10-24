@@ -124,17 +124,6 @@
     </Style>
 
     <!-- ── Transcript work, shared by the chat and the read-only agent run ── -->
-    <Style Selector="sc|StrataChatMessage">
-      <Setter Property="CopyLabel" Value="{loc:Str Chat_CopyMessage}" />
-      <Setter Property="CopyAsLabel" Value="{loc:Str Chat_CopyAs}" />
-      <Setter Property="CopyPlainTextLabel" Value="{loc:Str Chat_CopyPlainText}" />
-      <Setter Property="CopyMarkdownLabel" Value="{loc:Str Chat_CopyMarkdown}" />
-      <Setter Property="CopyRichTextLabel" Value="{loc:Str Chat_CopyRichText}" />
-      <Setter Property="SelectAllLabel" Value="{loc:Str Chat_SelectMessage}" />
-      <Setter Property="CopiedLabel" Value="{loc:Str Chat_Copied}" />
-      <Setter Property="MoreActionsLabel" Value="{loc:Str Chat_MoreMessageActions}" />
-    </Style>
-
     <!-- Reads and searches sit a little tighter, so a long run of them stays compact. -->
     <Style Selector="sc|StrataAiToolCall.compact /template/ Border#PART_Header">
       <Setter Property="Padding" Value="7,4,8,4" />

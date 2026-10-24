@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:views="using:Lumi.Mobile.Views"
              xmlns:sc="using:StrataTheme.Controls"
@@ -25,25 +26,25 @@
         <StackPanel x:Name="PlacesRow" Orientation="Horizontal" Spacing="2">
           <Button x:Name="PlacesChatsButton" Classes="place"
                   Classes.active="{Binding IsChatsPlace}"
-                  AutomationProperties.Name="Chats"
+                  AutomationProperties.Name="{loc:Str Chats}"
                   Command="{Binding SelectPlaceCommand}" CommandParameter="Chats">
             <StackPanel Orientation="Horizontal">
               <PathIcon Data="{DynamicResource Mobile.Icon.Chat}" />
-              <TextBlock Classes="place-label" Text="Chats" />
+              <TextBlock Classes="place-label" Text="{loc:Str Chats}" />
             </StackPanel>
           </Button>
           <Button x:Name="PlacesJobsButton" Classes="place"
                   Classes.active="{Binding IsJobsPlace}"
-                  AutomationProperties.Name="Jobs"
+                  AutomationProperties.Name="{loc:Str Jobs}"
                   Command="{Binding SelectPlaceCommand}" CommandParameter="Jobs">
             <StackPanel Orientation="Horizontal">
               <PathIcon Data="{DynamicResource Mobile.Icon.Clock}" />
-              <TextBlock Classes="place-label" Text="Jobs" />
+              <TextBlock Classes="place-label" Text="{loc:Str Jobs}" />
             </StackPanel>
           </Button>
           <Button x:Name="PlacesCustomizeButton" Classes="place"
                   Classes.active="{Binding IsCustomizePlace}"
-                  AutomationProperties.Name="Customize"
+                  AutomationProperties.Name="{loc:Str Customize}"
                   Command="{Binding SelectPlaceCommand}" CommandParameter="Customize">
             <StackPanel Orientation="Horizontal">
               <Panel Classes="place-tune">
@@ -51,16 +52,16 @@
                 <PathIcon Data="{DynamicResource Mobile.Icon.CustomizeKnobTop}" />
                 <PathIcon Data="{DynamicResource Mobile.Icon.CustomizeKnobBottom}" />
               </Panel>
-              <TextBlock Classes="place-label" Text="Customize" />
+              <TextBlock Classes="place-label" Text="{loc:Str Customize}" />
             </StackPanel>
           </Button>
           <Button x:Name="PlacesSettingsButton" Classes="place"
                   Classes.active="{Binding IsSettingsPlace}"
-                  AutomationProperties.Name="Settings"
+                  AutomationProperties.Name="{loc:Str Settings}"
                   Command="{Binding SelectPlaceCommand}" CommandParameter="Settings">
             <StackPanel Orientation="Horizontal">
               <PathIcon Data="{DynamicResource Mobile.Icon.Gear}" />
-              <TextBlock Classes="place-label" Text="Settings" />
+              <TextBlock Classes="place-label" Text="{loc:Str Settings}" />
             </StackPanel>
           </Button>
         </StackPanel>

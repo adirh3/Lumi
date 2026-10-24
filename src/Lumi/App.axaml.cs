@@ -74,6 +74,7 @@ public partial class App : Application
             Styles.Add(CreateModelPickerTextStyle());
             Styles.Add(CreateConnectorPickerTextStyle());
             Styles.Add(CreateComposerPickerTextStyles());
+            Styles.Add(CreateSharedControlTextStyles());
             var settings = dataStore.Data.Settings;
             if (settings.FollowSystemTheme && SystemTheme.PrefersDark(this) is { } systemPrefersDark)
                 settings.IsDarkTheme = systemPrefersDark;
@@ -160,7 +161,9 @@ public partial class App : Application
             new Setter(StrataTheme.Controls.StrataModelPicker.ModelsLabelProperty, Loc.ModelPicker_Models),
             new Setter(StrataTheme.Controls.StrataModelPicker.PinnedLabelProperty, Loc.ModelPicker_Pinned),
             new Setter(StrataTheme.Controls.StrataModelPicker.ReasoningLabelProperty, Loc.ModelPicker_Reasoning),
-            new Setter(StrataTheme.Controls.StrataModelPicker.ContextLabelProperty, Loc.ModelPicker_Context)
+            new Setter(StrataTheme.Controls.StrataModelPicker.ContextLabelProperty, Loc.ModelPicker_Context),
+            new Setter(StrataTheme.Controls.StrataModelPicker.PinToolTipProperty, Loc.ModelPicker_Pin),
+            new Setter(StrataTheme.Controls.StrataModelPicker.UnpinToolTipProperty, Loc.ModelPicker_Unpin)
         }
     };
 
@@ -187,6 +190,7 @@ public partial class App : Application
             new Setter(StrataConnectorPicker.EmptyActionLabelProperty, Loc.ConnectorPicker_EmptyAction),
             new Setter(StrataConnectorPicker.LoadingTextProperty, Loc.ConnectorPicker_Loading),
             new Setter(StrataConnectorPicker.LabelProperty, Loc.Composer_Connectors),
+            new Setter(StrataConnectorPicker.HeaderProperty, Loc.Chat_ConnectorsHeader),
         }
     };
 
@@ -261,6 +265,38 @@ public partial class App : Application
                 new Setter(StrataComposerPicker.NoResultsFormatProperty, Loc.Composer_AgentsNoResults),
                 new Setter(StrataComposerPicker.HintTextProperty, Loc.Composer_AgentsHint),
             }
+        },
+    ];
+
+    /// <summary>Shared message and response chrome, resolved after the saved language is loaded.</summary>
+    internal static Styles CreateSharedControlTextStyles() =>
+    [
+        new Style(selector => selector.OfType<StrataChatMessage>())
+        {
+            Setters =
+            {
+                new Setter(StrataChatMessage.CopyLabelProperty, Loc.Chat_CopyMessage),
+                new Setter(StrataChatMessage.CopySelectionLabelProperty, Loc.Chat_CopySelection),
+                new Setter(StrataChatMessage.CopyAsLabelProperty, Loc.Chat_CopyAs),
+                new Setter(StrataChatMessage.CopyPlainTextLabelProperty, Loc.Chat_CopyPlainText),
+                new Setter(StrataChatMessage.CopyMarkdownLabelProperty, Loc.Chat_CopyMarkdown),
+                new Setter(StrataChatMessage.CopyRichTextLabelProperty, Loc.Chat_CopyRichText),
+                new Setter(StrataChatMessage.SelectAllLabelProperty, Loc.Chat_SelectMessage),
+                new Setter(StrataChatMessage.CopyTurnLabelProperty, Loc.Chat_CopyTurn),
+                new Setter(StrataChatMessage.CopiedLabelProperty, Loc.Chat_Copied),
+                new Setter(StrataChatMessage.MoreActionsLabelProperty, Loc.Chat_MoreMessageActions),
+                new Setter(StrataChatMessage.ReplyLabelProperty, Loc.Chat_Reply),
+                new Setter(StrataChatMessage.ReplySelectionLabelProperty, Loc.Chat_ReplyToSelection),
+                new Setter(StrataChatMessage.ShareLabelProperty, Loc.Share_Button),
+            }
+        },
+        new Style(selector => selector.OfType<StrataQuestionCard>())
+        {
+            Setters = { new Setter(StrataQuestionCard.FreeTextPlaceholderProperty, Loc.Chat_QuestionPlaceholder) }
+        },
+        new Style(selector => selector.OfType<StrataMarkdown>())
+        {
+            Setters = { new Setter(StrataMarkdown.InteractionLanguageProperty, Loc.Culture.Name) }
         },
     ];
 
@@ -564,6 +600,10 @@ public partial class App : Application
         CrashReportData crashReport)
     {
         Loc.Load(crashReport.Language);
+        Styles.Add(CreateModelPickerTextStyle());
+        Styles.Add(CreateConnectorPickerTextStyle());
+        Styles.Add(CreateComposerPickerTextStyles());
+        Styles.Add(CreateSharedControlTextStyles());
         RequestedThemeVariant = crashReport.IsDarkTheme ? ThemeVariant.Dark : ThemeVariant.Light;
 
         var window = new CrashReportWindow(crashReport);

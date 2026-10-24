@@ -1,4 +1,5 @@
 const safeAreaProbe = document.createElement('div');
+const uiText = (key, fallback) => globalThis.lumiLocalization?.text(key, fallback) ?? fallback;
 safeAreaProbe.className = 'safe-area-probe';
 document.documentElement.appendChild(safeAreaProbe);
 
@@ -33,12 +34,16 @@ export function configureBrowserRecovery(reload = () => globalThis.location.relo
             return;
 
         console.error('[Lumi] The browser graphics context was lost.');
-        showBrowserRecovery('Your browser stopped displaying Lumi. Reload to reconnect.');
+        showBrowserRecovery(uiText('WebContextLost', 'Your browser stopped displaying Lumi. Reload to reconnect.'));
     }, true);
 }
 
 export function getOrigin() {
     return globalThis.location.origin;
+}
+
+export function getLanguage() {
+    return globalThis.lumiLocalization?.language ?? 'en';
 }
 
 export function getStorageItem(key) {
@@ -145,10 +150,11 @@ export function showTextSelection(text) {
     const editor = document.createElement('textarea');
     editor.readOnly = true;
     editor.value = text;
-    editor.setAttribute('aria-label', 'Message text');
+    editor.setAttribute('aria-label', uiText('MessageText', 'Message text'));
+    editor.setAttribute('dir', 'auto');
     const close = document.createElement('button');
     close.type = 'button';
-    close.textContent = 'Done';
+    close.textContent = uiText('Done', 'Done');
     close.addEventListener('click', dismissTextSelection);
     selectionDialog.append(editor, close);
     selectionDialog.addEventListener('cancel', event => {
@@ -325,7 +331,7 @@ export function showNativeTextInput(
     input.classList.toggle('dark', dark);
     if (!multiline)
         input.type = sensitive ? 'password' : 'text';
-    input.setAttribute('aria-label', placeholder || 'Text input');
+    input.setAttribute('aria-label', placeholder || uiText('TextInput', 'Text input'));
 
     if (!composingNativeTextInputs.has(id) && input.value !== value) {
         const caret = input.selectionStart ?? value.length;

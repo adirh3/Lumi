@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Services;
 
@@ -25,6 +26,9 @@ public sealed class MobileConnectionSettings
     /// newer build degrades to the default instead of failing to deserialise the whole file.
     /// </summary>
     public string Theme { get; set; } = "System";
+
+    /// <summary>Empty follows the device at startup; explicit choices are the stable en/he culture codes.</summary>
+    public string Language { get; set; } = "";
 
     /// <summary>Docked sidebar collapsed on a tablet or unfolded foldable.</summary>
     public bool IsSidebarCollapsed { get; set; }
@@ -109,11 +113,11 @@ public sealed class MobileSettingsStore : IMobileSettingsStore
         try
         {
             var machine = Environment.MachineName;
-            return string.IsNullOrWhiteSpace(machine) ? "Phone" : machine;
+            return string.IsNullOrWhiteSpace(machine) ? Strings.Get("Phone") : machine;
         }
         catch (InvalidOperationException)
         {
-            return "Phone";
+            return Strings.Get("Phone");
         }
     }
 }

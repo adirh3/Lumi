@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 
 namespace Lumi.Services.Byok;
 
@@ -100,16 +101,16 @@ public sealed class ProviderOAuthService : IDisposable
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
-            throw new OperationCanceledException("Provider sign-in was canceled.");
+            throw new OperationCanceledException(Loc.EasyConnect_SignInCanceled);
         }
         catch (OperationCanceledException) when (flow.IsCancellationRequested)
         {
-            throw new ProviderOAuthException("Provider sign-in timed out. Start again and approve the connection in the browser.");
+            throw new ProviderOAuthException(Loc.EasyConnect_SignInTimedOut);
         }
         catch (SocketException)
         {
             throw new ProviderOAuthException(
-                "Lumi could not open the local sign-in callback. Check local networking or firewall settings and try again.");
+                Loc.EasyConnect_CallbackUnavailable);
         }
         finally
         {
@@ -129,7 +130,7 @@ public sealed class ProviderOAuthService : IDisposable
         catch (Exception)
         {
             flow.Cancel();
-            throw new ProviderOAuthException("The provider sign-in page could not be opened. Start sign-in again.");
+            throw new ProviderOAuthException(Loc.EasyConnect_SignInPageFailed);
         }
     }
 
@@ -190,12 +191,12 @@ public sealed class ProviderOAuthService : IDisposable
         ArgumentNullException.ThrowIfNull(options);
         // ChatGPT issues renewable OAuth tokens rather than an API key; ChatGptAuthService owns it.
         if (!Enum.IsDefined(options.Kind) || options.Kind == ProviderOAuthKind.ChatGpt)
-            throw new ArgumentOutOfRangeException(nameof(options), "This provider does not support Easy Connect.");
+            throw new ArgumentOutOfRangeException(nameof(options), Loc.EasyConnect_UnsupportedProvider);
         if (options.Kind == ProviderOAuthKind.Poe &&
             (string.IsNullOrWhiteSpace(options.ClientId) || options.ClientId.Length > 1024 ||
              options.ClientId.Any(char.IsControl)))
             throw new ProviderOAuthException(
-                "Poe sign-in requires a public Client ID registered at poe.com/api/clients. Configure it or enter an API key instead.");
+                Loc.EasyConnect_PoeClientRequired);
     }
 
     /// <summary>
@@ -229,12 +230,12 @@ public sealed class ProviderOAuthService : IDisposable
         catch (OperationCanceledException) when (!flow.IsCancellationRequested)
         {
             flow.Cancel();
-            throw new ProviderOAuthException("The local sign-in callback took too long to respond. Start sign-in again.");
+            throw new ProviderOAuthException(Loc.EasyConnect_CallbackTimedOut);
         }
         catch (IOException)
         {
             flow.Cancel();
-            throw new ProviderOAuthException("The local sign-in callback was interrupted. Start sign-in again.");
+            throw new ProviderOAuthException(Loc.EasyConnect_CallbackInterrupted);
         }
         catch (Exception)
         {
@@ -267,7 +268,7 @@ public sealed class ProviderOAuthService : IDisposable
             return Encoding.ASCII.GetString(bytes, 0, end).Split("\r\n", StringSplitOptions.None);
         }
 
-        throw new ProviderOAuthException("The local sign-in callback was incomplete or too large. Start sign-in again.");
+        throw new ProviderOAuthException(Loc.EasyConnect_CallbackTooLarge);
     }
 
     private static IReadOnlyDictionary<string, string> ValidateCallback(
@@ -310,7 +311,7 @@ public sealed class ProviderOAuthService : IDisposable
             var name = Uri.UnescapeDataString(parts[0].Replace('+', ' '));
             var value = parts.Length == 2 ? Uri.UnescapeDataString(parts[1].Replace('+', ' ')) : "";
             if (!values.TryAdd(name, value))
-                throw new ProviderOAuthException("The provider returned repeated callback parameters. Start sign-in again.");
+                throw new ProviderOAuthException(Loc.EasyConnect_CallbackDuplicateParameters);
         }
 
         // OpenRouter explicitly does not return state on denial. Such a callback can
@@ -319,26 +320,27 @@ public sealed class ProviderOAuthService : IDisposable
             throw AuthorizationDenied(kind);
         if (!values.TryGetValue("state", out var state) ||
             !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(state), Encoding.UTF8.GetBytes(expectedState)))
-            throw new ProviderOAuthException("The provider sign-in state did not match. Close this page and start sign-in again.");
+            throw new ProviderOAuthException(Loc.EasyConnect_CallbackStateMismatch);
         if (values.ContainsKey("error"))
             throw AuthorizationDenied(kind);
         if (!values.TryGetValue("code", out var code) || string.IsNullOrWhiteSpace(code) ||
             code.Length > 2048 || code.Any(char.IsControl))
-            throw new ProviderOAuthException("The provider did not return an authorization code. Start sign-in again.");
+            throw new ProviderOAuthException(Loc.EasyConnect_AuthorizationCodeMissing);
         return values;
     }
 
     private static ProviderOAuthException InvalidCallback()
-        => new("The provider returned an invalid local sign-in callback. Start sign-in again.");
+        => new(Loc.EasyConnect_CallbackInvalid);
 
     private static ProviderOAuthException AuthorizationDenied(ProviderOAuthKind kind)
-        => new($"{ProviderName(kind)} authorization was not approved. Start sign-in again if you want to connect.");
+        => new(string.Format(Loc.EasyConnect_AuthorizationDenied, ProviderName(kind)));
 
     private static Task WriteCallbackResponseAsync(NetworkStream stream, bool accepted, CancellationToken cancellationToken)
     {
-        var body = accepted
-            ? "<!doctype html><title>Lumi Easy Connect</title><p>Authorization received. Return to Lumi to finish connecting.</p>"
-            : "<!doctype html><title>Lumi Easy Connect</title><p>Authorization could not be completed. Return to Lumi and try again.</p>";
+        var title = WebUtility.HtmlEncode(Loc.EasyConnect_CallbackTitle);
+        var message = WebUtility.HtmlEncode(accepted ? Loc.EasyConnect_CallbackAccepted : Loc.EasyConnect_CallbackFailed);
+        var direction = Loc.IsRightToLeft ? "rtl" : "ltr";
+        var body = $"<!doctype html><html lang=\"{Loc.Culture.Name}\" dir=\"{direction}\"><head><meta charset=\"utf-8\"><title>{title}</title></head><body><p>{message}</p></body></html>";
         var response = $"HTTP/1.1 {(accepted ? "200 OK" : "400 Bad Request")}\r\n" +
             "Content-Type: text/html; charset=utf-8\r\nConnection: close\r\nCache-Control: no-store\r\n" +
             "Referrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'\r\n" +
@@ -458,20 +460,20 @@ public sealed class ProviderOAuthService : IDisposable
     }
 
     private static ProviderOAuthException InvalidResponse(ProviderOAuthKind kind)
-        => new($"{ProviderName(kind)} returned an invalid key response. Start sign-in again or create an API key on the provider's site.");
+        => new(string.Format(Loc.EasyConnect_InvalidKeyResponse, ProviderName(kind)));
 
     private static ProviderOAuthException ExchangeFailure(ProviderOAuthKind kind, HttpStatusCode status)
     {
         var action = (int)status switch
         {
-            >= 300 and < 400 => "The key exchange was redirected and was not followed. Start sign-in again or update Lumi.",
-            400 or 401 or 403 => "Authorization expired or could not be verified. Start sign-in again.",
-            404 or 405 => "The sign-in endpoint is unavailable. Update Lumi or enter an API key instead.",
-            429 => "Too many sign-in attempts. Wait a little before trying again.",
-            >= 500 => "The provider is temporarily unavailable. Try again later.",
-            _ => "The key exchange failed. Start sign-in again or enter an API key instead.",
+            >= 300 and < 400 => Loc.EasyConnect_ExchangeRedirected,
+            400 or 401 or 403 => Loc.EasyConnect_AuthorizationExpired,
+            404 or 405 => Loc.EasyConnect_SignInEndpointUnavailable,
+            429 => Loc.EasyConnect_TooManySignIns,
+            >= 500 => Loc.EasyConnect_ProviderUnavailable,
+            _ => Loc.EasyConnect_ExchangeFailed,
         };
-        return new ProviderOAuthException($"{ProviderName(kind)} sign-in failed (HTTP {(int)status}). {action}");
+        return new ProviderOAuthException(string.Format(Loc.EasyConnect_SignInHttpFailed, ProviderName(kind), (int)status, action));
     }
 
     private static string ProviderName(ProviderOAuthKind kind) => kind switch
@@ -480,7 +482,7 @@ public sealed class ProviderOAuthService : IDisposable
         ProviderOAuthKind.NanoGpt => "NanoGPT",
         ProviderOAuthKind.Poe => "Poe",
         ProviderOAuthKind.ChatGpt => "ChatGPT",
-        _ => "The provider",
+        _ => Loc.EasyConnect_ProviderFallback,
     };
 
     public void Dispose()

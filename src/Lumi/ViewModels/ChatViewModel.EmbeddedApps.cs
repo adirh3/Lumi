@@ -153,14 +153,14 @@ public partial class ChatViewModel
             QueueSaveChat(chat, saveIndex: false);
             GetAppItem(message)?.Refresh();
             return new EmbeddedAppLaunch(app.Kind, app.Title,
-                Url: opened.Url ?? throw new InvalidOperationException("This canvas has no web interface."));
+                Url: opened.Url ?? throw new InvalidOperationException(Loc.Apps_CanvasNoInterface));
         }
 
         if (app.Html is null)
         {
             var resource = await session.Rpc.Mcp.Apps.ReadResourceAsync(app.ServerName!, app.ResourceUri!, cancellationToken);
             var content = resource.Contents.FirstOrDefault(content => content.Uri == app.ResourceUri)
-                ?? throw new InvalidOperationException("The connector did not return its app interface.");
+                ?? throw new InvalidOperationException(Loc.Apps_ConnectorNoInterface);
             app.MetadataJson = content.Meta is null ? null : EmbeddedAppData.ToJsonObject(content.Meta).ToJsonString();
             app.Html = EmbeddedAppData.ReadHtml(content.MimeType, content.Text, content.Blob);
         }
@@ -224,7 +224,7 @@ public partial class ChatViewModel
             case "tools/call":
             {
                 var name = parameters.GetProperty("name").GetString()
-                    ?? throw new FormatException("The app did not name a tool.");
+                    ?? throw new FormatException(Loc.Apps_ToolNameMissing);
                 var arguments = parameters.TryGetProperty("arguments", out var supplied) && supplied.ValueKind == JsonValueKind.Object
                     ? supplied.EnumerateObject().ToDictionary(static property => property.Name, static property => property.Value.Clone())
                     : null;
@@ -236,7 +236,7 @@ public partial class ChatViewModel
             case "resources/read":
             {
                 var uri = parameters.GetProperty("uri").GetString()
-                    ?? throw new FormatException("The app did not name a resource.");
+                    ?? throw new FormatException(Loc.Apps_ResourceNameMissing);
                 var session = await GetAppSessionAsync(chat, message, cancellationToken, reuseLive: true);
                 return EmbeddedAppData.ToResourceResult(
                     await session.Rpc.Mcp.Apps.ReadResourceAsync(serverName, uri, cancellationToken));
@@ -244,12 +244,12 @@ public partial class ChatViewModel
             case "ui/message":
             {
                 if (parameters.GetProperty("role").GetString() != "user")
-                    throw new InvalidOperationException("Apps can send user messages, not speak for the assistant.");
+                    throw new InvalidOperationException(Loc.Apps_UserMessagesOnly);
                 var text = string.Join("\n", parameters.GetProperty("content").EnumerateArray().Select(block =>
                     block.GetProperty("type").GetString() == "text" ? block.GetProperty("text").GetString()
-                        : throw new InvalidOperationException("Lumi accepts text messages from apps.")));
+                        : throw new InvalidOperationException(Loc.Apps_TextMessagesOnly)));
                 if (string.IsNullOrWhiteSpace(text))
-                    throw new FormatException("The app message is empty.");
+                    throw new FormatException(Loc.Apps_MessageEmpty);
                 // The message is labelled with the app that sent it. Its turn outlives the viewer.
                 var started = await StartExternalMessageAsync(chat, text, app.Title);
                 if (!started.Accepted)
@@ -258,7 +258,7 @@ public partial class ChatViewModel
             }
             case "ui/update-model-context":
                 if (parameters.GetRawText().Length > MaximumAppContextChars)
-                    throw new InvalidOperationException("The app context is too large.");
+                    throw new InvalidOperationException(Loc.Apps_ContextTooLarge);
                 app.ModelContextJson = parameters.GetRawText();
                 message.MarkChanged();
                 QueueSaveChat(chat, saveIndex: false);
@@ -273,7 +273,7 @@ public partial class ChatViewModel
                 Trace.TraceInformation("[EmbeddedApp {0}] {1}", app.Title, parameters.GetRawText());
                 return new JsonObject();
             default:
-                throw new InvalidOperationException("Unsupported app operation: " + method);
+                throw new InvalidOperationException(Loc.Get(nameof(Loc.Apps_UnsupportedOperation), method));
         }
     }
 

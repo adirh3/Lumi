@@ -11,6 +11,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Localization;
 using Lumi.Remote.Protocol;
 
 namespace Lumi.Services.Remote;
@@ -36,8 +37,8 @@ internal sealed class RemoteHttpListener : IDisposable
     internal static readonly TimeSpan OrdinaryBodyReadTimeout = TimeSpan.FromSeconds(30);
     internal static readonly TimeSpan UploadBodyReadTimeout = TimeSpan.FromMinutes(5);
     internal static readonly TimeSpan ResponseWriteTimeout = TimeSpan.FromSeconds(30);
-    private const string RequestBodyTooLargeJson =
-        """{"ok":false,"error":"Request body is too large."}""";
+    private static string RequestBodyTooLargeJson =>
+        RemoteHttpPreflightResult.Reject(413, Loc.Remote_RequestBodyTooLarge).RejectionJson!;
 
     private readonly Func<RemoteHttpContext, CancellationToken, Task> _handler;
     private readonly Func<RemoteHttpRequest, EndPoint?, EndPoint?, RemoteHttpPreflightResult>? _preflight;
@@ -212,7 +213,7 @@ internal sealed class RemoteHttpListener : IDisposable
             return new RequestReadResult(
                 new RemoteHttpRequest(method, path, query, headers, "", false),
                 400,
-                RemoteHttpPreflightResult.Reject(400, "Chunked request bodies are not supported.").RejectionJson);
+                RemoteHttpPreflightResult.Reject(400, Loc.Remote_ChunkedRequestUnsupported).RejectionJson);
         }
 
         if (headers.TryGetValue("Content-Length", out var lengthText))
@@ -222,7 +223,7 @@ internal sealed class RemoteHttpListener : IDisposable
                 return new RequestReadResult(
                     new RemoteHttpRequest(method, path, query, headers, "", false),
                     400,
-                    RemoteHttpPreflightResult.Reject(400, "Content-Length is invalid.").RejectionJson);
+                    RemoteHttpPreflightResult.Reject(400, Loc.Remote_InvalidContentLength).RejectionJson);
             }
             contentLength = length;
         }
@@ -476,7 +477,7 @@ internal sealed class RemoteRequestBody
                     deadline.Token)
                 .ConfigureAwait(false);
             if (read == 0)
-                throw new EndOfStreamException("The request body ended before Content-Length bytes arrived.");
+                throw new EndOfStreamException(Loc.Remote_RequestBodyEndedEarly);
             written += read;
             _remaining -= read;
         }
@@ -496,7 +497,7 @@ internal sealed class RemoteRequestBody
                         deadline.Token)
                     .ConfigureAwait(false);
                 if (read == 0)
-                    throw new EndOfStreamException("The request body ended before Content-Length bytes arrived.");
+                    throw new EndOfStreamException(Loc.Remote_RequestBodyEndedEarly);
 
                 await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                 _remaining -= read;

@@ -904,8 +904,10 @@ public partial class WorkspaceUserMessageItem : ObservableObject
             return preview.Length > 150 ? preview[..150] + "…" : preview;
 
         return attachmentCount > 0
-            ? Pluralize(attachmentCount, "attached file", "attached files")
-            : "Empty message";
+            ? attachmentCount == 1
+                ? Loc.Workspace_OneAttachedFile
+                : Loc.Get(nameof(Loc.Workspace_AttachedFiles), attachmentCount)
+            : Loc.Workspace_EmptyMessage;
     }
 
     private static string BuildMetaText(string timestampText, int attachmentCount, int skillCount)
@@ -914,11 +916,11 @@ public partial class WorkspaceUserMessageItem : ObservableObject
         if (!string.IsNullOrWhiteSpace(timestampText))
             parts.Add(timestampText);
         if (attachmentCount > 0)
-            parts.Add(Pluralize(attachmentCount, "file", "files"));
+            parts.Add(attachmentCount == 1 ? Loc.Workspace_OneFile : Loc.Get(nameof(Loc.Workspace_FileCount), attachmentCount));
         if (skillCount > 0)
-            parts.Add(Pluralize(skillCount, "skill", "skills"));
+            parts.Add(skillCount == 1 ? Loc.Workspace_OneSkill : Loc.Get(nameof(Loc.Workspace_SkillCount), skillCount));
 
-        return parts.Count > 0 ? string.Join(" · ", parts) : "User message";
+        return parts.Count > 0 ? string.Join(" · ", parts) : Loc.Workspace_UserMessage;
     }
 
     private static string CollapseWhitespace(string text)
@@ -929,9 +931,6 @@ public partial class WorkspaceUserMessageItem : ObservableObject
         var parts = text.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         return string.Join(' ', parts);
     }
-
-    private static string Pluralize(int count, string singular, string plural)
-        => count == 1 ? $"1 {singular}" : $"{count} {plural}";
 
     [RelayCommand]
     private void Jump()

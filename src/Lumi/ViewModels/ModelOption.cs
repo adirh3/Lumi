@@ -281,16 +281,16 @@ public static class ModelOptionCatalog
         if (tokens >= 1_000_000)
         {
             var millions = tokens / 1_000_000d;
-            return string.Create(CultureInfo.InvariantCulture, $"{millions:0.#}M");
+            return Localization.Loc.Get(nameof(Localization.Loc.ModelPicker_CompactMillions), millions.ToString("0.#", CultureInfo.CurrentCulture));
         }
 
         if (tokens >= 1_000)
         {
             var thousands = tokens / 1_000d;
-            return string.Create(CultureInfo.InvariantCulture, $"{thousands:0.#}K");
+            return Localization.Loc.Get(nameof(Localization.Loc.ModelPicker_CompactThousands), thousands.ToString("0.#", CultureInfo.CurrentCulture));
         }
 
-        return tokens.ToString(CultureInfo.InvariantCulture);
+        return tokens.ToString(CultureInfo.CurrentCulture);
     }
 
     /// <summary>Renders the premium-request multiplier. A zero multiplier means the model does not
@@ -303,6 +303,6 @@ public static class ModelOptionCatalog
         if (value == 0)
             return Localization.Loc.ModelPicker_CostIncluded;
 
-        return string.Create(CultureInfo.InvariantCulture, $"{value:0.##}\u00d7");
+        return string.Create(CultureInfo.CurrentCulture, $"{value:0.##}\u00d7");
     }
 }

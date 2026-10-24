@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using GitHub.Copilot;
+using Lumi.Localization;
 
 namespace Lumi.Services.Discover;
 
@@ -256,7 +257,7 @@ public sealed class PluginCatalogService
     }
 
     private CopilotClient Client
-        => _client() ?? throw new InvalidOperationException("GitHub Copilot is not connected yet.");
+        => _client() ?? throw new InvalidOperationException(Loc.Discover_CopilotNotConnected);
 }
 
 /// <summary>

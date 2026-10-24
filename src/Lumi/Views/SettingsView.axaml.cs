@@ -140,18 +140,8 @@ public partial class SettingsView : UserControl, IDisposable
         _cookieImportCancelButton = this.FindControl<Button>("CookieImportCancelButton");
 
 #if !WINDOWS
-        if (_cookieImportDialog?.DialogContent is Control dialogContent)
-        {
-            foreach (var hint in dialogContent.GetLogicalDescendants().OfType<TextBlock>())
-            {
-                if (hint.Text == "• The selected browser will be briefly closed")
-                    hint.Text = "• Close the selected browser first if its cookie database is locked";
-                else if (hint.Text == "• Windows may ask for your password to authorize")
-                    hint.Text = "• Your system may ask to unlock its credential store";
-                else if (OperatingSystem.IsLinux() && hint.Text == "• Your cookies will be copied into Lumi's browser")
-                    hint.Text = Loc.Browser_LinuxTabSessionHint;
-            }
-        }
+        if (OperatingSystem.IsLinux() && this.FindControl<TextBlock>("CookieCopiedHint") is { } hint)
+            hint.Text = Loc.Browser_LinuxTabSessionHint;
 #endif
 
         if (_cookieImportButton is not null)
@@ -375,16 +365,16 @@ public partial class SettingsView : UserControl, IDisposable
         var topLevel = _topLevel ?? TopLevel.GetTopLevel(this);
         if (topLevel is not Window window)
         {
-            _debugTransparencyValue.Text = "Unavailable";
+            _debugTransparencyValue.Text = Loc.Settings_DebugUnavailable;
             return;
         }
 
         var hints = window.TransparencyLevelHint;
         var hintText = hints is { Count: > 0 }
             ? string.Join(", ", hints.Select(static x => x.ToString()))
-            : "None";
+            : Loc.Settings_DebugNoTransparencyHints;
 
-        _debugTransparencyValue.Text = $"Actual: {window.ActualTransparencyLevel} | Hint: {hintText}";
+        _debugTransparencyValue.Text = Loc.Get("Settings_DebugTransparencyDetails", window.ActualTransparencyLevel, hintText);
 #endif
     }
 
@@ -699,9 +689,12 @@ public partial class SettingsView : UserControl, IDisposable
         }
 
         if (DataContext is SettingsViewModel vmSearch)
-            vmSearch.SearchResultSummary = matchCount > 0
-                ? $"{matchCount} {resultWord}"
-                : Loc.Search_NoResults;
+            vmSearch.SearchResultSummary = matchCount switch
+            {
+                0 => Loc.Search_NoResults,
+                1 => Loc.Search_ResultCountSingular,
+                _ => Loc.Get("Search_ResultCount", matchCount),
+            };
     }
 
     private void RestoreAllVisibility()

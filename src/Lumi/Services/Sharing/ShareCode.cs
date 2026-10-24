@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Lumi.Localization;
 
 namespace Lumi.Services.Sharing;
 
@@ -62,7 +63,7 @@ public static partial class ShareCode
         var bytes = Encoding.UTF8.GetBytes(PackText.NormalizeNewlines(packText));
         var compressed = new byte[BrotliEncoder.GetMaxCompressedLength(bytes.Length)];
         if (!BrotliEncoder.TryCompress(bytes, compressed, out var written, BrotliQuality, BrotliWindow))
-            throw new InvalidOperationException("Could not compress the capability.");
+            throw new InvalidOperationException(Loc.Share_CompressFailed);
 
         var payload = new byte[CheckLength + written];
         SHA256.HashData(bytes).AsSpan(0, CheckLength).CopyTo(payload);

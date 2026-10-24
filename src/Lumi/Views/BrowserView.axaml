@@ -202,7 +202,7 @@
             Background="{DynamicResource Brush.SurfaceCard}">
       <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
         <ProgressBar IsIndeterminate="True" Width="120" />
-        <TextBlock Text="Initializing browser…" Classes="caption"
+        <TextBlock Text="{loc:Str Browser_Initializing}" Classes="caption"
                    Foreground="{DynamicResource Brush.TextTertiary}"
                    HorizontalAlignment="Center" />
       </StackPanel>
@@ -230,11 +230,11 @@
 
           <!-- Title + description -->
           <StackPanel Spacing="6">
-            <TextBlock Text="Import your browser data" Classes="subtitle"
+            <TextBlock Text="{loc:Str Browser_ImportTitle}" Classes="subtitle"
                        HorizontalAlignment="Center" TextAlignment="Center" />
             <TextBlock TextWrapping="Wrap" TextAlignment="Center" Classes="caption"
                        Foreground="{DynamicResource Brush.TextSecondary}"
-                       Text="Sign into websites without logging in again. Lumi can import your cookies from an installed browser so you're already authenticated." />
+                       Text="{loc:Str Browser_ImportDescription}" />
           </StackPanel>
 
           <!-- Browser/profile picker -->
@@ -248,20 +248,20 @@
             <StackPanel Spacing="6">
               <TextBlock Classes="caption" FontWeight="SemiBold"
                          Foreground="{DynamicResource Brush.TextSecondary}"
-                         Text="What will happen:" />
+                         Text="{loc:Str Browser_ImportWhatHappens}" />
               <StackPanel Spacing="4">
                 <TextBlock Classes="caption" TextWrapping="Wrap"
                            Foreground="{DynamicResource Brush.TextTertiary}"
-                           Text="{OnPlatform Windows='• The selected browser will be briefly closed', Default='• Close the selected browser first if its cookie database is locked'}" />
+                           Text="{OnPlatform Windows={loc:Str Browser_ImportBrowserClosedHint}, Default={loc:Str Browser_ImportCloseBrowserHint}}" />
                 <TextBlock Classes="caption" TextWrapping="Wrap"
                            Foreground="{DynamicResource Brush.TextTertiary}"
-                           Text="{OnPlatform Windows='• Windows may ask for your password to authorize', Default='• Your system may ask to unlock its credential store'}" />
+                           Text="{OnPlatform Windows={loc:Str Browser_ImportAuthorizeHint}, Default={loc:Str Browser_ImportCredentialHint}}" />
+                <TextBlock x:Name="CookieCopiedHint" Classes="caption" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           Text="{loc:Str Browser_ImportCopiedHint}" />
                 <TextBlock Classes="caption" TextWrapping="Wrap"
                            Foreground="{DynamicResource Brush.TextTertiary}"
-                           Text="• Your cookies will be copied into Lumi's browser" />
-                <TextBlock Classes="caption" TextWrapping="Wrap"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           Text="• Your original browser data is never modified" />
+                           Text="{loc:Str Browser_ImportOriginalDataHint}" />
               </StackPanel>
             </StackPanel>
           </Border>
@@ -271,7 +271,7 @@
             <ProgressBar IsIndeterminate="True" />
             <TextBlock x:Name="ImportStatusText" Classes="caption"
                        Foreground="{DynamicResource Brush.TextSecondary}"
-                       HorizontalAlignment="Center" Text="Preparing…" />
+                       HorizontalAlignment="Center" Text="{loc:Str Browser_ImportPreparing}" />
           </StackPanel>
 
           <!-- Actions -->
@@ -280,12 +280,12 @@
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center"
                     Click="OnImportOnboardingClick"
-                    Content="Import cookies" />
+                    Content="{loc:Str Browser_ImportCookies}" />
             <Button x:Name="SkipButton" Classes="subtle"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center"
                     Click="OnSkipOnboardingClick"
-                    Content="Skip for now" />
+                    Content="{loc:Str Browser_ImportSkip}" />
           </StackPanel>
 
         </StackPanel>

@@ -1,6 +1,7 @@
 using System.Net;
 using Lumi.Mobile.Services;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Browser;
 
@@ -20,7 +21,7 @@ internal sealed class BrowserSameOriginHandler(Uri origin, HttpMessageHandler in
             || !string.Equals(destination.IdnHost, origin.IdnHost, StringComparison.OrdinalIgnoreCase)
             || destination.Port != origin.Port)
         {
-            throw new HttpRequestException("Lumi Web can only connect to the PC that served this app.");
+            throw new HttpRequestException(Strings.Get("BrowserSameOriginOnly"));
         }
 
         request.Options.TryGetValue(FetchOptions, out var configuredOptions);
@@ -45,9 +46,7 @@ internal sealed class BrowserSameOriginHandler(Uri origin, HttpMessageHandler in
         {
             response.Dispose();
             throw new RemoteGatewaySignInException(
-                "Microsoft sign-in needs attention. Sign in again with the tunnel owner's account. " +
-                "Your Lumi pairing is kept; copy any unsent draft before reloading. " +
-                "Reload web app in Settings is also available.");
+                Strings.Get("BrowserGatewaySignIn"));
         }
         return response;
     }

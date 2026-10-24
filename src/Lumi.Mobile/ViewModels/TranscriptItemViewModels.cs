@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
 
@@ -47,7 +48,7 @@ public abstract partial class TranscriptItemViewModel : ObservableObject, IDispo
 public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 {
     [ObservableProperty] private string _text = "";
-    [ObservableProperty] private string _author = "You";
+    [ObservableProperty] private string _author = Strings.Get("You");
     [ObservableProperty] private DateTimeOffset? _timestamp;
     [ObservableProperty] private string? _steerState;
 
@@ -62,10 +63,10 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 
     public string SteerStatusText => SteerState switch
     {
-        "Queued" => "Queued...",
-        "Steering" => "Steering...",
-        "Steered" => "Steered",
-        "Failed" => "Could not steer",
+        "Queued" => Strings.Get("Queued"),
+        "Steering" => Strings.Get("Steering"),
+        "Steered" => Strings.Get("Steered"),
+        "Failed" => Strings.Get("SteerFailed"),
         _ => ""
     };
 
@@ -75,7 +76,7 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
     {
         var content = RemoteUserMessageContent.Parse(item.Text, item.Author);
         Text = content.Text;
-        Author = string.IsNullOrWhiteSpace(item.Author) ? "You" : item.Author!;
+        Author = string.IsNullOrWhiteSpace(item.Author) ? Strings.Get("You") : item.Author!;
         Timestamp = item.Timestamp;
         SteerState = item.SteerState;
 
@@ -106,11 +107,12 @@ internal static class TranscriptTime
 public sealed partial class JobWakeItemViewModel : TranscriptItemViewModel
 {
     private readonly Action<JobWakeItemViewModel>? _open;
-    [ObservableProperty] private RemoteJobWake _details = RemoteJobWake.Parse(null, "");
+    [ObservableProperty] private RemoteJobWake _details = RemoteJobWake.Parse(
+        null, "", Strings.Get("BackgroundJob"), Strings.Get("WakeSignalReceived"));
     [ObservableProperty] private string _timestampText = "";
 
     public string Summary => Details.WakeSignal.StartsWith('{') || Details.WakeSignal.StartsWith('[')
-        ? "The job woke this chat."
+        ? Strings.Get("JobWakeSummary")
         : Details.WakeSignal;
     public bool HasInstructions => Details.Instructions.Length > 0;
     public bool HasOutput => Details.OutputText.Length > 0;
@@ -127,7 +129,8 @@ public sealed partial class JobWakeItemViewModel : TranscriptItemViewModel
 
     public override void Update(RemoteTranscriptItem item)
     {
-        Details = RemoteJobWake.Parse(item.Author, item.Text ?? "");
+        Details = RemoteJobWake.Parse(item.Author, item.Text ?? "",
+            Strings.Get("BackgroundJob"), Strings.Get("WakeSignalReceived"));
         TimestampText = item.Timestamp?.ToLocalTime().ToString("t") ?? "";
         OnPropertyChanged(nameof(Summary));
         OnPropertyChanged(nameof(HasInstructions));
@@ -145,7 +148,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
 {
     private readonly Dictionary<string, string> _pendingInteractionStates = [];
     [ObservableProperty] private IReadOnlyDictionary<string, string>? _interactionStates;
-    [ObservableProperty] private string _interactionLanguage = "en";
+    [ObservableProperty] private string _interactionLanguage = Strings.Language;
 
     internal void StageInteractionState(string blockId, string json)
     {
@@ -227,8 +230,9 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     }
 
     public bool CanShare => Services.MobilePlatformServices.TextShare.IsAvailable;
-    public string SelectionText => RemoteMarkdownImages.ToSelectionText(Text);
-    public string SourceCountText => Sources.Count == 1 ? "1 source" : $"{Sources.Count} sources";
+    public string SelectionText => RemoteMarkdownImages.ToSelectionText(Strings.LocalizeMobileTruncation(Text)!);
+    public string SourceCountText => Sources.Count == 1
+        ? Strings.Get("SourceCountOne") : Strings.Get("SourceCountMany", Sources.Count);
 
     /// <summary>The sites the sources come from, beside the sources chip's count.</summary>
     public string SourceDomains => string.Join(" · ", Sources
@@ -293,7 +297,7 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         Timestamp = item.Timestamp;
         // The chat may learn its models' names after the answer arrived.
         OnPropertyChanged(nameof(FooterText));
-        InteractionLanguage = item.InteractionLanguage ?? "en";
+        InteractionLanguage = item.InteractionLanguage ?? Strings.Language;
         var states = item.InteractionStates is null ? new Dictionary<string, string>()
             : new Dictionary<string, string>(item.InteractionStates);
         foreach (var pending in _pendingInteractionStates.ToArray())
@@ -474,7 +478,7 @@ public sealed partial class ReasoningItemViewModel : TranscriptItemViewModel
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Summary))]
     private string _text = "";
-    [ObservableProperty] private string _label = "Thinking";
+    [ObservableProperty] private string _label = Strings.Get("Thinking");
     [ObservableProperty] private bool _isStreaming;
 
     /// <summary>The thought's first line, beside the chip's label as on the desktop.</summary>
@@ -504,7 +508,7 @@ public sealed partial class ReasoningItemViewModel : TranscriptItemViewModel
         }
 
         Text = text;
-        Label = string.IsNullOrWhiteSpace(item.Label) ? "Thinking" : item.Label!;
+        Label = string.IsNullOrWhiteSpace(item.Label) ? Strings.Get("Thinking") : item.Label!;
         IsStreaming = item.IsStreaming;
     }
 }
@@ -593,8 +597,8 @@ public sealed partial class ActivityStepViewModel : ObservableObject
 
         var totalSeconds = Math.Max(1, (int)Math.Round(durationMs.Value / 1000));
         return totalSeconds < 60
-            ? $"{totalSeconds}s"
-            : $"{totalSeconds / 60}m {totalSeconds % 60}s";
+            ? Strings.Get("DurationSeconds", totalSeconds)
+            : Strings.Get("DurationMinutesSeconds", totalSeconds / 60, totalSeconds % 60);
     }
 }
 
@@ -605,10 +609,10 @@ public sealed class ActivitySectionViewModel
         Category = category;
         Label = category switch
         {
-            "research" => "Researched",
-            "work" => "Implemented",
-            "verify" => "Verified",
-            _ => "Worked"
+            "research" => Strings.Get("Researched"),
+            "work" => Strings.Get("Implemented"),
+            "verify" => Strings.Get("Verified"),
+            _ => Strings.Get("Worked")
         };
         Steps = new ObservableCollection<ActivityStepViewModel>(steps);
     }
@@ -616,7 +620,7 @@ public sealed class ActivitySectionViewModel
     public string Category { get; }
     public string Label { get; }
     public ObservableCollection<ActivityStepViewModel> Steps { get; }
-    public string CountText => Steps.Count == 1 ? "1 action" : $"{Steps.Count} actions";
+    public string CountText => Steps.Count == 1 ? Strings.Get("ActionCountOne") : Strings.Get("ActionCountMany", Steps.Count);
 }
 
 public sealed class ActivityFileChangeViewModel
@@ -670,7 +674,7 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     private long _detailsVersion;
 
     [ObservableProperty] private string _activityId = "";
-    [ObservableProperty] private string _label = "Working...";
+    [ObservableProperty] private string _label = Strings.Get("WorkingDots");
     [ObservableProperty] private string? _iconKey;
     [ObservableProperty] private string _status = "Completed";
     [ObservableProperty] private int _actionCount;
@@ -695,32 +699,32 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     public bool CanShowTechnicalDetails =>
         Sections.SelectMany(section => section.Steps).Any(step => step.HasTechnicalDetails);
     public string FileSummary =>
-        TotalFileChangeCount == 1 ? "1 file changed" : $"{TotalFileChangeCount} files changed";
+        TotalFileChangeCount == 1 ? Strings.Get("FileChangedOne") : Strings.Get("FileChangedMany", TotalFileChangeCount);
     public string SummaryText
     {
         get
         {
             if (IsRunning)
-                return string.IsNullOrWhiteSpace(Label) ? "Working..." : Label;
+                return string.IsNullOrWhiteSpace(Label) ? Strings.Get("WorkingDots") : Label;
 
             var duration = ActivityStepViewModel.FormatDuration(DurationMs);
             var actions = ActionCount switch
             {
                 <= 0 => "",
-                1 => "1 action",
-                _ => $"{ActionCount} actions"
+                1 => Strings.Get("ActionCountOne"),
+                _ => Strings.Get("ActionCountMany", ActionCount)
             };
             var prefix = Status switch
             {
-                "Failed" => "Finished with an issue",
-                "Stopped" => "Stopped",
-                _ => "Worked"
+                "Failed" => Strings.Get("FinishedWithIssue"),
+                "Stopped" => Strings.Get("Stopped"),
+                _ => Strings.Get("Worked")
             };
 
             if (duration.Length > 0)
                 return actions.Length > 0
-                    ? $"{prefix} for {duration} · {actions}"
-                    : $"{prefix} for {duration}";
+                    ? Strings.Get("WorkForDurationActions", prefix, duration, actions)
+                    : Strings.Get("WorkForDuration", prefix, duration);
             if (actions.Length > 0)
                 return $"{prefix} · {actions}";
             return HasFileChanges ? FileSummary : prefix;
@@ -728,7 +732,7 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     }
 
     public string TechnicalDetailsLabel =>
-        IsTechnicalDetailsVisible ? "Hide technical details" : "Show technical details";
+        Strings.Get(IsTechnicalDetailsVisible ? "HideTechnicalDetails" : "ShowTechnicalDetails");
 
     /// <summary>The chip's label: what is happening now, or how the work went.</summary>
     public string ChipLabel
@@ -736,17 +740,17 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
         get
         {
             if (IsRunning)
-                return string.IsNullOrWhiteSpace(Label) ? "Working..." : Label;
+                return string.IsNullOrWhiteSpace(Label) ? Strings.Get("WorkingDots") : Label;
 
             var duration = ActivityStepViewModel.FormatDuration(DurationMs);
             var prefix = Status switch
             {
-                "Failed" => "Finished with an issue",
-                "Stopped" => "Stopped",
-                _ => "Worked"
+                "Failed" => Strings.Get("FinishedWithIssue"),
+                "Stopped" => Strings.Get("Stopped"),
+                _ => Strings.Get("Worked")
             };
             if (duration.Length > 0)
-                return $"{prefix} for {duration}";
+                return Strings.Get("WorkForDuration", prefix, duration);
             if (ActionCount <= 0 && HasFileChanges)
                 return FileSummary;
             // Work without steps is the model thinking; the desktop names it ("Thought through the response").
@@ -760,8 +764,8 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     public string? ChipMeta => ActionCount switch
     {
         <= 0 => null,
-        1 => "1 action",
-        _ => $"{ActionCount} actions"
+        1 => Strings.Get("ActionCountOne"),
+        _ => Strings.Get("ActionCountMany", ActionCount)
     };
 
     public int LinesAdded => FileChanges.Sum(static change => change.LinesAdded);
@@ -791,7 +795,7 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
             || !FileChangesMatch(item.FileChanges);
 
         ActivityId = item.ActivityId ?? item.Id;
-        Label = string.IsNullOrWhiteSpace(item.Label) ? "Working..." : item.Label!;
+        Label = string.IsNullOrWhiteSpace(item.Label) ? Strings.Get("WorkingDots") : item.Label!;
         // Work without steps is the model thinking; a host predating icons sends none.
         IconKey = item.Icon ?? (item.ActionCount is null or <= 0 ? "think" : null);
         Status = item.Status ?? "Completed";
@@ -929,7 +933,7 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
 
 public sealed partial class ToolGroupItemViewModel : TranscriptItemViewModel
 {
-    [ObservableProperty] private string _label = "Working";
+    [ObservableProperty] private string _label = Strings.Get("Working");
     [ObservableProperty] private bool _isRunning;
 
     public ObservableCollection<ToolCallViewModel> Tools { get; } = [];
@@ -938,7 +942,7 @@ public sealed partial class ToolGroupItemViewModel : TranscriptItemViewModel
 
     public override void Update(RemoteTranscriptItem item)
     {
-        Label = string.IsNullOrWhiteSpace(item.Label) ? "Working" : item.Label!;
+        Label = string.IsNullOrWhiteSpace(item.Label) ? Strings.Get("Working") : item.Label!;
 
         var incoming = item.Tools ?? [];
         for (var i = 0; i < incoming.Count; i++)
@@ -1086,7 +1090,7 @@ public static class TranscriptItemFactory
 public sealed partial class WorkSummaryItemViewModel : TranscriptItemViewModel
 {
     private readonly Action _expansionChanged;
-    [ObservableProperty] private string _label = "Worked";
+    [ObservableProperty] private string _label = Strings.Get("Worked");
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _hasFailures;
 
@@ -1101,12 +1105,14 @@ public sealed partial class WorkSummaryItemViewModel : TranscriptItemViewModel
     public override void Update(RemoteTranscriptItem item)
     {
         var duration = ActivityStepViewModel.FormatDuration(item.DurationMs);
-        var label = duration.Length > 0 ? $"Worked for {duration}" : item.DurationMs is null ? "Worked" : "Worked for 0s";
+        var label = duration.Length > 0 ? Strings.Get("WorkedForDuration", duration)
+            : item.DurationMs is null ? Strings.Get("Worked")
+            : Strings.Get("WorkedForDuration", Strings.Get("DurationSeconds", 0));
         Label = item.ActionCount switch
         {
             null or <= 0 => label,
-            1 => $"{label} · 1 action",
-            var count => $"{label} · {count} actions"
+            1 => $"{label} · {Strings.Get("ActionCountOne")}",
+            var count => $"{label} · {Strings.Get("ActionCountMany", count)}"
         };
         HasFailures = item.Status == "Failed";
     }

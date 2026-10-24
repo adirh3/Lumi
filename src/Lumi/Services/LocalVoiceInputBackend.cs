@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using Lumi.Localization;
 using Silk.NET.Core.Contexts;
 using Silk.NET.SDL;
 using Whisper.net;
@@ -50,7 +51,7 @@ internal sealed class LocalVoiceInputBackend : IVoiceInputBackend
     private WhisperFactory LoadWhisper()
     {
         if (!File.Exists(_modelPath))
-            throw new VoiceInputException(VoiceInputErrorKind.Model, "The voice model is not installed.");
+            throw new VoiceInputException(VoiceInputErrorKind.Model, Loc.Voice_ModelNotInstalled);
         var factory = WhisperFactory.FromPath(_modelPath);
         try
         {
@@ -62,14 +63,14 @@ internal sealed class LocalVoiceInputBackend : IVoiceInputBackend
         catch (WhisperModelLoadException ex)
         {
             factory.Dispose();
-            throw new VoiceInputException(VoiceInputErrorKind.Model, "The voice model could not be loaded.", ex);
+            throw new VoiceInputException(VoiceInputErrorKind.Model, Loc.Voice_ModelLoadFailed, ex);
         }
     }
 
     private void LoadSpeechGate(string path)
     {
         if (!File.Exists(path))
-            throw new VoiceInputException(VoiceInputErrorKind.Model, "The voice model is not installed.");
+            throw new VoiceInputException(VoiceInputErrorKind.Model, Loc.Voice_ModelNotInstalled);
         try
         {
             _speechGateFactory = WhisperVadFactory.FromPath(path);
@@ -83,7 +84,7 @@ internal sealed class LocalVoiceInputBackend : IVoiceInputBackend
         {
             _speechGateFactory?.Dispose();
             _speechGateFactory = null;
-            throw new VoiceInputException(VoiceInputErrorKind.Model, "The voice model could not be loaded.", ex);
+            throw new VoiceInputException(VoiceInputErrorKind.Model, Loc.Voice_ModelLoadFailed, ex);
         }
     }
 
@@ -99,7 +100,7 @@ internal sealed class LocalVoiceInputBackend : IVoiceInputBackend
         }
         catch (TimeoutException ex)
         {
-            throw new VoiceInputException(VoiceInputErrorKind.Microphone, "The microphone opened but sent no audio.", ex);
+            throw new VoiceInputException(VoiceInputErrorKind.Microphone, Loc.Voice_MicrophoneNoAudio, ex);
         }
     }
 
@@ -107,7 +108,7 @@ internal sealed class LocalVoiceInputBackend : IVoiceInputBackend
     {
         _audio = new Sdl(new DefaultNativeContext(GetAudioLibraryPath()));
         if (_audio.InitSubSystem(Sdl.InitAudio) != 0)
-            throw new VoiceInputException(VoiceInputErrorKind.Microphone, $"Audio input could not start: {_audio.GetErrorS()}");
+            throw new VoiceInputException(VoiceInputErrorKind.Microphone, string.Format(Loc.Voice_AudioStartFailed, _audio.GetErrorS()));
         _audioInitialized = true;
         _captureCallback = PfnAudioCallback.From(OnAudioProcessed);
         _callbackAllocated = true;
@@ -123,9 +124,9 @@ internal sealed class LocalVoiceInputBackend : IVoiceInputBackend
         AudioSpec obtained = default;
         _device = _audio.OpenAudioDevice((byte*)null, 1, in desired, ref obtained, 0);
         if (_device == 0)
-            throw new VoiceInputException(VoiceInputErrorKind.Microphone, $"The microphone could not be opened: {_audio.GetErrorS()}");
+            throw new VoiceInputException(VoiceInputErrorKind.Microphone, string.Format(Loc.Voice_MicrophoneOpenFailed, _audio.GetErrorS()));
         if (obtained.Freq != desired.Freq || obtained.Channels != desired.Channels || obtained.Format != desired.Format)
-            throw new VoiceInputException(VoiceInputErrorKind.Microphone, "The microphone could not supply mono 16 kHz audio.");
+            throw new VoiceInputException(VoiceInputErrorKind.Microphone, Loc.Voice_MicrophoneFormatUnsupported);
     }
 
     private static string GetAudioLibraryPath()
@@ -149,7 +150,7 @@ internal sealed class LocalVoiceInputBackend : IVoiceInputBackend
                 if (File.Exists(path))
                     return path;
         }
-        throw new FileNotFoundException($"The bundled microphone library {name} is missing.");
+        throw new FileNotFoundException(string.Format(Loc.Voice_MicrophoneLibraryMissing, name));
     }
 
     private unsafe void OnAudioProcessed(void* userData, byte* samples, int byteCount)

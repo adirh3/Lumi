@@ -101,7 +101,7 @@ public partial class ChatViewModel
             return;
         }
 
-        _transcriptBuilder.AppendPlanCardToLastTurn("Plan", () => PlanShowRequested?.Invoke());
+        _transcriptBuilder.AppendPlanCardToLastTurn(Loc.Plan_Title, () => PlanShowRequested?.Invoke());
     }
 
     private void PlaceHistoryPlanCard()
@@ -129,13 +129,13 @@ public partial class ChatViewModel
             {
                 // No exchange has an answer: the card goes last.
                 _historyPlanCard = null;
-                _transcriptBuilder.AppendPlanCardToLastTurn("Plan", () => PlanShowRequested?.Invoke());
+                _transcriptBuilder.AppendPlanCardToLastTurn(Loc.Plan_Title, () => PlanShowRequested?.Invoke());
                 return;
             }
         }
 
         if (plan.Segment.Turns is { } turns && !turns.Any(turn => turn.Items.Any(item => item.StableId == plan.StableId)))
-            TranscriptBuilder.TryAppendAfterLastAnswer(turns, new PlanCardItem("Plan", () => PlanShowRequested?.Invoke(), plan.StableId));
+            TranscriptBuilder.TryAppendAfterLastAnswer(turns, new PlanCardItem(Loc.Plan_Title, () => PlanShowRequested?.Invoke(), plan.StableId));
     }
 
     /// <summary>

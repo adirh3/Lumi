@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Lumi.Localization;
 
 namespace Lumi.Services;
 
@@ -208,10 +209,10 @@ public static partial class GitService
         // Even a path returned by an earlier list must still belong to the explicit repository's
         // current changed-file set. Literal pathspecs prevent wildcard/:(...) interpretation.
         if (!IsReadOnlyPathSafe(repoRoot, path))
-            throw new ArgumentException("Invalid repository file.");
+            throw new ArgumentException(Loc.Git_RepositoryFileInvalid);
         var state = await GetReadOnlyChangesAsync(repoRoot, fileLimit, cancellationToken);
         var file = state.Files.FirstOrDefault(file => string.Equals(file.RelativePath, path, StringComparison.Ordinal))
-            ?? throw new FileNotFoundException("This file is no longer in the changed-file list. Refresh changes.");
+            ?? throw new FileNotFoundException(Loc.Git_ChangedFileGone);
         if (file.Kind == GitChangeKind.Untracked)
             return await ReadUntrackedDiffAsync(repoRoot, file, characterLimit, cancellationToken);
 
@@ -232,7 +233,7 @@ public static partial class GitService
             : await RunReadOnlyGitAsync(file.RepoRoot,
                 [.. arguments, "--", .. paths], remaining, cancellationToken);
         var text = staged.Text.Length == 0 ? working.Text
-            : "Staged changes\n" + staged.Text + (working.Text.Length == 0 ? "" : "\nWorking tree changes\n" + working.Text);
+            : Loc.Git_StagedChanges + "\n" + staged.Text + (working.Text.Length == 0 ? "" : "\n" + Loc.Git_WorkingTreeChanges + "\n" + working.Text);
         return ClipReadOnlyOutput(text, working.Truncated, characterLimit);
     }
 
@@ -240,9 +241,9 @@ public static partial class GitService
         string repoRoot, GitFileChange file, int characterLimit, CancellationToken cancellationToken)
     {
         if (!File.Exists(file.FullPath))
-            throw new FileNotFoundException("The untracked file no longer exists.");
+            throw new FileNotFoundException(Loc.Git_UntrackedFileGone);
         if (!IsReadOnlyPathSafe(repoRoot, file.RelativePath))
-            throw new ArgumentException("Invalid repository file.");
+            throw new ArgumentException(Loc.Git_RepositoryFileInvalid);
         using var reader = new StreamReader(file.FullPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         var buffer = new char[characterLimit + 1];
         var count = await reader.ReadBlockAsync(buffer.AsMemory(), cancellationToken);
@@ -326,7 +327,7 @@ public static partial class GitService
             await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
             await stderr.ConfigureAwait(false);
             if (!result.Truncated && process.ExitCode != 0)
-                throw new IOException("Git could not read this repository. Try refreshing changes.");
+                throw new IOException(Loc.Git_ReadRepositoryFailed);
             return result;
         }
         catch

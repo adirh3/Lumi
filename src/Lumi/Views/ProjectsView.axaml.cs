@@ -3,6 +3,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Lumi.Localization;
 using Lumi.ViewModels;
 using Lumi.Views.Management;
 using System.Linq;
@@ -52,7 +53,7 @@ public partial class ProjectsView : UserControl
         var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
             AllowMultiple = false,
-            Title = "Select project folder"
+            Title = Loc.Projects_SelectFolderTitle
         });
 
         if (folders.Count > 0 && DataContext is ProjectsViewModel vm)
@@ -69,7 +70,7 @@ public partial class ProjectsView : UserControl
         var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
             AllowMultiple = true,
-            Title = "Add project context folders"
+            Title = Loc.Projects_AddContextFoldersTitle
         });
 
         if (folders.Count > 0 && DataContext is ProjectsViewModel vm)

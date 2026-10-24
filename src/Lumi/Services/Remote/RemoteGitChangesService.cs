@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.ViewModels;
@@ -25,7 +26,9 @@ internal static class RemoteGitChangesService
             ? ChatViewModel.ResolveEffectiveWorkingDirectory(store, chat.ProjectId, chat.WorktreePath)
             : null;
         var root = directory is null ? null : GitService.FindRepoRoot(directory);
-        var label = $"{project?.Name ?? "No project"} · {(usesWorktree ? "Chat worktree" : "Project checkout")}";
+        var label = Loc.Get(
+            usesWorktree ? "Remote_GitChatWorktreeScope" : "Remote_GitProjectCheckoutScope",
+            project?.Name ?? Loc.Library_NoProject);
         if (root is not null)
             label += $" · {Path.GetFileName(root)}";
         var scopeId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
@@ -45,7 +48,7 @@ internal static class RemoteGitChangesService
         };
         if (scope.Repository is null)
         {
-            result.Message = "This chat has no available Git repository. Set its project or worktree on desktop.";
+            result.Message = Loc.Remote_GitRepositoryUnavailable;
             return result;
         }
         var state = await GitService.GetReadOnlyChangesAsync(
@@ -62,8 +65,8 @@ internal static class RemoteGitChangesService
         }).ToList();
         result.IsTruncated = state.Truncated;
         result.Message = state.Truncated
-            ? $"Showing up to {RemoteProtocol.GitFileLimit} safe file paths. Some entries were omitted; open desktop for all changes."
-            : result.Files.Count == 0 ? "No uncommitted changes in this repository." : null;
+            ? Loc.Get("Remote_GitFilesTruncated", RemoteProtocol.GitFileLimit)
+            : result.Files.Count == 0 ? Loc.Remote_GitNoUncommittedChanges : null;
         return result;
     }
 
@@ -71,7 +74,7 @@ internal static class RemoteGitChangesService
         RemoteGitScope scope, string path, CancellationToken cancellationToken)
     {
         if (scope.Repository is null)
-            throw new FileNotFoundException("This chat's repository is no longer available.");
+            throw new FileNotFoundException(Loc.Remote_GitRepositoryNoLongerAvailable);
         var diff = await GitService.GetReadOnlyDiffAsync(
             scope.Repository, path, RemoteProtocol.GitFileLimit,
             RemoteProtocol.GitDiffCharacterLimit, cancellationToken).ConfigureAwait(false);
@@ -91,9 +94,9 @@ internal static class RemoteGitChangesService
             ChatId = scope.ChatId, ScopeId = scope.ScopeId, Path = path,
             UnifiedDiff = diff.Text, IsTruncated = diff.Truncated,
             LinesAdded = document.AddedLineCount, LinesRemoved = document.RemovedLineCount,
-            Message = diff.Truncated ? "Diff truncated on mobile. Open desktop for the full file."
+            Message = diff.Truncated ? Loc.Remote_GitDiffTruncated
                 : string.IsNullOrWhiteSpace(diff.Text)
-                    ? "No text diff available (binary, empty file, or submodule-only change)."
+                    ? Loc.Remote_GitNoTextDiff
                     : null
         };
     }

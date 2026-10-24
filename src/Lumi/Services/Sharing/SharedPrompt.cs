@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Lumi.Localization;
 
 namespace Lumi.Services.Sharing;
 
@@ -55,7 +56,7 @@ public static partial class PromptSharing
         ArgumentNullException.ThrowIfNull(prompt);
         if (prompt.Name is null || prompt.Description is null || prompt.Content is null
             || prompt.Inputs is null || prompt.Requirements is null)
-            throw new ArgumentException("The prompt is missing a required field.");
+            throw new ArgumentException(Loc.Prompt_RequiredFieldMissing);
 
         var normalized = prompt with
         {
@@ -63,7 +64,7 @@ public static partial class PromptSharing
             Description = PackText.SingleLine(HiddenText.Strip(prompt.Description, out _)),
             Content = PackText.NormalizeNewlines(HiddenText.Strip(prompt.Content, out _)).Trim(),
             Inputs = prompt.Inputs.Select(static input => input is null
-                ? throw new ArgumentException("A prompt input is missing.")
+                ? throw new ArgumentException(Loc.Prompt_InputMissing)
                 : input with
                 {
                     Label = PackText.SingleLine(HiddenText.Strip(input.Label, out _)),
@@ -76,7 +77,7 @@ public static partial class PromptSharing
         if (normalized.Name.Length is 0 or > 120 || normalized.Description.Length > 1000
             || normalized.Content.Length is 0 or > MaxContentLength
             || normalized.Inputs.Count > MaxInputs || normalized.Requirements.Count > MaxRequirements)
-            throw new ArgumentException("The prompt is empty or exceeds the supported size.");
+            throw new ArgumentException(Loc.Prompt_SizeInvalid);
 
         var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var input in normalized.Inputs)
@@ -85,13 +86,13 @@ public static partial class PromptSharing
                 || SecretRedactor.IsSensitiveName(input.Key)
                 || input.Label.Length is 0 or > 100 || input.Description.Length > 500
                 || !Enum.IsDefined(input.Kind))
-                throw new ArgumentException("The prompt contains an invalid, duplicate or secret-bearing input.");
+                throw new ArgumentException(Loc.Prompt_InputInvalid);
         }
 
         if (!keys.SetEquals(InputKeys(normalized.Content))
             || InputPattern().Replace(normalized.Content, "").Contains("{{", StringComparison.Ordinal)
             || normalized.Requirements.Any(static requirement => requirement.Length is 0 or > 1000 || InputKeys(requirement).Count > 0))
-            throw new ArgumentException("Every prompt placeholder must have exactly one matching input.");
+            throw new ArgumentException(Loc.Prompt_PlaceholdersInvalid);
 
         return normalized;
     }
@@ -102,7 +103,7 @@ public static partial class PromptSharing
         if (PackText.TryUnwrapSingleFence(raw, out var inner))
             raw = inner.Trim();
         return Normalize(JsonSerializer.Deserialize(raw, PromptShareJsonContext.Default.SharedPrompt)
-            ?? throw new JsonException("The model returned no reusable prompt."));
+            ?? throw new JsonException(Loc.Prompt_DraftMissing));
     }
 
     public static string Write(SharedPrompt prompt)
@@ -119,7 +120,7 @@ public static partial class PromptSharing
         foreach (var input in prompt.Inputs)
         {
             if (!values.TryGetValue(input.Key, out var value) || string.IsNullOrWhiteSpace(value))
-                throw new ArgumentException($"Provide a value for {input.Label}.");
+                throw new ArgumentException(string.Format(Loc.Prompt_ValueRequired, input.Label));
         }
 
         var content = InputPattern().Replace(prompt.Content, match => values[match.Groups["key"].Value].Trim());

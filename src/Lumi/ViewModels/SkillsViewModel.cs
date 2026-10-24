@@ -259,7 +259,7 @@ public partial class SkillsViewModel : ObservableObject
                 static skill =>
                 [
                     SearchField.Primary(skill.Name, 3.4),
-                    new SearchField(skill.Description, 1.8),
+                    new SearchField(skill.DisplayDescription, 1.8),
                     SearchField.Content(skill.Content, 0.95)
                 ],
                 static skill => new SearchSortMetadata(Text: skill.Name))

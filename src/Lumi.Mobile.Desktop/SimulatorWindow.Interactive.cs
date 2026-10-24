@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.ViewModels;
 using Lumi.Remote.Protocol;
+using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 using StrataTheme.Controls;
 
 namespace Lumi.Mobile.Desktop;
@@ -20,7 +21,7 @@ public partial class SimulatorWindow
         if (DataContext is not MobileShellViewModel shell || _shell is null)
             throw new InvalidOperationException("The mobile shell must be mounted before opening the design preview.");
 
-        Title = "Lumi Mobile - design preview";
+        Title = Strings.Get("DesignPreviewTitle");
         DesignPreview.Apply(shell);
     }
 
@@ -29,7 +30,7 @@ public partial class SimulatorWindow
         if (DataContext is not MobileShellViewModel shell || _shell is null)
             throw new InvalidOperationException("The mobile shell must be mounted before opening the popup preview.");
 
-        Title = "Lumi Mobile - polished popup preview";
+        Title = Strings.Get("PopupPreviewTitle");
         shell.IsPaired = shell.IsConnected = shell.IsHostReady = true;
         shell.HostName = "Preview PC";
         shell.UserName = "Adir";
@@ -43,7 +44,7 @@ public partial class SimulatorWindow
         foreach (var project in projects)
             shell.Projects.Add(new ProjectPickViewModel { Id = project.Id, Name = project.Name });
         shell.Library.Apply(new RemoteLibrary { Projects = projects });
-        shell.Chat.Reset(Guid.Empty, "New chat");
+        shell.Chat.Reset(Guid.Empty, Strings.Get("NewChat"));
         shell.Chat.ApplyCatalogs(new RemoteSettings
         {
             PreferredModel = "gpt-6.1-sol",
@@ -96,21 +97,21 @@ public partial class SimulatorWindow
         root.Children.Add(form);
         (string Label, string Name, MobilePage Page)[] previews =
         [
-            ("Projects", "ProjectPickerSheet", MobilePage.Chat),
-            ("Models", "ModelSheet", MobilePage.Chat),
-            ("Reasoning effort", "EffortSheet", MobilePage.Chat),
-            ("Context window", "ContextSheet", MobilePage.Chat),
-            ("Chat details", "RunSettingsSheet", MobilePage.Chat),
-            ("Chat actions", "ChatActionsSheet", MobilePage.Chat),
-            ("Plan", "PlanSheet", MobilePage.Chat),
-            ("Sources", "SourcesSheet", MobilePage.Chat),
-            ("Activity", "ActivitySheet", MobilePage.Chat),
-            ("Job details", "JobWakeSheet", MobilePage.Chat),
-            ("Library actions", "LibraryActionsSheet", MobilePage.Library),
-            ("Discard changes", "LibraryDiscardSheet", MobilePage.Library),
-            ("Disconnect", "DisconnectSheet", MobilePage.Settings),
-            ("Form choices", "Field_pace", MobilePage.Chat),
-            ("Date picker", "Field_date", MobilePage.Chat)
+            (Strings.Get("Projects"), "ProjectPickerSheet", MobilePage.Chat),
+            (Strings.Get("Models"), "ModelSheet", MobilePage.Chat),
+            (Strings.Get("ReasoningEffort"), "EffortSheet", MobilePage.Chat),
+            (Strings.Get("ContextWindow"), "ContextSheet", MobilePage.Chat),
+            (Strings.Get("ChatDetails"), "RunSettingsSheet", MobilePage.Chat),
+            (Strings.Get("ChatActions"), "ChatActionsSheet", MobilePage.Chat),
+            (Strings.Get("Plan"), "PlanSheet", MobilePage.Chat),
+            (Strings.Get("Sources"), "SourcesSheet", MobilePage.Chat),
+            (Strings.Get("Activity"), "ActivitySheet", MobilePage.Chat),
+            (Strings.Get("JobDetails"), "JobWakeSheet", MobilePage.Chat),
+            (Strings.Get("LibraryActions"), "LibraryActionsSheet", MobilePage.Library),
+            (Strings.Get("DiscardChanges"), "LibraryDiscardSheet", MobilePage.Library),
+            (Strings.Get("Disconnect"), "DisconnectSheet", MobilePage.Settings),
+            (Strings.Get("FormChoices"), "Field_pace", MobilePage.Chat),
+            (Strings.Get("DatePicker"), "Field_date", MobilePage.Chat)
         ];
         var picker = new ComboBox
         {
@@ -192,7 +193,7 @@ public partial class SimulatorWindow
                             Status = message.TryGetProperty("inputAnswer", out answer) && answer.ValueKind == System.Text.Json.JsonValueKind.String ? "Submitted" : "Expired"
                         }
                     };
-                    polishedScreens.Add(("Submitted input", [input]));
+                    polishedScreens.Add((Strings.Get("SubmittedInput"), [input]));
                 }
                 if (message.GetProperty("role").GetString() != "assistant")
                     continue;
@@ -214,7 +215,7 @@ public partial class SimulatorWindow
                 });
             }
             if (hasReceipt)
-                polishedScreens.Add(("Action receipts", polishedItems));
+                polishedScreens.Add((Strings.Get("ActionReceipts"), polishedItems));
         }
         if (answers.Count == 0)
             throw new InvalidOperationException("The profile contains no interactive fixture answers.");
@@ -249,7 +250,7 @@ public partial class SimulatorWindow
             shell.Chat.ApplyTranscript(new RemoteTranscript
             {
                 ChatId = id, Title = shell.Chat.Title, Revision = 1,
-                Status = new RemoteChatStatus { ChatId = id, StatusText = "Local UI fixture" },
+                Status = new RemoteChatStatus { ChatId = id, StatusText = Strings.Get("LocalUiFixture") },
                 Turns = [new()
                 {
                     Id = "fixture",
