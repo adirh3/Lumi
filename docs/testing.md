@@ -115,11 +115,22 @@ runner problem or a broad QA finding is reported, not hidden with
 Both workflows publish evidence and the QA runner writes an Actions job
 summary. UI artifacts explicitly omit the isolated profile directory.
 
+The **Release** workflow calls this same Extended UI QA workflow at the release
+commit, in parallel with the PWA and Android builds. All four native targets
+must pass before the Windows job can create the draft release; final
+publication also depends explicitly on that QA result. Failures, cancellations
+and timeouts cannot be bypassed by a successful packaging job. Dry runs include
+the same gate but never sign/publish a desktop release. QA receives only a
+read-only repository token, not the release-signing secrets. Each release
+passes a unique concurrency group, so nightly/manual QA and other release runs
+cannot cancel its checks.
+
 To exercise a candidate branch before merging:
 
 ```powershell
 gh workflow run pr-validation.yml --ref <branch>
 gh workflow run browser-native-validation.yml --ref <branch>
+gh workflow run release.yml --ref <branch> -f version=1.0.0 -f dry_run=true
 ```
 
 Schedules run the default branch. An extended workflow result is not a

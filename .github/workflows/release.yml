@@ -18,12 +18,14 @@
 # both, then creates a draft GitHub release via Velopack. Linux and macOS merge their assets onto
 # that draft, publish-android attaches the verified APK, and publish-release makes the complete
 # release public. Sequencing avoids both partial releases and concurrent create-release races.
+# Extended UI QA runs against this same commit alongside the initial builds. Its four native
+# targets must pass before Windows can create the draft release, and before final publication.
 #
 # vpk CLI is pinned to 0.0.1298 to exactly match the Velopack library referenced by the app
 # (src/Lumi/Lumi.csproj). Velopack recommends matching CLI and library versions so the
 # generated feed/installer format stays compatible with already-installed clients' updater.
 #
-# Set the workflow's dry_run input to build every native package and upload the generated
+# Set the workflow's dry_run input to run QA, build every native package and upload the generated
 # Releases directories as workflow artifacts without signing or publishing a GitHub release.
 # The default is false, so the established production release behavior is unchanged.
 #
@@ -97,6 +99,15 @@ jobs:
           fi
           echo "version=$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
           echo "android_version_code=$android_code" >> "$GITHUB_OUTPUT"
+
+  extended-ui-qa:
+    name: Extended UI QA
+    needs: validate_release_inputs
+    permissions:
+      contents: read
+    uses: ./.github/workflows/browser-native-validation.yml
+    with:
+      concurrency_group: release-ui-${{ github.run_id }}
 
   # The Avalonia PWA is platform-neutral. Build it once so every desktop package contains
   # byte-for-byte identical web assets matched to this release commit.
@@ -188,7 +199,7 @@ jobs:
 
   # Windows is the authoritative job: it creates the draft GitHub release.
   release-windows:
-    needs: [validate_release_inputs, build-android, build-pwa]
+    needs: [validate_release_inputs, build-android, build-pwa, extended-ui-qa]
     runs-on: windows-latest
     env:
       RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
@@ -782,7 +793,7 @@ jobs:
 
   publish-release:
     if: ${{ inputs.dry_run == false }}
-    needs: [validate_release_inputs, publish-android, release-linux, release-macos]
+    needs: [validate_release_inputs, publish-android, release-linux, release-macos, extended-ui-qa]
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
