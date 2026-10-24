@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Models;
@@ -19,6 +20,54 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class FilePreviewUiTests
 {
+    [Fact]
+    public async Task SourcePreviewInRtlLayout_StartsAtTheLeftAndKeepsCodeDirection()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"lumi-rtl-source-preview-{Guid.NewGuid():N}.cs");
+        var source = "Console.WriteLine(\"שלום\"); // " + new string('x', 200);
+        await File.WriteAllTextAsync(path, source);
+        using var session = HeadlessTestSession.Start();
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                using var view = new FilePreviewView();
+                var window = new Window
+                {
+                    FlowDirection = FlowDirection.RightToLeft,
+                    Width = 500,
+                    Height = 240,
+                    Content = view,
+                };
+                try
+                {
+                    window.Show();
+                    await view.ShowFileAsync(path);
+                    window.UpdateLayout();
+                    var scroll = Assert.IsType<ScrollViewer>(
+                        view.FindControl<ContentControl>("FilePreviewContentHost")!.Content);
+                    var code = Assert.IsType<StrataCodeBlock>(scroll.Content);
+                    var presenter = Assert.Single(code.GetVisualChildren().OfType<SelectableTextBlock>());
+                    Assert.Equal(FlowDirection.LeftToRight, scroll.FlowDirection);
+                    Assert.Equal(FlowDirection.LeftToRight, presenter.FlowDirection);
+                    Assert.Equal(0, scroll.Offset.X);
+                    Assert.True(scroll.Extent.Width > scroll.Viewport.Width);
+                    presenter.SelectionStart = 0;
+                    presenter.SelectionEnd = source.Length;
+                    Assert.Equal(source, presenter.SelectedText);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task CsvPreviewRendersSortsFiltersAndTogglesHeadersWithoutEditingTheFile()
     {

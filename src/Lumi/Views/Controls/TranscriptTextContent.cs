@@ -152,7 +152,8 @@ public sealed class TranscriptTextContent : ContentControl
     {
         var text = Text ?? string.Empty;
         UpdateInteractions();
-        var direction = StrataTextDirectionDetector.Detect(text);
+        var direction = StrataTextDirectionDetector.DetectLeading(text)
+                        ?? StrataTextDirectionDetector.Detect(text);
 
         if (ShouldRenderMarkdown(text) && (!PreferPlainText || RenderMarkdownWhileStreaming))
         {

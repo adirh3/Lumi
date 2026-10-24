@@ -148,14 +148,20 @@ public partial class FilePreviewView : UserControl, IDisposable
         native?.Dispose();
     }
 
-    private static ScrollViewer WrapContent(Control content, bool horizontalScroll = false) => new()
+    private static ScrollViewer WrapContent(Control content, bool horizontalScroll = false)
     {
-        Content = content,
-        HorizontalScrollBarVisibility = horizontalScroll
-            ? Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
-            : Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
-        VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
-    };
+        var scroll = new ScrollViewer
+        {
+            Content = content,
+            HorizontalScrollBarVisibility = horizontalScroll
+                ? Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+                : Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+        };
+        if (horizontalScroll)
+            scroll.FlowDirection = FlowDirection.LeftToRight;
+        return scroll;
+    }
 
     private void ShowStatus(string title, string? detail = null)
     {

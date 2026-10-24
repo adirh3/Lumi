@@ -18,6 +18,45 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class TranscriptTextContentHeadlessTests
 {
+    [Theory]
+    [InlineData("הרץ dotnet run --project SomeVeryLongProjectName", FlowDirection.RightToLeft)]
+    [InlineData("شغل dotnet run --project SomeVeryLongProjectName", FlowDirection.RightToLeft)]
+    [InlineData("Run שלום עולם בדיקה ארוכה בעברית", FlowDirection.LeftToRight)]
+    public async Task PlainAndMarkdownTranscriptText_UseTheSameLeadingDirection(
+        string text, FlowDirection expected)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var control = new TranscriptTextContent { Text = text };
+            var window = new Window
+            {
+                Width = 500,
+                Height = 200,
+                Content = new StrataChatMessage { Content = control },
+            };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var plain = Assert.IsType<SelectableTextBlock>(control.Content);
+                Assert.Equal(expected, plain.FlowDirection);
+                Assert.Equal(expected == FlowDirection.RightToLeft ? TextAlignment.Right : TextAlignment.Left,
+                    plain.TextAlignment);
+
+                control.Text = "**" + text + "**";
+                Assert.Equal(expected, Assert.IsType<StrataMarkdown>(control.Content).FlowDirection);
+
+                control.PreferPlainText = true;
+                Assert.Equal(expected, Assert.IsType<SelectableTextBlock>(control.Content).FlowDirection);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task StreamingMarkdown_UsesSelectablePlainTextUntilStreamingEnds()
     {

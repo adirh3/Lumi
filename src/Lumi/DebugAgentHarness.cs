@@ -825,6 +825,31 @@ public static class DebugAgentHarness
             ```
             """));
 
+        chat.Messages.Add(Message("user", "Show mixed Hebrew and English markdown, including inline code and tables."));
+        chat.Messages.Add(Message("assistant", """
+            ### בדיקת כיווניות מעורבת
+
+            לפני `Call(value)` אחרי, וגם `Dictionary<string, int>` נשאר במקום הנכון.
+
+            `dotnet run --project Lumi.csproj` מפעיל את היישום בלי לשנות את כיוון המשפט.
+
+            English text keeps `inline code` and [source links](https://example.com) aligned.
+
+            > ציטוט בעברית עם `C:\Projects\Lumi (preview)` וקישור ל[תיעוד](https://example.com).
+
+            - פריט בעברית עם `appsettings.json`
+              - פריט פנימי עם `MaxItems = 42`
+
+            | פעולה | פקודה |
+            | --- | --- |
+            | הפעלה | `dotnet run` |
+            | בדיקה | `dotnet test` |
+
+            ```csharp
+            Console.WriteLine("שלום עולם");
+            ```
+            """));
+
         foreach (var message in chat.Messages.Where(message => message.Role == "assistant"
                      && message.ParentToolCallId is null && !string.IsNullOrWhiteSpace(message.Content)))
             message.Model ??= "gpt-5.5";
