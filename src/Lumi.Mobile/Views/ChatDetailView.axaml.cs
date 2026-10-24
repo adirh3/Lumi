@@ -397,7 +397,7 @@ public partial class ChatDetailView : UserControl
         DetachComposerChipObserver();
         var chipRow = this.FindControl<StrataChatComposer>("Composer")
             ?.GetVisualDescendants()
-            .OfType<WrapPanel>()
+            .OfType<Panel>()
             .FirstOrDefault(panel => panel.Name == "PART_ChipsRow");
         if (chipRow?.Children is not INotifyCollectionChanged children)
             return;
