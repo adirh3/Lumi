@@ -1272,6 +1272,7 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task StopSession_CancelsAttachedShellsInsteadOfOnlyAbortingTheAssistant()
     {
         using var host = DeferredSendHost.Create();
@@ -1289,6 +1290,7 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task StopSession_RejectedTaskCancellation_PreservesBackgroundActivityAndReportsFailure()
     {
         using var host = DeferredSendHost.Create();
@@ -1344,6 +1346,34 @@ public sealed class DeferredSendQueueTests
         Assert.True(host.IsChatRuntimeActive());
         Assert.False(host.Runtime.IsStopping);
         Assert.False(host.Runtime.ManualStopRequested);
+        Assert.Contains("The session could not be interrupted.", host.ViewModel.StatusText);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Category", "CoreQA")]
+    public async Task EditAndRegenerate_PreserveHistoryAndDoNotSendWhenInterruptionFails(bool edited)
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc
+        {
+            Result = new AbortResult { Success = false, Error = "The session could not be interrupted." }
+        };
+        var original = new ChatMessage { Role = "user", Content = "Keep this turn." };
+        host.Chat.Messages.Add(original);
+        host.ViewModel.Messages.Add(new ChatMessageViewModel(original));
+        host.ViewModel.PromptText = "Keep this newer draft.";
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+
+        await host.ViewModel.ResendFromMessageAsync(original, wasEdited: edited);
+
+        Assert.Same(original, Assert.Single(host.Chat.Messages));
+        Assert.Equal(original.Content, Assert.Single(host.ViewModel.Messages).Content);
+        Assert.Equal("Keep this newer draft.", host.ViewModel.PromptText);
+        Assert.Equal(0, rpc.SendCount);
+        Assert.True(host.Runtime.HasPendingBackgroundWork);
         Assert.Contains("The session could not be interrupted.", host.ViewModel.StatusText);
     }
 
@@ -1405,6 +1435,7 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task AssistantIdle_WithBackgroundWork_ReadiesTheAssistantWithoutReleasingTheSession()
     {
         using var ui = HeadlessTestSession.Start();
@@ -1521,6 +1552,7 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task ChildActivity_AfterAssistantIdle_DoesNotRestartTheAssistantSpinner()
     {
         using var ui = HeadlessTestSession.Start();
@@ -1703,6 +1735,7 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task ReadySession_AdmitsANewTurnWithoutCancelingItsBackgroundLifetime()
     {
         using var ui = HeadlessTestSession.Start();
@@ -1900,6 +1933,7 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task AssistantTurnEnd_IsAStepBoundary_NotAssistantReadiness()
     {
         using var ui = HeadlessTestSession.Start();

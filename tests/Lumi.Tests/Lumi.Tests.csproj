@@ -36,6 +36,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="..\..\tools\Assert-LumiQaCoverage.ps1"
+             Link="QaAssets\Assert-LumiQaCoverage.ps1"
+             CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\index.html"
              Link="BrowserAssets\index.html"
              CopyToOutputDirectory="PreserveNewest" />

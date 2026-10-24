@@ -12,6 +12,7 @@ namespace Lumi.Tests;
 public sealed class BackgroundJobChatEventTests
 {
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task DispatchChatEventAsync_MatchingEventWakesTargetChatWithoutScheduling()
     {
         var sourceChat = new Chat { Title = "Worker" };
@@ -49,6 +50,7 @@ public sealed class BackgroundJobChatEventTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task DispatchChatEventAsync_NonMatchingEventDoesNothing()
     {
         var sourceChat = new Chat { Title = "Worker" };
@@ -87,6 +89,7 @@ public sealed class BackgroundJobChatEventTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task DispatchChatEventAsync_TemporarySubscriptionPausesAfterFirstMatch()
     {
         var sourceChat = new Chat { Title = "Worker" };

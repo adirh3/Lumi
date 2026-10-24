@@ -156,5 +156,6 @@ jobs:
             QaResults/**/build.log
             QaResults/**/workflows/*
             QaResults/**/restart/*
+            QaResults/**/autosave-disabled/*
           if-no-files-found: error
           retention-days: 7

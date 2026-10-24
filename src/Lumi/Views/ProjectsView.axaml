@@ -289,7 +289,7 @@
                       <PathIcon Data="{StaticResource Icon.Close}" Width="10" Height="10" />
                     </Button>
                   </StackPanel>
-                  <TextBox Classes="mg-field mono" Text="{Binding EditWorkingDirectory}"
+                  <TextBox x:Name="ProjectWorkingDirectoryInput" Classes="mg-field mono" Text="{Binding EditWorkingDirectory}"
                            PlaceholderText="{Binding WorkingDirectoryPlaceholder}" />
                 </DockPanel>
                 <TextBlock Classes="mg-section-caption" Text="{loc:Str Projects_ChooseFolderHint}"

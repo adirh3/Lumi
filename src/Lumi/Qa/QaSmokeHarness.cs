@@ -11,9 +11,11 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views;
 using Lumi.Views.Controls;
 using StrataTheme.Controls;
 
@@ -23,7 +25,8 @@ internal sealed class QaSmokeHarness
 {
     private const string ProjectName = "QA project";
     private const string Instructions = "Keep this project's context separate.";
-    private const string ChatTitle = "QA persisted conversation";
+    private const string ChatTitle = "QA_STREAM";
+    private static readonly string[] ExpectedReplies = ["LUMI_QA_STREAM", "LUMI_QA_DENIED", "LUMI_QA_ALLOWED"];
     private static QaModelServer? _model;
     private readonly Window _window;
     private readonly MainViewModel _vm;
@@ -61,7 +64,8 @@ internal sealed class QaSmokeHarness
         settings.IsOnboarded = true;
         settings.UseBYOKOnly = true;
         settings.DefaultApprovalMode = ApprovalMode.AskFirst;
-        settings.AutoGenerateTitles = false;
+        // The UI turns this off, so restart must read a change rather than the seeded value.
+        settings.AutoGenerateTitles = true;
         settings.SuggestFollowUps = false;
         settings.EnableMemoryAutoSave = false;
         settings.EnableDailyBriefs = false;
@@ -140,57 +144,67 @@ internal sealed class QaSmokeHarness
 
         await ScenarioAsync("navigation", async () =>
         {
-            Click("NavSettings");
+            await ClickAsync("NavSettings");
             await UntilAsync(() => _vm.SelectedNavIndex == 7 && NamedOrNull<ListBox>("SettingsPagesList") is not null,
                 "Settings navigation");
-            _vm.LastCustomizeNavIndex = 2;
-            Click("NavCustomize");
+            await ClickAsync("NavChat");
+            await ClickAsync("ProjectSwitchButton");
+            await ClickAsync("ProjectSwitcherManageButton");
             await UntilAsync(() => _vm.SelectedNavIndex == 2 && NamedOrNull<Panel>("ProjectsOverview") is not null,
-                "Customize to open Projects");
-            Click("NavChat");
+                "Manage projects to open Projects");
+            await ClickAsync("CustomizeSkillsTab");
+            await UntilAsync(() => _vm.SelectedNavIndex == 3 && NamedOrNull<Panel>("SkillsOverview") is not null,
+                "the Customize Skills section");
+            await ClickAsync("CustomizeProjectsTab");
+            await UntilAsync(() => _vm.SelectedNavIndex == 2 && NamedOrNull<Panel>("ProjectsOverview") is not null,
+                "the Customize Projects section");
+            await ClickAsync("NavChat");
             await UntilAsync(() => _vm.SelectedNavIndex == 0 && NamedOrNull<StrataChatComposer>("Composer") is not null,
                 "Chats navigation");
+            await OpenProjectsAsync();
         });
 
         await ScenarioAsync("project-save", async () =>
         {
-            _vm.LastCustomizeNavIndex = 2;
-            Click("NavCustomize");
+            await OpenProjectsAsync();
             await UntilAsync(() => NamedOrNull<Button>("ProjectsNewButton") is not null, "the Projects overview");
-            Click("ProjectsNewButton");
+            await ClickAsync("ProjectsNewButton");
             await UntilAsync(() => NamedOrNull<TextBox>("ProjectNameInput") is not null, "the project editor");
-            Named<TextBox>("ProjectNameInput").Text = ProjectName;
-            Named<TextBox>("ProjectInstructionsEditor").Text = Instructions;
-            _vm.ProjectsVM.EditWorkingDirectory = Model.Workspace;
+            await SetTextAsync("ProjectNameInput", ProjectName);
+            await SetTextAsync("ProjectWorkingDirectoryInput", Model.Workspace);
+            await SetTextAsync("ProjectInstructionsEditor", Instructions);
             await UntilAsync(() => NamedOrNull<Button>("SaveProjectButton") is { IsEffectivelyEnabled: true }, "Save to become enabled");
-            Click("SaveProjectButton");
+            await ClickAsync("SaveProjectButton");
             await UntilAsync(() => _store.Data.Projects.Any(project => project.Name == ProjectName), "the project to save");
             var project = _store.Data.Projects.Single(project => project.Name == ProjectName);
             Require(project.Instructions == Instructions && project.WorkingDirectory == Model.Workspace,
                 "The project editor did not save its instructions and working directory.");
             Require(!_vm.ProjectsVM.HasUnsavedChanges, "The saved editor still has unsaved changes.");
+            await UntilAsync(() => ReadProfileSnapshot().Projects.Any(saved =>
+                saved.Id == project.Id && saved.Name == ProjectName
+                && saved.Instructions == Instructions && saved.WorkingDirectory == Model.Workspace),
+                "the project editor's normal save to reach disk");
         });
 
         await ScenarioAsync("ai-settings", async () =>
         {
-            Click("NavSettings");
+            await ClickAsync("NavSettings");
             await UntilAsync(() => NamedOrNull<ListBoxItem>("SettingsAiFeaturesItem") is not null, "the AI Features settings entry");
-            Named<ListBoxItem>("SettingsAiFeaturesItem").IsSelected = true;
+            (await InteractiveAsync<ListBoxItem>("SettingsAiFeaturesItem")).IsSelected = true;
             await UntilAsync(() => NamedOrNull<Button>("ToggleAllAiFeaturesButton") is not null, "the AI Features page");
-            Click("ToggleAllAiFeaturesButton");
-            await UntilAsync(() => !_vm.SettingsVM.AreAllAiFeaturesOff, "automatic AI features to turn on");
-            Click("ToggleAllAiFeaturesButton");
-            await UntilAsync(() => _vm.SettingsVM.AreAllAiFeaturesOff, "all automatic AI features to turn off");
-            Require(Named<TextBlock>("AiFeaturesSummaryText").Text == _vm.SettingsVM.AiFeaturesSummary,
-                "The visible AI summary did not follow the switches.");
+            Require(_store.Data.Settings.AutoGenerateTitles, "The fixture must start with titles on to test a changed preference.");
+            await ToggleAiFeaturesAsync(enabled: false);
+            await ToggleAiFeaturesAsync(enabled: true);
+            await ToggleAiFeaturesAsync(enabled: false);
+            await UntilAsync(() => QaSmokeAssertions.AiFeaturesMatch(ReadProfileSnapshot().Settings, enabled: false),
+                "all changed AI settings to be saved by the UI while Lumi is still running");
         });
 
         await ScenarioAsync("chat-streaming", async () =>
         {
-            _vm.LastCustomizeNavIndex = 2;
-            Click("NavCustomize");
+            await OpenSavedProjectAsync();
             await UntilAsync(() => NamedOrNull<Button>("ProjectNewChatButton") is not null, "the saved project's chat action");
-            Click("ProjectNewChatButton");
+            await ClickAsync("ProjectNewChatButton");
             await UntilAsync(() => NamedOrNull<StrataChatComposer>("Composer") is not null, "the new chat composer");
             await copilot.ConnectAsync();
             await SendAsync("QA_STREAM");
@@ -207,7 +221,7 @@ internal sealed class QaSmokeHarness
             }
             await ReplyAsync("LUMI_QA_STREAM");
             Require(_vm.ChatVM.CurrentChat?.ProjectId == Project().Id, "The message lost the selected project.");
-            Require(_vm.ChatVM.PromptText.Length == 0, "Sending did not clear the composer.");
+            Require(string.IsNullOrEmpty(_vm.ChatVM.PromptText), "Sending did not clear the composer.");
         });
 
         await ScenarioAsync("approval-denied", () => VerifyApprovalAsync(allow: false));
@@ -217,19 +231,17 @@ internal sealed class QaSmokeHarness
             Require(Model.Errors.Count == 0, string.Join(Environment.NewLine, Model.Errors));
             Require(Model.Requests == 5, $"Expected five local inference requests, received {Model.Requests}.");
             var chat = _vm.ChatVM.CurrentChat ?? throw new InvalidOperationException("No chat was created.");
-            chat.Title = ChatTitle;
-            await _store.SaveChatAsync(chat);
-            await _store.SaveAsync();
-            var messages = await _store.ReadPersistedChatMessagesAsync(chat.Id, CancellationToken.None);
-            foreach (var text in new[] { "LUMI_QA_STREAM", "LUMI_QA_DENIED", "LUMI_QA_ALLOWED" })
-                Require(messages.Any(message => message.Role == "assistant" && message.Content.Contains(text, StringComparison.Ordinal)),
-                    $"The persisted transcript is missing {text}.");
+            Require(chat.Title == ChatTitle, "The chat did not keep its naturally assigned title.");
+            await UntilAsync(async () => QaSmokeAssertions.RepliesAreStored(
+                await _store.ReadPersistedChatMessagesAsync(chat.Id, CancellationToken.None), ExpectedReplies),
+                "the application's autosave to store every completed reply without a harness save");
             await File.WriteAllTextAsync(Path.Combine(DataStore.AppDirectory, "qa-checkpoint"), chat.Id.ToString());
         });
     }
 
     private async Task VerifyApprovalAsync(bool allow)
     {
+        Require(_vm.ChatVM.CurrentChat is not null, "The preceding chat scenario did not create a conversation.");
         var path = Path.Combine(Model.Workspace, allow ? "allowed.txt" : "denied.txt");
         Require(!File.Exists(path), "The fixture's target already exists.");
         await SendAsync(allow ? "QA_ALLOW" : "QA_DENY");
@@ -240,7 +252,7 @@ internal sealed class QaSmokeHarness
         Require(_vm.ChatVM.PendingPermissionRequests.All(request => request.ChatId == _vm.ChatVM.CurrentChat!.Id),
             "An approval was presented in the wrong chat.");
         Capture(allow ? "approval-before-allow" : "approval-before-deny");
-        Click(allow ? "ApprovalAllowButton" : "ApprovalDenyButton");
+        await ClickAsync(allow ? "ApprovalAllowButton" : "ApprovalDenyButton");
         await ReplyAsync(allow ? "LUMI_QA_ALLOWED" : "LUMI_QA_DENIED");
         Require(!_vm.ChatVM.HasPendingPermissionRequests, "The approval card did not settle.");
         if (allow)
@@ -257,15 +269,14 @@ internal sealed class QaSmokeHarness
         var id = Guid.Parse(await File.ReadAllTextAsync(checkpoint));
         var project = Project();
         Require(project.Instructions == Instructions, "The project's instructions did not survive process restart.");
-        Require(_store.Data.Settings.UseBYOKOnly && !_store.Data.Settings.EnableCodingHelpers
-            && !_store.Data.Settings.EnableDailyBriefs && !_store.Data.Settings.AutoGenerateTitles,
+        Require(_store.Data.Settings.UseBYOKOnly
+            && QaSmokeAssertions.AiFeaturesMatch(_store.Data.Settings, enabled: false),
             "The saved AI settings did not survive process restart.");
         var chat = _store.Data.Chats.Single(chat => chat.Id == id);
         Require(chat.Title == ChatTitle && chat.ProjectId == project.Id, "Chat metadata did not survive process restart.");
         var messages = await _store.ReadPersistedChatMessagesAsync(id, CancellationToken.None);
-        foreach (var text in new[] { "LUMI_QA_STREAM", "LUMI_QA_DENIED", "LUMI_QA_ALLOWED" })
-            Require(messages.Any(message => message.Role == "assistant" && message.Content.Contains(text, StringComparison.Ordinal)),
-                $"The restarted transcript is missing {text}.");
+        Require(QaSmokeAssertions.RepliesAreStored(messages, ExpectedReplies),
+            "The restarted transcript is missing a completed assistant reply.");
         Require(!File.Exists(Path.Combine(project.WorkingDirectory!, "denied.txt")), "The denied file exists after restart.");
         Require(await File.ReadAllTextAsync(Path.Combine(project.WorkingDirectory!, "allowed.txt")) == QaModelServer.FileText,
             "The allowed file changed after restart.");
@@ -277,22 +288,28 @@ internal sealed class QaSmokeHarness
     private async Task SendAsync(string prompt)
     {
         Require(!_vm.ChatVM.IsBusy, "The preceding assistant reply has not finished.");
-        Named<TextBox>("PART_Input").Text = prompt;
+        await SetTextAsync("PART_Input", prompt);
         await UntilAsync(() => _vm.ChatVM.PromptText == prompt, "the composer binding");
-        Click("PART_SendButton");
+        await ClickAsync("PART_SendButton");
     }
 
     private Task ReplyAsync(string expected) => UntilAsync(
-        () => !_vm.ChatVM.IsBusy && !_vm.ChatVM.IsSessionActive && HasVisibleText(expected),
+        () => !_vm.ChatVM.IsBusy && !_vm.ChatVM.IsSessionActive
+            && _vm.ChatVM.CurrentChat?.Messages.Any(message =>
+                message.Role == "assistant" && message.Content == expected) == true
+            && HasVisibleText(expected),
         "the completed reply " + expected);
 
-    private async Task UntilAsync(Func<bool> condition, string description)
+    private Task UntilAsync(Func<bool> condition, string description)
+        => UntilAsync(() => Task.FromResult(condition()), description);
+
+    private async Task UntilAsync(Func<Task<bool>> condition, string description)
     {
         var deadline = Stopwatch.StartNew();
         do
         {
             _window.UpdateLayout();
-            if (condition())
+            if (await condition())
                 return;
             await Task.Delay(20);
         } while (deadline.Elapsed < TimeSpan.FromSeconds(60));
@@ -325,16 +342,80 @@ internal sealed class QaSmokeHarness
     private T Named<T>(string name) where T : Control =>
         NamedOrNull<T>(name) ?? throw new InvalidOperationException($"The visible control #{name} was not found.");
 
-    private void Click(string name)
+    private async Task<T> InteractiveAsync<T>(string name) where T : Control
     {
-        var button = Named<Button>(name);
-        Require(button.IsEffectivelyEnabled, $"#{name} is disabled.");
+        await UntilAsync(() => NamedOrNull<T>(name) is { IsEffectivelyEnabled: true }, $"#{name} to be available");
+        var control = Named<T>(name);
+        control.BringIntoView();
+        await UntilAsync(() => QaUiVisibility.IsVisibleWithin(control, _window), $"#{name} to enter the visible viewport");
+        return control;
+    }
+
+    private async Task ClickAsync(string name)
+    {
+        var button = await InteractiveAsync<Button>(name);
         new ButtonAutomationPeer(button).Invoke();
     }
 
-    private bool HasVisibleText(string text) => _window.GetVisualDescendants().OfType<TranscriptTextContent>()
-        .Any(control => control.IsEffectivelyVisible && control.Bounds.Height > 0
-            && control.Text?.Contains(text, StringComparison.Ordinal) == true);
+    private async Task SetTextAsync(string name, string text)
+        => (await InteractiveAsync<TextBox>(name)).Text = text;
+
+    private bool HasVisibleText(string text)
+    {
+        var view = _window.GetVisualDescendants().OfType<ChatView>()
+            .SingleOrDefault(view => view.IsEffectivelyVisible && ReferenceEquals(view.DataContext, _vm.ChatVM));
+        var transcript = view?.FindControl<Control>("Transcript");
+        return transcript is not null && transcript.GetVisualDescendants().OfType<TranscriptTextContent>()
+            .Any(control => QaUiVisibility.IsVisibleWithin(control, _window)
+                && control.Text?.Contains(text, StringComparison.Ordinal) == true);
+    }
+
+    private async Task OpenProjectsAsync()
+    {
+        await ClickAsync("NavCustomize");
+        await ClickAsync("CustomizeProjectsTab");
+        await UntilAsync(() => _vm.SelectedNavIndex == 2, "the actual Projects section selection");
+    }
+
+    private async Task OpenSavedProjectAsync()
+    {
+        await OpenProjectsAsync();
+        var id = Project().Id;
+        Button? CardButton() => NamedOrNull<ItemsControl>("ProjectsGallery")?
+            .GetVisualDescendants().OfType<Button>().SingleOrDefault(button =>
+                button.DataContext is ProjectCard card && card.Model.Id == id
+                && ReferenceEquals(button.Command, card.OpenCommand));
+        await UntilAsync(() => CardButton() is not null, "the saved project's gallery card");
+        var button = CardButton() ?? throw new InvalidOperationException("The project card disappeared.");
+        button.BringIntoView();
+        await UntilAsync(() => button.IsEffectivelyEnabled && QaUiVisibility.IsVisibleWithin(button, _window),
+            "the saved project card to enter the viewport");
+        new ButtonAutomationPeer(button).Invoke();
+    }
+
+    private async Task ToggleAiFeaturesAsync(bool enabled)
+    {
+        var features = _vm.SettingsVM.AiFeatures.Where(feature => feature.CanTurnOff).ToArray();
+        Require(features.Length == QaSmokeAssertions.SwitchableAiFeatureCount,
+            "Update QA's independent settings assertions when the switchable feature catalog changes.");
+        await ClickAsync("ToggleAllAiFeaturesButton");
+        var summary = enabled
+            ? Loc.Get("AiFeatures_SummaryAllOn", features.Length)
+            : Loc.Get("AiFeatures_SummaryAllOff");
+        await UntilAsync(() => features.All(feature => feature.IsOn == enabled)
+            && QaSmokeAssertions.AiFeaturesMatch(_store.Data.Settings, enabled)
+            && Named<TextBlock>("AiFeaturesSummaryText").Text == summary,
+            enabled ? "every AI feature and the visible on-summary" : "every AI feature and the visible off-summary");
+        Capture(enabled ? "ai-features-on" : "ai-features-off");
+    }
+
+    private static AppData ReadProfileSnapshot()
+    {
+        var read = JsonFilePersistence.ReadPrimaryAppData(Path.Combine(DataStore.AppDirectory, "data.json"));
+        return read.Status == AppDataReadStatus.Valid && read.Data is not null
+            ? read.Data
+            : throw new InvalidDataException("The UI has not saved a valid profile index.");
+    }
 
     private Project Project() => _store.Data.Projects.Single(project => project.Name == ProjectName);
     private static QaModelServer Model => _model ?? throw new InvalidOperationException("The local QA model is not running.");

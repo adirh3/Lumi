@@ -23,6 +23,7 @@ namespace Lumi.Tests;
 public sealed class ManagementPagesUiTests
 {
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task EveryManagementPage_OpensItsOverviewAndDetail_AndTheSidebarFollows()
     {
         using var session = HeadlessTestSession.Start();

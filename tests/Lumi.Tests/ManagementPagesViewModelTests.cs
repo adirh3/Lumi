@@ -13,6 +13,7 @@ using Xunit;
 namespace Lumi.Tests;
 
 /// <summary>Editing behaviour of the redesigned Projects, Skills, Lumis, Memories and MCP pages.</summary>
+[Trait("Category", "CoreQA")]
 public sealed class ManagementPagesViewModelTests : IDisposable
 {
     // Saving or deleting a skill mirrors skills to disk, so every store writes to its own folder.
@@ -27,6 +28,86 @@ public sealed class ManagementPagesViewModelTests : IDisposable
     }
 
     private DataStore Store(AppData data) => new(data, _skillsDirectory);
+
+    [Fact]
+    public void Agents_CreateUpdateDiscardAndConfirmDeleteUseTheStoredItem()
+    {
+        var store = Store(new AppData());
+        var vm = new AgentsViewModel(store);
+        vm.NewAgentCommand.Execute(null);
+        vm.EditName = "QA agent";
+        vm.EditSystemPrompt = "Original instructions.";
+        vm.SaveAgentCommand.Execute(null);
+        var saved = Assert.Single(store.Data.Agents);
+        Assert.Same(saved, vm.SelectedAgent);
+        Assert.Equal("Original instructions.", saved.SystemPrompt);
+
+        vm.EditSystemPrompt = "Updated instructions.";
+        vm.SaveAgentCommand.Execute(null);
+        Assert.Equal("Updated instructions.", saved.SystemPrompt);
+        vm.EditSystemPrompt = "Not saved.";
+        vm.DiscardChangesCommand.Execute(null);
+        Assert.Equal(saved.SystemPrompt, vm.EditSystemPrompt);
+        Assert.False(vm.HasUnsavedChanges);
+
+        vm.RequestDeleteCommand.Execute(null);
+        Assert.Contains(saved, store.Data.Agents);
+        vm.CancelDeleteCommand.Execute(null);
+        Assert.Contains(saved, store.Data.Agents);
+        vm.RequestDeleteCommand.Execute(null);
+        vm.ConfirmDeleteCommand.Execute(null);
+        Assert.Empty(store.Data.Agents);
+        Assert.False(vm.IsEditing);
+    }
+
+    [Fact]
+    public void Projects_CreateUpdateDiscardAndConfirmDeleteUseTheStoredItem()
+    {
+        var store = Store(new AppData());
+        var vm = new ProjectsViewModel(store);
+        vm.NewProjectCommand.Execute(null);
+        vm.EditName = "QA project";
+        vm.EditInstructions = "Original instructions.";
+        vm.SaveProjectCommand.Execute(null);
+        var saved = Assert.Single(store.Data.Projects);
+        Assert.Same(saved, vm.SelectedProject);
+        vm.EditInstructions = "Updated instructions.";
+        vm.SaveProjectCommand.Execute(null);
+        Assert.Equal("Updated instructions.", saved.Instructions);
+        vm.EditInstructions = "Not saved.";
+        vm.DiscardChangesCommand.Execute(null);
+        Assert.Equal(saved.Instructions, vm.EditInstructions);
+        Assert.False(vm.HasUnsavedChanges);
+
+        vm.RequestDeleteCommand.Execute(null);
+        Assert.Contains(saved, store.Data.Projects);
+        vm.CancelDeleteCommand.Execute(null);
+        Assert.Contains(saved, store.Data.Projects);
+        vm.RequestDeleteCommand.Execute(null);
+        vm.ConfirmDeleteCommand.Execute(null);
+        Assert.Empty(store.Data.Projects);
+        Assert.False(vm.IsEditing);
+    }
+
+    [Fact]
+    public void Connectors_DiscardAndDeleteDoNotApplyUntilTheUserChooses()
+    {
+        var server = new McpServer { Name = "QA connector", Command = "dotnet" };
+        var store = Store(new AppData { McpServers = [server] });
+        var vm = new McpServersViewModel(store) { SelectedServer = server };
+        vm.EditName = "Changed name";
+        vm.DiscardChangesCommand.Execute(null);
+        Assert.Equal("QA connector", vm.EditName);
+        Assert.Equal("QA connector", server.Name);
+        vm.RequestDeleteCommand.Execute(null);
+        Assert.Contains(server, store.Data.McpServers);
+        vm.CancelDeleteCommand.Execute(null);
+        Assert.Contains(server, store.Data.McpServers);
+        vm.RequestDeleteCommand.Execute(null);
+        vm.ConfirmDeleteCommand.Execute(null);
+        Assert.Empty(store.Data.McpServers);
+        Assert.False(vm.IsEditing);
+    }
 
     [Fact]
     public void Skills_EditsShowTheSaveBar_AndDiscardRestoresWhatIsStored()

@@ -113,6 +113,7 @@ public sealed class AiFeatureSettingsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void FeatureSwitchesTurnTheirFeaturesOffAndOn()
     {
         var data = new AppData();
@@ -169,6 +170,7 @@ public sealed class AiFeatureSettingsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void AFeatureModelIsSavedShownAndRevertedWithoutChangingOthers()
     {
         var data = new AppData { Settings = new UserSettings { BackgroundModel = "gpt-6-luna" } };

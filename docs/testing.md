@@ -5,7 +5,11 @@ desktop and mobile tests for settings snapshots, session configuration, prompt
 platform policy, onboarding, approval rules, SQLite persistence/search,
 interactive responses, context curation, mobile framing/trust/pairing, and
 loopback client/server flows. The report contract and async test-dispatch
-regressions are included too. No account secrets, model inference, microphone,
+regressions are included too. The curated set also exercises editor state,
+edit/regenerate interruption failures, stopping attached work, assistant/session
+readiness, background-job dispatch/editing, and management create/save/discard/
+delete behaviour. These are component or headless UI tests, not additional
+headed user journeys. No account secrets, model inference, microphone,
 external website, timing SLA, or screenshot baseline is required by this gate.
 
 ## Local commands
@@ -22,9 +26,16 @@ for Core by default (`-Configuration Debug` selects Debug), always Debug for
 Headed. `-ResultsDirectory <path>` changes the output parent; every invocation
 creates a unique run directory, so stale reports cannot produce a green result.
 On Linux run the headed command inside `xvfb-run -a dbus-run-session -- pwsh`.
+Use `-ArtifactsPath .mcp-run\qa-local` to build separately from a running Debug
+instance; pass the same path with `-NoBuild` when reusing that build.
 
 The component command runs desktop and mobile in separate test hosts. A failing
 exit code, missing TRX, zero tests, unexecuted tests, or skipped tests fails QA.
+`tools\qa-core-coverage.json` independently registers the selected test methods
+for each project. Missing or unregistered methods fail even when other cases
+pass, so a lost category marker cannot silently reduce the gate. Parameterized
+cases do not need individual entries or brittle count floors. The PowerShell
+validator has positive and negative regression tests in `QaCoreCoverageTests`.
 `summary.json` includes both results and links naturally to the adjacent TRX and
 logs. The script returns nonzero on an incomplete run; it does not retry tests.
 
@@ -36,20 +47,31 @@ pointer coordinates or a second implementation of the application:
 
 | Scenario | Independent assertion |
 | --- | --- |
-| Navigation | The selected route and destination controls both change. |
-| Project editor | Name, instructions, and working directory reach the saved project; the editor is no longer dirty. |
-| AI Features | The actual settings action toggles the features and updates its visible summary. |
+| Navigation | Manage projects opens from the drawer; the actual Skills/Projects section buttons change the destination, and Customize remembers it. |
+| Project editor | All three inputs use the actual textboxes; the saved project and the index on disk contain the name, instructions, and working directory, and the editor is no longer dirty. |
+| AI Features | Every switchable feature and its persisted setting match all-on and all-off; the actual summary is checked at both transitions. Titles start on and finish off, so the live disk check and restart verify a genuinely changed preference. |
 | Chat streaming | Input goes through the real composer and a real Copilot runtime. A loopback model holds a partial response until it appears in the actual transcript. |
 | Deny | A native file tool cannot write while waiting; clicking Deny leaves no file. |
 | Allow | Clicking Allow releases that same native tool path and writes the exact expected contents. |
-| Persistence | The database contains the replies before the process exits. |
-| Process restart | A second process opens the same isolated profile and verifies settings, project/chat metadata, messages, file effects, and the visible saved transcript. |
+| Persistence | The application's own autosave stores every completed reply while Lumi is still running. The harness never saves the chat or index after user actions. |
+| Process restart | A second process opens the same isolated profile and verifies all automatic-AI flags, project/chat metadata, completed replies, file effects, and the saved transcript in the actual viewport. |
 
 Only the model's OpenAI-compatible streaming responses are scripted. Copilot
 still owns sessions, streaming events, tool execution, and native approvals.
 Automatic AI features are disabled and only a loopback account/model is
 configured. Unknown model requests fail the fixture. The test never sends into
 an existing chat and never uses the developer's normal Lumi profile.
+The only harness-initiated index save is initial fixture preparation, before the
+application UI is constructed. Project/settings save assertions and the live
+SQLite checkpoint are read-only observers of production saves.
+
+Text is looked up only in the active chat's transcript. Visibility requires
+positive intersection with the window and its clipping ancestors, including
+the scroll viewport; a realized buffered turn below the viewport does not pass.
+Interactions bring their controls into view before invoking the actual buttons
+or updating text inputs. `QaUiVisibilityTests` exercises offscreen, clipped and
+transparent controls, and `QaSmokeAssertionTests` rejects partial feature states
+and missing, streaming, wrong-role or substring-only persisted replies.
 
 The fixture is Debug-only and its controls do not ship in Release. The pure
 options/report types are compiled in both configurations for unit testing, like
@@ -61,6 +83,16 @@ and the CI commit SHA. Missing, duplicate, failed, unexpected, or unfinished
 scenarios fail the report; successful process exit alone is not sufficient.
 The second launch uses a separate process ID and cannot seed a replacement
 transcript. Timeouts are failures, not skips.
+
+A third launch uses a different fresh profile with `AutoSaveChats=false`. It
+must complete the same preceding UI scenarios but fail **only** the live
+persistence checkpoint. The driver checks the exact case set, exit status,
+failure location and autosave diagnostic; arbitrary failures do not pass this
+control. Its nonzero application exit and `complete:false` report are expected,
+and the parent summary records `expectedFailure: persist-checkpoint`. If a
+future harness saves the transcript itself, that negative launch goes green
+and the overall QA command fails. This oracle check runs in Extended UI QA,
+not in the merge gate.
 
 ## GitHub Actions
 
@@ -103,7 +135,10 @@ are not merge gates and are not used as substitutes for coded assertions.
 
 Add a focused regression beside its existing component tests. Mark a method or
 an entirely portable, deterministic fixture with `[Trait("Category", "CoreQA")]`
-only when it is safe without accounts or special host state. Do not move a
+only when it is safe without accounts or special host state, and register its
+fully qualified method name in `tools\qa-core-coverage.json`. Adding/removing/
+renaming a selected method or changing its category requires reviewing that
+catalog too; changing theory arguments does not. Do not move a
 flaky test into CoreQA or add retries to make a gate green. Keep native/Skia
 dispatcher tests in their existing isolated processes.
 
