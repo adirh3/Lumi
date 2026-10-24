@@ -69,14 +69,13 @@ public sealed class CopilotCliDownloadTests : IDisposable
     [Fact]
     public void ConnectionFailuresRetryWithoutAnHttpResponse()
     {
-        using var endpoint = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        endpoint.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-        var url = $"http://127.0.0.1:{((IPEndPoint)endpoint.LocalEndPoint!).Port}/asset";
+        using var server = new DownloadServer(Asset, DownloadServer.ResetConnection);
         var destination = Path.Combine(_directory, "copilot");
 
-        var error = Assert.Throws<HttpRequestException>(() => CreateTask().Download(url, destination, Hash(Asset)));
+        var error = Assert.Throws<HttpRequestException>(() => CreateTask().Download(server.Url, destination, Hash(Asset)));
 
         Assert.Null(error.StatusCode);
+        Assert.True(server.Requests >= 3);
         Assert.Equal(2, _engine.Warnings.Count);
         Assert.Empty(Directory.GetFiles(_directory));
     }
@@ -132,6 +131,7 @@ public sealed class CopilotCliDownloadTests : IDisposable
 
     private sealed class DownloadServer : IDisposable
     {
+        internal const int ResetConnection = 0;
         private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _serve;
@@ -159,6 +159,11 @@ public sealed class CopilotCliDownloadTests : IDisposable
                     while (!string.IsNullOrEmpty(await reader.ReadLineAsync(_stop.Token))) { }
                     var request = Interlocked.Increment(ref _requests);
                     var status = statuses[Math.Min(request - 1, statuses.Length - 1)];
+                    if (status == ResetConnection)
+                    {
+                        client.Client.LingerState = new LingerOption(true, 0);
+                        continue;
+                    }
                     var header = Encoding.ASCII.GetBytes(
                         $"HTTP/1.1 {status} Fixture\r\nContent-Length: {content.Length}\r\nConnection: close\r\n\r\n");
                     await stream.WriteAsync(header, _stop.Token);

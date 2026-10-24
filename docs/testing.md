@@ -105,7 +105,7 @@ This removes account/native/animation-sensitive tests from the ordinary PR
 critical path without deleting their broader coverage.
 
 Builds make at most three attempts to download the official Copilot CLI within
-the original download deadline. Network errors, HTTP 408/429 and 5xx
+the original download deadline. Connection failures, HTTP 408/429 and 5xx
 responses are retried with logged backoff; permanent HTTP errors and checksum
 failures still fail immediately. Loopback tests exercise the real build task,
 its request counts, deadline, cleanup and checked bytes as part of CoreQA.
