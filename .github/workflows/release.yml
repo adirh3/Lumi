@@ -763,7 +763,6 @@ jobs:
             -o Releases \
             -e Lumi \
             -i "$RUNNER_TEMP/lumi-icon.icns" \
-            --bundleId com.lumi.app \
             --plist "$RUNNER_TEMP/lumi-Info.plist" \
             --channel ${{ matrix.rid }} \
             "${SIGN_ARGS[@]}"

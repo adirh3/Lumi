@@ -63,6 +63,7 @@ public sealed class VoiceInputPackagingTests
         Assert.Equal("true", entitlements["com.apple.security.cs.disable-library-validation"].Name.LocalName);
         var release = File.ReadAllText(Path.Combine(root, ".github", "workflows", "release.yml"));
         Assert.Contains("--plist \"$RUNNER_TEMP/lumi-Info.plist\"", release);
+        Assert.DoesNotContain("--bundleId", release);
         Assert.Contains("--signEntitlements build/macOS/Lumi.entitlements", release);
         Assert.Contains("sed \"s/@VERSION@/$RELEASE_VERSION/g\"", release);
     }
