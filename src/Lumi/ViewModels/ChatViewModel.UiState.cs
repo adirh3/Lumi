@@ -1116,7 +1116,7 @@ public partial class ChatViewModel
             .Select(capability => new StrataComposerChip(
                 capability.Name,
                 string.IsNullOrWhiteSpace(capability.Glyph) ? DefaultGlyph(kind) : capability.Glyph!,
-                SecondaryText: BuildChipSearchText(capability.Description, capability.Content),
+                SecondaryText: BuildChipSearchText(capability.DisplayDescription ?? capability.Description, capability.Content),
                 Value: capability.LumiId?.ToString(),
                 SourceLabel: capability.SourceLabel))
             .ToList();

@@ -112,6 +112,10 @@ public sealed record CapabilityDescriptor
 
     public string? Description { get; init; }
 
+    /// <summary>Optional UI wording; runtime consumers use the canonical <see cref="Description"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? DisplayDescription { get; init; }
+
     /// <summary>
     /// Capability body when the source can supply it without touching the file system:
     /// Lumi's store for first-party items, and the SDK's agent prompt for Copilot agents.

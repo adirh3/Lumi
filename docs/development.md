@@ -527,7 +527,11 @@ The mobile companion uses `src/Lumi.Mobile/Localization/ChatSessionStrings.resx`
 counterpart. Shared Strata controls keep their reusable English/Hebrew wording in their own label
 catalog. Localize display text, not wire values, model IDs, file paths, authored prompts or user
 content. Built-in capability descriptions have localized display text while their saved defaults,
-stable names and user customizations remain intact. `LocalizationCoverageTests` checks desktop
+stable names and user customizations remain intact. Shared capability descriptors keep their canonical
+`Description` separate from the UI-only `DisplayDescription`. Model-facing management reports stay
+in English; only UI callers opt into `LumiFeatureManager`'s `localizeOutput` formatting. Job schedules
+likewise use canonical wording in the system prompt and translated wording in the UI.
+`LocalizationCoverageTests` checks desktop
 catalog/format parity, XAML keys, Hebrew search and presentation, and embedded-app startup messages.
 
 ### Local StrataTheme Development

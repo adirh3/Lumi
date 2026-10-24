@@ -966,7 +966,7 @@ internal sealed class RemoteCommandRouter
     {
         var resource = (command.Get("resource") ?? "").Trim().Replace('-', '_').ToLowerInvariant();
         var action = command.Get("featureAction") ?? "list";
-        var manager = new LumiFeatureManager(_dataStore);
+        var manager = new LumiFeatureManager(_dataStore, localizeOutput: true);
         IReadOnlySet<Guid>? affectedProjectChatIds = null;
         if (NormalizeFeatureResource(resource) == RemoteProtocol.Resources.Projects
             && action is "update" or "delete"

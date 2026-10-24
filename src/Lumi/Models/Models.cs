@@ -1331,7 +1331,8 @@ public static class ChatLifecycleEventTypes
         IEnumerable<string>? values,
         out List<string> normalized,
         out string error,
-        bool defaultToIdle = false)
+        bool defaultToIdle = false,
+        bool localizeError = true)
     {
         normalized = [];
         error = "";
@@ -1355,7 +1356,8 @@ public static class ChatLifecycleEventTypes
 
                 if (eventType is null)
                 {
-                    error = string.Format(Loc.Jobs_UnsupportedChatEvent, token);
+                    error = string.Format(localizeError ? Loc.Jobs_UnsupportedChatEvent
+                        : Loc.GetEnglish(nameof(Loc.Jobs_UnsupportedChatEvent)), token);
                     normalized = [];
                     return false;
                 }

@@ -725,7 +725,7 @@ public static class SystemPromptBuilder
                 .Append(" | ")
                 .Append(job.Name)
                 .Append(" | ")
-                .Append(BackgroundJobSchedule.Describe(job))
+                .Append(BackgroundJobSchedule.Describe(job, localize: false))
                 .Append(" | next: ")
                 .Append(job.NextRunAt?.ToLocalTime().ToString("g") ?? "(none)")
                 .Append(" | last: ")

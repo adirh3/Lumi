@@ -3,17 +3,60 @@ using System.Globalization;
 using System.Resources;
 using System.Text;
 using System.Text.RegularExpressions;
+using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Mobile.Localization;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
+using Lumi.Mobile.Views;
 using Lumi.Remote.Protocol;
+using StrataTheme.Controls;
 using Xunit;
 
 namespace Lumi.Mobile.Tests;
 
 public sealed class MobileLocalizationTests
 {
+    [Theory]
+    [InlineData("en", "Copy")]
+    [InlineData("he", "העתקה")]
+    public async Task PlanMarkdownUsesTheUiLanguageWithoutChangingItsContent(string language, string copy)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var cultures = new CultureScope();
+            var store = new MemorySettingsStore();
+            store.Settings.Language = language;
+            await using var shell = new MobileShellViewModel(store: store, post: action => action());
+            const string content = "# Original plan\n\n```text\nKeep this code unchanged.\n```";
+            var chatId = Guid.NewGuid();
+            shell.IsPaired = true;
+            shell.Chat.Reset(chatId, "Original chat");
+            shell.Chat.ApplyTranscript(new RemoteTranscript { ChatId = chatId });
+            shell.Chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, PlanContent = content });
+            shell.Chat.IsPlanOpen = true;
+            var view = new ChatDetailView { DataContext = shell };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var markdown = Assert.IsType<StrataMarkdown>(view.FindControl<StrataMarkdown>("PlanMarkdown"));
+                Assert.Equal(language, markdown.InteractionLanguage);
+                Assert.Equal(content, markdown.Markdown);
+                Assert.Equal(content, shell.Chat.PlanContent);
+                Assert.Contains(markdown.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == copy);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData("en", "en", "Settings", FlowDirection.LeftToRight)]
     [InlineData("he", "he", "הגדרות", FlowDirection.RightToLeft)]

@@ -1630,7 +1630,10 @@
         -->
         <Border x:Name="PlanSheetSideInset" Padding="{Binding SafeAreaSides}">
           <StackPanel Margin="0,0,0,12">
-            <sc:StrataMarkdown Markdown="{Binding Chat.PlanContent, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}" IsInline="True" />
+            <sc:StrataMarkdown x:Name="PlanMarkdown"
+                               Markdown="{Binding Chat.PlanContent, Converter={x:Static loc:ChatSessionStrings.MobileTextConverter}}"
+                               InteractionLanguage="{x:Static loc:ChatSessionStrings.Language}"
+                               IsInline="True" />
           </StackPanel>
         </Border>
       </ScrollViewer>

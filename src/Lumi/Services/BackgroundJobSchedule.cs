@@ -118,26 +118,26 @@ public static class BackgroundJobSchedule
         };
     }
 
-    public static string Describe(BackgroundJob job)
+    public static string Describe(BackgroundJob job, bool localize = true)
     {
         Normalize(job);
 
         if (job.TriggerType == BackgroundJobTriggerTypes.Script)
-            return Loc.Jobs_DescribeScript;
+            return Text(localize, nameof(Loc.Jobs_DescribeScript));
 
         if (job.TriggerType == BackgroundJobTriggerTypes.ChatEvent)
-            return string.Format(Loc.Jobs_DescribeChatEvent, ChatLifecycleEventTypes.Describe(job.ChatEventTypes));
+            return Text(localize, nameof(Loc.Jobs_DescribeChatEvent), ChatLifecycleEventTypes.Describe(job.ChatEventTypes));
 
         return job.ScheduleType switch
         {
-            BackgroundJobScheduleTypes.Daily => string.Format(Loc.Jobs_DescribeDaily, job.DailyTime),
-            BackgroundJobScheduleTypes.Weekly => string.Format(Loc.Jobs_DescribeWeekly, FormatDays(job.DaysOfWeek), job.DailyTime),
-            BackgroundJobScheduleTypes.Monthly => string.Format(Loc.Jobs_DescribeMonthly, job.MonthlyDay, job.DailyTime),
+            BackgroundJobScheduleTypes.Daily => Text(localize, nameof(Loc.Jobs_DescribeDaily), job.DailyTime),
+            BackgroundJobScheduleTypes.Weekly => Text(localize, nameof(Loc.Jobs_DescribeWeekly), FormatDays(job.DaysOfWeek, localize), job.DailyTime),
+            BackgroundJobScheduleTypes.Monthly => Text(localize, nameof(Loc.Jobs_DescribeMonthly), job.MonthlyDay, job.DailyTime),
             BackgroundJobScheduleTypes.Once => job.RunAt.HasValue
-                ? string.Format(Loc.Jobs_DescribeOnce, job.RunAt.Value.LocalDateTime)
-                : Loc.Jobs_DescribeOnceEnabled,
-            BackgroundJobScheduleTypes.Cron => string.Format(Loc.Jobs_DescribeCron, job.CronExpression),
-            _ => string.Format(Loc.Jobs_DescribeInterval, FormatInterval(job.IntervalMinutes))
+                ? Text(localize, nameof(Loc.Jobs_DescribeOnce), job.RunAt.Value.LocalDateTime)
+                : Text(localize, nameof(Loc.Jobs_DescribeOnceEnabled)),
+            BackgroundJobScheduleTypes.Cron => Text(localize, nameof(Loc.Jobs_DescribeCron), job.CronExpression),
+            _ => Text(localize, nameof(Loc.Jobs_DescribeInterval), FormatInterval(job.IntervalMinutes, localize))
         };
     }
 
@@ -179,34 +179,34 @@ public static class BackgroundJobSchedule
         return false;
     }
 
-    public static bool TryValidateCronExpression(string value, out string error)
+    public static bool TryValidateCronExpression(string value, out string error, bool localize = true)
     {
         error = "";
-        if (TryParseCron(value, out _, out error))
+        if (TryParseCron(value, out _, out error, localize))
             return true;
 
         if (string.IsNullOrWhiteSpace(error))
-            error = Loc.Jobs_CronFiveFields;
+            error = Text(localize, nameof(Loc.Jobs_CronFiveFields));
         return false;
     }
 
-    public static bool TryValidateDaysOfWeek(string value, out string error)
+    public static bool TryValidateDaysOfWeek(string value, out string error, bool localize = true)
     {
         error = "";
         if (TryParseDaysOfWeek(value, out _))
             return true;
 
-        error = Loc.Jobs_InvalidWeekdays;
+        error = Text(localize, nameof(Loc.Jobs_InvalidWeekdays));
         return false;
     }
 
-    public static bool TryValidateDailyTime(string value, out string error)
+    public static bool TryValidateDailyTime(string value, out string error, bool localize = true)
     {
         error = "";
         if (TryParseDailyTime(value, out _))
             return true;
 
-        error = Loc.Jobs_InvalidDailyTime;
+        error = Text(localize, nameof(Loc.Jobs_InvalidDailyTime));
         return false;
     }
 
@@ -377,23 +377,24 @@ public static class BackgroundJobSchedule
         return true;
     }
 
-    private static string FormatDays(string daysOfWeek)
+    private static string FormatDays(string daysOfWeek, bool localize)
     {
         if (!TryParseDaysOfWeek(daysOfWeek, out var days) || days.Count == 0)
-            return Loc.Jobs_Weekdays;
+            return Text(localize, nameof(Loc.Jobs_Weekdays));
 
         var set = days.ToHashSet();
         if (set.SetEquals([DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday]))
-            return "weekdays";
+            return Text(localize, nameof(Loc.Jobs_Weekdays));
         if (set.SetEquals([DayOfWeek.Saturday, DayOfWeek.Sunday]))
-            return Loc.Jobs_Weekends;
+            return Text(localize, nameof(Loc.Jobs_Weekends));
         if (set.Count == 7)
-            return Loc.Jobs_IntervalDay;
+            return Text(localize, nameof(Loc.Jobs_IntervalDay));
 
-        return string.Join(", ", days.Select(static day => Loc.Culture.DateTimeFormat.GetAbbreviatedDayName(day)));
+        var culture = localize ? Loc.Culture : CultureInfo.InvariantCulture;
+        return string.Join(", ", days.Select(day => culture.DateTimeFormat.GetAbbreviatedDayName(day)));
     }
 
-    private static bool TryParseCron(string expression, out CronSchedule cron, out string error)
+    private static bool TryParseCron(string expression, out CronSchedule cron, out string error, bool localize = true)
     {
         cron = default;
         error = "";
@@ -401,15 +402,15 @@ public static class BackgroundJobSchedule
         var fields = (expression ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (fields.Length != 5)
         {
-            error = Loc.Jobs_CronFiveFields;
+            error = Text(localize, nameof(Loc.Jobs_CronFiveFields));
             return false;
         }
 
-        if (!TryParseCronField(fields[0], 0, 59, null, normalizeSevenToZero: false, out var minute, out error)
-            || !TryParseCronField(fields[1], 0, 23, null, normalizeSevenToZero: false, out var hour, out error)
-            || !TryParseCronField(fields[2], 1, 31, null, normalizeSevenToZero: false, out var dayOfMonth, out error)
-            || !TryParseCronField(fields[3], 1, 12, MonthAliases, normalizeSevenToZero: false, out var month, out error)
-            || !TryParseCronField(fields[4], 0, 7, DayAliases, normalizeSevenToZero: true, out var dayOfWeek, out error))
+        if (!TryParseCronField(fields[0], 0, 59, null, normalizeSevenToZero: false, out var minute, out error, localize)
+            || !TryParseCronField(fields[1], 0, 23, null, normalizeSevenToZero: false, out var hour, out error, localize)
+            || !TryParseCronField(fields[2], 1, 31, null, normalizeSevenToZero: false, out var dayOfMonth, out error, localize)
+            || !TryParseCronField(fields[3], 1, 12, MonthAliases, normalizeSevenToZero: false, out var month, out error, localize)
+            || !TryParseCronField(fields[4], 0, 7, DayAliases, normalizeSevenToZero: true, out var dayOfWeek, out error, localize))
         {
             return false;
         }
@@ -425,7 +426,8 @@ public static class BackgroundJobSchedule
         IReadOnlyDictionary<string, int>? aliases,
         bool normalizeSevenToZero,
         out CronField result,
-        out string error)
+        out string error,
+        bool localize)
     {
         result = default;
         error = "";
@@ -441,7 +443,7 @@ public static class BackgroundJobSchedule
             {
                 if (!int.TryParse(part[(slashIndex + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out step) || step < 1)
                 {
-                    error = string.Format(Loc.Jobs_InvalidCronStep, field);
+                    error = Text(localize, nameof(Loc.Jobs_InvalidCronStep), field);
                     return false;
                 }
 
@@ -463,7 +465,7 @@ public static class BackgroundJobSchedule
                     || !TryParseCronValue(range[0], aliases, out start)
                     || !TryParseCronValue(range[1], aliases, out end))
                 {
-                    error = string.Format(Loc.Jobs_InvalidCronRange, part);
+                    error = Text(localize, nameof(Loc.Jobs_InvalidCronRange), part);
                     return false;
                 }
             }
@@ -473,7 +475,7 @@ public static class BackgroundJobSchedule
             }
             else
             {
-                error = string.Format(Loc.Jobs_InvalidCronValue, part);
+                error = Text(localize, nameof(Loc.Jobs_InvalidCronValue), part);
                 return false;
             }
 
@@ -484,13 +486,13 @@ public static class BackgroundJobSchedule
 
             if (start < min || start > max || end < min || end > max)
             {
-                error = string.Format(Loc.Jobs_CronOutsideRange, part, min, max);
+                error = Text(localize, nameof(Loc.Jobs_CronOutsideRange), part, min, max);
                 return false;
             }
 
             if (start > end && !(normalizeSevenToZero && start > 0 && end == 0))
             {
-                error = string.Format(Loc.Jobs_CronReversedRange, part);
+                error = Text(localize, nameof(Loc.Jobs_CronReversedRange), part);
                 return false;
             }
 
@@ -523,21 +525,28 @@ public static class BackgroundJobSchedule
         return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out result);
     }
 
-    private static string FormatInterval(int minutes)
+    private static string FormatInterval(int minutes, bool localize)
     {
         if (minutes % (24 * 60) == 0)
         {
             var days = minutes / (24 * 60);
-            return days == 1 ? Loc.Jobs_IntervalDay : string.Format(Loc.Jobs_IntervalDays, days);
+            return days == 1 ? Text(localize, nameof(Loc.Jobs_IntervalDay)) : Text(localize, nameof(Loc.Jobs_IntervalDays), days);
         }
 
         if (minutes % 60 == 0)
         {
             var hours = minutes / 60;
-            return hours == 1 ? Loc.Jobs_IntervalHour : string.Format(Loc.Jobs_IntervalHours, hours);
+            return hours == 1 ? Text(localize, nameof(Loc.Jobs_IntervalHour)) : Text(localize, nameof(Loc.Jobs_IntervalHours), hours);
         }
 
-        return minutes == 1 ? Loc.Jobs_IntervalMinute : string.Format(Loc.Jobs_IntervalMinutes, minutes);
+        return minutes == 1 ? Text(localize, nameof(Loc.Jobs_IntervalMinute)) : Text(localize, nameof(Loc.Jobs_IntervalMinutes), minutes);
+    }
+
+    private static string Text(bool localize, string key, params object[] arguments)
+    {
+        var text = localize ? Loc.Get(key) : Loc.GetEnglish(key);
+        return arguments.Length == 0 ? text
+            : string.Format(localize ? Loc.Culture : CultureInfo.InvariantCulture, text, arguments);
     }
 
     private static readonly IReadOnlyDictionary<string, int> MonthAliases = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)

@@ -128,6 +128,91 @@ public sealed class LocalizationCoverageTests
     }
 
     [Fact]
+    public async Task BuiltInSkillMetadataAndLoadedInstructionsDoNotFollowTheDisplayLanguage()
+    {
+        var skill = new Skill
+        {
+            Name = "Code Helper",
+            Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CodeHelper_Description)),
+            Content = "# Original instructions\nKeep this content unchanged.",
+            IsBuiltIn = true
+        };
+        var agent = new LumiAgent
+        {
+            Name = "Coding Lumi",
+            Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CodingLumi_Description)),
+            SystemPrompt = "Keep this original system prompt.",
+            IsBuiltIn = true
+        };
+        var store = new DataStore(new AppData { Skills = [skill], Agents = [agent] });
+        string? advertisedDescription = null;
+        string? loadedInstructions = null;
+        try
+        {
+            foreach (var language in new[] { "en", "he" })
+            {
+                Loc.Load(language);
+                var catalog = new LumiCapabilityProvider(store).Load();
+                var capability = Assert.Single(catalog, item => item.Kind == CapabilityKind.Skill);
+                Assert.Equal(skill.Description, capability.Description);
+                Assert.Equal(skill.Content, capability.Content);
+                Assert.Equal(skill.DisplayDescription, capability.DisplayDescription);
+                Assert.False(JsonSerializer.SerializeToElement(capability).TryGetProperty("DisplayDescription", out _));
+                var persona = Assert.Single(catalog, item => item.Kind == CapabilityKind.Agent);
+                Assert.Equal(agent.Description, persona.Description);
+                Assert.Equal(agent.SystemPrompt, persona.Content);
+                Assert.Equal(agent.DisplayDescription, persona.DisplayDescription);
+
+                var provider = new LumiSkillProvider(_ => Task.FromResult<IReadOnlyList<Skill>>([skill]));
+                var descriptor = Assert.Single(await provider.ListSkillsAsync());
+                var markdown = await provider.ReadSkillAsync(descriptor.Name);
+                Assert.Equal("code-helper", descriptor.Name);
+                Assert.Equal($"{skill.Name}: {skill.Description}", descriptor.Description);
+                Assert.Contains(skill.Content, markdown);
+                advertisedDescription ??= descriptor.Description;
+                loadedInstructions ??= markdown;
+                Assert.Equal(advertisedDescription, descriptor.Description);
+                Assert.Equal(loadedInstructions, markdown);
+
+                if (language == "he")
+                    Assert.NotEqual(capability.Description, capability.DisplayDescription);
+            }
+        }
+        finally
+        {
+            Loc.Load("en");
+        }
+    }
+
+    [Fact]
+    public void WeeklySchedulesLocalizeOnlyTheirDisplayText()
+    {
+        var job = new BackgroundJob
+        {
+            ScheduleType = BackgroundJobScheduleTypes.Weekly,
+            DaysOfWeek = "Mon,Tue,Wed,Thu,Fri",
+            DailyTime = "08:15"
+        };
+        try
+        {
+            Loc.Load("en");
+            var canonical = BackgroundJobSchedule.Describe(job, localize: false);
+            Assert.Equal("Every weekdays at 08:15", canonical);
+            Assert.Equal(canonical, BackgroundJobSchedule.Describe(job));
+
+            Loc.Load("he");
+            Assert.Equal("בכל יום שני עד שישי בשעה 08:15", BackgroundJobSchedule.Describe(job));
+            Assert.Equal(canonical, BackgroundJobSchedule.Describe(job, localize: false));
+            Assert.Equal("Mon,Tue,Wed,Thu,Fri", job.DaysOfWeek);
+            Assert.Equal("weekly", job.ScheduleType);
+        }
+        finally
+        {
+            Loc.Load("en");
+        }
+    }
+
+    [Fact]
     public void JobWakeFallbacksAreLocalizableWithoutChangingParsingOrAuthoredText()
     {
         var missing = RemoteJobWake.Parse(null, "", "משימת רקע", "התקבל אות השכמה.");

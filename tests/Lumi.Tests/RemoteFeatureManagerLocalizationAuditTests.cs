@@ -17,13 +17,90 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
     public void Dispose() => Loc.Load("en");
 
     [Fact]
+    public void ModelFacingReportsAndValidationRemainCanonicalWhileUiReportsCanBeLocalized()
+    {
+        var target = new Chat { Title = "Original chat" };
+        var source = new Chat { Title = "Source chat" };
+        var skill = new Skill
+        {
+            Name = "Code Helper",
+            Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CodeHelper_Description)),
+            Content = "Original instructions",
+            IsBuiltIn = true
+        };
+        var agent = new LumiAgent
+        {
+            Name = "Coding Lumi",
+            Description = Loc.GetEnglish(nameof(Loc.BuiltIn_CodingLumi_Description)),
+            SystemPrompt = "Original agent instructions",
+            IsBuiltIn = true
+        };
+        var data = new AppData
+        {
+            Chats = [target, source],
+            Projects = [new Project { Name = "Original project" }],
+            Skills = [skill],
+            Agents = [agent],
+            McpServers = [new McpServer { Name = "Original connector" }],
+            Memories = [new Memory { Key = "Original memory", Content = "Original fact", Category = "General" }],
+            BackgroundJobs =
+            [
+                new BackgroundJob
+                {
+                    Name = "Original job", ChatId = target.Id, ScheduleType = "weekly",
+                    DaysOfWeek = "Mon,Tue,Wed,Thu,Fri", DailyTime = "08:15"
+                }
+            ]
+        };
+        var store = new DataStore(data);
+        var model = new LumiFeatureManager(store);
+        string[] Capture() =>
+        [
+            model.ManageProjects("list").Message,
+            model.ManageSkills("list").Message,
+            model.ManageLumis("list").Message,
+            model.ManageMcps("list").Message,
+            model.ManageMemories("list").Message,
+            model.ManageJobs("list").Message,
+            model.ManageSkills("create").Message,
+            model.ManageMcps("create", name: "Invalid", serverType: "invalid").Message,
+            model.ManageJobs("create", name: "Invalid time", prompt: "Original prompt",
+                chatIdentifier: target.Id.ToString(), scheduleType: "daily", dailyTime: "invalid").Message,
+            model.ManageJobs("create", name: "Invalid days", prompt: "Original prompt",
+                chatIdentifier: target.Id.ToString(), scheduleType: "weekly", daysOfWeek: "invalid").Message,
+            model.ManageJobs("create", name: "Invalid cron", prompt: "Original prompt",
+                chatIdentifier: target.Id.ToString(), scheduleType: "cron", cronExpression: "*/0 * * * *").Message,
+            model.ManageJobs("create", name: "Invalid event", prompt: "Original prompt",
+                chatIdentifier: target.Id.ToString(), triggerType: "chat_event",
+                sourceChatIdentifier: source.Id.ToString(), chatEventTypes: ["invalid"]).Message
+        ];
+
+        Loc.Load("en");
+        var english = Capture();
+        Loc.Load("he");
+        Assert.Equal(english, Capture());
+        Assert.Contains(skill.Description, model.ManageSkills("list").Message);
+        Assert.Contains("Every weekdays at 08:15", model.ManageJobs("list").Message);
+        Assert.Contains("category: General", model.ManageMemories("list").Message);
+
+        var display = new LumiFeatureManager(store, localizeOutput: true);
+        Assert.Contains(skill.DisplayDescription, display.ManageSkills("list").Message);
+        Assert.Contains("יום שני עד שישי", display.ManageJobs("list").Message);
+        Assert.Contains("קטגוריה: כללי", display.ManageMemories("list").Message);
+        Assert.StartsWith("כישורים:", display.ManageSkills("list").Message);
+        Assert.Equal("Original instructions", skill.Content);
+        Assert.Equal("General", data.Memories[0].Category);
+        Assert.Single(data.BackgroundJobs);
+    }
+
+    [Fact]
     public void ProjectCreateAndUpdate_LocalizeReportsWithoutChangingIdentityOrAuthoredContent()
     {
         const string name = "User project";
         const string instructions = "Keep this authored text: replaceSection and [REDACTED].";
         var directory = Path.Combine(Path.GetTempPath(), "feature-manager-localization-project");
         var data = new AppData();
-        var manager = new LumiFeatureManager(new DataStore(data));
+        var manager = new LumiFeatureManager(new DataStore(data), localizeOutput: true);
 
         var created = manager.ManageProjects("create", name: name, instructions: instructions);
         var project = Assert.Single(data.Projects);
@@ -58,7 +135,7 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
         const string updatedDescription = "Keep my edited description: name and description";
         const string content = "# User heading\n\nKeep replaceSection, KEY=VALUE and שלום unchanged.";
         var data = new AppData();
-        var manager = new LumiFeatureManager(new DataStore(data));
+        var manager = new LumiFeatureManager(new DataStore(data), localizeOutput: true);
 
         var created = manager.ManageSkills("create", name: name, description: description, content: content);
         var skill = Assert.Single(data.Skills);
@@ -107,7 +184,7 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
     {
         var project = new Project { Name = "Existing project", Instructions = "Keep my instructions" };
         var data = new AppData { Projects = [project] };
-        var manager = new LumiFeatureManager(new DataStore(data));
+        var manager = new LumiFeatureManager(new DataStore(data), localizeOutput: true);
 
         var rejected = manager.ManageProjects(
             "create", name: project.Name, instructions: "Do not overwrite the existing project");
@@ -127,7 +204,7 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
     {
         var skill = new Skill { Name = "Existing skill", Content = "Keep this existing content" };
         var data = new AppData { Skills = updating ? [skill] : [] };
-        var manager = new LumiFeatureManager(new DataStore(data));
+        var manager = new LumiFeatureManager(new DataStore(data), localizeOutput: true);
 
         var rejected = manager.ManageSkills(
             updating ? "update" : "create",
@@ -161,7 +238,7 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
         };
         var id = server.Id;
         var data = new AppData { McpServers = [server] };
-        var manager = new LumiFeatureManager(new DataStore(data));
+        var manager = new LumiFeatureManager(new DataStore(data), localizeOutput: true);
 
         var updated = manager.ManageMcps(
             "update", identifier: id.ToString(), headerEntries: ["authorization=[REDACTED]"]);
@@ -193,7 +270,7 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
     {
         var chat = new Chat { Title = "Raw target chat" };
         var data = new AppData { Chats = [chat] };
-        var manager = new LumiFeatureManager(new DataStore(data));
+        var manager = new LumiFeatureManager(new DataStore(data), localizeOutput: true);
 
         var created = manager.ManageJobs(
             "create", name: "Raw job name", prompt: "Keep these raw instructions",
@@ -224,7 +301,7 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
         var memory = new Memory { Key = "Raw memory key", Category = category, Content = "Original content" };
         var id = memory.Id;
         var data = new AppData { Memories = [memory] };
-        var manager = new LumiFeatureManager(new DataStore(data));
+        var manager = new LumiFeatureManager(new DataStore(data), localizeOutput: true);
 
         var updated = manager.ManageMemories(
             "update", identifier: id.ToString(), content: "Keep this revised authored content");
@@ -244,7 +321,7 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
     {
         Loc.Load("en");
         var data = new AppData();
-        var manager = new LumiFeatureManager(new DataStore(data));
+        var manager = new LumiFeatureManager(new DataStore(data), localizeOutput: true);
         var created = manager.ManageProjects("create", name: "Example", instructions: "Raw instructions");
         var project = Assert.Single(data.Projects);
         var updated = manager.ManageProjects("update", identifier: project.Id.ToString(), instructions: "Raw instructions");
