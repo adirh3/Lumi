@@ -4,14 +4,13 @@ namespace Lumi.Qa;
 
 internal static class QaSmokeAssertions
 {
-    internal const int SwitchableAiFeatureCount = 5;
+    internal const int SwitchableAiFeatureCount = 4;
 
     internal static bool AiFeaturesMatch(UserSettings settings, bool enabled) =>
         settings.AutoGenerateTitles == enabled
         && settings.SuggestFollowUps == enabled
         && settings.EnableMemoryAutoSave == enabled
-        && settings.EnableDailyBriefs == enabled
-        && settings.EnableCodingHelpers == enabled;
+        && settings.EnableDailyBriefs == enabled;
 
     internal static bool RepliesAreStored(IReadOnlyList<ChatMessage> messages, IReadOnlyList<string> expected) =>
         expected.Count > 0 && expected.All(text => messages.Any(message =>

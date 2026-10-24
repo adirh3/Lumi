@@ -3,7 +3,7 @@
   "desktop": [
     "Lumi.Tests.AiFeatureSettingsTests.AFeatureModelIsSavedShownAndRevertedWithoutChangingOthers",
     "Lumi.Tests.AiFeatureSettingsTests.AFeaturesOwnModelWinsOverTheDefaultModel",
-    "Lumi.Tests.AiFeatureSettingsTests.FeatureModelsAndCodingHelpersPersistAndOlderProfilesGetDefaults",
+    "Lumi.Tests.AiFeatureSettingsTests.FeatureModelsPersistAndOlderProfilesGetDefaults",
     "Lumi.Tests.AiFeatureSettingsTests.FeatureSwitchesTurnTheirFeaturesOffAndOn",
     "Lumi.Tests.AppDataSnapshotFactoryTests.AmbientPresence_DefaultsOnAndSurvivesIndexSnapshots",
     "Lumi.Tests.AppDataSnapshotFactoryTests.AppDataJsonContext_DeserializesMissingExternalSkillNamesAsEmptyList",
@@ -290,6 +290,7 @@
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.TranscriptInvalidation_ForAnotherChatIsIgnored",
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.TranscriptInvalidation_MakesThePhoneRefetchTheTranscript",
     "Lumi.Mobile.Tests.RemoteClientEndToEndTests.Unpairing_ClearsLocalStateAndReturnsToTheConnectScreen",
+    "Lumi.Mobile.Tests.RemoteProtocolTests.AssistantProgressRoleRoundTripsAndRemainsOptionalForOlderDesktops",
     "Lumi.Mobile.Tests.RemoteProtocolTests.BaseUrlNormalization_AcceptsWhatAPersonWouldActuallyType",
     "Lumi.Mobile.Tests.RemoteProtocolTests.Command_RoundTripsListsAndTypedAccessors",
     "Lumi.Mobile.Tests.RemoteProtocolTests.EventFrame_IgnoresKeepAliveComments",

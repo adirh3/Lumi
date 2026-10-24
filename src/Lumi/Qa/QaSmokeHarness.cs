@@ -69,7 +69,6 @@ internal sealed class QaSmokeHarness
         settings.SuggestFollowUps = false;
         settings.EnableMemoryAutoSave = false;
         settings.EnableDailyBriefs = false;
-        settings.EnableCodingHelpers = false;
         settings.RemoteAccessEnabled = false;
         settings.LaunchAtStartup = false;
         settings.MinimizeToTray = false;

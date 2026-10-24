@@ -125,8 +125,20 @@ pwsh tools\Test-LumiTestsInBatches.ps1 -Configuration Release -ResultsDirectory 
 dotnet test tests\Lumi.Mobile.Tests\Lumi.Mobile.Tests.csproj --configuration Release --no-build
 ```
 
-The [PR workflow](.github/workflows/pr-validation.yml) defines the current
-Windows suite and the narrower Linux/macOS subset. Some tests and harnesses need
+The [PR workflow](.github/workflows/pr-validation.yml) runs the deterministic
+CoreQA desktop/mobile set on Windows, Linux, Intel macOS and Apple Silicon,
+alongside builds and platform-sensitive checks. The broader Windows suites
+above run nightly or through the workflow's `full_suite` input, rather than on
+every PR. The [QA guide](docs/testing.md) covers the shared local runner, exact
+coverage registration and evidence.
+
+[Extended UI QA](.github/workflows/browser-native-validation.yml) runs real
+headed workflows nightly/manually and gates Release, without becoming an
+unrelated PR merge blocker. The
+[critical journey catalogue](docs/critical-user-journeys.md) distinguishes the
+required user paths from existing test coverage.
+
+Some tests and harnesses need
 a headed desktop, browser runtime, audio hardware, model files, network or an
 authenticated account. `CopilotIntegrationTests` are opt-in through
 `LUMI_INTEGRATION_TESTS=1`; real model checks may use account allowance. Read the

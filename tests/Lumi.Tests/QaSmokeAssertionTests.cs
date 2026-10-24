@@ -26,7 +26,6 @@ public sealed class QaSmokeAssertionTests
         settings.SuggestFollowUps = true;
         settings.EnableMemoryAutoSave = true;
         settings.EnableDailyBriefs = true;
-        settings.EnableCodingHelpers = true;
         Assert.True(QaSmokeAssertions.AiFeaturesMatch(settings, enabled: true));
         Assert.False(QaSmokeAssertions.AiFeaturesMatch(settings, enabled: false));
         settings.EnableMemoryAutoSave = false;
@@ -58,6 +57,6 @@ public sealed class QaSmokeAssertionTests
     private static UserSettings AllOff() => new()
     {
         AutoGenerateTitles = false, SuggestFollowUps = false, EnableMemoryAutoSave = false,
-        EnableDailyBriefs = false, EnableCodingHelpers = false
+        EnableDailyBriefs = false
     };
 }

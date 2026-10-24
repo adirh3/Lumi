@@ -14,6 +14,7 @@ development builds.
 
 Quick links: [build and runtime](#build--run), [embedded browser](#embedded-browser),
 [Windows automation](#windows-computer-use-automation), [mobile development](#mobile-development),
+[automated QA](testing.md), [critical user journeys](critical-user-journeys.md),
 [Strata](#local-stratatheme-development), [architecture](#architecture).
 
 ## Getting Started
@@ -119,7 +120,10 @@ application and services through `PerTest` isolation; dispose the test wrapper,
 not the shared dispatcher. UI objects, including geometry bounds, must be
 accessed inside `HeadlessTestSession.Dispatch`.
 
-Windows CI runs `tools\Test-LumiTestsInBatches.ps1` after the Release build.
+Nightly or manually requested full Windows CI runs
+`tools\Test-LumiTestsInBatches.ps1` after the Release build. Ordinary PRs use
+the deterministic CoreQA gate; see [Automated QA](testing.md) for the exact
+component/headed split and the release gate.
 The Skia-backed `AvaloniaTextInputTests` and `AvaloniaTextLayoutTests` each run
 in a fresh test host, separate from the drawing-free UI tests. Mixing these
 dispatchers lets delayed callbacks from an earlier window access its controls
