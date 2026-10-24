@@ -5,6 +5,7 @@ using Xunit;
 namespace Lumi.Tests;
 
 [Collection("Headless UI")]
+[Trait("Category", "CoreQA")]
 public sealed class HeadlessTestSessionTests
 {
     [Fact]

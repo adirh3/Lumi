@@ -5,6 +5,13 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      full_suite:
+        description: 'Also run the extended Windows desktop and mobile suites'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '15 2 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -17,18 +24,21 @@ jobs:
   validate:
     name: Validate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # The Windows suite alone takes about half an hour.
+    # Nightly/full Windows batches can take about half an hour.
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Windows is the primary/shipping platform: full build + test suite.
+          # Every desktop shipping architecture runs the deterministic CoreQA gate.
           - os: windows-latest
-          # Linux and macOS build the full solution and run the platform-sensitive subset.
-          # The remaining suite still contains Windows-only host and animation assumptions.
+            architecture: x64
           - os: ubuntu-latest
-          - os: macos-latest
+            architecture: x64
+          - os: macos-15
+            architecture: arm64
+          - os: macos-15-intel
+            architecture: x64
 
     steps:
       - name: Checkout
@@ -42,6 +52,14 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
 
+      - name: Verify native runner architecture
+        shell: pwsh
+        run: |
+          $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+          if ($architecture -ne "${{ matrix.architecture }}") {
+            throw "Expected ${{ matrix.architecture }}, got $architecture."
+          }
+
       - name: Restore
         run: dotnet restore Lumi.slnx
 
@@ -49,7 +67,7 @@ jobs:
         run: dotnet build Lumi.slnx --configuration Release --no-restore
 
       - name: Test (desktop Windows suite in fresh-host batches)
-        if: ${{ runner.os == 'Windows' }}
+        if: ${{ runner.os == 'Windows' && (github.event_name == 'schedule' || inputs.full_suite == true) }}
         shell: pwsh
         run: >
           ./tools/Test-LumiTestsInBatches.ps1
@@ -57,13 +75,22 @@ jobs:
           -ResultsDirectory TestResults
 
       - name: Test (mobile Windows suite)
-        if: ${{ runner.os == 'Windows' }}
+        if: ${{ runner.os == 'Windows' && (github.event_name == 'schedule' || inputs.full_suite == true) }}
         run: >
           dotnet test tests/Lumi.Mobile.Tests/Lumi.Mobile.Tests.csproj
           --configuration Release
           --no-build
           --logger "trx;LogFileName=lumi-mobile.trx"
           --results-directory TestResults
+
+      - name: Test (deterministic desktop and mobile QA)
+        shell: pwsh
+        run: >
+          ./tools/Test-LumiQa.ps1
+          -Suite Core
+          -Configuration Release
+          -NoBuild
+          -ResultsDirectory QaResults
 
       - name: Test (cross-platform runtime behavior)
         if: ${{ runner.os != 'Windows' }}
@@ -94,8 +121,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.os }}
-          path: TestResults
-          if-no-files-found: ignore
+          path: |
+            TestResults
+            QaResults/**/summary.json
+            QaResults/**/desktop/*
+            QaResults/**/mobile/*
+          if-no-files-found: error
 
   validate-strata:
     name: Validate Strata

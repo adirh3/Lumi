@@ -10,6 +10,7 @@ namespace Lumi.Mobile.Tests;
 /// End-to-end coverage of the phone half: real sockets, real HTTP, real SSE framing, real JSON,
 /// driving the real view models. Only the desktop is substituted, and it speaks the real protocol.
 /// </summary>
+[Trait("Category", "CoreQA")]
 public class RemoteClientEndToEndTests
 {
     private static MobileShellViewModel CreateShell()

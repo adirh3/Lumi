@@ -44,6 +44,7 @@ public sealed class OnboardingTests
         IsPersonalized: true);
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task WalkthroughSetsUpProjectsRemembersAnswersAndStartsAFirstTask()
     {
         using var session = HeadlessTestSession.Start();
@@ -146,6 +147,7 @@ public sealed class OnboardingTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task SkippingEverythingWithoutAnAiStillFinishesCleanly()
     {
         using var session = HeadlessTestSession.Start();
@@ -194,6 +196,7 @@ public sealed class OnboardingTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task FoldersThatAreAlreadyProjectsAreNotAddedTwice()
     {
         using var session = HeadlessTestSession.Start();

@@ -54,6 +54,7 @@ public sealed class ChatStorageTests : IDisposable
     // ── Codec ───────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void Codec_RoundTripsEveryPersistedFieldExactly()
     {
         var message = CreateFullyPopulatedMessage();
@@ -163,6 +164,7 @@ public sealed class ChatStorageTests : IDisposable
     // ── Store ───────────────────────────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task Store_ReadsTailOutlineRangesAndLookups()
     {
         var dataStore = OpenDataStore(out var store);
@@ -234,6 +236,7 @@ public sealed class ChatStorageTests : IDisposable
     // ── Incremental saves and tails ─────────────────────────────────────────
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task Reopen_LoadsOnlyTheLastExchangeAndKeepsHistoryReadable()
     {
         var dataStore = OpenDataStore(out _);
@@ -258,6 +261,7 @@ public sealed class ChatStorageTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task Save_WritesOnlyChangedMessagesAndRemovesDroppedOnes()
     {
         var dataStore = OpenDataStore(out var store);
@@ -340,6 +344,7 @@ public sealed class ChatStorageTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task HistoryTruncation_RemovesTheMessageAndEverythingAfterIt()
     {
         var dataStore = OpenDataStore(out _);
@@ -405,6 +410,7 @@ public sealed class ChatStorageTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task DeletingAChat_RemovesItsTranscript()
     {
         var dataStore = OpenDataStore(out var store);
@@ -1104,6 +1110,7 @@ public sealed class ChatStorageTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task ChatSearch_FindsStoredContentAndContentNotSavedYet()
     {
         var dataStore = OpenDataStore(out _);

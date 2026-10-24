@@ -8,6 +8,7 @@ using Xunit;
 
 namespace Lumi.Mobile.Tests;
 
+[Trait("Category", "CoreQA")]
 public sealed class ConnectAddressTrustTests
 {
     [Theory]

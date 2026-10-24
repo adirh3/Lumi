@@ -8,6 +8,7 @@ using Xunit;
 
 namespace Lumi.Tests;
 
+[Trait("Category", "CoreQA")]
 public sealed class SessionConfigBuilderTests
 {
     [Theory]

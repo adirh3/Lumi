@@ -24,6 +24,7 @@ public sealed class AiFeatureSettingsTests
     private static AiFeatureViewModel Feature(SettingsViewModel vm, string id) => vm.AiFeatures.Single(feature => feature.Id == id);
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void AFeaturesOwnModelWinsOverTheDefaultModel()
     {
         var settings = new UserSettings
@@ -92,6 +93,7 @@ public sealed class AiFeatureSettingsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void FeatureModelsPersistAndOlderProfilesGetDefaults()
     {
         var legacy = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;

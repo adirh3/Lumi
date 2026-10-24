@@ -7,6 +7,7 @@ using Xunit;
 namespace Lumi.Tests;
 
 /// <summary>Pins <see cref="TestProfile"/>: nothing a test does may reach the real Lumi profile.</summary>
+[Trait("Category", "CoreQA")]
 public sealed class TestProfileIsolationTests
 {
     private static readonly string RealProfile =

@@ -65,6 +65,10 @@ public partial class App : Application
         {
             var dataStore = new DataStore();
             _dataStore = dataStore;
+#if DEBUG
+            if (Program.QaSmokeOptions is { Enabled: true } qaOptions)
+                Qa.QaSmokeHarness.PrepareProfile(dataStore, qaOptions);
+#endif
 
             Loc.Load(dataStore.Data.Settings.Language);
             Styles.Add(CreateModelPickerTextStyle());
@@ -283,7 +287,12 @@ public partial class App : Application
             _contextCuratorService = new Lumi.Services.Context.ContextCuratorService(dataStore, copilotService, _globalSearchService);
             var vm = CreateMainViewModel(
                 forceOnboarding: Program.ForceOnboarding,
-                startBackgroundJobs: true
+                startBackgroundJobs:
+#if DEBUG
+                    Program.QaSmokeOptions is not { Enabled: true }
+#else
+                    true
+#endif
 #if DEBUG
                 , openAgentDebugHarness: Program.OpenAgentDebugHarness,
                 skipOnboarding: Program.SkipOnboarding
@@ -480,6 +489,11 @@ public partial class App : Application
             window.Opened += (_, _) =>
             {
 #if DEBUG
+                if (Program.QaSmokeOptions is { Enabled: true } qaOptions)
+                {
+                    Qa.QaSmokeHarness.Start(desktop, vm, dataStore, copilotService, qaOptions);
+                    return;
+                }
                 if (Program.BrowserNativeHarnessEnabled)
                 {
                     BrowserNativeHarness.Start(desktop, vm, dataStore,
@@ -726,7 +740,12 @@ public partial class App : Application
             , openAgentDebugHarness,
             skipOnboarding
 #endif
-            , initializeCopilotOnStartup: true
+            , initializeCopilotOnStartup:
+#if DEBUG
+                Program.QaSmokeOptions is not { Enabled: true }
+#else
+                true
+#endif
             , contextCuratorService: _contextCuratorService
         );
     }

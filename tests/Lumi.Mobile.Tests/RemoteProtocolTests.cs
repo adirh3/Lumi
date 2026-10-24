@@ -10,6 +10,7 @@ namespace Lumi.Mobile.Tests;
 /// The wire contract is the only thing keeping two independently-deployed apps in agreement, so the
 /// framing and serialization rules are pinned here.
 /// </summary>
+[Trait("Category", "CoreQA")]
 public class RemoteProtocolTests
 {
     [Fact]

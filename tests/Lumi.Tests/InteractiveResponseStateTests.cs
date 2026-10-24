@@ -8,6 +8,7 @@ using Xunit;
 
 namespace Lumi.Tests;
 
+[Trait("Category", "CoreQA")]
 public class InteractiveResponseStateTests
 {
     private static ChatMessage Answer() => new()

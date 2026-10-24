@@ -7,6 +7,7 @@ using Xunit;
 
 namespace Lumi.Tests;
 
+[Trait("Category", "CoreQA")]
 public class AppDataSnapshotFactoryTests
 {
     [Theory]

@@ -35,6 +35,7 @@ public sealed class ContextCuratorTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task TheNightlyRunReviewsYesterdayForActiveProjectsThenAcrossProjects()
     {
         var lumi = new Project { Name = "Lumi" };
@@ -116,6 +117,7 @@ public sealed class ContextCuratorTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task AFailedScopeKeepsItsPlaceAndIsRetriedAloneHoursLater()
     {
         var lumi = new Project { Name = "Lumi" };
@@ -290,6 +292,7 @@ public sealed class ContextCuratorTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public async Task UpdateNowReviewsUpToTheMomentAndOnlyWhenTurnedOn()
     {
         var lumi = new Project { Name = "Lumi" };
@@ -413,6 +416,7 @@ public sealed class ContextCuratorTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void TheCuratorKeepsWhatTheOwnerChangesInTheBriefWhileItWorks()
     {
         var lumi = new Project { Name = "Lumi" };

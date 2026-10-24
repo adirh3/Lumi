@@ -30,6 +30,7 @@ public sealed class PermissionControlsTests
     // ── Defaults and persistence ───────────────────────
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void Defaults_KeepFullAccess_ForExistingAndNewUsers()
     {
         var settings = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;
@@ -47,6 +48,7 @@ public sealed class PermissionControlsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void ModesAndRules_SurviveSnapshotsJsonAndForks()
     {
         var project = new Project { Name = "Site", ApprovalMode = ApprovalMode.AutoReview };
@@ -86,6 +88,7 @@ public sealed class PermissionControlsTests
     [InlineData(null, ApprovalMode.AskFirst, ApprovalMode.AskFirst, ApprovalModeSource.Project)]
     [InlineData(ApprovalMode.AutoReview, ApprovalMode.AskFirst, ApprovalMode.AutoReview, ApprovalModeSource.Chat)]
     [InlineData(ApprovalMode.FullAccess, ApprovalMode.AskFirst, ApprovalMode.FullAccess, ApprovalModeSource.Chat)]
+    [Trait("Category", "CoreQA")]
     public void Mode_FollowsTheChatThenItsProjectThenTheDefault(
         ApprovalMode? chatMode, ApprovalMode? projectMode, ApprovalMode expected, ApprovalModeSource source)
     {
@@ -95,6 +98,7 @@ public sealed class PermissionControlsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void Modes_AreCopilotsNativePermissionModes()
     {
         Assert.Equal(PermissionMode.AllowAll, ApprovalPolicy.ToNativeMode(ApprovalMode.FullAccess));
@@ -108,6 +112,7 @@ public sealed class PermissionControlsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void AllowAndNeverRules_BecomeNativeSessionRules_AndAlwaysAskRulesDoNot()
     {
         ApprovalRule[] rules =
@@ -131,6 +136,7 @@ public sealed class PermissionControlsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void AlwaysAskRules_BecomeTheNativeManagedAskLayer()
     {
         Assert.Null(ApprovalPolicy.BuildAskLayer([new ApprovalRule { Action = ApprovalRuleAction.Never, Kind = ApprovalRuleKind.Command }]));
@@ -157,6 +163,7 @@ public sealed class PermissionControlsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void Rules_CombineEverywhereTheProjectAndTheChat_AndRememberingTwiceIsANoOp()
     {
         var everywhere = new ApprovalRule { Action = ApprovalRuleAction.Never, Kind = ApprovalRuleKind.Command, Target = "git push" };
@@ -179,6 +186,7 @@ public sealed class PermissionControlsTests
     }
 
     [Fact]
+    [Trait("Category", "CoreQA")]
     public void LumiToolsThatOnlyLookOrTalk_SkipApproval_WhileHostActionsCanAsk()
     {
         foreach (var tool in new[] { "ask_question", "announce_file", "read_chat", "lumi_browser_look", "ui_inspect", "ui_screenshot" })

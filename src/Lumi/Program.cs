@@ -55,6 +55,7 @@ class Program
     internal static bool BrowserNativeHarnessEnabled { get; private set; }
     internal static bool BrowserNativeHarnessKeepOpen { get; private set; }
     internal static string? BrowserNativeHarnessOutput { get; private set; }
+    internal static Qa.QaSmokeOptions? QaSmokeOptions { get; private set; }
 #endif
 
     [STAThread]
@@ -74,9 +75,23 @@ class Program
         ForceOnboarding = args.Contains("--onboarding", StringComparer.OrdinalIgnoreCase);
 
 #if DEBUG
+        try { QaSmokeOptions = Qa.QaSmokeOptions.Parse(args); }
+        catch (ArgumentException error)
+        {
+            AttachParentConsole();
+            Console.Error.WriteLine(error.Message);
+            Environment.ExitCode = 2;
+            return;
+        }
+        if (QaSmokeOptions.Enabled)
+        {
+            AttachParentConsole();
+            EnsureIsolatedHarnessAppDataDir("qa-smoke");
+            SkipOnboarding = true;
+        }
         OpenInteractiveControlsFixture = args.Any(DebugAgentHarness.IsInteractiveControlsFlag);
         OpenAgentDebugHarness = OpenInteractiveControlsFixture || args.Any(DebugAgentHarness.IsUiHarnessFlag);
-        SkipOnboarding = args.Contains("--skip-onboarding", StringComparer.OrdinalIgnoreCase)
+        SkipOnboarding = QaSmokeOptions.Enabled || args.Contains("--skip-onboarding", StringComparer.OrdinalIgnoreCase)
             || args.Contains("--no-onboarding", StringComparer.OrdinalIgnoreCase);
         if (OpenAgentDebugHarness)
         {

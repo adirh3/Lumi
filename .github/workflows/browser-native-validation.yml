@@ -1,10 +1,12 @@
-name: Embedded browser validation
+name: Extended UI QA
 
 on:
   push:
     branches:
       - validation/browser-native-v2-20261008
   workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * *'
 
 permissions:
   contents: read
@@ -15,7 +17,7 @@ concurrency:
 
 jobs:
   browser:
-    name: Browser (${{ matrix.name }})
+    name: UI + Browser (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -62,9 +64,24 @@ jobs:
           sudo apt-get install -y -qq libwebkit2gtk-4.1-0 libsecret-tools xvfb dbus-x11
 
       - name: Build headed fixture
+        id: build
         run: dotnet build src/Lumi/Lumi.csproj --configuration Debug --verbosity quiet
 
+      - name: Run real UI, native approvals and process restart
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $arguments = @('-NoProfile', '-File', 'tools\Test-LumiQa.ps1',
+              '-Suite', 'Headed', '-NoBuild', '-ResultsDirectory', 'QaResults')
+          if ($IsLinux) {
+            xvfb-run -a dbus-run-session -- pwsh @arguments
+          } else {
+            pwsh @arguments
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run real native browser and docking checks
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 5
         shell: pwsh
         run: |
@@ -87,6 +104,7 @@ jobs:
           }
 
       - name: Test browser contracts and platform wiring
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 10
         shell: pwsh
         run: >
@@ -109,7 +127,7 @@ jobs:
           --results-directory BrowserResults
 
       - name: Test existing real WebView2 integration in a fresh host
-        if: ${{ runner.os == 'Windows' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && runner.os == 'Windows' }}
         timeout-minutes: 5
         run: >
           dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
@@ -126,4 +144,17 @@ jobs:
           name: browser-${{ matrix.os }}
           path: BrowserResults
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload UI QA evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-qa-${{ matrix.os }}
+          path: |
+            QaResults/**/summary.json
+            QaResults/**/build.log
+            QaResults/**/workflows/*
+            QaResults/**/restart/*
+          if-no-files-found: error
           retention-days: 7
