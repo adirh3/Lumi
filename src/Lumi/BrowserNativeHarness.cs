@@ -177,12 +177,28 @@ internal sealed class BrowserNativeHarness
         Check("wait", !(await browser.DoAsync("wait", "#query", "1000")).Contains("Error:", StringComparison.Ordinal));
         async Task<double> ScrollPositionAsync() => double.Parse(
             await browser.EvaluateAsync("return String(scrollY)"), System.Globalization.CultureInfo.InvariantCulture);
+        const string scrollState = """
+            return JSON.stringify({
+                y:scrollY, viewport:innerHeight, hidden:document.hidden,
+                bodyHeight:document.body.scrollHeight,
+                documentHeight:document.documentElement.scrollHeight,
+                scrollingElement:document.scrollingElement?.tagName,
+                elementTop:document.scrollingElement?.scrollTop,
+                activeElement:document.activeElement?.id
+            })
+            """;
+        Console.WriteLine("[SCROLL] before: " + await browser.EvaluateAsync(scrollState));
         var beforeScroll = await ScrollPositionAsync();
         var scrollY = beforeScroll;
         var scrollResult = await browser.DoAsync("scroll", "down", "300");
         if (scrollResult.Contains("Error:", StringComparison.Ordinal))
             throw new InvalidOperationException(scrollResult);
-        await WaitAsync(async () => (scrollY = await ScrollPositionAsync()) > beforeScroll);
+        try { await WaitAsync(async () => (scrollY = await ScrollPositionAsync()) > beforeScroll); }
+        catch (TimeoutException)
+        {
+            Console.WriteLine("[SCROLL] after timeout: " + await browser.EvaluateAsync(scrollState));
+            throw;
+        }
         Check("scroll", scrollY > beforeScroll, $"scrollY={beforeScroll}->{scrollY}");
         scrollResult = await browser.DoAsync("scroll", "up", "300");
         if (scrollResult.Contains("Error:", StringComparison.Ordinal))
