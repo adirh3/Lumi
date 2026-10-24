@@ -1882,8 +1882,9 @@ the desktop tools.
 
 ### App Icon
 
-Lumi's icon is Lumi's soft sparkle met by a smaller one that stands for you; where they overlap, the
-meeting glows in the Strata line's colours. One renderer, `src\Lumi\Services\AppIconArt.cs`, draws it.
+Lumi's icon puts Lumi between you and the model: Lumi's soft sparkle, a smaller lilac sparkle for you
+floating at its shoulder, and a dot for the model on the other side. One renderer,
+`src\Lumi\Services\AppIconArt.cs`, draws it.
 Inside the app (the welcome screen, onboarding, the loading window and Settings → About) and in the tray
 it wears the accent chosen in Settings → Appearance and changes with it; on Windows, the tray gets an icon
 frame drawn for each display scale. Installed icons (the taskbar, Start menu, Dock, launchers and home

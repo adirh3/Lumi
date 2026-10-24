@@ -7,28 +7,26 @@ using SkiaSharp;
 namespace Lumi.Services;
 
 /// <summary>
-/// Lumi's icon: Lumi's soft sparkle, met by a smaller one for you. Where they overlap, the meeting glows
-/// in the palette's Strata-line colours. Drawn in a 1024-unit square, so it is crisp at any size. The
-/// installed icons are written from it in Lumi's colours (<see cref="Lumi"/>); the mark inside the app
-/// and the tray icon are drawn from it in the user's accent (<see cref="ColorsFor"/>).
+/// Lumi's icon: Lumi's soft sparkle, with a smaller lilac sparkle for you floating at its shoulder and a dot for
+/// the model on the other side, so Lumi stands between you and the model. Drawn in a 1024-unit square, so it is
+/// crisp at any size. The installed icons are written from it in Lumi's colours (<see cref="Lumi"/>); the mark
+/// inside the app and the tray icon are drawn from it in the user's accent (<see cref="ColorsFor"/>).
 /// </summary>
 internal static class AppIconArt
 {
     internal enum Shape { Squircle, Circle, Square }
 
-    /// <summary>One icon's colours: its tile, the sparkles' shadow and shade, and the line where they meet.</summary>
+    /// <summary>One icon's colours: its tile, the shadows and shade of Lumi and the model, and your sparkle.</summary>
     internal sealed record IconColors(
         SKColor TileStart, SKColor TileMiddle, SKColor TileEnd, SKColor TileDepth,
-        SKColor Shadow, SKColor Tint,
-        SKColor LineStart, SKColor LineMiddle, SKColor LineEnd);
+        SKColor Shadow, SKColor Tint, SKColor You);
 
     /// <summary>Lumi's own colours, worn wherever the icon doesn't follow the accent.</summary>
     internal static readonly IconColors Lumi = new(
         SKColor.Parse("#5D5CF2"), SKColor.Parse("#9C58F5"), SKColor.Parse("#D84DE8"), SKColor.Parse("#C026D3"),
-        SKColor.Parse("#2B1484"), SKColor.Parse("#EEE6FF"),
-        SKColor.Parse("#7C86FF"), SKColor.Parse("#B48CFF"), SKColor.Parse("#FF78C4"));
+        SKColor.Parse("#2B1484"), SKColor.Parse("#EEE6FF"), SKColor.Parse("#E4CFFF"));
 
-    /// <summary>Sizes up to this drop the shadow and enlarge the pair, so the meeting still reads in a tray.</summary>
+    /// <summary>Sizes up to this drop the shadows on the tile and enlarge the mark, so it still reads in a tray.</summary>
     private const int SmallCutMaxSize = 32;
 
     private const float Unit = 1024f;
@@ -37,33 +35,37 @@ internal static class AppIconArt
     // The sparkle's profile (the soft four-point shape Lumi has always had), as harmonics of its radius.
     private static readonly double[] Harmonics = [0.9076039046, 0.0961679041, -0.0040758391, 0.0003167373, -0.0000127069];
 
-    // Lumi's sparkle sits half-way between the tile's centre and the pair's centroid, which reads as centred.
-    private static readonly SKPoint Big = new(502.4f, 521.6f);
-    private static readonly SKPoint Small = new(679.18f, 344.82f);
-    private static readonly SKPoint Meet = new(641.27f, 382.72f);
-    private const float BigTip = 300f, SmallTip = 132f;
-    private static readonly float MeetReach = SmallTip * 0.95f / MathF.Sqrt(2);
+    // Half of your sparkle lies over Lumi, and the model sits on the opposite diagonal. Lumi sits half-way between
+    // the tile's centre and the centroid of Lumi and you, which reads as centred.
+    private static readonly SKPoint LumiCentre = new(503.81f, 520.19f);
+    private static readonly SKPoint YouCentre = new(709.09f, 314.91f);
+    private static readonly SKPoint ModelCentre = new(259.15f, 764.85f);
+    private const float LumiTip = 350f, YouTip = 132f, ModelRadius = 26f;
 
     private static readonly SKPoint SheenCentre = new(190, 110);
     private static readonly SKPoint DepthCentre = new(930, 1010);
     private const float SheenRadius = 720, SheenOpacity = 0.2f, DepthRadius = 560, DepthOpacity = 0.22f;
+
+    // Lumi and the model rest on the tile; you float above Lumi, casting a soft shadow and a close one.
     private const float ShadowOffset = 22, ShadowBlur = 26, ShadowOpacity = 0.3f;
-    private const float GlowBlur = 20, GlowOpacity = 0.5f, HighlightOpacity = 0.55f;
+    private const float ModelShadowBlur = 6, ModelShadowOpacity = 0.32f;
+    private const float FloatOffset = 40, FloatBlur = 30, FloatOpacity = 0.3f;
+    private const float ContactOffset = 8, ContactBlur = 8, ContactOpacity = 0.12f;
     private const float EdgeWidth = 6;
 
     /// <summary>The icon in <paramref name="palette"/>. Its tile blends the palette's light and dark tones,
-    /// so one icon suits both themes; the meeting carries the palette's Strata line as the dark theme draws it.</summary>
+    /// so one icon suits both themes; your sparkle is a pale tint of the palette's secondary colour.</summary>
     internal static IconColors ColorsFor(AccentPalettes.Palette palette)
     {
         if (palette.IsDefault)
             return Lumi;
 
         var (light, dark) = (palette.Light, palette.Dark);
+        var white = Avalonia.Media.Colors.White;
         return new IconColors(
             Mix(light.Accent, dark.Accent, 0.3f), Mix(light.Secondary, dark.Secondary, 0.3f),
             Mix(light.Tertiary, dark.Tertiary, 0.3f), ToSk(light.Tertiary),
-            ToSk(dark.Subtle), Mix(Avalonia.Media.Colors.White, light.Secondary, 0.1f),
-            ToSk(dark.Accent), ToSk(dark.Secondary), ToSk(dark.Tertiary));
+            ToSk(dark.Subtle), Mix(white, light.Secondary, 0.1f), Mix(white, light.Secondary, 0.25f));
     }
 
     internal static SKBitmap Render(IconColors colors, int size, Shape shape = Shape.Squircle, float markScale = 1f)
@@ -176,57 +178,41 @@ internal static class AppIconArt
 
     private static void DrawMark(SKCanvas canvas, IconColors colors, bool shadow)
     {
-        using var big = Sparkle(Big, BigTip);
-        using var small = Sparkle(Small, SmallTip);
-        using var pair = big.Op(small, SKPathOp.Union);
-        using var meeting = big.Op(small, SKPathOp.Intersect);
+        using var lumi = Sparkle(LumiCentre, LumiTip);
+        using var you = Sparkle(YouCentre, YouTip);
+        using var model = new SKPath();
+        model.AddCircle(ModelCentre.X, ModelCentre.Y, ModelRadius);
 
         if (shadow)
         {
-            using var blur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, ShadowBlur);
-            using var paint = new SKPaint
-            {
-                IsAntialias = true,
-                Color = colors.Shadow.WithAlpha(Alpha(ShadowOpacity)),
-                MaskFilter = blur,
-            };
-            canvas.Save();
-            canvas.Translate(0, ShadowOffset);
-            canvas.DrawPath(pair, paint);
-            canvas.Restore();
+            DrawShadow(canvas, lumi, colors.Shadow, ShadowOffset, ShadowBlur, ShadowOpacity);
+            DrawShadow(canvas, model, colors.Shadow, ModelRadius * 0.3f, ModelShadowBlur, ModelShadowOpacity);
         }
 
-        using (var bigShade = Shade(Big.Y - BigTip, Big.Y + BigTip, colors.Tint))
-        using (var smallShade = Shade(Small.Y - SmallTip, Small.Y + SmallTip, colors.Tint))
+        using (var modelShade = Shade(ModelCentre.Y - ModelRadius, ModelCentre.Y + ModelRadius, colors.Tint))
+        using (var lumiShade = Shade(LumiCentre.Y - LumiTip, LumiCentre.Y + LumiTip, colors.Tint))
         using (var paint = new SKPaint { IsAntialias = true })
         {
-            paint.Shader = bigShade;
-            canvas.DrawPath(big, paint);
-            paint.Shader = smallShade;
-            canvas.DrawPath(small, paint);
+            paint.Shader = modelShade;
+            canvas.DrawPath(model, paint);
+            paint.Shader = lumiShade;
+            canvas.DrawPath(lumi, paint);
         }
 
-        // Where you meet: the overlap carries the line, glowing softly into both sparkles.
-        using var line = LineShader(colors);
-        using (var blur = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, GlowBlur))
-        using (var glow = new SKPaint
-        {
-            IsAntialias = true,
-            Shader = line,
-            Color = SKColors.White.WithAlpha(Alpha(GlowOpacity)),
-            MaskFilter = blur,
-        })
-        {
-            canvas.Save();
-            canvas.ClipPath(pair, antialias: true);
-            canvas.DrawPath(meeting, glow);
-            canvas.Restore();
-        }
-        using (var paint = new SKPaint { IsAntialias = true, Shader = line })
-            canvas.DrawPath(meeting, paint);
-        using (var highlight = Highlight())
-        using (var paint = new SKPaint { IsAntialias = true, Shader = highlight })
-            canvas.DrawPath(meeting, paint);
+        DrawShadow(canvas, you, colors.Shadow, ContactOffset, ContactBlur, ContactOpacity);
+        DrawShadow(canvas, you, colors.Shadow, FloatOffset, FloatBlur, FloatOpacity);
+        using (var paint = new SKPaint { IsAntialias = true, Color = colors.You })
+            canvas.DrawPath(you, paint);
+    }
+
+    private static void DrawShadow(SKCanvas canvas, SKPath shape, SKColor color, float offset, float blur, float opacity)
+    {
+        using var mask = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, blur);
+        using var paint = new SKPaint { IsAntialias = true, Color = color.WithAlpha(Alpha(opacity)), MaskFilter = mask };
+        canvas.Save();
+        canvas.Translate(0, offset);
+        canvas.DrawPath(shape, paint);
+        canvas.Restore();
     }
 
     private static SKPath? Outline(Shape shape)
@@ -285,20 +271,6 @@ internal static class AppIconArt
         => SKShader.CreateLinearGradient(
             new SKPoint(0, 0), new SKPoint(Unit, Unit),
             [colors.TileStart, colors.TileMiddle, colors.TileEnd], [0f, 0.52f, 1f], SKShaderTileMode.Clamp);
-
-    private static SKShader LineShader(IconColors colors)
-    {
-        var (from, to) = LineEnds();
-        return SKShader.CreateLinearGradient(
-            from, to, [colors.LineStart, colors.LineMiddle, colors.LineEnd], [0f, 0.5f, 1f], SKShaderTileMode.Clamp);
-    }
-
-    private static (SKPoint From, SKPoint To) LineEnds()
-        => (new SKPoint(Meet.X - MeetReach, Meet.Y - MeetReach), new SKPoint(Meet.X + MeetReach, Meet.Y + MeetReach));
-
-    private static SKPoint HighlightCentre() => new(Meet.X - 6, Meet.Y - 10);
-
-    private static SKShader Highlight() => Fade(HighlightCentre(), SmallTip * 0.6f, SKColors.White, HighlightOpacity);
 
     private static SKShader EdgeShader()
         => SKShader.CreateLinearGradient(

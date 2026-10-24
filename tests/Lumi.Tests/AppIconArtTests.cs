@@ -21,14 +21,17 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class AppIconArtTests
 {
-    // Points of a 256 px icon: the tile beside the sparkles, Lumi's sparkle, yours, and where they meet.
+    // Points of a 256 px icon: the tile, Lumi's sparkle, yours, the model's dot, and two points of Lumi
+    // in the same row, one under your sparkle and one away from it.
     private static readonly SKPointI Tile = new(30, 128);
     private static readonly SKPointI LumisSparkle = new(110, 150);
     private static readonly SKPointI YourSparkle = new(180, 76);
-    private static readonly SKPointI Meeting = new(166, 102);
+    private static readonly SKPointI Model = new(65, 191);
+    private static readonly SKPointI UnderYou = new(177, 117);
+    private static readonly SKPointI LumiBesideYou = new(100, 117);
 
     [Fact]
-    public void Icon_IsLumisSparkleMetByYours_GlowingWhereTheyMeet()
+    public void Icon_IsLumiBetweenYouAndTheModel_WithYouFloatingAboveLumi()
     {
         using var icon = AppIconArt.Render(AppIconArt.Lumi, 256);
 
@@ -37,8 +40,10 @@ public sealed class AppIconArtTests
         Assert.Equal(255, tile.Alpha);
         Assert.True(tile.Blue > tile.Green + 60, $"Lumi's tile is indigo-violet, not {tile}.");
         AssertNearWhite(Pixel(icon, LumisSparkle));
-        AssertNearWhite(Pixel(icon, YourSparkle));
-        Assert.True(Chroma(Pixel(icon, Meeting)) > 50, $"The meeting glows in colour, not {Pixel(icon, Meeting)}.");
+        AssertNearWhite(Pixel(icon, Model));
+        AssertColor(AppIconArt.Lumi.You, Pixel(icon, YourSparkle));
+        Assert.True(Brightness(Pixel(icon, LumiBesideYou)) - Brightness(Pixel(icon, UnderYou)) > 20,
+            $"Your sparkle casts a shadow on Lumi: {Pixel(icon, UnderYou)} against {Pixel(icon, LumiBesideYou)}.");
     }
 
     [Fact]
@@ -46,12 +51,15 @@ public sealed class AppIconArtTests
     {
         Assert.Same(AppIconArt.Lumi, AppIconArt.ColorsFor(AccentPalettes.Find(AccentPalettes.DefaultId)));
 
-        using var icon = AppIconArt.Render(AppIconArt.ColorsFor(AccentPalettes.Find("forest")), 256);
+        var forest = AppIconArt.ColorsFor(AccentPalettes.Find("forest"));
+        using var icon = AppIconArt.Render(forest, 256);
 
         var tile = Pixel(icon, Tile);
         Assert.True(tile.Green > tile.Red && tile.Green > tile.Blue, $"A forest tile is green, not {tile}.");
         AssertNearWhite(Pixel(icon, LumisSparkle));
-        Assert.True(Chroma(Pixel(icon, Meeting)) > 50, $"The meeting glows in colour, not {Pixel(icon, Meeting)}.");
+        var you = Pixel(icon, YourSparkle);
+        AssertColor(forest.You, you);
+        Assert.True(you.Green > you.Blue, $"Your sparkle takes a pale tint of the palette, not {you}.");
     }
 
     [Fact]
@@ -182,9 +190,14 @@ public sealed class AppIconArtTests
 
     private static SKColor Pixel(SKBitmap bitmap, SKPointI point) => bitmap.GetPixel(point.X, point.Y);
 
-    private static int Chroma(SKColor color)
-        => Math.Max(color.Red, Math.Max(color.Green, color.Blue)) - Math.Min(color.Red, Math.Min(color.Green, color.Blue));
+    private static int Brightness(SKColor color) => (color.Red + color.Green + color.Blue) / 3;
+
+    private static void AssertColor(SKColor expected, SKColor actual)
+        => Assert.True(
+            Math.Abs(expected.Red - actual.Red) <= 3 && Math.Abs(expected.Green - actual.Green) <= 3
+            && Math.Abs(expected.Blue - actual.Blue) <= 3,
+            $"Expected {expected}, not {actual}.");
 
     private static void AssertNearWhite(SKColor color)
-        => Assert.True(color.Red >= 225 && color.Green >= 225 && color.Blue >= 225, $"Expected a white sparkle, not {color}.");
+        => Assert.True(color.Red >= 225 && color.Green >= 225 && color.Blue >= 225, $"Expected white, not {color}.");
 }

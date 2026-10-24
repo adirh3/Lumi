@@ -22,7 +22,7 @@ internal static class AppIconAssets
     private static readonly SKPointI SplashIconOrigin = new(260, 40);
     private const int SplashIconSize = 80;
 
-    // A maskable icon may be cropped to a circle of 80% of its width; this keeps the pair as large
+    // A maskable icon may be cropped to a circle of 80% of its width; this keeps the mark as large
     // within that circle as it is within the tile.
     private const float MaskableMarkScale = 0.8f;
 
