@@ -20,6 +20,7 @@ public sealed record SetupMarkShape(string Geometry, string Color);
 /// </summary>
 /// <param name="AppGroups">Matches when every group names an app the user has.</param>
 /// <param name="Sites">Matches a visited host; an entry that starts with a dot matches its subdomains.</param>
+/// <param name="RequiresWorkAccount">Automatic suggestions also need local work-account registration.</param>
 public sealed record SetupScenario(
     string Id,
     string NameKey,
@@ -29,7 +30,8 @@ public sealed record SetupScenario(
     IReadOnlyList<IReadOnlyList<string>> AppGroups,
     IReadOnlyList<string> Sites,
     string SearchTerms,
-    IReadOnlyList<SetupMarkShape> Mark)
+    IReadOnlyList<SetupMarkShape> Mark,
+    bool RequiresWorkAccount = false)
 {
     public bool Matches(IEnumerable<string> apps, IEnumerable<string> sites)
     {
@@ -78,6 +80,7 @@ public static class SetupScenarios
                 new("M11 0h10v10H11z", "#7FBA00"),
                 new("M0 11h10v10H0z", "#00A4EF"),
                 new("M11 11h10v10H11z", "#FFB900"),
-            ]),
+            ],
+            RequiresWorkAccount: true),
     ];
 }

@@ -100,8 +100,8 @@ public sealed partial class SetupSuggestionItem : ObservableObject
 
 /// <summary>
 /// Well-known setups (<see cref="SetupScenarios"/>) and the one Lumi suggests now: from the scan the user
-/// allowed in welcome, or once per start from app names alone. A suggestion the user answered is not offered
-/// again; every setup stays listed in Discover.
+/// allowed in welcome, or once per start from app names, with local work-account registration where required.
+/// A suggestion the user answered is not offered again; every setup stays listed in Discover.
 /// </summary>
 public sealed partial class SetupSuggestionsViewModel : ObservableObject, IDisposable
 {
@@ -110,6 +110,7 @@ public sealed partial class SetupSuggestionsViewModel : ObservableObject, IDispo
     private readonly Func<SetupScenario, CancellationToken, Task<PluginInstallOutcome>> _install;
     private readonly Func<CapabilitySnapshot?> _capabilities;
     private readonly IWorkspaceDiscovery _discovery;
+    private readonly Func<bool> _hasWorkAccount;
     private readonly CancellationTokenSource _lifetime = new();
     private Task<bool>? _refresh;
     private bool _startupChecked;
@@ -138,13 +139,15 @@ public sealed partial class SetupSuggestionsViewModel : ObservableObject, IDispo
         Func<SetupScenario, CancellationToken, Task<PluginInstallOutcome>> install,
         Func<CapabilitySnapshot?>? capabilities = null,
         IWorkspaceDiscovery? discovery = null,
-        IReadOnlyList<SetupScenario>? scenarios = null)
+        IReadOnlyList<SetupScenario>? scenarios = null,
+        Func<bool>? hasWorkAccount = null)
     {
         _dataStore = dataStore;
         _listInstalled = listInstalled;
         _install = install;
         _capabilities = capabilities ?? (static () => null);
         _discovery = discovery ?? new WorkspaceDiscovery();
+        _hasWorkAccount = hasWorkAccount ?? WorkAccountRegistration.IsPresent;
         Items = (scenarios ?? SetupScenarios.All).Select(scenario => new SetupSuggestionItem(scenario, this)).ToList();
     }
 
@@ -206,7 +209,7 @@ public sealed partial class SetupSuggestionsViewModel : ObservableObject, IDispo
         }
     }
 
-    /// <summary>Once per start: suggest a setup the user's app names point to. Never reads sites or files.</summary>
+    /// <summary>Once per start: check app names and required work-account registration. Never reads sites or files.</summary>
     public async Task CheckAtStartupAsync()
     {
         if (_disposed || _startupChecked)
@@ -233,7 +236,7 @@ public sealed partial class SetupSuggestionsViewModel : ObservableObject, IDispo
     /// <summary>Welcome's scan, limited to the sources the user allowed.</summary>
     public void ConsiderWorkspace(WorkspaceSnapshot workspace) => Suggest(workspace.Apps, workspace.Sites);
 
-    /// <summary>Startup reads app names only while the user lets welcome read them.</summary>
+    /// <summary>App names and work-account registration are checked only with welcome's app-source consent.</summary>
     public void RememberAppDiscoveryChoice(bool allowed)
     {
         _dataStore.Data.Settings.AllowAppSetupSuggestions = allowed;
@@ -249,7 +252,10 @@ public sealed partial class SetupSuggestionsViewModel : ObservableObject, IDispo
         if (_disposed || Current is { IsBusy: true } or { IsInstalled: true })
             return;
 
-        Current = Items.FirstOrDefault(item => IsOpen(item) && item.Scenario.Matches(apps, sites));
+        Current = Items.FirstOrDefault(item => IsOpen(item)
+            && item.Scenario.Matches(apps, sites)
+            && (!item.Scenario.RequiresWorkAccount
+                || _dataStore.Data.Settings.AllowAppSetupSuggestions && _hasWorkAccount()));
     }
 
     internal async Task ActAsync(SetupSuggestionItem item)

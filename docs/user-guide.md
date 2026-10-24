@@ -470,10 +470,16 @@ turned off stays off.
 
 Lumi suggests at most one setup, as a small row on the new-chat screen: welcome considers the apps and sites the
 user let it read, and an ordinary start checks local app names once (never history, messages or documents;
-off when welcome's app source was declined). **Set up** or **×** answers it for good
+off when welcome's app source was declined). Microsoft 365 additionally requires a work/school account
+registered by the current Windows user. The app source permits this local registration check too; it reads
+no account names, credentials or tokens. Device-only Entra join, AD domain membership, Office/Teams apps and
+work-site visits alone do not qualify. Without positive evidence, including a failed check or on macOS/Linux,
+Lumi skips the automatic Microsoft 365 suggestion. Declining the app source skips the registration check and
+the Microsoft 365 suggestion even when websites are allowed. **Set up** or **×** answers it for good
 (`HandledSetupSuggestions`), and **Try it** opens a new draft with the starter prompt, never sending it. Every
-setup stays under **Customize > Discover > Set up in one step**. Sign-in and organization permissions are
-checked by the connector when it is first used.
+setup stays under **Customize > Discover > Set up in one step**, regardless of registration. Sign-in,
+licensing and organization permissions are checked by the connector when it is first used; a local registration
+is not a guarantee of Work IQ access.
 
 ### Connectors in a chat
 

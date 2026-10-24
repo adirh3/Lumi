@@ -22,6 +22,7 @@ public sealed class SetupSuggestionsTests
     [Fact]
     public void EveryScenarioIsWellFormed()
     {
+        Assert.True(Microsoft365.RequiresWorkAccount);
         Assert.Equal(SetupScenarios.All.Count, SetupScenarios.All.Select(scenario => scenario.Id).Distinct().Count());
         Assert.All(SetupScenarios.All, scenario =>
         {
@@ -52,17 +53,123 @@ public sealed class SetupSuggestionsTests
     public void Microsoft365RecognizesWorkSitesNotPersonalMailOrLookalikes(string site, bool expected)
         => Assert.Equal(expected, Microsoft365.Matches([], [site]));
 
+    [Theory]
+    [InlineData(0, null, false)]
+    [InlineData(0, 0, false)]
+    [InlineData(0, 1, false)]
+    [InlineData(0, 2, true)]
+    [InlineData(0, 3, false)]
+    [InlineData(-2147024891, 2, false)]
+    [InlineData(1, 2, false)]
+    public void OnlySuccessfulCurrentUserWorkplaceRegistrationQualifies(int hresult, int? joinType, bool expected)
+        => Assert.Equal(expected, WorkAccountRegistration.IsUserWorkplaceRegistration(hresult, joinType));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AutomaticMicrosoft365SuggestionsRequireAWorkAccount(bool hasWorkAccount)
+    {
+        var store = new DataStore(new AppData());
+        using var vm = Create(store, new FakeDiscovery(["Microsoft 365", "Teams"]),
+            hasWorkAccount: () => hasWorkAccount);
+
+        await vm.CheckAtStartupAsync();
+        Assert.Equal(hasWorkAccount, vm.HasCurrent);
+
+        vm.ConsiderWorkspace(new WorkspaceSnapshot([], [], ["contoso.sharepoint.com"], WorkspaceDocuments.Empty));
+        Assert.Equal(hasWorkAccount, vm.HasCurrent);
+        Assert.Single(vm.Items);
+        Assert.Empty(store.Data.Settings.HandledSetupSuggestions);
+    }
+
     [Fact]
-    public async Task StartupReadsAppNamesOnceAndNothingElse()
+    public async Task DefaultEligibilityUsesThePlatformsRegisteredWorkAccount()
+    {
+        using var vm = new SetupSuggestionsViewModel(new DataStore(new AppData()),
+            static _ => Task.FromResult<IReadOnlyList<PluginInstallation>>([]),
+            static (_, _) => throw new InvalidOperationException("No installation was requested"),
+            discovery: new FakeDiscovery(["Microsoft 365", "Teams"]));
+        var hasWorkAccount = WorkAccountRegistration.IsPresent();
+
+        await vm.CheckAtStartupAsync();
+        Assert.Equal(hasWorkAccount, vm.HasCurrent);
+
+        vm.ConsiderWorkspace(new WorkspaceSnapshot([], [], ["contoso.sharepoint.com"], WorkspaceDocuments.Empty));
+        Assert.Equal(hasWorkAccount, vm.HasCurrent);
+    }
+
+    [Fact]
+    public void MissingAccountEvidenceIsNotADismissalAndCanBeCheckedAgain()
+    {
+        var store = new DataStore(new AppData());
+        var hasWorkAccount = false;
+        using var vm = Create(store, hasWorkAccount: () => hasWorkAccount);
+
+        vm.ConsiderWorkspace(WorkWorkspace());
+        Assert.False(vm.HasCurrent);
+        Assert.Empty(store.Data.Settings.HandledSetupSuggestions);
+
+        hasWorkAccount = true;
+        vm.ConsiderWorkspace(WorkWorkspace());
+        Assert.True(vm.HasCurrent);
+    }
+
+    [Fact]
+    public async Task UnmatchedSourcesDoNotReadWorkAccounts()
+    {
+        using var vm = Create(new DataStore(new AppData()), new FakeDiscovery(["Chrome"]),
+            hasWorkAccount: static () => throw new InvalidOperationException("No matching setup"));
+
+        await vm.CheckAtStartupAsync();
+        vm.ConsiderWorkspace(WorkspaceSnapshot.Empty);
+
+        Assert.False(vm.HasCurrent);
+    }
+
+    [Fact]
+    public void OtherScenariosDoNotReadWorkAccounts()
+    {
+        var scenario = Microsoft365 with { Id = "fixture-setup", RequiresWorkAccount = false };
+        using var vm = Create(new DataStore(new AppData()),
+            hasWorkAccount: static () => throw new InvalidOperationException("This setup needs no work account"),
+            scenarios: [scenario]);
+
+        vm.ConsiderWorkspace(WorkWorkspace());
+
+        Assert.Same(vm.Items.Single(), vm.Current);
+    }
+
+    [Fact]
+    public async Task ManualSetupDoesNotRequireWorkAccountEvidence()
+    {
+        using var vm = Create(new DataStore(new AppData()), hasWorkAccount: static () => false);
+        vm.ConsiderWorkspace(WorkWorkspace());
+        Assert.False(vm.HasCurrent);
+        var setup = vm.Items.Single();
+
+        await setup.ActCommand.ExecuteAsync(null);
+
+        Assert.True(setup.IsReady);
+        Assert.False(vm.HasCurrent);
+    }
+
+    [Fact]
+    public async Task StartupReadsAppNamesAndRegistrationOnceAndNoOtherWorkspaceSources()
     {
         var discovery = new FakeDiscovery(["Microsoft 365", "Teams"]);
-        using var vm = Create(new DataStore(new AppData()), discovery);
+        var accountReads = 0;
+        using var vm = Create(new DataStore(new AppData()), discovery, hasWorkAccount: () =>
+        {
+            accountReads++;
+            return true;
+        });
 
         await vm.CheckAtStartupAsync();
         await vm.CheckAtStartupAsync();
 
         Assert.Same(vm.Items.Single(), vm.Current);
         Assert.Equal(1, discovery.AppReads);
+        Assert.Equal(1, accountReads);
         Assert.Equal(0, discovery.SiteReads);
         Assert.Equal(0, discovery.ProjectReads);
         Assert.Equal(0, discovery.DocumentReads);
@@ -78,7 +185,8 @@ public sealed class SetupSuggestionsTests
             data.Settings.HandledSetupSuggestions.Add(Microsoft365.Id);
         data.Settings.AllowAppSetupSuggestions = allowApps;
         var discovery = new FakeDiscovery(["Microsoft 365", "Teams"]);
-        using var vm = Create(new DataStore(data), discovery);
+        using var vm = Create(new DataStore(data), discovery,
+            hasWorkAccount: static () => throw new InvalidOperationException("No account discovery was allowed"));
 
         await vm.CheckAtStartupAsync();
 
@@ -90,7 +198,8 @@ public sealed class SetupSuggestionsTests
     public async Task AnInstalledSetupIsNotSuggestedButShowsAsReady()
     {
         var discovery = new FakeDiscovery(["Microsoft 365", "Teams"]);
-        using var vm = Create(new DataStore(new AppData()), discovery, installed: [WorkIq]);
+        using var vm = Create(new DataStore(new AppData()), discovery, installed: [WorkIq],
+            hasWorkAccount: static () => throw new InvalidOperationException("Already installed"));
 
         await vm.CheckAtStartupAsync();
 
@@ -351,7 +460,8 @@ public sealed class SetupSuggestionsTests
         {
             var store = new DataStore(new AppData());
             var discovery = new FakeDiscovery(["Microsoft 365", "Teams"], ["contoso.sharepoint.com"]);
-            using var setups = Create(store, discovery);
+            using var setups = Create(store, discovery,
+                hasWorkAccount: static () => throw new InvalidOperationException("App discovery was declined"));
             setups.IsWelcome = true;
             var welcome = new OnboardingViewModel(store, TestCopilot.Shared, discovery)
             {
@@ -365,14 +475,22 @@ public sealed class SetupSuggestionsTests
 
             Assert.Equal(0, discovery.AppReads);
             Assert.Equal(1, discovery.SiteReads);
-            Assert.True(setups.HasCurrent);
+            Assert.False(setups.HasCurrent);
             Assert.False(store.Data.Settings.AllowAppSetupSuggestions);
-
-            // Welcome cannot open a chat, so a setup finished there only confirms itself.
-            await setups.Current!.ActCommand.ExecuteAsync(null);
-            Assert.True(setups.Current!.IsReady);
-            Assert.False(setups.Current.ShowAction);
         }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task WelcomeConfirmsAnInstalledSetupWithoutOpeningAChat()
+    {
+        using var setups = Create(new DataStore(new AppData()));
+        setups.IsWelcome = true;
+        setups.ConsiderWorkspace(WorkWorkspace());
+
+        await setups.Current!.ActCommand.ExecuteAsync(null);
+
+        Assert.True(setups.Current!.IsReady);
+        Assert.False(setups.Current.ShowAction);
     }
 
     [Fact]
@@ -474,11 +592,15 @@ public sealed class SetupSuggestionsTests
         DataStore store,
         IWorkspaceDiscovery? discovery = null,
         IReadOnlyList<PluginInstallation>? installed = null,
-        Func<SetupScenario, CancellationToken, Task<PluginInstallOutcome>>? install = null)
+        Func<SetupScenario, CancellationToken, Task<PluginInstallOutcome>>? install = null,
+        Func<bool>? hasWorkAccount = null,
+        IReadOnlyList<SetupScenario>? scenarios = null)
         => new(store,
             _ => Task.FromResult(installed ?? (IReadOnlyList<PluginInstallation>)[]),
             install ?? ((_, _) => Task.FromResult(new PluginInstallOutcome(WorkIq, null, null))),
-            discovery: discovery ?? new FakeDiscovery([]));
+            discovery: discovery ?? new FakeDiscovery([]),
+            scenarios: scenarios,
+            hasWorkAccount: hasWorkAccount ?? (static () => true));
 
     private static WorkspaceSnapshot WorkWorkspace()
         => new([], ["Microsoft 365", "Teams"], [], WorkspaceDocuments.Empty);

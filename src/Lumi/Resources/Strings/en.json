@@ -615,7 +615,7 @@
   "Onboarding_SourceProjects": "Projects and folders",
   "Onboarding_SourceProjectsDescription": "Code repositories and folders you've been working in",
   "Onboarding_SourceApps": "Apps",
-  "Onboarding_SourceAppsDescription": "Installed or open app names, also used for optional setup suggestions",
+  "Onboarding_SourceAppsDescription": "Installed or open app names and work-account registration for optional setup suggestions",
   "Onboarding_SourceSites": "Websites",
   "Onboarding_SourceSitesDescription": "The sites you visit most, by domain only",
   "Onboarding_SourceFiles": "Recent files",
