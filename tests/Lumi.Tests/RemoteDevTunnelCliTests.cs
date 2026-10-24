@@ -444,14 +444,84 @@ public sealed class RemoteDevTunnelCliTests
 
     [Theory]
     [InlineData("The network is unavailable.", true)]
+    [InlineData("Microsoft authentication failed: ErrorCode: NoNetwork", true)]
+    [InlineData("MSAL error: no_network", true)]
     [InlineData("Request returned503 ServiceUnavailable.", true)]
     [InlineData("Connection reset by peer.", true)]
     [InlineData("Error resolving host: no such host.", true)]
     [InlineData("Unrecognized option '--new-flag'.", false)]
     [InlineData("Tunnel already exists (409).", false)]
     [InlineData("Forbidden: this account cannot manage the tunnel.", false)]
+    [InlineData("Microsoft authentication failed: ErrorCode: UserCanceled", false)]
     public void OnlyTransientCommandFailuresAreAutomaticallyRetried(string error, bool expected) =>
         Assert.Equal(expected, RemoteDevTunnelCli.IsTransientFailure(error));
+
+    [Fact]
+    public async Task InitialIdentityLookupRecoversFromBrokerNoNetworkWithoutOpeningSignIn()
+    {
+        var calls = new List<string[]>();
+        var delays = new List<TimeSpan>();
+        Task<string> Run(string[] arguments, CancellationToken token)
+        {
+            calls.Add(arguments);
+            const string error = "Microsoft authentication failed: ErrorCode: NoNetwork";
+            return calls.Count == 1
+                ? Task.FromException<string>(new RemoteDevTunnelCliException(
+                    error, RemoteDevTunnelCli.IsAuthenticationFailure(error),
+                    RemoteDevTunnelCli.IsTransientFailure(error)))
+                : Task.FromResult(MicrosoftIdentity);
+        }
+
+        var identity = await RemoteDevTunnelHost.RunWithRecoveryAsync(
+            token => RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+                Run, () => throw new InvalidOperationException("Unexpected sign-in prompt."), token),
+            (_, delay) => delays.Add(delay),
+            CancellationToken.None,
+            (_, _) => Task.CompletedTask);
+
+        Assert.Equal("owner-id", identity!.Value.ObjectId);
+        Assert.Equal(2, calls.Count);
+        Assert.All(calls, arguments => Assert.Equal(["user", "show", "--json"], arguments));
+        Assert.Equal([TimeSpan.FromSeconds(5)], delays);
+    }
+
+    [Theory]
+    [InlineData("""{"status":"Not logged in"}""")]
+    [InlineData("""{"status":"Login token expired","provider":"microsoft"}""")]
+    public async Task IdentityRecoveryStillWaitsForExplicitSignInWhenCredentialsAreMissing(string response)
+    {
+        var calls = 0;
+        var identity = await RemoteDevTunnelHost.RunWithRecoveryAsync(
+            token => RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+                (_, _) => { calls++; return Task.FromResult(response); },
+                () => throw new InvalidOperationException("Unexpected sign-in prompt."), token),
+            (_, _) => throw new InvalidOperationException("Missing credentials must not retry."),
+            CancellationToken.None);
+
+        Assert.Null(identity);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task CancelingInitialIdentityRecoveryDoesNotCheckTheAccountAgain()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var calls = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            RemoteDevTunnelHost.RunWithRecoveryAsync(
+                token => RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+                    (_, _) =>
+                    {
+                        calls++;
+                        throw new RemoteDevTunnelCliException("NoNetwork");
+                    },
+                    () => throw new InvalidOperationException("Unexpected sign-in prompt."), token),
+                (_, _) => { },
+                cancellation.Token,
+                (_, token) => { cancellation.Cancel(); return Task.FromCanceled(token); }));
+
+        Assert.Equal(1, calls);
+    }
 
     [Theory]
     [InlineData(false)]
