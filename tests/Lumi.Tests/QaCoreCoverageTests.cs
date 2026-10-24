@@ -91,6 +91,16 @@ public sealed class QaCoreCoverageTests
         }
         var trxPath = Path.Combine(root, "results.trx");
         new XDocument(new XElement(ns + "TestRun", definitions, results)).Save(trxPath);
+        var driverPath = Path.Combine(root, "check-coverage.ps1");
+        await File.WriteAllTextAsync(driverPath, """
+            param([string]$Validator, [string]$Trx, [string]$Catalog)
+            $ErrorActionPreference = 'Stop'
+            try { & $Validator -TrxPath $Trx -CatalogPath $Catalog -Project desktop }
+            catch {
+                [Console]::Error.WriteLine($_.Exception.Message)
+                exit 1
+            }
+            """);
 
         using var process = new Process
         {
@@ -102,8 +112,9 @@ public sealed class QaCoreCoverageTests
         };
         foreach (var argument in new[]
         {
-            "-NoProfile", "-File", Path.Combine(AppContext.BaseDirectory, "QaAssets", "Assert-LumiQaCoverage.ps1"),
-            "-TrxPath", trxPath, "-CatalogPath", catalogPath, "-Project", "desktop"
+            "-NoProfile", "-File", driverPath,
+            "-Validator", Path.Combine(AppContext.BaseDirectory, "QaAssets", "Assert-LumiQaCoverage.ps1"),
+            "-Trx", trxPath, "-Catalog", catalogPath
         })
             process.StartInfo.ArgumentList.Add(argument);
         Assert.True(process.Start());
