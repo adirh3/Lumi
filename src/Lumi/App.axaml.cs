@@ -42,6 +42,7 @@ public partial class App : Application
     private readonly Dictionary<Guid, ChatWindow> _chatWindows = [];
     private readonly HashSet<ChatWindow> _openChatWindows = [];
     private bool _isShuttingDown;
+    private bool _applicationShutdownRequested;
 #if DEBUG
     private LumiDebugBridge? _debugBridge;
 #endif
@@ -296,9 +297,10 @@ public partial class App : Application
             {
                 var mainWindows = _windows.ToList();
 
-                if (hideWindows)
+                foreach (var window in mainWindows)
                 {
-                    foreach (var window in mainWindows)
+                    window.IsEnabled = false;
+                    if (hideWindows)
                         window.Hide();
                 }
 
@@ -405,34 +407,61 @@ public partial class App : Application
                 }
             }
 
-            void CleanupForShutdown(bool isUpdateRestart)
+            void CleanupForUpdateRestart()
             {
                 if (_isShuttingDown)
                     return;
 
-                PrepareForShutdown(isUpdateRestart);
+                PrepareForShutdown(restartExpected: true);
                 _isShuttingDown = true;
-                if (isUpdateRestart)
+                updateShutdownCoordinator.Run(
+                    () => DisposeUiState(hideWindows: true),
+                    DisposeServicesAsync);
+            }
+
+            desktop.ShutdownRequested += async (_, args) =>
+            {
+                if (!ShouldDeferShutdown(_applicationShutdownRequested, OperatingSystem.IsMacOS()))
                 {
-                    updateShutdownCoordinator.Run(
-                        () => DisposeUiState(hideWindows: true),
-                        DisposeServicesAsync);
+                    if (!_isShuttingDown)
+                    {
+                        PrepareForShutdown();
+                        _isShuttingDown = true;
+                        RunOsShutdownCleanup(DisposeServicesAsync, TimeSpan.FromSeconds(2));
+                    }
                     return;
                 }
 
-                DisposeUiState(hideWindows: false);
-                Task.Run(DisposeServicesAsync).GetAwaiter().GetResult();
-            }
+                args.Cancel = true;
+                if (_isShuttingDown)
+                    return;
 
-            // Task.Run avoids deadlocking the UI thread if _writeLock is held by
-            // an in-flight fire-and-forget save that needs the dispatcher to complete.
-            desktop.ShutdownRequested += (_, _) => CleanupForShutdown(isUpdateRestart: false);
+                PrepareForShutdown();
+                _isShuttingDown = true;
+                try
+                {
+                    await RunShutdownCleanupAsync(
+                        () => DisposeUiState(hideWindows: false),
+                        DisposeServicesAsync);
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceError($"[Shutdown] Cleanup failed: {ex}");
+                }
+                finally
+                {
+                    desktop.Shutdown();
+                }
+            };
             desktop.Exit += (_, _) => PrepareForShutdown();
             updateService.RestartRequested += () => Dispatcher.UIThread.Post(() =>
             {
+                if (_isShuttingDown)
+                    return;
+
                 try
                 {
-                    CleanupForShutdown(isUpdateRestart: true);
+                    CleanupForUpdateRestart();
                 }
                 finally
                 {
@@ -839,7 +868,7 @@ public partial class App : Application
             if (ReferenceEquals(_mainWindow, window))
                 PromoteReplacementMainWindow();
         };
-        window.Closing += (_, _) => PrepareForWindowClosing(window);
+        window.Closing += (_, args) => PrepareForWindowClosing(window, args);
 
         _windows.Add(window);
         return window;
@@ -942,8 +971,7 @@ public partial class App : Application
             {
                 if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
                 {
-                    PrepareForShutdown();
-                    desktop.Shutdown();
+                    RequestShutdown();
                 }
             };
 
@@ -1229,7 +1257,7 @@ public partial class App : Application
 
         window = new ChatWindow(_dataStore, windowVm);
         WindowMaterials.Apply(window, _dataStore.Data.Settings.WindowMaterial);
-        window.Closing += (_, _) => PrepareForWindowClosing(window);
+        window.Closing += (_, args) => PrepareForWindowClosing(window, args);
         chatVm.AddDisplayHost();
         _openChatWindows.Add(window);
         if (trackedChatId is Guid trackedId)
@@ -1337,6 +1365,62 @@ public partial class App : Application
         Dispatcher.UIThread.Post(() => _mainViewModel?.RefreshChatList());
     }
 
+    internal static bool ShouldDeferShutdown(bool applicationInitiated, bool isMacOS) =>
+        applicationInitiated || isMacOS;
+
+    internal static bool RunOsShutdownCleanup(Func<Task> disposeServicesAsync, TimeSpan timeout)
+    {
+        // Windows/X11 session end cannot be resumed after a veto. Do not wait indefinitely
+        // for work that needs the dispatcher, or run UI disposal inside that native callback.
+        var cleanup = Task.Run(async () =>
+        {
+            try
+            {
+                await disposeServicesAsync();
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"[Shutdown] OS session cleanup failed: {ex}");
+            }
+        });
+        var completed = cleanup.Wait(timeout);
+        if (!completed)
+            Trace.TraceWarning("[Shutdown] OS session cleanup exceeded its best-effort deadline; allowing session end.");
+        return completed;
+    }
+
+    internal void RequestShutdown(bool restartExpected = false)
+    {
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return;
+
+        PrepareForShutdown(restartExpected);
+        _applicationShutdownRequested = true;
+        try
+        {
+            desktop.TryShutdown();
+        }
+        finally
+        {
+            _applicationShutdownRequested = false;
+        }
+    }
+
+    internal static async Task RunShutdownCleanupAsync(Action disposeUiState, Func<Task> disposeServicesAsync)
+    {
+        // Return from the native Quit callback before cleanup and keep pumping the dispatcher
+        // while pending saves and service continuations complete.
+        await Task.Yield();
+        try
+        {
+            disposeUiState();
+        }
+        finally
+        {
+            await Task.Run(disposeServicesAsync);
+        }
+    }
+
     internal void PrepareForShutdown(bool restartExpected = false)
     {
         if (_activationLifetime is not null)
@@ -1347,7 +1431,7 @@ public partial class App : Application
         Program.SingleInstance?.StopAcceptingActivations(restartExpected);
     }
 
-    private void PrepareForWindowClosing(Window window)
+    private void PrepareForWindowClosing(Window window, WindowClosingEventArgs args)
     {
         if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
             return;
@@ -1359,8 +1443,18 @@ public partial class App : Application
             _ => false
         };
 
-        if (willShutdown)
-            PrepareForShutdown();
+        if (!willShutdown || args.Cancel)
+            return;
+
+        if (!_isShuttingDown
+            && args.CloseReason is not (WindowCloseReason.ApplicationShutdown or WindowCloseReason.OSShutdown))
+        {
+            args.Cancel = true;
+            Dispatcher.UIThread.Post(() => RequestShutdown());
+            return;
+        }
+
+        PrepareForShutdown();
     }
 
     /// <summary>Toggle window visibility. Called by the global hotkey.</summary>

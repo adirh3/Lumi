@@ -87,6 +87,9 @@ jobs:
           |FullyQualifiedName~Lumi.Tests.LocKeyboardHintTests
           |FullyQualifiedName~Lumi.Tests.Voice
           |FullyQualifiedName~Lumi.Tests.SingleInstanceCoordinatorTests
+          |FullyQualifiedName~Lumi.Tests.AppShutdownTests
+          |FullyQualifiedName~Lumi.Tests.MainWindowTrayBehaviorTests
+          |FullyQualifiedName~Lumi.Tests.UpdateServiceSafetyTests.UpdateShutdown
           |FullyQualifiedName~Lumi.Tests.UpdateServiceSafetyTests.UpdateChannel_)"
 
       - name: Upload test results

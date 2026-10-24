@@ -1569,6 +1569,19 @@ try {
 }
 ```
 
+### Desktop shutdown and macOS rendering
+
+Normal Quit, tray Exit, Settings restart and a window close that exits Lumi finish
+cleanup without blocking the dispatcher. Windows/X11 session-termination requests
+are not cancelled: service cleanup is best-effort with a two-second budget.
+The updater keeps its separate bounded shutdown policy.
+
+Core Avalonia stays on official 12.1.4. Both desktop executable projects select the
+same paired, unofficial `Avalonia.Native 12.1.4.1-lumi.2` package for no-active-display
+fallback and explicit timer teardown before CLR shutdown. Source, provenance and
+rebuild instructions are in [vendor/nuget/Avalonia.Native.README.md](vendor/nuget/Avalonia.Native.README.md).
+The managed/native halves must not be mixed with another Native version.
+
 ### Embedded browser
 
 Lumi's Workspace browser uses the existing WebView2 implementation on Windows

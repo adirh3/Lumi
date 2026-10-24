@@ -6,9 +6,14 @@ Lumi now consumes official `Avalonia 12.1.4` from NuGet.org. That stable release
 includes both final accepted text fixes from
 [AvaloniaUI/Avalonia#22343](https://github.com/AvaloniaUI/Avalonia/pull/22343) and
 [AvaloniaUI/Avalonia#22344](https://github.com/AvaloniaUI/Avalonia/pull/22344).
-The temporary Avalonia packages, rebuild inputs, checksum rows and exact local
-source mapping have been removed after verifying the official binaries against
+The temporary core Avalonia packages, rebuild inputs and checksum rows were
+removed after verifying the official binaries against
 the input and direct empty-bounds regressions.
+
+The one active exception is the paired `Avalonia.Native 12.1.4.1-lumi.2` fallback
+and terminal-timer teardown described in [Avalonia.Native.README.md](Avalonia.Native.README.md).
+Both desktop executable graphs explicitly select it. Only that package ID is
+mapped to this feed; core Avalonia remains official 12.1.4.
 
 `Avalonia.Controls.DataGrid` remains independently pinned to published `12.1.2`.
 The Copilot SDK archives below are unchanged and are not active dependencies.
@@ -18,7 +23,7 @@ The Copilot SDK archives below are unchanged and are not active dependencies.
 Lumi now references official `GitHub.Copilot.SDK 1.0.23-preview.5` from NuGet.org
 and implements its upstream `ISkillProvider` API. The packages below are retained
 only as historical provenance: they are not referenced or source-mapped by Lumi.
-This directory is retained as an archive, not an active package feed.
+These SDK files are archives, not active SDK dependencies.
 Full CLI acquisition has moved to `build/Copilot/CopilotCli.targets`, which uses
 the official SDK's supported binary-path override.
 

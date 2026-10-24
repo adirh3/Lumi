@@ -2,5 +2,7 @@
   <PropertyGroup>
     <!-- Keep Avalonia peers aligned; DataGrid is pinned separately in Directory.Build.targets. -->
     <AvaloniaVersion>12.1.4</AvaloniaVersion>
+    <!-- Paired no-display fallback and terminal timer teardown; see vendor/nuget/Avalonia.Native.README.md. -->
+    <AvaloniaNativeVersion>12.1.4.1-lumi.2</AvaloniaNativeVersion>
   </PropertyGroup>
 </Project>

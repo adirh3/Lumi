@@ -2219,8 +2219,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         {
             if (Avalonia.Application.Current is App app)
-                app.PrepareForShutdown();
-            desktop.Shutdown();
+                app.RequestShutdown(restartExpected: true);
+            else
+                desktop.TryShutdown();
         }
     }
 
