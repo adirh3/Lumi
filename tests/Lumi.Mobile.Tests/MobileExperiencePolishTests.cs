@@ -3349,8 +3349,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Id = shell.Chat.ChatId,
                 Title = "Designing a calmer mobile experience"
             }));
-            await Task.Delay(260);
-            Pump(window);
+            PumpFrame(window);
+            await Task.Delay(StrataBottomSheet.OpenDuration + TimeSpan.FromMilliseconds(60));
+            PumpFrame(window);
 
             Tap(window, Required<Button>(view, "SheetRenameButton"));
             Pump(window);
