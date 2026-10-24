@@ -124,8 +124,21 @@ internal sealed partial class ChatStore
             return outline;
         }, new List<ChatOutlineEntry>());
 
-    /// <summary>How much of a user message's text the outline reads: enough to tell how it starts.</summary>
-    private const int OutlineTextStartLength = 64;
+    /// <summary>
+    /// How much of a user message's text the outline reads: enough to tell how it starts, and for the
+    /// transcript rail to preview it.
+    /// </summary>
+    internal const int OutlineTextStartLength = 160;
+
+    /// <summary>The start of a message's text as the outline reads it, for one held in memory.</summary>
+    internal static string? OutlineTextStart(string? text)
+    {
+        if (text is null || text.Length <= OutlineTextStartLength)
+            return text;
+
+        var length = char.IsHighSurrogate(text[OutlineTextStartLength - 1]) ? OutlineTextStartLength - 1 : OutlineTextStartLength;
+        return text[..length];
+    }
 
     /// <summary>
     /// Reads messages by absolute position in the ordered transcript: <paramref name="count"/>

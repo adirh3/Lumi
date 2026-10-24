@@ -13,15 +13,16 @@ using StrataTheme.Controls;
 namespace Lumi.Views;
 
 /// <summary>
-/// Ctrl+↑/↓ (⌥⌘↑/↓ on macOS) jumps the transcript to the previous/next user message, landing it just
-/// below the header and briefly glowing it; an older exchange that is only in storage is built first.
+/// Ctrl+↑/↓ (⌥⌘↑/↓ on macOS) jumps the transcript to the previous/next user message, landing it on the
+/// shell's reading line (below the header and clear of its frost) and briefly glowing it; an older
+/// exchange that is only in storage is built first. The transcript rail lands the messages it maps the
+/// same way.
 /// It applies when nothing is focused, from the transcript,
 /// or from an empty composer (matching plain ↑/↓ scrolling the transcript from an empty composer);
 /// other focused controls and typing keep the keys.
 /// </summary>
 public partial class ChatView
 {
-    private const double UserMessageLandingInset = 64;
     private const double UserMessageLandingSlack = 12;
 
     private TopLevel? _userNavKeySource;
@@ -29,6 +30,9 @@ public partial class ChatView
     private double _userNavLandingOffset = double.NaN;
     private bool _userNavInFlight;
     private int _userNavVersion;
+
+    /// <summary>Where a jump lands a user message: the shell's reading line (see <see cref="StrataChatShell.ReadingLineGap"/>).</summary>
+    private double UserMessageLandingInset => _chatShell?.ReadingLineInset ?? 64;
 
     /// <summary>Returns -1/+1 for the previous/next user message shortcut, or 0 when the key is not one.</summary>
     internal static int GetUserMessageNavigationDirection(Key key, KeyModifiers modifiers, bool isMac)
@@ -173,6 +177,27 @@ public partial class ChatView
         }
 
         var turn = turns[targetIndex];
+        await LandOnUserTurnAsync(vm, turn, version);
+    }
+
+    /// <summary>
+    /// Lands a user turn the reader picked on the transcript rail, exactly as Ctrl+↑/↓ lands one, so
+    /// the keys then continue from it.
+    /// </summary>
+    private Task JumpToUserTurnAsync(TranscriptTurn turn)
+    {
+        if (_subscribedVm is not { } vm || _chatShell is null || _transcriptScrollViewer is null)
+            return Task.CompletedTask;
+
+        return LandOnUserTurnAsync(vm, turn, ++_userNavVersion);
+    }
+
+    /// <summary>
+    /// Lands a user turn's message just below the header and glows it; an older exchange that is only in
+    /// storage is built first.
+    /// </summary>
+    private async Task LandOnUserTurnAsync(ChatViewModel vm, TranscriptTurn turn, int version)
+    {
         _userNavTarget = turn;
         _userNavInFlight = true;
         try

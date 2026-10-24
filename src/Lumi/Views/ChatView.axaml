@@ -890,6 +890,12 @@
       <Setter Property="IsVisible" Value="False" />
     </Style>
 
+    <!-- The transcript rail in place of the scrollbar (ChatView.TranscriptRail.cs): the user's messages as
+         marks to preview and jump to. -->
+    <Style Selector="sc|StrataChatShell /template/ sc|StrataTranscriptRail#PART_TranscriptRail">
+      <Setter Property="AutomationProperties.Name" Value="{loc:Str TranscriptRail_Name}" />
+    </Style>
+
     <Style Selector="Panel#HeaderEdgeMaterial">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="Transitions">
@@ -2077,12 +2083,14 @@
       <Setter Property="CornerRadius" Value="4" />
     </Style>
     <!-- User bubbles keep their own fill and shape; only a glow ring is added, at once rather than
-         through the bubble's 0.2s shadow transition so it appears with the jump. -->
+         through the bubble's 0.2s shadow transition so it appears with the jump. The ring is drawn just
+         inside the bubble's edge: templated controls clip to their bounds, and a right-aligned bubble
+         meets its message's and turn's right edge, where an outer ring would be cut off. -->
     <Style Selector="sc|StrataChatMessage.reply-flash:user /template/ Border#PART_Bubble">
       <Setter Property="Transitions">
         <Transitions />
       </Setter>
-      <Setter Property="BoxShadow" Value="0 0 0 3 #80818CF8" />
+      <Setter Property="BoxShadow" Value="inset 0 0 0 2 #E6818CF8" />
     </Style>
 
     <!-- Voice typing cards: a quiet inset in the composer, a tile for what it's about, then words and actions. -->
@@ -3206,10 +3214,14 @@
 
     <!-- Active chat -->
     <Panel x:Name="ChatPanel" Classes.active="{Binding IsChatVisible}">
+      <!-- ReadingLineGap: jumps land a message clear of the header's frost, which fades out 40px below
+           the header (HeaderEdgeMaterial), so the landed message and its glow read crisply. -->
       <sc:StrataChatShell x:Name="ChatShell"
                           Classes="glass-header"
                           IsOnline="False"
                           ExtendsTranscriptBehindChrome="True"
+                          ShowsTranscriptRail="True"
+                          ReadingLineGap="40"
                           IsStreaming="{Binding IsTranscriptStreaming}">
 
         <sc:StrataChatShell.Header>

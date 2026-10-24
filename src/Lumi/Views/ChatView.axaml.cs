@@ -543,6 +543,7 @@ public partial class ChatView : UserControl
 
         _chatShell.TranscriptViewportChanged += OnTranscriptViewportChanged;
         _chatShell.JumpToLatestRequested += OnJumpToLatestRequested;
+        AttachTranscriptRail();
         _transcriptScrollViewer.SizeChanged += OnTranscriptViewportSizeChanged;
         _transcriptScrollViewer.AddHandler(InputElement.PointerWheelChangedEvent, OnTranscriptPagingWheel, RoutingStrategies.Bubble, handledEventsToo: true);
         _transcriptScrollViewer.AddHandler(InputElement.KeyDownEvent, OnTranscriptPagingKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -560,6 +561,7 @@ public partial class ChatView : UserControl
         {
             _chatShell.TranscriptViewportChanged -= OnTranscriptViewportChanged;
             _chatShell.JumpToLatestRequested -= OnJumpToLatestRequested;
+            DetachTranscriptRail();
         }
         _transcriptScrollViewer.SizeChanged -= OnTranscriptViewportSizeChanged;
         _transcriptScrollViewer.RemoveHandler(InputElement.PointerWheelChangedEvent, OnTranscriptPagingWheel);
@@ -574,6 +576,7 @@ public partial class ChatView : UserControl
 
     private void OnMountedTurnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        InvalidateTranscriptRailMarks();
         if (e.Action == NotifyCollectionChangedAction.Reset)
         {
             // Reset fires with OldItems=null — use tracked set to unsubscribe.

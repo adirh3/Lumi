@@ -307,16 +307,10 @@ public sealed class ChatViewScrollBehaviorTests
                 viewModel.IsBusy = true;
                 await PumpAsync();
 
-                var verticalScrollBar = scrollViewer.GetVisualDescendants()
-                    .OfType<ScrollBar>()
-                    .FirstOrDefault(static scrollBar => scrollBar.Orientation == Orientation.Vertical);
-                Assert.NotNull(verticalScrollBar);
-
-                var thumb = verticalScrollBar.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
-                Assert.NotNull(thumb);
-
-                var thumbCenter = GetCenterPoint(window, thumb);
+                // The rail is the transcript's scrollbar: grab its thumb and start dragging.
+                var thumbCenter = GetRailThumbCenter(window, shell);
                 window.MouseDown(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                window.MouseMove(thumbCenter - new Vector(0, 8), RawInputModifiers.LeftMouseButton);
                 await PumpAsync();
 
                 var readerOffset = Math.Max(0, scrollViewer.Offset.Y - 320);
@@ -477,16 +471,10 @@ public sealed class ChatViewScrollBehaviorTests
                     .Select(static turn => turn.StableId)
                     .ToArray();
 
-                var verticalScrollBar = scrollViewer.GetVisualDescendants()
-                    .OfType<ScrollBar>()
-                    .FirstOrDefault(static scrollBar => scrollBar.Orientation == Orientation.Vertical);
-                Assert.NotNull(verticalScrollBar);
-
-                var thumb = verticalScrollBar.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
-                Assert.NotNull(thumb);
-
-                var thumbCenter = GetCenterPoint(window, thumb);
+                // The rail is the transcript's scrollbar: drag its thumb.
+                var thumbCenter = GetRailThumbCenter(window, shell);
                 window.MouseDown(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                window.MouseMove(thumbCenter - new Vector(0, 8), RawInputModifiers.LeftMouseButton);
                 await PumpAsync();
 
                 scrollViewer.Offset = scrollViewer.Offset.WithY(0);
@@ -510,11 +498,9 @@ public sealed class ChatViewScrollBehaviorTests
                 var mountedBeforeCaptureLost = viewModel.MountedTranscriptTurns
                     .Select(static turn => turn.StableId)
                     .ToArray();
-                thumb = verticalScrollBar.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
-                Assert.NotNull(thumb);
-
-                thumbCenter = GetCenterPoint(window, thumb);
+                thumbCenter = GetRailThumbCenter(window, shell);
                 window.MouseDown(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                window.MouseMove(thumbCenter - new Vector(0, 8), RawInputModifiers.LeftMouseButton);
                 await PumpAsync();
 
                 scrollViewer.Offset = scrollViewer.Offset.WithY(0);
@@ -525,7 +511,8 @@ public sealed class ChatViewScrollBehaviorTests
                     mountedBeforeCaptureLost,
                     viewModel.MountedTranscriptTurns.Select(static turn => turn.StableId).ToArray());
 
-                thumb.RaiseEvent(new PointerCaptureLostEventArgs(thumb, null!));
+                var rail = shell.TranscriptRail!;
+                rail.RaiseEvent(new PointerCaptureLostEventArgs(rail, null!));
                 await PumpAsync();
                 Assert.Equal(
                     mountedBeforeCaptureLost,
@@ -1340,7 +1327,7 @@ public sealed class ChatViewScrollBehaviorTests
             var target = typeof(ChatView).GetField("_userNavTarget", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var inFlight = typeof(ChatView).GetField("_userNavInFlight", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var modifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta | KeyModifiers.Alt : KeyModifiers.Control;
-            var landed = new List<(string Content, double? Y)>();
+            var landed = new List<(string Content, double? Y, double Offset)>();
             for (var press = 0; press < 20; press++)
             {
                 var shortcut = new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Up, KeyModifiers = modifiers };
@@ -1352,19 +1339,169 @@ public sealed class ChatViewScrollBehaviorTests
                     break;
 
                 await SettleAsync(viewModel);
-                landed.Add((item.Content, GetTurnViewportY(view, scrollViewer, turn.StableId)));
+                landed.Add((item.Content, GetTurnViewportY(view, scrollViewer, turn.StableId), scrollViewer.Offset.Y));
             }
 
             // Each press lands on the previous question, past the job's wake, back to the first, and the
-            // message stays on the landing line while the exchanges around it are built.
+            // message stays on the landing line (below the header's frost) while the exchanges around it are
+            // built — unless the chat's top stops the scroll short of the line.
             Assert.NotEmpty(landed);
             var first = int.Parse(landed[0].Content["Question ".Length..]);
             var report = string.Join(", ", landed.Select(static landing => $"{landing.Content} at {landing.Y:0}"));
             Assert.True(
                 Enumerable.Range(0, first + 1).Reverse().Select(static i => $"Question {i}").SequenceEqual(landed.Select(static landing => landing.Content)),
                 report);
-            Assert.True(landed.All(static landing => landing.Y is >= 56 and <= 72), report);
+            var line = view.FindControl<StrataChatShell>("ChatShell")!.ReadingLineInset;
+            Assert.True(
+                landed.All(landing => landing.Y is { } y && (Math.Abs(y - line) <= 8 || landing.Offset < 0.5 && y < line)),
+                $"Landing line {line:0}: {report}");
         });
+    }
+
+    [Fact]
+    public async Task TranscriptRail_MapsTheUsersMessagesAndLandsThePickedOne()
+    {
+        using var session = HeadlessTestSession.Start();
+        await WithStoredHistoryAsync(session, async (window, view, viewModel, scrollViewer) =>
+        {
+            // The rail takes the scrollbar's place, resting as a thumb.
+            var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+            var rail = Assert.IsType<StrataTranscriptRail>(shell.TranscriptRail);
+            Assert.True(rail.IsEffectivelyVisible);
+            Assert.Equal(ScrollBarVisibility.Hidden, scrollViewer.VerticalScrollBarVisibility);
+            Assert.False(rail.IsOpen);
+            Assert.Empty(rail.Marks);
+
+            // Hovered, it maps the user's messages in order — those only in storage too, not the job's wake.
+            var origin = rail.TranslatePoint(default, window)!.Value;
+            var stripX = origin.X + rail.Bounds.Width - 6;
+            window.MouseMove(new Point(stripX, origin.Y + rail.Bounds.Height / 2));
+            await WaitForAsync(() => rail.IsOpen);
+            Assert.Equal(Enumerable.Range(0, 12).Select(static i => $"Question {i}"), rail.Marks.Select(static mark => mark.Text));
+            Assert.True(rail.Marks.Zip(rail.Marks.Skip(1)).All(static pair => pair.First.Position < pair.Second.Position));
+            Assert.All(rail.Marks, static mark => Assert.False(string.IsNullOrEmpty(mark.Detail)));
+
+            // Pointing at a mark previews it; clicking it lands that message just below the header, its
+            // exchange built from storage first, and Ctrl+↑/↓ go on from there.
+            var mark = rail.Marks[2];
+            Assert.True(ChatViewModel.StandsInForUserMessage(Assert.IsType<TranscriptTurn>(mark.Tag)));
+            var markPoint = new Point(stripX, origin.Y + rail.GetMarkY(mark));
+            window.MouseMove(markPoint);
+            await PumpAsync();
+            Assert.Same(mark, rail.FocusedMark);
+
+            var inFlight = typeof(ChatView).GetField("_userNavInFlight", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var target = typeof(ChatView).GetField("_userNavTarget", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            window.MouseDown(markPoint, MouseButton.Left);
+            window.MouseUp(markPoint, MouseButton.Left);
+            Assert.True((bool)inFlight.GetValue(view)!);
+            await WaitUntilAsync(() => !(bool)inFlight.GetValue(view)!, 10_000);
+
+            // It glows with a ring inside its bubble's edge: the turn clips to its bounds, and a right-aligned
+            // bubble meets its right edge, where a ring drawn outside would be cut off.
+            var landed = Assert.IsType<TranscriptTurn>(target.GetValue(view));
+            var landedMessage = view.FindControl<TranscriptItemsControl>("Transcript")!.ItemsPanelRoot!
+                .GetVisualDescendants().OfType<TranscriptTurnControl>().Single(control => control.Turn == landed)
+                .GetVisualDescendants().OfType<StrataChatMessage>().First();
+            Assert.Contains("reply-flash", landedMessage.Classes);
+            var bubble = landedMessage.GetVisualDescendants().OfType<Border>().First(static border => border.Name == "PART_Bubble");
+            Assert.True(bubble.BoxShadow.Count > 0);
+            Assert.All(Enumerable.Range(0, bubble.BoxShadow.Count), index => Assert.True(bubble.BoxShadow[index].IsInset));
+            await SettleAsync(viewModel);
+
+            Assert.Equal("Question 2", Assert.Single(landed.Items.OfType<UserMessageItem>()).Content);
+            // On the reading line: below the header and clear of its frost, so the glow reads whole.
+            Assert.Equal(56 + 40, shell.ReadingLineInset, 1);
+            Assert.InRange(GetTurnViewportY(view, scrollViewer, landed.StableId)!.Value, shell.ReadingLineInset - 8, shell.ReadingLineInset + 8);
+            Assert.False(shell.IsFollowingTail);
+
+            // Leaving it, the rail folds back to its thumb and, once folded, lets go of the marks.
+            window.MouseMove(new Point(origin.X + 40, origin.Y + 40));
+            await WaitForAsync(() => !rail.IsOpen && rail.Marks.Count == 0);
+        });
+    }
+
+    [Fact]
+    public async Task TranscriptRail_ThumbDragsWithAPreviewAndTheWheelScrolls()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await DispatchAsync(session, async () =>
+        {
+            var chat = CreateLongChat(pairCount: 36);
+            var data = new AppData { Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false } };
+            data.Chats.Add(chat);
+            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            var view = new ChatView { DataContext = viewModel };
+            var window = new Window { Width = 1100, Height = 820, Content = view };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() => view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
+                var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+                var scrollViewer = shell.TranscriptScrollViewer!;
+                var rail = shell.TranscriptRail!;
+                shell.JumpToLatest();
+                await PumpAsync();
+                await PumpAsync();
+                Assert.True(shell.IsFollowingTail);
+                var bottom = scrollViewer.Offset.Y;
+
+                // A click on the resting thumb, before anything is previewed, stays put at the bottom.
+                var thumbCenter = GetRailThumbCenter(window, shell);
+                window.MouseDown(thumbCenter, MouseButton.Left);
+                window.MouseUp(thumbCenter, MouseButton.Left);
+                await PumpAsync();
+                Assert.True(shell.IsFollowingTail);
+                Assert.InRange(shell.CurrentDistanceFromBottom, 0, 2);
+                bottom = scrollViewer.Offset.Y;
+                thumbCenter = GetRailThumbCenter(window, shell);
+
+                // Dragging the thumb scrolls and leaves the tail; the preview follows the message being passed.
+                window.MouseDown(thumbCenter, MouseButton.Left);
+                window.MouseMove(thumbCenter - new Vector(0, 60), RawInputModifiers.LeftMouseButton);
+                window.MouseMove(thumbCenter - new Vector(0, 120), RawInputModifiers.LeftMouseButton);
+                await PumpAsync();
+                Assert.True(scrollViewer.Offset.Y < bottom - 200, $"The drag moved the transcript from {bottom:0} to {scrollViewer.Offset.Y:0}.");
+                Assert.False(shell.IsFollowingTail);
+                var passing = Assert.IsType<StrataTranscriptMark>(rail.FocusedMark);
+                var reading = scrollViewer.Offset.Y + shell.ReadingLineInset;
+                Assert.True(passing.Position <= reading + TranscriptRailLayout.ReadingSlack);
+                Assert.DoesNotContain(rail.Marks, mark => mark.Position > passing.Position && mark.Position <= reading);
+                window.MouseUp(thumbCenter - new Vector(0, 120), MouseButton.Left);
+                await PumpAsync();
+
+                // A preview still showing after the drag can be clicked again.
+                var card = rail.GetVisualDescendants().OfType<Border>().Single(static border => border.Name == "PART_Preview");
+                Assert.Equal(rail.FocusedMark is not null, card.IsHitTestVisible);
+
+                // Turning the wheel over the rail scrolls the transcript, as over the transcript itself.
+                var before = scrollViewer.Offset.Y;
+                window.MouseWheel(new Point(thumbCenter.X, thumbCenter.Y - 200), new Vector(0, -2), RawInputModifiers.None);
+                await PumpAsync();
+                Assert.True(scrollViewer.Offset.Y > before + 1, $"The wheel moved the transcript from {before:0} to {scrollViewer.Offset.Y:0}.");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    // Waits on timers and animations (the rail opens and folds after short delays), pumping the UI meanwhile.
+    private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 3_000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(15);
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            await PumpAsync();
+        }
+
+        Assert.True(condition(), "Timed out waiting for the expected state.");
     }
 
     [Fact]
@@ -1663,6 +1800,16 @@ public sealed class ChatViewScrollBehaviorTests
             ?? throw new InvalidOperationException("Target is not attached to the test window.");
 
         return topLeft + new Point(target.Bounds.Width / 2, target.Bounds.Height / 2);
+    }
+
+    // Where a reader grabs the transcript rail's thumb, in window coordinates.
+    private static Point GetRailThumbCenter(Window window, StrataChatShell shell)
+    {
+        var rail = shell.TranscriptRail ?? throw new InvalidOperationException("The chat shows no transcript rail.");
+        var origin = rail.TranslatePoint(default, window)
+            ?? throw new InvalidOperationException("The rail is not attached to the test window.");
+        var layout = rail.CurrentLayout();
+        return origin + new Point(rail.Bounds.Width - 5, layout.ThumbTop + layout.ThumbLength / 2);
     }
 
     private static (string StableId, double ViewportY)? CaptureVisibleTurnAnchor(

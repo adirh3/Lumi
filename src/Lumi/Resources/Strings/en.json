@@ -822,6 +822,8 @@
 
   "ChatHeader_TitleMenu": "Chat options",
   "ChatHeader_JumpToLive": "Jump to what Lumi is doing now",
+  "TranscriptRail_Name": "Conversation map: hover to see your messages, click one to jump to it",
+  "TranscriptRail_Attachments": "Attachments",
   "ChatHeader_AgentWorking": "1 agent working",
   "ChatHeader_AgentsWorking": "{0} agents working",
   "ChatHeader_StartedToday": "Started today {0}",

@@ -61,6 +61,15 @@ internal sealed class TranscriptHistorySegment
     /// </summary>
     public bool StartsWithUserMessage { get; init; }
 
+    /// <summary>
+    /// How the exchange's first message begins (at most <see cref="ChatStore.OutlineTextStartLength"/>
+    /// characters) and when it was sent: what the transcript rail previews while only the placeholder shows.
+    /// </summary>
+    public string? FirstMessageStart { get; init; }
+
+    /// <inheritdoc cref="FirstMessageStart"/>
+    public DateTimeOffset? FirstMessageAt { get; init; }
+
     /// <summary>The built turns while hydrated (possibly none), or null while only the placeholder shows.</summary>
     public List<TranscriptTurn>? Turns { get; set; }
 
@@ -367,6 +376,8 @@ internal sealed class TranscriptHistory
                 IsFirst = isFirst,
                 StartsWithUserMessage = TranscriptBuilder.ShowsAsUserMessage(
                     messages[0].Role, messages[0].Author, messages[0].Content, messages[0].InteractionReceipt is not null),
+                FirstMessageStart = ChatStore.OutlineTextStart(messages[0].Content),
+                FirstMessageAt = messages[0].Timestamp,
                 Turns = turns,
                 Messages = messages,
                 LaterRunSteps = [],
@@ -1009,6 +1020,8 @@ internal sealed class TranscriptHistory
                 IsFirst = s == 0,
                 StartsWithUserMessage = TranscriptBuilder.ShowsAsUserMessage(
                     outline[first].Role, outline[first].Author, outline[first].TextStart, outline[first].IsReceipt),
+                FirstMessageStart = outline[first].TextStart,
+                FirstMessageAt = outline[first].Timestamp,
             };
             Own(placeholder, segment);
             _segments.Add(segment);

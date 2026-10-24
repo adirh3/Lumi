@@ -822,6 +822,8 @@
 
   "ChatHeader_TitleMenu": "אפשרויות שיחה",
   "ChatHeader_JumpToLive": "מעבר למה ש-Lumi עושה עכשיו",
+  "TranscriptRail_Name": "מפת השיחה: ריחוף מציג את ההודעות שלך, ולחיצה על אחת מעבירה אליה",
+  "TranscriptRail_Attachments": "קבצים מצורפים",
   "ChatHeader_AgentWorking": "סוכן אחד עובד",
   "ChatHeader_AgentsWorking": "{0} סוכנים עובדים",
   "ChatHeader_StartedToday": "התחיל היום ב-{0}",
