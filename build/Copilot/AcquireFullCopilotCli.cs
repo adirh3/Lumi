@@ -110,29 +110,45 @@ namespace Lumi.Build
             }
         }
 
-        private void Download(string url, string destination, string expectedHash)
+        internal void Download(string url, string destination, string expectedHash)
         {
-            var temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
+            using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(DownloadTimeoutSeconds)))
+            using (var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan })
             {
-                Log.LogMessage(MessageImportance.High, "Downloading official Copilot CLI asset: {0}", url);
-                using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(DownloadTimeoutSeconds)))
-                using (var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan })
-                using (var response = http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, deadline.Token).GetAwaiter().GetResult())
+                for (var attempt = 1; ; attempt++)
                 {
-                    response.EnsureSuccessStatusCode();
-                    using (var input = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult())
-                    using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write))
-                        input.CopyToAsync(output, 81920, deadline.Token).GetAwaiter().GetResult();
+                    var temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    int? status = null;
+                    try
+                    {
+                        Log.LogMessage(MessageImportance.High, "Downloading official Copilot CLI asset ({0}/3): {1}", attempt, url);
+                        using (var response = http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, deadline.Token).GetAwaiter().GetResult())
+                        {
+                            status = (int)response.StatusCode;
+                            response.EnsureSuccessStatusCode();
+                            using (var input = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult())
+                            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write))
+                                input.CopyToAsync(output, 81920, deadline.Token).GetAwaiter().GetResult();
+                        }
+                        if (expectedHash != null)
+                            VerifyHash(temporary, expectedHash);
+                        File.Move(temporary, destination);
+                        return;
+                    }
+                    catch (HttpRequestException error) when (attempt < 3 && !deadline.IsCancellationRequested
+                        && (status == null || status == 408 || status == 429 || status >= 500 && status <= 599))
+                    {
+                        Log.LogWarning("Copilot CLI download attempt {0}/3 failed: {1}. Retrying in {2} seconds.",
+                            attempt, error.Message, attempt * 2);
+                        if (deadline.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(attempt * 2)))
+                            deadline.Token.ThrowIfCancellationRequested();
+                    }
+                    finally
+                    {
+                        if (File.Exists(temporary))
+                            File.Delete(temporary);
+                    }
                 }
-                if (expectedHash != null)
-                    VerifyHash(temporary, expectedHash);
-                File.Move(temporary, destination);
-            }
-            finally
-            {
-                if (File.Exists(temporary))
-                    File.Delete(temporary);
             }
         }
 

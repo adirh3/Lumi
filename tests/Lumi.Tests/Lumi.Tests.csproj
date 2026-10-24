@@ -36,6 +36,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\build\Copilot\AcquireFullCopilotCli.cs" Link="Build\AcquireFullCopilotCli.cs" />
+    <Reference Include="Microsoft.Build.Framework" HintPath="$(MSBuildBinPath)\Microsoft.Build.Framework.dll" />
+    <Reference Include="Microsoft.Build.Utilities.Core" HintPath="$(MSBuildBinPath)\Microsoft.Build.Utilities.Core.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="..\..\tools\Assert-LumiQaCoverage.ps1"
              Link="QaAssets\Assert-LumiQaCoverage.ps1"
              CopyToOutputDirectory="PreserveNewest" />

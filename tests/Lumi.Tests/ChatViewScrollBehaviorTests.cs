@@ -65,6 +65,16 @@ public sealed class ChatViewScrollBehaviorTests
 
                 var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
                 var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+                var transcript = Assert.IsType<TranscriptItemsControl>(view.FindControl<TranscriptItemsControl>("Transcript"));
+
+                // The chat-open reveal moves the transcript independently of metadata refresh.
+                await WaitUntilAsync(() =>
+                {
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    return !viewModel.IsChatSurfaceLoading
+                        && transcript.Opacity == 1
+                        && (transcript.RenderTransform?.Value ?? Matrix.Identity).IsIdentity;
+                }, 10_000);
 
                 shell.JumpToLatest();
                 await PumpAsync();
