@@ -377,6 +377,89 @@ public sealed class RemoteDevTunnelCliTests
     }
 
     [Fact]
+    public async Task InitialTransientIdentityFailureRetriesWithoutOpeningSignIn()
+    {
+        var calls = 0;
+        var delays = new List<TimeSpan>();
+        var identity = await RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+            (arguments, _) =>
+            {
+                Assert.Equal(["user", "show", "--json"], arguments);
+                if (++calls == 1)
+                    throw new RemoteDevTunnelCliException("The network is unavailable.");
+                return Task.FromResult(MicrosoftIdentity);
+            },
+            () => throw new InvalidOperationException("Unexpected sign-in prompt."),
+            CancellationToken.None,
+            reportReconnecting: (_, delay) => delays.Add(delay));
+
+        Assert.Equal(2, calls);
+        Assert.Equal("owner-id", identity!.Value.ObjectId);
+        Assert.Equal([TimeSpan.FromSeconds(5)], delays);
+    }
+
+    [Fact]
+    public async Task CancelingInitialIdentityRecoveryDoesNotStartAnotherCommand()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var calls = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+                (_, _) =>
+                {
+                    calls++;
+                    cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
+                    throw new RemoteDevTunnelCliException("The network is unavailable.");
+                },
+                () => throw new InvalidOperationException("Unexpected sign-in prompt."),
+                cancellation.Token));
+        Assert.Equal(1, calls);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task InitialIdentityAuthAndPermanentErrorsStillRequireUserAction(
+        bool requiresSignIn, bool canRetry)
+    {
+        var calls = 0;
+        var failure = new RemoteDevTunnelCliException("Account or policy requires attention.",
+            requiresSignIn, canRetry);
+        var actual = await Assert.ThrowsAsync<RemoteDevTunnelCliException>(() =>
+            RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+                (_, _) =>
+                {
+                    calls++;
+                    throw failure;
+                },
+                () => throw new InvalidOperationException("Unexpected sign-in prompt."),
+                CancellationToken.None));
+        Assert.Same(failure, actual);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task FailedAccountVerificationAfterExplicitSignInDoesNotRepeatLogin()
+    {
+        var calls = new List<string[]>();
+        await Assert.ThrowsAsync<RemoteDevTunnelCliException>(() =>
+            RemoteDevTunnelHost.EnsureMicrosoftIdentityAsync(
+                (arguments, _) =>
+                {
+                    calls.Add(arguments);
+                    return calls.Count switch
+                    {
+                        1 => Task.FromResult("""{"status":"Not logged in"}"""),
+                        2 => Task.FromResult("{}"),
+                        _ => throw new RemoteDevTunnelCliException("The network is unavailable.")
+                    };
+                },
+                () => { }, CancellationToken.None, signIn: true));
+        Assert.Equal(3, calls.Count);
+        Assert.Single(calls, arguments => arguments.SequenceEqual(RemoteDevTunnelHost.DefaultSignInArguments));
+    }
+
+    [Fact]
     public async Task CanceledSignInDoesNotProceedToAccountVerificationOrTunnelCreation()
     {
         using var cancellation = new CancellationTokenSource();

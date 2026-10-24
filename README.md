@@ -1277,7 +1277,11 @@ for Microsoft to expire the resource, Lumi recreates the saved route in its orig
 cluster when available.
 
 Transient relay failures are retried automatically with capped, cancellable
-backoff, and network changes rehost the same route. Settings show **Reconnecting**
+backoff, including a temporary network failure or timeout while checking the
+Microsoft account before the first host starts. A returning network can therefore
+recover startup without a manual Retry. Account checks never open sign-in
+unattended, and an explicit login attempt is not automatically repeated.
+Network changes rehost the same route. Settings show **Reconnecting**
 instead of a usable link while the relay is down; **Reconnect** retries without
 rebinding the local listener. Lumi observes the CLI's live relay-close, restored,
 and terminal host-error messages instead of waiting for the process to exit.
