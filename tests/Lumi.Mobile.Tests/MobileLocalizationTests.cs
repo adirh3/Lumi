@@ -195,7 +195,7 @@ public sealed class MobileLocalizationTests
     }
 
     [Theory]
-    [InlineData("en", "Enter a valid PC address.")]
+    [InlineData("en", "Enter a valid computer address.")]
     [InlineData("he", "יש להזין כתובת מחשב תקינה.")]
     public async Task MalformedManualAddressUsesLocalizedErrorWithoutContactingOrPairing(
         string language, string expectedError)

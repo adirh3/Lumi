@@ -3299,7 +3299,7 @@
   "Remote_MoreFilesCountBadge": "+{0} קבצים נוספים",
   "Remote_MoreFilesOmitted": "הושמטו עוד {0} קבצים",
   "Remote_NewerActivityUnread": "הפעילות החדשה יותר עדיין לא נקראה.",
-  "Remote_NoActivePairingCode": "אין קוד צימוד פעיל. יש לפתוח במחשב את הגדרות ← טלפון וללחוץ על צימוד מכשיר.",
+  "Remote_NoActivePairingCode": "אין קוד צימוד פעיל. יש לפתוח במחשב את הגדרות ← נייד וללחוץ על צימוד מכשיר.",
   "Remote_NothingToConfigure": "אין מה להגדיר.",
   "Remote_OptionsOmitted": "[הושמטו עוד {0} אפשרויות בטלפון]",
   "Remote_PairDeviceFirst": "תחילה יש לצמד את המכשיר הזה ל־Lumi.",

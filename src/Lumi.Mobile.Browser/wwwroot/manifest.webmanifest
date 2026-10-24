@@ -1,7 +1,7 @@
 {
   "name": "Lumi",
   "short_name": "Lumi",
-  "description": "Your Lumi PC, from your phone.",
+  "description": "Your Lumi computer, from your phone.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

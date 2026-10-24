@@ -78,7 +78,7 @@
   <data name="RenameChat" xml:space="preserve"><value>Rename chat</value></data>
   <data name="DeleteChat" xml:space="preserve"><value>Delete chat</value></data>
   <data name="ChatName" xml:space="preserve"><value>Chat name</value></data>
-  <data name="DeleteChatWarning" xml:space="preserve"><value>This conversation will be deleted from your phone and PC. This can't be undone.</value></data>
+  <data name="DeleteChatWarning" xml:space="preserve"><value>This conversation will be deleted from your phone and computer. This can't be undone.</value></data>
   <data name="PinChat" xml:space="preserve"><value>Pin chat</value></data>
   <data name="UnpinChat" xml:space="preserve"><value>Unpin chat</value></data>
   <data name="DeleteChatQuestion" xml:space="preserve"><value>Delete this chat?</value></data>
@@ -112,7 +112,7 @@
   <data name="MessageLumi" xml:space="preserve"><value>Message Lumi</value></data>
   <data name="AddFilesAndContext" xml:space="preserve"><value>Add files, an agent, skills and more</value></data>
   <data name="AddsToMessage" xml:space="preserve"><value>Adds this to your message</value></data>
-  <data name="SetupsRequireUpdate" xml:space="preserve"><value>Update Lumi on your PC to see your usual setups here.</value></data>
+  <data name="SetupsRequireUpdate" xml:space="preserve"><value>Update Lumi on your computer to see your usual setups here.</value></data>
   <data name="HowLumiWorked" xml:space="preserve"><value>How Lumi worked</value></data>
   <data name="JobDetails" xml:space="preserve"><value>Job details</value></data>
   <data name="ContextUsed" xml:space="preserve"><value>Context used</value></data>
@@ -125,13 +125,13 @@
   <data name="Faster" xml:space="preserve"><value>Faster</value></data>
   <data name="MoreThorough" xml:space="preserve"><value>More thorough</value></data>
   <data name="ConnectTagline" xml:space="preserve"><value>A little closer to everything.</value></data>
-  <data name="ConnectStepFind" xml:space="preserve"><value>1  Find your PC</value></data>
+  <data name="ConnectStepFind" xml:space="preserve"><value>1  Find your computer</value></data>
   <data name="ConnectStepPair" xml:space="preserve"><value>2  Pair your phone</value></data>
   <data name="ConnectTitle" xml:space="preserve"><value>Your Lumi, on the go.</value></data>
-  <data name="ConnectDescription" xml:space="preserve"><value>Pick up your conversations and get things done on your PC, from your phone.</value></data>
-  <data name="ConnectFirstOpen" xml:space="preserve"><value>First, open Lumi on your PC</value></data>
+  <data name="ConnectDescription" xml:space="preserve"><value>Pick up your conversations and get things done on your computer, from your phone.</value></data>
+  <data name="ConnectFirstOpen" xml:space="preserve"><value>First, open Lumi on your computer</value></data>
   <data name="ConnectDesktopInstructions" xml:space="preserve"><value>Go to Settings → Mobile and turn on phone access. Open its setup link, or enter the address below.</value></data>
-  <data name="PcAddress" xml:space="preserve"><value>PC address</value></data>
+  <data name="PcAddress" xml:space="preserve"><value>Computer address</value></data>
   <data name="PcAddressHelp" xml:space="preserve"><value>Use the address shown by Lumi Desktop.</value></data>
   <data name="PcAddressExample" xml:space="preserve"><value>e.g. 100.100.20.10</value></data>
   <data name="Continue" xml:space="preserve"><value>Continue</value></data>
@@ -141,9 +141,9 @@
   <data name="FindNearby" xml:space="preserve"><value>Find Lumi nearby</value></data>
   <data name="Nearby" xml:space="preserve"><value>Nearby</value></data>
   <data name="OneLastStep" xml:space="preserve"><value>One last step.</value></data>
-  <data name="PairCodeInstructions" xml:space="preserve"><value>Enter the 6-digit code from Settings → Mobile on your PC to pair this phone.</value></data>
+  <data name="PairCodeInstructions" xml:space="preserve"><value>Enter the 6-digit code from Settings → Mobile on your computer to pair this phone.</value></data>
   <data name="PairCodeAccessible" xml:space="preserve"><value>Six-digit pairing code</value></data>
-  <data name="DifferentPc" xml:space="preserve"><value>Use a different PC</value></data>
+  <data name="DifferentPc" xml:space="preserve"><value>Use a different computer</value></data>
   <data name="BackToChat" xml:space="preserve"><value>Back to chat</value></data>
   <data name="Working" xml:space="preserve"><value>Working</value></data>
   <data name="BackToSettings" xml:space="preserve"><value>Back to Settings</value></data>
@@ -151,7 +151,7 @@
   <data name="LightOrDark" xml:space="preserve"><value>Light or dark</value></data>
   <data name="ThemeDescription" xml:space="preserve"><value>Choose a look, or match your phone.</value></data>
   <data name="ThisConnection" xml:space="preserve"><value>This connection</value></data>
-  <data name="Pc" xml:space="preserve"><value>PC</value></data>
+  <data name="Pc" xml:space="preserve"><value>Computer</value></data>
   <data name="Status" xml:space="preserve"><value>Status</value></data>
   <data name="ThisDevice" xml:space="preserve"><value>This device</value></data>
   <data name="RefreshConnection" xml:space="preserve"><value>Refresh connection</value></data>
@@ -161,30 +161,30 @@
   <data name="BrowserSignIn" xml:space="preserve"><value>Browser sign-in</value></data>
   <data name="BrowserSignInHelp" xml:space="preserve"><value>Reload through your browser if sign-in has expired. Pairing is kept; unsent text is not.</value></data>
   <data name="ReloadWebApp" xml:space="preserve"><value>Reload web app</value></data>
-  <data name="DisconnectPc" xml:space="preserve"><value>Disconnect from this PC</value></data>
-  <data name="ChatsStayOnPc" xml:space="preserve"><value>Your chats and files stay on your PC.</value></data>
+  <data name="DisconnectPc" xml:space="preserve"><value>Disconnect from this computer</value></data>
+  <data name="ChatsStayOnPc" xml:space="preserve"><value>Your chats and files stay on your computer.</value></data>
   <data name="AppVersion" xml:space="preserve"><value>App version</value></data>
   <data name="YourAssistant" xml:space="preserve"><value>Your assistant</value></data>
-  <data name="AboutDescription" xml:space="preserve"><value>Lumi on your phone works with Lumi on your PC: your chats, files and tools stay there.</value></data>
-  <data name="DisconnectQuestion" xml:space="preserve"><value>Disconnect from this PC?</value></data>
-  <data name="DisconnectDescription" xml:space="preserve"><value>This phone loses access and returns to setup. Your chats and files stay on the PC.</value></data>
+  <data name="AboutDescription" xml:space="preserve"><value>Lumi on your phone works with Lumi on your computer: your chats, files and tools stay there.</value></data>
+  <data name="DisconnectQuestion" xml:space="preserve"><value>Disconnect from this computer?</value></data>
+  <data name="DisconnectDescription" xml:space="preserve"><value>This phone loses access and returns to setup. Your chats and files stay on the computer.</value></data>
   <data name="DisconnectRevoke" xml:space="preserve"><value>Disconnect and revoke access</value></data>
   <data name="KeepConnected" xml:space="preserve"><value>Keep connected</value></data>
-  <data name="CantReachPcQuestion" xml:space="preserve"><value>Can't reach your PC?</value></data>
-  <data name="RemoveLocalConnectionHelp" xml:space="preserve"><value>Remove the saved connection from this phone only. Its access on the PC stays active.</value></data>
+  <data name="CantReachPcQuestion" xml:space="preserve"><value>Can't reach your computer?</value></data>
+  <data name="RemoveLocalConnectionHelp" xml:space="preserve"><value>Remove the saved connection from this phone only. Its access on the computer stays active.</value></data>
   <data name="RemoveLocalConnection" xml:space="preserve"><value>Remove from this phone only</value></data>
   <data name="UpdateNow" xml:space="preserve"><value>Update now</value></data>
   <data name="TryLoadingAgain" xml:space="preserve"><value>Try loading again</value></data>
   <data name="ShortSummary" xml:space="preserve"><value>A short summary</value></data>
   <data name="EmojiOrSymbol" xml:space="preserve"><value>One emoji or symbol</value></data>
-  <data name="PcWorkspace" xml:space="preserve"><value>PC workspace</value></data>
-  <data name="PcFolder" xml:space="preserve"><value>A folder on your PC</value></data>
-  <data name="LibrarySavedOnPc" xml:space="preserve"><value>Changes are saved to your shared Library on your PC.</value></data>
-  <data name="AppliesOnPc" xml:space="preserve"><value>Applies on your PC right away</value></data>
+  <data name="PcWorkspace" xml:space="preserve"><value>Computer workspace</value></data>
+  <data name="PcFolder" xml:space="preserve"><value>A folder on your computer</value></data>
+  <data name="LibrarySavedOnPc" xml:space="preserve"><value>Changes are saved to your shared Library on your computer.</value></data>
+  <data name="AppliesOnPc" xml:space="preserve"><value>Applies on your computer right away</value></data>
   <data name="OpenJobChat" xml:space="preserve"><value>Open its chat</value></data>
   <data name="OpenJobChatHelp" xml:space="preserve"><value>See what it found, or ask it something</value></data>
   <data name="LoadingDetails" xml:space="preserve"><value>Loading details…</value></data>
-  <data name="WorkingOnPc" xml:space="preserve"><value>Working on your PC…</value></data>
+  <data name="WorkingOnPc" xml:space="preserve"><value>Working on your computer…</value></data>
   <data name="DiscardQuestion" xml:space="preserve"><value>Discard changes?</value></data>
   <data name="KeepEditing" xml:space="preserve"><value>Keep editing</value></data>
   <data name="Discard" xml:space="preserve"><value>Discard</value></data>
@@ -212,32 +212,32 @@
   <data name="NextIdeaStartsHere" xml:space="preserve"><value>Your next idea starts here</value></data>
   <data name="TryDifferentSearch" xml:space="preserve"><value>Try a different word or a shorter phrase.</value></data>
   <data name="ProjectEmptyChats" xml:space="preserve"><value>Start a chat in this project, or show all chats.</value></data>
-  <data name="EmptyChatsDescription" xml:space="preserve"><value>Start a new chat. Your conversations will appear here and on your PC.</value></data>
+  <data name="EmptyChatsDescription" xml:space="preserve"><value>Start a new chat. Your conversations will appear here and on your computer.</value></data>
   <data name="SearchingChats" xml:space="preserve"><value>Searching your chats...</value></data>
   <data name="UpdatingChats" xml:space="preserve"><value>Updating chats...</value></data>
   <data name="ResultCountOne" xml:space="preserve"><value>1 result</value></data>
   <data name="ResultCountMany" xml:space="preserve"><value>{0:N0} results</value></data>
   <data name="RecentChats" xml:space="preserve"><value>Recent chats</value></data>
-  <data name="LoadMoreChatsFailed" xml:space="preserve"><value>Couldn't load more chats. Check your PC connection and try again.</value></data>
-  <data name="UpdateChatsFailed" xml:space="preserve"><value>Couldn't update your chats. Check your PC connection and try again.</value></data>
+  <data name="LoadMoreChatsFailed" xml:space="preserve"><value>Couldn't load more chats. Check your computer connection and try again.</value></data>
+  <data name="UpdateChatsFailed" xml:space="preserve"><value>Couldn't update your chats. Check your computer connection and try again.</value></data>
   <data name="ConnectWebApp" xml:space="preserve"><value>Connect web app</value></data>
   <data name="ConnectPhone" xml:space="preserve"><value>Connect phone</value></data>
-  <data name="AddressReadyTrust" xml:space="preserve"><value>Your PC address is ready. Confirm the trusted local network, then tap Continue.</value></data>
-  <data name="AddressReady" xml:space="preserve"><value>Your PC address is ready. Review it below, then tap Continue.</value></data>
+  <data name="AddressReadyTrust" xml:space="preserve"><value>Your computer address is ready. Confirm the trusted local network, then tap Continue.</value></data>
+  <data name="AddressReady" xml:space="preserve"><value>Your computer address is ready. Review it below, then tap Continue.</value></data>
   <data name="ConfirmLanSearch" xml:space="preserve"><value>Confirm trusted-network access before searching your LAN.</value></data>
   <data name="LookingForLumi" xml:space="preserve"><value>Looking for Lumi on your network…</value></data>
-  <data name="NoLumiFound" xml:space="preserve"><value>No Lumi found. Make sure Lumi is open on your PC with phone access turned on, or type its address below.</value></data>
+  <data name="NoLumiFound" xml:space="preserve"><value>No Lumi found. Make sure Lumi is open on your computer with phone access turned on, or type its address below.</value></data>
   <data name="EnableLanBeforeContinuing" xml:space="preserve"><value>Local-network connections are unencrypted. Enable the LAN option before continuing.</value></data>
   <data name="DirectLanWarning" xml:space="preserve"><value>Direct LAN connections are unencrypted. Enable the LAN option only on a network you trust.</value></data>
   <data name="SayingHello" xml:space="preserve"><value>Saying hello…</value></data>
   <data name="AddressNoAnswer" xml:space="preserve"><value>Lumi didn't answer at that address.</value></data>
-  <data name="InvalidPcAddress" xml:space="preserve"><value>Enter a valid PC address.</value></data>
+  <data name="InvalidPcAddress" xml:space="preserve"><value>Enter a valid computer address.</value></data>
   <data name="VersionMismatch" xml:space="preserve"><value>That Lumi is a different version. Update both apps and try again.</value></data>
   <data name="AddressTimeout" xml:space="preserve"><value>That address took too long to answer.</value></data>
   <data name="Pairing" xml:space="preserve"><value>Pairing…</value></data>
   <data name="PairingFailed" xml:space="preserve"><value>Pairing failed.</value></data>
   <data name="PairingTimeout" xml:space="preserve"><value>Pairing took too long.</value></data>
-  <data name="NewChatBrief" xml:space="preserve"><value>Ask a question or get something done on your PC.</value></data>
+  <data name="NewChatBrief" xml:space="preserve"><value>Ask a question or get something done on your computer.</value></data>
   <data name="UsualSetups" xml:space="preserve"><value>Your usual setups</value></data>
   <data name="SetupsBeforeFirstMessage" xml:space="preserve"><value>Setups are available before the first message.</value></data>
   <data name="SetupUnavailable" xml:space="preserve"><value>That setup is no longer available. Choose another setup.</value></data>
@@ -265,7 +265,7 @@
   <data name="Connected" xml:space="preserve"><value>Connected</value></data>
   <data name="GettingReady" xml:space="preserve"><value>Getting ready</value></data>
   <data name="MicrosoftSignInAttention" xml:space="preserve"><value>Microsoft sign-in needs attention. Your Lumi pairing is kept.</value></data>
-  <data name="YourPc" xml:space="preserve"><value>your PC</value></data>
+  <data name="YourPc" xml:space="preserve"><value>your computer</value></data>
   <data name="CantReachHost" xml:space="preserve"><value>Can't reach {0}. Make sure it's awake and online, then retry.</value></data>
   <data name="PhoneOffline" xml:space="preserve"><value>This phone is offline. Lumi reconnects to {0} when the network is back.</value></data>
   <data name="ReconnectingToHost" xml:space="preserve"><value>Reconnecting to {0}...</value></data>
@@ -274,17 +274,17 @@
   <data name="BackToChats" xml:space="preserve"><value>Back to chats</value></data>
   <data name="HideChats" xml:space="preserve"><value>Hide chats</value></data>
   <data name="ShowChats" xml:space="preserve"><value>Show chats</value></data>
-  <data name="AlreadyPaired" xml:space="preserve"><value>This phone is already paired with {0}. Disconnect it before connecting to another PC.</value></data>
-  <data name="RevokeFailed" xml:space="preserve"><value>Lumi could not revoke this phone. Try again while the PC is online.</value></data>
-  <data name="LoadActivityFailed" xml:space="preserve"><value>Could not load this activity from your PC.</value></data>
+  <data name="AlreadyPaired" xml:space="preserve"><value>This phone is already paired with {0}. Disconnect it before connecting to another computer.</value></data>
+  <data name="RevokeFailed" xml:space="preserve"><value>Lumi could not revoke this phone. Try again while the computer is online.</value></data>
+  <data name="LoadActivityFailed" xml:space="preserve"><value>Could not load this activity from your computer.</value></data>
   <data name="WrongChatActivity" xml:space="preserve"><value>Lumi returned activity for a different chat.</value></data>
-  <data name="ConnectionChangedAction" xml:space="preserve"><value>The PC connection changed before this action completed.</value></data>
-  <data name="ConnectionChangedUpload" xml:space="preserve"><value>The PC connection changed during the upload.</value></data>
+  <data name="ConnectionChangedAction" xml:space="preserve"><value>The computer connection changed before this action completed.</value></data>
+  <data name="ConnectionChangedUpload" xml:space="preserve"><value>The computer connection changed during the upload.</value></data>
   <data name="ActivityDetailsUnavailable" xml:space="preserve"><value>Activity details are not available from this Lumi.</value></data>
   <data name="ActivityDetailsFailed" xml:space="preserve"><value>Activity details could not be loaded.</value></data>
   <data name="ActivityDetailsFailedReason" xml:space="preserve"><value>Activity details could not be loaded: {0}</value></data>
   <data name="ReceiveFileFailed" xml:space="preserve"><value>Lumi could not receive that file.</value></data>
-  <data name="SendFileFailed" xml:space="preserve"><value>Could not send that file to your PC.</value></data>
+  <data name="SendFileFailed" xml:space="preserve"><value>Could not send that file to your computer.</value></data>
   <data name="StarterPlanDay" xml:space="preserve"><value>Plan my day</value></data>
   <data name="StarterResearch" xml:space="preserve"><value>Research a topic</value></data>
   <data name="StarterCreateDocument" xml:space="preserve"><value>Create a document</value></data>
@@ -298,7 +298,7 @@
   <data name="WorkingDots" xml:space="preserve"><value>Working...</value></data>
   <data name="NotSupported" xml:space="preserve"><value>Not supported</value></data>
   <data name="SetByDesktop" xml:space="preserve"><value>Set by desktop</value></data>
-  <data name="PcNoAnswer" xml:space="preserve"><value>The PC didn't answer.</value></data>
+  <data name="PcNoAnswer" xml:space="preserve"><value>The computer didn't answer.</value></data>
   <data name="PinModelFailed" xml:space="preserve"><value>Couldn't pin {0}. {1}</value></data>
   <data name="UnpinModelFailed" xml:space="preserve"><value>Couldn't unpin {0}. {1}</value></data>
   <data name="PinNamed" xml:space="preserve"><value>Pin {0}</value></data>
@@ -323,9 +323,9 @@
   <data name="ProjectPickerDescription" xml:space="preserve"><value>Where this chat lives, and whose instructions it follows.</value></data>
   <data name="SkillsPickerDescription" xml:space="preserve"><value>What Lumi can reach for in this chat.</value></data>
   <data name="ConnectorsPickerDescription" xml:space="preserve"><value>Apps and services Lumi can use in this chat.</value></data>
-  <data name="NoAgentsOnPc" xml:space="preserve"><value>Your PC has no agents yet. Create one in Customize.</value></data>
-  <data name="NoProjectsOnPc" xml:space="preserve"><value>Your PC has no projects yet. Create one in Customize.</value></data>
-  <data name="NoSkillsOnPc" xml:space="preserve"><value>Your PC has no skills yet. Create one in Customize.</value></data>
+  <data name="NoAgentsOnPc" xml:space="preserve"><value>Your computer has no agents yet. Create one in Customize.</value></data>
+  <data name="NoProjectsOnPc" xml:space="preserve"><value>Your computer has no projects yet. Create one in Customize.</value></data>
+  <data name="NoSkillsOnPc" xml:space="preserve"><value>Your computer has no skills yet. Create one in Customize.</value></data>
   <data name="NoConnectorsEnabled" xml:space="preserve"><value>No connectors are on. Turn one on in Customize to use it here.</value></data>
   <data name="NoAgent" xml:space="preserve"><value>No agent</value></data>
   <data name="LumiOnItsOwn" xml:space="preserve"><value>Lumi on its own</value></data>
@@ -333,10 +333,10 @@
   <data name="ChatOfItsOwn" xml:space="preserve"><value>A chat of its own</value></data>
   <data name="SkillsCount" xml:space="preserve"><value>{0} skills</value></data>
   <data name="ConnectorsCount" xml:space="preserve"><value>{0} connectors</value></data>
-  <data name="InteractiveUpdateRequired" xml:space="preserve"><value>Update Lumi on your PC to enable saved interactive replies.</value></data>
+  <data name="InteractiveUpdateRequired" xml:space="preserve"><value>Update Lumi on your computer to enable saved interactive replies.</value></data>
   <data name="AnswerClosed" xml:space="preserve"><value>That answer is no longer open.</value></data>
   <data name="WaitForReply" xml:space="preserve"><value>Wait for Lumi's reply to finish before continuing.</value></data>
-  <data name="InteractionChatChanged" xml:space="preserve"><value>The open chat or PC changed. This input wasn't sent to a different chat.</value></data>
+  <data name="InteractionChatChanged" xml:space="preserve"><value>The open chat or computer changed. This input wasn't sent to a different chat.</value></data>
   <data name="InteractionUnconfirmed" xml:space="preserve"><value>Lumi hasn't confirmed this action yet. Your choices are kept; retry checks the same request.</value></data>
   <data name="InteractionSaveFailed" xml:space="preserve"><value>The interaction could not be saved.</value></data>
   <data name="InteractionInterrupted" xml:space="preserve"><value>The connection was interrupted. Your choices are kept.</value></data>
@@ -416,25 +416,25 @@
   <data name="Paused" xml:space="preserve"><value>Paused</value></data>
   <data name="BuiltIn" xml:space="preserve"><value>Built in</value></data>
   <data name="Yours" xml:space="preserve"><value>Yours</value></data>
-  <data name="LibraryBuiltInNote" xml:space="preserve"><value>Built into Lumi. To change it, make a copy on your PC.</value></data>
-  <data name="LibraryConnectorNote" xml:space="preserve"><value>Connectors are set up on your PC. You can turn this one on or off here.</value></data>
-  <data name="LibraryJobNote" xml:space="preserve"><value>Jobs are edited on your PC. You can turn this one on or off here.</value></data>
+  <data name="LibraryBuiltInNote" xml:space="preserve"><value>Built into Lumi. To change it, make a copy on your computer.</value></data>
+  <data name="LibraryConnectorNote" xml:space="preserve"><value>Connectors are set up on your computer. You can turn this one on or off here.</value></data>
+  <data name="LibraryJobNote" xml:space="preserve"><value>Jobs are edited on your computer. You can turn this one on or off here.</value></data>
   <data name="ActionsForNamed" xml:space="preserve"><value>Actions for {0}</value></data>
   <data name="JobsSummary" xml:space="preserve"><value>{0} on · {1} paused</value></data>
   <data name="LibraryNewItem" xml:space="preserve"><value>New {0}</value></data>
   <data name="LibraryEditItem" xml:space="preserve"><value>Edit {0}</value></data>
-  <data name="LibraryDiscardDescription" xml:space="preserve"><value>Your changes to “{0}” will be lost. Nothing will be deleted from your PC.</value></data>
+  <data name="LibraryDiscardDescription" xml:space="preserve"><value>Your changes to “{0}” will be lost. Nothing will be deleted from your computer.</value></data>
   <data name="LibraryDeleteQuestion" xml:space="preserve"><value>Delete from Library?</value></data>
   <data name="LibraryEnableItem" xml:space="preserve"><value>Enable {0}</value></data>
   <data name="LibraryDisableItem" xml:space="preserve"><value>Disable {0}</value></data>
-  <data name="LibraryDeleteDescription" xml:space="preserve"><value>Delete “{0}” from your shared Library? It will be deleted on your PC as well as this phone. This cannot be undone.</value></data>
+  <data name="LibraryDeleteDescription" xml:space="preserve"><value>Delete “{0}” from your shared Library? It will be deleted on your computer as well as this phone. This cannot be undone.</value></data>
   <data name="LibraryNoResults" xml:space="preserve"><value>No {0} found</value></data>
   <data name="LibraryEmptyYet" xml:space="preserve"><value>No {0} yet</value></data>
   <data name="LibrarySearchHelp" xml:space="preserve"><value>Try another name or clear the search to see all {0}.</value></data>
-  <data name="LibraryAddConnectors" xml:space="preserve"><value>Add connectors on your PC. You can enable or disable them here.</value></data>
-  <data name="LibraryAddJobs" xml:space="preserve"><value>Create jobs on your PC. You can enable or disable them here.</value></data>
-  <data name="LibraryAddAgent" xml:space="preserve"><value>Use + to add an {0}, or add one on your PC. Your Library is shared.</value></data>
-  <data name="LibraryAddItem" xml:space="preserve"><value>Use + to add a {0}, or add one on your PC. Your Library is shared.</value></data>
+  <data name="LibraryAddConnectors" xml:space="preserve"><value>Add connectors on your computer. You can enable or disable them here.</value></data>
+  <data name="LibraryAddJobs" xml:space="preserve"><value>Create jobs on your computer. You can enable or disable them here.</value></data>
+  <data name="LibraryAddAgent" xml:space="preserve"><value>Use + to add an {0}, or add one on your computer. Your Library is shared.</value></data>
+  <data name="LibraryAddItem" xml:space="preserve"><value>Use + to add a {0}, or add one on your computer. Your Library is shared.</value></data>
   <data name="LibrarySearch" xml:space="preserve"><value>Search {0}</value></data>
   <data name="LibraryChooseConnector" xml:space="preserve"><value>Choose a connector to see what it does. Switch it on or off right on its row.</value></data>
   <data name="LibraryChooseJob" xml:space="preserve"><value>Choose a job to see when it runs and open its chat. Switch it on or off right on its row.</value></data>
@@ -461,9 +461,9 @@
   <data name="SkillBuiltIn" xml:space="preserve"><value>Skill · Built in</value></data>
   <data name="AgentBuiltIn" xml:space="preserve"><value>Agent · Built in</value></data>
   <data name="Tools" xml:space="preserve"><value>Tools</value></data>
-  <data name="RunsOnPc" xml:space="preserve"><value>Runs on your PC</value></data>
+  <data name="RunsOnPc" xml:space="preserve"><value>Runs on your computer</value></data>
   <data name="OnlineService" xml:space="preserve"><value>Online service</value></data>
-  <data name="ConnectorOnPc" xml:space="preserve"><value>Connector · On your PC</value></data>
+  <data name="ConnectorOnPc" xml:space="preserve"><value>Connector · On your computer</value></data>
   <data name="ConnectorOnline" xml:space="preserve"><value>Connector · Online</value></data>
   <data name="Command" xml:space="preserve"><value>Command</value></data>
   <data name="Address" xml:space="preserve"><value>Address</value></data>
@@ -476,25 +476,25 @@
   <data name="WakeScript" xml:space="preserve"><value>Wake script</value></data>
   <data name="FollowsChat" xml:space="preserve"><value>Follows a chat</value></data>
   <data name="Automation" xml:space="preserve"><value>Automation</value></data>
-  <data name="LibraryFullDetailsFailed" xml:space="preserve"><value>Lumi could not load the full details. Try again when your PC is connected.</value></data>
+  <data name="LibraryFullDetailsFailed" xml:space="preserve"><value>Lumi could not load the full details. Try again when your computer is connected.</value></data>
   <data name="LibraryFullDetailsFailedReason" xml:space="preserve"><value>Could not load the full details. {0}</value></data>
   <data name="LibraryChangeFailed" xml:space="preserve"><value>Could not change this item. Please try again.</value></data>
   <data name="LibraryChangeFailedReason" xml:space="preserve"><value>Could not change this item. {0}</value></data>
   <data name="DonePeriod" xml:space="preserve"><value>Done.</value></data>
   <data name="LibraryLoadingFullDetails" xml:space="preserve"><value>Loading full details…</value></data>
   <data name="LibraryCannotEdit" xml:space="preserve"><value>This item cannot be edited from this connection.</value></data>
-  <data name="LibraryFullItemFailed" xml:space="preserve"><value>Lumi could not load the full item. Try again when your PC is connected.</value></data>
+  <data name="LibraryFullItemFailed" xml:space="preserve"><value>Lumi could not load the full item. Try again when your computer is connected.</value></data>
   <data name="LibraryLoadItemFailedReason" xml:space="preserve"><value>Could not load this item. {0}</value></data>
   <data name="LibraryNameRequired" xml:space="preserve"><value>Give it a name first.</value></data>
   <data name="LibrarySaveFailed" xml:space="preserve"><value>Could not save. Your changes are still here.</value></data>
-  <data name="LibrarySavedOnPcMessage" xml:space="preserve"><value>Saved on your PC.</value></data>
+  <data name="LibrarySavedOnPcMessage" xml:space="preserve"><value>Saved on your computer.</value></data>
   <data name="LibrarySaveFailedReason" xml:space="preserve"><value>Could not save. Your changes are still here. {0}</value></data>
   <data name="LibraryDeleteFailed" xml:space="preserve"><value>Could not delete this item. Please try again.</value></data>
   <data name="LibraryDeleted" xml:space="preserve"><value>Deleted from your shared Library.</value></data>
   <data name="LibraryDeleteFailedReason" xml:space="preserve"><value>Could not delete this item. {0}</value></data>
-  <data name="EnabledOnPc" xml:space="preserve"><value>Enabled on your PC.</value></data>
-  <data name="DisabledOnPc" xml:space="preserve"><value>Disabled on your PC.</value></data>
-  <data name="LibraryRefreshFailed" xml:space="preserve"><value>{0} The list could not refresh. Reconnect to your PC to reload it.</value></data>
+  <data name="EnabledOnPc" xml:space="preserve"><value>Enabled on your computer.</value></data>
+  <data name="DisabledOnPc" xml:space="preserve"><value>Disabled on your computer.</value></data>
+  <data name="LibraryRefreshFailed" xml:space="preserve"><value>{0} The list could not refresh. Reconnect to your computer to reload it.</value></data>
   <data name="RequestTimeout" xml:space="preserve"><value>Lumi took too long to answer.</value></data>
   <data name="ProtocolRequired" xml:space="preserve"><value>This phone requires Lumi remote protocol {0} with scoped events.</value></data>
   <data name="UnreadableResponse" xml:space="preserve"><value>Lumi returned an unreadable response.</value></data>
@@ -511,16 +511,16 @@
   <data name="SseLineTooLarge" xml:space="preserve"><value>SSE line is too large.</value></data>
   <data name="SseLineUnterminated" xml:space="preserve"><value>SSE stream ended with an unterminated line.</value></data>
   <data name="ResponseProtocolLimit" xml:space="preserve"><value>Response exceeds the {0:N0}-byte protocol limit.</value></data>
-  <data name="CantReachLumi" xml:space="preserve"><value>Can't reach Lumi. Check that your PC is awake and on the same Wi-Fi.</value></data>
+  <data name="CantReachLumi" xml:space="preserve"><value>Can't reach Lumi. Check that your computer is awake and on the same Wi-Fi.</value></data>
   <data name="HttpResponseError" xml:space="preserve"><value>Lumi returned HTTP {0}{1}.</value></data>
-  <data name="TailscaleNotConnected" xml:space="preserve"><value>Tailscale is not connected for this PC address. Reconnect Tailscale and try again.</value></data>
+  <data name="TailscaleNotConnected" xml:space="preserve"><value>Tailscale is not connected for this computer address. Reconnect Tailscale and try again.</value></data>
   <data name="SavedFileLengthMismatch" xml:space="preserve"><value>The saved file did not match the download ({0} of {1} bytes).</value></data>
   <data name="Phone" xml:space="preserve"><value>Phone</value></data>
   <data name="AndroidPhone" xml:space="preserve"><value>Android phone</value></data>
-  <data name="ThisLumiPc" xml:space="preserve"><value>This Lumi PC</value></data>
+  <data name="ThisLumiPc" xml:space="preserve"><value>This Lumi computer</value></data>
   <data name="LumiWebApp" xml:space="preserve"><value>Lumi Web App</value></data>
   <data name="BrowserDownloadLimit" xml:space="preserve"><value>The download exceeds the browser limit.</value></data>
-  <data name="BrowserSameOriginOnly" xml:space="preserve"><value>Lumi Web can only connect to the PC that served this app.</value></data>
+  <data name="BrowserSameOriginOnly" xml:space="preserve"><value>Lumi Web can only connect to the computer that served this app.</value></data>
   <data name="BrowserGatewaySignIn" xml:space="preserve"><value>Microsoft sign-in needs attention. Sign in again with the tunnel owner's account. Your Lumi pairing is kept; copy any unsent draft before reloading. Reload web app in Settings is also available.</value></data>
   <data name="AttachToLumi" xml:space="preserve"><value>Attach to Lumi</value></data>
   <data name="PhoneAttachTooLarge" xml:space="preserve"><value>That file is too large for this phone to send.</value></data>
@@ -534,7 +534,7 @@
   <data name="SaveLumiFile" xml:space="preserve"><value>Save Lumi file</value></data>
   <data name="DownloadedFileCannotOpen" xml:space="preserve"><value>The file was downloaded, but this phone could not open it.</value></data>
   <data name="OpenFileFailed" xml:space="preserve"><value>That file could not be opened.</value></data>
-  <data name="LocalNetworkPermissionRequired" xml:space="preserve"><value>Local network access is required to connect to your Lumi PC.</value></data>
+  <data name="LocalNetworkPermissionRequired" xml:space="preserve"><value>Local network access is required to connect to your Lumi computer.</value></data>
   <data name="LumiText" xml:space="preserve"><value>Lumi text</value></data>
   <data name="TransportRequestOne" xml:space="preserve"><value>{0} request</value></data>
   <data name="TransportRequestMany" xml:space="preserve"><value>{0} requests</value></data>
@@ -581,7 +581,7 @@
   <data name="AndroidPairingHint" xml:space="preserve"><value>Use the 6-digit code shown in Lumi Desktop. You only do this once.</value></data>
   <data name="UseWebApp" xml:space="preserve"><value>Use the web app instead</value></data>
   <data name="AndroidVersionMatching" xml:space="preserve"><value>Lumi {0}, matching this desktop release.</value></data>
-  <data name="WebManifestDescription" xml:space="preserve"><value>Your Lumi PC, from your phone.</value></data>
+  <data name="WebManifestDescription" xml:space="preserve"><value>Your Lumi computer, from your phone.</value></data>
   <data name="WorkerStarting" xml:space="preserve"><value>Worker renderer starting</value></data>
   <data name="WorkerUnavailable" xml:space="preserve"><value>Normal renderer (worker unavailable)</value></data>
   <data name="WorkerStopped" xml:space="preserve"><value>Normal renderer (worker stopped)</value></data>
