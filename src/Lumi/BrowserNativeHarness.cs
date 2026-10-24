@@ -175,10 +175,19 @@ internal sealed class BrowserNativeHarness
             Check("ready-type-" + iteration, !typed.Contains("Error:", StringComparison.Ordinal), Clip(typed));
         }
         Check("wait", !(await browser.DoAsync("wait", "#query", "1000")).Contains("Error:", StringComparison.Ordinal));
-        await browser.DoAsync("scroll", "down", "300");
-        Check("scroll", double.TryParse(await browser.EvaluateAsync("return String(scrollY)"),
-            System.Globalization.CultureInfo.InvariantCulture, out var scrollY) && scrollY > 0);
-        await browser.DoAsync("scroll", "up", "300");
+        async Task<double> ScrollPositionAsync() => double.Parse(
+            await browser.EvaluateAsync("return String(scrollY)"), System.Globalization.CultureInfo.InvariantCulture);
+        var beforeScroll = await ScrollPositionAsync();
+        var scrollY = beforeScroll;
+        var scrollResult = await browser.DoAsync("scroll", "down", "300");
+        if (scrollResult.Contains("Error:", StringComparison.Ordinal))
+            throw new InvalidOperationException(scrollResult);
+        await WaitAsync(async () => (scrollY = await ScrollPositionAsync()) > beforeScroll);
+        Check("scroll", scrollY > beforeScroll, $"scrollY={beforeScroll}->{scrollY}");
+        scrollResult = await browser.DoAsync("scroll", "up", "300");
+        if (scrollResult.Contains("Error:", StringComparison.Ordinal))
+            throw new InvalidOperationException(scrollResult);
+        await WaitAsync(async () => await ScrollPositionAsync() <= beforeScroll + 1);
         await browser.DoAsync("select", "#choice", "One");
         Check("select", await browser.EvaluateAsync("return document.getElementById('choice').value") == "1");
 
