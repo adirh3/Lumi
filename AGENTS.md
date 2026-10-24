@@ -130,6 +130,21 @@ src/Lumi/
 - `partial void On<PropertyName>Changed()` for property change side effects
 - All Copilot event handlers must dispatch to UI thread via `Dispatcher.UIThread.Post()`
 
+## Localization
+
+Localization changes presentation, not agent behavior or stored user content. See
+[the localization guide](docs/development.md#localization) for the catalog layout and display boundaries.
+
+- **Reuse the existing catalogs.** Desktop text uses `src\Lumi\Resources\Strings\en.json` / `he.json` and `Loc`; mobile uses `ChatSessionStrings.resx` / `ChatSessionStrings.he.resx`; shared Strata chrome uses `InteractiveLabels`. Keep English/Hebrew keys and format arguments in sync. Do not introduce another translation framework.
+- **Trace consumers before translating a shared string.** A label, description, error or report may also reach a tool result, system prompt, runtime catalog, parser or comparison. Do not assume text is display-only because a user can see it.
+- **Keep canonical data separate from UI text.** Preserve skill/agent names and identities, original descriptions, instructions, authored text, file paths, model IDs, status/action/route tokens, hashes and raw streaming text. Built-in defaults may have localized `DisplayDescription` copies; custom or user-edited descriptions stay untouched. Display-only metadata must not be persisted or serialized into runtime payloads.
+- **Preserve the model boundary.** Native skill discovery/loading and custom-agent configuration use canonical `Description` / `Content` / `SystemPrompt`, never localized display copies. `LumiFeatureManager` reports are canonical by default; only UI callers opt into `localizeOutput`. System-prompt job descriptions use `BackgroundJobSchedule.Describe(..., localize: false)`. Never temporarily change global language/culture to format one model-facing response.
+- **English resource lookup is not UI translation.** `Loc.GetEnglish` deliberately returns the canonical English default regardless of UI language. Do not replace it with culture-dependent `Loc.Get` in persisted defaults or model-facing metadata.
+- **Cover every UI branch and host.** Include completed/edited/failed states, empty states, counts/durations, dialogs, tooltips, accessibility names, binding `StringFormat` values, and Markdown code/link controls. Supply the UI language to renderers that do not inherit it; preserve explicitly authored interaction languages and host label overrides.
+- **Respect startup and template lifetime.** Resolve shared labels after the saved language is loaded, including deferred templates and crash/startup surfaces. Reuse the existing compiled-binding and startup/restart patterns; do not reset drafts or rebuild runtime sessions just to translate controls.
+- **Preserve localization when moving or rebasing UI.** Transfer text and accessibility bindings to the new owning view without restoring deleted controls, retired tools/features or obsolete resource references. Keep upstream command bindings, ownership, layout and motion changes.
+- **Verify both sides of the boundary.** Add focused English/Hebrew checks proving that UI labels change while canonical skill catalogs, loaded instructions, tool metadata/results, validation decisions and payload fields do not. Check catalog/placeholder parity and actual populated templates, then use MCP to verify rendered controls, interactions, RTL layout and binding health. A successful build or translated getter alone is not sufficient.
+
 ## Focused Engineering
 
 Lumi prefers the smallest complete solution: everything required for the requested behavior to work correctly on supported, realistic paths, without speculative infrastructure or hardening.
