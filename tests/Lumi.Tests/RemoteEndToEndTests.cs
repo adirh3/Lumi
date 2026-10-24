@@ -152,7 +152,8 @@ public sealed class RemoteEndToEndTests
 
         seed?.Invoke(data);
 
-        var dataStore = new DataStore(data);
+        var dataStore = new DataStore(data, Path.Combine(
+            TestProfile.Root, "remote-e2e-skills", Guid.NewGuid().ToString("N")));
         var main = new MainViewModel(
             dataStore,
             TestCopilot.Shared,
@@ -738,9 +739,12 @@ public sealed class RemoteEndToEndTests
         await WaitAsync(() => rig.Shell.Chat.Quality == "Thorough",
             "the reasoning effort picked on the PC to reach the phone");
 
-        // Active skills are a collection, so they raise CollectionChanged rather than
-        // PropertyChanged — a separate hub subscription that is easy to forget.
-        rig.Main.ChatVM.ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip("Desk skill"));
+        // Back the chip with a real selection, otherwise a pending capability refresh prunes it.
+        // Arrange the IDs without save notifications so the chip's CollectionChanged remains the trigger.
+        var skill = rig.DataStore.Data.Skills.Single(skill => skill.Name == "Desk skill");
+        rig.Main.ChatVM.ActiveSkillIds.Add(skill.Id);
+        chat.ActiveSkillIds.Add(skill.Id);
+        rig.Main.ChatVM.ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name));
         await WaitAsync(() => rig.Shell.Chat.SkillChips.Any(c => c.Name == "Desk skill"),
             "the skill attached on the PC to reach the phone");
     },
@@ -748,6 +752,7 @@ public sealed class RemoteEndToEndTests
     {
         data.Chats.Add(new Chat { Id = Guid.NewGuid(), Title = "Watched", UpdatedAt = DateTimeOffset.Now });
         data.Agents.Add(new LumiAgent { Id = Guid.NewGuid(), Name = "Navigator", IconGlyph = "🧭" });
+        data.Skills.Add(new Skill { Name = "Desk skill", Content = "A real desktop skill for configuration propagation." });
     });
 
     /// <summary>
