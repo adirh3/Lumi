@@ -53,6 +53,7 @@
                            Detail="{Binding LiveDetail}"
                            Classes.compact="{Binding IsCompact}"
                            Status="{Binding Status}"
+                           HeaderCommand="{Binding HeaderCommand}"
                            IsExpanded="{Binding IsExpanded}"
                            InputParameters="{Binding InputParameters}"
                            Progress="{Binding ProgressText}"

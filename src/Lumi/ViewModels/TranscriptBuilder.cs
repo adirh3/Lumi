@@ -7,6 +7,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -116,6 +117,7 @@ public class TranscriptBuilder
     public HashSet<string> ShownFileChips { get; } = new(FilePathComparer);
     private readonly HashSet<Guid> _processedMessageIds = [];
     private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SkillReference> _invokedSkills = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _shownLinkedChatKeys = new(StringComparer.Ordinal);
     private PlanCardItem? _pendingPlanCard;
     private string? _pendingModelName;
@@ -213,6 +215,27 @@ public class TranscriptBuilder
             };
 
         return _resolveSkill?.Invoke(skillName);
+    }
+
+    /// <summary>Supplies the content that can arrive after a native skill's row was built.</summary>
+    public void RecordInvokedSkill(SkillReference skill)
+    {
+        if (!_invokedSkills.TryGetValue(skill.Name, out var reference))
+        {
+            _invokedSkills[skill.Name] = new SkillReference
+            {
+                Name = skill.Name,
+                Glyph = skill.Glyph,
+                Description = skill.Description,
+                Content = skill.Content
+            };
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(skill.Content))
+            reference.Content = skill.Content;
+        if (!string.IsNullOrWhiteSpace(skill.Description))
+            reference.Description = skill.Description;
     }
 
     public ObservableCollection<TranscriptTurn> Rebuild(IEnumerable<ChatMessageViewModel> messages)
@@ -409,6 +432,15 @@ public class TranscriptBuilder
         foreach (var message in messages)
         {
             messageIds.Add(message.Id);
+            foreach (var skill in message.ActiveSkills)
+                _invokedSkills.Remove(skill.Name);
+            if (message.ToolName == "skill")
+            {
+                var skillName = message.ToolSkillName
+                    ?? ToolDisplayHelper.ExtractJsonField(message.Content, "skill");
+                if (skillName is not null)
+                    _invokedSkills.Remove(skillName);
+            }
             if (message.ToolCallId is { Length: > 0 } toolCallId)
                 toolCallIds.Add(toolCallId);
         }
@@ -519,6 +551,7 @@ public class TranscriptBuilder
         _processedMessageIds.Clear();
         _shownApps.Clear();
         _shownSkillNames.Clear();
+        _invokedSkills.Clear();
         _shownLinkedChatKeys.Clear();
         PublishLiveActivity();
     }
@@ -578,6 +611,9 @@ public class TranscriptBuilder
     {
         if (!_processedMessageIds.Add(msgVm.Message.Id))
             return;
+
+        foreach (var skill in msgVm.Message.ActiveSkills)
+            RecordInvokedSkill(skill);
 
         if (msgVm.Role != "reasoning")
             _currentReasoning = null;
@@ -917,6 +953,19 @@ public class TranscriptBuilder
             IsCompact = ToolDisplayHelper.IsCompactEligible(toolName)
                 && initialStatus == StrataAiToolCallStatus.Completed,
         };
+
+        if (toolName == "skill" && _openSkillAction is not null
+            && ToolDisplayHelper.ExtractJsonField(msgVm.Content, "skill") is { Length: > 0 } invokedSkillName)
+        {
+            var resolved = ResolveFetchedSkill(invokedSkillName);
+            var skillName = displaySkillName ?? resolved?.Name ?? invokedSkillName;
+            if (!_invokedSkills.TryGetValue(skillName, out var reference))
+            {
+                reference = resolved ?? new SkillReference { Name = skillName };
+                _invokedSkills[skillName] = reference;
+            }
+            toolCall.HeaderCommand = new RelayCommand(() => _openSkillAction(reference));
+        }
 
         if (diffs.Count > 0)
         {
@@ -1764,6 +1813,8 @@ public class TranscriptBuilder
             {
                 if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && !msgVm.IsStreaming)
                 {
+                    foreach (var skill in msgVm.Message.ActiveSkills)
+                        RecordInvokedSkill(skill);
                     var takesFiles = !IsRecordedProgress(msgVm);
                     capturedItem.ApplyExtras(takesFiles && chipTurn.Pending.Count > 0 ? chipTurn.Pending.ToList() : null, _shownSkillNames);
                     if (takesFiles)

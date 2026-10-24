@@ -12,6 +12,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Lumi.ViewModels;
 using Lumi.Views;
 using StrataTheme.Controls;
@@ -33,6 +34,73 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class TranscriptCollapsibleToggleTests
 {
+    [Theory]
+    [InlineData("tool")]
+    [InlineData("chat")]
+    [InlineData("run")]
+    public async Task SkillHeader_ExecutesItsPreviewCommandInsteadOfExpanding(string surface)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var opens = 0;
+            var enabled = true;
+            var item = new ToolCallItem("Using Code Reviewer Pro", StrataAiToolCallStatus.Completed)
+            {
+                HeaderCommand = new RelayCommand(() => opens++, () => enabled)
+            };
+            object model = surface == "tool" ? item : new SingleToolItem(item);
+            var templates = surface switch
+            {
+                "tool" => Application.Current!.DataTemplates,
+                "chat" => new ChatView().DataTemplates,
+                _ => new SubagentRunView().DataTemplates
+            };
+            var view = templates.Single(template => template.Match(model)).Build(model)!;
+            view.DataContext = model;
+            var window = new Window { Width = 700, Height = 300, Content = view };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                window.UpdateLayout();
+                var chevron = view.GetVisualDescendants().OfType<StrataLineIcon>()
+                    .Single(icon => icon.Name == "PART_ExpandIcon");
+                Assert.Equal(StrataIcons.ChevronRight.Bounds, chevron.Data?.Bounds);
+                var header = view.GetVisualDescendants().OfType<Border>()
+                    .First(border => border.Name == "PART_Header");
+                var point = header.TranslatePoint(
+                    new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), window)!.Value;
+                window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+                window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+                Assert.Equal(1, opens);
+
+                view.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+                Assert.Equal(2, opens);
+                Assert.False(item.IsExpanded);
+                if (model is SingleToolItem single)
+                    Assert.False(single.IsExpanded);
+
+                enabled = false;
+                view.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Space });
+                Assert.Equal(2, opens);
+
+                if (surface == "tool")
+                {
+                    item.Status = StrataAiToolCallStatus.Failed;
+                    await PumpAsync();
+                    Assert.Equal(StrataIcons.ChevronDown.Bounds, chevron.Data?.Bounds);
+                    view.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+                    Assert.True(item.IsExpanded);
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData(320, FlowDirection.LeftToRight)]
     [InlineData(640, FlowDirection.LeftToRight)]

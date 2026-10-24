@@ -265,6 +265,39 @@ public partial class ChatViewModel
                 group.IsExpanded = true;
                 group.ToolCalls.OfType<ToolCallItem>().Last().IsExpanded = true;
             }
+
+            foreach (var message in new ChatMessage[]
+            {
+                new() { Role = "user", Content = "Use Code Reviewer Pro to review this change." },
+                new()
+                {
+                    Role = "tool",
+                    ToolCallId = "debug-native-skill-preview",
+                    ToolName = "skill",
+                    ToolSkillName = "Code Reviewer Pro",
+                    ToolStatus = "Completed",
+                    Content = "{\"skill\":\"code-reviewer-pro\"}"
+                },
+                new()
+                {
+                    Role = "assistant",
+                    Author = "Lumi",
+                    Content = "Click **Using Code Reviewer Pro** above to open the skill's instructions in the Workspace.",
+                    ActiveSkills =
+                    [
+                        new SkillReference
+                        {
+                            Name = "Code Reviewer Pro",
+                            Description = "Reviews correctness, security, performance, and design.",
+                            Content = "# Code Reviewer Pro\n\nReview correctness, security, performance, and design. This is a synthetic transcript fixture."
+                        }
+                    ]
+                }
+            })
+            {
+                fixture.Messages.Add(message);
+                Messages.Add(new ChatMessageViewModel(message));
+            }
         }
 
         ScrollToEndRequested?.Invoke();

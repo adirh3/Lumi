@@ -2583,7 +2583,7 @@ public partial class ChatViewModel
                     if (!string.IsNullOrWhiteSpace(skillInvoked.Data.Name))
                     {
                         var skill = FindSkillReferenceByName(skillInvoked.Data.Name, capabilities);
-                        pendingFetchedSkillRefs.Add(new SkillReference
+                        var reference = new SkillReference
                         {
                             Name = skill?.Name ?? skillInvoked.Data.Name,
                             Glyph = skill?.Glyph ?? "\u26A1",
@@ -2591,7 +2591,10 @@ public partial class ChatViewModel
                                 ? skillInvoked.Data.Description
                                 : skill?.Description ?? string.Empty,
                             Content = skillInvoked.Data.Content
-                        });
+                        };
+                        pendingFetchedSkillRefs.Add(reference);
+                        if (IsDisplayedSession())
+                            _transcriptBuilder.RecordInvokedSkill(reference);
                     }
                     });
                     break;

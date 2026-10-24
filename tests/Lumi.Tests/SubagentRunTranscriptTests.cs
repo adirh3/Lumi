@@ -140,6 +140,25 @@ public sealed class SubagentRunTranscriptTests
     }
 
     [Fact]
+    public void RunTranscript_NativeSkillWithoutPreviewDestination_RemainsExpandable()
+    {
+        var messages = new[]
+        {
+            CreateToolVm("agent-1", "task", "Completed",
+                "{\"description\":\"Review code\",\"agent_type\":\"explore\",\"prompt\":\"Review the change\"}"),
+            CreateToolVm("child-1", "skill", "Completed", "{\"skill\":\"code-reviewer-pro\"}",
+                parentToolCallId: "agent-1"),
+        };
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(CreateBuilder().Rebuild(messages)).Items));
+
+        var step = Assert.IsType<SingleToolItem>(Assert.Single(RunItems(run, messages)));
+
+        Assert.Null(step.HeaderCommand);
+        Assert.Equal("**Skill:** code-reviewer-pro", step.InputParameters);
+    }
+
+    [Fact]
     public void RunTranscript_WithoutAnExplicitPrompt_OpensWithTheTaskDescription()
     {
         var builder = CreateBuilder();

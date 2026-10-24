@@ -359,6 +359,7 @@
 
     <DataTemplate DataType="vm:SingleToolItem">
       <sc:StrataThink Label="{Binding Label}"
+                      HeaderCommand="{Binding HeaderCommand}"
                       Icon="{Binding IconKey, Converter={x:Static conv:TranscriptIconConverter.Instance}}"
                       HasError="{Binding HasError}"
                       Meta="{Binding Meta}"

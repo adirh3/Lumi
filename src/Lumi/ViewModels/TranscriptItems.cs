@@ -890,6 +890,7 @@ public partial class SingleToolItem : TranscriptItem
 
     public bool HasDiff => Inner is ToolCallItem { HasDiff: true };
     public ICommand? ShowDiffCommand => Inner is ToolCallItem tc ? tc.ShowDiffCommand : null;
+    public ICommand? HeaderCommand => Inner is ToolCallItem tc ? tc.HeaderCommand : null;
 
     public SingleToolItem(ToolCallItemBase inner)
         : base($"single:{inner.StableId}")
@@ -909,6 +910,7 @@ public partial class SingleToolItem : TranscriptItem
         OnPropertyChanged(nameof(IsActive));
         OnPropertyChanged(nameof(HasError));
         OnPropertyChanged(nameof(Meta));
+        OnPropertyChanged(nameof(HeaderCommand));
     }
 }
 
@@ -1395,6 +1397,7 @@ public partial class ToolCallItem : ToolCallItemBase
     [ObservableProperty] private string _toolName;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LiveDetail))]
+    [NotifyPropertyChangedFor(nameof(HeaderCommand))]
     private StrataAiToolCallStatus _status;
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string? _inputParameters;
@@ -1463,6 +1466,12 @@ public partial class ToolCallItem : ToolCallItemBase
     public string? DiffOriginalContent { get; set; }
     public string? DiffCurrentContent { get; set; }
     public Action<FileChangeItem>? ShowFileChangeAction { get; set; }
+    private ICommand? _headerCommand;
+    public ICommand? HeaderCommand
+    {
+        get => Status is StrataAiToolCallStatus.Failed or StrataAiToolCallStatus.Stopped ? null : _headerCommand;
+        set => _headerCommand = value;
+    }
 
     public ToolCallItem(string toolName, StrataAiToolCallStatus status, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("tool"))

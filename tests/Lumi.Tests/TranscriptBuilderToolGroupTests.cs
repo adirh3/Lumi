@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using StrataTheme.Controls;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -217,6 +218,98 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.Contains("Using Native Skill Trial", call.ToolName);
         Assert.Equal("**Skill:** Native Skill Trial", call.InputParameters);
         Assert.Equal("{\"skill\":\"native-skill-trial\"}", message.Content);
+    }
+
+    [Fact]
+    public void NativeSkill_OpensContentReportedAfterTheToolStarted()
+    {
+        SkillReference? opened = null;
+        var builder = CreateBuilder(openSkillAction: skill => opened = skill);
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("skill-1", "skill", "InProgress", "{\"skill\":\"code-reviewer-pro\"}");
+        message.Message.ToolSkillName = "Code Reviewer Pro";
+        builder.ProcessMessageToTranscript(message);
+        var call = Assert.IsType<ToolCallItem>(Assert.Single(Assert.IsType<ToolGroupItem>(
+            Assert.Single(Assert.Single(turns).Items)).ToolCalls));
+
+        builder.RecordInvokedSkill(new SkillReference
+        {
+            Name = "Code Reviewer Pro",
+            Description = "Review code.",
+            Content = "# Code Reviewer Pro\n\nReview correctness before style."
+        });
+        message.Message.ToolStatus = "Completed";
+        message.NotifyToolStatusChanged();
+        Assert.NotNull(call.HeaderCommand);
+        call.HeaderCommand.Execute(null);
+
+        Assert.NotNull(opened);
+        Assert.Equal("Code Reviewer Pro", opened.Name);
+        Assert.Equal("Review code.", opened.Description);
+        Assert.Equal("# Code Reviewer Pro\n\nReview correctness before style.", opened.Content);
+        Assert.Same(call.HeaderCommand, new SingleToolItem(call).HeaderCommand);
+    }
+
+    [Fact]
+    public void NativeSkill_RebuiltFromHistory_OpensContentSavedOnTheAssistant()
+    {
+        SkillReference? opened = null;
+        var builder = CreateBuilder(openSkillAction: skill => opened = skill);
+        var tool = CreateToolVm("skill-1", "skill", "Completed", "{\"skill\":\"code-reviewer-pro\"}");
+        var assistant = CreateAssistantVm("Reviewed.");
+        assistant.Message.ActiveSkills.Add(new SkillReference
+        {
+            Name = "code-reviewer-pro",
+            Content = "# Code review\n\nSaved SDK instructions."
+        });
+
+        var turns = builder.Rebuild([tool, assistant]);
+        var single = Assert.Single(turns.SelectMany(turn => turn.EnumerateItems()).OfType<SingleToolItem>());
+        Assert.NotNull(single.HeaderCommand);
+        single.HeaderCommand.Execute(null);
+
+        Assert.Equal("# Code review\n\nSaved SDK instructions.", opened?.Content);
+    }
+
+    [Theory]
+    [InlineData("Failed", StrataAiToolCallStatus.Failed)]
+    [InlineData("Stopped", StrataAiToolCallStatus.Stopped)]
+    public void NativeSkill_UnsuccessfulCallStillOpensItsDetails(string status, StrataAiToolCallStatus expected)
+    {
+        var builder = CreateBuilder(openSkillAction: _ => { });
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("skill-1", "skill", "InProgress", "{\"skill\":\"code-reviewer-pro\"}");
+        builder.ProcessMessageToTranscript(message);
+        var call = Assert.IsType<ToolCallItem>(Assert.Single(Assert.IsType<ToolGroupItem>(
+            Assert.Single(Assert.Single(turns).Items)).ToolCalls));
+        Assert.NotNull(call.HeaderCommand);
+
+        message.Message.ToolStatus = status;
+        message.NotifyToolStatusChanged();
+
+        Assert.Equal(expected, call.Status);
+        Assert.Null(call.HeaderCommand);
+        Assert.Null(new SingleToolItem(call).HeaderCommand);
+    }
+
+    [Fact]
+    public void NativeSkill_ResetDoesNotReuseAnotherChatsInstructions()
+    {
+        SkillReference? opened = null;
+        var builder = CreateBuilder(openSkillAction: skill => opened = skill);
+        builder.RecordInvokedSkill(new SkillReference { Name = "code-reviewer-pro", Content = "Previous chat." });
+        var turns = builder.Rebuild([
+            CreateToolVm("skill-1", "skill", "Completed", "{\"skill\":\"code-reviewer-pro\"}")
+        ]);
+
+        var single = Assert.IsType<SingleToolItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.NotNull(single.HeaderCommand);
+        single.HeaderCommand.Execute(null);
+
+        Assert.NotNull(opened);
+        Assert.True(string.IsNullOrEmpty(opened.Content));
     }
 
     [Fact]
@@ -1760,8 +1853,12 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.Empty(turns.SelectMany(t => t.Items).OfType<ToolGroupItem>());
     }
 
-    private static TranscriptBuilder CreateBuilder(bool showToolCalls = true, Action<Guid>? openChatAction = null)
+    private static TranscriptBuilder CreateBuilder(
+        bool showToolCalls = true,
+        Action<Guid>? openChatAction = null,
+        Action<SkillReference>? openSkillAction = null)
         => new(CreateDataStore(showToolCalls), _ => { }, (_, _) => { }, _ => { }, (_, _) => Task.CompletedTask, () => null,
+            openSkillAction: openSkillAction,
             openChatAction: openChatAction);
 
     private static void AssertCompactFinishedToolGroup(TranscriptItem item, int expectedToolCalls)
