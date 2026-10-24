@@ -127,7 +127,6 @@ public sealed class GlobalSearchService
         new(nameof(Loc.AiFeature_Memories), nameof(Loc.Settings_AiFeatures), 10),
         new(nameof(Loc.Search_SettingAutoMemories), nameof(Loc.Settings_AiFeatures), 10),
         new(nameof(Loc.AiFeature_DailyBriefs), nameof(Loc.Settings_AiFeatures), 10),
-        new(nameof(Loc.AiFeature_CodingHelpers), nameof(Loc.Settings_AiFeatures), 10),
         new(nameof(Loc.Search_SettingGitHubAccount), nameof(Loc.Settings_AIModels), 5),
         new(nameof(Loc.EasyConnect_AccountsTitle), nameof(Loc.Settings_AIModels), 5),
         new(nameof(Loc.Settings_Byok_UseByokOnly), nameof(Loc.Settings_AIModels), 5),

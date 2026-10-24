@@ -302,7 +302,7 @@
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:PickerOption">
                           <Button Classes="segment" Classes.selected="{Binding IsSelected}"
-                                  AutomationProperties.Name="{Binding Label, StringFormat='Reasoning effort: {0}'}"
+                                  AutomationProperties.Name="{Binding Label, StringFormat={loc:Str EffortNamed}}"
                                   Command="{Binding $parent[views:MobileShellView].((vm:MobileShellViewModel)DataContext).Chat.PickQualityCommand}"
                                   CommandParameter="{Binding Name}">
                             <TextBlock Text="{Binding Label}" />
@@ -324,7 +324,7 @@
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:PickerOption">
                           <Button Classes="segment" Classes.selected="{Binding IsSelected}"
-                                  AutomationProperties.Name="{Binding Label, StringFormat='Context window: {0}'}"
+                                  AutomationProperties.Name="{Binding Label, StringFormat={loc:Str ContextNamed}}"
                                   Command="{Binding $parent[views:MobileShellView].((vm:MobileShellViewModel)DataContext).Chat.PickContextTierCommand}"
                                   CommandParameter="{Binding Name}">
                             <TextBlock Text="{Binding Label}" />
