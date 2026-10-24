@@ -1,5 +1,9 @@
 # Automated QA
 
+The [critical user journey catalogue](critical-user-journeys.md) lists the
+release-critical success, failure and recovery paths, their observable
+acceptance criteria, and the boundary between current coverage and future work.
+
 Lumi keeps merge validation deterministic. `Category=CoreQA` selects existing
 desktop and mobile tests for settings snapshots, session configuration, prompt
 platform policy, onboarding, approval rules, SQLite persistence/search,
