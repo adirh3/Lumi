@@ -3038,6 +3038,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
     public Task WorkingEntranceDoesNotReplayWhenBusyAndStreamingNotificationsOverlap() =>
         RunUiAsync(360, (shell, view, window) =>
         {
+            PumpFrame(window);
             var indicator = Required<StrataTypingIndicator>(view, "ChatTyping");
             var starts = 0;
             indicator.PropertyChanged += (_, e) =>

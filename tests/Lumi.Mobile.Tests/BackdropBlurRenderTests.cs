@@ -58,7 +58,7 @@ public sealed class BackdropBlurRenderTests
                 Assert.True(Step(Row(pageRow)) > 240, "The page edge starts crisp.");
 
                 sheet.IsOpen = true;
-                await PumpAsync(TimeSpan.FromMilliseconds(320));
+                await PumpAsync(StrataBottomSheet.OpenDuration + TimeSpan.FromMilliseconds(60));
                 var sheetRow = (int)content.TranslatePoint(new Point(0, content.Bounds.Height / 2), window)!.Value.Y;
                 Assert.InRange(sheetRow, pageRow + 120, 400);
 
@@ -71,7 +71,7 @@ public sealed class BackdropBlurRenderTests
                     $"The popup is glass, not an opaque card: {glass[40]} over light, {glass[200]} over dark.");
 
                 sheet.Close();
-                await PumpAsync(TimeSpan.FromMilliseconds(240));
+                await PumpAsync(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
                 Assert.False(sheet.IsPresented);
                 Assert.True(Step(Row(sheetRow)) > 240, "Dismissal restores the crisp page.");
             }

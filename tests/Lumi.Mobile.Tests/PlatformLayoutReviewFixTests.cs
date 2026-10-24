@@ -395,7 +395,7 @@ public sealed class PlatformLayoutReviewFixTests
                 Assert.Equal(new Thickness(0, 0, 0, safeArea.Bottom),
                     Required<Border>(chat, "ComposerInset").Padding);
 
-                var runSettings = Required<StrataBottomSheet>(chat, "RunSettingsSheet");
+                var runSettings = Required<StrataBottomSheet>(shellView, "RunSettingsSheet");
                 shell.Chat.IsRunSettingsSheetOpen = true;
                 Pump(window);
 
@@ -412,7 +412,7 @@ public sealed class PlatformLayoutReviewFixTests
                         .OfType<Grid>()
                         .Single(control => control.Name == "PART_HeaderContent")
                         .Margin);
-                var runSettingsContent = Required<Border>(chat, "RunSettingsSideInset");
+                var runSettingsContent = Required<Border>(shellView, "RunSettingsSideInset");
                 Assert.Equal(
                     new Thickness(0, 0, 0, 10),
                     runSettingsContent.GetVisualAncestors()

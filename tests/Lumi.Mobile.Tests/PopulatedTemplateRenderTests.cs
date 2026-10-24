@@ -697,7 +697,7 @@ public sealed class PopulatedTemplateRenderTests
                     PlanContent = "# Plan\n\n- verify every mobile row"
                 });
             },
-            shell => new ChatDetailView { DataContext = shell },
+            shell => new MobileShellView { DataContext = shell },
             (window, shell) =>
             {
                 window.RequestedThemeVariant = dark
