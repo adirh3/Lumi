@@ -599,7 +599,7 @@ public sealed class MobileShellViewTests
                 Pump(window);
                 Assert.False(librarySearch.IsShown,
                     "The browser input must stay behind the closing sheet.");
-                await Task.Delay(240);
+                await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
                 Pump(window);
                 Assert.True(librarySearch.IsShown);
 

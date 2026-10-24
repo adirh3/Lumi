@@ -970,6 +970,10 @@ Entrances run on the render thread, so queued UI work cannot consume their playb
 shift scroll anchors. Chat switches finish closing the drawer before realizing heavy markdown,
 then reveal the settled viewport; the animation does not run unseen behind the drawer or during
 the initial layout. Rendered-pixel tests check partial-opacity frames and visible travel.
+Chat details and the model picker live in the shell's modal overlay, alongside the project picker,
+not inside the conversation's clipping and layout subtree. The overlay follows the conversation
+pane's bounds, including docked navigation and foldable insets, while keeping the chat's native
+editor behind the sheets through dismissal.
 
 The mobile conversation is an unlimited canvas: history runs edge to edge underneath the floating
 top bar and composer, resting clear of both. Everything that floats over moving content is one

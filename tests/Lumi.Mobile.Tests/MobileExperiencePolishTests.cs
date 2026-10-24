@@ -122,7 +122,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.InRange(realized, 1, 40);
             Assert.True(shell.IsModalSheetPresented);
             shell.GoBackCommand.Execute(null);
-            await Task.Delay(240);
+            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
             Pump(window);
             Assert.False(shell.IsModalSheetPresented);
         }, setup: shell =>
@@ -688,6 +688,32 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
         }, new FocusEditorFactory());
 
     [Fact]
+    public Task ChatSettingsSheetsAreOutsideTheChatViewport() =>
+        RunUiAsync(1112, (shell, view, window) =>
+        {
+            PumpFrame(window);
+            var project = Required<StrataBottomSheet>(view, "ProjectPickerSheet");
+            var model = Required<StrataBottomSheet>(view, "ModelSheet");
+            var details = Required<StrataBottomSheet>(view, "RunSettingsSheet");
+            var overlay = Assert.IsType<Panel>(model.Parent);
+            Assert.Same(project.Parent, overlay.Parent);
+            Assert.Same(overlay, details.Parent);
+            foreach (var sheet in new[] { model, details })
+            {
+                Assert.Same(shell, sheet.DataContext);
+                Assert.DoesNotContain(sheet.GetVisualAncestors(),
+                    ancestor => ancestor is ChatDetailView or StrataNavigationDrawer);
+            }
+            var conversation = Required<Border>(view, "ConversationFrame");
+            var expected = conversation.TranslatePoint(default, view)!.Value;
+            var actual = overlay.TranslatePoint(default, view)!.Value;
+            Assert.Equal(expected.X, actual.X, precision: 1);
+            Assert.Equal(expected.Y, actual.Y, precision: 1);
+            Assert.Equal(conversation.Bounds.Size, overlay.Bounds.Size);
+            return Task.CompletedTask;
+        });
+
+    [Fact]
     public Task ChoiceSheetsShareSelectionIndicatorsAndPreserveTheNewChatDraft() =>
         RunUiAsync(360, async (shell, view, window) =>
         {
@@ -708,8 +734,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             });
             shell.Chat.PromptText = "Keep this unsent thought.";
             shell.OpenProjectPickerCommand.Execute(null);
+            PumpFrame(window);
             await Task.Delay(260);
-            Pump(window);
+            PumpFrame(window);
             Assert.Contains("selected", Required<Button>(view, "AllProjectsButton").Classes);
             var project = Required<ItemsControl>(view, "ProjectPickerList").GetVisualDescendants()
                 .OfType<Button>().Single(button => button.DataContext == shell.Projects[0]);
@@ -718,8 +745,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(shell.IsProjectPickerOpen);
 
             shell.Chat.OpenModelSheetCommand.Execute(null);
+            PumpFrame(window);
             await Task.Delay(260);
-            Pump(window);
+            PumpFrame(window);
             var modelSheet = Required<StrataBottomSheet>(view, "ModelSheet");
             AssertSelection(modelSheet, "gpt-6.1-sol");
             // As in the desktop's picker, the model's context tiers sit beneath it as segments.
@@ -736,8 +764,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(shell.Chat.IsModelSheetOpen);
 
             shell.Chat.OpenContextFromRunSettingsCommand.Execute(null);
+            PumpFrame(window);
             await Task.Delay(260);
-            Pump(window);
+            PumpFrame(window);
             var contextSheet = Required<StrataBottomSheet>(view, "ContextSheet");
             AssertSelection(contextSheet, "Default");
             var context = contextSheet.GetVisualDescendants().OfType<Button>()
@@ -781,8 +810,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal("A long conversation title that deserves room to breathe", sheet.Title);
             shell.Chat.Reset(Guid.NewGuid(), string.Join(' ', Enumerable.Repeat("A remarkably detailed conversation title", 4)));
             shell.Chat.OpenRunSettingsSheetCommand.Execute(null);
+            PumpFrame(window);
             await Task.Delay(260);
-            Pump(window);
+            PumpFrame(window);
             var title = Required<TextBlock>(sheet, "PART_Title");
             var close = Required<Button>(sheet, "PART_CloseButton");
             Assert.True(title.TranslatePoint(new Point(title.Bounds.Width, 0), window)!.Value.X
@@ -838,7 +868,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal("Concise", InteractiveState.Parse(form.StateJson!).Values["pace"]);
             Assert.False(picker.IsOpen);
             Assert.True(picker.IsPresented);
-            await Task.Delay(200);
+            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
             Assert.DoesNotContain(picker, root.Children);
             Assert.False(shell.IsModalSheetPresented);
         });
@@ -880,7 +910,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Assert.True(Required<Button>(picker, name).Bounds.Width >= 48);
             Tap(window, days.Single(day => (string?)day.Content == "14"));
             Assert.Equal("2026-10-14", InteractiveState.Parse(form.StateJson!).Values["date"]);
-            await Task.Delay(200);
+            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
             Assert.DoesNotContain(picker, root.Children);
             Assert.False(shell.IsModalSheetPresented);
         });
@@ -906,9 +936,9 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                     : sheet.GetVisualAncestors().OfType<MobileSettingsView>().Any() ? MobilePage.Settings
                     : MobilePage.Chat;
                 sheet.SetCurrentValue(StrataBottomSheet.IsOpenProperty, true);
-                Pump(window);
+                PumpFrame(window);
                 await Task.Delay(260);
-                Pump(window);
+                PumpFrame(window);
                 // Beside a two-pane chat the plan, sources and activity are a side panel with margins of their own.
                 Assert.Equal(sheet.Name == "ProjectPickerSheet" ? shell.ProjectPickerSheetMargin
                     : sheet.Classes.Contains("side-panel") ? shell.SidePanelSheetMargin
@@ -943,10 +973,18 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Assert.InRange(Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(scrim.Background).Color.A,
                     (byte)0, (byte)0x40);
 
+                // Tap drains the UI and can finish a short exit; observe its start in Closed.
+                var retainedAtClose = false;
+                EventHandler<Avalonia.Interactivity.RoutedEventArgs> onClosed =
+                    (_, _) => retainedAtClose = sheet.IsPresented;
+                sheet.Closed += onClosed;
                 Tap(window, close);
+                sheet.Closed -= onClosed;
                 Assert.False(sheet.IsOpen);
-                Assert.True(sheet.IsPresented);
-                await Task.Delay(180);
+                Assert.True(retainedAtClose);
+                PumpFrame(window);
+                await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
+                PumpFrame(window);
                 Assert.False(sheet.IsPresented);
                 Assert.False(backdrop.IsEffectivelyVisible);
             }
@@ -1048,7 +1086,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.Equal(height, composer.Bounds.Height, precision: 1);
 
             shell.GoBackCommand.Execute(null);
-            await Task.Delay(240);
+            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
             Pump(window);
             Assert.True(editor.IsVisible);
             Assert.False(fallback.IsVisible);
@@ -1076,7 +1114,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             shell.Chat.IsModelSheetOpen = false;
             Assert.True(shell.IsModalSheetPresented);
             Assert.False(editor.IsVisible);
-            await Task.Delay(200);
+            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
             Assert.False(shell.IsModalSheetPresented);
             Assert.True(editor.IsVisible);
 
@@ -1087,7 +1125,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             await Task.Delay(260);
             shell.CloseChatActionsCommand.Execute(null);
             Assert.False(editor.IsVisible);
-            await Task.Delay(200);
+            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
             Assert.True(editor.IsVisible);
 
             shell.Page = MobilePage.Library;
@@ -1580,7 +1618,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             shell.Chat.IsRunSettingsSheetOpen = false;
             Pump(window);
             Assert.False(editor.IsVisible);
-            await Task.Delay(200);
+            await Task.Delay(StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
             Pump(window);
             Assert.True(editor.IsVisible);
             Assert.Same(editor, composer.EditorContent);

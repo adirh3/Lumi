@@ -7,8 +7,10 @@ using Avalonia.Headless;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Mobile.Behaviors;
 using StrataTheme.Animation;
+using StrataTheme.Controls;
 using Xunit;
 
 namespace Lumi.Mobile.Tests;
@@ -75,6 +77,95 @@ public sealed class MobileMotionRenderTests
             }
         }, CancellationToken.None);
         failure?.Throw();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BottomSheetMotionKeepsPaintingWhileTheUiThreadIsOccupied(bool closing)
+    {
+        using var session = HeadlessUnitTestSession.StartNew(
+            typeof(MobileMotionRenderApp), AvaloniaTestIsolationLevel.PerTest);
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch<bool>(async () =>
+        {
+            var sheet = new StrataBottomSheet
+            {
+                Title = "Projects", Classes = { "safe-area" }, SheetMargin = new Thickness(12),
+                Content = new Border { Height = 160, Background = Brushes.White }
+            };
+            var window = new Window
+            {
+                Width = 240, Height = 420, Background = Brushes.Black,
+                Content = sheet
+            };
+            try
+            {
+                window.Show();
+                sheet.ApplyTemplate();
+                // Frost has its own pixel tests; isolate motion from software blur's capture cost.
+                sheet.GetVisualDescendants().OfType<StrataBackdropBlur>().Single().BlurRadius = 0;
+                sheet.IsOpen = true;
+                await PumpAsync(window, StrataBottomSheet.OpenDuration * 2);
+                using var restFrame = window.CaptureRenderedFrame()!;
+                var rest = Measure(restFrame);
+                if (!closing)
+                {
+                    sheet.Close();
+                    await PumpAsync(window, StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
+                }
+
+                var motion = sheet.GetVisualDescendants().OfType<Border>()
+                    .Single(control => control.Name == "PART_SheetMotion");
+                var bounds = motion.Bounds;
+                sheet.IsOpen = !closing;
+                Dispatcher.UIThread.RunJobs();
+                var samples = new List<double>();
+                var elapsed = Stopwatch.StartNew();
+                var duration = closing ? StrataBottomSheet.CloseDuration : StrataBottomSheet.OpenDuration;
+                while (elapsed.Elapsed < duration + TimeSpan.FromMilliseconds(100))
+                {
+                    // Do not pump the UI: loading and streamed updates must not stall sheet motion.
+                    Thread.Sleep(16);
+                    using var frame = window.CaptureRenderedFrame()!;
+                    samples.Add(Measure(frame).Brightness / rest.Brightness);
+                    Assert.Equal(bounds, motion.Bounds);
+                    Assert.Null(motion.Transitions);
+                    Assert.Equal(1, motion.Opacity);
+                    Assert.Equal(0, motion.RenderTransform?.Value.M32 ?? 0);
+                }
+
+                // Capture is synchronous; verify intermediate pixels, not this machine's frame budget.
+                Assert.True(samples.Any(value => value is > 0.02 and < 0.98),
+                    $"The rendered {(closing ? "exit" : "entrance")} must keep moving without UI-thread ticks. " +
+                    $"Visible fractions: {string.Join(", ", samples.Select(value => value.ToString("F2")))}.");
+                Assert.InRange(samples[^1], closing ? 0 : 0.98, closing ? 0.02 : 1.02);
+                await PumpAsync(window, StrataBottomSheet.CloseDuration + TimeSpan.FromMilliseconds(60));
+                Assert.Equal(!closing, sheet.IsPresented);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                window.Close();
+            }
+            return true;
+        }, CancellationToken.None);
+        failure?.Throw();
+    }
+
+    private static async Task PumpAsync(Window window, TimeSpan duration)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (elapsed.Elapsed < duration)
+        {
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+            using var frame = window.CaptureRenderedFrame();
+            await Task.Delay(10);
+        }
     }
 
     private static (double Brightness, double Y) Measure(Bitmap bitmap)

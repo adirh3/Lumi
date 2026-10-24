@@ -609,40 +609,9 @@ public partial class ChatDetailView : UserControl
         }
     }
 
-    /// <summary>
-    /// Scrolls the model sheet to whichever row is currently selected.
-    ///
-    /// <para>Posted rather than run inline: the sheet's rows are realized as it opens, so at the
-    /// moment the flag flips there is nothing laid out to scroll to yet.</para>
-    /// </summary>
-    private void ScrollSelectedModelIntoView() =>
-        Dispatcher.UIThread.Post(
-            () =>
-            {
-                if (this.FindControl<ItemsControl>("ModelSheetList") is not { } list)
-                    return;
-
-                var selected = list.GetVisualDescendants()
-                    .OfType<Button>()
-                    .FirstOrDefault(button => button.DataContext is ModelPickerOption { IsSelected: true }
-                                              && button.Classes.Contains("model-option"));
-
-                if (selected is not null)
-                {
-                    selected.BringIntoView();
-                    selected.Focus();
-                }
-            },
-            DispatcherPriority.Loaded);
-
     private void FocusEffortSlider() =>
         Dispatcher.UIThread.Post(
             () => this.FindControl<Slider>("EffortSlider")?.Focus(),
-            DispatcherPriority.Loaded);
-
-    private void FocusNamedControl(string name) =>
-        Dispatcher.UIThread.Post(
-            () => this.FindControl<Control>(name)?.Focus(),
             DispatcherPriority.Loaded);
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
@@ -683,7 +652,6 @@ public partial class ChatDetailView : UserControl
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
         SynchronizeObservers();
         UpdateNativeComposerVisibility();
-        PlaceModelSettings();
     }
 
     private void Detach()
@@ -783,33 +751,6 @@ public partial class ChatDetailView : UserControl
         {
             UpdateNativeComposerVisibility();
         }
-
-        if (e.PropertyName == nameof(MobileShellViewModel.Layout))
-            PlaceModelSettings();
-    }
-
-    /// <summary>
-    /// Docks the model sheet's effort and context under its list, as the desktop picker's footer is,
-    /// whenever the screen leaves the list room above them. On a phone held sideways they scroll with
-    /// the list instead: docked there, they would leave the list a sliver.
-    /// </summary>
-    private void PlaceModelSettings()
-    {
-        if (this.FindControl<Border>("ModelSheetSettings") is not { } settings
-            || this.FindControl<DockPanel>("ModelSheetLayout") is not { } docked
-            || this.FindControl<StackPanel>("ModelSheetScrollContent") is not { } scrolled)
-            return;
-
-        var target = _shell?.Layout.IsShortHeight == true ? (Panel)scrolled : docked;
-        if (ReferenceEquals(settings.Parent, target))
-            return;
-
-        (settings.Parent as Panel)?.Children.Remove(settings);
-        // A dock panel docks its children in order, so the footer goes ahead of the list that fills it.
-        if (ReferenceEquals(target, docked))
-            docked.Children.Insert(0, settings);
-        else
-            scrolled.Children.Add(settings);
     }
 
     private void SetTranscriptMotionWidth(bool hold)
@@ -1185,26 +1126,10 @@ public partial class ChatDetailView : UserControl
             return;
         }
 
-        // A picker sheet that opens at the top of a long catalog hides the very thing the user came
-        // to check — which model is active. Bring it into view as the sheet opens.
-        if (e.PropertyName == nameof(MobileChatViewModel.IsModelSheetOpen)
-            && _shell?.Chat.IsModelSheetOpen == true)
-        {
-            ScrollSelectedModelIntoView();
-            return;
-        }
-
         if (e.PropertyName == nameof(MobileChatViewModel.IsEffortSheetOpen)
             && _shell?.Chat.IsEffortSheetOpen == true)
         {
             FocusEffortSlider();
-            return;
-        }
-
-        if (e.PropertyName == nameof(MobileChatViewModel.IsRunSettingsSheetOpen)
-            && _shell?.Chat.IsRunSettingsSheetOpen == true)
-        {
-            FocusNamedControl("RunSettingsModelButton");
             return;
         }
 

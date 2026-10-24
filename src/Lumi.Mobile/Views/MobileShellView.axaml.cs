@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Mobile.Layout;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Behaviors;
@@ -61,11 +62,61 @@ public partial class MobileShellView : UserControl
             drawer.PropertyChanged += OnDrawerPropertyChanged;
         if (this.FindControl<TextBox>("RenameChatBox") is { } renameBox)
             renameBox.PropertyChanged += OnRenameBoxPropertyChanged;
-        foreach (var name in new[] { "LibraryHost", "SettingsPage", "SearchPage" })
+        foreach (var name in new[] { "LibraryHost", "SettingsPage", "SearchPage", "ChatSettingsOverlay" })
         {
             if (this.FindControl<Control>(name) is { } page)
                 page.PropertyChanged += OnPageVisibilityChanged;
         }
+        foreach (var name in new[] { "ModelSheet", "RunSettingsSheet" })
+        {
+            if (this.FindControl<StrataBottomSheet>(name) is { } sheet)
+                sheet.PropertyChanged += OnChatSettingsSheetPropertyChanged;
+        }
+    }
+
+    private void OnChatSettingsSheetPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != StrataBottomSheet.IsOpenProperty
+            || sender is not StrataBottomSheet { IsOpen: true } sheet)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!sheet.IsOpen || !sheet.IsEffectivelyVisible)
+                return;
+
+            if (sheet.Name == "ModelSheet")
+            {
+                var selected = sheet.GetVisualDescendants().OfType<Button>()
+                    .FirstOrDefault(button => button.DataContext is ModelPickerOption { IsSelected: true }
+                                              && button.Classes.Contains("model-option"));
+                selected?.BringIntoView();
+                selected?.Focus();
+            }
+            else
+            {
+                this.FindControl<Button>("RunSettingsModelButton")?.Focus();
+            }
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void PlaceModelSettings()
+    {
+        if (this.FindControl<Border>("ModelSheetSettings") is not { } settings
+            || this.FindControl<DockPanel>("ModelSheetLayout") is not { } docked
+            || this.FindControl<StackPanel>("ModelSheetScrollContent") is not { } scrolled)
+            return;
+
+        var target = DataContext is MobileShellViewModel { Layout.IsShortHeight: true }
+            ? (Panel)scrolled : docked;
+        if (ReferenceEquals(settings.Parent, target))
+            return;
+
+        (settings.Parent as Panel)?.Children.Remove(settings);
+        if (ReferenceEquals(target, docked))
+            docked.Children.Insert(0, settings);
+        else
+            scrolled.Children.Add(settings);
     }
 
     private void OnDrawerPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -573,6 +624,7 @@ public partial class MobileShellView : UserControl
         }
         UpdateNavigationLayout();
         UpdateSheetPresentation();
+        PlaceModelSettings();
     }
 
     private MobileShellViewModel? _placeSource;
@@ -587,6 +639,12 @@ public partial class MobileShellView : UserControl
     /// </summary>
     private void OnShellPlaceChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileShellViewModel.Layout))
+        {
+            PlaceModelSettings();
+            return;
+        }
+
         if (e.PropertyName != nameof(MobileShellViewModel.Place)
             || sender is not MobileShellViewModel shell
             || shell.Place == _lastPlace)

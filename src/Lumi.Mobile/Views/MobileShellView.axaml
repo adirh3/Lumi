@@ -121,6 +121,279 @@
       </Grid>
     </sc:StrataNavigationDrawer>
 
+    <!-- Chat settings share the shell overlay rather than the chat viewport's clipping/layout. -->
+    <Panel x:Name="ChatSettingsOverlay"
+           Width="{Binding #ConversationFrame.Bounds.Width}"
+           Height="{Binding UsableContentHeight}"
+           HorizontalAlignment="Right" VerticalAlignment="Top"
+           IsVisible="{Binding IsChatPage}">
+      <!-- The chat is the subject: its title heads the sheet and its project sits beneath it. -->
+      <sc:StrataBottomSheet x:Name="RunSettingsSheet"
+                            Classes="safe-area"
+                            IsOpen="{Binding Chat.IsRunSettingsSheetOpen, Mode=TwoWay}"
+                            Title="{Binding ChatDetailsTitle}"
+                            Description="{Binding Chat.ProjectName}">
+        <Border x:Name="RunSettingsSideInset">
+          <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="0,0,0,8">
+            <Button x:Name="PlanButton" Classes="sheet-item"
+                    IsVisible="{Binding Chat.HasPlan}"
+                    Command="{Binding Chat.OpenPlanFromRunSettingsCommand}">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                <PathIcon Classes="sheet-leading"
+                          Data="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7-.25a.75.75 0 1 1 0 1.5.75.75 0 0 1 0-1.5zM19 19H5V5h14v14zM7 15h7v2H7v-2zm0-4h10v2H7v-2zm0-4h10v2H7V7z" />
+                <TextBlock Grid.Column="1" Text="Plan" VerticalAlignment="Center" />
+                <PathIcon Grid.Column="2" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
+              </Grid>
+            </Button>
+            <Button x:Name="GitChangesButton" Classes="sheet-item"
+                    IsVisible="{Binding Chat.HasChat}"
+                    AutomationProperties.Name="Git changes"
+                    Command="{Binding Chat.OpenGitChangesFromRunSettingsCommand}">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                <PathIcon Classes="sheet-leading"
+                          Data="M7 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm10 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM6 7v9a3 3 0 1 0 2 0v-2h4a6 6 0 0 0 6-6h-2a4 4 0 0 1-4 4H8V7H6zm1 11a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
+                <TextBlock Grid.Column="1" Text="Git changes" VerticalAlignment="Center" />
+                <PathIcon Grid.Column="2" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
+              </Grid>
+            </Button>
+
+            <TextBlock Text="Preferences" Classes="sheet-label" />
+            <Button x:Name="RunSettingsModelButton" Classes="sheet-item"
+                    Command="{Binding Chat.OpenModelFromRunSettingsCommand}">
+              <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
+                <PathIcon Classes="sheet-leading"
+                          Data="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z" />
+                <TextBlock Grid.Column="1" Text="Model" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.ModelDisplayName}" />
+                <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
+              </Grid>
+            </Button>
+
+            <Button x:Name="RunSettingsEffortButton" Classes="sheet-item"
+                    Command="{Binding Chat.OpenEffortFromRunSettingsCommand}"
+                    IsEnabled="{Binding Chat.HasQualityLevels}">
+              <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
+                <PathIcon Classes="sheet-leading"
+                          Data="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
+                <TextBlock Grid.Column="1" Text="Reasoning effort" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.EffortLabel}" />
+                <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
+              </Grid>
+            </Button>
+
+            <Button x:Name="RunSettingsContextButton" Classes="sheet-item"
+                    Command="{Binding Chat.OpenContextFromRunSettingsCommand}"
+                    IsEnabled="{Binding Chat.HasContextWindowTiers}">
+              <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
+                <PathIcon Classes="sheet-leading"
+                          Data="M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v2H8V8zm0 4h8v2H8v-2z" />
+                <TextBlock Grid.Column="1" Text="Context window" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.ContextWindowLabel}" />
+                <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
+              </Grid>
+            </Button>
+
+            <Border x:Name="ContextMeter" Classes="context-meter"
+                    Classes.warn="{Binding Chat.IsContextWarn}"
+                    Classes.critical="{Binding Chat.IsContextCritical}"
+                    IsVisible="{Binding Chat.HasContextUsage}" Margin="16,12,16,0"
+                    Padding="16,14" CornerRadius="18" HorizontalAlignment="Stretch">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <TextBlock Text="Context used" FontWeight="Medium" />
+                  <TextBlock x:Name="ContextText" Grid.Column="1" Text="{Binding Chat.ContextUsageText}"
+                             FontWeight="SemiBold" />
+                </Grid>
+                <ProgressBar Minimum="0" Maximum="100" Value="{Binding Chat.ContextPercent}" Height="4" />
+                <TextBlock Text="{Binding Chat.ContextDetailText}" Classes="muted" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Border x:Name="RunSettingsWorkspace"
+                    Classes="sheet-card"
+                    IsVisible="{Binding Chat.CanChooseWorktree}"
+                    Margin="16,12,16,0">
+              <StackPanel Spacing="12">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="Workspace" FontWeight="SemiBold" />
+                  <TextBlock Text="Choose where the first coding turn runs."
+                             Classes="muted"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                  <Button x:Name="LocalWorkspaceButton"
+                          Grid.Column="0"
+                          Classes="theme-option"
+                          Classes.selected="{Binding Chat.IsLocalWorkspaceSelected}"
+                          Command="{Binding Chat.SelectLocalWorkspaceCommand}"
+                          Content="Local checkout" />
+                  <Button x:Name="WorktreeWorkspaceButton"
+                          Grid.Column="1"
+                          Classes="theme-option"
+                          Classes.selected="{Binding Chat.UseWorktree}"
+                          Command="{Binding Chat.SelectNewWorktreeCommand}"
+                          Content="New worktree" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <!-- The chat's own actions, as on the desktop's header and sidebar menu. -->
+            <StackPanel x:Name="RunSettingsChatActions" IsVisible="{Binding CanManageOpenChat}" Margin="0,8,0,0">
+              <TextBlock Text="Chat" Classes="sheet-label" />
+              <Button x:Name="RunSettingsPinButton" Classes="sheet-item"
+                      IsVisible="{Binding CanPinOpenChat}"
+                      Command="{Binding PinOpenChatCommand}">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                  <PathIcon Classes="sheet-leading"
+                            Data="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2zm-7.17 2L10 12.83V4h4v8.83L15.17 14H8.83z" />
+                  <TextBlock Grid.Column="1" Text="{Binding OpenChatPinLabel}" VerticalAlignment="Center" />
+                </Grid>
+              </Button>
+              <Button x:Name="RunSettingsRenameButton" Classes="sheet-item"
+                      Command="{Binding RenameOpenChatCommand}">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                  <PathIcon Classes="sheet-leading"
+                            Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM5.92 19H5v-.92l9.06-9.06.92.92L5.92 19zM20.71 5.63l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83a1 1 0 0 0 0-1.41z" />
+                  <TextBlock Grid.Column="1" Text="Rename chat" VerticalAlignment="Center" />
+                </Grid>
+              </Button>
+              <Button x:Name="RunSettingsDeleteButton" Classes="sheet-item destructive"
+                      Command="{Binding DeleteOpenChatCommand}">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                  <PathIcon Classes="sheet-leading"
+                            Data="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z" />
+                  <TextBlock Grid.Column="1" Text="Delete chat" VerticalAlignment="Center" />
+                </Grid>
+              </Button>
+            </StackPanel>
+          </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </sc:StrataBottomSheet>
+
+      <!-- The desktop's model picker as a sheet: pinned models first, then each provider or account, each
+           row with its cost, context size and pin; how hard the chosen model thinks and how much it keeps
+           in view stay docked beneath the list, as the picker's footer does. Picking a model closes the
+           sheet; a pin or a segment does not. -->
+      <sc:StrataBottomSheet x:Name="ModelSheet"
+                            Classes="safe-area"
+                            IsOpen="{Binding Chat.IsModelSheetOpen, Mode=TwoWay}"
+                            Title="Model">
+        <Border x:Name="ModelSheetSideInset">
+          <!-- The settings dock under the list while there is height to spare; on a short screen the view
+               moves them into the list's scroll (MobileShellView.PlaceModelSettings). -->
+          <DockPanel x:Name="ModelSheetLayout">
+            <Border x:Name="ModelSheetSettings" Classes="model-settings" DockPanel.Dock="Bottom"
+                    IsVisible="{Binding Chat.HasModelSettings}">
+              <StackPanel>
+                <StackPanel x:Name="ModelSheetEffort" IsVisible="{Binding Chat.HasQualityLevels}">
+                  <TextBlock Text="Reasoning effort" Classes="sheet-label" />
+                  <Border Classes="segment-track">
+                    <ItemsControl ItemsSource="{Binding Chat.QualityOptions}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <UniformGrid Rows="1" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PickerOption">
+                          <Button Classes="segment" Classes.selected="{Binding IsSelected}"
+                                  AutomationProperties.Name="{Binding Label, StringFormat='Reasoning effort: {0}'}"
+                                  Command="{Binding $parent[views:MobileShellView].((vm:MobileShellViewModel)DataContext).Chat.PickQualityCommand}"
+                                  CommandParameter="{Binding Name}">
+                            <TextBlock Text="{Binding Label}" />
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Border>
+                </StackPanel>
+                <StackPanel x:Name="ModelSheetContext" IsVisible="{Binding Chat.HasContextWindowTiers}">
+                  <TextBlock Text="Context window" Classes="sheet-label" />
+                  <Border Classes="segment-track">
+                    <ItemsControl ItemsSource="{Binding Chat.ContextTierOptions}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <UniformGrid Rows="1" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PickerOption">
+                          <Button Classes="segment" Classes.selected="{Binding IsSelected}"
+                                  AutomationProperties.Name="{Binding Label, StringFormat='Context window: {0}'}"
+                                  Command="{Binding $parent[views:MobileShellView].((vm:MobileShellViewModel)DataContext).Chat.PickContextTierCommand}"
+                                  CommandParameter="{Binding Name}">
+                            <TextBlock Text="{Binding Label}" />
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Border>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+            <TextBlock x:Name="ModelPinErrorText" Classes="model-pin-error" DockPanel.Dock="Top"
+                       Text="{Binding Chat.ModelPinError}"
+                       IsVisible="{Binding Chat.ModelPinError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <ScrollViewer x:Name="ModelSheetScroll" Classes="mobile-scroll model-scroll" Padding="0,0,0,4"
+                          HorizontalScrollBarVisibility="Disabled">
+              <StackPanel x:Name="ModelSheetScrollContent">
+              <ItemsControl x:Name="ModelSheetList" ItemsSource="{Binding Chat.ModelGroups}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ModelProviderGroup">
+                    <StackPanel>
+                      <TextBlock Text="{Binding Label}" Classes="sheet-label" />
+                      <ItemsControl ItemsSource="{Binding Options}">
+                        <ItemsControl.ItemTemplate>
+                          <!-- One line per model, as on the desktop: a check for the current model, its name,
+                               then cost and context size in right-aligned columns. The pin sits on the row's
+                               trailing edge, always shown, since a phone has no pointer to reveal it. -->
+                          <DataTemplate x:DataType="vm:ModelPickerOption">
+                            <Panel>
+                              <Button Classes="sheet-item model-option" Classes.selected="{Binding IsSelected}"
+                                      Classes.pinnable="{Binding CanPin}"
+                                      AutomationProperties.Name="{Binding AccessibleName}"
+                                      Command="{Binding $parent[views:MobileShellView].((vm:MobileShellViewModel)DataContext).Chat.PickModelCommand}"
+                                      CommandParameter="{Binding Name}">
+                                <Grid ColumnDefinitions="20,*,Auto,Auto" ColumnSpacing="6">
+                                  <PathIcon Classes="sheet-check" HorizontalAlignment="Left" IsVisible="{Binding IsSelected}"
+                                            Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                                  <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                    <TextBlock Classes="model-name"><Run Text="{Binding Label}" /><Run Text="{Binding PinnedAccount}" FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}" /></TextBlock>
+                                    <TextBlock Classes="model-status" Text="{Binding Status}"
+                                               IsVisible="{Binding HasStatus}" />
+                                  </StackPanel>
+                                  <TextBlock Grid.Column="2" Classes="model-meta emphasis" Text="{Binding Cost}"
+                                             IsVisible="{Binding HasCost}" />
+                                  <TextBlock Grid.Column="3" Classes="model-meta" Text="{Binding ContextSize}"
+                                             IsVisible="{Binding HasContextSize}" />
+                                </Grid>
+                              </Button>
+                              <Button Classes="model-pin" Classes.pinned="{Binding IsPinned}"
+                                      IsVisible="{Binding CanPin}"
+                                      AutomationProperties.Name="{Binding PinActionName}"
+                                      Command="{Binding $parent[views:MobileShellView].((vm:MobileShellViewModel)DataContext).Chat.ToggleModelPinCommand}"
+                                      CommandParameter="{Binding}">
+                                <Viewbox Width="20" Height="20">
+                                  <Path Width="16" Height="16" Stretch="None" Data="{DynamicResource Mobile.Icon.ModelPin}" />
+                                </Viewbox>
+                              </Button>
+                            </Panel>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+      </sc:StrataBottomSheet>
+    </Panel>
+
     <sc:StrataBottomSheet x:Name="ProjectPickerSheet"
                           Classes="safe-area"
                           SheetMargin="{Binding ProjectPickerSheetMargin}"
