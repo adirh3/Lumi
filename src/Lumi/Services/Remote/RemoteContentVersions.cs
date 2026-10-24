@@ -136,6 +136,7 @@ internal static class RemoteContentVersions
         hash.Add(message.Role);
         hash.Add(message.Content?.Length ?? -1);
         hash.Add(message.IsStreaming);
+        hash.Add(message.IsProgress switch { true => 1L, false => 0L, _ => -1L });
         hash.Add(message.ToolStatus);
         hash.Add(message.ToolOutput?.Length ?? -1);
         hash.Add(message.ToolStartedAt?.UtcTicks ?? -1);

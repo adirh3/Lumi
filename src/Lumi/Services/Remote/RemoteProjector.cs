@@ -1282,7 +1282,7 @@ internal static class RemoteProjector
             if (!ProducesCompactTranscriptItem(message))
                 continue;
 
-            if (index < finalAnswerIndex && message.Role == "assistant")
+            if (index < finalAnswerIndex && message.Role == "assistant" && message.IsProgress != false)
                 AddWorkSummary();
             else
                 visibleItems++;
@@ -2073,6 +2073,7 @@ internal static class RemoteProjector
         Author = message.Author,
         Timestamp = message.Timestamp,
         IsStreaming = message.IsStreaming,
+        IsProgress = message.IsProgress,
         Model = message.Model,
         InteractionStates = message.InteractionStates is null ? null : new Dictionary<string, string>(message.InteractionStates),
         InteractionLanguage = Loc.Culture.Name,

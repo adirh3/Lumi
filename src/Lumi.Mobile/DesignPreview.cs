@@ -254,8 +254,8 @@ public static class DesignPreview
 
     /// <summary>
     /// A conversation that shows every kind of item the phone's transcript draws: an attachment, finished
-    /// work folded behind its summary with the files it changed, an answer with sources and the files
-    /// Lumi made, an answered question, and work still under way.
+    /// work folded behind its summary with the files it changed, a multi-part answer, sources and the
+    /// files Lumi made, an answered question, and work still under way.
     /// </summary>
     private static List<RemoteTranscriptTurn> TranscriptTurns(DateTimeOffset now) =>
     [
@@ -286,7 +286,8 @@ public static class DesignPreview
                 new()
                 {
                     Id = "progress-1", Kind = RemoteProtocol.ItemKinds.Assistant, Model = "gpt-6.1-sol", Timestamp = now.AddMinutes(-25),
-                    Text = "Fixed: Android kept the keyboard's last inset while Lumi was in the background. Now checking it."
+                    Text = "Fixed: Android kept the keyboard's last inset while Lumi was in the background. Now checking it.",
+                    IsProgress = true
                 },
                 new()
                 {
@@ -296,6 +297,7 @@ public static class DesignPreview
                 new()
                 {
                     Id = "answer-1", Kind = RemoteProtocol.ItemKinds.Assistant, Author = "Lumi", Model = "gpt-6.1-sol", Timestamp = now.AddMinutes(-24),
+                    IsProgress = false,
                     Text = "**Fixed — stale keyboard insets on resume.**\n\nAndroid kept the keyboard's last height while Lumi was in the background, so the composer came back lifted by a keyboard that was no longer there.\n\n- Clear cached input-pane geometry on deactivate\n- Read fresh IME insets on resume, already in DIPs\n\nAll 699 mobile tests pass.",
                     Sources =
                     [
@@ -325,6 +327,11 @@ public static class DesignPreview
                 new() { Id = "user-2", Kind = RemoteProtocol.ItemKinds.User, Timestamp = now.AddMinutes(-12), Text = "Also check the unfolded screen at large display size." },
                 new()
                 {
+                    Id = "progress-2", Kind = RemoteProtocol.ItemKinds.Assistant,
+                    Text = "Checking the unfolded layout at large display size.", IsProgress = true
+                },
+                new()
+                {
                     Id = "activity-3", Kind = RemoteProtocol.ItemKinds.Activity, ActivityId = "activity-3",
                     Status = "Completed", ActionCount = 3, DurationMs = 21_000, Label = "Activity", Icon = "mixed"
                 },
@@ -339,8 +346,14 @@ public static class DesignPreview
                 },
                 new()
                 {
+                    Id = "answer-2-intro", Kind = RemoteProtocol.ItemKinds.Assistant, IsProgress = false,
+                    Text = "The unfolded screen keeps the composer in place too."
+                },
+                new()
+                {
                     Id = "answer-2", Kind = RemoteProtocol.ItemKinds.Assistant, Author = "Lumi", Model = "claude-opus-5.5", Timestamp = now.AddMinutes(-10),
-                    Text = "The unfolded screen keeps the composer in place too. I'll run the device tests next."
+                    Text = "The layout checks pass at large display size, with no stale keyboard gap.",
+                    IsProgress = false
                 }
             ]
         },

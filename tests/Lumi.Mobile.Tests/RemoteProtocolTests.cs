@@ -146,6 +146,20 @@ public class RemoteProtocolTests
         Assert.False(legacy.IsSessionActive);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AssistantProgressRoleRoundTripsAndRemainsOptionalForOlderDesktops(bool? progress)
+    {
+        var item = new RemoteTranscriptItem { Id = "answer", IsProgress = progress };
+        var json = JsonSerializer.Serialize(item, RemoteJsonContext.Default.RemoteTranscriptItem);
+        var parsed = JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteTranscriptItem)!;
+
+        Assert.Equal(progress, parsed.IsProgress);
+        Assert.Null(JsonSerializer.Deserialize("{}", RemoteJsonContext.Default.RemoteTranscriptItem)!.IsProgress);
+    }
+
     [Fact]
     public void Transcript_SurvivesAnUnknownItemKind()
     {

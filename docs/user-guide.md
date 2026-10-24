@@ -860,7 +860,9 @@ and then how long it took, how many actions it ran and the lines it added and re
 finished work folds behind **Worked for … · N actions**, updates included, as on the desktop: once
 Lumi stops, a turn without an answer (steered, stopped or cut off) folds up to its last update,
 work still running in the background stays in view, and the thinking behind an answer folds with
-the work even when it was recorded after it. A chip opens a sheet with every
+the work even when it was recorded after it. Among assistant messages, only progress updates fold;
+every recorded part of an answer stays visible, even when a turn contains several assistant messages.
+A chip opens a sheet with every
 step, file change and technical detail. An answer ends with its sources as one chip, the files
 it made as file chips, and its model and time beside copy and share, whose glyphs sit a short
 step apart as the desktop's do while each keeps a full touch target. A question Lumi asks is the

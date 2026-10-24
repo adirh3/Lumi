@@ -361,6 +361,67 @@ public sealed class PopulatedTemplateRenderTests
             });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecordedAnswerPartsRenderOutsideCollapsedProgress(bool dark)
+    {
+        await Run(
+            shell =>
+            {
+                shell.IsPaired = true;
+                shell.Chat.Reset(Guid.NewGuid(), "Multipart answer");
+                shell.Chat.ApplyTranscript(new RemoteTranscript
+                {
+                    ChatId = shell.Chat.ChatId,
+                    Revision = 1,
+                    Turns =
+                    [
+                        new()
+                        {
+                            Id = "turn", FinalAnswerId = "answer-2", WorkDurationMs = 3_000,
+                            Items =
+                            [
+                                new() { Id = "user", Kind = "user", Text = "Check both layouts." },
+                                new() { Id = "progress", Kind = "assistant", Text = "Checking the layouts.", IsProgress = true },
+                                new() { Id = "activity", Kind = "activity", Status = "Completed", ActionCount = 2 },
+                                new() { Id = "answer-1", Kind = "assistant", Text = "The phone layout passes.", IsProgress = false },
+                                new() { Id = "answer-2", Kind = "assistant", Text = "The unfolded layout passes too.", IsProgress = false }
+                            ]
+                        }
+                    ]
+                });
+            },
+            shell => new ChatDetailView { DataContext = shell },
+            (window, shell) =>
+            {
+                window.RequestedThemeVariant = dark
+                    ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light;
+                Dispatcher.UIThread.RunJobs();
+                var turn = Assert.Single(shell.Chat.Turns);
+                var work = Assert.Single(turn.DisplayItems.OfType<WorkSummaryItemViewModel>());
+                var summary = Assert.Single(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataTurnSummary>());
+                Assert.False(summary.IsExpanded);
+                Assert.Equal(new[] { "answer-1", "answer-2" }, VisibleAnswers());
+
+                work.ToggleCommand.Execute(null);
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(summary.IsExpanded);
+                Assert.Equal(new[] { "progress", "answer-1", "answer-2" }, VisibleAnswers());
+                Assert.Equal(new[] { "progress", "activity" }, work.Items.Select(item => item.Id));
+
+                work.ToggleCommand.Execute(null);
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(new[] { "answer-1", "answer-2" }, VisibleAnswers());
+
+                string[] VisibleAnswers() => window.GetVisualDescendants()
+                    .OfType<StrataTheme.Controls.StrataMarkdown>()
+                    .Where(control => control.IsEffectivelyVisible && control.DataContext is AssistantItemViewModel)
+                    .Select(control => ((AssistantItemViewModel)control.DataContext!).Id)
+                    .ToArray();
+            });
+    }
+
     /// <summary>
     /// The phone's transcript wears the desktop's: a bubble keeps the width its words need instead of
     /// leaving room for a hover toolbar no phone shows, "You · time" sits over it, the files a turn made

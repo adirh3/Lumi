@@ -1227,14 +1227,15 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         for (var index = 0; index < foldEnd; index++)
         {
             var item = turn.Items[index];
-            // Keep questions, errors, attachments and generated files accessible even when collapsed,
-            // and work still running in the background in view, as the desktop does.
+            // Keep every recorded answer part, questions, errors and files accessible, and work still
+            // running in the background in view, as the desktop does.
             if (item.Kind is RemoteProtocol.ItemKinds.Assistant
                 or RemoteProtocol.ItemKinds.Activity
                 or RemoteProtocol.ItemKinds.Reasoning
                 or RemoteProtocol.ItemKinds.ToolGroup
                 or RemoteProtocol.ItemKinds.Tool
                 or RemoteProtocol.ItemKinds.Terminal
+                && (item.Kind != RemoteProtocol.ItemKinds.Assistant || item.IsProgress != false)
                 && !IsStillWorking(item))
             {
                 _workItemIds.Add(item.Id);

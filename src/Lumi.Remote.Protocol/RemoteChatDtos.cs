@@ -240,6 +240,11 @@ public sealed class RemoteTranscriptItem
     /// <summary>None | Queued | Steering | Steered | Failed for a mid-turn user message.</summary>
     public string? SteerState { get; set; }
     public bool IsStreaming { get; set; }
+    /// <summary>
+    /// The desktop's recorded assistant role: true for progress, false for an answer part. Null for
+    /// older history or hosts, whose progress is inferred from the messages that follow.
+    /// </summary>
+    public bool? IsProgress { get; set; }
     /// <summary>Header label for grouped kinds, or a linked-chat title embedded in an answer.</summary>
     public string? Label { get; set; }
     /// <summary>

@@ -488,18 +488,30 @@ public sealed class RemoteEndToEndTests
                 Assert.Equal(chatId, unchanged.Status?.ChatId);
                 Assert.Equal(1, rig.Client.Stats.Snapshot().TranscriptsUnchanged);
 
-                chat!.Messages.Add(new ChatMessage
+                chat!.Messages[1].IsProgress = false;
+                var reclassified = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
+                    chatId, null, limit, full.TranscriptVersion, CancellationToken.None));
+                Assert.False(reclassified.IsUnchanged);
+                Assert.NotEqual(full.TranscriptVersion, reclassified.TranscriptVersion);
+                Assert.False(Assert.Single(reclassified.Turns.SelectMany(turn => turn.Items),
+                    item => item.Kind == RemoteProtocol.ItemKinds.Assistant).IsProgress);
+
+                chat.Messages.Add(new ChatMessage
                 {
                     Id = Guid.NewGuid(),
                     Role = "assistant",
                     Content = "second answer",
+                    IsProgress = false,
                     Timestamp = DateTime.UtcNow
                 });
                 var edited = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(
-                    chatId, null, limit, full.TranscriptVersion, CancellationToken.None));
+                    chatId, null, limit, reclassified.TranscriptVersion, CancellationToken.None));
                 Assert.False(edited.IsUnchanged);
-                Assert.NotEqual(full.TranscriptVersion, edited.TranscriptVersion);
+                Assert.NotEqual(reclassified.TranscriptVersion, edited.TranscriptVersion);
                 Assert.Contains(edited.Turns.SelectMany(turn => turn.Items), item => item.Text == "second answer");
+                Assert.All(edited.Turns.SelectMany(turn => turn.Items)
+                    .Where(item => item.Kind == RemoteProtocol.ItemKinds.Assistant),
+                    item => Assert.False(item.IsProgress));
 
                 rig.DataStore.Data.Settings.ShowToolCalls = !rig.DataStore.Data.Settings.ShowToolCalls;
                 var resettled = Assert.IsType<RemoteTranscript>(await rig.Client.GetTranscriptAsync(

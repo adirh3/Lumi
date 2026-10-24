@@ -182,15 +182,82 @@ public sealed class RemoteWorkTimelineTests
         Assert.DoesNotContain(displayed.DisplayItems, item => item is WorkSummaryItemViewModel);
     }
 
-    [Fact]
-    public void AnUpdateTheSdkRecordedAsProgressIsNotTheTurnsAnswer()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AnUpdateTheSdkRecordedAsProgressIsNotTheTurnsAnswer(bool fromLiveCapture)
     {
         var messages = Timeline();
         messages[^1].IsProgress = true;
 
-        var turn = Assert.Single(Build(messages).Turns);
+        var turn = Assert.Single(Build(fromLiveCapture
+            ? messages.Select(LumiRemoteServer.CloneMessageForRemote).ToList()
+            : messages).Turns);
         Assert.Null(turn.FinalAnswerId);
         Assert.True(turn.IsSettled);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void RecordedAnswerPartsStayVisibleAndOnlyProgressFolds(bool hasWork, bool fromLiveCapture)
+    {
+        var messages = hasWork ? Timeline() : [Message("user", "Do it", 0)];
+        if (hasWork)
+        {
+            messages[1].IsProgress = true;
+            messages[4].IsProgress = true;
+        }
+        else
+            messages.Add(Message("assistant", "Final answer", 92));
+        messages[^1].IsProgress = false;
+        messages.Add(Message("assistant", "Second answer part", 94));
+        messages[^1].IsProgress = false;
+
+        var transcript = Build(fromLiveCapture
+            ? messages.Select(LumiRemoteServer.CloneMessageForRemote).ToList()
+            : messages);
+        var restored = JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(transcript, RemoteJsonContext.Default.RemoteTranscript),
+            RemoteJsonContext.Default.RemoteTranscript)!;
+        var turn = Assert.Single(restored.Turns);
+        using var displayed = new TranscriptTurnViewModel(turn.Id);
+        displayed.Apply(turn);
+
+        Assert.Equal(new[] { "Final answer", "Second answer part" },
+            displayed.DisplayItems.OfType<AssistantItemViewModel>().Select(item => item.Text));
+        Assert.Equal(hasWork ? 1 : 0, displayed.DisplayItems.OfType<WorkSummaryItemViewModel>().Count());
+        if (hasWork)
+        {
+            var work = Assert.Single(displayed.DisplayItems.OfType<WorkSummaryItemViewModel>());
+            work.ToggleCommand.Execute(null);
+            Assert.Equal(new[] { "Checking first", "Now verifying" },
+                work.Items.OfType<AssistantItemViewModel>().Select(item => item.Text));
+        }
+    }
+
+    [Fact]
+    public void CompactHistoryCountsEveryRecordedAnswerPart()
+    {
+        var messages = new List<ChatMessage>();
+        for (var turn = 0; turn < 2; turn++)
+        {
+            messages.Add(Message("user", $"Question {turn}", turn * 10));
+            for (var part = 0; part < 3; part++)
+            {
+                var answer = Message("assistant", $"Answer {turn}, part {part}", turn * 10 + part + 1);
+                answer.IsProgress = false;
+                messages.Add(answer);
+            }
+        }
+
+        var window = RemoteProjector.SelectCompactTranscriptWindow(messages, null, maxVisibleItems: 6);
+
+        Assert.Equal(4, window.StartMessageIndex);
+        Assert.Equal(messages.Count, window.EndMessageIndex);
+        Assert.True(window.HasEarlierMessages);
     }
 
     [Fact]

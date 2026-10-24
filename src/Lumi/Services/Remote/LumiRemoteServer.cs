@@ -2990,6 +2990,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             InteractionStates = message.InteractionStates is null
                 ? null : new Dictionary<string, string>(message.InteractionStates, StringComparer.Ordinal),
             IsStreaming = message.IsStreaming,
+            IsProgress = message.IsProgress,
             Model = message.Model,
             ReasoningEffort = message.ReasoningEffort,
             ContextWindowTier = message.ContextWindowTier,
