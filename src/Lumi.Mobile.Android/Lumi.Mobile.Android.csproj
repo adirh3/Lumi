@@ -63,6 +63,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lumi.Mobile\Lumi.Mobile.csproj" />
+    <AndroidAsset Include="..\..\LICENSE" Link="Assets\LICENSE.txt" LogicalName="LICENSE.txt" />
   </ItemGroup>
 
 </Project>

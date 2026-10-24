@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Help using Lumi
+    url: https://github.com/adirh3/Lumi/blob/main/README.md#getting-help
+    about: Find setup and usage guides, troubleshooting, and where to ask a question.
+  - name: Private security report
+    url: https://github.com/adirh3/Lumi/blob/main/SECURITY.md
+    about: Report suspected vulnerabilities privately, not through a public issue.
+  - name: Community conduct concern
+    url: https://github.com/adirh3/Lumi/blob/main/CODE_OF_CONDUCT.md#reporting-a-concern
+    about: Contact the maintainer privately about behavior in Lumi's community spaces.

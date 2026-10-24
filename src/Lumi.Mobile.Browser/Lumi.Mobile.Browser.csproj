@@ -23,6 +23,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lumi.Mobile\Lumi.Mobile.csproj" />
+    <Content Include="..\..\LICENSE" Link="wwwroot\LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <Target Name="GeneratePwaAssetManifest" AfterTargets="Publish">

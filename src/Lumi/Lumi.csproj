@@ -44,6 +44,9 @@
     <AvaloniaResource Include="Assets\lumi-icon.png" />
     <EmbeddedResource Include="Assets\EmbeddedApps\*.js" />
     <Content Include="Assets\EmbeddedApps\LICENSES.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <ItemGroup>

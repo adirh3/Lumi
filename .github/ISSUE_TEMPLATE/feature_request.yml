@@ -1,0 +1,39 @@
+name: Feature request
+description: Describe a problem Lumi could help solve.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the outcome you need, not just a particular implementation.
+        Please discuss larger changes here before building them.
+        This is a public conversation: use synthetic examples and omit secrets,
+        confidential prompts and personal data.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe a concrete task or workflow and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Lumi to do?
+      description: Explain the desired outcome and any relevant platform or mobile constraints.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or current workaround (optional)
+      description: Include existing features you tried and why they do not meet the need.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for a similar request.
+          required: true
+        - label: My examples and attachments contain no secrets or personal or confidential content.
+          required: true

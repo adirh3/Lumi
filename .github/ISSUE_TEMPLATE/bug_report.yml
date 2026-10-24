@@ -1,0 +1,97 @@
+name: Bug report
+description: Report a reproducible problem in Lumi.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Lumi. This report and its attachments are public.
+        For suspected vulnerabilities, email [Lumi security](mailto:support@fluentsearch.net)
+        with the subject "[Lumi security]" instead of posting exploit details here.
+        Never attach secrets, confidential prompts, complete logs or a Lumi profile/database.
+  - type: input
+    id: version
+    attributes:
+      label: Lumi version or commit
+      description: Use the version in About, or the commit if you built from source.
+      placeholder: "Release version from About, or main at <commit>"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows desktop
+        - macOS desktop
+        - Linux desktop
+        - Android APK
+        - Mobile web / PWA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS version and architecture
+      description: For mobile, also include the phone/browser and desktop host version.
+      placeholder: "For example: macOS 15, Apple Silicon; or Ubuntu 24.04, x64"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest reproducible example, using non-sensitive sample data.
+      placeholder: |
+        1. Open ...
+        2. Choose ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error text if it is safe to share.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics or screenshots (optional)
+      description: Share only relevant excerpts. Remove keys, tokens, private URLs, personal paths and confidential content. Do not upload data.json, lumi.db or an unrestricted profile/log archive.
+  - type: input
+    id: provider_model
+    attributes:
+      label: AI provider and model (optional)
+      description: For AI-related problems, share public provider/model names only. Omit private deployment names, endpoint URLs, keys and tokens.
+  - type: input
+    id: tools_connectors
+    attributes:
+      label: Relevant tools or connectors (optional)
+      description: Share public tool/connector names if relevant and safe. You can say whether custom skills or agents were involved; do not paste their private prompts, configurations or internal names.
+  - type: dropdown
+    id: approval_mode
+    attributes:
+      label: Approval mode (optional)
+      description: Choose only if your installed version shows these controls. Do not include approval rules or private file paths.
+      options:
+        - Not sure / not shown in my version
+        - Full access
+        - Auto-review
+        - Ask first
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I reviewed the text and attachments and removed secrets and personal or confidential content.
+          required: true
