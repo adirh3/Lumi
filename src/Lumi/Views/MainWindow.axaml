@@ -127,8 +127,10 @@
   </Window.Resources>
 
   <Window.Styles>
+    <!-- Static owner/part gates keep sidebar helpers off the transcript. Keep their class conditions
+         as well: they preserve trigger priority and state changes in both the bar and collapsed rail. -->
     <!-- ── Customize section rows: the Library facet row, with the section's hue on its glyph ── -->
-    <Style Selector="Button.customize-section PathIcon.section-icon">
+    <Style Selector="Border#SidebarBorder Button.customize-section PathIcon.section-icon">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -140,25 +142,25 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.customize-section:pointerover PathIcon.section-icon">
+    <Style Selector="Border#SidebarBorder Button.customize-section:pointerover PathIcon.section-icon">
       <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="Button.customize-section.selected PathIcon.section-icon">
+    <Style Selector="Border#SidebarBorder Button.customize-section.selected PathIcon.section-icon">
       <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="Border.customize-divider">
+    <Style Selector="Border#SidebarBorder Border.customize-divider">
       <Setter Property="Height" Value="1" />
       <Setter Property="Margin" Value="8,8,8,2" />
       <Setter Property="Background" Value="{DynamicResource Brush.BorderSubtle}" />
     </Style>
     <!-- ── Read-only groups in the Skills, Lumis and MCP sidebars ── -->
-    <Style Selector="Button.library-facet.mg-side-row">
+    <Style Selector="Border#SidebarBorder Button.library-facet.mg-side-row">
       <Setter Property="Padding" Value="9,5" />
     </Style>
-    <Style Selector="Button.library-facet.mg-side-row.muted">
+    <Style Selector="Border#SidebarBorder Button.library-facet.mg-side-row.muted">
       <Setter Property="Opacity" Value="0.55" />
     </Style>
-    <Style Selector="PathIcon.mg-side-chevron">
+    <Style Selector="Border#SidebarBorder PathIcon.mg-side-chevron">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="RenderTransform" Value="rotate(0deg)" />
       <Setter Property="Transitions">
@@ -167,7 +169,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="PathIcon.mg-side-chevron.open">
+    <Style Selector="Border#SidebarBorder PathIcon.mg-side-chevron.open">
       <Setter Property="RenderTransform" Value="rotate(90deg)" />
     </Style>
 
@@ -185,32 +187,32 @@
     </Style>
 
     <!-- ── Settings sidebar: facet rows like Customize's, each with its page's hue ── -->
-    <Style Selector="ListBox.settings-nav ListBoxItem">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem">
       <Setter Property="Padding" Value="10,7" />
       <Setter Property="Margin" Value="0,1" />
       <Setter Property="CornerRadius" Value="8" />
     </Style>
-    <Style Selector="ListBox.settings-nav ListBoxItem.group-start">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem.group-start">
       <Setter Property="Margin" Value="0,11,0,1" />
     </Style>
-    <Style Selector="ListBox.settings-nav ListBoxItem /template/ Border#LayoutRoot">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem /template/ Border#LayoutRoot">
       <Setter Property="Transitions">
         <Transitions>
           <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="ListBox.settings-nav ListBoxItem:pointerover /template/ Border#LayoutRoot">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem:pointerover /template/ Border#LayoutRoot">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="RenderTransform" Value="translateX(0)" />
     </Style>
-    <Style Selector="ListBox.settings-nav ListBoxItem:selected /template/ Border#LayoutRoot, ListBox.settings-nav ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem:selected /template/ Border#LayoutRoot, ListBox#SettingsPagesList.settings-nav ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
-    <Style Selector="ListBox.settings-nav ListBoxItem /template/ Border#PART_SelectedPipe">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem /template/ Border#PART_SelectedPipe">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="ListBox.settings-nav PathIcon.settings-nav-icon">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav PathIcon.settings-nav-icon">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -221,25 +223,25 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="ListBox.settings-nav ListBoxItem:pointerover PathIcon.settings-nav-icon, ListBox.settings-nav ListBoxItem:selected PathIcon.settings-nav-icon">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem:pointerover PathIcon.settings-nav-icon, ListBox#SettingsPagesList.settings-nav ListBoxItem:selected PathIcon.settings-nav-icon">
       <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="ListBox.settings-nav TextBlock.settings-nav-label">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav TextBlock.settings-nav-label">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="ListBox.settings-nav ListBoxItem:selected TextBlock.settings-nav-label">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem:selected TextBlock.settings-nav-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <!-- The profile row: who Lumi is talking to, wearing the accent. -->
-    <Style Selector="ListBox.settings-nav ListBoxItem.settings-profile">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav ListBoxItem.settings-profile">
       <Setter Property="Padding" Value="8,7" />
       <Setter Property="Margin" Value="0,0,0,2" />
       <Setter Property="CornerRadius" Value="10" />
     </Style>
-    <Style Selector="ListBox.settings-nav Border.settings-nav-avatar">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav Border.settings-nav-avatar">
       <Setter Property="Width" Value="32" />
       <Setter Property="Height" Value="32" />
       <Setter Property="CornerRadius" Value="16" />
@@ -247,25 +249,25 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Background" Value="{DynamicResource Brush.AccentGradient}" />
     </Style>
-    <Style Selector="ListBox.settings-nav Border.settings-nav-avatar TextBlock">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav Border.settings-nav-avatar TextBlock">
       <Setter Property="FontSize" Value="13.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="ListBox.settings-nav Border.settings-nav-avatar PathIcon">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav Border.settings-nav-avatar PathIcon">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
     </Style>
-    <Style Selector="ListBox.settings-nav TextBlock.settings-nav-name">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav TextBlock.settings-nav-name">
       <Setter Property="FontSize" Value="13.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="ListBox.settings-nav TextBlock.settings-nav-caption">
+    <Style Selector="ListBox#SettingsPagesList.settings-nav TextBlock.settings-nav-caption">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
@@ -275,12 +277,12 @@
          project colours. Project and tag chips keep their solid control surface for readability over
          the sidebar glass. Rows keep the switcher's edges, 14px in from either side, with a hairline
          gap so neighbouring washes never merge. -->
-    <Style Selector="ListBox.chat-list ListBoxItem">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem">
       <Setter Property="Padding" Value="10,7" />
       <Setter Property="Margin" Value="0,1" />
       <Setter Property="CornerRadius" Value="8" />
     </Style>
-    <Style Selector="ListBox.chat-list ListBoxItem /template/ Border#LayoutRoot">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem /template/ Border#LayoutRoot">
       <Setter Property="Transitions">
         <Transitions>
           <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" Easing="CubicEaseOut" />
@@ -288,45 +290,45 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="ListBox.chat-list ListBoxItem:pointerover /template/ Border#LayoutRoot">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem:pointerover /template/ Border#LayoutRoot">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     </Style>
-    <Style Selector="ListBox.chat-list ListBoxItem:pressed /template/ Border#LayoutRoot">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem:pressed /template/ Border#LayoutRoot">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
     </Style>
-    <Style Selector="ListBox.chat-list ListBoxItem:selected /template/ Border#LayoutRoot, ListBox.chat-list ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem:selected /template/ Border#LayoutRoot, Border#SidebarBorder ListBox.chat-list ListBoxItem:selected:pointerover /template/ Border#LayoutRoot">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
     </Style>
-    <Style Selector="ListBox.chat-list ListBoxItem /template/ Border#PART_SelectedPipe">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem /template/ Border#PART_SelectedPipe">
       <Setter Property="Width" Value="3" />
       <Setter Property="Height" Value="16" />
       <Setter Property="CornerRadius" Value="1.5" />
     </Style>
-    <Style Selector="ListBox.chat-list TextBlock.chat-row-title.unread">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list TextBlock.chat-row-title.unread">
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
-    <Style Selector="ListBox.chat-list Border.chat-row-chip">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list Border.chat-row-chip">
       <Setter Property="Background" Value="{DynamicResource Brush.ControlDefault}" />
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
       <Setter Property="Padding" Value="6,1,8,1" />
     </Style>
-    <Style Selector="ListBox.chat-list Border.chat-row-chip TextBlock">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list Border.chat-row-chip TextBlock">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="DockPanel.chat-row-meta.tagged > Border#ProjectBadge">
+    <Style Selector="Border#SidebarBorder DockPanel.chat-row-meta.tagged > Border#ProjectBadge">
       <Setter Property="MaxWidth" Value="150" />
     </Style>
     <!-- The "Pinned" heading already says why these rows lead, so their pin stays quiet. -->
-    <Style Selector="ListBox.chat-list PathIcon.chat-row-pin">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list PathIcon.chat-row-pin">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="ListBox.chat-list ListBoxItem:pointerover PathIcon.chat-row-pin, ListBox.chat-list ListBoxItem:selected PathIcon.chat-row-pin">
+    <Style Selector="Border#SidebarBorder ListBox.chat-list ListBoxItem:pointerover PathIcon.chat-row-pin, Border#SidebarBorder ListBox.chat-list ListBoxItem:selected PathIcon.chat-row-pin">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <!-- Only the pill frosts the chats beneath it; the surrounding sidebar stays clear. -->
-    <Style Selector="Border.nav-pill">
+    <Style Selector="Border#NavPill.nav-pill">
       <Setter Property="CornerRadius" Value="20" />
       <Setter Property="Padding" Value="4" />
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -340,13 +342,13 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Border.nav-pill:pointerover">
+    <Style Selector="Border#NavPill.nav-pill:pointerover">
       <Setter Property="BoxShadow" Value="0 4 16 0 #28000000" />
     </Style>
 
     <!-- ── Search: the sidebar's field for the palette, a quiet row like New Chat below it: no fill or border
          until hovered. Hovering washes it and tips the glass, unless animations are off. ── -->
-    <Style Selector="Button.sidebar-search">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search">
       <Setter Property="Height" Value="32" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="Padding" Value="10,0,5,0" />
@@ -358,7 +360,7 @@
       <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="FontWeight" Value="Normal" />
     </Style>
-    <Style Selector="Button.sidebar-search /template/ Border#PART_Surface">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
       <Setter Property="Transitions">
         <Transitions>
@@ -367,19 +369,19 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.sidebar-search /template/ Border#PART_Aurora">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.sidebar-search:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.sidebar-search:pressed /template/ Border#PART_Surface">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtlePressed}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
       <Setter Property="RenderTransform" Value="scale(0.98)" />
     </Style>
-    <Style Selector="Button.sidebar-search sc|StrataLineIcon.sidebar-search-glyph">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search sc|StrataLineIcon.sidebar-search-glyph">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="StrokeThickness" Value="2" />
@@ -394,19 +396,19 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.sidebar-search:pointerover sc|StrataLineIcon.sidebar-search-glyph">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search:pointerover sc|StrataLineIcon.sidebar-search-glyph">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.sidebar-search:not(.motion-disabled):pointerover sc|StrataLineIcon.sidebar-search-glyph">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search:not(.motion-disabled):pointerover sc|StrataLineIcon.sidebar-search-glyph">
       <Setter Property="RenderTransform" Value="rotate(-14deg)" />
     </Style>
-    <Style Selector="Button.sidebar-search TextBlock.sidebar-search-label">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search TextBlock.sidebar-search-label">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Button.sidebar-search:pointerover TextBlock.sidebar-search-label">
+    <Style Selector="Button#SidebarSearchButton.sidebar-search:pointerover TextBlock.sidebar-search-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <Style Selector="Border.sidebar-search-key">
@@ -427,7 +429,7 @@
          grows out of the icon, so a switch reads as the highlight travelling to the new place.
          The 1px border is always there (transparent until active) so the selection ring never nudges
          the icon; 7 + 1 keeps each place 31px wide, which NavIconButtonWidth relies on. -->
-    <Style Selector="Button.nav-icon">
+    <Style Selector="Border#SidebarBorder Button.nav-icon">
       <Setter Property="Padding" Value="7,0" />
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="MinHeight" Value="0" />
@@ -443,7 +445,7 @@
       <Setter Property="ToolTip.Placement" Value="Top" />
       <Setter Property="ToolTip.VerticalOffset" Value="-10" />
     </Style>
-    <Style Selector="Button.nav-icon /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.nav-icon /template/ Border#PART_Surface">
       <!-- The button template's resting drop shadow drew a faint ring around every transparent place. -->
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
       <Setter Property="Transitions">
@@ -453,26 +455,26 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.nav-icon /template/ Border#PART_Aurora">
+    <Style Selector="Border#SidebarBorder Button.nav-icon /template/ Border#PART_Aurora">
       <Setter Property="Opacity" Value="0" />
     </Style>
-    <Style Selector="Button.nav-icon:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.nav-icon:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.nav-icon.hovered /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.nav-icon.hovered /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     </Style>
-    <Style Selector="Button.nav-icon:pressed /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.nav-icon:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     </Style>
     <!-- The place you're on: accent-tinted glass with a hairline ring, distinct from the neutral
          hover wash. -->
-    <Style Selector="Button.nav-icon.active /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.nav-icon.active /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
     </Style>
-    <Style Selector="Button.nav-icon PathIcon">
+    <Style Selector="Border#SidebarBorder Button.nav-icon PathIcon">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -485,23 +487,23 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.nav-icon:pointerover PathIcon">
+    <Style Selector="Border#SidebarBorder Button.nav-icon:pointerover PathIcon">
       <Setter Property="Opacity" Value="0.95" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.nav-icon.hovered PathIcon">
+    <Style Selector="Border#SidebarBorder Button.nav-icon.hovered PathIcon">
       <Setter Property="Opacity" Value="0.95" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.nav-icon:pressed PathIcon">
+    <Style Selector="Border#SidebarBorder Button.nav-icon:pressed PathIcon">
       <Setter Property="Opacity" Value="0.75" />
     </Style>
-    <Style Selector="Button.nav-icon.active PathIcon">
+    <Style Selector="Border#SidebarBorder Button.nav-icon.active PathIcon">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <!-- Each place's hover motion lives with the rail's at the end of these styles ("Signs of life"). -->
-    <Style Selector="Button.nav-icon TextBlock.nav-label">
+    <Style Selector="Border#SidebarBorder Button.nav-icon TextBlock.nav-label">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
@@ -521,14 +523,14 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.nav-icon.labeled TextBlock.nav-label">
+    <Style Selector="Border#SidebarBorder Button.nav-icon.labeled TextBlock.nav-label">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="Margin" Value="6,0,3,0" />
       <Setter Property="RenderTransform" Value="translateX(0px)" />
     </Style>
 
     <!-- Something is happening behind this place: a job running, an update waiting. -->
-    <Style Selector="Border.nav-live-dot">
+    <Style Selector="Border#SidebarBorder Border.nav-live-dot, #SidebarRail Border.nav-live-dot">
       <Setter Property="Width" Value="7" />
       <Setter Property="Height" Value="7" />
       <Setter Property="CornerRadius" Value="4" />
@@ -551,7 +553,7 @@
          open, the same surface grows over the chat list into the list of places, so the list comes out
          of the switcher instead of appearing under it. Open, it is glass, like the chat header's menus:
          the chats beneath show through its tint, frosted. ── -->
-    <Style Selector="Border.project-switcher-surface">
+    <Style Selector="Border#SidebarBorder Border.project-switcher-surface">
       <Setter Property="CornerRadius" Value="12" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
@@ -565,19 +567,19 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Panel.project-switcher:pointerover:not(.open) Border.project-switcher-surface">
+    <Style Selector="Panel#ProjectSwitcherRoot.project-switcher:pointerover:not(.open) Border.project-switcher-surface">
       <Setter Property="Background" Value="{DynamicResource Brush.ControlHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
     </Style>
     <!-- Open, it lifts off the chat list like a menu. The shadow stays tight enough that the sidebar's
          edges never cut it. -->
-    <Style Selector="Panel.project-switcher.open Border.project-switcher-surface">
+    <Style Selector="Panel#ProjectSwitcherRoot.project-switcher.open Border.project-switcher-surface">
       <Setter Property="Background" Value="{StaticResource ProjectSwitcher.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
       <Setter Property="BoxShadow" Value="0 10 24 -6 #38000000, 0 2 6 0 #1A000000" />
     </Style>
     <!-- At rest there is nothing beneath it to frost; the frost gathers as it opens. -->
-    <Style Selector="sc|StrataBackdropBlur.project-switcher-frost">
+    <Style Selector="Border#SidebarBorder sc|StrataBackdropBlur.project-switcher-frost">
       <Setter Property="BlurRadius" Value="0" />
       <Setter Property="Saturation" Value="1.5" />
       <Setter Property="Transitions">
@@ -586,12 +588,12 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Panel.project-switcher.open sc|StrataBackdropBlur.project-switcher-frost">
+    <Style Selector="Panel#ProjectSwitcherRoot.project-switcher.open sc|StrataBackdropBlur.project-switcher-frost">
       <Setter Property="BlurRadius" Value="28" />
     </Style>
     <!-- The header is the switcher's face: its surface answers the pointer, so the button itself stays
          flat. Its badge, title and chevron line up with the rows' badges, titles and trailing edge. -->
-    <Style Selector="Button.project-switcher-toggle">
+    <Style Selector="Button#ProjectSwitchButton.project-switcher-toggle">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="10,0,11,0" />
@@ -602,58 +604,58 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.project-switcher-toggle /template/ Border#PART_Surface">
+    <Style Selector="Button#ProjectSwitchButton.project-switcher-toggle /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.project-switcher-toggle:pointerover /template/ Border#PART_Surface, Button.project-switcher-toggle:pressed /template/ Border#PART_Surface">
+    <Style Selector="Button#ProjectSwitchButton.project-switcher-toggle:pointerover /template/ Border#PART_Surface, Button#ProjectSwitchButton.project-switcher-toggle:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
       <Setter Property="RenderTransform" Value="scale(1)" />
     </Style>
-    <Style Selector="Button.project-switcher-toggle:pointerover /template/ Border#PART_Aurora">
+    <Style Selector="Button#ProjectSwitchButton.project-switcher-toggle:pointerover /template/ Border#PART_Aurora">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="translateX(0)" />
     </Style>
     <!-- Open, the header closes it, and a tip about opening it would only cover the list. -->
-    <Style Selector="Panel.project-switcher.open Button.project-switcher-toggle">
+    <Style Selector="Panel#ProjectSwitcherRoot.project-switcher.open Button.project-switcher-toggle">
       <Setter Property="ToolTip.ServiceEnabled" Value="False" />
     </Style>
     <!-- Every chat, or one project's initial on its own hue: the same identity the launchpad and the
          chat header give it. -->
-    <Style Selector="Border.project-switcher-badge">
+    <Style Selector="Border#ProjectSwitchBadge.project-switcher-badge">
       <Setter Property="Width" Value="22" />
       <Setter Property="Height" Value="22" />
       <Setter Property="CornerRadius" Value="7" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
     </Style>
-    <Style Selector="Border.project-switcher-badge PathIcon">
+    <Style Selector="Border#ProjectSwitchBadge.project-switcher-badge PathIcon">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Border.project-switcher-badge TextBlock">
+    <Style Selector="Border#ProjectSwitchBadge.project-switcher-badge TextBlock">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="TextBlock.project-switcher-title">
+    <Style Selector="TextBlock#ProjectSwitchTitleText.project-switcher-title">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="TextBlock.project-switcher-meta">
+    <Style Selector="TextBlock#ProjectSwitchMetaText.project-switcher-meta">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <!-- Up and down: it switches between places rather than dropping a menu, so it doesn't turn over. -->
-    <Style Selector="PathIcon.project-switcher-chevron">
+    <Style Selector="Border#SidebarBorder PathIcon.project-switcher-chevron">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -664,15 +666,15 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.project-switcher-toggle:pointerover PathIcon.project-switcher-chevron">
+    <Style Selector="Button#ProjectSwitchButton.project-switcher-toggle:pointerover PathIcon.project-switcher-chevron">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Panel.project-switcher.open PathIcon.project-switcher-chevron">
+    <Style Selector="Panel#ProjectSwitcherRoot.project-switcher.open PathIcon.project-switcher-chevron">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
     <!-- ── Library sidebar facet rows ── -->
-    <Style Selector="Button.library-facet">
+    <Style Selector="Border#SidebarBorder Button.library-facet">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="10,7" />
@@ -682,36 +684,36 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.library-facet:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.library-facet:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.library-facet:pointerover /template/ Border#PART_Aurora">
+    <Style Selector="Border#SidebarBorder Button.library-facet:pointerover /template/ Border#PART_Aurora">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="translateX(0)" />
     </Style>
-    <Style Selector="Button.library-facet.selected /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.library-facet.selected /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
-    <Style Selector="Button.library-facet TextBlock.facet-label">
+    <Style Selector="Border#SidebarBorder Button.library-facet TextBlock.facet-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="FontSize" Value="13" />
     </Style>
-    <Style Selector="Button.library-facet.selected TextBlock.facet-label">
+    <Style Selector="Border#SidebarBorder Button.library-facet.selected TextBlock.facet-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
-    <Style Selector="Button.library-facet TextBlock.facet-count">
+    <Style Selector="Border#SidebarBorder Button.library-facet TextBlock.facet-count">
       <Setter Property="FontSize" Value="10.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.library-facet.selected TextBlock.facet-count">
+    <Style Selector="Border#SidebarBorder Button.library-facet.selected TextBlock.facet-count">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <!-- Kind facets carry their collection hue; the rest fall back to a neutral glyph. -->
-    <Style Selector="Button.library-facet PathIcon.facet-icon">
+    <Style Selector="Border#SidebarBorder Button.library-facet PathIcon.facet-icon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="Opacity" Value="0.9" />
       <Setter Property="Transitions">
@@ -720,16 +722,16 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.library-facet:pointerover PathIcon.facet-icon">
+    <Style Selector="Border#SidebarBorder Button.library-facet:pointerover PathIcon.facet-icon">
       <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="Button.library-facet.empty">
+    <Style Selector="Border#SidebarBorder Button.library-facet.empty">
       <Setter Property="Opacity" Value="0.38" />
     </Style>
-    <Style Selector="Border.library-section-head">
+    <Style Selector="Border#SidebarBorder Border.library-section-head">
       <Setter Property="Margin" Value="20,18,16,6" />
     </Style>
-    <Style Selector="Border.library-section-head TextBlock">
+    <Style Selector="Border#SidebarBorder Border.library-section-head TextBlock">
       <Setter Property="FontSize" Value="10.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="LetterSpacing" Value="0.9" />
@@ -740,53 +742,53 @@
          Neutral rows, like the chat list: only the item glyphs take their page's muted hue, from the
          Hue.*.axaml each sidebar merges. Projects' "All projects" row reuses the Library facet row and
          goes back to the page's overview. -->
-    <Style Selector="Button.mg-side-overview">
+    <Style Selector="Border#SidebarBorder Button.mg-side-overview">
       <Setter Property="Margin" Value="10,8,10,2" />
     </Style>
-    <Style Selector="ListBox.mg-side-list ListBoxItem">
+    <Style Selector="Border#SidebarBorder ListBox.mg-side-list ListBoxItem">
       <Setter Property="Padding" Value="8,6" />
     </Style>
-    <Style Selector="Border.mg-side-tile">
+    <Style Selector="Border#SidebarBorder Border.mg-side-tile">
       <Setter Property="Width" Value="28" />
       <Setter Property="Height" Value="28" />
       <Setter Property="CornerRadius" Value="8" />
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Border.mg-side-tile.round">
+    <Style Selector="Border#SidebarBorder Border.mg-side-tile.round">
       <Setter Property="CornerRadius" Value="14" />
     </Style>
-    <Style Selector="Border.mg-side-tile > TextBlock">
+    <Style Selector="Border#SidebarBorder Border.mg-side-tile > TextBlock">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
     </Style>
-    <Style Selector="Border.mg-side-tile > PathIcon">
+    <Style Selector="Border#SidebarBorder Border.mg-side-tile > PathIcon">
       <Setter Property="Width" Value="13" />
       <Setter Property="Height" Value="13" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
     </Style>
-    <Style Selector="TextBlock.mg-side-subtitle">
+    <Style Selector="Border#SidebarBorder TextBlock.mg-side-subtitle">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="TextWrapping" Value="NoWrap" />
     </Style>
-    <Style Selector="Border.mg-side-count">
+    <Style Selector="Border#ProjectChatCountBadge.mg-side-count">
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
       <Setter Property="Padding" Value="7,1,7,2" />
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Border.mg-side-count > TextBlock">
+    <Style Selector="Border#ProjectChatCountBadge.mg-side-count > TextBlock">
       <Setter Property="FontSize" Value="10.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Button.mg-side-clear">
+    <Style Selector="Border#SidebarBorder Button.mg-side-clear">
       <Setter Property="Padding" Value="4" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -794,19 +796,19 @@
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Margin" Value="4,0,0,0" />
     </Style>
-    <Style Selector="Button.mg-side-clear PathIcon">
+    <Style Selector="Border#SidebarBorder Button.mg-side-clear PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Panel.mg-side-muted">
+    <Style Selector="Border#SidebarBorder Panel.mg-side-muted">
       <Setter Property="Opacity" Value="0.55" />
     </Style>
     <!-- Import and New, beside a section's search. -->
-    <Style Selector="Button.mg-side-action">
+    <Style Selector="Border#SidebarBorder Button.mg-side-action">
       <Setter Property="Padding" Value="7,6" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
     </Style>
-    <Style Selector="Button.mg-side-action PathIcon">
+    <Style Selector="Border#SidebarBorder Button.mg-side-action PathIcon">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
@@ -816,7 +818,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.mg-side-action:pointerover PathIcon">
+    <Style Selector="Border#SidebarBorder Button.mg-side-action:pointerover PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
     <!-- The chevron before "Projects": the page is opened from the chat list's project switcher, so
@@ -850,27 +852,27 @@
 
     <!-- Under the header: the find field, its icon centred on the rows' badges and its text on their
          titles, then the places. -->
-    <Style Selector="Border.project-switcher-find">
+    <Style Selector="Border#SidebarBorder Border.project-switcher-find">
       <Setter Property="Padding" Value="15,9,11,9" />
       <Setter Property="BorderThickness" Value="0,1" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
     </Style>
     <!-- The faded scrollbar overlays the rows' edge instead of reserving a column, so the rows sit evenly
          inside the switcher, and the chat list keeps the switcher's edges whether or not it scrolls. -->
-    <Style Selector="ScrollViewer.project-switcher-scroll /template/ ScrollContentPresenter#PART_ContentPresenter, ScrollViewer.hover-scroll#ChatListScroller /template/ ScrollContentPresenter#PART_ContentPresenter">
+    <Style Selector="Border#SidebarBorder ScrollViewer.project-switcher-scroll /template/ ScrollContentPresenter#PART_ContentPresenter, ScrollViewer.hover-scroll#ChatListScroller /template/ ScrollContentPresenter#PART_ContentPresenter">
       <Setter Property="Grid.ColumnSpan" Value="2" />
     </Style>
     <!-- Every project in the drawer can be set up from it. The open project keeps its gear in view;
          the others show theirs while hovered, so the list stays calm. Until a row is first hovered its
          gear is only an empty slot of the same size, to the left of the count
          (see CreateProjectFilterRow). -->
-    <Style Selector="Border.project-switcher-row-edit, Button.project-switcher-row-edit">
+    <Style Selector="Border#SidebarBorder Border.project-switcher-row-edit, Border#SidebarBorder Button.project-switcher-row-edit">
       <Setter Property="Width" Value="20" />
       <Setter Property="Height" Value="20" />
       <Setter Property="Margin" Value="4,0,0,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.project-switcher-row-edit">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row-edit">
       <Setter Property="Padding" Value="0" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -884,23 +886,23 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.project-switcher-row:pointerover Button.project-switcher-row-edit, Button.project-switcher-row.selected Button.project-switcher-row-edit">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row:pointerover Button.project-switcher-row-edit, Border#SidebarBorder Button.project-switcher-row.selected Button.project-switcher-row-edit">
       <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="Button.project-switcher-row-edit PathIcon">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row-edit PathIcon">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Button.project-switcher-row-edit:pointerover PathIcon">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row-edit:pointerover PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Border.project-switcher-footer">
+    <Style Selector="Border#SidebarBorder Border.project-switcher-footer">
       <Setter Property="BorderThickness" Value="0,1,0,0" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="Padding" Value="5,4,5,5" />
     </Style>
-    <Style Selector="Button.project-switcher-action">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-action">
       <Setter Property="Padding" Value="8,6" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -908,36 +910,36 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.project-switcher-action PathIcon">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-action PathIcon">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.project-switcher-action TextBlock">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-action TextBlock">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="Button.project-switcher-action:pointerover TextBlock">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-action:pointerover TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
 
-    <Style Selector="Border.project-switcher-search">
+    <Style Selector="Border#SidebarBorder Border.project-switcher-search">
       <Setter Property="CornerRadius" Value="9" />
       <Setter Property="Padding" Value="8,5" />
       <Setter Property="Background" Value="{DynamicResource Brush.ControlDefault}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="BorderThickness" Value="1" />
     </Style>
-    <Style Selector="Border.project-switcher-search:focus-within">
+    <Style Selector="Border#SidebarBorder Border.project-switcher-search:focus-within">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
     </Style>
 
-    <Style Selector="TextBox.project-switcher-search-box">
+    <Style Selector="Border#SidebarBorder TextBox.project-switcher-search-box">
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="Padding" Value="0" />
       <Setter Property="BorderThickness" Value="0" />
@@ -945,16 +947,16 @@
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
     </Style>
 
-    <Style Selector="TextBox.project-switcher-search-box /template/ Border">
+    <Style Selector="Border#SidebarBorder TextBox.project-switcher-search-box /template/ Border">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
     </Style>
-    <Style Selector="TextBox.project-switcher-search-box:focus-within /template/ Border#PART_Border">
+    <Style Selector="Border#SidebarBorder TextBox.project-switcher-search-box:focus-within /template/ Border#PART_Border">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="BoxShadow" Value="0 0 0 0 Transparent" />
     </Style>
-    <Style Selector="TextBox.project-switcher-search-box:focus-within /template/ Border#FocusAccentBar">
+    <Style Selector="Border#SidebarBorder TextBox.project-switcher-search-box:focus-within /template/ Border#FocusAccentBar">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="IsVisible" Value="False" />
     </Style>
@@ -1025,7 +1027,7 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
 
-    <Style Selector="Button.project-switcher-row">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row">
       <Setter Property="Padding" Value="0" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -1035,29 +1037,29 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.project-switcher-row:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.project-switcher-row:pointerover /template/ Border#PART_Aurora">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row:pointerover /template/ Border#PART_Aurora">
       <Setter Property="Opacity" Value="0" />
     </Style>
     <!-- The place the chat list shows: Lumi's accent tint, the same as the lit place in the bar. -->
-    <Style Selector="Button.project-switcher-row.selected /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row.selected /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.project-switcher-row TextBlock.project-switcher-row-title">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row TextBlock.project-switcher-row-title">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.project-switcher-row:pointerover TextBlock.project-switcher-row-title, Button.project-switcher-row.selected TextBlock.project-switcher-row-title">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row:pointerover TextBlock.project-switcher-row-title, Border#SidebarBorder Button.project-switcher-row.selected TextBlock.project-switcher-row-title">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.project-switcher-row TextBlock.project-switcher-row-count">
+    <Style Selector="Border#SidebarBorder Button.project-switcher-row TextBlock.project-switcher-row-count">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="Margin" Value="8,0,0,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -1075,7 +1077,7 @@
          Chats stream in several projects at once, so a reply can land in a project the sidebar is
          filtered away from. This pill sits directly above the chat list as the one filter-independent
          "you have new replies" surface, and opens into a card that jumps straight to any of them. -->
-    <Style Selector="Border.unread-panel">
+    <Style Selector="Border#UnreadPanel.unread-panel">
       <Setter Property="Padding" Value="0" />
       <Setter Property="CornerRadius" Value="12" />
       <Setter Property="BorderThickness" Value="1" />
@@ -1083,7 +1085,7 @@
       <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.unread-toggle">
+    <Style Selector="Button#UnreadInboxToggle.unread-toggle">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="Padding" Value="8,4" />
@@ -1094,16 +1096,16 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.unread-toggle:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Button#UnreadInboxToggle.unread-toggle:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="BoxShadow" Value="0 4 14 0 #14000000" />
     </Style>
-    <Style Selector="Button.unread-toggle:pointerover /template/ Border#PART_Aurora">
+    <Style Selector="Button#UnreadInboxToggle.unread-toggle:pointerover /template/ Border#PART_Aurora">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="RenderTransform" Value="translateX(0)" />
     </Style>
-    <Style Selector="Button.unread-toggle PathIcon#UnreadChevron">
+    <Style Selector="Button#UnreadInboxToggle.unread-toggle PathIcon#UnreadChevron">
       <Setter Property="RenderTransform" Value="rotate(0deg)" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1111,11 +1113,11 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.unread-toggle.open PathIcon#UnreadChevron">
+    <Style Selector="Button#UnreadInboxToggle.unread-toggle.open PathIcon#UnreadChevron">
       <Setter Property="RenderTransform" Value="rotate(180deg)" />
     </Style>
     <!-- The dot breathes so a reply arriving while the user is elsewhere draws the eye. -->
-    <Style Selector="Border.unread-dot">
+    <Style Selector="Border#SidebarBorder Border.unread-dot">
       <Setter Property="Width" Value="7" />
       <Setter Property="Height" Value="7" />
       <Setter Property="CornerRadius" Value="4" />
@@ -1127,7 +1129,7 @@
       <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="Border.unread-nav-badge">
+    <Style Selector="Border#SidebarBorder Border.unread-nav-badge, #SidebarRail Border.unread-nav-badge">
       <Setter Property="MinWidth" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="Padding" Value="4,0" />
@@ -1136,14 +1138,14 @@
       <Setter Property="HorizontalAlignment" Value="Right" />
       <Setter Property="VerticalAlignment" Value="Top" />
     </Style>
-    <Style Selector="Border.unread-nav-badge TextBlock">
+    <Style Selector="Border#SidebarBorder Border.unread-nav-badge TextBlock, #SidebarRail Border.unread-nav-badge TextBlock">
       <Setter Property="FontSize" Value="9" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.unread-row">
+    <Style Selector="Border#SidebarBorder Button.unread-row">
       <Setter Property="Padding" Value="7,5" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -1154,12 +1156,12 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.unread-row:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Border#SidebarBorder Button.unread-row:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.unread-mark-all">
+    <Style Selector="Border#SidebarBorder Button.unread-mark-all">
       <Setter Property="Padding" Value="7,4" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -1182,7 +1184,7 @@
       <Setter Property="Opacity" Value="1" />
     </Style>
 
-    <Style Selector="primitives|Thumb.sidebar-resize">
+    <Style Selector="primitives|Thumb#SidebarResizeThumb.sidebar-resize">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Cursor" Value="SizeWestEast" />
       <Setter Property="Focusable" Value="False" />
@@ -1194,13 +1196,13 @@
     </Style>
 
     <!-- ── Sidebar collapse / expand toggle ── -->
-    <Style Selector="Button.sidebar-toggle">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle">
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="Focusable" Value="False" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.sidebar-toggle Panel#SidebarToggleGlyph">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle Panel#SidebarToggleGlyph">
       <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1208,20 +1210,20 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.sidebar-toggle:pointerover Panel#SidebarToggleGlyph">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle:pointerover Panel#SidebarToggleGlyph">
       <Setter Property="RenderTransform" Value="scale(1.08)" />
     </Style>
-    <Style Selector="Button.sidebar-toggle:pressed Panel#SidebarToggleGlyph">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle:pressed Panel#SidebarToggleGlyph">
       <Setter Property="RenderTransform" Value="scale(0.94)" />
     </Style>
-    <Style Selector="Button.sidebar-toggle Border#SidebarToggleFrame">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle Border#SidebarToggleFrame">
       <Setter Property="Transitions">
         <Transitions>
           <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.sidebar-toggle Border#SidebarTogglePanel">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle Border#SidebarTogglePanel">
       <Setter Property="Transitions">
         <Transitions>
           <DoubleTransition Property="Opacity" Duration="0:0:0.24" Easing="CubicEaseOut" />
@@ -1231,19 +1233,19 @@
       </Setter>
     </Style>
     <!-- Collapsed: the little sidebar column inside the glyph empties out -->
-    <Style Selector="Button.sidebar-toggle.collapsed Border#SidebarTogglePanel">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle.collapsed Border#SidebarTogglePanel">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="Width" Value="2" />
     </Style>
-    <Style Selector="Button.sidebar-toggle:pointerover Border#SidebarToggleFrame">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle:pointerover Border#SidebarToggleFrame">
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.sidebar-toggle:pointerover Border#SidebarTogglePanel">
+    <Style Selector="Button#SidebarToggleButton.sidebar-toggle:pointerover Border#SidebarTogglePanel">
       <Setter Property="Background" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
 
     <!-- ── Collapsed icon rail: compact nav shortcuts shown when the sidebar is collapsed ── -->
-    <Style Selector="Button.rail-nav-icon">
+    <Style Selector="#SidebarRail Button.rail-nav-icon">
       <Setter Property="Width" Value="34" />
       <Setter Property="Height" Value="34" />
       <Setter Property="MinWidth" Value="0" />
@@ -1268,7 +1270,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.rail-nav-icon /template/ Border#PART_Surface">
+    <Style Selector="#SidebarRail Button.rail-nav-icon /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1277,7 +1279,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.rail-nav-icon PathIcon">
+    <Style Selector="#SidebarRail Button.rail-nav-icon PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1285,18 +1287,18 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.rail-nav-icon:pointerover">
+    <Style Selector="#SidebarRail Button.rail-nav-icon:pointerover">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
     </Style>
-    <Style Selector="Button.rail-nav-icon:pointerover PathIcon">
+    <Style Selector="#SidebarRail Button.rail-nav-icon:pointerover PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <!-- Same selection as the pill. Set on the surface so a hover can't wash it out. -->
-    <Style Selector="Button.rail-nav-icon.active /template/ Border#PART_Surface">
+    <Style Selector="#SidebarRail Button.rail-nav-icon.active /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentGlowSoft}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGlowStrong}" />
     </Style>
-    <Style Selector="Button.rail-nav-icon.active PathIcon">
+    <Style Selector="#SidebarRail Button.rail-nav-icon.active PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
@@ -1307,7 +1309,7 @@
          The clock and gear end where they began, so a hovered icon still reads at rest. Off when
          animations are off in Settings. Declared last so these transitions replace the colour-only
          ones above. -->
-    <Style Selector="PathIcon.nav-chat">
+    <Style Selector="Border#SidebarBorder PathIcon.nav-chat, #SidebarRail PathIcon.nav-chat">
       <Setter Property="RenderTransformOrigin" Value="15%,95%" />
       <Setter Property="RenderTransform" Value="rotate(0deg) scale(1)" />
       <Setter Property="Transitions">
@@ -1318,7 +1320,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="PathIcon.nav-books">
+    <Style Selector="Border#SidebarBorder PathIcon.nav-books, #SidebarRail PathIcon.nav-books">
       <Setter Property="RenderTransformOrigin" Value="50%,88%" />
       <Setter Property="RenderTransform" Value="rotate(0deg) scale(1)" />
       <Setter Property="Transitions">
@@ -1329,7 +1331,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="PathIcon.nav-clock">
+    <Style Selector="Border#SidebarBorder PathIcon.nav-clock, #SidebarRail PathIcon.nav-clock">
       <Setter Property="RenderTransform" Value="rotate(0deg)" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1339,7 +1341,8 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="PathIcon.nav-knob-left, PathIcon.nav-knob-right">
+    <Style Selector="Border#SidebarBorder PathIcon.nav-knob-left, Border#SidebarBorder PathIcon.nav-knob-right,
+                     #SidebarRail PathIcon.nav-knob-left, #SidebarRail PathIcon.nav-knob-right">
       <Setter Property="RenderTransform" Value="translateX(0px)" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1349,7 +1352,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="PathIcon.nav-gear">
+    <Style Selector="Border#SidebarBorder PathIcon.nav-gear, #SidebarRail PathIcon.nav-gear">
       <Setter Property="RenderTransform" Value="rotate(0deg)" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1360,28 +1363,28 @@
       </Setter>
     </Style>
 
-    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-chat, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-chat, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-chat">
+    <Style Selector="Border#NavPill.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-chat, Border#NavPill.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-chat, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-chat">
       <Setter Property="RenderTransform" Value="rotate(-8deg) scale(1.12)" />
     </Style>
-    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-books, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-books, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-books">
+    <Style Selector="Border#NavPill.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-books, Border#NavPill.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-books, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-books">
       <Setter Property="RenderTransform" Value="rotate(-8deg) scale(1.12)" />
     </Style>
-    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-clock, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-clock, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-clock">
+    <Style Selector="Border#NavPill.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-clock, Border#NavPill.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-clock, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-clock">
       <Setter Property="RenderTransform" Value="rotate(360deg)" />
     </Style>
-    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-left, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-knob-left, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-left">
+    <Style Selector="Border#NavPill.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-left, Border#NavPill.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-knob-left, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-left">
       <Setter Property="RenderTransform" Value="translateX(-3.3px)" />
     </Style>
-    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-right, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-knob-right, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-right">
+    <Style Selector="Border#NavPill.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-right, Border#NavPill.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-knob-right, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-knob-right">
       <Setter Property="RenderTransform" Value="translateX(3.3px)" />
     </Style>
-    <Style Selector="Border.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-gear, Border.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-gear, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-gear">
+    <Style Selector="Border#NavPill.nav-pill:not(.motion-disabled) Button:pointerover PathIcon.nav-gear, Border#NavPill.nav-pill:not(.motion-disabled) Button.hovered PathIcon.nav-gear, StackPanel#SidebarRail:not(.motion-disabled) Button:pointerover PathIcon.nav-gear">
       <Setter Property="RenderTransform" Value="rotate(60deg)" />
     </Style>
 
     <!-- The Customize glyph is three layers (tracks and two knobs). In the bar the dimming goes on
          the group: layers dimmed one by one would show darker where a knob overlaps its track. -->
-    <Style Selector="Button.nav-icon Panel.nav-tune">
+    <Style Selector="Border#SidebarBorder Button.nav-icon Panel.nav-tune">
       <Setter Property="Opacity" Value="0.6" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Transitions">
@@ -1390,13 +1393,13 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.nav-icon:pointerover Panel.nav-tune, Button.nav-icon.hovered Panel.nav-tune">
+    <Style Selector="Border#SidebarBorder Button.nav-icon:pointerover Panel.nav-tune, Border#SidebarBorder Button.nav-icon.hovered Panel.nav-tune">
       <Setter Property="Opacity" Value="0.95" />
     </Style>
-    <Style Selector="Button.nav-icon.active Panel.nav-tune">
+    <Style Selector="Border#SidebarBorder Button.nav-icon.active Panel.nav-tune">
       <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="Panel.nav-tune > PathIcon">
+    <Style Selector="Border#SidebarBorder Panel.nav-tune > PathIcon, #SidebarRail Panel.nav-tune > PathIcon">
       <Setter Property="Opacity" Value="1" />
     </Style>
 

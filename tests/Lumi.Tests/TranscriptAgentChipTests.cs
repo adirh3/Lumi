@@ -39,7 +39,7 @@ public sealed class TranscriptAgentChipTests
                 Status = StrataAiToolCallStatus.Completed,
             };
             var row = new Button { Classes = { "agent-row" }, Content = chip };
-            var window = new Window { Width = 640, Height = 240, Content = new StackPanel { Margin = new Thickness(24), Children = { row } } };
+            var window = new Window { Width = 640, Height = 240, Content = new StackPanel { Name = "Transcript", Margin = new Thickness(24), Children = { row } } };
             // The chat view's own styles (a showing chat view needs its view model).
             var chatView = new ChatView();
             var styles = chatView.Styles.ToList();

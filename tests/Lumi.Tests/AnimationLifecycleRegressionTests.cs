@@ -40,7 +40,7 @@ public sealed class AnimationLifecycleRegressionTests
         new("Views/ChatView.axaml", "Border.suggestion-pill.pill-b", 0.3, 0.6, 0.95, HoldUntil: 0.18, PeakAt: 0.56),
         new("Views/ChatView.axaml", "Border.suggestion-pill.pill-c", 0.3, 0.6, 0.95, HoldUntil: 0.36, PeakAt: 0.74),
         new("Views/ChatView.axaml", "Button.refreshing sc|StrataLineIcon.git-icon", 1, 0.25, 0.9, "Alternate"),
-        new("Views/ChatView.axaml", "Border.single-step-line", 1, 0.35, 1.6, Easing: "SineEaseInOut"),
+        new("Views/ChatView.axaml", "#Transcript Border.single-step-line", 1, 0.35, 1.6, Easing: "SineEaseInOut"),
         new("Views/MainWindow.axaml", "Border#PillBusyDot", 1, 0.3, 1.2, "Alternate"),
         new("Views/MainWindow.axaml", "Border#BusyIndicator", 1, 0.3, 1.2, "Alternate"),
         new("Views/MainWindow.axaml", "Border#ProjectBusyIndicator", 1, 0.3, 1.2, "Alternate"),

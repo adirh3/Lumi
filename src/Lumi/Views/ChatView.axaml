@@ -518,6 +518,9 @@
   </UserControl.Resources>
 
   <UserControl.Styles>
+    <!-- Helper rules belong to their surface, not every candidate control in the chat. Named-part
+         gates retain class priority and respect the derived transcript's base ItemsControl style key.
+         Popup-presenter styles stay reachable outside the main surface's ancestry. -->
     <!-- Show Retry on user messages (theme hides it) -->
     <Style Selector="sc|StrataChatMessage:user /template/ Button#PART_RegenerateButton">
       <Setter Property="IsVisible" Value="True" />
@@ -527,7 +530,7 @@
       <Setter Property="MaxWidth" Value="760" />
       <Setter Property="MaxContentHeight" Value="Infinity" />
     </Style>
-    <Style Selector="sc|StrataThink.activity-group">
+    <Style Selector="sc|StrataThink#ToolGroupCard.activity-group">
       <Setter Property="MaxWidth" Value="560" />
     </Style>
 
@@ -537,36 +540,36 @@
          well. Line icons say what each step is; only live work takes the accent, and failures the
          danger colour. -->
     <!-- The steps at work in a live card: icon, what it is doing, and on what. -->
-    <Style Selector="DockPanel.activity-preview-row">
+    <Style Selector="#Transcript DockPanel.activity-preview-row">
       <Setter Property="Margin" Value="7,0" />
       <Setter Property="MinHeight" Value="30" />
     </Style>
-    <Style Selector="DockPanel.activity-preview-row > sc|StrataLineIcon">
+    <Style Selector="#Transcript DockPanel.activity-preview-row > sc|StrataLineIcon">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="Margin" Value="0,0,8,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="TextBlock.activity-preview-label">
+    <Style Selector="#Transcript TextBlock.activity-preview-label">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="TextBlock.activity-preview-detail">
+    <Style Selector="#Transcript TextBlock.activity-preview-detail">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Margin" Value="0,1,0,0" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="TextBlock.activity-preview-detail.command">
+    <Style Selector="#Transcript TextBlock.activity-preview-detail.command">
       <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
       <Setter Property="FontSize" Value="11.5" />
     </Style>
     <!-- How long each step has been running, in the accent, right-aligned like a row's time. -->
-    <Style Selector="TextBlock.activity-preview-elapsed">
+    <Style Selector="#Transcript TextBlock.activity-preview-elapsed">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="Margin" Value="12,0,2,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -581,26 +584,26 @@
     </Style>
 
     <!-- A lone step outside a card wears the chip's glass instead of a row's. -->
-    <Style Selector="Panel.single-step">
+    <Style Selector="#Transcript Panel.single-step">
       <Setter Property="HorizontalAlignment" Value="Left" />
     </Style>
-    <Style Selector="Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Root, Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Root">
+    <Style Selector="#Transcript Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Root, #Transcript Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Root">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="CornerRadius" Value="16" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Panel.single-step sc|StrataAiToolCall:pointerover /template/ Border#PART_Root, Panel.single-step sc|StrataTerminalPreview:pointerover /template/ Border#PART_Root">
+    <Style Selector="#Transcript Panel.single-step sc|StrataAiToolCall:pointerover /template/ Border#PART_Root, #Transcript Panel.single-step sc|StrataTerminalPreview:pointerover /template/ Border#PART_Root">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
     </Style>
-    <Style Selector="Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Header:pointerover, Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Header:pointerover">
+    <Style Selector="#Transcript Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Header:pointerover, #Transcript Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Header:pointerover">
       <Setter Property="Background" Value="Transparent" />
     </Style>
-    <Style Selector="Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Header, Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Header">
+    <Style Selector="#Transcript Panel.single-step sc|StrataAiToolCall /template/ Border#PART_Header, #Transcript Panel.single-step sc|StrataTerminalPreview /template/ Border#PART_Header">
       <Setter Property="Padding" Value="10,6,12,6" />
     </Style>
-    <Style Selector="Border.single-step-line">
+    <Style Selector="#Transcript Border.single-step-line">
       <Setter Property="Height" Value="1.5" />
       <Setter Property="Margin" Value="12,0" />
       <Setter Property="CornerRadius" Value="1" />
@@ -623,21 +626,21 @@
     </Style>
 
     <!-- Details and console output, recessed into the card. -->
-    <Style Selector="Border.transcript-well">
+    <Style Selector="#Transcript Border.transcript-well">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassWell}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Padding" Value="12,10,12,11" />
     </Style>
-    <Style Selector="Border.transcript-well sc|StrataMarkdown">
+    <Style Selector="#Transcript Border.transcript-well sc|StrataMarkdown">
       <Setter Property="FontSize" Value="12.5" />
     </Style>
     <!-- An open question gets room for its options; once answered it folds to one line. -->
     <Style Selector="sc|StrataQuestionCard:not(:answered)">
       <Setter Property="MinWidth" Value="420" />
     </Style>
-    <Style Selector="TextBlock.console-text">
+    <Style Selector="#Transcript TextBlock.console-text">
       <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="LineHeight" Value="18" />
@@ -645,7 +648,7 @@
     </Style>
 
     <!-- Rows inside a card: a source, a changed file. Flat until hovered. -->
-    <Style Selector="Button.transcript-row">
+    <Style Selector="#Transcript Button.transcript-row">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="CornerRadius" Value="9" />
@@ -655,32 +658,32 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="Cursor" Value="Hand" />
     </Style>
-    <Style Selector="Button.transcript-row /template/ Border#PART_Aurora">
+    <Style Selector="#Transcript Button.transcript-row /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.transcript-row:pointerover /template/ Border#PART_Surface">
+    <Style Selector="#Transcript Button.transcript-row:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
       <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.transcript-row TextBlock.row-title">
+    <Style Selector="#Transcript Button.transcript-row TextBlock.row-title">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="Button.transcript-row:pointerover TextBlock.row-title">
+    <Style Selector="#Transcript Button.transcript-row:pointerover TextBlock.row-title">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.transcript-row TextBlock.row-detail">
+    <Style Selector="#Transcript Button.transcript-row TextBlock.row-detail">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="MaxLines" Value="1" />
     </Style>
-    <Style Selector="Button.transcript-row sc|StrataLineIcon.row-icon">
+    <Style Selector="#Transcript Button.transcript-row sc|StrataLineIcon.row-icon">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="Margin" Value="0,0,9,0" />
@@ -688,20 +691,21 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
     <!-- A source's site initial, like a favicon. -->
-    <Style Selector="Border.source-initial">
+    <Style Selector="#Transcript Border.source-initial">
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
       <Setter Property="CornerRadius" Value="5" />
       <Setter Property="Margin" Value="0,0,9,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Border.source-initial > TextBlock">
+    <Style Selector="#Transcript Border.source-initial > TextBlock">
       <Setter Property="FontSize" Value="9" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Foreground" Value="#FFFFFFFF" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
+    <!-- Shared by transcript diffs, both checkout pills and the detached git-menu template. -->
     <Style Selector="TextBlock.diff-added">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
@@ -714,7 +718,7 @@
     </Style>
 
     <!-- A chip that opens something elsewhere (a plan, a skill, a chat): the step's glass, with a chevron. -->
-    <Style Selector="Button.transcript-chip">
+    <Style Selector="#Transcript Button.transcript-chip">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -728,39 +732,39 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="Cursor" Value="Hand" />
     </Style>
-    <Style Selector="Button.transcript-chip /template/ Border#PART_Surface">
+    <Style Selector="#Transcript Button.transcript-chip /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Button.transcript-chip /template/ Border#PART_Aurora">
+    <Style Selector="#Transcript Button.transcript-chip /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.transcript-chip:pointerover /template/ Border#PART_Surface">
+    <Style Selector="#Transcript Button.transcript-chip:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Button.transcript-chip:pointerover">
+    <Style Selector="#Transcript Button.transcript-chip:pointerover">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
     <!-- Strata styles every TextBlock as body text, so a chip's label takes its size and colour here. -->
-    <Style Selector="Button.transcript-chip TextBlock">
+    <Style Selector="#Transcript Button.transcript-chip TextBlock">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.transcript-chip:pointerover TextBlock">
+    <Style Selector="#Transcript Button.transcript-chip:pointerover TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.transcript-chip:pressed">
+    <Style Selector="#Transcript Button.transcript-chip:pressed">
       <Setter Property="RenderTransform" Value="scale(0.98)" />
     </Style>
-    <Style Selector="Button.transcript-chip sc|StrataLineIcon.chip-icon">
+    <Style Selector="#Transcript Button.transcript-chip sc|StrataLineIcon.chip-icon">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="Margin" Value="0,0,7,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Button.transcript-chip sc|StrataLineIcon.chip-chevron">
+    <Style Selector="#Transcript Button.transcript-chip sc|StrataLineIcon.chip-chevron">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="Margin" Value="6,0,0,0" />
@@ -769,13 +773,13 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="Opacity" Value="0.6" />
     </Style>
-    <Style Selector="Button.transcript-chip:pointerover sc|StrataLineIcon.chip-chevron">
+    <Style Selector="#Transcript Button.transcript-chip:pointerover sc|StrataLineIcon.chip-chevron">
       <Setter Property="Opacity" Value="1" />
     </Style>
 
     <!-- An app a tool opened (an MCP App or a canvas): a file card's glass that opens into the
          Workspace, and wears the accent while the Workspace shows it. -->
-    <Style Selector="Button.transcript-app">
+    <Style Selector="Button#AppCard.transcript-app">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -788,72 +792,72 @@
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="Cursor" Value="Hand" />
     </Style>
-    <Style Selector="Button.transcript-app /template/ Border#PART_Surface">
+    <Style Selector="Button#AppCard.transcript-app /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Button.transcript-app /template/ Border#PART_Aurora">
+    <Style Selector="Button#AppCard.transcript-app /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Button.transcript-app:pointerover /template/ Border#PART_Surface">
+    <Style Selector="Button#AppCard.transcript-app:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Button.transcript-app:pressed">
+    <Style Selector="Button#AppCard.transcript-app:pressed">
       <Setter Property="RenderTransform" Value="scale(0.98)" />
     </Style>
-    <Style Selector="Button.transcript-app Border.app-tile">
+    <Style Selector="Button#AppCard.transcript-app Border.app-tile">
       <Setter Property="Width" Value="34" />
       <Setter Property="Height" Value="34" />
       <Setter Property="CornerRadius" Value="9" />
       <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
     </Style>
-    <Style Selector="Button.transcript-app Border.app-tile > PathIcon">
+    <Style Selector="Button#AppCard.transcript-app Border.app-tile > PathIcon">
       <Setter Property="Width" Value="18" />
       <Setter Property="Height" Value="18" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.transcript-app TextBlock.app-title">
+    <Style Selector="Button#AppCard.transcript-app TextBlock.app-title">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="Button.transcript-app TextBlock.app-subtitle">
+    <Style Selector="Button#AppCard.transcript-app TextBlock.app-subtitle">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="Button.transcript-app TextBlock.app-action">
+    <Style Selector="Button#AppCard.transcript-app TextBlock.app-action">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.transcript-app sc|StrataLineIcon.app-chevron">
+    <Style Selector="Button#AppCard.transcript-app sc|StrataLineIcon.app-chevron">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.transcript-app.showing /template/ Border#PART_Surface">
+    <Style Selector="Button#AppCard.transcript-app.showing /template/ Border#PART_Surface">
       <Setter Property="BorderBrush">
         <SolidColorBrush Color="{DynamicResource Color.AccentDefault}" Opacity="0.55" />
       </Setter>
     </Style>
-    <Style Selector="Button.transcript-app.showing Border.app-tile">
+    <Style Selector="Button#AppCard.transcript-app.showing Border.app-tile">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
-    <Style Selector="Button.transcript-app.showing Border.app-tile > PathIcon">
+    <Style Selector="Button#AppCard.transcript-app.showing Border.app-tile > PathIcon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.transcript-app.showing sc|StrataLineIcon.app-chevron">
+    <Style Selector="Button#AppCard.transcript-app.showing sc|StrataLineIcon.app-chevron">
       <Setter Property="IsVisible" Value="False" />
     </Style>
 
     <!-- An error: the step's glass, the danger colour only on its icon, and a way to try again. -->
-    <Style Selector="Border.transcript-error">
+    <Style Selector="#Transcript Border.transcript-error">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -865,32 +869,32 @@
     </Style>
 
     <!-- Files Lumi made or used: the same glass, without the status stripe. -->
-    <Style Selector="sc|StrataFileAttachment.transcript-file /template/ Border#PART_Root">
+    <Style Selector="#Transcript sc|StrataFileAttachment.transcript-file /template/ Border#PART_Root">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="CornerRadius" Value="12" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="sc|StrataFileAttachment.transcript-file:pointerover /template/ Border#PART_Root">
+    <Style Selector="#Transcript sc|StrataFileAttachment.transcript-file:pointerover /template/ Border#PART_Root">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
     </Style>
-    <Style Selector="sc|StrataFileAttachment.transcript-file /template/ Border#PART_Stratum">
+    <Style Selector="#Transcript sc|StrataFileAttachment.transcript-file /template/ Border#PART_Stratum">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="sc|StrataFileAttachment.transcript-file /template/ Border#PART_IconBox">
+    <Style Selector="#Transcript sc|StrataFileAttachment.transcript-file /template/ Border#PART_IconBox">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
       <Setter Property="CornerRadius" Value="7" />
     </Style>
-    <Style Selector="sc|StrataFileAttachment.transcript-file /template/ Border#PART_FocusRing">
+    <Style Selector="#Transcript sc|StrataFileAttachment.transcript-file /template/ Border#PART_FocusRing">
       <Setter Property="CornerRadius" Value="14" />
     </Style>
     <!-- Attachments and chips sit in a wrap with even gaps, never touching. -->
-    <Style Selector="WrapPanel.transcript-files">
+    <Style Selector="#Transcript WrapPanel.transcript-files">
       <Setter Property="ItemSpacing" Value="8" />
       <Setter Property="LineSpacing" Value="8" />
     </Style>
-    <Style Selector="WrapPanel.transcript-chips">
+    <Style Selector="#Transcript WrapPanel.transcript-chips">
       <Setter Property="ItemSpacing" Value="6" />
       <Setter Property="LineSpacing" Value="6" />
     </Style>
@@ -902,7 +906,7 @@
          hover surface, shadow and aurora line behind the chip, and clip the chip's shadow.)
          Nothing here moves or draws outside the chip: a turn clips to its bounds, and the row is
          often the first thing in its turn. -->
-    <Style Selector="Button.agent-row">
+    <Style Selector="#Transcript Button.agent-row">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="0" />
@@ -930,11 +934,11 @@
         </ControlTemplate>
       </Setter>
     </Style>
-    <Style Selector="Button.agent-row:focus-visible /template/ Border#PART_FocusRing">
+    <Style Selector="#Transcript Button.agent-row:focus-visible /template/ Border#PART_FocusRing">
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <!-- The affordance is quiet until the row is hovered, so a finished run reads as history. -->
-    <Style Selector="sc|StrataLineIcon.agent-row-open">
+    <Style Selector="#Transcript sc|StrataLineIcon.agent-row-open">
       <Setter Property="Width" Value="11" />
       <Setter Property="Height" Value="11" />
       <Setter Property="StrokeThickness" Value="2" />
@@ -946,7 +950,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.agent-row:pointerover sc|StrataLineIcon.agent-row-open">
+    <Style Selector="#Transcript Button.agent-row:pointerover sc|StrataLineIcon.agent-row-open">
       <Setter Property="Opacity" Value="1" />
     </Style>
 
@@ -973,14 +977,14 @@
       <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
       <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
-    <Style Selector="Border.agent-cluster-avatar">
+    <Style Selector="#Transcript Border.agent-cluster-avatar">
       <Setter Property="Width" Value="17" />
       <Setter Property="Height" Value="17" />
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="BorderThickness" Value="1.5" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.Surface1}" />
     </Style>
-    <Style Selector="Border.agent-cluster-avatar > TextBlock">
+    <Style Selector="#Transcript Border.agent-cluster-avatar > TextBlock">
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="FontSize" Value="8.5" />
@@ -994,20 +998,20 @@
          only while history is behind it, and the controls are glass pills anchored to the island's
          edges, so the header never reads as a bar of its own. -->
     <!-- The shell's template sets these locally, so only a class-activated style can replace them. -->
-    <Style Selector="sc|StrataChatShell.glass-header /template/ Border#PART_HeaderChrome">
+    <Style Selector="sc|StrataChatShell#ChatShell.glass-header /template/ Border#PART_HeaderChrome">
       <Setter Property="ClipToBounds" Value="False" />
       <Setter Property="CornerRadius" Value="0" />
     </Style>
-    <Style Selector="sc|StrataChatShell.glass-header /template/ Border#PART_HeaderContainer">
+    <Style Selector="sc|StrataChatShell#ChatShell.glass-header /template/ Border#PART_HeaderContainer">
       <Setter Property="Padding" Value="0" />
     </Style>
     <!-- The header owns the full width so its pills anchor to both edges; a content-sized presenter
          would pull the right-hand pills in beside the title. -->
-    <Style Selector="sc|StrataChatShell.glass-header /template/ ContentPresenter#PART_HeaderPresenter">
+    <Style Selector="sc|StrataChatShell#ChatShell.glass-header /template/ ContentPresenter#PART_HeaderPresenter">
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="DockPanel.Dock" Value="Top" />
     </Style>
-    <Style Selector="sc|StrataChatShell.glass-header:has-header /template/ Border#PART_HeaderSeparator">
+    <Style Selector="sc|StrataChatShell#ChatShell.glass-header:has-header /template/ Border#PART_HeaderSeparator">
       <Setter Property="IsVisible" Value="False" />
     </Style>
 
@@ -1188,7 +1192,7 @@
       <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="TextBlock.header-title-text">
+    <Style Selector="TextBlock#ChatTitleText.header-title-text">
       <Setter Property="FontSize" Value="14" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
@@ -1368,7 +1372,7 @@
 
     <!-- On a new chat's composer the checkout is a split chip in the composer's chip language: 28px, the
          project's tile, then what changed. Each half lights on hover, as in the header's pills. -->
-    <Style Selector="Border.composer-chip.checkout-chip">
+    <Style Selector="Border#ComposerGitChip.composer-chip.checkout-chip">
       <Setter Property="Padding" Value="1" />
     </Style>
     <Style Selector="Button.chip-seg">
@@ -1389,13 +1393,13 @@
     <Style Selector="Button.chip-seg /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Border.composer-chip.checkout-chip Border.chip-tile">
+    <Style Selector="Border#ComposerGitChip.composer-chip.checkout-chip Border.chip-tile">
       <Setter Property="Background" Value="{DynamicResource Brush.ComposerProjectTile}" />
     </Style>
-    <Style Selector="Border.composer-chip.checkout-chip sc|StrataLineIcon.chip-icon">
+    <Style Selector="Border#ComposerGitChip.composer-chip.checkout-chip sc|StrataLineIcon.chip-icon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.ComposerProjectHue}" />
     </Style>
-    <Style Selector="Border.composer-chip.checkout-chip Border.chip-divider">
+    <Style Selector="Border#ComposerGitChip.composer-chip.checkout-chip Border.chip-divider">
       <Setter Property="Width" Value="1" />
       <Setter Property="Height" Value="14" />
       <Setter Property="Margin" Value="1,0" />
@@ -1446,7 +1450,7 @@
       <Setter Property="Margin" Value="0,2,0,6" />
       <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDivider}" />
     </Style>
-    <Style Selector="Button.header-card-icon">
+    <Style Selector="Button#ContextRefreshButton.header-card-icon">
       <Setter Property="Width" Value="28" />
       <Setter Property="Height" Value="28" />
       <Setter Property="MinWidth" Value="0" />
@@ -1467,7 +1471,7 @@
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="FontWeight" Value="Normal" />
     </Style>
-    <Style Selector="Button.header-card-row /template/ Border#PART_Surface, Button.header-card-icon /template/ Border#PART_Surface">
+    <Style Selector="Button.header-card-row /template/ Border#PART_Surface, Button#ContextRefreshButton.header-card-icon /template/ Border#PART_Surface">
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
     <Style Selector="Button.header-card-row:pointerover /template/ Border#PART_Surface">
@@ -1486,7 +1490,7 @@
       <Setter Property="FontSize" Value="13" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.danger TextBlock.header-card-row-title">
+    <Style Selector="Button#StopBackgroundSession.danger TextBlock.header-card-row-title">
       <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
     <Style Selector="TextBlock.header-card-row-detail">
@@ -1535,7 +1539,7 @@
     <!-- Signs of life, as in the bar: hovering a tool moves its icon the way the thing moves. The globe
          tips onto its axis and the screen rises on its stand, both overshooting slightly; the
          Workspace's panels trade places, ending where they began. Off when animations are off. -->
-    <Style Selector="PathIcon.tool-globe">
+    <Style Selector="PathIcon#BrowserToggleIcon.tool-globe">
       <Setter Property="RenderTransform" Value="rotate(0deg) scale(1)" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1554,7 +1558,7 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="PathIcon.tool-panels">
+    <Style Selector="PathIcon#WorkspaceToggleIcon.tool-panels">
       <Setter Property="RenderTransform" Value="rotate(0deg)" />
       <Setter Property="Transitions">
         <Transitions>
@@ -1663,14 +1667,14 @@
     <Style Selector="sc|StrataChatShell.flat-window /template/ Border#PART_HeaderChrome">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Border.job-wake-card">
+    <Style Selector="#Transcript Border.job-wake-card">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="16" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
     </Style>
-    <Style Selector="Border.job-wake-pill">
+    <Style Selector="#Transcript Border.job-wake-pill">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -1762,7 +1766,7 @@
          The transcript runs beneath the composer (ExtendsTranscriptBehindChrome). Like the header, it
          frosts only while history is behind it; at rest its translucent card lets the presence glow
          through without spending GPU on a blur of nothing. -->
-    <Style Selector="sc|StrataChatComposer.glass:not(.frosted) /template/ sc|StrataBackdropBlur#PART_Backdrop">
+    <Style Selector="sc|StrataChatComposer#Composer.glass:not(.frosted) /template/ sc|StrataBackdropBlur#PART_Backdrop">
       <Setter Property="BlurRadius" Value="0" />
     </Style>
     <Style Selector="Panel#ComposerEdgeMaterial">
@@ -1784,7 +1788,7 @@
          Hovering brightens the glass, tints the rim with the accent and nudges the arrow forward. Each chip
          rises in on the render thread (ChatView), which owns the button's own opacity, transform and
          transitions, so the surface and its content carry the transitions here. -->
-    <Style Selector="Button.follow-up-chip">
+    <Style Selector="#ComposerContainer Button.follow-up-chip">
       <Setter Property="Height" Value="32" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -1799,7 +1803,7 @@
       <Setter Property="ToolTip.VerticalOffset" Value="-6" />
       <Setter Property="ToolTip.ShowDelay" Value="350" />
     </Style>
-    <Style Selector="Button.follow-up-chip /template/ Border#PART_Surface">
+    <Style Selector="#ComposerContainer Button.follow-up-chip /template/ Border#PART_Surface">
       <Setter Property="ClipToBounds" Value="False" />
       <Setter Property="BoxShadow" Value="0 4 14 -6 #29000000" />
       <Setter Property="Transitions">
@@ -1811,20 +1815,20 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.follow-up-chip:pointerover /template/ Border#PART_Surface">
+    <Style Selector="#ComposerContainer Button.follow-up-chip:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillHover}" />
       <Setter Property="BorderBrush" Value="{StaticResource FollowUp.RimHover}" />
       <Setter Property="BoxShadow" Value="0 6 18 -6 #3D000000" />
     </Style>
-    <Style Selector="Button.follow-up-chip:pressed /template/ Border#PART_Surface">
+    <Style Selector="#ComposerContainer Button.follow-up-chip:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{StaticResource ChatHeader.PillFillPressed}" />
       <Setter Property="BoxShadow" Value="0 2 8 -4 #29000000" />
       <Setter Property="RenderTransform" Value="scale(0.97)" />
     </Style>
-    <Style Selector="Button.follow-up-chip /template/ Border#PART_Aurora">
+    <Style Selector="#ComposerContainer Button.follow-up-chip /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Path.follow-up-glyph">
+    <Style Selector="#ComposerContainer Path.follow-up-glyph">
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="14" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -1842,11 +1846,11 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.follow-up-chip:pointerover Path.follow-up-glyph">
+    <Style Selector="#ComposerContainer Button.follow-up-chip:pointerover Path.follow-up-glyph">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="RenderTransform" Value="translateX(2px)" />
     </Style>
-    <Style Selector="TextBlock.follow-up-text">
+    <Style Selector="#ComposerContainer TextBlock.follow-up-text">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextWrapping" Value="NoWrap" />
@@ -1858,17 +1862,17 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.follow-up-chip:pointerover TextBlock.follow-up-text">
+    <Style Selector="#ComposerContainer Button.follow-up-chip:pointerover TextBlock.follow-up-text">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
     <!-- Only a trimmed chip offers its full text. A chip that fits has no tip at all rather than a
          disabled one, so the tooltip service looks past it and closes a neighbour's tip. -->
-    <Style Selector="Button.follow-up-chip[(lc|FitRowPanel.IsShrunk)=True]">
+    <Style Selector="#ComposerContainer Button.follow-up-chip[(lc|FitRowPanel.IsShrunk)=True]">
       <Setter Property="ToolTip.Tip" Value="{Binding $self.CommandParameter}" />
     </Style>
 
     <!-- ── Launchpad starter pills ── -->
-    <Style Selector="Button.transcript-suggestion">
+    <Style Selector="Panel#WelcomePanel Button.transcript-suggestion">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
@@ -1888,15 +1892,15 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.transcript-suggestion:pointerover">
+    <Style Selector="Panel#WelcomePanel Button.transcript-suggestion:pointerover">
       <Setter Property="Background" Value="{DynamicResource Brush.ControlHover}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.transcript-suggestion:pressed">
+    <Style Selector="Panel#WelcomePanel Button.transcript-suggestion:pressed">
       <Setter Property="RenderTransform" Value="scale(0.97)" />
     </Style>
-    <Style Selector="Button.transcript-suggestion /template/ Border#PART_Aurora">
+    <Style Selector="Panel#WelcomePanel Button.transcript-suggestion /template/ Border#PART_Aurora">
       <Setter Property="IsVisible" Value="False" />
     </Style>
 
@@ -1941,7 +1945,7 @@
          chat is still pausing, the Strata line runs along its foot instead, as under any work in progress.
          Every label sets its own size and colour: Strata's base TextBlock style would otherwise give it
          body text. -->
-    <Style Selector="Button.composer-pause">
+    <Style Selector="Button#PauseChatButton.composer-pause">
       <Setter Property="Width" Value="34" />
       <Setter Property="Height" Value="34" />
       <Setter Property="Padding" Value="0" />
@@ -1954,7 +1958,7 @@
       <Setter Property="ToolTip.VerticalOffset" Value="-6" />
     </Style>
 
-    <Style Selector="Border.pause-bar">
+    <Style Selector="Border#ChatPauseStatusPanel.pause-bar">
       <Setter Property="Margin" Value="0,0,0,8" />
       <Setter Property="CornerRadius" Value="16" />
       <Setter Property="Background" Value="{StaticResource ChatHeader.PillFill}" />
@@ -1962,13 +1966,13 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="BoxShadow" Value="0 10 26 -12 #4D000000, 0 2 6 -2 #1A000000" />
     </Style>
-    <Style Selector="Border.pause-badge-disc">
+    <Style Selector="#ComposerContainer Border.pause-badge-disc">
       <Setter Property="Width" Value="32" />
       <Setter Property="Height" Value="32" />
       <Setter Property="CornerRadius" Value="16" />
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
-    <Style Selector="Border.pause-badge-rim">
+    <Style Selector="#ComposerContainer Border.pause-badge-rim">
       <Setter Property="Width" Value="32" />
       <Setter Property="Height" Value="32" />
       <Setter Property="CornerRadius" Value="16" />
@@ -1982,33 +1986,33 @@
       <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="Border.pause-bar.motion-disabled Border.pause-badge-rim">
+    <Style Selector="Border#ChatPauseStatusPanel.pause-bar.motion-disabled Border.pause-badge-rim">
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
     </Style>
-    <Style Selector="Border.pause-bar.pending Border.pause-badge-rim">
+    <Style Selector="Border#ChatPauseStatusPanel.pause-bar.pending Border.pause-badge-rim">
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
       <Setter Property="Opacity" Value="0" />
     </Style>
-    <Style Selector="PathIcon.pause-badge-glyph">
+    <Style Selector="#ComposerContainer PathIcon.pause-badge-glyph">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="13" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="TextBlock.pause-bar-title">
+    <Style Selector="TextBlock#ChatPauseStatusTitle.pause-bar-title">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
-    <Style Selector="TextBlock.pause-bar-description">
+    <Style Selector="TextBlock#ChatPauseStatusDescription.pause-bar-description">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="LineHeight" Value="16" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
-    <Style Selector="Button.pause-bar-action">
+    <Style Selector="#ComposerContainer Button.pause-bar-action">
       <Setter Property="Height" Value="30" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
@@ -2016,21 +2020,21 @@
       <Setter Property="CornerRadius" Value="15" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.pause-bar-action TextBlock">
+    <Style Selector="#ComposerContainer Button.pause-bar-action TextBlock">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.pause-bar-cancel TextBlock">
+    <Style Selector="Button#StopPausedChatButton.pause-bar-cancel TextBlock">
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.pause-bar-cancel:pointerover TextBlock">
+    <Style Selector="Button#StopPausedChatButton.pause-bar-cancel:pointerover TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="Button.pause-bar-resume">
+    <Style Selector="Button#ResumeChatButton.pause-bar-resume">
       <Setter Property="Padding" Value="12,0,15,0" />
     </Style>
-    <Style Selector="Button.pause-bar-resume TextBlock">
+    <Style Selector="Button#ResumeChatButton.pause-bar-resume TextBlock">
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <!-- The play mark leans forward on hover, the way Resume moves the chat on. -->
@@ -2045,10 +2049,10 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Border.pause-bar:not(.motion-disabled) Button.pause-bar-resume:pointerover PathIcon.resume-glyph">
+    <Style Selector="Border#ChatPauseStatusPanel.pause-bar:not(.motion-disabled) Button.pause-bar-resume:pointerover PathIcon.resume-glyph">
       <Setter Property="RenderTransform" Value="translateX(2px)" />
     </Style>
-    <Style Selector="Border.pause-bar-line">
+    <Style Selector="Border#ChatPauseProgressLine.pause-bar-line">
       <Setter Property="IsVisible" Value="False" />
       <Setter Property="Height" Value="1.5" />
       <Setter Property="Margin" Value="22,0" />
@@ -2070,10 +2074,10 @@
       <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="Border.pause-bar.pending Border.pause-bar-line">
+    <Style Selector="Border#ChatPauseStatusPanel.pause-bar.pending Border.pause-bar-line">
       <Setter Property="IsVisible" Value="True" />
     </Style>
-    <Style Selector="Border.pause-bar.motion-disabled Border.pause-bar-line">
+    <Style Selector="Border#ChatPauseStatusPanel.pause-bar.motion-disabled Border.pause-bar-line">
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="False" />
     </Style>
 
@@ -2135,7 +2139,7 @@
     </Style>
 
     <!-- ═══ Launchpad: the new-chat surface ═══ -->
-    <Style Selector="TextBlock.launchpad-greeting">
+    <Style Selector="TextBlock#LaunchpadGreeting.launchpad-greeting">
       <Setter Property="FontSize" Value="30" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="LetterSpacing" Value="-0.4" />
@@ -2143,14 +2147,14 @@
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="TextBlock.launchpad-brief">
+    <Style Selector="TextBlock#LaunchpadBrief.launchpad-brief">
       <Setter Property="FontSize" Value="13.5" />
       <Setter Property="TextAlignment" Value="Center" />
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Border.launchpad-live-dot">
+    <Style Selector="Border#LaunchpadLiveDot.launchpad-live-dot">
       <Setter Property="Width" Value="7" />
       <Setter Property="Height" Value="7" />
       <Setter Property="CornerRadius" Value="4" />
@@ -2166,61 +2170,62 @@
     <Style Selector="Panel#WelcomePanel.active Border.launchpad-live-dot, Panel#WelcomePanel.active Border.launchpad-state-ring.live">
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
-    <Style Selector="TextBlock.launchpad-section-label">
+    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-section-label,
+                     StackPanel#LaunchpadSetups TextBlock.launchpad-section-label">
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
     <!-- Starters keep the calm pill of the transcript suggestions; the label brightens on hover -->
-    <Style Selector="Button.launchpad-starter TextBlock">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-starter TextBlock">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.launchpad-starter TextBlock.starter-label">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-starter TextBlock.starter-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="Button.launchpad-starter:pointerover TextBlock.starter-label">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-starter:pointerover TextBlock.starter-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
 
     <!-- The pick-up card: a single glass sheet so chats and automations read as one "what's going on" -->
-    <Style Selector="Border.launchpad-card">
+    <Style Selector="Border#LaunchpadActivity.launchpad-card">
       <Setter Property="Background" Value="{DynamicResource Launchpad.CardFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.SubtleHover}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="16" />
       <Setter Property="Padding" Value="6" />
     </Style>
-    <Style Selector="Border.launchpad-divider">
+    <Style Selector="Panel#WelcomePanel Border.launchpad-divider">
       <Setter Property="Height" Value="1" />
       <Setter Property="Margin" Value="10,4" />
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     </Style>
 
-    <Style Selector="TextBlock.launchpad-row-title">
+    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-row-title">
       <Setter Property="FontSize" Value="13.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="TextBlock.launchpad-row-time">
+    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-row-time">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="TextBlock.launchpad-row-state">
+    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-row-state">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Margin" Value="0,0,7,0" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
-    <Style Selector="TextBlock.launchpad-row-meta">
+    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-row-meta">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="PathIcon.launchpad-row-chevron">
+    <Style Selector="Panel#WelcomePanel PathIcon.launchpad-row-chevron">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
       <Setter Property="Opacity" Value="0" />
@@ -2231,58 +2236,58 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.launchpad-row:pointerover PathIcon.launchpad-row-chevron">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-row:pointerover PathIcon.launchpad-row-chevron">
       <Setter Property="Opacity" Value="1" />
     </Style>
 
     <!-- Row state: a tinted tile carrying an icon (waiting, recent), a dot (new reply) or a ring (working) -->
-    <Style Selector="Border.launchpad-state-tile">
+    <Style Selector="Panel#WelcomePanel Border.launchpad-state-tile">
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     </Style>
-    <Style Selector="PathIcon.launchpad-state-icon">
+    <Style Selector="Panel#WelcomePanel PathIcon.launchpad-state-icon">
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Border.launchpad-state-dot">
+    <Style Selector="Panel#WelcomePanel Border.launchpad-state-dot">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="9" />
       <Setter Property="CornerRadius" Value="5" />
       <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Border.launchpad-state-ring">
+    <Style Selector="Panel#WelcomePanel Border.launchpad-state-ring">
       <Setter Property="Width" Value="12" />
       <Setter Property="Height" Value="12" />
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="BorderThickness" Value="2" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Border.launchpad-state-ring.live">
+    <Style Selector="Panel#WelcomePanel Border.launchpad-state-ring.live">
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
       <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
       <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.35" />
       <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.1" />
       <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
     </Style>
-    <Style Selector="Button.launchpad-row.waiting Border.launchpad-state-tile">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-row.waiting Border.launchpad-state-tile">
       <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
     </Style>
-    <Style Selector="Button.launchpad-row.waiting PathIcon.launchpad-state-icon">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-row.waiting PathIcon.launchpad-state-icon">
       <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
-    <Style Selector="Button.launchpad-row.waiting TextBlock.launchpad-row-state">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-row.waiting TextBlock.launchpad-row-state">
       <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
     </Style>
-    <Style Selector="Button.launchpad-row.reply Border.launchpad-state-tile, Button.launchpad-row.working Border.launchpad-state-tile">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-row.reply Border.launchpad-state-tile, Panel#WelcomePanel Button.launchpad-row.working Border.launchpad-state-tile">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
-    <Style Selector="Button.launchpad-row.reply TextBlock.launchpad-row-state, Button.launchpad-row.working TextBlock.launchpad-row-state">
+    <Style Selector="Panel#WelcomePanel Button.launchpad-row.reply TextBlock.launchpad-row-state, Panel#WelcomePanel Button.launchpad-row.working TextBlock.launchpad-row-state">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
     <!-- The automations footer -->
-    <Style Selector="TextBlock.launchpad-footer-text">
+    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-footer-text">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
@@ -2309,17 +2314,17 @@
       <Setter Property="IsHitTestVisible" Value="True" />
       <Setter Property="Margin" Value="0,0,0,10" />
     </Style>
-    <Style Selector="Border.launchpad-setup-icon">
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-icon">
       <Setter Property="CornerRadius" Value="9" />
       <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
     </Style>
-    <Style Selector="PathIcon.launchpad-setup-glyph">
+    <Style Selector="StackPanel#LaunchpadSetups PathIcon.launchpad-setup-glyph">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
     </Style>
     <!-- Applied: a small accent check settles on the tile's icon -->
-    <Style Selector="Border.launchpad-setup-check">
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-check">
       <Setter Property="Width" Value="15" />
       <Setter Property="Height" Value="15" />
       <Setter Property="CornerRadius" Value="8" />
@@ -2339,38 +2344,40 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.launchpad-setup.active Border.launchpad-setup-check">
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active Border.launchpad-setup-check">
       <Setter Property="Opacity" Value="1" />
       <Setter Property="RenderTransform" Value="scale(1)" />
     </Style>
-    <Style Selector="Border.launchpad-setup-check PathIcon">
+    <Style Selector="StackPanel#LaunchpadSetups Border.launchpad-setup-check PathIcon">
       <Setter Property="Width" Value="7" />
       <Setter Property="Height" Value="7" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
     </Style>
 
     <!-- A project's identity: its initial on a tint of its hue (rows and setups share it) -->
-    <Style Selector="Border.launchpad-badge-tile">
+    <Style Selector="Panel#WelcomePanel Border.launchpad-badge-tile,
+                     StackPanel#LaunchpadSetups Border.launchpad-badge-tile">
       <Setter Property="CornerRadius" Value="9" />
     </Style>
-    <Style Selector="TextBlock.launchpad-badge-initial">
+    <Style Selector="Panel#WelcomePanel TextBlock.launchpad-badge-initial,
+                     StackPanel#LaunchpadSetups TextBlock.launchpad-badge-initial">
       <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="TextBlock.launchpad-setup-title">
+    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setup-title">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
-    <Style Selector="TextBlock.launchpad-setup-meta">
+    <Style Selector="StackPanel#LaunchpadSetups TextBlock.launchpad-setup-meta">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
-    <Style Selector="Button.launchpad-setup.active TextBlock.launchpad-setup-meta">
+    <Style Selector="StackPanel#LaunchpadSetups Button.launchpad-setup.active TextBlock.launchpad-setup-meta">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <!-- The turn currently owning the full composer stays visibly connected to it. -->
@@ -2382,24 +2389,24 @@
 
     <!-- ── Reply to ────────────────────────────────────────────────────
          A sent reply quotes its source inside the user bubble; the composer shows the pending quote. -->
-    <Style Selector="Button.reply-quote">
+    <Style Selector="#Transcript Button.reply-quote">
       <Setter Property="Padding" Value="0" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="CornerRadius" Value="8" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.reply-quote /template/ Border#PART_Surface">
+    <Style Selector="#Transcript Button.reply-quote /template/ Border#PART_Surface">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.reply-quote:pointerover /template/ Border#PART_Surface">
+    <Style Selector="#Transcript Button.reply-quote:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="Transparent" />
     </Style>
-    <Style Selector="Button.reply-quote:pressed /template/ Border#PART_Surface">
+    <Style Selector="#Transcript Button.reply-quote:pressed /template/ Border#PART_Surface">
       <Setter Property="Background" Value="Transparent" />
     </Style>
-    <Style Selector="Button.reply-quote Border.reply-quote-tint">
+    <Style Selector="#Transcript Button.reply-quote Border.reply-quote-tint">
       <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleSelection}" />
       <Setter Property="Opacity" Value="0.38" />
       <Setter Property="Transitions">
@@ -2408,36 +2415,36 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.reply-quote:pointerover Border.reply-quote-tint">
+    <Style Selector="#Transcript Button.reply-quote:pointerover Border.reply-quote-tint">
       <Setter Property="Opacity" Value="0.62" />
     </Style>
-    <Style Selector="Button.reply-quote Border.reply-quote-bar">
+    <Style Selector="#Transcript Button.reply-quote Border.reply-quote-bar">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
-    <Style Selector="Border.composer-reply">
+    <Style Selector="Border#ComposerReplyCard.composer-reply">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="ClipToBounds" Value="True" />
     </Style>
-    <Style Selector="Border.composer-reply-bar">
+    <Style Selector="#ComposerContainer Border.composer-reply-bar">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <Style Selector="Button.composer-reply-body">
+    <Style Selector="#ComposerContainer Button.composer-reply-body">
       <Setter Property="Padding" Value="10,7,8,8" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="CornerRadius" Value="0" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
-    <Style Selector="Button.composer-reply-body /template/ Border#PART_Surface">
+    <Style Selector="#ComposerContainer Button.composer-reply-body /template/ Border#PART_Surface">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
-    <Style Selector="Button.composer-reply-body:pointerover /template/ Border#PART_Surface">
+    <Style Selector="#ComposerContainer Button.composer-reply-body:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
     </Style>
-    <Style Selector="Button.composer-reply-close">
+    <Style Selector="#ComposerContainer Button.composer-reply-close">
       <Setter Property="Width" Value="22" />
       <Setter Property="Height" Value="22" />
       <Setter Property="Padding" Value="0" />
