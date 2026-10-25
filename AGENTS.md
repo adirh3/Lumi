@@ -208,6 +208,10 @@ Lumi has two repo-configured MCP servers in `.vscode/mcp.json`:
 
 For efficient agent validation, use `lumi-mcp` for stateful Lumi actions and structured assertions, then cross-check visible UI and binding health with `avalonia-mcp`.
 
+**Default Debug test model: the latest available GPT Luna.** Debug builds prefer it automatically when choosing a default for a profile without a valid saved model preference. If the test profile already has another preference, pass the latest Luna's model ID to `lumi_create_chat`, or select it in the test chat's model picker before sending. `lumi_launch` does not itself select a model; omitting the chat's `model` inherits the profile's preference. Use another model only when the user requests it or the test specifically requires another model/provider. Release model ranking and explicit model choices are unchanged. This selects the model inside the Debug app, not the coding agent or subagents doing the work.
+
+Use an isolated Debug profile and a fresh test chat for these sends. Do not change the user's normal model preference or send test messages in existing user chats. Synthetic fixtures and harnesses that do not call a model need no model selection.
+
 ### UI Testing with Avalonia MCP
 
 Lumi has an Avalonia MCP server configured in `.vscode/mcp.json`. This gives you live access to the running app — you can see the UI, click buttons, type text, inspect controls, check bindings, and take screenshots. **Use it.**

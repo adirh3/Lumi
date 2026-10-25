@@ -29,6 +29,8 @@ cd src/Lumi && dotnet run
 ```
 Wait for the app to start, then use Avalonia MCP tools to interact with it.
 
+For tests that send real chat messages, use an isolated Debug profile and a fresh test chat with the latest available GPT Luna. Debug builds choose the newest Luna automatically when the profile has no valid saved model preference. If the test profile already has another preference, pass the latest Luna's model ID to `lumi_create_chat`, targeting your Debug instance, or select it in the test chat's model picker before sending. Use another model only when the user requests it or the test specifically requires another model/provider. Do not change the user's normal model preference or send test messages in existing user chats. This is the model inside the Debug app, not your own coding-agent model; synthetic fixtures need no model selection.
+
 ### 3. Test using Avalonia MCP tools
 
 You have access to these MCP tools for live UI testing:
