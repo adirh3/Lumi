@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Resources;
 using System.Text;
 using System.Text.RegularExpressions;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -102,6 +103,57 @@ public sealed class MobileLocalizationTests
                 _ = string.Format(CultureInfo.InvariantCulture, localized, arguments);
             }
         }
+    }
+
+    [Theory]
+    [InlineData("en", "Update and discard", FlowDirection.LeftToRight)]
+    [InlineData("he", "עדכון וויתור על שינויים", FlowDirection.RightToLeft)]
+    public async Task WebAppUpdateConfirmationUsesTheUiLanguageAndKeepsTheDraft(
+        string language, string expectedAction, FlowDirection direction)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var cultures = new CultureScope();
+            var previousHost = MobilePlatformServices.HostEnvironment;
+            MobilePlatformServices.HostEnvironment = new UpdateableWebHost();
+            var store = new MemorySettingsStore();
+            store.Settings.Language = language;
+            await using var shell = new MobileShellViewModel(store: store, post: action => action());
+            shell.IsPaired = true;
+            shell.Chat.PromptText = "Keep this original draft";
+            shell.WebAppUpdateState = WebAppUpdateState.Ready;
+            shell.ApplyWebAppUpdateCommand.Execute(null);
+            var view = new WebAppUpdateBannerView
+            {
+                DataContext = shell, FlowDirection = ChatSessionStrings.UiFlowDirection
+            };
+            var window = new Window { Width = 320, Height = 600, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                var confirm = view.FindControl<Button>("ConfirmWebAppUpdateButton")!;
+                Assert.True(confirm.IsEffectivelyVisible);
+                Assert.True(confirm.IsEffectivelyEnabled);
+                Assert.Equal(expectedAction, Assert.IsType<TextBlock>(confirm.Content).Text);
+                Assert.Equal(direction, confirm.FlowDirection);
+                Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Text == ChatSessionStrings.Get("UpdateDiscardHelp"));
+                Assert.True(confirm.Bounds.Width >= 48 && confirm.Bounds.Height >= 48);
+                Assert.True(confirm.TranslatePoint(new Avalonia.Point(confirm.Bounds.Width, 0), view)!.Value.X
+                            <= view.Bounds.Width);
+                shell.CancelWebAppUpdateCommand.Execute(null);
+                Assert.False(shell.IsWebAppUpdateConfirmationOpen);
+                Assert.Equal("Keep this original draft", shell.Chat.PromptText);
+                Assert.False(shell.CanApplyWebAppUpdate);
+            }
+            finally
+            {
+                window.Close();
+                MobilePlatformServices.HostEnvironment = previousHost;
+            }
+        }, CancellationToken.None);
     }
 
     [Fact]
@@ -255,6 +307,14 @@ public sealed class MobileLocalizationTests
             RequestCount++;
             throw new InvalidOperationException("Malformed addresses must not issue requests.");
         }
+    }
+
+    private sealed class UpdateableWebHost : IMobileHostEnvironment
+    {
+        public bool HasFixedEndpoint => true;
+        public string? FixedBaseUrl => "https://lumi.test";
+        public string FixedEndpointName => "Test PC";
+        public Action? ApplyWebAppUpdate => () => { };
     }
 
     private sealed class CultureScope : IDisposable

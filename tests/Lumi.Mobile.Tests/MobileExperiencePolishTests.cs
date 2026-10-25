@@ -2423,7 +2423,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                     if (!webApp)
                         continue;
                     var apply = Required<Button>(banner, "ApplyWebAppUpdateButton");
-                    Assert.False(apply.IsEffectivelyEnabled);
+                    Assert.True(apply.IsEffectivelyEnabled);
                     Assert.Equal("Keep this draft while updating", shell.Chat.PromptText);
 
                     Assert.Contains(banner.GetVisualDescendants().OfType<TextBlock>(),
@@ -2431,6 +2431,17 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                     Assert.True(apply.Bounds.Width >= 48 && apply.Bounds.Height >= 48);
                     Assert.True(banner.TranslatePoint(
                         new Point(banner.Bounds.Width, 0), view)!.Value.X <= view.Bounds.Width);
+
+                    Tap(window, apply);
+                    Pump(window);
+                    Assert.Equal(0, applies);
+                    Assert.Equal("Keep this draft while updating", shell.Chat.PromptText);
+                    var cancel = Required<Button>(banner, "CancelWebAppUpdateButton");
+                    Assert.True(cancel.IsEffectivelyVisible);
+                    Tap(window, cancel);
+                    Pump(window);
+                    Assert.True(apply.IsEffectivelyVisible);
+                    Assert.Equal("Keep this draft while updating", shell.Chat.PromptText);
 
                     shell.WebAppUpdateState = WebAppUpdateState.Failed;
                     await Task.Delay(80);
@@ -2462,6 +2473,83 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
     }
 
     [Fact]
+    public async Task BrowserManualUpdateRequiresConfirmationAndKeepsWorkIfActivationFails()
+    {
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        var applies = 0;
+        MobilePlatformServices.HostEnvironment = new ReloadableWebHost(null, () => applies++, () => { });
+        try
+        {
+            await RunUiAsync(320, async (shell, view, window) =>
+            {
+                var originalChat = shell.Chat.ChatId;
+                shell.Chat.PromptText = "Keep my other chat's draft";
+                shell.Chat.Reset(Guid.NewGuid(), "Another chat");
+                shell.WebAppUpdateState = WebAppUpdateState.Ready;
+                await Task.Delay(260);
+                Pump(window);
+                var banner = Required<WebAppUpdateBannerView>(view, "ChatUpdateBanner");
+                Tap(window, Required<Button>(banner, "ApplyWebAppUpdateButton"));
+                Assert.True(shell.IsWebAppUpdateConfirmationOpen);
+                Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.Equal(0, applies);
+
+                var confirm = Required<Button>(banner, "ConfirmWebAppUpdateButton");
+                shell.BeginPendingRemoteAction();
+                Assert.False(confirm.IsEffectivelyEnabled);
+                shell.EndPendingRemoteAction();
+                Assert.True(confirm.IsEffectivelyEnabled);
+                shell.Chat.IsUploading = true;
+                Assert.False(confirm.IsEffectivelyEnabled);
+                shell.Chat.IsUploading = false;
+                shell.Chat.IsPickingAttachment = true;
+                Assert.False(confirm.IsEffectivelyEnabled);
+                shell.Chat.IsPickingAttachment = false;
+                Tap(window, confirm);
+                Assert.Equal(1, applies);
+                Assert.True(shell.CanApplyWebAppUpdate);
+                Assert.False(Required<Panel>(view, "Root").IsEffectivelyEnabled);
+
+                shell.BeginPendingRemoteAction();
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.EndPendingRemoteAction();
+                Assert.True(shell.CanApplyWebAppUpdate);
+
+                shell.WebAppUpdateState = WebAppUpdateState.Applying;
+                shell.WebAppUpdateState = WebAppUpdateState.Failed;
+                Assert.True(Required<Panel>(view, "Root").IsEffectivelyEnabled);
+                Assert.False(shell.IsWebAppUpdateRequested);
+                Assert.False(shell.IsWebAppUpdateConfirmationOpen);
+                Assert.False(shell.CanApplyWebAppUpdate);
+                shell.Chat.Reset(originalChat, "Original chat");
+                Assert.Equal("Keep my other chat's draft", shell.Chat.PromptText);
+
+                shell.WebAppUpdateState = WebAppUpdateState.Ready;
+                PumpFrame(window);
+                var retryApply = Required<Button>(banner, "ApplyWebAppUpdateButton");
+                Assert.True(shell.ApplyWebAppUpdateCommand.CanExecute(null));
+                Assert.True(retryApply.IsEffectivelyEnabled);
+                Assert.True(retryApply.IsEffectivelyVisible);
+                Tap(window, retryApply);
+                shell.GoBackCommand.Execute(null);
+                PumpFrame(window);
+                Assert.False(shell.IsWebAppUpdateConfirmationOpen);
+                Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.Equal("Keep my other chat's draft", shell.Chat.PromptText);
+                Assert.Equal(1, applies);
+
+                Tap(window, Required<Button>(banner, "ApplyWebAppUpdateButton"));
+                shell.Page = MobilePage.Settings;
+                Assert.False(shell.IsWebAppUpdateConfirmationOpen);
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.HostEnvironment = previousHost;
+        }
+    }
+
+    [Fact]
     public async Task BrowserUpdateSafetyTracksInactiveDraftsAttachmentsPickersSheetsEditorsAndLifecycle()
     {
         var previousHost = MobilePlatformServices.HostEnvironment;
@@ -2480,6 +2568,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 var original = shell.Chat.ChatId;
                 shell.Chat.PromptText = "Keep my other chat's draft";
                 Assert.False(shell.CanApplyWebAppUpdate);
+                shell.WebAppUpdateState = WebAppUpdateState.Ready;
+                Assert.True(shell.ApplyWebAppUpdateCommand.CanExecute(null));
                 shell.Chat.Reset(Guid.NewGuid(), "Another chat");
                 Assert.False(shell.CanApplyWebAppUpdate);
                 shell.Chat.Reset(original, "Original");
@@ -2492,9 +2582,11 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Assert.True(shell.CanApplyWebAppUpdate);
                 shell.Chat.IsPickingAttachment = true;
                 Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.False(shell.ApplyWebAppUpdateCommand.CanExecute(null));
                 shell.Chat.IsPickingAttachment = false;
                 shell.Chat.IsUploading = true;
                 Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.False(shell.ApplyWebAppUpdateCommand.CanExecute(null));
                 shell.Chat.IsUploading = false;
                 shell.Chat.IsModelSheetOpen = true;
                 Assert.False(shell.CanApplyWebAppUpdate);
@@ -2504,12 +2596,14 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 shell.IsProjectPickerOpen = false;
                 shell.IsChatActionBusy = true;
                 Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.False(shell.ApplyWebAppUpdateCommand.CanExecute(null));
                 shell.IsChatActionBusy = false;
 
                 shell.Library.BeginCreateCommand.Execute(null);
                 Assert.True(shell.Library.IsEditing);
                 Assert.False(shell.CanApplyWebAppUpdate);
                 shell.Library.EditName = "Unsaved project";
+                Assert.True(shell.ApplyWebAppUpdateCommand.CanExecute(null));
                 shell.Library.CancelEditCommand.Execute(null);
                 Assert.False(shell.CanApplyWebAppUpdate);
                 shell.Library.DiscardChangesCommand.Execute(null);
@@ -2524,6 +2618,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Assert.True(shell.CanApplyWebAppUpdate, "Desktop work continues independently of the phone runtime.");
                 await shell.NotifyApplicationDeactivatedAsync();
                 Assert.False(shell.CanApplyWebAppUpdate);
+                Assert.False(shell.ApplyWebAppUpdateCommand.CanExecute(null));
                 await shell.NotifyApplicationActivatedAsync();
                 Assert.True(shell.CanApplyWebAppUpdate);
                 Assert.True(safetySignals >= 12);

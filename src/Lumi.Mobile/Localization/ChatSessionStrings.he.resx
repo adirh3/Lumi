@@ -249,7 +249,9 @@
   <data name="UpdateApplying" xml:space="preserve"><value>מחיל עדכון</value></data>
   <data name="UpdateFailed" xml:space="preserve"><value>העדכון לא הושלם</value></data>
   <data name="UpdateDownloadingHelp" xml:space="preserve"><value>אפשר להמשיך להשתמש ב־Lumi בזמן שהאפליקציה המאומתת יורדת.</value></data>
-  <data name="UpdateReadyHelp" xml:space="preserve"><value>יש להמתין לסיום הורדות ופעולות, לסיים או לנקות טיוטות ותשובות לשאלות, ואז לסגור עורכים. Lumi יתעדכן אוטומטית כשאפשר יהיה לעשות זאת בבטחה.</value></data>
+  <data name="UpdateReadyHelp" xml:space="preserve"><value>Lumi יתעדכן אוטומטית כשהעבודה שלך תהיה בטוחה. אפשר גם לבחור בעדכון עכשיו לאחר שההורדות והפעולות יסתיימו.</value></data>
+  <data name="UpdateDiscardHelp" xml:space="preserve"><value>העדכון יפתח מחדש את Lumi. טיוטות שלא נשלחו, תשובות לשאלות ושינויים שלא נשמרו בכל הדפים יאבדו. הצימוד והשיחות השמורות יישמרו.</value></data>
+  <data name="UpdateAndDiscard" xml:space="preserve"><value>עדכון וויתור על שינויים</value></data>
   <data name="UpdateApplyingHelp" xml:space="preserve"><value>פותח מחדש את Lumi בגרסה החדשה. הצימוד נשמר.</value></data>
   <data name="UpdateFailedHelp" xml:space="preserve"><value>האפליקציה הנוכחית והצימוד נשמרים. אפשר לנסות שוב כשהחיבור זמין.</value></data>
   <data name="Unknown" xml:space="preserve"><value>לא ידוע</value></data>

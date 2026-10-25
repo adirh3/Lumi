@@ -341,7 +341,7 @@ public sealed class NativeTextInputOverlay
                 || e.Property == TextBox.AcceptsReturnProperty
                 || e.Property == TextBox.MaxLengthProperty
                 || e.Property == TextBox.IsReadOnlyProperty
-                || e.Property == InputElement.IsEnabledProperty
+                || e.Property == InputElement.IsEffectivelyEnabledProperty
                 || e.Property == Visual.IsVisibleProperty)
             {
                 UpdateSession();
@@ -383,7 +383,7 @@ public sealed class NativeTextInputOverlay
                     TextInputOptions.GetIsSensitive(_textBox),
                     TextInputOptions.GetAutoCapitalization(_textBox),
                     TextInputOptions.GetShowSuggestions(_textBox) ?? true,
-                    _textBox.IsEnabled && !_textBox.IsReadOnly,
+                    _textBox.IsEffectivelyEnabled && !_textBox.IsReadOnly,
                     _textBox.FontFamily.Name,
                     _textBox.FontSize,
                     (int)_textBox.FontWeight,

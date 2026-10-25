@@ -21,6 +21,20 @@
                 HorizontalAlignment="Left"
                 IsVisible="{Binding ShowApplyWebAppUpdateAction}"
                 Command="{Binding ApplyWebAppUpdateCommand}" />
+        <StackPanel IsVisible="{Binding IsWebAppUpdateConfirmationOpen}" Spacing="10">
+          <TextBlock Text="{loc:Str UpdateDiscardHelp}" TextWrapping="Wrap"
+                     FontSize="{DynamicResource Font.SizeCaption}" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+            <Button x:Name="ConfirmWebAppUpdateButton" Classes="touch destructive"
+                    Command="{Binding ConfirmWebAppUpdateCommand}">
+              <TextBlock Text="{loc:Str UpdateAndDiscard}" TextWrapping="Wrap" TextAlignment="Center" />
+            </Button>
+            <Button x:Name="CancelWebAppUpdateButton" Grid.Column="1" Classes="touch"
+                    Command="{Binding CancelWebAppUpdateCommand}">
+              <TextBlock Text="{loc:Str KeepEditing}" TextWrapping="Wrap" TextAlignment="Center" />
+            </Button>
+          </Grid>
+        </StackPanel>
         <Button x:Name="CheckWebAppUpdateButton" Content="{loc:Str TryAgain}" Classes="touch"
                 HorizontalAlignment="Left"
                 IsVisible="{Binding ShowCheckWebAppUpdateAction}"

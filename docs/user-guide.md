@@ -1231,7 +1231,12 @@ ready** banner keeps the current app usable and defers activation/reopening unti
 drafts (including other chats and question replies), attachments, uploads,
 produced-file downloads and opens, pending sends/configuration or remote actions,
 and open editors or sheets are safe. Update failures offer **Try again** without
-clearing the working app or pairing. Restarting the desktop with unchanged PWA
+clearing the working app or pairing. **Update now** also works while unsent work
+is keeping the automatic update on hold: Lumi asks before discarding drafts,
+question replies and unsaved edits across the app. **Keep editing** cancels
+without changing that work. Manual updates still wait for active sends, uploads,
+downloads and remote actions; saved chats and pairing are kept.
+Restarting the desktop with unchanged PWA
 assets only reconnects; it does not reinstall the bundle or reload the app.
 Other open app windows keep their runtime and drafts until they can safely
 reopen too. The refresh URL is a recovery fallback, not the normal update flow.

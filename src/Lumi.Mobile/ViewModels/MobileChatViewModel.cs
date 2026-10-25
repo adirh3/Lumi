@@ -310,14 +310,17 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public bool HasAttachments => Attachments.Count > 0;
 
-    internal bool HasUnsentWork =>
-        PromptText.Length > 0
-        || HasAttachments
-        || IsUploading
+    internal bool HasPendingOperation =>
+        IsUploading
         || IsPickingAttachment
         || _uploadsInFlight > 0
         || SendCommand.IsRunning
-        || StopAndSendCommand.IsRunning
+        || StopAndSendCommand.IsRunning;
+
+    internal bool HasUnsentWork =>
+        PromptText.Length > 0
+        || HasAttachments
+        || HasPendingOperation
         || HasPendingConfiguration
         || HasPendingReplay
         || Turns.SelectMany(turn => turn.Items).OfType<QuestionItemViewModel>()

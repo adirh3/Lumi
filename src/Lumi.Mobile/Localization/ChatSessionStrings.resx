@@ -249,7 +249,9 @@
   <data name="UpdateApplying" xml:space="preserve"><value>Applying update</value></data>
   <data name="UpdateFailed" xml:space="preserve"><value>Update couldn't finish</value></data>
   <data name="UpdateDownloadingHelp" xml:space="preserve"><value>You can keep using Lumi while the verified app downloads.</value></data>
-  <data name="UpdateReadyHelp" xml:space="preserve"><value>Wait for downloads and actions, finish or clear drafts and question replies, then close editors. Lumi will update automatically when it's safe.</value></data>
+  <data name="UpdateReadyHelp" xml:space="preserve"><value>Lumi will update automatically when your work is safe. Or choose Update now after downloads and actions finish.</value></data>
+  <data name="UpdateDiscardHelp" xml:space="preserve"><value>Updating reopens Lumi. Unsent drafts, question replies and unsaved edits on any page will be discarded. Your pairing and saved chats are kept.</value></data>
+  <data name="UpdateAndDiscard" xml:space="preserve"><value>Update and discard</value></data>
   <data name="UpdateApplyingHelp" xml:space="preserve"><value>Reopening Lumi with the new build. Your pairing is kept.</value></data>
   <data name="UpdateFailedHelp" xml:space="preserve"><value>Your current app and pairing are kept. Try again when connected.</value></data>
   <data name="Unknown" xml:space="preserve"><value>unknown</value></data>
