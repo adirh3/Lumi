@@ -546,7 +546,9 @@ a teammate in Teams, Slack or any chat. It copies a short message with a *Lumi c
 by the same redacted text, Brotli-compressed and base64url-encoded behind a 4-byte SHA-256 check, in a
 code block (rich HTML for editors that support it, a fenced block for everything else). Codes are about
 half the size of the text, survive wrapping and chat formatting, and a code that was cut short is
-reported as damaged instead of being half-imported. When the teammate copies it and switches back to
+reported as damaged instead of being half-imported. Use normal **Paste** (`Ctrl+V`), not **Paste as
+plain text**, to keep the code block. Teams provides its code-copy action on sent code blocks, not
+while drafting. When the teammate copies it and switches back to
 Lumi, a notice offers **Preview**, which opens the same import receipt. Lumi only reads the clipboard
 when its window is activated, only looks for its own codes and packs, never offers your own copies or
 things you already have, and can be turned off under **Settings › General › Sharing** (off by default

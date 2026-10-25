@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
@@ -22,6 +24,54 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatViewClipboardTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CopyForChat_ShareSheetAndQuickCopyPublishRichHtmlWithTheSamePlainText(bool quickCopy)
+    {
+        using var session = HeadlessTestSession.Start(typeof(ClipboardHeadlessTestApp));
+        await session.Dispatch(async () =>
+        {
+            using var lifetime = Assert.IsType<ClassicDesktopStyleApplicationLifetime>(Application.Current!.ApplicationLifetime);
+            var window = new Window { Width = 400, Height = 300 };
+            lifetime.MainWindow = window;
+            try
+            {
+                window.Show();
+                var skill = new Skill { Name = "Clipboard share", Content = "Reply with a friendly greeting." };
+                var share = CapabilityPackWriter.ForSkill(skill);
+                var code = ShareCode.Encode(CapabilityPackWriter.WriteCompact(share));
+                var (text, html) = ShareSheetViewModel.ComposeChatSnippet(share.Pack, code);
+                var sheet = new ShareSheetViewModel(new DataStore(new AppData()), static () => []);
+                if (quickCopy)
+                    Assert.NotNull(await sheet.QuickCopyForChatAsync(skill));
+                else
+                {
+                    sheet.OpenFor(skill);
+                    await sheet.CopyForChatCommand.ExecuteAsync(null);
+                    Assert.False(sheet.IsStatusError);
+                }
+
+                var clipboard = window.Clipboard!;
+                Assert.Equal(text, await clipboard.TryGetTextAsync());
+                using var data = await clipboard.TryGetDataAsync();
+                Assert.NotNull(data);
+                Assert.Equal(html, await data.TryGetValueAsync(DataFormat.CreateStringPlatformFormat("text/html")));
+                Assert.Equal(text, await data.TryGetTextAsync());
+                if (OperatingSystem.IsWindows())
+                    Assert.Equal(ChatClipboardData.BuildWindowsHtmlClipboardBytes(html),
+                        await data.TryGetValueAsync(DataFormat.CreateBytesPlatformFormat("HTML Format")));
+                else if (OperatingSystem.IsMacOS())
+                    Assert.Equal(html, await data.TryGetValueAsync(DataFormat.CreateStringPlatformFormat("public.html")));
+            }
+            finally
+            {
+                await window.Clipboard!.ClearAsync();
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task CrossBlockRightClick_KeepsTheHighlight_AndCopiesTheWholeSelection()
     {
@@ -367,4 +417,16 @@ public sealed class ChatViewClipboardTests
             }
         }, CancellationToken.None);
     }
+}
+
+public sealed class ClipboardHeadlessTestApp : Application
+{
+    public override void RegisterServices()
+    {
+        ApplicationLifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        base.RegisterServices();
+    }
+
+    public static AppBuilder BuildAvaloniaApp() =>
+        AppBuilder.Configure<ClipboardHeadlessTestApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 }

@@ -1,9 +1,11 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Avalonia.Input;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Sharing;
 using Lumi.ViewModels;
+using StrataTheme.Controls;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -316,13 +318,56 @@ public sealed class CapabilityChatShareTests
     {
         const string fragment = "<p>🎨 <b>שלום</b></p><pre><code>lumi1.abc</code></pre>";
 
-        var bytes = ClipboardHelper.BuildWindowsHtmlClipboard(fragment);
+        var bytes = ChatClipboardData.BuildWindowsHtmlClipboardBytes(fragment);
         var header = Encoding.ASCII.GetString(bytes, 0, 120);
         int Offset(string name) => int.Parse(Regex.Match(header, name + @":(\d{10})").Groups[1].Value);
 
         Assert.Equal(fragment, Encoding.UTF8.GetString(bytes, Offset("StartFragment"), Offset("EndFragment") - Offset("StartFragment")));
         Assert.StartsWith("<html>", Encoding.UTF8.GetString(bytes, Offset("StartHTML"), 6));
-        Assert.Equal(bytes.Length, Offset("EndHTML"));
+        Assert.Contains("<meta charset=\"utf-8\">", Encoding.UTF8.GetString(bytes));
+        Assert.Equal(bytes.Length - 1, Offset("EndHTML"));
+        Assert.Equal(0, bytes[^1]);
+        Assert.EndsWith("</body></html>", Encoding.UTF8.GetString(bytes, Offset("StartHTML"), Offset("EndHTML") - Offset("StartHTML")));
+    }
+
+    [Theory]
+    [InlineData(SharedCapabilityKind.Skill)]
+    [InlineData(SharedCapabilityKind.Lumi)]
+    [InlineData(SharedCapabilityKind.McpServer)]
+    [InlineData(SharedCapabilityKind.Prompt)]
+    public void SnippetClipboard_PreservesTheCodeBlockInStandardAndNativeHtml(SharedCapabilityKind kind)
+    {
+        var share = kind switch
+        {
+            SharedCapabilityKind.Skill => CapabilityPackWriter.ForSkill(ToneGuide()),
+            SharedCapabilityKind.Lumi => CapabilityPackWriter.ForLumi(
+                new LumiAgent { Name = "Friendly agent", SystemPrompt = "Be warm and direct." }, new AppData()),
+            SharedCapabilityKind.McpServer => CapabilityPackWriter.ForMcpServer(
+                new McpServer { Name = "Example tools", Command = "example-tools" }),
+            _ => CapabilityPackWriter.ForPrompt(
+                new SharedPrompt { Name = "Summarize notes", Description = "", Content = "Summarize the recipient's notes." })
+        };
+        var code = ShareCode.Encode(CapabilityPackWriter.WriteCompact(share));
+        var (text, html) = ShareSheetViewModel.ComposeChatSnippet(share.Pack, code);
+
+        using var data = ChatClipboardData.CreateHtml(html, text);
+        var item = Assert.Single(data.Items);
+        Assert.Equal(text, item.TryGetRaw(DataFormat.Text));
+        Assert.Equal(html, item.TryGetRaw(DataFormat.CreateStringPlatformFormat("text/html")));
+        Assert.Contains("<pre><code>" + code + "</code></pre>", html);
+        Assert.Equal(kind, CapabilityPackReader.Read(text).Pack!.Kind);
+
+        if (OperatingSystem.IsWindows())
+        {
+            var bytes = Assert.IsType<byte[]>(item.TryGetRaw(DataFormat.CreateBytesPlatformFormat("HTML Format")));
+            var payload = Encoding.UTF8.GetString(bytes);
+            Assert.Contains("<!--StartFragment-->" + html + "<!--EndFragment-->", payload);
+            Assert.Equal(0, bytes[^1]);
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            Assert.Equal(html, item.TryGetRaw(DataFormat.CreateStringPlatformFormat("public.html")));
+        }
     }
 
     // ── Sending: one click, unless something deserves a look first ─────────────────────────────
