@@ -103,7 +103,7 @@ public partial class ChatViewModel
     [ObservableProperty] private bool _isCodingProject;
     partial void OnIsCodingProjectChanged(bool value)
     {
-        OnPropertyChanged(nameof(ShowInfoStrip));
+        NotifyCheckoutChanged();
         NotifyWorkspaceVisibilityChanged();
     }
     [ObservableProperty] private string? _gitBranch;
@@ -111,8 +111,8 @@ public partial class ChatViewModel
     [ObservableProperty] private bool _isRefreshingGitStatus;
     [ObservableProperty] private bool _isWorktreeMode;
     [ObservableProperty] private string? _worktreePath;
-    /// <summary>True when a chat exists (toggle is locked).</summary>
-    public bool IsWorktreeLocked => CurrentChat is not null;
+    partial void OnIsWorktreeModeChanged(bool value) => NotifyCheckoutChanged();
+    partial void OnWorktreePathChanged(string? value) => NotifyCheckoutChanged();
     private int _gitRefreshVersion;
     private string? _gitStatusDirectory;
     private CancellationTokenSource? _gitRefreshThrottleCts;
@@ -120,14 +120,12 @@ public partial class ChatViewModel
     private readonly CancellationTokenSource _gitRefreshCts = new();
     private DateTime _lastLiveGitRefreshUtc = DateTime.MinValue;
     /// <summary>Minimum interval between live git status refreshes triggered by agent
-    /// file edits, so the coding strip updates promptly without thrashing during bursts.</summary>
+    /// file edits, so the git pill updates promptly without thrashing during bursts.</summary>
     private static readonly TimeSpan GitRefreshMinInterval = TimeSpan.FromMilliseconds(700);
     public ObservableCollection<GitFileChangeViewModel> GitChangedFiles { get; } = [];
     /// <summary>Existing worktrees available for selection (excludes main repo).</summary>
     public ObservableCollection<WorktreeInfo> AvailableWorktrees { get; } = [];
     public bool HasAvailableWorktrees => AvailableWorktrees.Count > 0;
-    public bool HasGitChanges => GitChangedFileCount > 0;
-    public bool ShowGitStatusBadge => IsRefreshingGitStatus || HasGitChanges;
     public string GitBranchLabel => !string.IsNullOrWhiteSpace(GitBranch)
         ? GitBranch
         : IsRefreshingGitStatus
@@ -140,6 +138,64 @@ public partial class ChatViewModel
         1 => Loc.Git_OneChange,
         _ => string.Format(Loc.Git_NChanges, GitChangedFileCount)
     };
+
+    /// <summary>
+    /// Where the checkout shows. Before the first message it is a choice for that message, on the composer;
+    /// once the chat starts it is the chat's state, in the header.
+    /// </summary>
+    public bool ShowComposerCheckout => IsCodingProject && CurrentChat is null;
+
+    /// <inheritdoc cref="ShowComposerCheckout"/>
+    public bool ShowHeaderCheckout => IsCodingProject && CurrentChat is not null;
+
+    /// <summary>
+    /// The chat works in a worktree that doesn't exist yet: a new chat's, made when it starts, or one being made.
+    /// It starts clean from the last commit, so it has no changes to show.
+    /// </summary>
+    public bool IsWorktreePending => IsWorktreeMode && string.IsNullOrEmpty(WorktreePath);
+
+    /// <summary>What changed shows beside the checkout, unless the chat's worktree starts clean.</summary>
+    public bool ShowCheckoutChanges => HasWorkspaceGit && !IsWorktreePending;
+
+    /// <summary>"Local" or "Worktree": where the chat's files are.</summary>
+    public string GitCheckoutModeLabel => IsWorktreeMode ? Loc.Git_Worktree : Loc.Git_Local;
+
+    /// <summary>The folder the chat works in, as the git card names it.</summary>
+    public string? GitFolderName
+    {
+        get
+        {
+            if (!IsCodingProject)
+                return null;
+
+            var directory = GetEffectiveWorkingDirectory()
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var name = Path.GetFileName(directory);
+            return string.IsNullOrEmpty(name) ? directory : name;
+        }
+    }
+
+    /// <summary>
+    /// The Local choice in a new chat's git card: the folder as it is, changes included. Counted from the
+    /// settled summary, so an open card doesn't blink while git refreshes.
+    /// </summary>
+    public string GitLocalChoiceDescription => WorkspaceGitFiles.TotalCount switch
+    {
+        0 => Loc.Git_LocalChoice,
+        1 => string.Format(Loc.Culture, Loc.Git_LocalChoiceChanges, Loc.Git_OneChange),
+        var count => string.Format(Loc.Culture, Loc.Git_LocalChoiceChanges,
+            string.Format(Loc.Culture, Loc.Git_NChanges, count)),
+    };
+
+    private void NotifyCheckoutChanged()
+    {
+        OnPropertyChanged(nameof(ShowComposerCheckout));
+        OnPropertyChanged(nameof(ShowHeaderCheckout));
+        OnPropertyChanged(nameof(IsWorktreePending));
+        OnPropertyChanged(nameof(ShowCheckoutChanges));
+        OnPropertyChanged(nameof(GitCheckoutModeLabel));
+        OnPropertyChanged(nameof(GitFolderName));
+    }
 
     public event Action<GitChangesViewModel>? GitChangesShowRequested;
 
@@ -1223,7 +1279,7 @@ public partial class ChatViewModel
 
         OnPropertyChanged(nameof(IsWelcomeVisible));
         OnPropertyChanged(nameof(IsChatVisible));
-        OnPropertyChanged(nameof(IsWorktreeLocked));
+        NotifyCheckoutChanged();
         NotifyTokenPropertiesChanged();
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
@@ -1273,19 +1329,17 @@ public partial class ChatViewModel
 
     partial void OnGitChangedFileCountChanged(int value)
     {
-        OnPropertyChanged(nameof(HasGitChanges));
-        OnPropertyChanged(nameof(ShowGitStatusBadge));
         OnPropertyChanged(nameof(GitChangesLabel));
     }
 
     partial void OnGitBranchChanged(string? value)
     {
         OnPropertyChanged(nameof(GitBranchLabel));
+        OnPropertyChanged(nameof(GitFolderName));
     }
 
     partial void OnIsRefreshingGitStatusChanged(bool value)
     {
-        OnPropertyChanged(nameof(ShowGitStatusBadge));
         OnPropertyChanged(nameof(GitChangesLabel));
         OnPropertyChanged(nameof(GitBranchLabel));
         if (!value)
@@ -1363,11 +1417,12 @@ public partial class ChatViewModel
             return;
         }
 
-        var isExistingChat = CurrentChat is not null && CurrentChat.Messages.Count > 0;
-        if (!isExistingChat)
-            SetProjectId(project.Id);
-
-        ComposerProjectFilterRequested?.Invoke(project.Id);
+        // A started chat moves to the project, as Move to Project does: its next turn resumes the same
+        // session with the project's instructions and folder. The sidebar follows it there, unless a send
+        // reserved for the chat kept it where it was.
+        SetProjectId(project.Id);
+        if (CurrentChat is null || CurrentChat.ProjectId == project.Id)
+            ComposerProjectFilterRequested?.Invoke(project.Id);
     }
 
     private void SyncComposerAgentSelectionFromState()
@@ -1735,16 +1790,20 @@ public partial class ChatViewModel
             // Use the effective dir (worktree or project) for status
             var workDir = savedWorktreePath ?? projectDir;
             var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (!string.Equals(_gitStatusDirectory, normalizedWorkDir, StringComparison.OrdinalIgnoreCase))
+            var folderChanged = !string.Equals(_gitStatusDirectory, normalizedWorkDir, StringComparison.OrdinalIgnoreCase);
+            if (folderChanged)
                 GitBranch = null;
             _gitStatusDirectory = normalizedWorkDir;
 
             // Reset stale change data immediately; keep the branch visible while refreshing
-            // the same coding context so the strip does not flicker blank. Mark the refresh first:
-            // the Workspace keeps showing the last git answer until this one settles.
+            // the same coding context so the git pill does not flicker blank. Mark the refresh first:
+            // the Workspace and the git pill keep showing the last git answer until this one settles,
+            // unless that answer was about another folder.
             IsRefreshingGitStatus = true;
             GitChangedFileCount = 0;
             GitChangedFiles.Clear();
+            if (folderChanged)
+                RefreshWorkspaceGit();
 
             var branchTask = GitService.GetCurrentBranchAsync(workDir, cancellationToken);
             var changesTask = GitService.GetChangedFilesAsync(workDir, cancellationToken);
@@ -1815,7 +1874,7 @@ public partial class ChatViewModel
         _ = RefreshCodingProjectStateSafelyAsync();
     }
 
-    /// <summary>Refreshes the coding strip's git status shortly after the agent edits
+    /// <summary>Refreshes the git pill's status shortly after the agent edits
     /// workspace files, so the change count stays live while a turn is still running —
     /// independent of the IsBusy turn lifecycle. Throttled with a leading edge plus a
     /// trailing refresh: rapid successive edits update promptly but at most once per
@@ -2289,14 +2348,17 @@ public partial class ChatViewModel
     [RelayCommand]
     private void ShowGitChanges() => RequestGitChanges(openFilePath: null);
 
-    /// <summary>Opens the git changes page, optionally drilled straight into one file's diff.</summary>
+    /// <summary>
+    /// Opens the git changes page, optionally drilled straight into one file's diff. It lists the changes the
+    /// Workspace and the git pill show, which stay while git refreshes.
+    /// </summary>
     private void RequestGitChanges(string? openFilePath)
     {
-        if (GitChangedFiles.Count == 0)
+        if (_settledGitFiles.Count == 0)
             return;
 
         GitChangesShowRequested?.Invoke(new GitChangesViewModel(
-            GitChangedFiles.Select(static f => f.Change),
+            _settledGitFiles.Select(static f => f.Change),
             ResolveGitRootPath(),
             GitBranch,
             IsWorktreeMode)

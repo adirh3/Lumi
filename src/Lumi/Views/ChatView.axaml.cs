@@ -48,7 +48,6 @@ public partial class ChatView : UserControl
 
     private StrataChatShell? _chatShell;
     private StrataChatComposer? _composer;
-    private Button? _backgroundActivityButton;
     private Panel? _composerSpacer;
     private Panel? _dropOverlay;
     private ItemsControl? _transcript;
@@ -67,10 +66,6 @@ public partial class ChatView : UserControl
     private ChatViewModel? _subscribedVm;
     private Chat? _lastObservedCurrentChat;
     private ObservableCollection<TranscriptTurn>? _subscribedMountedTurns;
-    private Border? _worktreeHighlight;
-    private Button? _localToggleBtn;
-    private Button? _worktreeToggleBtn;
-    private bool _worktreeHighlightUpdateQueued;
     private bool _isApplyingTranscriptMutation;
     private bool _viewportEvaluationQueued;
     private bool _viewportEvaluationRequested;
@@ -228,27 +223,12 @@ public partial class ChatView : UserControl
         ApplyShellChrome();
         InitializeHeader();
         _composer = this.FindControl<StrataChatComposer>("Composer");
-        _backgroundActivityButton = this.FindControl<Button>("BackgroundActivityButton");
-        if (_backgroundActivityButton?.Flyout is { } activityFlyout)
-            activityFlyout.Opened += OnBackgroundActivityFlyoutOpened;
         if (_composer is not null)
             _composer.ClipboardPasteInterceptFormats = new DataFormat[] { LumiChatContextClipboardFormat, DataFormat.Text };
         _composerSpacer = this.FindControl<Panel>("ComposerSpacer");
         _dropOverlay = this.FindControl<Panel>("DropOverlay");
         _transcript = this.FindControl<ItemsControl>("Transcript");
         ApplyAgentAutomationLandmarks();
-
-        // Slide-up animation for coding strip
-        var codingStrip = this.FindControl<Border>("CodingStrip");
-        if (codingStrip is not null)
-        {
-            codingStrip.PropertyChanged += (_, e) =>
-            {
-                if (e.Property == IsVisibleProperty && codingStrip.IsVisible
-                    && _subscribedVm?.AreAnimationsEnabled != false)
-                    SlideFadeEntrance.Play(codingStrip, offsetY: 6);
-            };
-        }
 
         // Follow-up chips rise in one after another when a reply's suggestions arrive. The motion runs on
         // the render thread, so it still plays while opening a chat keeps the UI thread busy. Suggestions
@@ -277,15 +257,6 @@ public partial class ChatView : UserControl
             composerContainer.SizeChanged += (_, _) =>
                 _composerSpacer.Height = composerContainer.Bounds.Height;
         }
-
-        // Worktree toggle sliding highlight
-        _worktreeHighlight = this.FindControl<Border>("WorktreeToggleHighlight");
-        _localToggleBtn = this.FindControl<Button>("LocalToggleBtn");
-        _worktreeToggleBtn = this.FindControl<Button>("WorktreeToggleBtn");
-
-        var togglePanel = this.FindControl<StackPanel>("WorktreeTogglePanel");
-        if (togglePanel is not null)
-            togglePanel.SizeChanged += (_, _) => QueueWorktreeToggleHighlightUpdate();
 
         AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
@@ -443,7 +414,6 @@ public partial class ChatView : UserControl
             SetTranscriptMaterialized(!vm.IsChatSurfaceLoading);
         }
 
-        QueueWorktreeToggleHighlightUpdate();
         UpdateLaunchpadActivation();
     }
 
@@ -471,19 +441,13 @@ public partial class ChatView : UserControl
 
     private void FocusComposerAtEnd() => _composer?.FocusInputAtEnd();
 
-    private async void OnBackgroundActivityFlyoutOpened(object? sender, EventArgs e)
-    {
-        if (_subscribedVm is { } vm)
-            await vm.RefreshBackgroundActivityAsync();
-    }
-
     /// <summary>An agent's run opening in the Workspace takes over from the transient activity list.</summary>
-    private void OnSubagentRunShowRequested() => _backgroundActivityButton?.Flyout?.Hide();
+    private void OnSubagentRunShowRequested() => HideRunningCard();
 
     private void UnsubscribeFromViewModel()
     {
         DeactivateLaunchpad();
-        _backgroundActivityButton?.Flyout?.Hide();
+        HideRunningCard();
         if (_subscribedVm is null) return;
         _subscribedVm.StopVoiceIfRecording();
         _subscribedVm.ScrollToEndRequested -= OnScrollToEndRequested;
@@ -1039,7 +1003,7 @@ public partial class ChatView : UserControl
 
             if (chatReferenceChanged)
             {
-                _backgroundActivityButton?.Flyout?.Hide();
+                HideRunningCard();
                 ResetUserMessageNavigation();
             }
 
@@ -1053,7 +1017,7 @@ public partial class ChatView : UserControl
         if (e.PropertyName == nameof(ChatViewModel.HasBackgroundActivity)
             && _subscribedVm?.HasBackgroundActivity != true)
         {
-            _backgroundActivityButton?.Flyout?.Hide();
+            HideRunningCard();
         }
 
         if (e.PropertyName == nameof(ChatViewModel.IsWelcomeVisible))
@@ -1061,9 +1025,6 @@ public partial class ChatView : UserControl
 
         if (e.PropertyName == nameof(ChatViewModel.IsChatSurfaceLoading))
             SetTranscriptMaterialized(!(_subscribedVm?.IsChatSurfaceLoading ?? false));
-
-        if (e.PropertyName == nameof(ChatViewModel.IsWorktreeMode))
-            QueueWorktreeToggleHighlightUpdate();
 
         if (e.PropertyName == nameof(ChatViewModel.IsBusy))
         {
@@ -2373,33 +2334,6 @@ public partial class ChatView : UserControl
         }
 
         FocusComposer();
-    }
-
-    private void UpdateWorktreeToggleHighlight()
-    {
-        if (_worktreeHighlight is null || _localToggleBtn is null || _worktreeToggleBtn is null)
-            return;
-
-        var isWorktree = _subscribedVm?.IsWorktreeMode ?? false;
-        var target = isWorktree ? _worktreeToggleBtn : _localToggleBtn;
-
-        if (target.Bounds.Width <= 0) return;
-
-        _worktreeHighlight.Width = target.Bounds.Width;
-        _worktreeHighlight.Margin = new Thickness(target.Bounds.Left, 0, 0, 0);
-    }
-
-    private void QueueWorktreeToggleHighlightUpdate()
-    {
-        if (_worktreeHighlightUpdateQueued)
-            return;
-
-        _worktreeHighlightUpdateQueued = true;
-        Dispatcher.UIThread.Post(() =>
-        {
-            _worktreeHighlightUpdateQueued = false;
-            UpdateWorktreeToggleHighlight();
-        }, DispatcherPriority.Loaded);
     }
 
     // ── Ctrl+F in-chat search ────────────────────────────

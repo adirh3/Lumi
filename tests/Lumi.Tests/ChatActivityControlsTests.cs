@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Automation.Peers;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -23,7 +24,7 @@ public sealed class ChatActivityControlsTests
     [Theory]
     [InlineData(600)]
     [InlineData(1000)]
-    public async Task BackgroundActivity_IsCompactBesideContext_AndExpandsOutsideComposer(double width)
+    public async Task RunningPill_ShowsBackgroundWorkInTheHeader_AndItsCardStopsTheSession(double width)
     {
         var session = HeadlessTestSession.Start();
         try
@@ -48,31 +49,28 @@ public sealed class ChatActivityControlsTests
                 try
                 {
                     Dispatcher.UIThread.RunJobs();
-                    var activity = view.FindControl<Button>("BackgroundActivityButton")!;
-                    var context = view.FindControl<Button>("ContextWindowButton")!;
+                    var running = view.FindControl<Button>("HeaderRunningButton")!;
+                    var header = view.FindControl<Panel>("ChatHeaderLayer")!;
                     var composer = view.FindControl<StrataChatComposer>("Composer")!;
-                    var flyout = Assert.IsType<Flyout>(activity.Flyout);
-                    var details = Assert.IsType<StackPanel>(flyout.Content);
+                    var card = Assert.IsType<Flyout>(FlyoutBase.GetAttachedFlyout(running));
+                    var details = Assert.IsType<StackPanel>(card.Content);
+                    var label = running.GetVisualDescendants().OfType<TextBlock>()
+                        .Single(text => text.Classes.Contains("header-pill-text"));
 
-                    Assert.True(activity.IsVisible);
-                    Assert.False(flyout.IsOpen);
-                    Assert.Equal(22, activity.Bounds.Height);
-                    Assert.InRange(activity.Bounds.Width, 30, 160);
-                    Assert.Same(context.GetLogicalParent(), activity.GetLogicalParent());
-                    Assert.DoesNotContain(activity, composer.GetLogicalDescendants());
-                    Assert.DoesNotContain(Assert.IsType<StackPanel>(composer.StatusContent).Children, status => status.IsVisible);
+                    // Background work is the chat's state: a header pill, never a row above the composer.
+                    Assert.Null(view.FindControl<Control>("CodingStrip"));
+                    Assert.Null(view.FindControl<Control>("BackgroundActivityButton"));
+                    Assert.True(running.IsEffectivelyVisible);
+                    Assert.Contains(running, header.GetVisualDescendants());
+                    Assert.DoesNotContain(running, composer.GetLogicalDescendants());
+                    Assert.Equal(36, running.Bounds.Height);
+                    Assert.Equal("Background", label.Text);
+                    Assert.False(card.IsOpen);
 
-                    var activityPosition = activity.TranslatePoint(default, view)!.Value;
-                    var contextPosition = context.TranslatePoint(default, view)!.Value;
-                    var composerPosition = composer.TranslatePoint(default, view)!.Value;
-                    Assert.InRange(contextPosition.X - activityPosition.X - activity.Bounds.Width, 5, 7);
-                    Assert.Equal(contextPosition.Y, activityPosition.Y);
-                    Assert.True(activityPosition.Y + activity.Bounds.Height <= composerPosition.Y);
-
-                    flyout.ShowAt(activity);
+                    new ButtonAutomationPeer(running).Invoke();
                     Dispatcher.UIThread.RunJobs();
 
-                    Assert.True(flyout.IsOpen);
+                    Assert.True(card.IsOpen);
                     Assert.Same(vm, details.DataContext);
                     var stop = details.GetLogicalDescendants().OfType<Button>()
                         .Single(button => button.Name == "StopBackgroundSession");
@@ -92,35 +90,37 @@ public sealed class ChatActivityControlsTests
                         }
                     ], DateTimeOffset.UtcNow);
                     Dispatcher.UIThread.RunJobs();
-                    Assert.True(flyout.IsOpen);
+                    Assert.True(card.IsOpen);
                     var list = details.GetLogicalDescendants().OfType<ItemsControl>()
                         .Single(control => control.Name == "RunningSessionActivities");
                     Assert.Same(vm.RunningSessionActivities, list.ItemsSource);
-                    var count = activity.GetLogicalDescendants().OfType<TextBlock>()
-                        .Single(control => control.Name == "RunningSessionActivityCount");
-                    Assert.Equal("1", count.Text);
-                    Assert.True(count.IsVisible);
+                    Assert.Equal("1 running", label.Text);
+                    var terminal = running.GetVisualDescendants().OfType<Border>()
+                        .Single(face => face.Classes.Contains("command"));
+                    Assert.True(terminal.IsVisible);
 
+                    // While Lumi replies, nothing runs in the background: the pill goes and takes its card.
                     vm.IsBusy = true;
                     Dispatcher.UIThread.RunJobs();
-                    Assert.False(activity.IsVisible);
-                    Assert.False(flyout.IsOpen);
+                    Assert.False(running.IsVisible);
+                    Assert.False(card.IsOpen);
 
                     vm.IsBusy = false;
-                    flyout.ShowAt(activity);
+                    card.ShowAt(running);
                     Dispatcher.UIThread.RunJobs();
                     vm.CurrentChat = new Chat { IsSessionActive = true };
                     Dispatcher.UIThread.RunJobs();
-                    Assert.False(flyout.IsOpen);
+                    Assert.False(card.IsOpen);
                     Assert.Empty(vm.RunningSessionActivities);
-                    Assert.False(count.IsVisible);
+                    Assert.Equal("Background", label.Text);
+                    Assert.False(terminal.IsVisible);
 
-                    flyout.ShowAt(activity);
+                    card.ShowAt(running);
                     Dispatcher.UIThread.RunJobs();
                     vm.IsSessionActive = false;
                     Dispatcher.UIThread.RunJobs();
-                    Assert.False(activity.IsVisible);
-                    Assert.False(flyout.IsOpen);
+                    Assert.False(running.IsVisible);
+                    Assert.False(card.IsOpen);
                 }
                 finally
                 {
@@ -183,8 +183,8 @@ public sealed class ChatActivityControlsTests
                     vm.RunningSessionActivities[0].ApplyProgress(
                         new TaskProgressShell { RecentOutput = "Restoring\nNow listening on: http://localhost:5000" });
 
-                    var activity = view.FindControl<Button>("BackgroundActivityButton")!;
-                    var flyout = Assert.IsType<Flyout>(activity.Flyout);
+                    var activity = view.FindControl<Button>("HeaderRunningButton")!;
+                    var flyout = Assert.IsType<Flyout>(FlyoutBase.GetAttachedFlyout(activity));
                     var details = Assert.IsType<StackPanel>(flyout.Content);
                     flyout.ShowAt(activity);
                     Dispatcher.UIThread.RunJobs();
@@ -231,8 +231,9 @@ public sealed class ChatActivityControlsTests
     }
 
     [Fact]
-    public void BackgroundActivity_KeepsTheStripAvailableWithoutContextUsage()
+    public void RunningPill_FollowsTheSession_NotTheAssistant()
     {
+        Loc.Load("en");
         var data = new AppData
         {
             Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false }
@@ -243,17 +244,143 @@ public sealed class ChatActivityControlsTests
 
         vm.IsSessionActive = true;
         Assert.False(vm.HasTokenUsage);
-        Assert.True(vm.ShowInfoStrip);
-        Assert.Contains(nameof(ChatViewModel.ShowInfoStrip), notifications);
+        Assert.True(vm.ShowHeaderRunning);
+        Assert.Equal("Background", vm.HeaderRunningText);
+        Assert.Contains(nameof(ChatViewModel.ShowHeaderRunning), notifications);
 
         notifications.Clear();
         vm.IsBusy = true;
-        Assert.False(vm.ShowInfoStrip);
-        Assert.Contains(nameof(ChatViewModel.ShowInfoStrip), notifications);
+        Assert.False(vm.ShowHeaderRunning);
+        Assert.Contains(nameof(ChatViewModel.ShowHeaderRunning), notifications);
 
         vm.IsBusy = false;
-        Assert.True(vm.ShowInfoStrip);
+        Assert.True(vm.ShowHeaderRunning);
         vm.IsSessionActive = false;
-        Assert.False(vm.ShowInfoStrip);
+        Assert.False(vm.ShowHeaderRunning);
+    }
+
+    [Fact]
+    public async Task RunningPill_WhileLumiReplies_ShowsTheAgentsAndOpensTheirPage()
+    {
+        var session = HeadlessTestSession.Start();
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                Loc.Load("en");
+                var chat = new Chat { IsSessionActive = true };
+                var data = new AppData
+                {
+                    Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+                    Chats = [chat]
+                };
+                using var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared) { CurrentChat = chat };
+                vm.Messages.Add(new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "Review it" }));
+                vm.Messages.Add(new ChatMessageViewModel(new ChatMessage
+                {
+                    Role = "tool", ToolName = "task", ToolCallId = "review-tool", ToolStatus = "InProgress",
+                    Content = "{\"description\":\"Review session cleanup\",\"agent_type\":\"code-review\"}",
+                    Timestamp = DateTimeOffset.Now
+                }));
+                vm.IsBusy = true;
+                var view = new ChatView { DataContext = vm };
+                var window = new Window { Width = 1000, Height = 700, Content = view };
+                window.Show();
+                try
+                {
+                    Dispatcher.UIThread.RunJobs();
+                    var running = view.FindControl<Button>("HeaderRunningButton")!;
+                    var card = Assert.IsType<Flyout>(FlyoutBase.GetAttachedFlyout(running));
+                    var agentsRequested = 0;
+                    vm.SubagentRunShowRequested += () => agentsRequested++;
+
+                    Assert.True(running.IsEffectivelyVisible);
+                    Assert.Equal("1 agent working", vm.HeaderRunningText);
+                    Assert.Single(vm.HeaderRunningAgents);
+
+                    new ButtonAutomationPeer(running).Invoke();
+                    Dispatcher.UIThread.RunJobs();
+
+                    Assert.Equal(1, agentsRequested);
+                    Assert.False(card.IsOpen);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(session.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task ContextRing_SplitsTheTitlePill_AndWarmsAsTheWindowFills()
+    {
+        var session = HeadlessTestSession.Start();
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                Loc.Load("en");
+                var chat = new Chat { Messages = [new ChatMessage { Role = "assistant", Content = "Ready." }] };
+                var data = new AppData
+                {
+                    Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+                    Chats = [chat]
+                };
+                using var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared) { CurrentChat = chat };
+                var view = new ChatView { DataContext = vm };
+                var window = new Window { Width = 1000, Height = 700, Content = view };
+                window.Show();
+                try
+                {
+                    vm.ContextTokenLimit = 200_000;
+                    vm.ContextCurrentTokens = 60_000;
+                    Dispatcher.UIThread.RunJobs();
+                    var pill = view.FindControl<Panel>("ChatTitlePill")!;
+                    var title = view.FindControl<Button>("ChatTitleButton")!;
+                    var ring = view.FindControl<Button>("ContextWindowButton")!;
+                    var percent = ring.GetVisualDescendants().OfType<TextBlock>()
+                        .Single(text => text.Classes.Contains("context-ring-text"));
+
+                    // One pill, two halves: the chat, then how full its context window is.
+                    Assert.Contains(title, pill.GetVisualDescendants());
+                    Assert.Contains(ring, pill.GetVisualDescendants());
+                    Assert.True(ring.IsEffectivelyVisible);
+                    Assert.Equal(108, vm.ContextUsageSweep, 3);
+                    Assert.DoesNotContain("high", ring.Classes);
+                    Assert.False(percent.IsVisible);
+                    Assert.Equal("Context window 30% full · 60K / 200K", ToolTip.GetTip(ring));
+
+                    vm.ContextCurrentTokens = 160_000;
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.Contains("high", ring.Classes);
+                    Assert.True(percent.IsVisible);
+                    Assert.Equal("80%", percent.Text);
+
+                    // Its card holds the window's details and the one thing to do about it.
+                    var card = Assert.IsType<Flyout>(ring.Flyout);
+                    var details = Assert.IsType<StackPanel>(card.Content);
+                    card.ShowAt(ring);
+                    Dispatcher.UIThread.RunJobs();
+                    var compact = details.GetLogicalDescendants().OfType<Button>()
+                        .Single(button => button.Name == "ContextCompactButton");
+                    Assert.Same(vm.CompactContextCommand, compact.Command);
+                    card.Hide();
+                    Assert.Null(view.FindControl<Control>("CodingStrip"));
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(session.Dispose);
+        }
     }
 }

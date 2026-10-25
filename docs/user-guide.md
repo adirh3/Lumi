@@ -680,10 +680,32 @@ remain available in diagnostics. Image-limit warnings with an action or link,
 all other warning categories, and actual image-processing errors keep their
 existing visible handling.
 
+### Chat header and coding chats
+
+The floating header shows the chat's state; the composer holds what your next message can still
+change, its project included.
+
+- **Title pill** — the chat's mark, title and project open the chat menu. Once the chat has
+  context, the pill's second half is a ring that fills with the context window; it turns amber
+  and shows the percentage from 75%. Click it for the window's details, what fills it, and
+  **Compact now**.
+- **Running pill** — what still runs in the chat (see Background work).
+- **Git pill** (coding projects) — the branch and whether the chat works in your folder
+  (**Local**) or its own **Worktree**. Click it for the folder, what changed, and ways to open
+  the folder (terminal, file explorer, IDE) or copy its branch and path. Its second half,
+  **+added −removed**, opens the changes.
+
+In a new chat the checkout is a choice for the first message instead: a chip beside the project
+on the composer. Its card offers **Local** (your folder, with its changes), **Worktree** (starts
+clean from your last commit) or an existing worktree. With the first message the chip moves into
+the header, since a chat's checkout stays as it started. Its project can still change: choose
+another one on the composer (or **Move to Project** in the chat menu) and the chat moves there,
+its next message taking that project's instructions and folder.
+
 ### Pause and resume chats
 
-While a chat is working, **Pause** appears above the composer beside its activity
-and context controls, and in its sidebar context menu. Idle chats have no pause
+While a chat is working, **Pause** sits beside Stop on the composer, and in its
+sidebar context menu. Idle chats have no pause
 control, and the title bar stays clear. A paused chat gets a pause marker in the
 sidebar and a paused bar of the composer's glass above the composer, with **Resume**
 and **Cancel task**: its badge breathes slowly while the chat holds, and the Strata
@@ -721,8 +743,10 @@ including lists, links and code. The update refreshes live and disappears when t
 without changing its result, error or terminal output.
 
 When Lumi finishes replying while commands, delegated agents or other tasks keep
-running, a **Background** chip appears above the composer beside the context chip.
-Open it to see each running task with a live clock and what it is doing right now:
+running, the chat header's running pill says what still runs (**2 running**), with a
+face for each agent and a terminal for commands. While Lumi replies, the same pill shows
+the agents at work and opens them on the Workspace's **Agents** page.
+Once Lumi is ready, open it to see each running task with a live clock and what it is doing right now:
 a command's newest output line, an agent's latest step, or a task's progress message.
 Click a command to show its newest output lines, or an agent to open its run on the
 Workspace's **Agents** page, the same view its row in the chat opens. The list updates
@@ -739,7 +763,7 @@ forward. Lumi's Strata line draws under what you write at the same time, from le
 travelling highlight crosses it for two seconds before it rests; refocusing replays it. It stays just as
 clear, with no ring, and, in a chat at rest, the presence light behind it brightens in one slow fade. Newly sent messages and live assistant
 replies rise into place once, without moving transcript layout or replaying on
-history rebuilds, paging, or chat switches. Section navigation and the coding strip use the
+history rebuilds, paging, or chat switches. Section navigation and the header's pills use the
 same short, interruptible motion, and the welcome-to-chat handoff has no delayed fade.
 The existing **Show Animations** setting disables the new message/section entrances and the composer
 focus motion (the composer then stays at full size and the line appears at once), and keeps the ring

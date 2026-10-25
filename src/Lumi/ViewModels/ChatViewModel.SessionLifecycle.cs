@@ -1622,7 +1622,7 @@ public partial class ChatViewModel
 
                         if (success)
                         {
-                            // Keep the coding strip's git change count live as the agent
+                            // Keep the git pill's change count live as the agent
                             // edits files, independent of the IsBusy turn lifecycle. This
                             // tool-completion signal is reliable; SessionWorkspaceFileChangedEvent
                             // is not always emitted. The shell tool is included because the agent
@@ -2743,7 +2743,7 @@ public partial class ChatViewModel
                         {
                             Messages.Add(new ChatMessageViewModel(toolMsg));
                             ScrollToEndRequested?.Invoke();
-                            // Keep the coding strip's change count live as the agent edits
+                            // Keep the git pill's change count live as the agent edits
                             // files, independent of the IsBusy turn lifecycle.
                             QueueLiveGitRefresh();
                         }

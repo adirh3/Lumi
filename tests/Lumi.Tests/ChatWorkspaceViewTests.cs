@@ -445,12 +445,14 @@ public sealed class ChatWorkspaceViewTests
     }
 
     [Fact]
-    public void ChatViewKeepsCodingBranchSlotVisibleForCodingProjects()
+    public void ChatViewKeepsTheCheckoutVisibleForCodingProjects()
     {
         var root = FindRepoRoot();
         var chatViewXaml = File.ReadAllText(Path.Combine(root, "src", "Lumi", "Views", "ChatView.axaml"));
 
-        Assert.Contains("IsVisible=\"{Binding IsCodingProject}\"", chatViewXaml);
+        // A new chat's checkout is a composer chip; a started chat's is the header's git pill.
+        Assert.Contains("IsVisible=\"{Binding ShowComposerCheckout}\"", chatViewXaml);
+        Assert.Contains("x:Name=\"HeaderGitPill\" IsVisible=\"{Binding ShowHeaderCheckout}\"", chatViewXaml);
         Assert.Contains("Text=\"{Binding GitBranchLabel}\"", chatViewXaml);
     }
 

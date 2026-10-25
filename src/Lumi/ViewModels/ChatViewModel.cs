@@ -1083,7 +1083,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
-    [NotifyPropertyChangedFor(nameof(ShowInfoStrip))]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderRunning))]
+    [NotifyPropertyChangedFor(nameof(HeaderRunningText))]
+    [NotifyPropertyChangedFor(nameof(HeaderRunningToolTip))]
     private bool _isSessionActive;
     [ObservableProperty] private string _backgroundActivityText = Loc.Get("Chat_BackgroundActivity");
 
@@ -1124,7 +1126,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private long _contextTokenLimit;
 
     public bool HasTokenUsage => HasContextUsage || CurrentChat is { Messages.Count: > 0 };
-    public bool ShowInfoStrip => IsCodingProject || HasTokenUsage || HasBackgroundActivity || CanPauseChat;
     public string TokenUsageSummary => HasContextUsage
         ? $"{ContextUsagePercent}%"
         : HasTokenUsage ? Loc.Get("Chat_ContextWindow_ChipLabel") : "";
@@ -1144,6 +1145,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         : ContextTokenLimitSource.Unknown.ToString();
     public int ContextUsagePercent
         => CalculateBoundedContextUsagePercent(ContextCurrentTokens, ContextTokenLimit);
+    /// <summary>The context ring's arc: how much of the model's window the chat fills, in degrees.</summary>
+    public double ContextUsageSweep => HasContextUsage ? Math.Min(ContextUsagePercent, 99.9) * 3.6 : 0;
+    /// <summary>The window is filling up: the ring warms and says how full it is.</summary>
+    public bool IsContextUsageHigh => HasContextUsage && ContextUsagePercent >= 75;
+    public string ContextRingToolTip => HasContextUsage
+        ? string.Format(Loc.Culture, Loc.Chat_ContextWindow_RingToolTip, ContextUsagePercent, ContextUsageDisplay)
+        : Loc.Chat_ContextWindow_Title;
     public string ContextUsageDisplay => HasContextUsage
         ? $"{FormatTokenCount(ContextCurrentTokens)} / {FormatTokenCount(ContextTokenLimit)}"
         : "";
@@ -1156,7 +1164,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private void NotifyTokenPropertiesChanged()
     {
         OnPropertyChanged(nameof(HasTokenUsage));
-        OnPropertyChanged(nameof(ShowInfoStrip));
         OnPropertyChanged(nameof(TokenUsageSummary));
         OnPropertyChanged(nameof(TokenUsageSuffixText));
         OnPropertyChanged(nameof(TokenInputDisplay));
@@ -1166,6 +1173,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
         OnPropertyChanged(nameof(ContextUsagePercent));
         OnPropertyChanged(nameof(ContextUsageDisplay));
+        OnPropertyChanged(nameof(ContextUsageSweep));
+        OnPropertyChanged(nameof(IsContextUsageHigh));
+        OnPropertyChanged(nameof(ContextRingToolTip));
         NotifyContextUsageDerivedPropertiesChanged();
     }
 
@@ -1732,6 +1742,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         InitializeMvvmUiState();
         InitializeWorkspace();
+        RunningSessionActivities.CollectionChanged += (_, _) => NotifyHeaderRunningChanged();
     }
 
     internal ChatEventHub ChatEvents => _chatEvents;
@@ -1813,7 +1824,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanPauseChat));
         OnPropertyChanged(nameof(IsComposerBusy));
         OnPropertyChanged(nameof(HasBackgroundActivity));
-        OnPropertyChanged(nameof(ShowInfoStrip));
+        NotifyHeaderRunningChanged();
         UpdateUserMessageEditState();
         NotifyContextActionAvailabilityChanged();
         if (value && !IsPaused && !IsAwaitingInput)

@@ -25,6 +25,8 @@
     <!-- Pause and play, filled and rounded like the composer's stop mark: two capsules, a soft triangle. -->
     <StreamGeometry x:Key="Chat.Icon.Pause">M6.75 7.25a1.75 1.75 0 0 1 3.5 0v9.5a1.75 1.75 0 0 1-3.5 0zM13.75 7.25a1.75 1.75 0 0 1 3.5 0v9.5a1.75 1.75 0 0 1-3.5 0z</StreamGeometry>
     <StreamGeometry x:Key="Chat.Icon.Play">M8 6.6v10.8a1.2 1.2 0 0 0 1.82 1.03l8.9-5.4a1.2 1.2 0 0 0 0-2.06l-8.9-5.4A1.2 1.2 0 0 0 8 6.6z</StreamGeometry>
+    <!-- Code: angle brackets around a slash, in the line icons' family. -->
+    <StreamGeometry x:Key="Chat.Icon.Code">M8.5 7.5 4 12l4.5 4.5 M15.5 7.5 20 12l-4.5 4.5 M13.5 5.5l-3 13</StreamGeometry>
 
     <!-- Launchpad glass: a lift of the island's own surface, translucent so Lumi's presence glows through -->
     <SolidColorBrush x:Key="Launchpad.CardFill" Color="{DynamicResource Color.Surface2}" Opacity="0.46" />
@@ -247,6 +249,125 @@
       <Style Selector="^.danger:pointerover /template/ Border#PART_LayoutRoot">
         <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDangerHover}" />
       </Style>
+    </ControlTheme>
+
+    <!-- The header's other cards (the context window, what still runs) on the title menu's glass. -->
+    <ControlTheme x:Key="ChatHeaderCardPresenter" TargetType="FlyoutPresenter"
+                  BasedOn="{StaticResource {x:Type FlyoutPresenter}}">
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MaxWidth" Value="440" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuFill}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ChatHeader.PillBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel Margin="16" TextOptions.TextRenderingMode="Antialias">
+            <sc:StrataBackdropBlur CornerRadius="{TemplateBinding CornerRadius}" BlurRadius="28" Saturation="1.5" />
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Padding="{TemplateBinding Padding}"
+                    BoxShadow="0 18 44 -10 #59000000, 0 6 16 0 #24000000, inset 0 1 0 0 #0FFFFFFF">
+              <ContentPresenter Name="PART_ContentPresenter"
+                                Content="{TemplateBinding Content}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}" />
+            </Border>
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+
+    <!-- The git card: where the chat works and what changed, above the ways to open its folder. A new
+         chat's card leads with the choice of checkout instead of what changed. -->
+    <ControlTheme x:Key="ChatGitCardPresenter" TargetType="MenuFlyoutPresenter"
+                  BasedOn="{StaticResource ChatTitleMenuPresenter}">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel Margin="16" TextOptions.TextRenderingMode="Antialias">
+            <sc:StrataBackdropBlur CornerRadius="{TemplateBinding CornerRadius}" BlurRadius="28" Saturation="1.5" />
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Padding="{TemplateBinding Padding}"
+                    BoxShadow="0 18 44 -10 #59000000, 0 6 16 0 #24000000, inset 0 1 0 0 #0FFFFFFF">
+              <DockPanel>
+                <StackPanel x:Name="ChatGitCardFacts" DockPanel.Dock="Top" x:DataType="vm:ChatViewModel"
+                            Margin="10,10,10,12">
+                  <StackPanel.Styles>
+                    <Style Selector="Border.title-menu-chip">
+                      <Setter Property="Height" Value="24" />
+                      <Setter Property="Padding" Value="7,0,9,0" />
+                      <Setter Property="CornerRadius" Value="12" />
+                      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+                    </Style>
+                    <Style Selector="Border.title-menu-chip TextBlock">
+                      <Setter Property="FontSize" Value="12" />
+                      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+                      <Setter Property="VerticalAlignment" Value="Center" />
+                      <Setter Property="MaxWidth" Value="220" />
+                      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                    </Style>
+                    <Style Selector="Border.title-menu-chip sc|StrataLineIcon">
+                      <Setter Property="Width" Value="12" />
+                      <Setter Property="Height" Value="12" />
+                      <Setter Property="StrokeThickness" Value="2" />
+                      <Setter Property="VerticalAlignment" Value="Center" />
+                      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+                    </Style>
+                  </StackPanel.Styles>
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <Border Classes="git-tile card">
+                      <sc:StrataLineIcon Classes="git-icon" Data="{x:Static sc:StrataIcons.Branch}" />
+                    </Border>
+                    <TextBlock Grid.Column="1" Classes="git-branch card" Text="{Binding GitBranchLabel}" />
+                  </Grid>
+                  <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,11,0,0">
+                    <Border Classes="title-menu-chip"
+                            IsVisible="{Binding GitFolderName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Folder}"
+                                           Foreground="{DynamicResource Brush.ComposerProjectHue}" />
+                        <TextBlock Text="{Binding GitFolderName}" />
+                      </StackPanel>
+                    </Border>
+                    <Border Classes="title-menu-chip">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Panel>
+                          <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Monitor}" IsVisible="{Binding !IsWorktreeMode}" />
+                          <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Layers}" IsVisible="{Binding IsWorktreeMode}" />
+                        </Panel>
+                        <TextBlock Text="{Binding GitCheckoutModeLabel}" />
+                      </StackPanel>
+                    </Border>
+                  </WrapPanel>
+                  <!-- What changed, once the chat has started: a new chat's checkout choices say it. -->
+                  <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,9,0,0"
+                              IsVisible="{Binding IsChatVisible}">
+                    <TextBlock Classes="git-card-line" Text="{Binding GitChangesLabel}" />
+                    <StackPanel x:DataType="vm:GitChangesViewModel" DataContext="{Binding WorkspaceGit}"
+                                Orientation="Horizontal" Spacing="6"
+                                IsVisible="{Binding HasTotalStats, FallbackValue=False}">
+                      <TextBlock Classes="git-card-line" Text="·" />
+                      <TextBlock Classes="diff-added git-card-stat" Text="{Binding TotalAddedLabel}" />
+                      <TextBlock Classes="diff-removed git-card-stat" Text="{Binding TotalRemovedLabel}" />
+                    </StackPanel>
+                  </StackPanel>
+                </StackPanel>
+                <Border DockPanel.Dock="Top" Height="1" Margin="0,0,0,6"
+                        Background="{StaticResource ChatHeader.MenuDivider}" />
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                              MaxHeight="420">
+                  <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
+          </Panel>
+        </ControlTemplate>
+      </Setter>
     </ControlTheme>
 
     <!-- Shared chip for files Lumi produced/announced. Right-click exposes file actions
@@ -960,20 +1081,85 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
 
-    <!-- Title pill: the chat's mark, title and project. It opens the chat's menu. -->
-    <Style Selector="Button.header-pill#ChatTitleButton">
-      <Setter Property="Padding" Value="5,0,12,0" />
-      <Setter Property="MaxWidth" Value="640" />
+    <!-- Split pills: one piece of glass holding two buttons, lit one at a time like the tools. The title
+         pill holds the chat and how full its context window is; the git pill holds the checkout and what
+         changed. Each half opens its own card. -->
+    <Style Selector="Button.header-seg">
+      <Setter Property="Height" Value="32" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="11,0" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="ToolTip.Placement" Value="Bottom" />
+      <Setter Property="ToolTip.VerticalOffset" Value="8" />
     </Style>
-    <Style Selector="Button.header-pill#ChatTitleButton.no-mark">
-      <Setter Property="Padding" Value="14,0,12,0" />
+    <Style Selector="Button.header-seg /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Border.header-seg-divider">
+      <Setter Property="Width" Value="1" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="Margin" Value="2,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.PillBorder}" />
+    </Style>
+
+    <!-- Title pill: the chat's mark, title and project. It opens the chat's menu. -->
+    <Style Selector="Button.header-seg#ChatTitleButton">
+      <Setter Property="Padding" Value="3,0,10,0" />
+      <Setter Property="MaxWidth" Value="600" />
+    </Style>
+    <Style Selector="Button.header-seg#ChatTitleButton.no-mark">
+      <Setter Property="Padding" Value="12,0,10,0" />
     </Style>
     <!-- The title takes the free row, and gives way only while the live pill needs room beside it. -->
-    <Style Selector="sc|StrataChatShell:scrolled-away Panel#ChatHeaderLayer.busy Button.header-pill#ChatTitleButton">
-      <Setter Property="MaxWidth" Value="380" />
+    <Style Selector="sc|StrataChatShell:scrolled-away Panel#ChatHeaderLayer.busy Button#ChatTitleButton">
+      <Setter Property="MaxWidth" Value="340" />
     </Style>
-    <Style Selector="sc|StrataChatShell:scrolled-away Panel#ChatHeaderLayer.busy.compact Button.header-pill#ChatTitleButton">
-      <Setter Property="MaxWidth" Value="200" />
+    <Style Selector="sc|StrataChatShell:scrolled-away Panel#ChatHeaderLayer.busy.compact Button#ChatTitleButton">
+      <Setter Property="MaxWidth" Value="170" />
+    </Style>
+
+    <!-- The title pill's second half: how full the context window is. A fill level, not a spinner: a filled
+         wedge inside a hairline ring (the arc's stroke is as wide as its radius, so it paints a pie). It is
+         quiet until the window fills up; then it warms and gives its percentage. -->
+    <Style Selector="Button.header-seg#ContextWindowButton">
+      <Setter Property="Padding" Value="8,0,9,0" />
+    </Style>
+    <Style Selector="Panel.context-ring-gauge">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Ellipse.context-ring-track">
+      <Setter Property="Stroke" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="StrokeThickness" Value="1.5" />
+    </Style>
+    <Style Selector="Arc.context-ring-arc">
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Height" Value="9" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="StartAngle" Value="-90" />
+      <Setter Property="Stroke" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="StrokeThickness" Value="4.5" />
+      <Setter Property="StrokeLineCap" Value="Flat" />
+    </Style>
+    <Style Selector="Button#ContextWindowButton:pointerover Arc.context-ring-arc">
+      <Setter Property="Stroke" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button#ContextWindowButton.high Arc.context-ring-arc">
+      <Setter Property="Stroke" Value="{DynamicResource Brush.WarningDefault}" />
+    </Style>
+    <Style Selector="TextBlock.context-ring-text">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Border.chat-mark">
       <Setter Property="Width" Value="26" />
@@ -1059,14 +1245,16 @@
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
-    <!-- Agents pill: who is working right now. It opens their page in the Workspace. -->
-    <Style Selector="Button.header-pill#HeaderAgentsButton">
+    <!-- Running pill: what still runs in this chat. While Lumi replies it shows the agents at work and opens
+         their page in the Workspace; once Lumi is ready it shows everything still running (a command wears a
+         terminal) and opens a card that lists it, with Stop session. -->
+    <Style Selector="Button.header-pill#HeaderRunningButton">
       <Setter Property="Padding" Value="6,0,13,0" />
     </Style>
-    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderAgentsButton">
+    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderRunningButton">
       <Setter Property="Padding" Value="6,0" />
     </Style>
-    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderAgentsButton TextBlock.header-pill-text">
+    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderRunningButton > StackPanel > TextBlock.header-pill-text">
       <Setter Property="IsVisible" Value="False" />
     </Style>
     <Style Selector="Border.header-agent-avatar">
@@ -1082,6 +1270,235 @@
       <Setter Property="FontSize" Value="9.5" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+    <Style Selector="Border.header-agent-avatar.command">
+      <Setter Property="Background" Value="#FF475569" />
+    </Style>
+    <Style Selector="Border.header-agent-avatar.command > sc|StrataLineIcon">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="StrokeThickness" Value="2.2" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+
+    <!-- The checkout: a tile in the project's hue with a branch, the branch in monospace, then where the
+         chat runs. In the header it is the git pill's first half; on a new chat's composer, a chip. The
+         branch breathes while git refreshes. What changed reads in diff colours. -->
+    <Style Selector="Button.header-seg#HeaderGitButton">
+      <Setter Property="Padding" Value="4,0,10,0" />
+    </Style>
+    <Style Selector="Button.header-seg#HeaderGitChangesButton">
+      <Setter Property="Padding" Value="10,0,11,0" />
+    </Style>
+    <Style Selector="Border.git-tile">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerProjectTile}" />
+    </Style>
+    <Style Selector="Border.git-tile.card">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="CornerRadius" Value="9" />
+    </Style>
+    <Style Selector="sc|StrataLineIcon.git-icon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="StrokeThickness" Value="2.1" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ComposerProjectHue}" />
+    </Style>
+    <Style Selector="Button.refreshing sc|StrataLineIcon.git-icon">
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.25" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.9" />
+      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="TextBlock.git-branch">
+      <Setter Property="FontFamily" Value="Cascadia Code, Cascadia Mono, Consolas, Menlo, monospace" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="MaxWidth" Value="220" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.git-branch.card">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="MaxWidth" Value="Infinity" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="MaxLines" Value="2" />
+    </Style>
+    <Style Selector="TextBlock.git-mode">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.git-card-line">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="TextBlock.git-card-stat">
+      <Setter Property="FontSize" Value="11.5" />
+    </Style>
+    <Style Selector="sc|StrataLineIcon.git-chevron">
+      <Setter Property="Width" Value="11" />
+      <Setter Property="Height" Value="11" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Button:pointerover sc|StrataLineIcon.git-chevron">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <!-- A narrow island keeps the title readable: the git pill keeps its branch and counts, shorter. Child
+         selectors keep these to the pill itself: its card is a logical descendant of the button too. -->
+    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderGitButton > StackPanel > TextBlock.git-mode,
+                     Panel#ChatHeaderLayer.compact Button#HeaderGitButton > StackPanel > PathIcon.header-chevron">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Panel#ChatHeaderLayer.compact Button#HeaderGitButton > StackPanel > TextBlock.git-branch">
+      <Setter Property="MaxWidth" Value="96" />
+    </Style>
+
+    <!-- On a new chat's composer the checkout is a split chip in the composer's chip language: 28px, the
+         project's tile, then what changed. Each half lights on hover, as in the header's pills. -->
+    <Style Selector="Border.composer-chip.checkout-chip">
+      <Setter Property="Padding" Value="1" />
+    </Style>
+    <Style Selector="Button.chip-seg">
+      <Setter Property="Height" Value="26" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="2,0,8,0" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="ToolTip.Placement" Value="Top" />
+      <Setter Property="ToolTip.VerticalOffset" Value="-6" />
+    </Style>
+    <Style Selector="Button.chip-seg#ComposerGitChangesButton">
+      <Setter Property="Padding" Value="8,0" />
+    </Style>
+    <Style Selector="Button.chip-seg /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Border.composer-chip.checkout-chip Border.chip-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerProjectTile}" />
+    </Style>
+    <Style Selector="Border.composer-chip.checkout-chip sc|StrataLineIcon.chip-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.ComposerProjectHue}" />
+    </Style>
+    <Style Selector="Border.composer-chip.checkout-chip Border.chip-divider">
+      <Setter Property="Width" Value="1" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Margin" Value="1,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ComposerChipBorder}" />
+    </Style>
+
+    <!-- The context and running cards: chips like the title card's, a quiet icon button, and full-width rows
+         that light like the title menu's. -->
+    <Style Selector="Border.header-card-chip">
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Padding" Value="7,0,9,0" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="Border.header-card-chip TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="MaxWidth" Value="200" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="Border.header-card-chip.health">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Border.header-card-chip.health TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.header-card-title">
+      <Setter Property="FontSize" Value="14.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.header-card-tile">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="Border.header-card-well">
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+    </Style>
+    <Style Selector="Border.header-card-divider">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Margin" Value="0,2,0,6" />
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDivider}" />
+    </Style>
+    <Style Selector="Button.header-card-icon">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.header-card-row">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontWeight" Value="Normal" />
+    </Style>
+    <Style Selector="Button.header-card-row /template/ Border#PART_Surface, Button.header-card-icon /template/ Border#PART_Surface">
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.header-card-row:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
+    </Style>
+    <Style Selector="Button.header-card-row:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemPressed}" />
+    </Style>
+    <Style Selector="Button.header-card-row:disabled">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+    <Style Selector="Button.header-card-row.danger:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{StaticResource ChatHeader.MenuDangerHover}" />
+    </Style>
+    <Style Selector="TextBlock.header-card-row-title">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.danger TextBlock.header-card-row-title">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="TextBlock.header-card-row-detail">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="TextBlock.header-card-shortcut">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Margin" Value="16,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
     <!-- Tools pill: the chat's browser, desktop and Workspace toggles on one piece of glass. -->
@@ -1516,58 +1933,25 @@
     </Style>
 
     <!-- ── Pause ──
-         Pause holds a run where it stands and keeps everything it has done. The Pause pill sits with the
-         chat's other controls above the composer, in their material, and lights with the accent on hover.
+         Pause holds a run where it stands and keeps everything it has done. While Lumi works it sits on the
+         composer beside Stop, a quiet tool like the microphone (Strata's composer-tool: no fill at rest, a
+         catch of light under the pointer), so Stop stays the one disc there.
          The paused bar is a piece of the composer's glass: a disc whose rim breathes slowly, like a standby
          light, while the chat holds; what happened; and the way on, with Resume the one accent. While the
          chat is still pausing, the Strata line runs along its foot instead, as under any work in progress.
          Every label sets its own size and colour: Strata's base TextBlock style would otherwise give it
          body text. -->
-    <Style Selector="Button.pause-pill">
-      <Setter Property="Height" Value="22" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="Padding" Value="7,0,9,0" />
-      <Setter Property="CornerRadius" Value="11" />
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="BorderThickness" Value="1" />
+    <Style Selector="Button.composer-pause">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="CornerRadius" Value="999" />
       <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="ToolTip.Placement" Value="Top" />
       <Setter Property="ToolTip.VerticalOffset" Value="-6" />
-    </Style>
-    <Style Selector="PathIcon.pause-glyph">
-      <Setter Property="Width" Value="8" />
-      <Setter Property="Height" Value="9" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-      <Setter Property="RenderTransform" Value="scale(1)" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.3" Easing="BackEaseOut" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Button.pause-pill:pointerover PathIcon.pause-glyph">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Button.pause-pill:not(.motion-disabled):pointerover PathIcon.pause-glyph">
-      <Setter Property="RenderTransform" Value="scale(1.18)" />
-    </Style>
-    <Style Selector="TextBlock.pause-pill-text">
-      <Setter Property="FontSize" Value="10" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="Button.pause-pill:pointerover TextBlock.pause-pill-text">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
     </Style>
 
     <Style Selector="Border.pause-bar">
@@ -1989,18 +2373,6 @@
     <Style Selector="Button.launchpad-setup.active TextBlock.launchpad-setup-meta">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
-    <!-- Worktree toggle label transitions -->
-    <Style Selector="TextBlock.wt-label">
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
-        </Transitions>
-      </Setter>
-    </Style>
-    <Style Selector="TextBlock.wt-label.inactive">
-      <Setter Property="Opacity" Value="0.45" />
-    </Style>
-
     <!-- The turn currently owning the full composer stays visibly connected to it. -->
     <Style Selector="sc|StrataChatMessage.editing-source /template/ Border#PART_Bubble">
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
@@ -3250,34 +3622,346 @@
             </Panel>
 
             <DockPanel x:Name="ChatHeaderBar" Height="36" Margin="12,10,12,10" LastChildFill="False">
-              <!-- Right: who is working, then the chat's tools. Docked first so they keep their room. -->
+              <!-- Right: what still runs, where the chat works, then its tools. Docked first so they keep
+                   their room. -->
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
-                <Button x:Name="HeaderAgentsButton"
+                <Button x:Name="HeaderRunningButton"
                         Theme="{StaticResource StrataGlassButton}"
                         Classes="header-pill"
-                        IsVisible="{Binding HasRunningSubagents}"
-                        Command="{Binding OpenWorkspaceAgentsCommand}"
-                        ToolTip.Tip="{loc:Str Workspace_OpenAgents}"
+                        IsVisible="{Binding ShowHeaderRunning}"
+                        Click="OnHeaderRunningClick"
+                        ToolTip.Tip="{Binding HeaderRunningToolTip}"
                         ToolTip.Placement="Bottom"
                         ToolTip.VerticalOffset="6"
-                        AutomationProperties.Name="{Binding HeaderAgentsText}">
-                  <StackPanel Orientation="Horizontal" Spacing="8">
-                    <ItemsControl ItemsSource="{Binding HeaderRunningAgents}" VerticalAlignment="Center">
-                      <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="-7" /></ItemsPanelTemplate>
-                      </ItemsControl.ItemsPanel>
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="vm:SubagentToolCallItem">
-                          <Border Classes="header-agent-avatar"
-                                  Background="{Binding AccentIndex, Converter={StaticResource ChartBrush}}">
-                            <TextBlock Text="{Binding Initial}" />
+                        AutomationProperties.Name="{Binding HeaderRunningText}"
+                        AutomationProperties.HelpText="{Binding HeaderRunningToolTip}">
+                  <!-- Once Lumi is ready, everything still running, live, with the way to stop it. -->
+                  <FlyoutBase.AttachedFlyout>
+                    <Flyout Placement="BottomEdgeAlignedRight"
+                            HorizontalOffset="16"
+                            VerticalOffset="-8"
+                            FlyoutPresenterTheme="{StaticResource ChatHeaderCardPresenter}">
+                      <StackPanel Name="BackgroundSessionStatus" Width="372">
+                        <StackPanel.Styles>
+                          <!-- One task per row, in the Workspace agents index's row language: flat, hover-lit,
+                               and the whole row is the hit area. It opens an agent's run on the Agents page,
+                               or shows the newest output of a command or task. -->
+                          <Style Selector="Button.session-task">
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="Padding" Value="8,8" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="CornerRadius" Value="8" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="HorizontalAlignment" Value="Stretch" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Template">
+                              <ControlTemplate>
+                                <ContentPresenter Name="PART_ContentPresenter"
+                                                  Background="{TemplateBinding Background}"
+                                                  CornerRadius="{TemplateBinding CornerRadius}"
+                                                  Padding="{TemplateBinding Padding}"
+                                                  Content="{TemplateBinding Content}"
+                                                  HorizontalContentAlignment="Stretch"
+                                                  VerticalContentAlignment="Center">
+                                  <ContentPresenter.Transitions>
+                                    <Transitions>
+                                      <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
+                                    </Transitions>
+                                  </ContentPresenter.Transitions>
+                                </ContentPresenter>
+                              </ControlTemplate>
+                            </Setter>
+                          </Style>
+                          <Style Selector="Button.session-task:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                            <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
+                          </Style>
+                          <Style Selector="Button.session-task:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                            <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemPressed}" />
+                          </Style>
+                          <Style Selector="Button.session-task:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+                            <Setter Property="Background" Value="{StaticResource ChatHeader.MenuItemHover}" />
+                          </Style>
+                          <!-- A task with nothing to open or show yet is just a readout, never greyed out:
+                               it is still running. -->
+                          <Style Selector="Button.session-task:disabled">
+                            <Setter Property="Cursor" Value="Arrow" />
+                            <Setter Property="Opacity" Value="1" />
+                          </Style>
+                          <Style Selector="Button.session-task:disabled /template/ ContentPresenter#PART_ContentPresenter">
+                            <Setter Property="Background" Value="Transparent" />
+                          </Style>
+
+                          <!-- Every listed task is running, so the pulsing dot and the clock say it all. -->
+                          <Style Selector="sc|StrataAgentRun.session-task:inprogress /template/ TextBlock#PART_StatusText">
+                            <Setter Property="IsVisible" Value="False" />
+                          </Style>
+                          <!-- A task wears its kind's colour; commands wear a terminal tile instead. -->
+                          <Style Selector="sc|StrataAgentRun.task" x:DataType="vm:SessionActivityItem">
+                            <Setter Property="AccentBrush" Value="{Binding AccentIndex, Converter={StaticResource ChartBrush}}" />
+                          </Style>
+                          <Style Selector="sc|StrataAgentRun.task.command">
+                            <Setter Property="AccentBrush" Value="#FF475569" />
+                          </Style>
+                          <!-- A command has no measurable progress, so it skips the agents' working rail. -->
+                          <Style Selector="sc|StrataAgentRun.task.command /template/ ProgressBar#PART_Progress">
+                            <Setter Property="IsVisible" Value="False" />
+                          </Style>
+
+                          <!-- The row's affordance stays quiet until hovered: › opens a run, ⌄ shows output. -->
+                          <Style Selector="PathIcon.session-task-affordance">
+                            <Setter Property="Width" Value="11" />
+                            <Setter Property="Height" Value="11" />
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+                            <Setter Property="Opacity" Value="0.55" />
+                            <Setter Property="RenderTransform" Value="rotate(0deg)" />
+                            <Setter Property="Transitions">
+                              <Transitions>
+                                <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+                              </Transitions>
+                            </Setter>
+                          </Style>
+                          <Style Selector="Button.session-task:pointerover PathIcon.session-task-affordance">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+                            <Setter Property="Opacity" Value="1" />
+                          </Style>
+                          <Style Selector="PathIcon.session-task-affordance.expanded">
+                            <Setter Property="RenderTransform" Value="rotate(180deg)" />
+                          </Style>
+
+                          <!-- The newest output, terminal-style, under the row that owns it. -->
+                          <Style Selector="Border.session-task-output">
+                            <Setter Property="Margin" Value="46,0,8,6" />
+                            <Setter Property="Padding" Value="9,7" />
+                            <Setter Property="CornerRadius" Value="6" />
+                            <Setter Property="Background" Value="{StaticResource ChatHeader.MenuChipFill}" />
+                          </Style>
+                        </StackPanel.Styles>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="10,10,10,12">
+                          <Border Classes="header-card-tile">
+                            <Border Classes="header-live-dot" HorizontalAlignment="Center" />
                           </Border>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Classes="header-pill-text" Text="{Binding HeaderAgentsText}" />
+                          <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Classes="header-card-title" Text="{loc:Str Chat_AssistantReady}" />
+                            <TextBlock Classes="header-card-row-detail" Text="{Binding BackgroundActivityText}" />
+                          </StackPanel>
+                        </Grid>
+                        <Border Classes="header-card-divider" Margin="0,0,0,4" />
+                        <ScrollViewer MaxHeight="380"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      IsVisible="{Binding HasRunningSessionActivities}">
+                          <ItemsControl Name="RunningSessionActivities"
+                                        ItemsSource="{Binding RunningSessionActivities}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:SessionActivityItem">
+                                <StackPanel>
+                                  <Button Classes="session-task"
+                                          Command="{Binding ActivateCommand}"
+                                          Content="{Binding Presented}"
+                                          AutomationProperties.Name="{Binding Title}">
+                                    <Button.DataTemplates>
+                                      <!-- An agent this chat launched is its live run, exactly as the
+                                           Workspace lists it; the row opens that run. -->
+                                      <DataTemplate DataType="vm:SubagentToolCallItem">
+                                        <sc:StrataAgentRun Classes="list session-task"
+                                                           AgentName="{Binding DisplayName}"
+                                                           Title="{Binding Title}"
+                                                           Initial="{Binding Initial}"
+                                                           AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
+                                                           ModelName="{Binding ModelDisplayName}"
+                                                           Activity="{Binding LatestActivityText}"
+                                                           Status="{Binding Status}"
+                                                           StatusLabel="{Binding StatusText}"
+                                                           DurationMs="{Binding DurationMs}"
+                                                           RunningSince="{Binding StartedAt}"
+                                                           ProgressValue="{Binding ProgressValue}">
+                                          <sc:StrataAgentRun.HeaderAction>
+                                            <PathIcon Classes="session-task-affordance"
+                                                      Data="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                                          </sc:StrataAgentRun.HeaderAction>
+                                        </sc:StrataAgentRun>
+                                      </DataTemplate>
+
+                                      <!-- Commands, client tasks and agents without a run in this chat. -->
+                                      <DataTemplate DataType="vm:SessionActivityItem">
+                                        <sc:StrataAgentRun Classes="list session-task task"
+                                                           Classes.command="{Binding IsCommand}"
+                                                           StatusLabel="{loc:Str Subagent_StatusRunning}"
+                                                           AgentName="{Binding Owner}"
+                                                           Title="{Binding Title}"
+                                                           Initial="{Binding Initial}"
+                                                           ModelName="{Binding Detail}"
+                                                           Activity="{Binding Activity}"
+                                                           RunningSince="{Binding StartedAt}"
+                                                           ProgressValue="{Binding ProgressValue}">
+                                          <sc:StrataAgentRun.HeaderAction>
+                                            <PathIcon Classes="session-task-affordance"
+                                                      Classes.expanded="{Binding IsExpanded}"
+                                                      IsVisible="{Binding CanExpand}"
+                                                      Data="M7 10l5 5 5-5z" />
+                                          </sc:StrataAgentRun.HeaderAction>
+                                        </sc:StrataAgentRun>
+                                      </DataTemplate>
+                                    </Button.DataTemplates>
+                                  </Button>
+                                  <Border Classes="session-task-output" IsVisible="{Binding IsExpanded}">
+                                    <TextBlock Text="{Binding Output}"
+                                               FontFamily="Cascadia Code, Consolas, Menlo, monospace"
+                                               FontSize="10.5" LineHeight="15"
+                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                                  </Border>
+                                </StackPanel>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </ScrollViewer>
+                        <TextBlock Classes="header-card-row-detail"
+                                   Margin="10,4,10,8"
+                                   Text="{Binding BackgroundActivityNotice}"
+                                   IsVisible="{Binding HasBackgroundActivityNotice}" />
+                        <Border Classes="header-card-divider" />
+                        <Button Name="StopBackgroundSession"
+                                Classes="header-card-row danger"
+                                Command="{Binding StopGenerationCommand}"
+                                AutomationProperties.Name="{loc:Str Chat_StopSession}">
+                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                               VerticalAlignment="Center"
+                                               Data="{x:Static sc:StrataIcons.StopCircle}"
+                                               Foreground="{DynamicResource Brush.DangerDefault}" />
+                            <TextBlock Grid.Column="1" Classes="header-card-row-title" VerticalAlignment="Center"
+                                       Text="{loc:Str Chat_StopSession}" />
+                          </Grid>
+                        </Button>
+                      </StackPanel>
+                    </Flyout>
+                  </FlyoutBase.AttachedFlyout>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <!-- Who is running: the agents' faces and a terminal for commands, or a live dot until
+                         the session says what runs. -->
+                    <Border Classes="header-live-dot" Margin="6,0,0,0">
+                      <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                          <Binding Path="!HasRunningSubagents" />
+                          <Binding Path="!HasRunningCommands" />
+                        </MultiBinding>
+                      </Border.IsVisible>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Spacing="-7" VerticalAlignment="Center">
+                      <ItemsControl ItemsSource="{Binding HeaderRunningAgents}" VerticalAlignment="Center">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="-7" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate DataType="vm:SubagentToolCallItem">
+                            <Border Classes="header-agent-avatar"
+                                    Background="{Binding AccentIndex, Converter={StaticResource ChartBrush}}">
+                              <TextBlock Text="{Binding Initial}" />
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                      <Border Classes="header-agent-avatar command" IsVisible="{Binding HasRunningCommands}">
+                        <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Terminal}" />
+                      </Border>
+                    </StackPanel>
+                    <TextBlock Classes="header-pill-text" Text="{Binding HeaderRunningText}" />
                   </StackPanel>
                 </Button>
+
+                <!-- Where the chat works, once it has started (a new chat chooses on its composer): the
+                     checkout opens its card, and what changed opens the changes in one click. -->
+                <Panel x:Name="HeaderGitPill" IsVisible="{Binding ShowHeaderCheckout}">
+                  <sc:StrataBackdropBlur Classes="header-pill-frost" CornerRadius="18" />
+                  <Border Classes="header-tools">
+                    <StackPanel Orientation="Horizontal">
+                      <Button x:Name="HeaderGitButton"
+                              Classes="subtle header-seg"
+                              Classes.refreshing="{Binding IsRefreshingGitStatus}"
+                              ToolTip.Tip="{loc:Str Git_HeaderTooltip}"
+                              AutomationProperties.Name="{Binding GitBranchLabel}"
+                              AutomationProperties.HelpText="{loc:Str Git_HeaderTooltip}">
+                        <Button.Flyout>
+                          <MenuFlyout Placement="BottomEdgeAlignedRight"
+                                      HorizontalOffset="16"
+                                      VerticalOffset="-8"
+                                      FlyoutPresenterTheme="{StaticResource ChatGitCardPresenter}"
+                                      ItemContainerTheme="{StaticResource ChatTitleMenuItem}">
+                            <MenuItem Header="{loc:Str Git_OpenTerminal}" Command="{Binding OpenInTerminalCommand}">
+                              <MenuItem.Icon>
+                                <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                                   Data="{x:Static sc:StrataIcons.Terminal}" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="{loc:Str Git_OpenExplorer}" Command="{Binding OpenInExplorerCommand}">
+                              <MenuItem.Icon>
+                                <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                                   Data="{x:Static sc:StrataIcons.Folder}" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="{loc:Str Git_OpenIDE}" Command="{Binding OpenInIDECommand}">
+                              <MenuItem.Icon>
+                                <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                                   Data="{StaticResource Chat.Icon.Code}" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <Separator Margin="6" Background="{StaticResource ChatHeader.MenuDivider}" />
+                            <MenuItem Header="{loc:Str Git_CopyBranch}" Command="{Binding CopyBranchNameCommand}">
+                              <MenuItem.Icon>
+                                <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                                   Data="{x:Static sc:StrataIcons.Branch}" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="{loc:Str Git_CopyPath}" Command="{Binding CopyDirectoryPathCommand}">
+                              <MenuItem.Icon>
+                                <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                                   Data="{x:Static sc:StrataIcons.Files}" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <Separator Margin="6" Background="{StaticResource ChatHeader.MenuDivider}" />
+                            <MenuItem Header="{loc:Str Git_RefreshTooltip}"
+                                      Command="{Binding RefreshGitStatusCommand}"
+                                      IsEnabled="{Binding !IsRefreshingGitStatus}">
+                              <MenuItem.Icon>
+                                <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                                   Data="{x:Static sc:StrataIcons.Retry}" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                          </MenuFlyout>
+                        </Button.Flyout>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <Border Classes="git-tile">
+                            <sc:StrataLineIcon Classes="git-icon" Data="{x:Static sc:StrataIcons.Branch}" />
+                          </Border>
+                          <TextBlock Classes="git-branch" Text="{Binding GitBranchLabel}" />
+                          <TextBlock Classes="git-mode" Margin="-3,0,0,0"
+                                     Text="{Binding GitCheckoutModeLabel, StringFormat='· {0}'}" />
+                          <PathIcon Classes="header-chevron" Margin="1,1,0,0"
+                                    Data="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" />
+                        </StackPanel>
+                      </Button>
+                      <Border Classes="header-seg-divider" IsVisible="{Binding ShowCheckoutChanges}" />
+                      <Button x:Name="HeaderGitChangesButton"
+                              Classes="subtle header-seg"
+                              IsVisible="{Binding ShowCheckoutChanges}"
+                              Command="{Binding ShowGitChangesCommand}"
+                              ToolTip.Tip="{loc:Str Git_ShowChanges}"
+                              AutomationProperties.Name="{Binding GitChangesLabel}"
+                              AutomationProperties.HelpText="{loc:Str Git_ShowChanges}">
+                        <Panel x:DataType="vm:GitChangesViewModel" DataContext="{Binding WorkspaceGit}">
+                          <StackPanel Orientation="Horizontal" Spacing="5" IsVisible="{Binding HasTotalStats}">
+                            <TextBlock Classes="diff-added" Text="{Binding TotalAddedLabel}" />
+                            <TextBlock Classes="diff-removed" Text="{Binding TotalRemovedLabel}" />
+                          </StackPanel>
+                          <TextBlock Classes="header-pill-text" Text="{Binding TotalFilesLabel}"
+                                     IsVisible="{Binding !HasTotalStats}" />
+                        </Panel>
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                </Panel>
 
                 <Panel x:Name="HeaderToolsPill">
                   <sc:StrataBackdropBlur Classes="header-pill-frost" CornerRadius="18" />
@@ -3334,95 +4018,252 @@
                 </Panel>
               </StackPanel>
 
-              <!-- Left: the chat itself. Its mark is the agent's glyph on the project's hue. -->
-              <Button x:Name="ChatTitleButton"
-                      DockPanel.Dock="Left"
-                      Theme="{StaticResource StrataGlassButton}"
-                      Classes="header-pill"
-                      Classes.no-mark="{Binding HeaderMark, Converter={x:Static ObjectConverters.IsNull}}"
-                      IsVisible="{Binding $parent[views:ChatView].ShowInternalTitle}"
-                      ToolTip.Tip="{loc:Str ChatHeader_TitleMenu}"
-                      ToolTip.Placement="Bottom"
-                      ToolTip.VerticalOffset="6"
-                      AutomationProperties.Name="{Binding CurrentChatTitle}"
-                      AutomationProperties.HelpText="{loc:Str ChatHeader_TitleMenu}">
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                  <Panel Grid.Column="0"
-                         Width="26"
-                         Height="26"
-                         Margin="0,0,9,0"
-                         IsVisible="{Binding HeaderMark, Converter={x:Static ObjectConverters.IsNotNull}}">
-                    <Panel x:DataType="vm:ChatHeaderMark" DataContext="{Binding HeaderMark}">
-                      <Border Classes="chat-mark" Background="{Binding Background}" />
-                      <TextBlock Classes="chat-mark-glyph" Text="{Binding Glyph}" Foreground="{Binding Foreground}" />
-                    </Panel>
-                    <Border Classes="chat-mark-status" IsVisible="{Binding IsBusy}" />
-                  </Panel>
-                  <!-- The project takes only the room the title leaves, so it trims away first. -->
-                  <DockPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock x:Name="ChatTitleText"
-                               DockPanel.Dock="Left"
-                               Classes="header-title-text"
-                               Text="{Binding CurrentChatTitle}" />
-                    <TextBlock Classes="header-project-text"
-                               Text="{Binding ProjectBadgeText}"
-                               IsVisible="{Binding ProjectBadgeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <!-- Left: the chat itself. Its mark is the agent's glyph on the project's hue. Once the chat has
+                   context, the pill splits like the git pill: the chat, then how full its context window is. -->
+              <Panel x:Name="ChatTitlePill" DockPanel.Dock="Left">
+                <Panel.IsVisible>
+                  <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                    <Binding Path="$parent[views:ChatView].ShowInternalTitle" />
+                    <Binding Path="HasTokenUsage" />
+                  </MultiBinding>
+                </Panel.IsVisible>
+                <sc:StrataBackdropBlur Classes="header-pill-frost" CornerRadius="18" />
+                <Border Classes="header-tools">
+                  <DockPanel>
+                    <Button x:Name="ContextWindowButton"
+                            DockPanel.Dock="Right"
+                            Classes="subtle header-seg"
+                            Classes.high="{Binding IsContextUsageHigh}"
+                            IsVisible="{Binding HasTokenUsage}"
+                            Command="{Binding OpenContextDetailsCommand}"
+                            ToolTip.Tip="{Binding ContextRingToolTip}"
+                            AutomationProperties.Name="{loc:Str Chat_ContextWindow_Title}"
+                            AutomationProperties.HelpText="{Binding ContextRingToolTip}">
+                      <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedLeft"
+                                HorizontalOffset="-16"
+                                VerticalOffset="-8"
+                                FlyoutPresenterTheme="{StaticResource ChatHeaderCardPresenter}">
+                          <StackPanel x:Name="ContextWindowFlyout" Width="340">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" Margin="10,10,6,0">
+                              <Border Classes="header-card-tile">
+                                <Panel Classes="context-ring-gauge" HorizontalAlignment="Center">
+                                  <Ellipse Classes="context-ring-track" />
+                                  <Arc Classes="context-ring-arc" SweepAngle="{Binding ContextUsageSweep}" />
+                                </Panel>
+                              </Border>
+                              <TextBlock Grid.Column="1" Classes="header-card-title"
+                                         Text="{loc:Str Chat_ContextWindow_Title}" />
+                              <Button x:Name="ContextRefreshButton"
+                                      Grid.Column="2"
+                                      Classes="subtle header-card-icon"
+                                      Command="{Binding RefreshContextDetailsCommand}"
+                                      IsEnabled="{Binding CanRefreshContextDetails}"
+                                      ToolTip.Tip="{loc:Str Chat_ContextWindow_Refresh}"
+                                      AutomationProperties.Name="{loc:Str Chat_ContextWindow_Refresh}">
+                                <sc:StrataLineIcon Width="14" Height="14" StrokeThickness="2"
+                                                   Data="{x:Static sc:StrataIcons.Retry}"
+                                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                              </Button>
+                            </Grid>
+                            <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="10,11,10,12">
+                              <Border Classes="header-card-chip"
+                                      IsVisible="{Binding ContextDetailsModelId, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                  <PathIcon Width="10" Height="10" VerticalAlignment="Center"
+                                            Foreground="{DynamicResource Brush.AccentDefault}"
+                                            Data="M8,1 L10,6 L15,8 L10,10 L8,15 L6,10 L1,8 L6,6 Z" />
+                                  <TextBlock Text="{Binding ContextDetailsModelId, Converter={StaticResource ModelDisplayConverter}}" />
+                                </StackPanel>
+                              </Border>
+                              <Border Classes="header-card-chip"
+                                      IsVisible="{Binding ContextDetailsTierDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Text="{Binding ContextDetailsTierDisplay}" />
+                              </Border>
+                              <Border Classes="header-card-chip health"
+                                      IsVisible="{Binding ContextHealthDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <TextBlock Text="{Binding ContextHealthDisplay}" />
+                              </Border>
+                            </WrapPanel>
+                            <ProgressBar Height="2" MinHeight="2" Margin="10,0,10,8"
+                                         IsIndeterminate="True"
+                                         IsVisible="{Binding IsContextPanelBusy}" />
+                            <Border Classes="header-card-well" Margin="4,0,4,6" Padding="12,10,12,12">
+                              <StackPanel Spacing="8">
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Text="{Binding TokenUsageSummary}" FontSize="26" FontWeight="SemiBold"
+                                             Foreground="{DynamicResource Brush.TextPrimary}" />
+                                  <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="1">
+                                    <TextBlock Text="{Binding ContextUsageDetailDisplay}" FontSize="11.5"
+                                               HorizontalAlignment="Right" Foreground="{DynamicResource Brush.TextTertiary}" />
+                                    <TextBlock Text="{Binding ContextRemainingDisplay}" FontSize="11.5" FontWeight="SemiBold"
+                                               HorizontalAlignment="Right" Foreground="{DynamicResource Brush.TextSecondary}" />
+                                  </StackPanel>
+                                </Grid>
+                                <ProgressBar Minimum="0" Maximum="100" Value="{Binding ContextUsageProgress}"
+                                             Height="6" MinHeight="6" CornerRadius="3" />
+                                <TextBlock Text="{Binding ContextCompactionHeadroomDisplay}"
+                                           IsVisible="{Binding HasContextCompactionThreshold}"
+                                           FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}" />
+                              </StackPanel>
+                            </Border>
+                            <ItemsControl ItemsSource="{Binding ContextBreakdownItems}"
+                                          IsVisible="{Binding HasContextBreakdown}" Margin="1,0,1,6">
+                              <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                  <UniformGrid Columns="3" Rows="1" />
+                                </ItemsPanelTemplate>
+                              </ItemsControl.ItemsPanel>
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ContextTokenBreakdownItem">
+                                  <Border Classes="header-card-well" Margin="3,0" Padding="9,8" CornerRadius="9">
+                                    <StackPanel Spacing="2">
+                                      <TextBlock Text="{Binding ShareDisplay}" FontSize="15" FontWeight="SemiBold"
+                                                 Foreground="{DynamicResource Brush.TextPrimary}" />
+                                      <TextBlock Text="{Binding Label}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{DynamicResource Brush.TextSecondary}" />
+                                      <TextBlock Text="{Binding TokensDisplay}" FontSize="10"
+                                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                                    </StackPanel>
+                                  </Border>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Border Margin="4,0,4,6" Padding="9,7" CornerRadius="9"
+                                    Background="{DynamicResource Brush.DangerSubtle}"
+                                    IsVisible="{Binding HasContextDetailsError}">
+                              <TextBlock Text="{Binding ContextDetailsError}" FontSize="11" TextWrapping="Wrap"
+                                         Foreground="{DynamicResource Brush.DangerDefault}" />
+                            </Border>
+                            <TextBlock Text="{Binding ContextLastCompactionDisplay}"
+                                       IsVisible="{Binding HasContextLastCompactionDisplay}"
+                                       Margin="10,0,10,8" FontSize="11" TextAlignment="Center" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Brush.TextSecondary}" />
+                            <Border Classes="header-card-divider" />
+                            <Button x:Name="ContextCompactButton"
+                                    Classes="header-card-row"
+                                    Command="{Binding CompactContextCommand}"
+                                    IsEnabled="{Binding CanCompactContext}">
+                              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <PathIcon Width="15" Height="15" VerticalAlignment="Center"
+                                          Foreground="{DynamicResource Brush.TextSecondary}"
+                                          Data="M4 5h16v2H4V5zm3 6h10v2H7v-2zm-3 6h16v2H4v-2z" />
+                                <StackPanel Grid.Column="1" Spacing="1" Margin="0,7">
+                                  <TextBlock Classes="header-card-row-title" Text="{loc:Str Chat_ContextWindow_CompactNow}" />
+                                  <TextBlock Classes="header-card-row-detail" Text="{loc:Str Chat_ContextWindow_CompactDescription}" />
+                                </StackPanel>
+                              </Grid>
+                            </Button>
+                          </StackPanel>
+                        </Flyout>
+                      </Button.Flyout>
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Panel Classes="context-ring-gauge">
+                          <Ellipse Classes="context-ring-track" />
+                          <Arc Classes="context-ring-arc" SweepAngle="{Binding ContextUsageSweep}" />
+                        </Panel>
+                        <TextBlock Classes="context-ring-text"
+                                   Text="{Binding ContextUsagePercent, StringFormat='{}{0}%'}"
+                                   IsVisible="{Binding IsContextUsageHigh}" />
+                      </StackPanel>
+                    </Button>
+                    <Border DockPanel.Dock="Right" Classes="header-seg-divider">
+                      <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                          <Binding Path="$parent[views:ChatView].ShowInternalTitle" />
+                          <Binding Path="HasTokenUsage" />
+                        </MultiBinding>
+                      </Border.IsVisible>
+                    </Border>
+                    <Button x:Name="ChatTitleButton"
+                            Classes="subtle header-seg"
+                            Classes.no-mark="{Binding HeaderMark, Converter={x:Static ObjectConverters.IsNull}}"
+                            IsVisible="{Binding $parent[views:ChatView].ShowInternalTitle}"
+                            ToolTip.Tip="{loc:Str ChatHeader_TitleMenu}"
+                            ToolTip.Placement="Bottom"
+                            ToolTip.VerticalOffset="8"
+                            AutomationProperties.Name="{Binding CurrentChatTitle}"
+                            AutomationProperties.HelpText="{loc:Str ChatHeader_TitleMenu}">
+                      <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Panel Grid.Column="0"
+                               Width="26"
+                               Height="26"
+                               Margin="0,0,9,0"
+                               IsVisible="{Binding HeaderMark, Converter={x:Static ObjectConverters.IsNotNull}}">
+                          <Panel x:DataType="vm:ChatHeaderMark" DataContext="{Binding HeaderMark}">
+                            <Border Classes="chat-mark" Background="{Binding Background}" />
+                            <TextBlock Classes="chat-mark-glyph" Text="{Binding Glyph}" Foreground="{Binding Foreground}" />
+                          </Panel>
+                          <Border Classes="chat-mark-status" IsVisible="{Binding IsBusy}" />
+                        </Panel>
+                        <!-- The project takes only the room the title leaves, so it trims away first. -->
+                        <DockPanel Grid.Column="1" VerticalAlignment="Center">
+                          <TextBlock x:Name="ChatTitleText"
+                                     DockPanel.Dock="Left"
+                                     Classes="header-title-text"
+                                     Text="{Binding CurrentChatTitle}" />
+                          <TextBlock Classes="header-project-text"
+                                     Text="{Binding ProjectBadgeText}"
+                                     IsVisible="{Binding ProjectBadgeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </DockPanel>
+                        <PathIcon Grid.Column="2"
+                                  Classes="header-chevron"
+                                  Data="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" />
+                      </Grid>
+                      <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedLeft"
+                                    HorizontalOffset="-19"
+                                    VerticalOffset="-8"
+                                    FlyoutPresenterTheme="{StaticResource ChatTitleMenuPresenter}"
+                                    ItemContainerTheme="{StaticResource ChatTitleMenuItem}"
+                                    Opening="OnChatTitleMenuOpening">
+                          <MenuItem x:Name="ChatTitleRenameItem" Header="{loc:Str Menu_Rename}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{DynamicResource Icon.Rename}" Width="15" Height="15" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                          <MenuItem x:Name="ChatTitlePinItem" Header="{loc:Str Menu_Pin}">
+                            <MenuItem.Icon>
+                              <!-- Pin or unpin: the menu picks the glyph each time it opens. -->
+                              <PathIcon Width="15" Height="15" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                          <MenuItem x:Name="ChatTitleDuplicateItem" Header="{loc:Str Menu_Fork}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{x:Static sc:StrataChatMessage.ForkIconGeometry}" Width="15" Height="15" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                          <MenuItem x:Name="ChatTitleMoveItem" Header="{loc:Str Menu_MoveToProject}"
+                                    ItemContainerTheme="{StaticResource ChatTitleMenuItem}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{DynamicResource Icon.Folder}" Width="15" Height="15" />
+                            </MenuItem.Icon>
+                            <MenuItem IsVisible="False" IsEnabled="False" />
+                          </MenuItem>
+                          <MenuItem x:Name="ChatTitleTagItem" Header="{loc:Str Menu_ChatTag}"
+                                    ItemContainerTheme="{StaticResource ChatTitleMenuItem}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{DynamicResource Icon.Tag}" Width="15" Height="15" />
+                            </MenuItem.Icon>
+                            <MenuItem IsVisible="False" IsEnabled="False" />
+                          </MenuItem>
+                          <MenuItem x:Name="ChatTitleNewWindowItem" Header="{loc:Str Menu_OpenInNewWindow}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{DynamicResource Icon.Window}" Width="15" Height="15" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                          <Separator Margin="6" Background="{StaticResource ChatHeader.MenuDivider}" />
+                          <MenuItem x:Name="ChatTitleDeleteItem" Classes="danger" Header="{loc:Str Menu_Delete}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{DynamicResource Icon.Trash}" Width="15" Height="15" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                        </MenuFlyout>
+                      </Button.Flyout>
+                    </Button>
                   </DockPanel>
-                  <PathIcon Grid.Column="2"
-                            Classes="header-chevron"
-                            Data="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" />
-                </Grid>
-                <Button.Flyout>
-                  <MenuFlyout Placement="BottomEdgeAlignedLeft"
-                              HorizontalOffset="-16"
-                              VerticalOffset="-10"
-                              FlyoutPresenterTheme="{StaticResource ChatTitleMenuPresenter}"
-                              ItemContainerTheme="{StaticResource ChatTitleMenuItem}"
-                              Opening="OnChatTitleMenuOpening">
-                    <MenuItem x:Name="ChatTitleRenameItem" Header="{loc:Str Menu_Rename}">
-                      <MenuItem.Icon>
-                        <PathIcon Data="{DynamicResource Icon.Rename}" Width="15" Height="15" />
-                      </MenuItem.Icon>
-                    </MenuItem>
-                    <MenuItem x:Name="ChatTitlePinItem" Header="{loc:Str Menu_Pin}">
-                      <MenuItem.Icon>
-                        <!-- Pin or unpin: the menu picks the glyph each time it opens. -->
-                        <PathIcon Width="15" Height="15" />
-                      </MenuItem.Icon>
-                    </MenuItem>
-                    <MenuItem x:Name="ChatTitleDuplicateItem" Header="{loc:Str Menu_Fork}">
-                      <MenuItem.Icon>
-                        <PathIcon Data="{x:Static sc:StrataChatMessage.ForkIconGeometry}" Width="15" Height="15" />
-                      </MenuItem.Icon>
-                    </MenuItem>
-                    <MenuItem x:Name="ChatTitleMoveItem" Header="{loc:Str Menu_MoveToProject}"
-                              ItemContainerTheme="{StaticResource ChatTitleMenuItem}">
-                      <MenuItem.Icon>
-                        <PathIcon Data="{DynamicResource Icon.Folder}" Width="15" Height="15" />
-                      </MenuItem.Icon>
-                      <MenuItem IsVisible="False" IsEnabled="False" />
-                    </MenuItem>
-                    <MenuItem x:Name="ChatTitleTagItem" Header="{loc:Str Menu_ChatTag}"
-                              ItemContainerTheme="{StaticResource ChatTitleMenuItem}">
-                      <MenuItem.Icon>
-                        <PathIcon Data="{DynamicResource Icon.Tag}" Width="15" Height="15" />
-                      </MenuItem.Icon>
-                      <MenuItem IsVisible="False" IsEnabled="False" />
-                    </MenuItem>
-                    <MenuItem x:Name="ChatTitleNewWindowItem" Header="{loc:Str Menu_OpenInNewWindow}">
-                      <MenuItem.Icon>
-                        <PathIcon Data="{DynamicResource Icon.Window}" Width="15" Height="15" />
-                      </MenuItem.Icon>
-                    </MenuItem>
-                    <Separator Margin="6" Background="{StaticResource ChatHeader.MenuDivider}" />
-                    <MenuItem x:Name="ChatTitleDeleteItem" Classes="danger" Header="{loc:Str Menu_Delete}">
-                      <MenuItem.Icon>
-                        <PathIcon Data="{DynamicResource Icon.Trash}" Width="15" Height="15" />
-                      </MenuItem.Icon>
-                    </MenuItem>
-                  </MenuFlyout>
-                </Button.Flyout>
-              </Button>
+                </Border>
+              </Panel>
 
               <!-- What Lumi is doing now, while the live step is scrolled out of view. -->
               <Button x:Name="HeaderLiveStatusButton"
@@ -3476,22 +4317,25 @@
 
         <sc:StrataChatShell.Composer>
           <!-- Transparent spacer the size of the floating composer: the transcript rests clear of it
-               and scrolls beneath it. While history is behind it, a frosted veil rises from the
-               island's edge so the rows above the composer and its rim stay calm. -->
+               and scrolls beneath it. While history is behind it, full frost runs from the follow-ups
+               down with a short fade above them, so history dissolves before the dock rather than
+               smearing behind the rows above the composer. -->
           <Panel x:Name="ComposerSpacer">
             <Panel x:Name="ComposerEdgeMaterial"
-                   Margin="-12,-40,-12,-10"
+                   Margin="-12,-28,-12,-10"
                    IsHitTestVisible="False">
-              <sc:StrataBackdropBlur BlurRadius="10" Saturation="1.15" Fade="Top" FadeLength="64" />
-              <Border Background="{StaticResource ChatHeader.EdgeVeil}">
-                <Border.OpacityMask>
-                  <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
-                    <GradientStop Offset="0" Color="#00000000" />
-                    <GradientStop Offset="0.3" Color="#80000000" />
-                    <GradientStop Offset="1" Color="#B3000000" />
-                  </LinearGradientBrush>
-                </Border.OpacityMask>
-              </Border>
+              <sc:StrataBackdropBlur BlurRadius="16" Saturation="1.15" Fade="Top" FadeLength="28" />
+              <Grid RowDefinitions="28,*">
+                <Border Background="{StaticResource ChatHeader.EdgeVeil}">
+                  <Border.OpacityMask>
+                    <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                      <GradientStop Offset="0" Color="#00000000" />
+                      <GradientStop Offset="1" Color="#CC000000" />
+                    </LinearGradientBrush>
+                  </Border.OpacityMask>
+                </Border>
+                <Border Grid.Row="1" Background="{StaticResource ChatHeader.EdgeVeil}" Opacity="0.8" />
+              </Grid>
             </Panel>
           </Panel>
         </sc:StrataChatShell.Composer>
@@ -3693,657 +4537,6 @@
         </Button>
       </lc:FitRowPanel>
 
-      <!-- Chat controls (coding project, background activity, and context) — above the composer -->
-      <Border x:Name="CodingStrip" IsVisible="{Binding ShowInfoStrip}" Margin="4,0,4,4"
-              RenderTransformOrigin="0.5,1">
-        <Border.RenderTransform>
-          <TranslateTransform />
-        </Border.RenderTransform>
-        <Grid ColumnDefinitions="*,Auto">
-          <!-- Left: coding project controls -->
-          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5"
-                      IsVisible="{Binding IsCodingProject}">
-          <Button Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="4"
-                  IsVisible="{Binding IsCodingProject}"
-                  Cursor="Hand" Background="{DynamicResource Brush.Surface2}">
-            <Button.Flyout>
-              <MenuFlyout Placement="TopEdgeAlignedLeft">
-                <MenuItem Header="{loc:Str Git_OpenTerminal}" Command="{Binding OpenInTerminalCommand}">
-                  <MenuItem.Icon>
-                    <PathIcon Width="14" Height="14" Data="M5.828 4.086a.5.5 0 0 1 .707 0l3.535 3.535a.5.5 0 0 1 0 .707L6.535 11.864a.5.5 0 0 1-.707-.707L9.01 7.975 5.828 4.793a.5.5 0 0 1 0-.707zM12.5 11.5h-4a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1z" />
-                  </MenuItem.Icon>
-                </MenuItem>
-                <MenuItem Header="{loc:Str Git_OpenExplorer}" Command="{Binding OpenInExplorerCommand}">
-                  <MenuItem.Icon>
-                    <PathIcon Width="14" Height="14" Data="M3 3a2 2 0 0 0-2 2v2h20V5a2 2 0 0 0-2-2H3zm18 6H3v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9z" />
-                  </MenuItem.Icon>
-                </MenuItem>
-                <MenuItem Header="{loc:Str Git_OpenIDE}" Command="{Binding OpenInIDECommand}">
-                  <MenuItem.Icon>
-                    <PathIcon Width="14" Height="14" Data="M9.954 2.217a.5.5 0 0 1 .273.654L6.326 13.289a.5.5 0 0 1-.927-.382L9.3 2.49a.5.5 0 0 1 .654-.273zM3.694 7.217l-2.4 2.4a.5.5 0 0 0 0 .707l2.4 2.4a.5.5 0 1 1-.707.707L.294 10.738a1.5 1.5 0 0 1 0-2.121l2.693-2.107a.5.5 0 0 1 .707.707zm9.612 0 2.4 2.4a.5.5 0 0 1 0 .707l-2.4 2.4a.5.5 0 0 0 .707.707l2.693-2.107a1.5 1.5 0 0 0 0-2.121L13.999 6.51a.5.5 0 0 0-.707.707z" />
-                  </MenuItem.Icon>
-                </MenuItem>
-                <Separator />
-                <MenuItem Header="{loc:Str Git_CopyBranch}" Command="{Binding CopyBranchNameCommand}">
-                  <MenuItem.Icon>
-                    <PathIcon Width="14" Height="14" Data="M6 3v6a3 3 0 0 0 3 3h2a1 1 0 0 1 1 1v2m0 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM6 3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 0V9" />
-                  </MenuItem.Icon>
-                </MenuItem>
-                <MenuItem Header="{loc:Str Git_CopyPath}" Command="{Binding CopyDirectoryPathCommand}">
-                  <MenuItem.Icon>
-                    <PathIcon Width="14" Height="14" Data="M8 1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zm0 1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h4zm4 3h-1V4h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8v-1h4a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z" />
-                  </MenuItem.Icon>
-                </MenuItem>
-                <Separator IsVisible="{Binding HasAvailableWorktrees}" />
-                <MenuItem Header="{loc:Str Git_ExistingWorktrees}"
-                          ItemsSource="{Binding AvailableWorktrees}"
-                          IsVisible="{Binding HasAvailableWorktrees}"
-                          IsEnabled="{Binding !IsWorktreeLocked}">
-                  <MenuItem.Icon>
-                    <PathIcon Width="14" Height="14" Data="M4 2a2 2 0 0 0-2 2v1h20V4a2 2 0 0 0-2-2H4zm16 5H4v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7zm-7 2a1 1 0 0 1 1 1v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 1 1-2 0v-2H10a1 1 0 1 1 0-2h2v-2a1 1 0 0 1 1-1z" />
-                  </MenuItem.Icon>
-                  <MenuItem.ItemContainerTheme>
-                    <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="services:WorktreeInfo">
-                      <Setter Property="Header" Value="{Binding DisplayName}" />
-                      <Setter Property="Command" Value="{Binding $parent[ItemsControl].((vm:ChatViewModel)DataContext).SelectExistingWorktreeCommand}" />
-                      <Setter Property="CommandParameter" Value="{Binding Path}" />
-                      <Setter Property="Icon">
-                        <Template>
-                          <PathIcon Width="14" Height="14" Data="M6 3v6a3 3 0 0 0 3 3h2a1 1 0 0 1 1 1v2m0 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM6 3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 0V9" />
-                        </Template>
-                      </Setter>
-                    </ControlTheme>
-                  </MenuItem.ItemContainerTheme>
-                </MenuItem>
-              </MenuFlyout>
-            </Button.Flyout>
-            <StackPanel Orientation="Horizontal" Spacing="3">
-              <PathIcon Width="8" Height="8" Foreground="{DynamicResource Brush.TextTertiary}"
-                        Data="M6 3v6a3 3 0 0 0 3 3h2a1 1 0 0 1 1 1v2m0 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM6 3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 0V9" />
-              <TextBlock Text="{Binding GitBranchLabel}" FontSize="10"
-                         Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center"
-                         MaxWidth="120" TextTrimming="CharacterEllipsis" />
-            </StackPanel>
-          </Button>
-          <!-- Local / Worktree toggle -->
-          <Border Background="{DynamicResource Brush.Surface2}" CornerRadius="4" Padding="1">
-            <Panel>
-              <!-- Sliding highlight pill -->
-              <Border x:Name="WorktreeToggleHighlight"
-                      Background="{DynamicResource Brush.Surface0}"
-                      CornerRadius="3"
-                      HorizontalAlignment="Left"
-                      VerticalAlignment="Stretch"
-                      IsHitTestVisible="False">
-                <Border.Transitions>
-                  <Transitions>
-                    <DoubleTransition Property="Width" Duration="0:0:0.2" Easing="CubicEaseOut" />
-                    <ThicknessTransition Property="Margin" Duration="0:0:0.2" Easing="CubicEaseOut" />
-                  </Transitions>
-                </Border.Transitions>
-              </Border>
-              <!-- Toggle buttons -->
-              <StackPanel x:Name="WorktreeTogglePanel" Orientation="Horizontal" Spacing="1">
-                <Button x:Name="LocalToggleBtn" Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="3"
-                        Command="{Binding SwitchToLocalPreChatCommand}"
-                        IsEnabled="{Binding !IsWorktreeLocked}"
-                        ToolTip.Tip="{loc:Str Git_LocalTooltip}"
-                        Background="Transparent" Cursor="Hand">
-                  <TextBlock Text="{loc:Str Git_Local}" FontSize="10"
-                             Classes="wt-label" Classes.inactive="{Binding IsWorktreeMode}" />
-                </Button>
-                <Button x:Name="WorktreeToggleBtn" Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="3"
-                        Command="{Binding SwitchToWorktreePreChatCommand}"
-                        IsEnabled="{Binding !IsWorktreeLocked}"
-                        ToolTip.Tip="{loc:Str Git_WorktreeTooltip}"
-                        Background="Transparent" Cursor="Hand">
-                  <TextBlock Text="{loc:Str Git_Worktree}" FontSize="10"
-                             Classes="wt-label" Classes.inactive="{Binding !IsWorktreeMode}" />
-                </Button>
-              </StackPanel>
-            </Panel>
-          </Border>
-        <Button Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="4"
-                Command="{Binding ShowGitChangesCommand}" IsVisible="{Binding HasGitChanges}"
-                ToolTip.Tip="{loc:Str Git_ShowChanges}" Cursor="Hand">
-          <StackPanel Orientation="Horizontal" Spacing="3">
-            <Border Width="6" Height="6" CornerRadius="3" Background="{DynamicResource Brush.Warning}" VerticalAlignment="Center" />
-            <TextBlock Text="{Binding GitChangesLabel}" FontSize="10" Foreground="{DynamicResource Brush.TextSecondary}" />
-          </StackPanel>
-        </Button>
-        <Border Background="{DynamicResource Brush.Surface2}" CornerRadius="4" Padding="5,0"
-                Height="20" VerticalAlignment="Center"
-                IsVisible="{Binding IsRefreshingGitStatus}">
-          <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-            <Border x:Name="GitRefreshDot" Width="6" Height="6" CornerRadius="3"
-                    Background="{DynamicResource Brush.AccentDefault}" VerticalAlignment="Center">
-              <Border.Styles>
-                <Style Selector="Border#GitRefreshDot">
-                  <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
-                  <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.25" />
-                  <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.9" />
-                  <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
-                  <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
-                </Style>
-              </Border.Styles>
-            </Border>
-            <TextBlock Text="{loc:Str Git_Refreshing}" FontSize="10"
-                       Foreground="{DynamicResource Brush.TextSecondary}"
-                       VerticalAlignment="Center" />
-          </StackPanel>
-        </Border>
-        <Button Classes="subtle" Padding="2,1" MinHeight="0" Height="20" Width="20" CornerRadius="4"
-                Command="{Binding RefreshGitStatusCommand}" ToolTip.Tip="{loc:Str Git_RefreshTooltip}" Cursor="Hand"
-                IsEnabled="{Binding !IsRefreshingGitStatus}">
-          <PathIcon Width="9" Height="9" Foreground="{DynamicResource Brush.TextTertiary}"
-                    Data="M17.65 6.35A8 8 0 1 0 19.73 13h-2.08A6 6 0 1 1 12 6a5.97 5.97 0 0 1 4.24 1.76L13 11h7V4l-2.35 2.35z" />
-        </Button>
-          </StackPanel>
-
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-          <Button x:Name="BackgroundActivityButton"
-                  Classes="subtle"
-                  IsVisible="{Binding HasBackgroundActivity}"
-                  ToolTip.Tip="{loc:Str Chat_BackgroundActivityTooltip}"
-                  AutomationProperties.Name="{loc:Str Chat_BackgroundActivity}"
-                  Padding="8,2"
-                  MinHeight="0"
-                  Height="22"
-                  CornerRadius="999"
-                  Background="{DynamicResource Brush.Surface1}"
-                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                  BorderThickness="1"
-                  Cursor="Hand"
-                  VerticalAlignment="Center">
-            <Button.Flyout>
-              <Flyout Placement="TopEdgeAlignedRight">
-                <Flyout.FlyoutPresenterTheme>
-                  <ControlTheme TargetType="FlyoutPresenter"
-                                BasedOn="{StaticResource {x:Type FlyoutPresenter}}">
-                    <Setter Property="Padding" Value="14" />
-                  </ControlTheme>
-                </Flyout.FlyoutPresenterTheme>
-                <StackPanel Name="BackgroundSessionStatus" Width="360" Spacing="10">
-                  <StackPanel.Styles>
-                    <!-- One task per row, in the Workspace agents index's row language: flat, hover-lit,
-                         and the whole row is the hit area. It opens an agent's run on the Agents page,
-                         or shows the newest output of a command or task. -->
-                    <Style Selector="Button.session-task">
-                      <Setter Property="Background" Value="Transparent" />
-                      <Setter Property="Padding" Value="8,8" />
-                      <Setter Property="MinHeight" Value="0" />
-                      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
-                      <Setter Property="Cursor" Value="Hand" />
-                      <Setter Property="HorizontalAlignment" Value="Stretch" />
-                      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                      <Setter Property="Template">
-                        <ControlTemplate>
-                          <ContentPresenter Name="PART_ContentPresenter"
-                                            Background="{TemplateBinding Background}"
-                                            CornerRadius="{TemplateBinding CornerRadius}"
-                                            Padding="{TemplateBinding Padding}"
-                                            Content="{TemplateBinding Content}"
-                                            HorizontalContentAlignment="Stretch"
-                                            VerticalContentAlignment="Center">
-                            <ContentPresenter.Transitions>
-                              <Transitions>
-                                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
-                              </Transitions>
-                            </ContentPresenter.Transitions>
-                          </ContentPresenter>
-                        </ControlTemplate>
-                      </Setter>
-                    </Style>
-                    <Style Selector="Button.session-task:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-                      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-                    </Style>
-                    <Style Selector="Button.session-task:pressed /template/ ContentPresenter#PART_ContentPresenter">
-                      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-                    </Style>
-                    <Style Selector="Button.session-task:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
-                      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-                    </Style>
-                    <!-- A task with nothing to open or show yet is just a readout, never greyed out:
-                         it is still running. -->
-                    <Style Selector="Button.session-task:disabled">
-                      <Setter Property="Cursor" Value="Arrow" />
-                      <Setter Property="Opacity" Value="1" />
-                    </Style>
-                    <Style Selector="Button.session-task:disabled /template/ ContentPresenter#PART_ContentPresenter">
-                      <Setter Property="Background" Value="Transparent" />
-                    </Style>
-
-                    <!-- Every listed task is running, so the pulsing dot and the clock say it all. -->
-                    <Style Selector="sc|StrataAgentRun.session-task:inprogress /template/ TextBlock#PART_StatusText">
-                      <Setter Property="IsVisible" Value="False" />
-                    </Style>
-                    <!-- A task wears its kind's colour; commands wear a terminal tile instead. -->
-                    <Style Selector="sc|StrataAgentRun.task" x:DataType="vm:SessionActivityItem">
-                      <Setter Property="AccentBrush" Value="{Binding AccentIndex, Converter={StaticResource ChartBrush}}" />
-                    </Style>
-                    <Style Selector="sc|StrataAgentRun.task.command">
-                      <Setter Property="AccentBrush" Value="#FF475569" />
-                    </Style>
-                    <!-- A command has no measurable progress, so it skips the agents' working rail. -->
-                    <Style Selector="sc|StrataAgentRun.task.command /template/ ProgressBar#PART_Progress">
-                      <Setter Property="IsVisible" Value="False" />
-                    </Style>
-
-                    <!-- The row's affordance stays quiet until hovered: › opens a run, ⌄ shows output. -->
-                    <Style Selector="PathIcon.session-task-affordance">
-                      <Setter Property="Width" Value="11" />
-                      <Setter Property="Height" Value="11" />
-                      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-                      <Setter Property="Opacity" Value="0.55" />
-                      <Setter Property="RenderTransform" Value="rotate(0deg)" />
-                      <Setter Property="Transitions">
-                        <Transitions>
-                          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
-                          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
-                        </Transitions>
-                      </Setter>
-                    </Style>
-                    <Style Selector="Button.session-task:pointerover PathIcon.session-task-affordance">
-                      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-                      <Setter Property="Opacity" Value="1" />
-                    </Style>
-                    <Style Selector="PathIcon.session-task-affordance.expanded">
-                      <Setter Property="RenderTransform" Value="rotate(180deg)" />
-                    </Style>
-
-                    <!-- The newest output, terminal-style, under the row that owns it. -->
-                    <Style Selector="Border.session-task-output">
-                      <Setter Property="Margin" Value="46,0,8,6" />
-                      <Setter Property="Padding" Value="9,7" />
-                      <Setter Property="CornerRadius" Value="6" />
-                      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-                    </Style>
-                  </StackPanel.Styles>
-
-                  <StackPanel Spacing="4">
-                    <TextBlock Text="{loc:Str Chat_AssistantReady}"
-                               FontSize="12.5" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Brush.TextPrimary}" />
-                    <TextBlock Text="{Binding BackgroundActivityText}"
-                               FontSize="11" TextWrapping="Wrap"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                  </StackPanel>
-                  <ScrollViewer MaxHeight="380"
-                                Margin="-8,0"
-                                HorizontalScrollBarVisibility="Disabled"
-                                IsVisible="{Binding HasRunningSessionActivities}">
-                    <ItemsControl Name="RunningSessionActivities"
-                                  ItemsSource="{Binding RunningSessionActivities}">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:SessionActivityItem">
-                          <StackPanel>
-                            <Button Classes="session-task"
-                                    Command="{Binding ActivateCommand}"
-                                    Content="{Binding Presented}"
-                                    AutomationProperties.Name="{Binding Title}">
-                              <Button.DataTemplates>
-                                <!-- An agent this chat launched is its live run, exactly as the
-                                     Workspace lists it; the row opens that run. -->
-                                <DataTemplate DataType="vm:SubagentToolCallItem">
-                                  <sc:StrataAgentRun Classes="list session-task"
-                                                     AgentName="{Binding DisplayName}"
-                                                     Title="{Binding Title}"
-                                                     Initial="{Binding Initial}"
-                                                     AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
-                                                     ModelName="{Binding ModelDisplayName}"
-                                                     Activity="{Binding LatestActivityText}"
-                                                     Status="{Binding Status}"
-                                                     StatusLabel="{Binding StatusText}"
-                                                     DurationMs="{Binding DurationMs}"
-                                                     RunningSince="{Binding StartedAt}"
-                                                     ProgressValue="{Binding ProgressValue}">
-                                    <sc:StrataAgentRun.HeaderAction>
-                                      <PathIcon Classes="session-task-affordance"
-                                                Data="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
-                                    </sc:StrataAgentRun.HeaderAction>
-                                  </sc:StrataAgentRun>
-                                </DataTemplate>
-
-                                <!-- Commands, client tasks and agents without a run in this chat. -->
-                                <DataTemplate DataType="vm:SessionActivityItem">
-                                  <sc:StrataAgentRun Classes="list session-task task"
-                                                     Classes.command="{Binding IsCommand}"
-                                                     StatusLabel="{loc:Str Subagent_StatusRunning}"
-                                                     AgentName="{Binding Owner}"
-                                                     Title="{Binding Title}"
-                                                     Initial="{Binding Initial}"
-                                                     ModelName="{Binding Detail}"
-                                                     Activity="{Binding Activity}"
-                                                     RunningSince="{Binding StartedAt}"
-                                                     ProgressValue="{Binding ProgressValue}">
-                                    <sc:StrataAgentRun.HeaderAction>
-                                      <PathIcon Classes="session-task-affordance"
-                                                Classes.expanded="{Binding IsExpanded}"
-                                                IsVisible="{Binding CanExpand}"
-                                                Data="M7 10l5 5 5-5z" />
-                                    </sc:StrataAgentRun.HeaderAction>
-                                  </sc:StrataAgentRun>
-                                </DataTemplate>
-                              </Button.DataTemplates>
-                            </Button>
-                            <Border Classes="session-task-output" IsVisible="{Binding IsExpanded}">
-                              <TextBlock Text="{Binding Output}"
-                                         FontFamily="Cascadia Code, Consolas, Menlo, monospace"
-                                         FontSize="10.5" LineHeight="15"
-                                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                                         Foreground="{DynamicResource Brush.TextSecondary}" />
-                            </Border>
-                          </StackPanel>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </ScrollViewer>
-                  <TextBlock Text="{Binding BackgroundActivityNotice}"
-                             IsVisible="{Binding HasBackgroundActivityNotice}"
-                             FontSize="11" TextWrapping="Wrap"
-                             Foreground="{DynamicResource Brush.TextTertiary}" />
-                  <Button Name="StopBackgroundSession"
-                          Classes="subtle"
-                          Command="{Binding StopGenerationCommand}"
-                          Content="{loc:Str Chat_StopSession}"
-                          HorizontalAlignment="Right"
-                          Padding="10,5" MinHeight="0" FontSize="11" />
-                </StackPanel>
-              </Flyout>
-            </Button.Flyout>
-            <StackPanel Orientation="Horizontal" Spacing="5">
-              <Border Width="6" Height="6" CornerRadius="3"
-                      BorderThickness="1.5"
-                      BorderBrush="{DynamicResource Brush.TextSecondary}"
-                      VerticalAlignment="Center" />
-              <TextBlock Text="{loc:Str Chat_BackgroundActivityLabel}"
-                         FontSize="10" Foreground="{DynamicResource Brush.TextSecondary}"
-                         VerticalAlignment="Center" />
-              <TextBlock Name="RunningSessionActivityCount"
-                         Text="{Binding RunningSessionActivities.Count}"
-                         IsVisible="{Binding HasRunningSessionActivities}"
-                         FontSize="10" FontWeight="SemiBold"
-                         Foreground="{DynamicResource Brush.TextPrimary}"
-                         VerticalAlignment="Center" />
-              <PathIcon Width="7" Height="7"
-                        Foreground="{DynamicResource Brush.TextTertiary}"
-                        Data="M7 10l5 5 5-5z" />
-            </StackPanel>
-          </Button>
-
-          <Button x:Name="ContextWindowButton"
-                  Classes="subtle"
-                  IsVisible="{Binding HasTokenUsage}"
-                  Command="{Binding OpenContextDetailsCommand}"
-                  Padding="8,2"
-                  MinHeight="0"
-                  Height="22"
-                  CornerRadius="999"
-                  Background="{DynamicResource Brush.Surface1}"
-                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                  BorderThickness="1"
-                  Cursor="Hand"
-                  VerticalAlignment="Center">
-            <Button.Flyout>
-              <Flyout Placement="TopEdgeAlignedRight">
-                <Flyout.FlyoutPresenterTheme>
-                  <ControlTheme TargetType="FlyoutPresenter"
-                                BasedOn="{StaticResource {x:Type FlyoutPresenter}}">
-                    <Setter Property="Padding" Value="0" />
-                    <Setter Property="MinWidth" Value="340" />
-                    <Setter Property="MaxWidth" Value="380" />
-                    <Setter Property="Background" Value="Transparent" />
-                    <Setter Property="BorderThickness" Value="0" />
-                    <Setter Property="Template">
-                      <ControlTemplate>
-                        <Border Margin="16"
-                                Background="{DynamicResource Brush.SurfaceOverlay}"
-                                BorderBrush="{DynamicResource Brush.BorderDefault}"
-                                BorderThickness="1"
-                                CornerRadius="{DynamicResource Radius.Overlay}"
-                                BoxShadow="0 18 48 -12 #3D000000, 0 6 18 -8 #26000000, 0 0 0 1 #10000000">
-                          <ContentPresenter Name="PART_ContentPresenter"
-                                            Content="{TemplateBinding Content}"
-                                            ContentTemplate="{TemplateBinding ContentTemplate}" />
-                        </Border>
-                      </ControlTemplate>
-                    </Setter>
-                  </ControlTheme>
-                </Flyout.FlyoutPresenterTheme>
-
-                <Border x:Name="ContextWindowFlyout"
-                        Width="340"
-                        Background="Transparent"
-                        CornerRadius="{DynamicResource Radius.Overlay}"
-                        ClipToBounds="True">
-                  <StackPanel Spacing="0">
-                    <Border Height="2"
-                            Background="{DynamicResource Brush.AccentGradient}"
-                            Opacity="0.8" />
-
-                    <Grid ColumnDefinitions="Auto,10,*,Auto"
-                          Margin="14,12,10,11">
-                      <Border Width="30"
-                              Height="30"
-                              CornerRadius="8"
-                              Background="{DynamicResource Brush.AccentSubtle}">
-                        <PathIcon Width="13"
-                                  Height="13"
-                                  Foreground="{DynamicResource Brush.AccentDefault}"
-                                  HorizontalAlignment="Center"
-                                  VerticalAlignment="Center"
-                                  Data="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </Border>
-
-                      <StackPanel Grid.Column="2" Spacing="3" VerticalAlignment="Center">
-                        <TextBlock Text="{loc:Str Chat_ContextWindow_Title}"
-                                   FontSize="12.5"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Brush.TextPrimary}" />
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                          <TextBlock Text="{Binding ContextDetailsModelId, Converter={StaticResource ModelDisplayConverter}}"
-                                     MaxWidth="185"
-                                     FontSize="10"
-                                     Foreground="{DynamicResource Brush.TextTertiary}"
-                                     TextTrimming="CharacterEllipsis" />
-                          <Border Padding="6,1"
-                                  CornerRadius="999"
-                                  Background="{DynamicResource Brush.Surface1}">
-                            <TextBlock Text="{Binding ContextDetailsTierDisplay}"
-                                       FontSize="9"
-                                       Foreground="{DynamicResource Brush.TextSecondary}" />
-                          </Border>
-                        </StackPanel>
-                      </StackPanel>
-
-                      <Button x:Name="ContextRefreshButton"
-                              Grid.Column="3"
-                              Classes="subtle"
-                              Command="{Binding RefreshContextDetailsCommand}"
-                              IsEnabled="{Binding CanRefreshContextDetails}"
-                              Width="28"
-                              Height="28"
-                              Padding="7"
-                              MinWidth="0"
-                              MinHeight="0"
-                              CornerRadius="7">
-                        <PathIcon Width="12"
-                                  Height="12"
-                                  Foreground="{DynamicResource Brush.TextSecondary}"
-                                  Data="M17.65 6.35A8 8 0 1 0 19.73 13h-2.08A6 6 0 1 1 12 6a5.97 5.97 0 0 1 4.24 1.76L13 11h7V4l-2.35 2.35z" />
-                      </Button>
-                    </Grid>
-
-                    <ProgressBar Height="2"
-                                 MinHeight="2"
-                                 IsIndeterminate="True"
-                                 IsVisible="{Binding IsContextPanelBusy}" />
-                    <Border Height="1"
-                            Background="{DynamicResource Brush.BorderSubtle}"
-                            IsVisible="{Binding !IsContextPanelBusy}" />
-
-                    <StackPanel Margin="14,13,14,14" Spacing="12">
-                      <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Grid.Column="0" Spacing="1">
-                          <TextBlock Text="{Binding TokenUsageSummary}"
-                                     FontSize="28"
-                                     FontWeight="SemiBold"
-                                     Foreground="{DynamicResource Brush.TextPrimary}" />
-                          <TextBlock Text="{Binding ContextUsageDetailDisplay}"
-                                     FontSize="10.5"
-                                     Foreground="{DynamicResource Brush.TextTertiary}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1"
-                                    Spacing="5"
-                                    HorizontalAlignment="Right"
-                                    VerticalAlignment="Center">
-                          <Border Padding="7,2"
-                                  CornerRadius="999"
-                                  Background="{DynamicResource Brush.AccentSubtle}"
-                                  HorizontalAlignment="Right">
-                            <TextBlock Text="{Binding ContextHealthDisplay}"
-                                       FontSize="9.5"
-                                       FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Brush.AccentDefault}" />
-                          </Border>
-                          <TextBlock Text="{Binding ContextRemainingDisplay}"
-                                     FontSize="10.5"
-                                     FontWeight="SemiBold"
-                                     Foreground="{DynamicResource Brush.TextSecondary}"
-                                     HorizontalAlignment="Right" />
-                        </StackPanel>
-                      </Grid>
-
-                      <ProgressBar Minimum="0"
-                                   Maximum="100"
-                                   Value="{Binding ContextUsageProgress}"
-                                   Height="6"
-                                   MinHeight="6"
-                                   CornerRadius="3" />
-
-                      <TextBlock Text="{Binding ContextCompactionHeadroomDisplay}"
-                                 IsVisible="{Binding HasContextCompactionThreshold}"
-                                 FontSize="9.5"
-                                 Foreground="{DynamicResource Brush.TextTertiary}"
-                                 HorizontalAlignment="Right" />
-
-                      <ItemsControl ItemsSource="{Binding ContextBreakdownItems}"
-                                    IsVisible="{Binding HasContextBreakdown}">
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate>
-                            <UniformGrid Columns="3" Rows="1" />
-                          </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate x:DataType="vm:ContextTokenBreakdownItem">
-                            <Border Margin="3,0"
-                                    Padding="9,8"
-                                    CornerRadius="7"
-                                    Background="{DynamicResource Brush.Surface1}"
-                                    BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                                    BorderThickness="1">
-                              <StackPanel Spacing="3">
-                                <Grid ColumnDefinitions="*,Auto">
-                                  <TextBlock Text="{Binding ShareDisplay}"
-                                             FontSize="15"
-                                             FontWeight="SemiBold"
-                                             Foreground="{DynamicResource Brush.TextPrimary}" />
-                                  <TextBlock Grid.Column="1"
-                                             Text="{Binding TokensDisplay}"
-                                             FontSize="9"
-                                             Foreground="{DynamicResource Brush.TextTertiary}"
-                                             VerticalAlignment="Bottom" />
-                                </Grid>
-                                <TextBlock Text="{Binding Label}"
-                                           FontSize="9.5"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource Brush.TextSecondary}"
-                                           TextTrimming="CharacterEllipsis" />
-                              </StackPanel>
-                            </Border>
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
-
-                      <Border Background="{DynamicResource Brush.DangerSubtle}"
-                              CornerRadius="7"
-                              Padding="9,7"
-                              IsVisible="{Binding HasContextDetailsError}">
-                        <TextBlock Text="{Binding ContextDetailsError}"
-                                   FontSize="10"
-                                   Foreground="{DynamicResource Brush.DangerDefault}"
-                                   TextWrapping="Wrap" />
-                      </Border>
-
-                      <TextBlock Text="{Binding ContextLastCompactionDisplay}"
-                                 IsVisible="{Binding HasContextLastCompactionDisplay}"
-                                 FontSize="10"
-                                 Foreground="{DynamicResource Brush.TextSecondary}"
-                                 TextAlignment="Center"
-                                 TextWrapping="Wrap" />
-                    </StackPanel>
-
-                    <Border Padding="12,10"
-                            Background="{DynamicResource Brush.Surface1}"
-                            BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                            BorderThickness="0,1,0,0">
-                      <Button x:Name="ContextCompactButton"
-                              Classes="accent"
-                              Command="{Binding CompactContextCommand}"
-                              IsEnabled="{Binding CanCompactContext}"
-                              HorizontalAlignment="Stretch"
-                              HorizontalContentAlignment="Center"
-                              Padding="10,6"
-                              MinHeight="0"
-                              FontSize="11"
-                              FontWeight="SemiBold">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                          <PathIcon Width="11"
-                                    Height="11"
-                                    Data="M4 5h16v2H4V5zm3 6h10v2H7v-2zm-3 6h16v2H4v-2z" />
-                          <TextBlock Text="{loc:Str Chat_ContextWindow_CompactNow}" />
-                        </StackPanel>
-                      </Button>
-                    </Border>
-                  </StackPanel>
-                </Border>
-              </Flyout>
-            </Button.Flyout>
-
-            <StackPanel Orientation="Horizontal" Spacing="5">
-              <PathIcon Width="9"
-                        Height="9"
-                        Foreground="{DynamicResource Brush.TextTertiary}"
-                        Data="M13 10V3L4 14h7v7l9-11h-7z" />
-              <TextBlock Text="{Binding TokenUsageSummary}"
-                         FontSize="10"
-                         FontWeight="SemiBold"
-                         Foreground="{DynamicResource Brush.TextSecondary}"
-                         VerticalAlignment="Center" />
-              <PathIcon Width="7"
-                        Height="7"
-                        Foreground="{DynamicResource Brush.TextTertiary}"
-                        Data="M7 10l5 5 5-5z" />
-            </StackPanel>
-          </Button>
-          <Button x:Name="PauseChatButton"
-                  Classes="subtle pause-pill"
-                  Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
-                  IsVisible="{Binding CanPauseChat}"
-                  Command="{Binding TogglePauseCommand}"
-                  ToolTip.Tip="{loc:Str Chat_PauseTooltip}"
-                  AutomationProperties.Name="{loc:Str Chat_Pause}"
-                  AutomationProperties.HelpText="{loc:Str Chat_PauseTooltip}"
-                  Focusable="True">
-            <StackPanel Orientation="Horizontal" Spacing="5">
-              <PathIcon Classes="pause-glyph" Data="{StaticResource Chat.Icon.Pause}" />
-              <TextBlock Classes="pause-pill-text" Text="{loc:Str Chat_Pause}" />
-            </StackPanel>
-          </Button>
-          </StackPanel>
-        </Grid>
-      </Border>
-
       <!-- Paused: the chat holds where it stopped, its draft kept in the composer below. -->
       <Border x:Name="ChatPauseStatusPanel"
               TextOptions.TextRenderingMode="Antialias"
@@ -4533,6 +4726,171 @@
             </sc:StrataModePicker.FooterContent>
           </sc:StrataModePicker>
         </sc:StrataChatComposer.TrailingContent>
+        <!-- A new chat's checkout, beside its project: where this message will work. Once the chat starts it
+             is the chat's state, and moves to the header's git pill. -->
+        <sc:StrataChatComposer.ContextChipsContent>
+          <Border x:Name="ComposerGitChip" Classes="composer-chip checkout-chip"
+                  IsVisible="{Binding ShowComposerCheckout}">
+            <StackPanel Orientation="Horizontal">
+              <Button x:Name="ComposerGitButton"
+                      Classes="subtle chip-seg"
+                      Classes.refreshing="{Binding IsRefreshingGitStatus}"
+                      ToolTip.Tip="{loc:Str Git_DraftTooltip}"
+                      AutomationProperties.Name="{Binding GitBranchLabel}"
+                      AutomationProperties.HelpText="{loc:Str Git_DraftTooltip}">
+                <Button.Flyout>
+                  <MenuFlyout Placement="TopEdgeAlignedLeft"
+                              HorizontalOffset="-17"
+                              VerticalOffset="8"
+                              FlyoutPresenterTheme="{StaticResource ChatGitCardPresenter}"
+                              ItemContainerTheme="{StaticResource ChatTitleMenuItem}">
+                    <MenuItem x:Name="ComposerGitLocalItem"
+                              ToggleType="Radio"
+                              GroupName="ComposerCheckout"
+                              IsChecked="{Binding !IsWorktreeMode, Mode=OneWay}"
+                              Command="{Binding SwitchToLocalPreChatCommand}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{x:Static sc:StrataIcons.Monitor}" />
+                      </MenuItem.Icon>
+                      <MenuItem.Header>
+                        <StackPanel Spacing="1" Margin="0,7">
+                          <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Classes="header-card-shortcut"
+                                       Text="{loc:Str Git_LocalShortcut}" />
+                            <TextBlock Classes="header-card-row-title" Text="{loc:Str Git_Local}" />
+                          </DockPanel>
+                          <TextBlock Classes="header-card-row-detail" Text="{Binding GitLocalChoiceDescription}" />
+                        </StackPanel>
+                      </MenuItem.Header>
+                    </MenuItem>
+                    <MenuItem x:Name="ComposerGitWorktreeItem"
+                              ToggleType="Radio"
+                              GroupName="ComposerCheckout"
+                              IsChecked="{Binding IsWorktreeMode, Mode=OneWay}"
+                              Command="{Binding SwitchToWorktreePreChatCommand}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{x:Static sc:StrataIcons.Layers}" />
+                      </MenuItem.Icon>
+                      <MenuItem.Header>
+                        <StackPanel Spacing="1" Margin="0,7">
+                          <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Classes="header-card-shortcut"
+                                       Text="{loc:Str Git_WorktreeShortcut}" />
+                            <TextBlock Classes="header-card-row-title" Text="{loc:Str Git_Worktree}" />
+                          </DockPanel>
+                          <TextBlock Classes="header-card-row-detail" Text="{loc:Str Git_WorktreeChoice}" />
+                        </StackPanel>
+                      </MenuItem.Header>
+                    </MenuItem>
+                    <MenuItem Header="{loc:Str Git_ExistingWorktrees}"
+                              ItemsSource="{Binding AvailableWorktrees}"
+                              IsVisible="{Binding HasAvailableWorktrees}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{x:Static sc:StrataIcons.Branch}" />
+                      </MenuItem.Icon>
+                      <MenuItem.ItemContainerTheme>
+                        <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource ChatTitleMenuItem}"
+                                      x:DataType="services:WorktreeInfo">
+                          <Setter Property="Header" Value="{Binding DisplayName}" />
+                          <Setter Property="Command" Value="{Binding $parent[ItemsControl].((vm:ChatViewModel)DataContext).SelectExistingWorktreeCommand}" />
+                          <Setter Property="CommandParameter" Value="{Binding Path}" />
+                        </ControlTheme>
+                      </MenuItem.ItemContainerTheme>
+                    </MenuItem>
+                    <Separator Margin="6" Background="{StaticResource ChatHeader.MenuDivider}" />
+                    <MenuItem Header="{loc:Str Git_OpenTerminal}" Command="{Binding OpenInTerminalCommand}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{x:Static sc:StrataIcons.Terminal}" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="{loc:Str Git_OpenExplorer}" Command="{Binding OpenInExplorerCommand}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{x:Static sc:StrataIcons.Folder}" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="{loc:Str Git_OpenIDE}" Command="{Binding OpenInIDECommand}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{StaticResource Chat.Icon.Code}" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <Separator Margin="6" Background="{StaticResource ChatHeader.MenuDivider}" />
+                    <MenuItem Header="{loc:Str Git_CopyBranch}" Command="{Binding CopyBranchNameCommand}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{x:Static sc:StrataIcons.Branch}" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="{loc:Str Git_CopyPath}" Command="{Binding CopyDirectoryPathCommand}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{x:Static sc:StrataIcons.Files}" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                    <Separator Margin="6" Background="{StaticResource ChatHeader.MenuDivider}" />
+                    <MenuItem Header="{loc:Str Git_RefreshTooltip}"
+                              Command="{Binding RefreshGitStatusCommand}"
+                              IsEnabled="{Binding !IsRefreshingGitStatus}">
+                      <MenuItem.Icon>
+                        <sc:StrataLineIcon Width="15" Height="15" StrokeThickness="1.9"
+                                           Data="{x:Static sc:StrataIcons.Retry}" />
+                      </MenuItem.Icon>
+                    </MenuItem>
+                  </MenuFlyout>
+                </Button.Flyout>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Border Classes="chip-tile">
+                    <sc:StrataLineIcon Classes="chip-icon" Data="{x:Static sc:StrataIcons.Branch}" />
+                  </Border>
+                  <!-- A new worktree is made from the branch when the chat starts, and starts clean. -->
+                  <TextBlock Classes="chip-name" Text="{loc:Str Git_NewWorktree}"
+                             IsVisible="{Binding IsWorktreePending}" />
+                  <TextBlock Classes="git-mode" Margin="-2,0,0,0" Text="{loc:Str Git_FromBranch}"
+                             IsVisible="{Binding IsWorktreePending}" />
+                  <TextBlock Classes="git-branch" Text="{Binding GitBranchLabel}" />
+                  <TextBlock Classes="git-mode" Margin="-2,0,0,0"
+                             Text="{Binding GitCheckoutModeLabel, StringFormat='· {0}'}"
+                             IsVisible="{Binding !IsWorktreePending}" />
+                  <sc:StrataLineIcon Classes="git-chevron" Data="{x:Static sc:StrataIcons.ChevronDown}" />
+                </StackPanel>
+              </Button>
+              <Border Classes="chip-divider" IsVisible="{Binding ShowCheckoutChanges}" />
+              <Button x:Name="ComposerGitChangesButton"
+                      Classes="subtle chip-seg"
+                      IsVisible="{Binding ShowCheckoutChanges}"
+                      Command="{Binding ShowGitChangesCommand}"
+                      ToolTip.Tip="{loc:Str Git_ShowChanges}"
+                      AutomationProperties.Name="{Binding GitChangesLabel}"
+                      AutomationProperties.HelpText="{loc:Str Git_ShowChanges}">
+                <Panel x:DataType="vm:GitChangesViewModel" DataContext="{Binding WorkspaceGit}">
+                  <StackPanel Orientation="Horizontal" Spacing="5" IsVisible="{Binding HasTotalStats}">
+                    <TextBlock Classes="diff-added" Text="{Binding TotalAddedLabel}" />
+                    <TextBlock Classes="diff-removed" Text="{Binding TotalRemovedLabel}" />
+                  </StackPanel>
+                  <TextBlock Classes="git-mode" Text="{Binding TotalFilesLabel}" IsVisible="{Binding !HasTotalStats}" />
+                </Panel>
+              </Button>
+            </StackPanel>
+          </Border>
+        </sc:StrataChatComposer.ContextChipsContent>
+        <!-- While Lumi works, Pause sits beside Stop: hold the run where it stands, or end it. -->
+        <sc:StrataChatComposer.SendAccessoryContent>
+          <Button x:Name="PauseChatButton"
+                  Classes="composer-tool composer-pause"
+                  IsVisible="{Binding CanPauseChat}"
+                  Command="{Binding TogglePauseCommand}"
+                  ToolTip.Tip="{loc:Str Chat_PauseTooltip}"
+                  AutomationProperties.Name="{loc:Str Chat_Pause}"
+                  AutomationProperties.HelpText="{loc:Str Chat_PauseTooltip}"
+                  Focusable="True">
+            <sc:StrataLineIcon Width="18" Height="18" StrokeThickness="2.2" Data="{x:Static sc:StrataIcons.Pause}" />
+          </Button>
+        </sc:StrataChatComposer.SendAccessoryContent>
         <sc:StrataChatComposer.StatusContent>
           <StackPanel MinWidth="0" Spacing="4">
           <!-- Voice typing: asking before the one-time download, its progress, and what stopped dictation. -->

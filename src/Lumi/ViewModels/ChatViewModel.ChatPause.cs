@@ -235,7 +235,7 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(PauseStatusDescription));
         OnPropertyChanged(nameof(ComposerPlaceholder));
         OnPropertyChanged(nameof(HasBackgroundActivity));
-        OnPropertyChanged(nameof(ShowInfoStrip));
+        NotifyHeaderRunningChanged();
         NotifyContextActionAvailabilityChanged();
         if (IsPaused)
             _transcriptBuilder.HideTypingIndicator();

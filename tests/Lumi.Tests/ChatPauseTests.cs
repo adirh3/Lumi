@@ -234,7 +234,7 @@ public sealed class ChatPauseTests
                 vm.IsSessionActive = false;
                 Dispatcher.UIThread.RunJobs();
                 Assert.False(toggle.IsVisible);
-                Assert.False(view.FindControl<Border>("CodingStrip")!.IsVisible);
+                Assert.Same(toggle, composer.SendAccessoryContent);
             }
             finally
             {

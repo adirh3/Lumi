@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Windows.Input;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Lumi.ViewModels;
@@ -10,28 +11,33 @@ using StrataTheme.Animation;
 namespace Lumi.Views;
 
 /// <summary>
-/// The floating glass header: the title pill's chat menu, the live pill that jumps back to what Lumi
-/// is doing, and a compact layout for narrow islands.
+/// The floating glass header: the title pill's chat menu, the running pill and its card, the live pill
+/// that jumps back to what Lumi is doing, and a compact layout for narrow islands.
 /// </summary>
 public partial class ChatView
 {
     /// <summary>
-    /// Below this width the pills take less room: the title and live pill narrow, and the agents pill
-    /// shows only its avatars.
+    /// Below this width the pills take less room: the title and live pill narrow, the running pill shows
+    /// only its faces, and the git pill only its branch and counts.
     /// </summary>
     private const double CompactHeaderWidth = 760;
 
     private Panel? _chatHeaderLayer;
+    private Button? _headerRunningButton;
 
     private void InitializeHeader()
     {
         _chatHeaderLayer = this.FindControl<Panel>("ChatHeaderLayer");
         SizeChanged += (_, e) => UpdateHeaderDensity(e.NewSize.Width);
 
+        _headerRunningButton = this.FindControl<Button>("HeaderRunningButton");
+        if (_headerRunningButton is not null && FlyoutBase.GetAttachedFlyout(_headerRunningButton) is { } runningCard)
+            runningCard.Opened += OnRunningCardOpened;
+
         // Pills that appear mid-chat drop in rather than pop.
-        foreach (var name in new[] { "HeaderLiveStatusButton", "HeaderAgentsButton" })
+        foreach (var name in new[] { "HeaderLiveStatusButton", "HeaderRunningButton", "HeaderGitPill" })
         {
-            if (this.FindControl<Button>(name) is not { } pill)
+            if (this.FindControl<Control>(name) is not { } pill)
                 continue;
 
             pill.PropertyChanged += (_, e) =>
@@ -47,6 +53,33 @@ public partial class ChatView
         => _chatHeaderLayer?.Classes.Set("compact", width > 0 && width < CompactHeaderWidth);
 
     private void OnHeaderLiveStatusClick(object? sender, RoutedEventArgs e) => JumpToLatest(focusComposer: false);
+
+    /// <summary>
+    /// While Lumi replies, the running pill opens the agents at work in the Workspace. Once Lumi is ready it
+    /// opens the card of everything still running, which can stop it.
+    /// </summary>
+    private void OnHeaderRunningClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button pill || _subscribedVm is not { } vm)
+            return;
+
+        if (vm.HasBackgroundActivity)
+            FlyoutBase.ShowAttachedFlyout(pill);
+        else
+            vm.OpenWorkspaceAgentsCommand.Execute(null);
+    }
+
+    private async void OnRunningCardOpened(object? sender, EventArgs e)
+    {
+        if (_subscribedVm is { } vm)
+            await vm.RefreshBackgroundActivityAsync();
+    }
+
+    private void HideRunningCard()
+    {
+        if (_headerRunningButton is not null)
+            FlyoutBase.GetAttachedFlyout(_headerRunningButton)?.Hide();
+    }
 
     /// <summary>
     /// Points the title menu at the open chat. As in the sidebar's chat menu, the actions belong to the

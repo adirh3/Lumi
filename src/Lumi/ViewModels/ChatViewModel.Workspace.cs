@@ -226,8 +226,16 @@ public partial class ChatViewModel
     /// <summary>Summary of the repository's working-tree changes (branch, totals, kinds).</summary>
     [ObservableProperty] private GitChangesViewModel? _workspaceGit;
 
+    partial void OnWorkspaceGitChanged(GitChangesViewModel? value) => OnPropertyChanged(nameof(GitLocalChoiceDescription));
+
     public bool HasWorkspaceGit => IsCodingProject && WorkspaceGit is not null;
     public bool ShowWorkspaceGit => HasWorkspaceGit && WorkspaceGitFiles.IsShown;
+
+    /// <summary>
+    /// The changes as git last reported them. A refresh empties the live list until git answers, so what
+    /// shows them (the Workspace, the git pill) and the changes page they open use these.
+    /// </summary>
+    private IReadOnlyList<GitFileChangeViewModel> _settledGitFiles = [];
 
     private void OnGitChangedFilesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -240,6 +248,7 @@ public partial class ChatViewModel
     private void RefreshWorkspaceGit()
     {
         var files = GitChangedFiles.ToList();
+        _settledGitFiles = files;
         WorkspaceGitFiles.SetItems(files);
         WorkspaceGit = files.Count == 0
             ? null
@@ -301,6 +310,7 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(ShowWorkspacePlan));
         OnPropertyChanged(nameof(HasWorkspaceGit));
         OnPropertyChanged(nameof(ShowWorkspaceGit));
+        OnPropertyChanged(nameof(ShowCheckoutChanges));
     }
 
     // ── Panel state (mirrored from the view) ──

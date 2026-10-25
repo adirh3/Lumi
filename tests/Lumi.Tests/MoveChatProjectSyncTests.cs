@@ -220,6 +220,58 @@ public sealed class MoveChatProjectSyncTests
     }
 
     [Fact]
+    public async Task ComposerProjectChoice_InAStartedChat_MovesTheChatThere()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var work = new Project { Name = "Work" };
+            var personal = new Project { Name = "Personal" };
+            var chat = new Chat
+            {
+                Title = "Started chat",
+                ProjectId = personal.Id,
+                CopilotSessionId = "session-started",
+                Messages = [new ChatMessage { Role = "user", Content = "Hello" }]
+            };
+            var viewModel = CreateViewModel([work, personal], chat);
+            viewModel.ChatVM.CurrentChat = chat;
+
+            // Choosing another project on the composer ($ or the + menu) moves this chat there, and its next
+            // turn resumes the same session with that project's context. The sidebar follows; the chat stays open.
+            viewModel.ChatVM.SelectedProjectName = work.Name;
+
+            Assert.Same(chat, viewModel.ChatVM.CurrentChat);
+            Assert.Equal(work.Id, chat.ProjectId);
+            Assert.Equal("Work", viewModel.ChatVM.ProjectBadgeText);
+            Assert.Equal("session-started", chat.CopilotSessionId);
+            Assert.Equal(work.Id, viewModel.SelectedProjectFilter);
+
+            // While a send is reserved for the chat it stays where it is, and so does the sidebar.
+            var reservation = viewModel.ChatVM.TryReserveExternalSend(chat.Id);
+            Assert.NotNull(reservation);
+            viewModel.ChatVM.SelectedProjectName = personal.Name;
+
+            Assert.Same(chat, viewModel.ChatVM.CurrentChat);
+            Assert.Equal(work.Id, chat.ProjectId);
+            Assert.Equal("Work", viewModel.ChatVM.SelectedProjectName);
+            Assert.Equal(work.Id, viewModel.SelectedProjectFilter);
+            reservation.Dispose();
+
+            // The chip's × takes the chat out of projects, again without leaving it.
+            viewModel.ChatVM.RemoveProjectCommand.Execute(null);
+
+            Assert.Same(chat, viewModel.ChatVM.CurrentChat);
+            Assert.Null(chat.ProjectId);
+            Assert.Null(viewModel.SelectedProjectFilter);
+
+            viewModel.Dispose();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task AssignChatToProject_ForInactiveChat_LeavesActiveSurfaceUntouched()
     {
         using var session = HeadlessTestSession.Start();

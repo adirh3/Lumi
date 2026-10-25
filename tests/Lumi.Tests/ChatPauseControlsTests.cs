@@ -24,15 +24,22 @@ public sealed class ChatPauseControlsTests
     ];
 
     [Fact]
-    public void PauseAction_IsContextualAndBesideComposer_NotInTheHeader()
+    public void PauseAction_IsContextualAndBesideStop_NotInTheHeader()
     {
         var view = LoadView("ChatView.axaml");
         var toggle = Named(view, "PauseChatButton");
         var header = view.Descendants().Single(element => element.Name.LocalName == "StrataChatShell.Header");
+        var composer = Named(view, "Composer");
+        var sendAccessory = composer.Element(composer.Name.Namespace + "StrataChatComposer.SendAccessoryContent");
 
         Assert.Equal("{Binding TogglePauseCommand}", Attribute(toggle, "Command"));
         Assert.Equal("{Binding CanPauseChat}", Attribute(toggle, "IsVisible"));
-        Assert.Contains(Named(view, "CodingStrip"), toggle.Ancestors());
+        // A quiet tool like the microphone, so Stop stays the one disc beside it.
+        Assert.Contains("composer-tool", Attribute(toggle, "Classes")!.Split(' '));
+        Assert.NotNull(sendAccessory);
+        Assert.Contains(sendAccessory, toggle.Ancestors());
+        Assert.DoesNotContain(view.Descendants(),
+            element => (string?)element.Attribute(Xaml + "Name") == "CodingStrip");
         Assert.DoesNotContain(header.Descendants(),
             element => Attribute(element, "Command") == "{Binding TogglePauseCommand}"
                        || Attribute(element, "Command") == "{Binding ResumeChatCommand}");

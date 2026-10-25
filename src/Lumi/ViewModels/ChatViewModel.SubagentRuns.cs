@@ -385,6 +385,7 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(SubagentRunsSummary));
         OnPropertyChanged(nameof(WorkspaceToggleToolTip));
         OnPropertyChanged(nameof(HeaderAgentsText));
+        NotifyHeaderRunningChanged();
     }
 
     /// <summary>

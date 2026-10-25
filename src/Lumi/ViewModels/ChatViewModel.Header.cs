@@ -68,6 +68,35 @@ public partial class ChatViewModel
         ? Loc.ChatHeader_AgentWorking
         : string.Format(Loc.Culture, Loc.ChatHeader_AgentsWorking, RunningSubagentCount);
 
+    /// <summary>
+    /// The header's running pill: the agents at work while Lumi replies, then everything still running
+    /// once Lumi is ready (commands, agents, tasks), until the session settles.
+    /// </summary>
+    public bool ShowHeaderRunning => HasRunningSubagents || HasBackgroundActivity;
+
+    /// <summary>A command still runs in the background: the running pill adds a terminal to its faces.</summary>
+    public bool HasRunningCommands => RunningSessionActivities.Any(static item => item.IsCommand);
+
+    /// <summary>"2 running" once Lumi is ready, "Background" until the session lists its tasks, else the agents.</summary>
+    public string HeaderRunningText => HasBackgroundActivity
+        ? RunningSessionActivities.Count > 0
+            ? string.Format(Loc.Culture, Loc.ChatHeader_Running, RunningSessionActivities.Count)
+            : Loc.Chat_BackgroundActivityLabel
+        : HeaderAgentsText;
+
+    /// <summary>What a click does: list what is still running, or open the agents in the Workspace.</summary>
+    public string HeaderRunningToolTip => HasBackgroundActivity
+        ? Loc.Chat_BackgroundActivityTooltip
+        : Loc.Workspace_OpenAgents;
+
+    private void NotifyHeaderRunningChanged()
+    {
+        OnPropertyChanged(nameof(ShowHeaderRunning));
+        OnPropertyChanged(nameof(HasRunningCommands));
+        OnPropertyChanged(nameof(HeaderRunningText));
+        OnPropertyChanged(nameof(HeaderRunningToolTip));
+    }
+
     /// <summary>The model chip in the title menu.</summary>
     public string? HeaderModelText => FormatModelDisplay(SelectedModel);
 
