@@ -1,32 +1,98 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="using:Lumi.Localization"
+        xmlns:sa="using:StrataTheme.Animation"
         x:Class="Lumi.Views.StartupWindow"
         Name="StartupLoadingWindow"
         Title="Lumi"
-        Width="380" Height="260"
+        Width="400" Height="340"
         CanResize="False"
+        WindowDecorations="BorderOnly"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource Brush.Surface0}"
+        Background="{DynamicResource Brush.Background}"
         UseLayoutRounding="True">
-  <StackPanel Spacing="16"
-              Margin="32"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Center">
-    <Image Source="{DynamicResource Image.LumiMark}"
-           Width="56" Height="56"
-           Stretch="Uniform"
-           RenderOptions.BitmapInterpolationMode="HighQuality" />
-    <TextBlock Text="{loc:Str App_Name}"
-               FontSize="24"
+  <!-- Lumi's mark puts itself together over a slowly turning glow, then keeps moving while Lumi starts
+       (StartupMotion). Every part of the mark is its own layer so it can move on its own. -->
+  <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,6">
+    <!-- Lumi's mark reads the same in every language, so its stage never mirrors. -->
+    <Panel Name="Stage" Width="320" Height="196" IsHitTestVisible="False" FlowDirection="LeftToRight">
+      <Panel Name="Glow">
+        <Border Name="GlowAccent" Width="220" Height="220"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                RenderTransform="translate(-30px, 8px)" />
+        <Border Name="GlowViolet" Width="200" Height="200"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                RenderTransform="translate(28px, -16px)" />
+        <Border Name="GlowRose" Width="180" Height="180"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                RenderTransform="translate(12px, 26px)" />
+      </Panel>
+      <Border Name="Flare" Width="176" Height="176" Opacity="0"
+              HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+      <Panel Name="Mark" Width="104" Height="104">
+        <Panel Name="TileHost">
+          <Border Name="TileShadow" Margin="5" CornerRadius="26"
+                  BoxShadow="0 12 26 -8 #55000000" />
+          <Image Name="TileArt" RenderOptions.BitmapInterpolationMode="HighQuality" />
+        </Panel>
+        <Ellipse Name="Ripple" Width="30" Height="30" Opacity="0"
+                 HorizontalAlignment="Left" VerticalAlignment="Top"
+                 Stroke="White" StrokeThickness="1.4" />
+        <Panel Name="ModelHost">
+          <Image Name="ModelArt" RenderOptions.BitmapInterpolationMode="HighQuality" />
+        </Panel>
+        <Panel Name="LumiHost">
+          <Image Name="LumiArt" RenderOptions.BitmapInterpolationMode="HighQuality" />
+        </Panel>
+        <Panel Name="YouHost">
+          <Image Name="YouArt" RenderOptions.BitmapInterpolationMode="HighQuality" />
+        </Panel>
+      </Panel>
+    </Panel>
+
+    <TextBlock Name="StartupTitle"
+               Text="{loc:Str App_Name}"
+               FontSize="26"
                FontWeight="SemiBold"
+               LetterSpacing="-0.4"
+               Foreground="{DynamicResource Brush.TextPrimary}"
                HorizontalAlignment="Center" />
     <TextBlock Name="StartupStatus"
                Text="{loc:Str Startup_Loading}"
-               Foreground="{DynamicResource Brush.TextSecondary}"
+               FontSize="13"
+               Margin="0,4,0,0"
+               Foreground="{DynamicResource Brush.TextTertiary}"
                HorizontalAlignment="Center" />
-    <ProgressBar Name="StartupProgress"
-                 Width="220" Height="4"
-                 IsIndeterminate="True" />
+
+    <!-- Lumi's sign of work in progress: the Strata line, with light running along it. -->
+    <Border Name="StartupLine"
+            Width="120" Height="2"
+            Margin="0,18,0,0"
+            CornerRadius="1"
+            ClipToBounds="True"
+            HorizontalAlignment="Center"
+            Background="{DynamicResource Brush.StratumLine}">
+      <Border.OpacityMask>
+        <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+          <GradientStop Offset="0" Color="#00000000" />
+          <GradientStop Offset="0.2" Color="#FF000000" />
+          <GradientStop Offset="0.8" Color="#FF000000" />
+          <GradientStop Offset="1" Color="#00000000" />
+        </LinearGradientBrush>
+      </Border.OpacityMask>
+      <Border Name="StartupLineSweep"
+              Width="44"
+              HorizontalAlignment="Left"
+              sa:LifecycleOffsetSweep.Duration="0:0:1.6">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+            <GradientStop Offset="0" Color="#00FFFFFF" />
+            <GradientStop Offset="0.5" Color="{DynamicResource Color.TextOnAccent}" />
+            <GradientStop Offset="1" Color="#00FFFFFF" />
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+    </Border>
   </StackPanel>
 </Window>

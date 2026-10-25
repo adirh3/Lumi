@@ -4,8 +4,10 @@ using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Appearance;
 using Lumi.ViewModels;
 using Lumi.Views;
+using StrataTheme.Animation;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -14,7 +16,7 @@ namespace Lumi.Tests;
 public sealed class StartupExperienceTests
 {
     [Fact]
-    public async Task LoadingWindow_ShowsLocalizedStatusAndIndeterminateProgress()
+    public async Task LoadingWindow_ShowsLocalizedStatusAndTheStrataLine()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -28,13 +30,47 @@ public sealed class StartupExperienceTests
                 window.UpdateLayout();
 
                 var status = window.FindControl<TextBlock>("StartupStatus")!;
-                var progress = window.FindControl<ProgressBar>("StartupProgress")!;
+                var line = window.FindControl<Border>("StartupLine")!;
                 Assert.Equal(Loc.Startup_Loading, status.Text);
                 Assert.True(status.IsEffectivelyVisible);
-                Assert.True(progress.IsIndeterminate);
-                Assert.True(progress.IsEffectivelyVisible);
-                Assert.True(progress.Bounds.Width > 0);
+                Assert.True(line.IsEffectivelyVisible);
+                Assert.True(line.Bounds.Width > 0);
+                Assert.True(LifecycleOffsetSweep.GetIsActive(window.FindControl<Border>("StartupLineSweep")!));
+                Assert.True(window.FindControl<Border>("StartupLineSweep")!.IsVisible);
                 Assert.True(window.ShowInTaskbar);
+
+                window.ShowStatus(Loc.Startup_RecoveringChats);
+                Assert.Equal(Loc.Startup_RecoveringChats, status.Text);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task LoadingWindow_StandsStillWhenAnimationsAreOff()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var window = new StartupWindow(AccentPalettes.DefaultId, animate: false);
+            try
+            {
+                window.Show();
+                await PumpAsync();
+
+                Assert.False(window.IsAnimated);
+                var sweep = window.FindControl<Border>("StartupLineSweep")!;
+                Assert.False(LifecycleOffsetSweep.GetIsActive(sweep));
+                Assert.False(sweep.IsVisible);
+                Assert.True(window.FindControl<Border>("StartupLine")!.IsEffectivelyVisible);
+                foreach (var name in new[] { "TileArt", "ModelArt", "LumiArt", "YouArt" })
+                    Assert.NotNull(window.FindControl<Image>(name)!.Source);
+                Assert.Equal(0, window.FindControl<Control>("Ripple")!.Opacity);
+                Assert.Equal(0, window.FindControl<Control>("Flare")!.Opacity);
             }
             finally
             {

@@ -42,7 +42,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Voice input** — Local, multilingual dictation on Windows, Linux and macOS: asks once before its one-time download, listens instantly with a live waveform, and shows your words as you speak
 - **Desktop notifications** — Toast notifications when responses complete in the background
 - **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
-- **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
+- **Visible startup** — A localized loading window appears before the main UI is built: Lumi's mark puts itself together in your accent over a slowly turning glow and keeps moving while Lumi starts (it stands still with animations off). On Windows, when Lumi opens on its welcome screen or the welcome tour, the loading window grows into Lumi's window and the mark glides into the welcome logo; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
 ### Voice input
 

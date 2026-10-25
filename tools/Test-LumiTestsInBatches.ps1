@@ -77,7 +77,10 @@ $isolatedClasses = @(
     "Lumi.Tests.ChatViewModelConnectorTests",
     "Lumi.Tests.McpConnectorIssuesTests",
     # Chat reference tests run in their own hosts for the same reason.
-    "Lumi.Tests.ChatReferenceTests"
+    "Lumi.Tests.ChatReferenceTests",
+    # Startup loading window and hand-off tests run in their own hosts for the same reason.
+    "Lumi.Tests.StartupHandOffTests",
+    "Lumi.Tests.StartupMotionTests"
 ) | Where-Object { $classes -contains $_ }
 $batchedClasses = @($classes | Where-Object { $_ -notin $isolatedClasses })
 $batchCount = [Math]::Ceiling($batchedClasses.Count / $BatchSize)

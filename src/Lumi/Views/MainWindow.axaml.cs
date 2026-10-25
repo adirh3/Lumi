@@ -216,9 +216,9 @@ public partial class MainWindow : Window
 
         Opened += (_, _) =>
         {
-            if (IsPrimaryWindow)
+            if (IsPrimaryWindow && !_startupBoundsPrepared)
                 RestoreWindowBounds();
-            else
+            else if (!IsPrimaryWindow)
                 PlaceSecondaryWindow();
             UpdateTransparencyFallbackOpacity();
             ApplyWindowContentPaddingForState();

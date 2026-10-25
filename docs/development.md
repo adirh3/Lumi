@@ -460,7 +460,21 @@ floating at its shoulder, and a dot for the model on the other side. One rendere
 `src\Lumi\Services\AppIconArt.cs`, draws it.
 Inside the app (the welcome screen, onboarding, the loading window and Settings → About) and in the tray
 it wears the accent chosen in Settings → Appearance and changes with it; on Windows, the tray gets an icon
-frame drawn for each display scale. Installed icons (the taskbar, Start menu, Dock, launchers and home
+frame drawn for each display scale. The loading window draws the icon's parts apart (`AppIconArt.RenderPart`)
+and moves them on the render thread (`Views\StartupMotion.cs`), so the motion keeps playing while the main
+window is built; a Debug build started with `--startup-preview` shows only that window and keeps it open
+(a click plays it again). On Windows, when Lumi starts on a welcome screen (onboarding's hello, or a new
+chat) with animations on, and the user is still watching the loading window (it is still the active window
+and not minimized), the main window takes over through a hand-off (`Views\StartupHandOff.cs`,
+`Views\MainWindow.Arrival.cs`): it opens DWM-cloaked, so it lays out and draws out of sight; the loading
+mark comes to rest, a card fades in over the loading window and grows into the main window's place, the
+main window is uncloaked beneath it, and the card clears while the mark glides into the welcome logo. It
+plays once per start, so relaunch an isolated Debug build to see it again. Avalonia fades a group by fading
+each thing drawn in it, and restores a control's own opacity whenever it redraws it, so the hand-off never
+fades overlapping layers together and fades nothing out through a control's composition opacity. Places in
+the overlay layer are worked out in the window's own space (`MainWindow.InWindow`), which stays left to right
+in a right-to-left window; mapping through the overlay layer itself goes wrong there, since it mirrors itself
+back. Installed icons (the taskbar, Start menu, Dock, launchers and home
 screens) keep Lumi's own colours. After changing the art, rewrite every installed icon from a Debug build:
 
 ```powershell

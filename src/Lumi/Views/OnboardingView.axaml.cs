@@ -151,7 +151,8 @@ public partial class OnboardingView : UserControl
         e.Handled = true;
     }
 
-    private void FocusNameSoon()
+    /// <summary>Focuses the name box on the hello step, once it is laid out.</summary>
+    internal void FocusNameSoon()
     {
         if (_wiredVm is not { IsHelloStep: true } || _nameBox is null)
             return;

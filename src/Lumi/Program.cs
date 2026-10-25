@@ -52,6 +52,9 @@ class Program
     /// <summary>When true, runs the DEBUG-only animation lifecycle retention proof once the window opens.</summary>
     public static bool AnimationLifecycleLeakReproEnabled { get; private set; }
 
+    /// <summary>When true, Lumi shows only its loading window and keeps it open (debug only).</summary>
+    public static bool StartupPreview { get; private set; }
+
     internal static bool BrowserNativeHarnessEnabled { get; private set; }
     internal static bool BrowserNativeHarnessKeepOpen { get; private set; }
     internal static string? BrowserNativeHarnessOutput { get; private set; }
@@ -156,6 +159,8 @@ class Program
             EnsureIsolatedHarnessAppDataDir("animation-leak-repro");
             SkipOnboarding = true;
         }
+
+        StartupPreview = args.Contains("--startup-preview", StringComparer.OrdinalIgnoreCase);
 
         if (args.Any(DebugAgentHarness.IsChatStressFlag))
         {
