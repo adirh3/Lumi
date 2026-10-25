@@ -3850,7 +3850,9 @@
                       </Border.IsVisible>
                     </Border>
                     <StackPanel Orientation="Horizontal" Spacing="-7" VerticalAlignment="Center">
-                      <ItemsControl ItemsSource="{Binding HeaderRunningAgents}" VerticalAlignment="Center">
+                      <ItemsControl ItemsSource="{Binding HeaderRunningAgents}"
+                                    IsVisible="{Binding HasRunningSubagents}"
+                                    VerticalAlignment="Center">
                         <ItemsControl.ItemsPanel>
                           <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="-7" /></ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>

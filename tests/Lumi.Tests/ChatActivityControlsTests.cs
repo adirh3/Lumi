@@ -22,9 +22,9 @@ namespace Lumi.Tests;
 public sealed class ChatActivityControlsTests
 {
     [Theory]
-    [InlineData(600)]
-    [InlineData(1000)]
-    public async Task RunningPill_ShowsBackgroundWorkInTheHeader_AndItsCardStopsTheSession(double width)
+    [InlineData(600, false)]
+    [InlineData(1000, true)]
+    public async Task RunningPill_ShowsBackgroundWorkInTheHeader_AndItsCardStopsTheSession(double width, bool expanded)
     {
         var session = HeadlessTestSession.Start();
         try
@@ -95,9 +95,14 @@ public sealed class ChatActivityControlsTests
                         .Single(control => control.Name == "RunningSessionActivities");
                     Assert.Same(vm.RunningSessionActivities, list.ItemsSource);
                     Assert.Equal("1 running", label.Text);
+                    Assert.Equal(expanded, label.IsVisible);
                     var terminal = running.GetVisualDescendants().OfType<Border>()
                         .Single(face => face.Classes.Contains("command"));
                     Assert.True(terminal.IsVisible);
+                    var terminalPosition = terminal.TranslatePoint(default, running)!.Value;
+                    Assert.True(terminalPosition.X >= running.Padding.Left,
+                        $"The terminal starts at {terminalPosition.X}, inside the pill's {running.Padding.Left}px leading padding.");
+                    Assert.True(terminalPosition.X + terminal.Bounds.Width <= running.Bounds.Width - running.Padding.Right);
 
                     // While Lumi replies, nothing runs in the background: the pill goes and takes its card.
                     vm.IsBusy = true;
