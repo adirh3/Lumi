@@ -115,6 +115,42 @@ public sealed class BackgroundModelSettingsTests
         }, CancellationToken.None);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("retired-model")]
+    [InlineData("claude-opus-5.5")]
+    public async Task CatalogDefaultUsesBuildRankingButPreservesSavedModel(string preferredModel)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var data = new AppData
+            {
+                Settings = new UserSettings { PreferredModel = preferredModel, AutoSaveChats = false }
+            };
+            using var main = new MainViewModel(
+                new DataStore(data), TestCopilot.Shared, new UpdateService(),
+                startBackgroundJobs: false, initializeCopilotOnStartup: false);
+            var models = new List<ModelInfo>
+            {
+                new() { Id = "claude-opus-5.5" },
+                new() { Id = "gpt-5.6-luna" },
+                new() { Id = "gpt-6-luna" }
+            };
+            typeof(MainViewModel).GetMethod("ApplyModelCatalog", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(main, [models, ModelCatalogCache.Empty, true]);
+#if DEBUG
+            var expected = preferredModel == "claude-opus-5.5" ? preferredModel : "gpt-6-luna";
+#else
+            const string expected = "claude-opus-5.5";
+#endif
+
+            Assert.Equal(expected, main.ChatVM.SelectedModel);
+            Assert.Equal(expected, main.SettingsVM.PreferredModel);
+            Assert.Equal(expected, data.Settings.PreferredModel);
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task CatalogFallbackOnlyScoresCopilotIdsWhenByokModelsAreConfigured()
     {

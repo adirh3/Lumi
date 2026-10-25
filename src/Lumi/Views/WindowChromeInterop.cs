@@ -24,6 +24,39 @@ namespace Lumi.Views;
 internal static class WindowChromeInterop
 {
     private const uint WS_CAPTION = 0x00C00000;
+    private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
+    private const int DWMWA_CLOAK = 13;
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    /// <summary>
+    /// Turns off (or back on) the animations Windows plays when <paramref name="window"/> opens, closes,
+    /// minimizes or restores, while Lumi animates the hand-off from its loading window itself: otherwise
+    /// the window would zoom in under the hand-off. No-op off Windows.
+    /// </summary>
+    public static void SetSystemTransitionsDisabled(Window window, bool disabled)
+    {
+        if (!OperatingSystem.IsWindows() || window.TryGetPlatformHandle()?.Handle is not { } hwnd || hwnd == IntPtr.Zero)
+            return;
+
+        var value = disabled ? 1 : 0;
+        _ = DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, ref value, sizeof(int));
+    }
+
+    /// <summary>
+    /// Takes <paramref name="window"/> out of sight (or brings it back) while it stays open, laid out and
+    /// drawing, so it can come into sight with its first frame ready. Returns whether Windows did it; always
+    /// false off Windows.
+    /// </summary>
+    public static bool SetCloaked(Window window, bool cloaked)
+    {
+        if (!OperatingSystem.IsWindows() || window.TryGetPlatformHandle()?.Handle is not { } hwnd || hwnd == IntPtr.Zero)
+            return false;
+
+        var value = cloaked ? 1 : 0;
+        return DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, ref value, sizeof(int)) >= 0;
+    }
 
     /// <summary>
     /// Ensures <paramref name="window"/> keeps the <c>WS_CAPTION</c> style so Windows animates

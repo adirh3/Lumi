@@ -584,7 +584,7 @@
       <Panel x:Name="HelloPage" IsVisible="{Binding IsHelloStep}" mm:ManagementMotion.Entrance="True">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
           <StackPanel MaxWidth="560" Margin="32,0,32,24" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <Border Classes="ob-mark" Margin="0,0,0,30">
+            <Border x:Name="HelloMark" Classes="ob-mark" Margin="0,0,0,30">
               <Image Source="{DynamicResource Image.LumiMark}" Width="88" Height="88"
                      RenderOptions.BitmapInterpolationMode="HighQuality" />
             </Border>

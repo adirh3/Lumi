@@ -10,11 +10,15 @@ namespace Lumi.Services;
 /// Lumi's icon: Lumi's soft sparkle, with a smaller lilac sparkle for you floating at its shoulder and a dot for
 /// the model on the other side, so Lumi stands between you and the model. Drawn in a 1024-unit square, so it is
 /// crisp at any size. The installed icons are written from it in Lumi's colours (<see cref="Lumi"/>); the mark
-/// inside the app and the tray icon are drawn from it in the user's accent (<see cref="ColorsFor"/>).
+/// inside the app and the tray icon are drawn from it in the user's accent (<see cref="ColorsFor"/>), and the
+/// loading window draws its parts apart (<see cref="RenderPart"/>) to move them.
 /// </summary>
 internal static class AppIconArt
 {
     internal enum Shape { Squircle, Circle, Square }
+
+    /// <summary>The parts of the icon, bottom to top, which the loading window moves on their own.</summary>
+    internal enum Part { Tile, Model, Lumi, You }
 
     /// <summary>One icon's colours: its tile, the shadows and shade of Lumi and the model, and your sparkle.</summary>
     internal sealed record IconColors(
@@ -78,6 +82,67 @@ internal static class AppIconArt
         Draw(canvas, colors, shape, small ? markScale * SmallCutScale : markScale, shadow: !small);
         return bitmap;
     }
+
+    /// <summary>
+    /// One part of the squircle icon on a transparent square of the icon's size, so the parts stacked in
+    /// <see cref="Part"/> order draw the whole icon. Lumi, you and the model carry their own shadows and
+    /// aren't clipped to the tile, so they can move off it.
+    /// </summary>
+    internal static SKBitmap RenderPart(IconColors colors, Part part, int size)
+    {
+        var bitmap = new SKBitmap(new SKImageInfo(size, size, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(bitmap);
+        canvas.Clear(SKColors.Transparent);
+        canvas.Scale(size / Unit);
+        switch (part)
+        {
+            case Part.Tile:
+                using (var outline = Squircle())
+                {
+                    canvas.Save();
+                    canvas.ClipPath(outline, antialias: true);
+                    FillTile(canvas, colors);
+                    canvas.Restore();
+                    DrawEdge(canvas, outline);
+                }
+                break;
+            case Part.Model:
+                using (var model = ModelDot())
+                {
+                    DrawModelShadow(canvas, model, colors);
+                    PaintModel(canvas, model, colors);
+                }
+                break;
+            case Part.Lumi:
+                using (var lumi = Sparkle(LumiCentre, LumiTip))
+                {
+                    DrawShadow(canvas, lumi, colors.Shadow, ShadowOffset, ShadowBlur, ShadowOpacity);
+                    PaintLumi(canvas, lumi, colors);
+                }
+                break;
+            case Part.You:
+                using (var you = Sparkle(YouCentre, YouTip))
+                    PaintYou(canvas, you, colors);
+                break;
+        }
+        return bitmap;
+    }
+
+    /// <summary>The centre of a part, as a fraction of the icon's side from its top-left corner.</summary>
+    internal static Avalonia.Point CentreOf(Part part)
+    {
+        var centre = part switch
+        {
+            Part.Lumi => LumiCentre,
+            Part.You => YouCentre,
+            Part.Model => ModelCentre,
+            _ => new SKPoint(Unit / 2, Unit / 2),
+        };
+        return new Avalonia.Point(centre.X / Unit, centre.Y / Unit);
+    }
+
+    /// <summary>The model's radius, as a fraction of the icon's side.</summary>
+    internal static double ModelRadiusFraction => ModelRadius / Unit;
 
     internal static byte[] EncodePng(SKBitmap bitmap)
     {
@@ -144,17 +209,7 @@ internal static class AppIconArt
         if (outline is not null)
             canvas.ClipPath(outline, antialias: true);
 
-        using (var tile = TileShader(colors))
-        using (var sheen = Fade(SheenCentre, SheenRadius, SKColors.White, SheenOpacity))
-        using (var depth = Fade(DepthCentre, DepthRadius, colors.TileDepth, DepthOpacity))
-        using (var paint = new SKPaint { IsAntialias = true })
-        {
-            foreach (var shader in new[] { tile, sheen, depth })
-            {
-                paint.Shader = shader;
-                canvas.DrawRect(0, 0, Unit, Unit, paint);
-            }
-        }
+        FillTile(canvas, colors);
 
         canvas.Save();
         canvas.Translate(Unit / 2, Unit / 2);
@@ -164,10 +219,26 @@ internal static class AppIconArt
         canvas.Restore();
         canvas.Restore();
 
-        if (outline is null)
-            return;
+        if (outline is not null)
+            DrawEdge(canvas, outline);
+    }
 
-        // A light edge along the top of the tile, inside it.
+    private static void FillTile(SKCanvas canvas, IconColors colors)
+    {
+        using var tile = TileShader(colors);
+        using var sheen = Fade(SheenCentre, SheenRadius, SKColors.White, SheenOpacity);
+        using var depth = Fade(DepthCentre, DepthRadius, colors.TileDepth, DepthOpacity);
+        using var paint = new SKPaint { IsAntialias = true };
+        foreach (var shader in new[] { tile, sheen, depth })
+        {
+            paint.Shader = shader;
+            canvas.DrawRect(0, 0, Unit, Unit, paint);
+        }
+    }
+
+    /// <summary>A light edge along the top of the tile, inside it.</summary>
+    private static void DrawEdge(SKCanvas canvas, SKPath outline)
+    {
         canvas.Save();
         canvas.ClipPath(outline, antialias: true);
         using (var shader = EdgeShader())
@@ -180,29 +251,50 @@ internal static class AppIconArt
     {
         using var lumi = Sparkle(LumiCentre, LumiTip);
         using var you = Sparkle(YouCentre, YouTip);
-        using var model = new SKPath();
-        model.AddCircle(ModelCentre.X, ModelCentre.Y, ModelRadius);
+        using var model = ModelDot();
 
         if (shadow)
         {
             DrawShadow(canvas, lumi, colors.Shadow, ShadowOffset, ShadowBlur, ShadowOpacity);
-            DrawShadow(canvas, model, colors.Shadow, ModelRadius * 0.3f, ModelShadowBlur, ModelShadowOpacity);
+            DrawModelShadow(canvas, model, colors);
         }
 
-        using (var modelShade = Shade(ModelCentre.Y - ModelRadius, ModelCentre.Y + ModelRadius, colors.Tint))
-        using (var lumiShade = Shade(LumiCentre.Y - LumiTip, LumiCentre.Y + LumiTip, colors.Tint))
-        using (var paint = new SKPaint { IsAntialias = true })
-        {
-            paint.Shader = modelShade;
-            canvas.DrawPath(model, paint);
-            paint.Shader = lumiShade;
-            canvas.DrawPath(lumi, paint);
-        }
+        PaintModel(canvas, model, colors);
+        PaintLumi(canvas, lumi, colors);
+        PaintYou(canvas, you, colors);
+    }
 
+    private static SKPath ModelDot()
+    {
+        var model = new SKPath();
+        model.AddCircle(ModelCentre.X, ModelCentre.Y, ModelRadius);
+        return model;
+    }
+
+    private static void DrawModelShadow(SKCanvas canvas, SKPath model, IconColors colors)
+        => DrawShadow(canvas, model, colors.Shadow, ModelRadius * 0.3f, ModelShadowBlur, ModelShadowOpacity);
+
+    private static void PaintModel(SKCanvas canvas, SKPath model, IconColors colors)
+    {
+        using var shade = Shade(ModelCentre.Y - ModelRadius, ModelCentre.Y + ModelRadius, colors.Tint);
+        using var paint = new SKPaint { IsAntialias = true, Shader = shade };
+        canvas.DrawPath(model, paint);
+    }
+
+    private static void PaintLumi(SKCanvas canvas, SKPath lumi, IconColors colors)
+    {
+        using var shade = Shade(LumiCentre.Y - LumiTip, LumiCentre.Y + LumiTip, colors.Tint);
+        using var paint = new SKPaint { IsAntialias = true, Shader = shade };
+        canvas.DrawPath(lumi, paint);
+    }
+
+    /// <summary>Your sparkle floats above Lumi, casting a soft shadow and a close one.</summary>
+    private static void PaintYou(SKCanvas canvas, SKPath you, IconColors colors)
+    {
         DrawShadow(canvas, you, colors.Shadow, ContactOffset, ContactBlur, ContactOpacity);
         DrawShadow(canvas, you, colors.Shadow, FloatOffset, FloatBlur, FloatOpacity);
-        using (var paint = new SKPaint { IsAntialias = true, Color = colors.You })
-            canvas.DrawPath(you, paint);
+        using var paint = new SKPaint { IsAntialias = true, Color = colors.You };
+        canvas.DrawPath(you, paint);
     }
 
     private static void DrawShadow(SKCanvas canvas, SKPath shape, SKColor color, float offset, float blur, float opacity)

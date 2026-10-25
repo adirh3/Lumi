@@ -33,6 +33,31 @@ public class ModelCatalogRefreshTests
             DefaultReasoningEffort = defaultEffort
         };
 
+    [Theory]
+    [InlineData("gpt-6.9-luna", "GPT-6.10-Luna")]
+    [InlineData("gpt-6.19-luna", "gpt-7-luna")]
+    public void DefaultModel_DebugPrefersNewestLuna_ReleaseKeepsExistingRanking(string older, string newer)
+    {
+        string[] models = ["claude-opus-5.5", older, "gpt-6.1-sol", newer];
+#if DEBUG
+        var expected = newer;
+#else
+        const string expected = "claude-opus-5.5";
+#endif
+
+        Assert.Equal(expected, ChatViewModel.PickBestModel(models));
+        Assert.Equal(expected, ChatViewModel.PickBestModel(models.Reverse().ToArray()));
+    }
+
+    [Fact]
+    public void DefaultModel_WithoutLunaKeepsExistingRanking()
+        => Assert.Equal("claude-opus-5.5",
+            ChatViewModel.PickBestModel(["gpt-6.1-sol", "claude-opus-5.5", "claude-sonnet-5"]));
+
+    [Fact]
+    public void DefaultModel_EmptyCatalogHasNoSelection()
+        => Assert.Null(ChatViewModel.PickBestModel([]));
+
     [Fact]
     public void Signature_IsStable_ForSameCatalogInDifferentOrder()
     {

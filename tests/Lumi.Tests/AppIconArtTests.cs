@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.LogicalTree;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Lumi.Models;
@@ -29,6 +28,7 @@ public sealed class AppIconArtTests
     private static readonly SKPointI Model = new(65, 191);
     private static readonly SKPointI UnderYou = new(177, 117);
     private static readonly SKPointI LumiBesideYou = new(100, 117);
+    private static readonly SKPointI AwayFromTheMark = new(40, 40);
 
     [Fact]
     public void Icon_IsLumiBetweenYouAndTheModel_WithYouFloatingAboveLumi()
@@ -112,39 +112,99 @@ public sealed class AppIconArtTests
     }
 
     [Fact]
-    public async Task LoadingWindow_ShowsLumisMarkInTheChosenAccent()
+    public void IconParts_StackIntoTheIcon()
     {
-        using var session = HeadlessTestSession.Start();
-        object? shown = null, expected = null, shownAfterChange = null, expectedAfterChange = null;
+        const int size = 256;
+        using var icon = AppIconArt.Render(AppIconArt.Lumi, size);
+        using var stacked = new SKBitmap(new SKImageInfo(size, size, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using (var canvas = new SKCanvas(stacked))
+        {
+            canvas.Clear(SKColors.Transparent);
+            foreach (var part in Enum.GetValues<AppIconArt.Part>())
+            {
+                using var layer = AppIconArt.RenderPart(AppIconArt.Lumi, part, size);
+                canvas.DrawBitmap(layer, 0, 0);
+            }
+        }
+
+        // Lumi's shadow is stacked over the model's dot rather than under it, which tints the dot's edge
+        // faintly; everywhere else the parts draw the icon exactly.
+        var model = AppIconArt.CentreOf(AppIconArt.Part.Model);
+        var dotReach = AppIconArt.ModelRadiusFraction * size + 2;
+        for (var y = 0; y < size; y++)
+        for (var x = 0; x < size; x++)
+        {
+            var (a, b) = (icon.GetPixel(x, y), stacked.GetPixel(x, y));
+            var difference = new[]
+            {
+                Math.Abs(a.Red - b.Red), Math.Abs(a.Green - b.Green), Math.Abs(a.Blue - b.Blue), Math.Abs(a.Alpha - b.Alpha),
+            }.Max();
+            var onTheDot = Math.Sqrt(Math.Pow(x - model.X * size, 2) + Math.Pow(y - model.Y * size, 2)) <= dotReach;
+            Assert.True(difference <= (onTheDot ? 16 : 3), $"The parts stacked in order differ from the icon by {difference} at ({x}, {y}).");
+        }
+
+        foreach (var part in new[] { AppIconArt.Part.Lumi, AppIconArt.Part.You, AppIconArt.Part.Model })
+        {
+            var centre = AppIconArt.CentreOf(part);
+            using var layer = AppIconArt.RenderPart(AppIconArt.Lumi, part, size);
+            Assert.Equal(255, layer.GetPixel((int)(centre.X * size), (int)(centre.Y * size)).Alpha);
+            Assert.Equal(0, layer.GetPixel(AwayFromTheMark.X, AwayFromTheMark.Y).Alpha);
+        }
+    }
+
+    [Fact]
+    public async Task LoadingWindow_DrawsLumisMarkInTheChosenAccent()
+    {
+        // Skia-backed, so the drawn parts keep their pixels.
+        using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
+        SKColor lumiTile = default, forestTile = default;
+        var partsShown = 0;
 
         await session.Dispatch(() =>
         {
-            var resources = Application.Current!.Resources;
-            AccentPalettes.Apply(resources, AccentPalettes.DefaultId);
-            var window = new StartupWindow();
-            try
+            foreach (var accent in new[] { AccentPalettes.DefaultId, "forest" })
             {
-                window.Show();
-                var image = window.GetLogicalDescendants().OfType<Image>().Single();
-                shown = image.Source;
-                expected = resources[AppIcon.MarkResourceKey];
-
-                AccentPalettes.Apply(resources, "ocean");
-                Dispatcher.UIThread.RunJobs();
-                shownAfterChange = image.Source;
-                expectedAfterChange = resources[AppIcon.MarkResourceKey];
-            }
-            finally
-            {
-                window.Close();
-                AccentPalettes.Apply(resources, AccentPalettes.DefaultId);
+                var window = new StartupWindow(accent, animate: false);
+                try
+                {
+                    window.Show();
+                    partsShown += new[] { "TileArt", "ModelArt", "LumiArt", "YouArt" }
+                        .Count(name => window.FindControl<Image>(name)!.Source is Bitmap);
+                    var tile = (Bitmap)window.FindControl<Image>("TileArt")!.Source!;
+                    var pixel = PixelAt(tile, Tile.X / 256.0, Tile.Y / 256.0);
+                    if (accent == AccentPalettes.DefaultId)
+                        lumiTile = pixel;
+                    else
+                        forestTile = pixel;
+                }
+                finally
+                {
+                    window.Close();
+                }
             }
         }, CancellationToken.None);
 
-        Assert.NotNull(shown);
-        Assert.Same(expected, shown);
-        Assert.Same(expectedAfterChange, shownAfterChange);
-        Assert.NotSame(shown, shownAfterChange);
+        Assert.Equal(8, partsShown);
+        Assert.True(lumiTile.Blue > lumiTile.Green + 60, $"Lumi's tile is indigo-violet, not {lumiTile}.");
+        Assert.True(forestTile.Green > forestTile.Red && forestTile.Green > forestTile.Blue, $"A forest tile is green, not {forestTile}.");
+    }
+
+    /// <summary>The pixel of <paramref name="bitmap"/> at a fraction of its width and height.</summary>
+    private static SKColor PixelAt(Bitmap bitmap, double x, double y)
+    {
+        var point = new PixelPoint((int)(x * bitmap.PixelSize.Width), (int)(y * bitmap.PixelSize.Height));
+        var buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(4);
+        try
+        {
+            bitmap.CopyPixels(new PixelRect(point, new PixelSize(1, 1)), buffer, 4, 4);
+            var bgra = new byte[4];
+            System.Runtime.InteropServices.Marshal.Copy(buffer, bgra, 0, 4);
+            return new SKColor(bgra[2], bgra[1], bgra[0], bgra[3]);
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+        }
     }
 
     [Fact]

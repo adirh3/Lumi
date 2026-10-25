@@ -18,7 +18,7 @@ internal static class AppIcon
     private static readonly Uri IconUri = new("avares://Lumi/Assets/lumi-icon.png");
 
     /// <summary>The resource key of Lumi's mark in the current accent, an <see cref="Avalonia.Media.IImage"/>
-    /// that the welcome screen, onboarding and the loading window show.</summary>
+    /// that the welcome screen, onboarding and Settings show.</summary>
     internal const string MarkResourceKey = "Image.LumiMark";
 
     // Sharp for the largest mark in the app (88 dip, onboarding's greeting) up to 290% display scale.
@@ -31,10 +31,20 @@ internal static class AppIcon
     internal static Bitmap CreateMark(AccentPalettes.Palette palette)
     {
         using var art = AppIconArt.Render(AppIconArt.ColorsFor(palette), MarkSize);
-        return new Bitmap(
-            PixelFormat.Bgra8888, AlphaFormat.Premul, art.GetPixels(),
-            new PixelSize(MarkSize, MarkSize), new Vector(96, 96), art.RowBytes);
+        return ToBitmap(art);
     }
+
+    /// <summary>One part of Lumi's mark in <paramref name="palette"/>, <paramref name="size"/> pixels square;
+    /// the parts stacked in order draw the mark (the loading window moves each on its own).</summary>
+    internal static Bitmap CreateMarkPart(AccentPalettes.Palette palette, AppIconArt.Part part, int size)
+    {
+        using var art = AppIconArt.RenderPart(AppIconArt.ColorsFor(palette), part, size);
+        return ToBitmap(art);
+    }
+
+    private static Bitmap ToBitmap(SkiaSharp.SKBitmap art)
+        => new(PixelFormat.Bgra8888, AlphaFormat.Premul, art.GetPixels(),
+            new PixelSize(art.Width, art.Height), new Vector(96, 96), art.RowBytes);
 
     /// <summary>
     /// The tray icon in <paramref name="palette"/>. Windows gets an .ico with a frame drawn for each tray

@@ -42,7 +42,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Voice input** — Local, multilingual dictation on Windows, Linux and macOS: asks once before its one-time download, listens instantly with a live waveform, and shows your words as you speak
 - **Desktop notifications** — Toast notifications when responses complete in the background
 - **Welcome & setup** — A guided first run shows what Lumi can do, connects your AI, looks at what you work on (only the sources you allow) and sets up projects from your repositories and document folders, turns a few quick answers into memories, and ends with first tasks tailored to you. Replay it anytime from Settings → Profile → Welcome Tour
-- **Visible startup** — A localized loading window appears before the main UI is built; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
+- **Visible startup** — A localized loading window appears before the main UI is built: Lumi's mark puts itself together in your accent over a slowly turning glow and keeps moving while Lumi starts (it stands still with animations off). On Windows, when Lumi opens on its welcome screen or the welcome tour, the loading window grows into Lumi's window and the mark glides into the welcome logo; minimized launches stay silent, onboarding screens are created only when needed, and Copilot connects after the first frame
 
 ### Voice input
 
@@ -1231,7 +1231,12 @@ ready** banner keeps the current app usable and defers activation/reopening unti
 drafts (including other chats and question replies), attachments, uploads,
 produced-file downloads and opens, pending sends/configuration or remote actions,
 and open editors or sheets are safe. Update failures offer **Try again** without
-clearing the working app or pairing. Restarting the desktop with unchanged PWA
+clearing the working app or pairing. **Update now** also works while unsent work
+is keeping the automatic update on hold: Lumi asks before discarding drafts,
+question replies and unsaved edits across the app. **Keep editing** cancels
+without changing that work. Manual updates still wait for active sends, uploads,
+downloads and remote actions; saved chats and pairing are kept.
+Restarting the desktop with unchanged PWA
 assets only reconnects; it does not reinstall the bundle or reload the app.
 Other open app windows keep their runtime and drafts until they can safely
 reopen too. The refresh URL is a recovery fallback, not the normal update flow.
@@ -1299,8 +1304,12 @@ Lumi does not run a separate renewal timer. If the PC remains inactive long enou
 for Microsoft to expire the resource, Lumi recreates the saved route in its original
 cluster when available.
 
-Transient relay failures are retried automatically with capped, cancellable
-backoff, and network changes rehost the same route. Settings show **Reconnecting**
+Transient relay failures and the initial cached-account check are retried
+automatically with capped, cancellable backoff, including Microsoft's
+`NoNetwork` / `no_network` broker errors after offline startup or a network change.
+Explicit interactive sign-in is never automatically repeated, and missing or
+expired credentials still require user action.
+Network changes rehost the same route. Settings show **Reconnecting**
 instead of a usable link while the relay is down; **Reconnect** retries without
 rebinding the local listener. Lumi observes the CLI's live relay-close, restored,
 and terminal host-error messages instead of waiting for the process to exit.

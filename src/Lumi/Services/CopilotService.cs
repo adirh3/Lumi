@@ -782,7 +782,7 @@ public class CopilotService : IAsyncDisposable
             .FirstOrDefault();
     }
 
-    private static Version? GetLunaVersion(string modelId)
+    internal static Version? GetLunaVersion(string modelId)
     {
         var parts = modelId.Split('-');
         if (parts.Length < 3

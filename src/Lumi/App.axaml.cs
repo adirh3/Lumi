@@ -88,13 +88,21 @@ public partial class App : Application
             // there too, before any window can save: every write would wait behind it.
             var recovering = dataStore.HasChatsToRecover;
             var upgrading = dataStore.UpgradesChatStorage;
+#if DEBUG
+            if (Program.StartupPreview)
+            {
+                ShowStartupPreview(desktop, settings);
+                base.OnFrameworkInitializationCompleted();
+                return;
+            }
+#endif
             if (dataStore.Data.Settings.StartMinimized && !recovering && !upgrading)
             {
                 InitializeDesktop(dataStore);
             }
             else
             {
-                var startupWindow = new StartupWindow();
+                var startupWindow = new StartupWindow(settings.AccentColor, settings.ShowAnimations);
                 if (Loc.IsRightToLeft)
                     startupWindow.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
                 if (recovering)
@@ -120,8 +128,7 @@ public partial class App : Application
                     InitializeDesktop(dataStore);
                     var window = _mainWindow
                         ?? throw new InvalidOperationException("Lumi's main window was not initialized.");
-                    window.Show();
-                    Dispatcher.UIThread.Post(startupWindow.Close, DispatcherPriority.Background);
+                    StartupHandOff.Show(startupWindow, window);
                 }, DispatcherPriority.Background);
             }
         }
@@ -636,6 +643,26 @@ public partial class App : Application
     }
 
 #if DEBUG
+    /// <summary>
+    /// Shows only the loading window and keeps it open (--startup-preview), so its motion can be watched
+    /// longer than Lumi takes to start. A click plays it again from the start.
+    /// </summary>
+    private static void ShowStartupPreview(IClassicDesktopStyleApplicationLifetime desktop, UserSettings settings)
+    {
+        void Show(StartupWindow? previous)
+        {
+            var window = new StartupWindow(settings.AccentColor, settings.ShowAnimations);
+            if (Loc.IsRightToLeft)
+                window.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
+            window.PointerPressed += (_, _) => Show(window);
+            desktop.MainWindow = window;
+            window.Show();
+            previous?.Close();
+        }
+
+        Show(null);
+    }
+
     private void StartMemoryStressHarness(
         IClassicDesktopStyleApplicationLifetime desktop,
         MainViewModel vm,

@@ -247,6 +247,7 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(CanChangeProjectScope))]
     [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
     [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmWebAppUpdateCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenProjectPickerCommand))]
     private bool _isPaired;
 
@@ -313,7 +314,20 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(ShowApplyWebAppUpdateAction))]
     [NotifyPropertyChangedFor(nameof(ShowCheckWebAppUpdateAction))]
     [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmWebAppUpdateCommand))]
     private WebAppUpdateState _webAppUpdateState;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanGoBack))]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    [NotifyPropertyChangedFor(nameof(ShowApplyWebAppUpdateAction))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmWebAppUpdateCommand))]
+    private bool _isWebAppUpdateConfirmationOpen;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
+    private bool _isWebAppUpdateRequested;
 
     public MobileShellViewModel(
         LumiRemoteClient? client = null,
@@ -677,6 +691,7 @@ public sealed partial class MobileShellViewModel :
     [NotifyCanExecuteChangedFor(nameof(ConfirmDeleteActionChatCommand))]
     [NotifyPropertyChangedFor(nameof(CanApplyWebAppUpdate))]
     [NotifyCanExecuteChangedFor(nameof(ApplyWebAppUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmWebAppUpdateCommand))]
     private bool _isChatActionBusy;
 
     public string ActionChatTitle => ActionChat?.Title ?? "";
@@ -999,23 +1014,29 @@ public sealed partial class MobileShellViewModel :
         && !IsRenamingChat
         && !IsChatActionBusy;
 
-    public bool CanApplyWebAppUpdate =>
+    private bool CanStartWebAppUpdate =>
         _applyWebAppUpdate is not null
         && _isApplicationActive
         && IsPaired
         && Volatile.Read(ref _commandsInFlight) == 0
-        && !IsKeyboardOpen
-        && !Chat.HasUnsentWork
-        && !Chat.HasOpenSheet
-        && !Library.HasOpenSurface
+        && !Chat.HasPendingOperation
         && !Library.IsSaving
         && !Library.IsActionBusy
-        && !IsModalSheetPresented
-        && !IsProjectPickerOpen
-        && !IsChatActionsOpen
-        && !IsRenamingChat
-        && !IsChatActionBusy
-        && !IsDisconnectConfirmationOpen;
+        && !IsChatActionBusy;
+
+    public bool CanApplyWebAppUpdate =>
+        CanStartWebAppUpdate
+        && (IsWebAppUpdateRequested
+            || (!IsKeyboardOpen
+                && !Chat.HasUnsentWork
+                && !Chat.HasOpenSheet
+                && !Library.HasOpenSurface
+                && !IsModalSheetPresented
+                && !IsProjectPickerOpen
+                && !IsChatActionsOpen
+                && !IsRenamingChat
+                && !IsDisconnectConfirmationOpen
+                && !IsWebAppUpdateConfirmationOpen));
 
     public bool ShowWebAppUpdateBanner =>
         _applyWebAppUpdate is not null && WebAppUpdateState != WebAppUpdateState.Current;
@@ -1023,7 +1044,8 @@ public sealed partial class MobileShellViewModel :
     public bool IsWebAppUpdating =>
         WebAppUpdateState is WebAppUpdateState.Downloading or WebAppUpdateState.Applying;
 
-    public bool ShowApplyWebAppUpdateAction => WebAppUpdateState == WebAppUpdateState.Ready;
+    public bool ShowApplyWebAppUpdateAction =>
+        WebAppUpdateState == WebAppUpdateState.Ready && !IsWebAppUpdateConfirmationOpen;
 
     public bool ShowCheckWebAppUpdateAction => WebAppUpdateState == WebAppUpdateState.Failed;
 
@@ -1046,18 +1068,53 @@ public sealed partial class MobileShellViewModel :
     };
 
     private bool CanApplyReadyWebAppUpdate =>
-        ShowApplyWebAppUpdateAction && CanApplyWebAppUpdate;
+        ShowApplyWebAppUpdateAction && CanStartWebAppUpdate;
+
+    private bool CanConfirmWebAppUpdate =>
+        IsWebAppUpdateConfirmationOpen
+        && WebAppUpdateState == WebAppUpdateState.Ready
+        && CanStartWebAppUpdate;
 
     private bool CanCheckWebAppUpdate => _checkWebAppUpdate is not null;
+
+    partial void OnWebAppUpdateStateChanged(WebAppUpdateState value)
+    {
+        if (value != WebAppUpdateState.Ready)
+            IsWebAppUpdateConfirmationOpen = false;
+        if (value is WebAppUpdateState.Current or WebAppUpdateState.Downloading or WebAppUpdateState.Failed)
+        {
+            IsWebAppUpdateRequested = false;
+            OnPropertyChanged(nameof(CanApplyWebAppUpdate));
+        }
+    }
 
     private void NotifyWebAppUpdateSafetyChanged()
     {
         OnPropertyChanged(nameof(CanApplyWebAppUpdate));
         ApplyWebAppUpdateCommand.NotifyCanExecuteChanged();
+        ConfirmWebAppUpdateCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand(CanExecute = nameof(CanApplyReadyWebAppUpdate))]
-    private void ApplyWebAppUpdate() => _applyWebAppUpdate?.Invoke();
+    private void ApplyWebAppUpdate()
+    {
+        if (CanApplyWebAppUpdate)
+            _applyWebAppUpdate?.Invoke();
+        else
+            IsWebAppUpdateConfirmationOpen = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanConfirmWebAppUpdate))]
+    private void ConfirmWebAppUpdate()
+    {
+        IsWebAppUpdateRequested = true;
+        IsWebAppUpdateConfirmationOpen = false;
+        NotifyWebAppUpdateSafetyChanged();
+        _applyWebAppUpdate?.Invoke();
+    }
+
+    [RelayCommand]
+    private void CancelWebAppUpdate() => IsWebAppUpdateConfirmationOpen = false;
 
     [RelayCommand(CanExecute = nameof(CanCheckWebAppUpdate))]
     private void CheckWebAppUpdate() => _checkWebAppUpdate?.Invoke();
@@ -1755,6 +1812,12 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void GoBack()
     {
+        if (IsWebAppUpdateConfirmationOpen)
+        {
+            CancelWebAppUpdate();
+            return;
+        }
+
         if (!IsPaired && Connect.IsCodeStep)
         {
             Connect.BackCommand.Execute(null);
@@ -1823,6 +1886,7 @@ public sealed partial class MobileShellViewModel :
     /// <summary>True when the system back gesture has something of ours to dismiss.</summary>
     public bool CanGoBack =>
         (!IsPaired && Connect.IsCodeStep) ||
+        IsWebAppUpdateConfirmationOpen ||
         IsDisconnectConfirmationOpen ||
         IsChatActionsOpen ||
         IsProjectPickerOpen ||
@@ -1834,6 +1898,7 @@ public sealed partial class MobileShellViewModel :
 
     partial void OnPageChanged(MobilePage value)
     {
+        IsWebAppUpdateConfirmationOpen = false;
         IsDisconnectConfirmationOpen = false;
         IsProjectPickerOpen = false;
         var previousPage = _lastObservedPage;
@@ -2459,6 +2524,8 @@ public sealed partial class MobileShellViewModel :
 
     private void ResetHostScopedState()
     {
+        IsWebAppUpdateRequested = false;
+        IsWebAppUpdateConfirmationOpen = false;
         _sendReconciliationCandidates = [];
         Interlocked.Increment(ref _sendReconciliationVersion);
         _readWatermarks.Clear();

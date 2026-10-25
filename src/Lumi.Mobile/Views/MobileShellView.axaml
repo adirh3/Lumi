@@ -23,7 +23,7 @@
     </Style>
   </UserControl.Styles>
 
-  <Panel x:Name="Root">
+  <Panel x:Name="Root" IsEnabled="{Binding !IsWebAppUpdateRequested}">
 
     <!-- Styles share a null-safe source even before the shell receives its ViewModel. -->
     <Border x:Name="SheetMarginProxy" Width="0" Height="0"

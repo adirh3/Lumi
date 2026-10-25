@@ -122,6 +122,14 @@ public sealed class MobileShellViewTests
         Dispatcher.UIThread.RunJobs();
     }
 
+    private sealed class UpdateableWebHost : IMobileHostEnvironment
+    {
+        public bool HasFixedEndpoint => true;
+        public string? FixedBaseUrl => "https://lumi.test";
+        public string FixedEndpointName => "Test PC";
+        public Action? ApplyWebAppUpdate => () => { };
+    }
+
     private sealed class RecordingNativeTextInputOverlayPresenter : INativeTextInputOverlayPresenter
     {
         public List<Session> Sessions { get; } = [];
@@ -718,6 +726,50 @@ public sealed class MobileShellViewTests
         }
         finally
         {
+            MobilePlatformServices.ResetTextInputOverlayPresenter(presenter);
+        }
+    }
+
+    [Fact]
+    public async Task BrowserUpdateDisablesNativeInputsUntilActivationFails()
+    {
+        var presenter = new RecordingNativeTextInputOverlayPresenter();
+        var previousHost = MobilePlatformServices.HostEnvironment;
+        MobilePlatformServices.TextInputOverlayPresenter = presenter;
+        MobilePlatformServices.HostEnvironment = new UpdateableWebHost();
+        try
+        {
+            await RunAsync(async (shell, window) =>
+            {
+                Pair(shell);
+                OpenChat(shell);
+                Layout(window, shell, 412, 892);
+                shell.Chat.PromptText = "Keep this draft if the update fails";
+                await Task.Delay(360);
+                Pump(window);
+                var composerBox = Assert.IsType<TextBox>(Named(window, "PART_Input"));
+                var composer = Assert.Single(presenter.Sessions,
+                    session => session.IsShown && session.Options.Placeholder == composerBox.PlaceholderText);
+                Assert.True(composer.Options.IsEnabled);
+                shell.WebAppUpdateState = WebAppUpdateState.Ready;
+                shell.ApplyWebAppUpdateCommand.Execute(null);
+                Assert.True(shell.IsWebAppUpdateConfirmationOpen);
+
+                shell.ConfirmWebAppUpdateCommand.Execute(null);
+
+                Assert.True(shell.IsWebAppUpdateRequested);
+                Assert.True(composerBox.IsEnabled);
+                Assert.False(composerBox.IsEffectivelyEnabled);
+                Assert.False(composer.Options.IsEnabled);
+                shell.WebAppUpdateState = WebAppUpdateState.Applying;
+                shell.WebAppUpdateState = WebAppUpdateState.Failed;
+                Assert.True(composer.Options.IsEnabled);
+                Assert.Equal("Keep this draft if the update fails", shell.Chat.PromptText);
+            });
+        }
+        finally
+        {
+            MobilePlatformServices.HostEnvironment = previousHost;
             MobilePlatformServices.ResetTextInputOverlayPresenter(presenter);
         }
     }

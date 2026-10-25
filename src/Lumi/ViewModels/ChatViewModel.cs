@@ -6894,13 +6894,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Picks the best model from a list of model IDs using name/version heuristics.
+    /// Debug builds prefer the newest available GPT Luna.
     /// </summary>
     public static string? PickBestModel(IReadOnlyList<string> models)
     {
         if (models.Count == 0) return null;
 
         return models
+#if DEBUG
+            .OrderByDescending(CopilotService.GetLunaVersion)
+            .ThenByDescending(ScoreModel)
+#else
             .OrderByDescending(ScoreModel)
+#endif
             .ThenByDescending(m => m) // alphabetical tiebreaker (higher version strings win)
             .First();
     }
