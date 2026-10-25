@@ -2074,6 +2074,65 @@ public sealed class DeferredSendQueueTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task AssistantIdle_LateReasoningPrecedesItsAnswerWithoutChangingStoredOrder(bool deltasOnly)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.ApplyDisplayedRuntimeState();
+            rpc.Emit(new AssistantMessageEvent
+            {
+                Data = new AssistantMessageData
+                {
+                    MessageId = "answer",
+                    Content = "The result is ready.",
+                    Phase = "final_answer",
+                }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            if (deltasOnly)
+            {
+                rpc.Emit(new AssistantReasoningDeltaEvent
+                {
+                    Data = new AssistantReasoningDeltaData
+                    {
+                        ReasoningId = "late",
+                        DeltaContent = "Checking how to explain the result.",
+                    }
+                });
+            }
+            else
+            {
+                rpc.Emit(new AssistantReasoningEvent
+                {
+                    Data = new AssistantReasoningData
+                    {
+                        ReasoningId = "late",
+                        Content = "Checking how to explain the result.",
+                    }
+                });
+            }
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(host.ViewModel.IsBusy);
+            Assert.Equal(["assistant", "reasoning"], host.Chat.Messages.Select(static message => message.Role));
+            var turn = Assert.Single(host.ViewModel.TranscriptTurns);
+            Assert.Collection(turn.Items.Where(static item => item is not TurnModelItem),
+                item => Assert.Equal("Checking how to explain the result.", Assert.IsType<ReasoningItem>(item).Content),
+                item => Assert.Equal("The result is ready.", Assert.IsType<AssistantMessageItem>(item).Content));
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task PreviousTurnTerminalCallback_CannotClearTheReplacementTurn(bool abort)
     {
         using var ui = HeadlessTestSession.Start();

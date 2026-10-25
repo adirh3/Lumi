@@ -137,6 +137,159 @@ public sealed class TranscriptWorkFoldTests
     }
 
     [Fact]
+    public void LiveTurn_LateReasoningPrecedesTheCompletedAnswer()
+    {
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(User("Explain the result", AskedAt));
+        var answer = StreamAssistant(builder, "The result is ready.", isProgress: false, AskedAt.AddSeconds(10));
+        var reasoning = Reasoning("Checking how to explain the result.");
+        builder.ProcessMessageToTranscript(reasoning);
+        builder.AppendModelLabel("gpt-6.1-sol");
+
+        builder.CollapseCompletedBlocksInCurrentTurn();
+        builder.CollapseCompletedBlocksInCurrentTurn();
+
+        Assert.Collection(turns[^1].Items.Where(static item => item is not TurnModelItem),
+            item => Assert.Equal(reasoning.Message.Id, Assert.IsType<ReasoningItem>(item).MessageId),
+            item => Assert.Equal(answer.Message.Id, Assert.IsType<AssistantMessageItem>(item).MessageId));
+    }
+
+    [Fact]
+    public void LateReasoning_DoesNotCaptureReasoningWhenTheSessionResumes()
+    {
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(User("Check the background work", AskedAt));
+        StreamAssistant(builder, "The background work is running.", isProgress: false, AskedAt.AddSeconds(5));
+        builder.AppendModelLabel("gpt-6.1-sol");
+        builder.CollapseCompletedBlocksInCurrentTurn();
+
+        var answer = StreamAssistant(builder, "The first result is ready.", isProgress: false, AskedAt.AddSeconds(10));
+        var lateReasoning = Reasoning("Explain the first result.");
+        builder.ProcessMessageToTranscript(lateReasoning);
+        builder.AppendModelLabel("gpt-6.1-sol");
+        builder.CollapseCompletedBlocksInCurrentTurn();
+
+        var nextReasoning = Reasoning("Inspect the next result.", isStreaming: true);
+        builder.ProcessMessageToTranscript(nextReasoning);
+
+        var work = turns[^1];
+        var latest = Assert.IsType<ReasoningItem>(work.Items[^1]);
+        Assert.Equal("Inspect the next result.", latest.Content);
+        Assert.True(latest.IsActive);
+        Assert.True(work.Items.IndexOf(latest) >
+            work.Items.IndexOf(work.Items.OfType<AssistantMessageItem>().Single(item => item.MessageId == answer.Message.Id)));
+        var earlier = work.EnumerateItems().OfType<ReasoningItem>()
+            .Single(item => item.MessageId == lateReasoning.Message.Id);
+        Assert.Equal("Explain the first result.", earlier.Content);
+        Assert.False(earlier.IsActive);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(null, true)]
+    [InlineData(false, false)]
+    [InlineData(null, false)]
+    public void Rebuild_LateReasoningPrecedesTheAnswerWithoutRewritingMessages(bool? recordedProgress, bool foldProgressMessages)
+    {
+        var answer = new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Content = "The result is ready.",
+            IsProgress = recordedProgress,
+            Model = "gpt-6.1-sol",
+            Timestamp = AskedAt.AddSeconds(10),
+        });
+        var reasoning = Reasoning("Checking how to explain the result.");
+        var messages = new[] { User("Explain the result", AskedAt), answer, reasoning };
+
+        var turns = CreateBuilder(foldProgressMessages).Rebuild(messages);
+
+        Assert.Collection(turns[^1].Items.Where(static item => item is not TurnModelItem),
+            item => Assert.Equal(reasoning.Message.Id, Assert.IsType<ReasoningItem>(item).MessageId),
+            item => Assert.Equal(answer.Message.Id, Assert.IsType<AssistantMessageItem>(item).MessageId));
+        Assert.Equal(["user", "assistant", "reasoning"], messages.Select(static message => message.Role));
+        Assert.Equal(recordedProgress, answer.Message.IsProgress);
+        Assert.Equal(AskedAt.AddSeconds(10), answer.Message.Timestamp);
+        Assert.Equal("Checking how to explain the result.", reasoning.Message.Content);
+    }
+
+    [Fact]
+    public void LateReasoning_FoldsWithEarlierWorkBeforeTheAnswer()
+    {
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(User("Check the result", AskedAt));
+        builder.ProcessMessageToTranscript(Reasoning("Inspect the result."));
+        builder.ProcessMessageToTranscript(Tool("tool-1", "Completed"));
+        var answer = StreamAssistant(builder, "The result is correct.", isProgress: false, AskedAt.AddSeconds(10));
+        var lateReasoning = Reasoning("Explain the checks.");
+        builder.ProcessMessageToTranscript(lateReasoning);
+
+        builder.CollapseCompletedBlocksInCurrentTurn();
+
+        var history = Assert.IsType<TurnSummaryItem>(turns[^1].Items[0]);
+        Assert.Collection(history.InnerItems,
+            item => Assert.Equal("Inspect the result.", Assert.IsType<ReasoningItem>(item).Content),
+            item => Assert.IsType<SingleToolItem>(item),
+            item => Assert.Equal(lateReasoning.Message.Id, Assert.IsType<ReasoningItem>(item).MessageId));
+        Assert.Equal(answer.Message.Id, Assert.IsType<AssistantMessageItem>(turns[^1].Items[1]).MessageId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReasoningAfterAProgressUpdate_StaysWithTheContinuingWork(bool settle)
+    {
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(User("Check the result", AskedAt));
+        var progress = StreamAssistant(builder, "I'll check the result.", isProgress: true, AskedAt.AddSeconds(1));
+        var reasoning = Reasoning("Plan the next check.");
+        builder.ProcessMessageToTranscript(reasoning);
+
+        if (settle)
+            builder.CollapseCompletedBlocksInCurrentTurn();
+
+        Assert.Collection(turns[^1].Items,
+            item => Assert.Equal(progress.Message.Id, Assert.IsType<AssistantMessageItem>(item).MessageId),
+            item => Assert.Equal(reasoning.Message.Id, Assert.IsType<ReasoningItem>(item).MessageId));
+    }
+
+    [Fact]
+    public void Rebuild_ReasoningBeforeLaterTools_DoesNotMoveBackAcrossTheAnswer()
+    {
+        var turns = CreateBuilder().Rebuild([
+            User("Check the result", AskedAt),
+            new ChatMessageViewModel(new ChatMessage { Role = "assistant", Content = "The first check passed.", IsProgress = false }),
+            Reasoning("Plan another check."),
+            Tool("tool-1", "Stopped"),
+        ]);
+
+        Assert.Equal("The first check passed.", Assert.IsType<AssistantMessageItem>(turns[^1].Items[0]).Content);
+        var laterWork = Assert.IsType<TurnSummaryItem>(turns[^1].Items[1]);
+        Assert.IsType<ReasoningItem>(laterWork.InnerItems[0]);
+        Assert.IsType<SingleToolItem>(laterWork.InnerItems[1]);
+    }
+
+    [Fact]
+    public void LateReasoning_PreservesTheAnswersPlanAndModelMarker()
+    {
+        var (builder, turns) = CreateLiveBuilder();
+        builder.ProcessMessageToTranscript(User("Plan the change", AskedAt));
+        builder.SetPendingPlanCard("Plan ready", () => { });
+        var answer = StreamAssistant(builder, "The plan is ready.", isProgress: false, AskedAt.AddSeconds(10));
+        var reasoning = Reasoning("Explain the plan.");
+        builder.ProcessMessageToTranscript(reasoning);
+        builder.AppendModelLabel("gpt-6.1-sol");
+
+        builder.CollapseCompletedBlocksInCurrentTurn();
+
+        Assert.Collection(turns[^1].Items,
+            item => Assert.Equal(reasoning.Message.Id, Assert.IsType<ReasoningItem>(item).MessageId),
+            item => Assert.Equal(answer.Message.Id, Assert.IsType<AssistantMessageItem>(item).MessageId),
+            item => Assert.IsType<PlanCardItem>(item),
+            item => Assert.IsType<TurnModelItem>(item));
+    }
+
+    [Fact]
     public void WhileWorking_EveryUpdateStaysInViewUntilTheAnswerFoldsTheWork()
     {
         Lumi.Localization.Loc.Load("en");
@@ -605,8 +758,8 @@ public sealed class TranscriptWorkFoldTests
             Content = "{\"path\":\"E:\\\\repo\\\\README.md\"}",
         });
 
-    private static ChatMessageViewModel Reasoning(string content)
-        => new(new ChatMessage { Role = "reasoning", Author = "Thinking", Content = content });
+    private static ChatMessageViewModel Reasoning(string content, bool isStreaming = false)
+        => new(new ChatMessage { Role = "reasoning", Author = "Thinking", Content = content, IsStreaming = isStreaming });
 
     /// <summary>Streams an assistant message and finishes it the way the session does: role first, then the end.</summary>
     private static ChatMessageViewModel StreamAssistant(TranscriptBuilder builder, string content, bool isProgress, DateTimeOffset at)

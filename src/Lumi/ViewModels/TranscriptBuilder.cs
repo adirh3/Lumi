@@ -2203,12 +2203,41 @@ public class TranscriptBuilder
     private void CollapseTurnBlocks(TranscriptTurn turn)
     {
         ApplyAssistantRoles(turn);
+        PlaceTrailingReasoningBeforeAnswer(turn);
         var answers = turn.Items.OfType<AssistantMessageItem>().Where(item => !IsFoldableProgress(item)).ToList();
         for (var i = answers.Count - 1; i >= 0; i--)
             CollapseCompletedTurnBlocks(turn, answers[i], turnFinished: true);
 
         CollapseActivityOnlyBlocks(turn, settled: true);
         turn.IsSettled = true;
+    }
+
+    private void PlaceTrailingReasoningBeforeAnswer(TranscriptTurn turn)
+    {
+        var items = turn.Items;
+        var answer = FindLatestAssistant(items);
+        if (answer is null || answer.IsStreaming || answer.IsProgress || answer.RecordedProgress == true)
+            return;
+
+        var answerIndex = items.IndexOf(answer);
+        for (var i = answerIndex + 1; i < items.Count; i++)
+        {
+            if (items[i] is not (ReasoningItem or TurnModelItem or PlanCardItem or FileChangesSummaryItem))
+                return;
+        }
+
+        // GPT can deliver its reasoning summary after the answer. Only a settled reply with no
+        // later work is unambiguous; reasoning between updates keeps its original position.
+        var insertIndex = answerIndex;
+        for (var i = answerIndex + 1; i < items.Count; i++)
+        {
+            if (items[i] is not ReasoningItem reasoning)
+                continue;
+
+            items.Move(i, insertIndex++);
+            if (ReferenceEquals(_currentReasoning, reasoning))
+                _currentReasoning = null;
+        }
     }
 
     /// <summary>

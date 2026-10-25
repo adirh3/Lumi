@@ -653,6 +653,11 @@ after updating moves existing chats into the database in the
 background (a chat you open first moves right away); the previous files stay as `chats.pre-sqlite-backup`
 and `data.pre-sqlite.json`, and are deleted only with the chats they hold (or by Clear All Chats).
 
+The transcript keeps reasoning before the answer it explains, including GPT reasoning summaries that
+arrive after the answer. `TranscriptBuilder` normalizes trailing reasoning when a reply settles and when
+saved history is rebuilt; reasoning followed by more work stays in order. This changes presentation only,
+not the saved messages, their timestamps or the Copilot session.
+
 The local MCP proxy is organized by responsibility:
 
 - `McpProxyRuntime` owns HTTP routing and registration; its `.Registration` partial contains leases.
