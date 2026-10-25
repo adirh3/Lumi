@@ -557,10 +557,11 @@
                 Width="36" Height="36" CornerRadius="18"
                 IsVisible="{Binding IsHelloStep}"
                 Command="{Binding ToggleThemeCommand}"
+                views:ThemeReveal.Origin="True"
                 AutomationProperties.Name="{loc:Str Onboarding_DarkMode}">
           <Panel>
-            <PathIcon Data="{StaticResource Ob.Moon}" Width="15" Height="15" IsVisible="{Binding IsDarkTheme}" />
-            <PathIcon Data="{StaticResource Ob.Sun}" Width="16" Height="16" IsVisible="{Binding !IsDarkTheme}" />
+            <PathIcon x:Name="ThemeMoonIcon" Data="{StaticResource Ob.Moon}" Width="15" Height="15" IsVisible="{Binding IsDarkTheme}" />
+            <PathIcon x:Name="ThemeSunIcon" Data="{StaticResource Ob.Sun}" Width="16" Height="16" IsVisible="{Binding !IsDarkTheme}" />
           </Panel>
         </Button>
         <Button x:Name="OnboardingCloseButton"

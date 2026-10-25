@@ -1153,10 +1153,14 @@ public partial class MainWindow : Window
             {
                 if (args.PropertyName == nameof(MainViewModel.IsDarkTheme))
                 {
-                    if (Application.Current is not null)
-                        Application.Current.RequestedThemeVariant = vm.IsDarkTheme
-                            ? ThemeVariant.Dark
-                            : ThemeVariant.Light;
+                    // A theme the user just picked in this window spreads from where they picked it.
+                    ThemeReveal.Apply(this, vm.IsDarkTheme, () =>
+                    {
+                        if (Application.Current is not null)
+                            Application.Current.RequestedThemeVariant = vm.IsDarkTheme
+                                ? ThemeVariant.Dark
+                                : ThemeVariant.Light;
+                    });
                     vm.SettingsBrowserService.SetTheme(vm.IsDarkTheme);
                     foreach (var svc in vm.ChatVM.ChatBrowserServices.Values)
                         svc.SetTheme(vm.IsDarkTheme);

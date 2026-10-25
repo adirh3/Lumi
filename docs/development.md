@@ -485,6 +485,22 @@ It writes `src\Lumi\Assets\lumi-icon.png` and `lumi-icon.ico`, the icon on `inst
 (keeping its words), the Android launcher icons and the web app's icons. The output is deterministic,
 so running it again changes nothing.
 
+### Theme reveal
+
+Picking Light, Dark or System in Settings → Appearance, or the theme toggle on the welcome tour's first
+screen, spreads the new look from what was picked (`Views\ThemeReveal*.cs`; a button opts in with
+`views:ThemeReveal.Origin="True"`). A picture of the window's old look covers it first, from its overlay
+layer, and the theme changes beneath it only once that frame is on screen: Windows switches the title bar and
+the material behind see-through areas the moment the theme changes, so changing it first would show the new
+look early. On Windows, with Lumi in front, the picture is the window as it is on screen, its material
+included; otherwise the cover's frame reads back what Lumi drew beneath it and stands it on the old
+background. Then a render-thread SkSL shader opens a circle of the new look whose soft edge is faintly lit in
+the accent. Without a GPU the edge is a plain circle. A theme the user didn't pick in that window (the
+system's, another window's, a reset) and Show animations off change it at once. MCP screenshots don't show
+render-thread motion: capture the window (`PrintWindow`) or the screen while clicking a theme card through
+UI Automation, which raises the button's `Click` as a real click does. A locked or disconnected session
+draws only a few frames a second, so the reveal plays slowed down there.
+
 ### Windows Installer
 
 Windows releases use the standard Velopack installer with the branded

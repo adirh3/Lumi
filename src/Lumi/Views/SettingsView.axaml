@@ -8,6 +8,7 @@
              xmlns:ctrl="using:Lumi.Views.Controls"
              xmlns:st="using:Lumi.Views.Settings"
              xmlns:loc="using:Lumi.Localization"
+             xmlns:views="using:Lumi.Views"
              x:Class="Lumi.Views.SettingsView"
              x:DataType="vm:SettingsViewModel"
              x:CompileBindings="True">
@@ -761,7 +762,7 @@
               </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
 
-            <Button x:Name="ThemeLightButton" Classes="st-theme" Classes.selected="{Binding IsLightThemeSelected}"
+            <Button x:Name="ThemeLightButton" Classes="st-theme" views:ThemeReveal.Origin="True" Classes.selected="{Binding IsLightThemeSelected}"
                     Command="{Binding SelectThemeCommand}" CommandParameter="light"
                     AutomationProperties.Name="{loc:Str Theme_Light}">
               <StackPanel Spacing="8">
@@ -792,7 +793,7 @@
               </StackPanel>
             </Button>
 
-            <Button x:Name="ThemeDarkButton" Classes="st-theme" Classes.selected="{Binding IsDarkThemeSelected}"
+            <Button x:Name="ThemeDarkButton" Classes="st-theme" views:ThemeReveal.Origin="True" Classes.selected="{Binding IsDarkThemeSelected}"
                     Command="{Binding SelectThemeCommand}" CommandParameter="dark"
                     AutomationProperties.Name="{loc:Str Theme_Dark}">
               <StackPanel Spacing="8">
@@ -823,7 +824,7 @@
               </StackPanel>
             </Button>
 
-            <Button x:Name="ThemeSystemButton" Classes="st-theme" Classes.selected="{Binding IsSystemThemeSelected}"
+            <Button x:Name="ThemeSystemButton" Classes="st-theme" views:ThemeReveal.Origin="True" Classes.selected="{Binding IsSystemThemeSelected}"
                     Command="{Binding SelectThemeCommand}" CommandParameter="system"
                     AutomationProperties.Name="{loc:Str Theme_System}">
               <StackPanel Spacing="8">

@@ -29,6 +29,8 @@ public partial class OnboardingView : UserControl
     private readonly Control? _demoRequest;
     private readonly ItemsControl? _demoSteps;
     private readonly Control? _demoReply;
+    private readonly PathIcon? _themeMoonIcon;
+    private readonly PathIcon? _themeSunIcon;
     private OnboardingViewModel? _wiredVm;
     private bool _isActive = true;
 
@@ -54,6 +56,8 @@ public partial class OnboardingView : UserControl
         _demoRequest = this.FindControl<Control>("DemoRequest");
         _demoSteps = this.FindControl<ItemsControl>("DemoSteps");
         _demoReply = this.FindControl<Control>("DemoReply");
+        _themeMoonIcon = this.FindControl<PathIcon>("ThemeMoonIcon");
+        _themeSunIcon = this.FindControl<PathIcon>("ThemeSunIcon");
 
         if (_nameBox is not null)
             _nameBox.KeyDown += OnNameBoxKeyDown;
@@ -133,6 +137,22 @@ public partial class OnboardingView : UserControl
             else if (vm.IsCapabilitiesStep)
                 PlayDemo();
         }
+        else if (e.PropertyName == nameof(OnboardingViewModel.IsDarkTheme) && MotionEnabled)
+        {
+            SpinInThemeIcon(vm.IsDarkTheme);
+        }
+    }
+
+    /// <summary>As the theme turns, the new icon eases into the toggle with a small turn.</summary>
+    private void SpinInThemeIcon(bool dark)
+    {
+        if ((dark ? _themeMoonIcon : _themeSunIcon) is not { } icon)
+            return;
+        var centre = new Point(icon.Width / 2, icon.Height / 2);
+        var timing = StartupMotion.Timing.Once(420);
+        var turn = dark ? -0.5 : 0.6;
+        StartupMotion.Turn(icon, centre, q => turn * (1 - StartupMotion.EaseOutCubic(q)), timing);
+        StartupMotion.Scale(icon, centre, q => 0.75 + 0.25 * StartupMotion.EaseOutCubic(q), timing);
     }
 
     private void OnPresencePulseRequested(PresencePulse pulse)
