@@ -10,6 +10,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Services;
@@ -96,6 +97,30 @@ public partial class SettingsView : UserControl, IDisposable
         {
             await viewModel.ChangeByokApiKeyModeCommand.ExecuteAsync(option);
         }
+    }
+
+    private async void OnBrowsePersonalSkillFoldersClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel viewModel || TopLevel.GetTopLevel(this) is not { } topLevel)
+            return;
+
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            AllowMultiple = true,
+            Title = Loc.Setting_SkillFolders_SelectTitle,
+        });
+        if (folders.Count > 0)
+            viewModel.AddPersonalSkillDirectories(folders.Select(folder => folder.Path.LocalPath));
+    }
+
+    private void OnPersonalSkillFolderKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || DataContext is not SettingsViewModel viewModel
+                               || !viewModel.AddPersonalSkillDirectoryCommand.CanExecute(null))
+            return;
+
+        viewModel.AddPersonalSkillDirectoryCommand.Execute(null);
+        e.Handled = true;
     }
 
     // Page header elements for search mode styling
@@ -417,6 +442,7 @@ public partial class SettingsView : UserControl, IDisposable
         [Loc.Setting_ShowToolCalls] = vm => vm.RevertShowToolCallsCommand.Execute(null),
         [Loc.Setting_ShowReasoning] = vm => vm.RevertShowReasoningCommand.Execute(null),
         [Loc.Setting_ExpandReasoningWhileStreaming] = vm => vm.RevertExpandReasoningWhileStreamingCommand.Execute(null),
+        [Loc.Setting_PersonalSkillFolders] = vm => vm.RevertPersonalSkillDirectoriesCommand.Execute(null),
         [Loc.Get("Permissions_DefaultMode")] = vm => vm.RevertDefaultApprovalModeCommand.Execute(null),
         [Loc.Get("Permissions_OnItsOwn")] = vm => vm.RevertAwayApprovalBehaviorCommand.Execute(null),
         [Loc.Setting_GlobalCustomInstructions] = vm => vm.RevertGlobalCustomInstructionsCommand.Execute(null),

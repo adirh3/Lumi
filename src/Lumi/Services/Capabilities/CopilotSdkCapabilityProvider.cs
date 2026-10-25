@@ -38,12 +38,17 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
 
     private readonly Func<CopilotClient?> _clientAccessor;
     private readonly Func<string> _runtimeHome;
+    private readonly Func<IReadOnlyList<string>> _personalSkillDirectories;
 
-    public CopilotSdkCapabilityProvider(Func<CopilotClient?> clientAccessor, Func<string>? runtimeHome = null)
+    public CopilotSdkCapabilityProvider(
+        Func<CopilotClient?> clientAccessor,
+        Func<string>? runtimeHome = null,
+        Func<IReadOnlyList<string>>? personalSkillDirectories = null)
     {
         ArgumentNullException.ThrowIfNull(clientAccessor);
         _clientAccessor = clientAccessor;
         _runtimeHome = runtimeHome ?? (static () => CopilotService.RuntimeHomeDirectory);
+        _personalSkillDirectories = personalSkillDirectories ?? (static () => []);
     }
 
     public string Id => "copilot-sdk";
@@ -58,11 +63,14 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
         var token = timeout.Token;
 
         var projectPaths = query.WorkingDirectories.ToList();
+        var configuredFolders = _personalSkillDirectories().ToArray();
+        var personalSkillRoots = Task.Run(
+            () => PersonalSkillFolders.GetExistingDirectories(configuredFolders), token);
 
-        var skills = LoadSkillsAsync(client, projectPaths, token);
+        var skills = LoadSkillsAsync(client, projectPaths, personalSkillRoots, token);
         var agents = LoadAgentsAsync(client, projectPaths, token);
         var mcpServers = LoadMcpServersAsync(client, projectPaths, token);
-        var skillRoots = LoadSessionSkillRootsAsync(client, projectPaths, token);
+        var skillRoots = LoadSessionSkillRootsAsync(client, projectPaths, personalSkillRoots, token);
         var pluginRoots = LoadSessionPluginRootsAsync(client, token);
 
         try
@@ -179,20 +187,21 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
     private async Task<IReadOnlyList<string>> LoadSessionSkillRootsAsync(
         CopilotClient client,
         List<string> projectPaths,
+        Task<IReadOnlyList<string>> personalSkillRoots,
         CancellationToken cancellationToken)
     {
         var result = await client.Rpc.Skills
             .GetDiscoveryPathsAsync(projectPaths, excludeHostSkills: null, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        if (result?.Paths is not { Count: > 0 } paths)
-            return [];
-
-        return paths
+        var nativeRoots = result?.Paths?
             .Where(static path => path.Scope.Value.StartsWith("personal", StringComparison.OrdinalIgnoreCase)
                                   || path.Scope.Value.StartsWith("project", StringComparison.OrdinalIgnoreCase))
             .Select(static path => path.Path)
-            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Where(static path => !string.IsNullOrWhiteSpace(path)) ?? [];
+
+        return nativeRoots
+            .Concat(await personalSkillRoots.WaitAsync(cancellationToken).ConfigureAwait(false))
             .Distinct(CapabilityQuery.DirectoryComparer)
             .ToArray();
     }
@@ -200,10 +209,14 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
     private async Task<IReadOnlyList<CapabilityDescriptor>> LoadSkillsAsync(
         CopilotClient client,
         List<string> projectPaths,
+        Task<IReadOnlyList<string>> personalSkillRoots,
         CancellationToken cancellationToken)
     {
+        var directories = await personalSkillRoots.WaitAsync(cancellationToken).ConfigureAwait(false);
         var result = await client.Rpc.Skills
-            .DiscoverAsync(projectPaths, skillDirectories: null, excludeHostSkills: null, cancellationToken: cancellationToken)
+            .DiscoverAsync(projectPaths,
+                skillDirectories: directories.Count > 0 ? directories.ToList() : null,
+                excludeHostSkills: null, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         // Per-skill parse errors describe individual entries the runtime rejected, not a source it

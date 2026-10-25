@@ -633,6 +633,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _expandReasoningWhileStreaming = s.ExpandReasoningWhileStreaming;
         _autoGenerateTitles = s.AutoGenerateTitles;
         _suggestFollowUps = s.SuggestFollowUps;
+        InitializePersonalSkillDirectories(s);
         InitializePermissions(s);
         InitializeAppearanceOptions();
 
@@ -722,6 +723,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             RebuildModelOptions();
         };
         RebuildModelOptions();
+        _dataStore.PersonalSkillDirectoriesChanged += OnPersonalSkillDirectoriesChanged;
     }
 
     partial void OnQuotaDisplayTextChanged(string? value)
@@ -732,6 +734,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _personalSkillDirectoriesDisposed = true;
+        _dataStore.PersonalSkillDirectoriesChanged -= OnPersonalSkillDirectoriesChanged;
         EasyConnect.Dispose();
         _updateService.StatusChanged -= OnUpdateStatusChanged;
         _dataStore.AppearanceSettingsChanged -= OnAppearanceSettingsChanged;
@@ -2375,6 +2379,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ExpandReasoningWhileStreaming = defaults.ExpandReasoningWhileStreaming;
         AutoGenerateTitles = defaults.AutoGenerateTitles;
         SuggestFollowUps = defaults.SuggestFollowUps;
+        SetPersonalSkillDirectories(defaults.PersonalSkillDirectories);
         ResetPermissions(defaults);
         PreferredModel = defaults.PreferredModel;
         BackgroundModel = defaults.BackgroundModel;

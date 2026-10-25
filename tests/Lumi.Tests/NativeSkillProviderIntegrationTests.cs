@@ -21,6 +21,122 @@ namespace Lumi.Tests;
 [Trait("Category", "Integration")]
 public sealed class NativeSkillProviderIntegrationTests
 {
+    [SkippableFact]
+    public async Task PersonalFolders_AreDiscoveredAndReachCreatedAndResumedSessions()
+    {
+        Skip.If(Environment.GetEnvironmentVariable("LUMI_INTEGRATION_TESTS") != "1",
+            "Set LUMI_INTEGRATION_TESTS=1 to run the isolated native runtime test.");
+        var root = Path.Combine(Path.GetTempPath(), $"Lumi-personal-skill-folders-{Guid.NewGuid():N}");
+        var personalRoot = Path.Combine(root, "personal-skills");
+        var skillFile = Path.Combine(personalRoot, "personal-control", "SKILL.md");
+        const string body = "PERSONAL_FOLDER_BODY";
+        Directory.CreateDirectory(Path.GetDirectoryName(skillFile)!);
+        await File.WriteAllTextAsync(skillFile,
+            $"---\nname: personal-control\ndescription: Canonical personal folder control.\n---\n\n{body}");
+        var home = Path.Combine(root, "home");
+        var runtimeHome = Path.Combine(home, ".copilot");
+        var nativeRoot = Path.Combine(runtimeHome, "skills");
+        var nativeSkillFile = Path.Combine(nativeRoot, "native-personal-control", "SKILL.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(nativeSkillFile)!);
+        await File.WriteAllTextAsync(nativeSkillFile,
+            "---\nname: native-personal-control\ndescription: Native personal control.\n---\n\nNATIVE_PERSONAL_BODY");
+        var configured = new List<string> { personalRoot, personalRoot + Path.DirectorySeparatorChar, nativeRoot,
+            Path.Combine(root, "missing") };
+        var environment = Environment.GetEnvironmentVariables()
+            .Cast<System.Collections.DictionaryEntry>()
+            .ToDictionary(entry => (string)entry.Key, entry => (string)entry.Value!,
+                OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        environment["HOME"] = home;
+        environment["USERPROFILE"] = home;
+        environment["COPILOT_HOME"] = runtimeHome;
+        environment["XDG_CONFIG_HOME"] = Path.Combine(home, ".config");
+        var handler = new SkillInference();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var ct = timeout.Token;
+        try
+        {
+            await using var client = new CopilotClient(new CopilotClientOptions
+            {
+                Mode = CopilotClientMode.Empty,
+                BaseDirectory = runtimeHome,
+                WorkingDirectory = root,
+                Environment = environment,
+                UseLoggedInUser = false,
+                Connection = RuntimeConnection.ForStdio(),
+                RequestHandler = handler,
+                LogLevel = CopilotLogLevel.Error,
+            });
+            await client.StartAsync(ct);
+            var provider = new CopilotSdkCapabilityProvider(
+                () => client, () => runtimeHome, () => configured);
+            var discovered = await provider.LoadAsync(new CapabilityQuery([root]), ct);
+            Assert.True(discovered.IsAvailable);
+            var skill = Assert.Single(discovered.Capabilities, item => item.Name == "personal-control");
+            Assert.Equal("Canonical personal folder control.", skill.Description);
+            Assert.Equal(skillFile, skill.SourcePath);
+            var sessionRoots = discovered.SessionSkillRoots;
+            Assert.NotNull(sessionRoots);
+            Assert.Equal(1, sessionRoots.Count(path => path == personalRoot));
+            Assert.Equal(1, sessionRoots.Count(path => path == nativeRoot));
+            Assert.Contains(discovered.Capabilities, item => item.Name == "native-personal-control");
+
+            void Configure(SessionConfigBase config)
+            {
+                config.WorkingDirectory = root;
+                config.ConfigDirectory = Path.Combine(root, "session-config");
+                config.Model = "gpt-4o-mini";
+                config.Streaming = true;
+                config.Provider = new GitHub.Copilot.ProviderConfig
+                {
+                    Type = "openai",
+                    WireApi = "completions",
+                    BaseUrl = "https://lumi-skill-test.invalid/v1",
+                    ApiKey = "synthetic-test-key",
+                    ModelId = "gpt-4o-mini",
+                    WireModel = "gpt-4o-mini",
+                };
+                config.EnableConfigDiscovery = false;
+                config.EnableSessionStore = false;
+                config.EnableSessionTelemetry = false;
+                config.EnableFileHooks = false;
+                config.EnableSkills = true;
+                config.IncludedBuiltinSkills = [];
+                config.RequestExtensions = false;
+                config.SkillDirectories = sessionRoots.ToList();
+                config.AvailableTools = ["skill"];
+                config.OnPermissionRequest = PermissionHandler.ApproveAll;
+            }
+
+            var created = new SessionConfig();
+            Configure(created);
+            var session = await client.CreateSessionAsync(created, ct);
+            var sessionId = session.SessionId;
+            try
+            {
+                await InvokeSkillAsync(session, handler, "personal-control", body, ct);
+                var listed = await session.Rpc.Skills.ListAsync(ct);
+                Assert.Contains(listed.Skills, item => item.Name == "native-personal-control");
+
+                await session.DisposeAsync();
+                var resumed = new ResumeSessionConfig();
+                Configure(resumed);
+                session = await client.ResumeSessionAsync(sessionId, resumed, ct);
+                await InvokeSkillAsync(session, handler, "personal-control", body, ct);
+            }
+            finally
+            {
+                await session.DisposeAsync();
+            }
+
+            Assert.Contains(body, await File.ReadAllTextAsync(skillFile, ct));
+            configured.Clear();
+            var cleared = await provider.LoadAsync(new CapabilityQuery([root]), ct);
+            Assert.DoesNotContain(cleared.Capabilities, item => item.Name == "personal-control");
+            Assert.Contains(cleared.Capabilities, item => item.Name == "native-personal-control");
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [SkippableTheory]
     [InlineData(false, "Code Helper")]
     [InlineData(true, "Code Helper")]

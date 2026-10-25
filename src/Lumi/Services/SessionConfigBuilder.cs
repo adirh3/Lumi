@@ -292,9 +292,8 @@ public sealed class LightweightSessionOptions
     /// Config discovery resolves a session's "personal" skill scope from its config directory, and
     /// Lumi points that at its own folder to keep Lumi's Copilot configuration isolated. Without
     /// this the user's <c>~/.copilot</c> skills are discovered and offered but fail to activate.
-    /// The paths come from the runtime's own discovery-path RPC — Lumi never scans for them — and
-    /// they add to config discovery rather than replacing it, so project, plugin and built-in
-    /// skills keep loading normally.
+    /// Runtime discovery paths and configured personal skill folders add to config discovery
+    /// rather than replacing it, so project, plugin and built-in skills keep loading normally.
     /// </remarks>
     private static void ApplySessionSkillRoots(
         SessionConfigBase config,

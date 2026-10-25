@@ -55,6 +55,18 @@ storage, editing and existing app-data Markdown mirrors are unchanged. Native
 activation does not depend on those mirrors; no workspace `SKILL.md` stubs or
 replacement loader tool are generated.
 
+Settings -> Chat -> Personal skills adds configurable personal skill folders to
+the SDK's normal discovery. Defaults cover Claude Code, Codex's legacy skills
+folder, Cursor and OpenCode, honoring `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
+`OPENCODE_CONFIG_DIR` and `XDG_CONFIG_HOME` when resolving those defaults.
+Only existing folders are passed to the SDK; files are never copied. The same
+roots feed the external skill catalog and new/resumed sessions. Removing all
+entries is persisted and leaves Copilot's own standard discovery intact. Edits
+and Refresh skills update the catalog and invalidate session configuration for
+the next send without interrupting active work.
+Settings windows sharing a profile keep the folder list synchronized without
+overwriting another window's edits or clearing its draft folder path.
+
 The selected agent's authored prompt is supplied once by the Copilot runtime,
 not pasted into Lumi's system prompt a second time. Lumi preloads each linked
 or chat-selected skill once by its ID, including when the same skill is selected

@@ -1067,6 +1067,62 @@
           <ToggleSwitch IsChecked="{Binding ExpandReasoningWhileStreaming}" IsEnabled="{Binding ShowReasoning}" />
         </sc:StrataSetting>
       </sc:StrataSettingGroup>
+
+      <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_PersonalSkills}"
+                             Description="{loc:Str SettingsGroupDesc_PersonalSkills}"
+                             st:SettingsChrome.Icon="{StaticResource St.Icon.Document}">
+        <sc:StrataSetting x:Name="PersonalSkillFoldersSetting" Classes="stacked-content"
+                          Header="{loc:Str Setting_PersonalSkillFolders}"
+                          Description="{loc:Str SettingDesc_PersonalSkillFolders}"
+                          st:SettingsChrome.SearchText="SKILL.md Claude Code Codex Cursor OpenCode"
+                          IsModified="{Binding IsPersonalSkillDirectoriesModified}">
+          <StackPanel Spacing="10">
+            <ItemsControl x:Name="PersonalSkillFoldersList" ItemsSource="{Binding PersonalSkillDirectories}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="0,0,0,6">
+                    <TextBlock Text="{Binding .}" FlowDirection="LeftToRight"
+                               VerticalAlignment="Center" TextWrapping="Wrap"
+                               FontSize="{DynamicResource Font.SizeCaption}" />
+                    <Button Grid.Column="1" Classes="subtle motion-action" Padding="10,5"
+                            Content="{loc:Str Setting_SkillFolders_Remove}"
+                            AutomationProperties.Name="{loc:Str Setting_SkillFolders_Remove}"
+                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemovePersonalSkillDirectoryCommand}"
+                            CommandParameter="{Binding .}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{loc:Str Setting_SkillFolders_Empty}"
+                       IsVisible="{Binding !PersonalSkillDirectories.Count}"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       FontSize="{DynamicResource Font.SizeCaption}" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+              <TextBox x:Name="PersonalSkillFolderInput" Classes="mg-input"
+                       Text="{Binding NewPersonalSkillDirectory, Mode=TwoWay}"
+                       PlaceholderText="{loc:Str Setting_SkillFolders_Path}"
+                       AutomationProperties.Name="{loc:Str Setting_SkillFolders_Path}"
+                       FlowDirection="LeftToRight" KeyDown="OnPersonalSkillFolderKeyDown" />
+              <Button x:Name="AddPersonalSkillFolderButton" Grid.Column="1" Classes="mg-button motion-action"
+                      Content="{loc:Str Setting_SkillFolders_Add}"
+                      Command="{Binding AddPersonalSkillDirectoryCommand}" />
+              <Button x:Name="BrowsePersonalSkillFoldersButton" Grid.Column="2" Classes="mg-button motion-action"
+                      Content="{loc:Str Setting_SkillFolders_Browse}"
+                      Click="OnBrowsePersonalSkillFoldersClick" />
+            </Grid>
+            <TextBlock Text="{Binding PersonalSkillDirectoryError}"
+                       IsVisible="{Binding PersonalSkillDirectoryError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       Foreground="{DynamicResource Brush.DangerDefault}"
+                       FontSize="{DynamicResource Font.SizeCaption}" TextWrapping="Wrap" />
+            <TextBlock Text="{loc:Str Setting_SkillFolders_Hint}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       FontSize="{DynamicResource Font.SizeCaption}" />
+            <Button x:Name="RefreshPersonalSkillsButton" Classes="subtle motion-action"
+                    HorizontalAlignment="Left" Content="{loc:Str Setting_SkillFolders_Refresh}"
+                    Command="{Binding RefreshPersonalSkillsCommand}" />
+          </StackPanel>
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
     </StackPanel>
 
     </ControlTemplate>

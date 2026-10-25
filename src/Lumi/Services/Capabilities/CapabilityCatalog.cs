@@ -43,7 +43,8 @@ public sealed class CapabilityCatalog : IDisposable
         return new CapabilityCatalog(
             new LumiCapabilityProvider(dataStore),
             new CopilotSdkCapabilityProvider(
-                () => copilotService.IsConnected ? copilotService.Client : null),
+                () => copilotService.IsConnected ? copilotService.Client : null,
+                personalSkillDirectories: () => dataStore.Data.Settings.PersonalSkillDirectories),
             new WorkspaceMcpCapabilityProvider());
     }
 

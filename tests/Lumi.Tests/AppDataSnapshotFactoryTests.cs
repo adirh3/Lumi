@@ -10,6 +10,39 @@ namespace Lumi.Tests;
 [Trait("Category", "CoreQA")]
 public class AppDataSnapshotFactoryTests
 {
+    [Fact]
+    public void PersonalSkillDirectories_DefaultForExistingProfilesButPreserveAnEmptyList()
+    {
+        var defaults = new UserSettings().PersonalSkillDirectories;
+        var existing = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings)!;
+        Assert.Equal(defaults, existing.PersonalSkillDirectories);
+
+        var empty = new UserSettings { PersonalSkillDirectories = [] };
+        var restored = JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(empty, AppDataJsonContext.Default.UserSettings),
+            AppDataJsonContext.Default.UserSettings)!;
+        Assert.Empty(restored.PersonalSkillDirectories);
+    }
+
+    [Fact]
+    public void PersonalSkillDirectories_SurviveSnapshotsWithoutSharingTheMutableList()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "saved-personal-skills");
+        var data = new AppData
+        {
+            Settings = new UserSettings { PersonalSkillDirectories = [folder] },
+        };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        data.Settings.PersonalSkillDirectories.Clear();
+        var restored = JsonSerializer.Deserialize(
+            JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData),
+            AppDataJsonContext.Default.AppData)!;
+
+        Assert.Equal([folder], snapshot.Settings.PersonalSkillDirectories);
+        Assert.Equal([folder], restored.Settings.PersonalSkillDirectories);
+        Assert.Empty(data.Settings.PersonalSkillDirectories);
+    }
+
     [Theory]
     [InlineData("auto")]
     [InlineData("gpt-6-luna")]

@@ -76,6 +76,9 @@ public partial class DataStore : IChatContentSearch
     /// what is saved. Raised on the caller's thread; UI callers raise it on the UI thread.</summary>
     public event Action<object?>? AppearanceSettingsChanged;
 
+    /// <summary>Synchronizes the personal skill-folder list across Settings windows sharing this store.</summary>
+    public event Action<object?>? PersonalSkillDirectoriesChanged;
+
     private AppData _data;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _skillSyncLock = new(1, 1);
@@ -185,6 +188,9 @@ public partial class DataStore : IChatContentSearch
 
     public void NotifyAppearanceSettingsChanged(object? source = null)
         => AppearanceSettingsChanged?.Invoke(source);
+
+    public void NotifyPersonalSkillDirectoriesChanged(object? source = null)
+        => PersonalSkillDirectoriesChanged?.Invoke(source);
 
     internal bool TrySetChatWorktreePath(Chat chat, string? path)
     {

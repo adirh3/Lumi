@@ -44,9 +44,8 @@ public sealed class CapabilitySnapshot
     public CapabilityQuery Query { get; }
 
     /// <summary>
-    /// Skill roots that must be handed to a session explicitly because its own configuration would
-    /// not reach them — in practice the user's Copilot profile, since Lumi points a session's
-    /// config directory at its own folder. Reported by the runtime, never discovered by Lumi.
+    /// Skill roots handed to a session explicitly: runtime discovery paths its isolated config
+    /// would not reach, plus the user's configured personal skill folders.
     /// </summary>
     public IReadOnlyList<string> SessionSkillRoots { get; }
 

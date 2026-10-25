@@ -1706,6 +1706,7 @@ public class UserSettings
 {
     private List<ApprovalRule> _approvalRules = [];
     private Dictionary<string, string> _aiFeatureModels = [];
+    private List<string>? _personalSkillDirectories;
 
     // ── General ──
     public string? UserName { get; set; }
@@ -1780,6 +1781,13 @@ public class UserSettings
 
     /// <summary>Suggest follow-up prompts after Lumi replies. Each suggestion uses the background model.</summary>
     public bool SuggestFollowUps { get; set; } = true;
+
+    /// <summary>Additional personal skill folders handed to Copilot, without copying their files.</summary>
+    public List<string> PersonalSkillDirectories
+    {
+        get => _personalSkillDirectories ??= Services.Capabilities.PersonalSkillFolders.GetDefaults();
+        set => _personalSkillDirectories = value;
+    }
 
     // ── Permissions ──
     /// <summary>

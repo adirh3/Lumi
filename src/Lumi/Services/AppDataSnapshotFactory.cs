@@ -50,6 +50,7 @@ internal static class AppDataSnapshotFactory
                 ExpandReasoningWhileStreaming = settings.ExpandReasoningWhileStreaming,
                 AutoGenerateTitles = settings.AutoGenerateTitles,
                 SuggestFollowUps = settings.SuggestFollowUps,
+                PersonalSkillDirectories = [.. settings.PersonalSkillDirectories],
                 DefaultApprovalMode = settings.DefaultApprovalMode,
                 ApprovalRules = CloneApprovalRules(settings.ApprovalRules),
                 AwayApprovalBehavior = settings.AwayApprovalBehavior,

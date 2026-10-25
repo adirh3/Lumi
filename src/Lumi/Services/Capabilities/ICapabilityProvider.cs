@@ -57,7 +57,7 @@ public sealed class CapabilityQuery : IEquatable<CapabilityQuery>
 /// </param>
 /// <param name="SessionSkillRoots">
 /// Skill roots a session must be told about explicitly because its own configuration would not
-/// reach them. These come from the runtime's own discovery paths, never from Lumi scanning disk.
+/// reach them: runtime discovery paths and configured personal skill folders.
 /// </param>
 /// <param name="SessionPluginRoots">
 /// Installed plugin folders a session must load explicitly: the runtime installs plugins into its

@@ -305,6 +305,19 @@ public sealed class ChatSessionStore : IDisposable
         ApplyToSurfaces(static surface => surface.RefreshCapabilities());
     }
 
+    public void ApplyPersonalSkillDirectoriesChange()
+    {
+        if (_isDisposed)
+            return;
+
+        _capabilityCatalog.Reset();
+        ApplyToSurfaces(static surface =>
+        {
+            surface.InvalidateSystemPromptSession();
+            surface.RefreshCapabilities();
+        });
+    }
+
     public void ApplyMcpConfigurationChange()
     {
         McpProxyRuntime.Shared.RetireUserRegistrationsExcept(_dataStore.Data.McpServers

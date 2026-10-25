@@ -682,6 +682,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateSystemPromptSession());
         };
+        SettingsVM.PersonalSkillDirectoriesChanged += () =>
+        {
+            _chatSessionStore.ApplyPersonalSkillDirectoriesChange();
+            _ = RefreshExternalCapabilitiesAsync(force: true);
+        };
         SettingsVM.McpDiscoveryRefreshRequested += () =>
         {
             _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateMcpSession());
