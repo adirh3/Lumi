@@ -85,6 +85,9 @@ public partial class CapabilityNoticeViewModel : ObservableObject
                 text = null;
             }
 
+            if (!_dataStore.Data.Settings.OfferCopiedCapabilities || !_canOffer())
+                return;
+
             var hash = string.IsNullOrWhiteSpace(text) || text.Length > CapabilityPackReader.MaxTextLength
                 ? (int?)null
                 : Hash(text);
@@ -101,7 +104,8 @@ public partial class CapabilityNoticeViewModel : ObservableObject
 
             // Decoding is bounded, but it is still work that has no place on the UI thread.
             var result = await Task.Run(() => CapabilityPackReader.Read(text));
-            if (!result.Success || !_canOffer() || IsAlreadyInLibrary(result.Pack!))
+            if (!result.Success || !_dataStore.Data.Settings.OfferCopiedCapabilities || !_canOffer()
+                || IsAlreadyInLibrary(result.Pack!))
                 return;
 
             var card = CapabilityCardViewModel.ForPack(result.Pack!, "");

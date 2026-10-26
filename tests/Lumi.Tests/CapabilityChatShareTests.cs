@@ -580,6 +580,40 @@ public sealed class CapabilityChatShareTests
         Assert.False(notice.IsShown);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Notice_PendingReadIsNotRepeatedAndRespectsChangesBeforeItFinishes(bool disableSetting)
+    {
+        var store = NewStore();
+        var pendingText = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        var canOffer = true;
+        var notice = new CapabilityNoticeViewModel(store, () =>
+        {
+            reads++;
+            return pendingText.Task;
+        }, () => canOffer);
+
+        var check = notice.CheckClipboardAsync();
+        await notice.CheckClipboardAsync();
+        Assert.Equal(1, reads);
+
+        if (disableSetting)
+            store.Data.Settings.OfferCopiedCapabilities = false;
+        else
+            canOffer = false;
+        pendingText.SetResult(SnippetFor(CapabilityPackWriter.ForSkill(TeammateSkill())));
+        await check;
+        Assert.False(notice.IsShown);
+
+        store.Data.Settings.OfferCopiedCapabilities = true;
+        canOffer = true;
+        await notice.CheckClipboardAsync();
+        Assert.Equal(2, reads);
+        Assert.True(notice.IsShown);
+    }
+
     [Fact]
     public void MainViewModel_AnImportHidesAClipboardOfferThatNoLongerApplies()
     {

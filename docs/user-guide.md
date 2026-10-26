@@ -552,7 +552,8 @@ while drafting. When the teammate copies it and switches back to
 Lumi, a notice offers **Preview**, which opens the same import receipt. Lumi only reads the clipboard
 when its window is activated, only looks for its own codes and packs, never offers your own copies or
 things you already have, and can be turned off under **Settings › General › Sharing** (off by default
-on macOS, which warns when apps read the clipboard).
+on macOS, which warns when apps read the clipboard). On Windows, this automatic check reads plain
+text in the background, so a slow clipboard owner cannot freeze Lumi when you switch back.
 
 **Share prompt** (above a completed assistant result, in its context menu, or under the sidebar's
 chat-actions `…` as **Share prompt from this chat**) turns the visible

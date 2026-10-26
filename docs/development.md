@@ -465,6 +465,37 @@ Do not run desktop tests or benchmarks concurrently: Windows has one shared
 foreground window and keyboard. Non-Windows builds neither expose nor advertise
 the desktop tools.
 
+### Window activation and clipboard reads
+
+The automatic capability notice has a **Windows-only workaround for clipboard
+retrieval that blocks the UI thread, reproduced with Avalonia 12.1.4**.
+`TryGetTextAsync` can synchronously call an external OLE `IDataObject.GetData`:
+an owner using delayed rendering can then freeze window activation until its
+text is ready. Avalonia's Windows entry point requires `Dispatcher.UIThread`
+access, so wrapping the existing Avalonia read in `Task.Run` is not supported.
+
+Only the automatic notice uses `ClipboardHelper.GetTextForNoticeAsync`, which
+reads bounded `CF_UNICODETEXT` on a worker. Explicit copy/paste, clipboard writes,
+files and images, and non-Windows behavior retain their existing Avalonia paths.
+This is not a replacement clipboard implementation.
+
+Remove the Windows reader and return the notice to Avalonia when a supported
+Avalonia implementation passes the delayed-render reproduction below without
+blocking the UI. A version upgrade alone is not evidence that it can be removed.
+
+The native reproduction uses a separate clipboard-owner window that advertises
+`CF_UNICODETEXT` with a null handle, then waits four seconds in `WM_RENDERFORMAT`
+before supplying its text. Arm it while Lumi is inactive, then focus an isolated
+Lumi instance. With the original reader, a stack captured during the stall shows
+`WindowBase.HandleActivated` -> `CapabilityNoticeViewModel.CheckClipboardAsync`
+-> `ClipboardHelper.GetTextAsync` -> `IDataObject.GetData` on the UI thread.
+With the worker reader, the wait is in `ReadWindowsText` on a worker and the UI
+continues servicing requests. Refocusing without rearming is fast even with the
+original reader, because the clipboard text is already rendered. Other clipboard
+listeners may request the text before Lumi; gate the test owner's delay to the
+target Lumi PID being foreground so that they do not consume the reproduction.
+Preserve and restore the clipboard when running this manual test.
+
 ### App Icon
 
 Lumi's icon puts Lumi between you and the model: Lumi's soft sparkle, a smaller lilac sparkle for you

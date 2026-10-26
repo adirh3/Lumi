@@ -24,6 +24,73 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatViewClipboardTests
 {
+    [Fact]
+    public async Task AutomaticClipboardRead_KeepsUiResponsiveWhileClipboardOwnerIsBlocked()
+    {
+        using var session = HeadlessTestSession.Start();
+        using var releaseRead = new ManualResetEventSlim();
+        var readStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var heartbeat = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var remainedResponsive = false;
+        var uiThread = 0;
+        var clipboardThread = 0;
+        int? notificationThread = null;
+        var snippet = ShareCode.Encode(CapabilityPackWriter.ForSkill(new Skill
+        {
+            Name = "Slow clipboard",
+            Content = "Reply clearly."
+        }).Text);
+
+        var probe = Task.Run(async () =>
+        {
+            try
+            {
+                await readStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                Dispatcher.UIThread.Post(() => heartbeat.SetResult());
+                remainedResponsive = await Task.WhenAny(heartbeat.Task, Task.Delay(1000)) == heartbeat.Task;
+            }
+            finally
+            {
+                releaseRead.Set();
+            }
+        });
+
+        await session.Dispatch(async () =>
+        {
+            uiThread = Environment.CurrentManagedThreadId;
+            var store = new DataStore(new AppData
+            {
+                Settings = new UserSettings { OfferCopiedCapabilities = true }
+            });
+            var notice = new CapabilityNoticeViewModel(store,
+                () => ClipboardHelper.GetTextForNoticeAsync(() =>
+                {
+                    clipboardThread = Environment.CurrentManagedThreadId;
+                    readStarted.SetResult();
+                    if (!releaseRead.Wait(TimeSpan.FromSeconds(15)))
+                        throw new TimeoutException("The clipboard responsiveness probe did not finish.");
+                    return snippet;
+                }), static () => true);
+            notice.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(CapabilityNoticeViewModel.IsShown) && notice.IsShown)
+                    notificationThread = Environment.CurrentManagedThreadId;
+            };
+
+            var check = notice.CheckClipboardAsync();
+            Assert.False(notice.IsShown);
+            await notice.CheckClipboardAsync();
+            await check;
+            Assert.True(notice.IsShown);
+            Assert.Equal("Slow clipboard", notice.Card!.Name);
+        }, CancellationToken.None);
+
+        await probe;
+        Assert.True(remainedResponsive, "The UI dispatcher was blocked by the clipboard read.");
+        Assert.NotEqual(uiThread, clipboardThread);
+        Assert.Equal(uiThread, notificationThread);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

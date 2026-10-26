@@ -562,7 +562,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ImportVM = new ImportSheetViewModel(dataStore);
         NoticeVM = new CapabilityNoticeViewModel(
             dataStore,
-            ClipboardHelper.GetTextAsync,
+            ClipboardHelper.GetTextForNoticeAsync,
             () => IsOnboarded && !ImportVM.IsOpen && !ShareVM.IsOpen);
         LibraryVM = new LibraryViewModel(
             dataStore,

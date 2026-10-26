@@ -1,6 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -8,6 +11,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
+using Lumi.Services.Sharing;
 using StrataTheme.Controls;
 
 namespace Lumi.Services;
@@ -101,6 +105,101 @@ public static class ClipboardHelper
             return null;
         }
     }
+
+    /// <summary>Inspects copied capabilities without blocking window activation on a Windows clipboard owner.</summary>
+    public static Task<string?> GetTextForNoticeAsync()
+    {
+#if WINDOWS
+        return GetTextForNoticeAsync(ReadWindowsText);
+#else
+        return GetTextAsync();
+#endif
+    }
+
+    internal static Task<string?> GetTextForNoticeAsync(Func<string?> readText) => Task.Run(readText);
+
+#if WINDOWS
+    [SupportedOSPlatform("windows")]
+    private static unsafe string? ReadWindowsText()
+    {
+        const uint unicodeText = 13;
+        // Windows-only workaround for Avalonia 12.1.4's UI-bound, synchronous OLE read.
+        // Keep this notice-only; remove after an Avalonia read passes the delayed-render
+        // repro without blocking the UI (docs/development.md).
+        if (!OpenClipboard(IntPtr.Zero))
+        {
+            Debug.WriteLine($"[Clipboard] Automatic read could not open the clipboard ({Marshal.GetLastWin32Error()}).");
+            return null;
+        }
+
+        try
+        {
+            if (!IsClipboardFormatAvailable(unicodeText))
+                return null;
+
+            var handle = GetClipboardData(unicodeText);
+            if (handle == IntPtr.Zero)
+            {
+                Debug.WriteLine($"[Clipboard] Automatic text read failed ({Marshal.GetLastWin32Error()}).");
+                return null;
+            }
+
+            var characterCount = GlobalSize(handle) / sizeof(char);
+            if (characterCount == 0)
+                return null;
+
+            var pointer = GlobalLock(handle);
+            if (pointer == IntPtr.Zero)
+            {
+                Debug.WriteLine($"[Clipboard] Automatic text read could not lock the data ({Marshal.GetLastWin32Error()}).");
+                return null;
+            }
+
+            try
+            {
+                var length = (int)Math.Min(characterCount, (nuint)CapabilityPackReader.MaxTextLength + 1);
+                var text = new ReadOnlySpan<char>((void*)pointer, length);
+                var terminator = text.IndexOf('\0');
+                if (terminator < 0)
+                    return null;
+                return new string(text[..terminator]);
+            }
+            finally
+            {
+                GlobalUnlock(handle);
+            }
+        }
+        finally
+        {
+            CloseClipboard();
+        }
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool OpenClipboard(IntPtr owner);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseClipboard();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsClipboardFormatAvailable(uint format);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetClipboardData(uint format);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GlobalLock(IntPtr handle);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalUnlock(IntPtr handle);
+
+    [DllImport("kernel32.dll")]
+    private static extern nuint GlobalSize(IntPtr handle);
+#endif
 
     /// <summary>
     /// Copies the file itself to the clipboard so it can be pasted into a folder (Windows Explorer,
