@@ -21,6 +21,122 @@ namespace Lumi.Tests;
 [Trait("Category", "Integration")]
 public sealed class NativeSkillProviderIntegrationTests
 {
+    [Theory]
+    [Trait("Category", "CoreQA")]
+    [InlineData(false, "keep")]
+    [InlineData(true, "keep")]
+    [InlineData(false, "replace")]
+    [InlineData(false, "clear")]
+    public async Task ResumeSession_WithInstalledPlugin_PreservesSession(
+        bool releaseSession, string pluginChange)
+    {
+        Assert.True(DataStore.UsesIsolatedProfile);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var ct = deadline.Token;
+        var root = Path.Combine(TestProfile.Root, $"plugin-resume-{Guid.NewGuid():N}");
+        var runtimeHome = Path.Combine(root, "runtime-home");
+        var pluginRoot = Path.Combine(root, "plugin");
+        var skillRoot = Path.Combine(pluginRoot, "skills", "resume-control");
+        var pluginName = $"lumi-resume-control-{Guid.NewGuid():N}";
+        var receipt = $"PluginResume{Guid.NewGuid():N}";
+        Directory.CreateDirectory(skillRoot);
+        await File.WriteAllTextAsync(Path.Combine(pluginRoot, "plugin.json"),
+            $$"""{"name":"{{pluginName}}","version":"1.0.0","description":"Isolated session resume control."}""", ct);
+        await File.WriteAllTextAsync(Path.Combine(skillRoot, "SKILL.md"),
+            "---\nname: resume-control\ndescription: Isolated resume control.\n---\n\nRESUME_CONTROL_BODY", ct);
+        await using var client = new CopilotClient(new CopilotClientOptions
+        {
+            BaseDirectory = runtimeHome,
+            WorkingDirectory = root,
+            UseLoggedInUser = false,
+            Connection = RuntimeConnection.ForStdio(),
+            RequestHandler = new PluginResumeInference(receipt),
+            LogLevel = CopilotLogLevel.Error,
+        });
+        await client.StartAsync(ct);
+        await client.Rpc.Plugins.InstallAsync(pluginRoot, null, ct);
+        var capabilities = await new CopilotSdkCapabilityProvider(() => client, () => runtimeHome)
+            .LoadAsync(new CapabilityQuery([root]), ct);
+        Assert.True(capabilities.IsAvailable);
+        Assert.NotEmpty(capabilities.SessionPluginRoots!);
+        var installed = Assert.Single((await client.Rpc.Plugins.ListAsync(ct)).Plugins,
+            plugin => plugin.Name == pluginName);
+        var provider = new GitHub.Copilot.ProviderConfig
+        {
+            Type = "openai",
+            WireApi = "completions",
+            BaseUrl = "https://lumi-plugin-test.invalid/v1",
+            ApiKey = "synthetic-test-key",
+        };
+        var created = SessionConfigBuilder.Build(
+            "Isolated plugin resume control.", "gpt-4o-mini", root, null, [], [], [], null,
+            null, null, null, provider: provider, pluginDirectories: capabilities.SessionPluginRoots);
+        created.EnableFileHooks = false;
+        created.RequestExtensions = false;
+        created.AvailableTools = [];
+        var session = await client.CreateSessionAsync(created, ct);
+        var sessionId = session.SessionId;
+        try
+        {
+            Assert.NotNull(await session.SendAndWaitAsync(new MessageOptions
+            {
+                Prompt = $"Remember this test receipt: {receipt}. Reply only OK. Do not use tools."
+            }, TimeSpan.FromSeconds(45), ct));
+            var originalEvents = await session.GetEventsAsync(ct);
+            Assert.Contains(originalEvents, item => item is SessionStartEvent);
+            var workDir = Path.Combine(root, "new-workspace");
+            Directory.CreateDirectory(workDir);
+            var resumed = SessionConfigBuilder.BuildForResume(
+                "Isolated plugin resume control.", "gpt-4o-mini", workDir, null, [], [], [], null,
+                null, null, null, provider: provider, pluginDirectories: capabilities.SessionPluginRoots);
+            if (pluginChange == "replace")
+            {
+                var replacementRoot = Path.Combine(root, "replacement");
+                var replacementSkillRoot = Path.Combine(replacementRoot, "skills", "replacement-control");
+                Directory.CreateDirectory(replacementSkillRoot);
+                await File.WriteAllTextAsync(Path.Combine(replacementRoot, "plugin.json"),
+                    """{"name":"lumi-resume-replacement","version":"1.0.0"}""", ct);
+                await File.WriteAllTextAsync(Path.Combine(replacementSkillRoot, "SKILL.md"),
+                    "---\nname: replacement-control\ndescription: Replacement resume control.\n---\n\nREPLACEMENT_BODY", ct);
+                resumed.PluginDirectories = [replacementRoot];
+            }
+            else if (pluginChange == "clear")
+                resumed.PluginDirectories = [];
+            resumed.EnableFileHooks = false;
+            resumed.RequestExtensions = false;
+            resumed.AvailableTools = [];
+            var requestedPlugins = resumed.PluginDirectories!.ToArray();
+            if (releaseSession)
+                await TestCopilot.Shared.ReleaseSessionAsync(session);
+            else
+                Assert.True(TestCopilot.Shared.TryDetachSessionFromSdkRegistry(session));
+            // Use the raw SDK so host recovery cannot mask an upstream runtime regression.
+            session = await client.ResumeSessionAsync(sessionId, resumed, ct);
+
+            Assert.Equal(sessionId, session.SessionId);
+            var resumedEvents = await session.GetEventsAsync(ct);
+            Assert.All(originalEvents, original =>
+                Assert.Contains(resumedEvents, item => item.Id == original.Id));
+            Assert.Equal(requestedPlugins, resumed.PluginDirectories);
+            var skills = (await session.Rpc.Skills.ListAsync(ct)).Skills;
+            Assert.Equal(pluginChange == "keep",
+                skills.Any(skill => skill.Name.Contains("resume-control", StringComparison.Ordinal)));
+            Assert.Equal(pluginChange == "replace",
+                skills.Any(skill => skill.Name.Contains("replacement-control", StringComparison.Ordinal)));
+            var reply = await session.SendAndWaitAsync(new MessageOptions
+            {
+                Prompt = "What is the test receipt? Reply with only the receipt. Do not use tools."
+            }, TimeSpan.FromSeconds(45), ct);
+            Assert.NotNull(reply);
+            Assert.Contains(receipt, reply.Data.Content, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await session.DisposeAsync();
+            await client.Rpc.Plugins.UninstallAsync(pluginName, installed.DirectSourceId);
+        }
+    }
+
     [SkippableFact]
     public async Task PersonalFolders_AreDiscoveredAndReachCreatedAndResumedSessions()
     {
@@ -336,6 +452,40 @@ public sealed class NativeSkillProviderIntegrationTests
             .Select(tool => tool.GetProperty("function").GetProperty("name").GetString()).ToArray();
         Assert.Single(tools, tool => tool == "skill");
         Assert.DoesNotContain("fetch_skill", tools);
+    }
+
+    private sealed class PluginResumeInference(string receipt) : CopilotRequestHandler
+    {
+        protected override async Task<HttpResponseMessage> SendRequestAsync(
+            HttpRequestMessage request, CopilotRequestContext context)
+        {
+            Assert.EndsWith("/chat/completions", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            var body = await request.Content!.ReadAsStringAsync(context.CancellationToken);
+            var chunk = JsonSerializer.Serialize(new
+            {
+                id = "plugin-resume-response",
+                @object = "chat.completion.chunk",
+                created = 1,
+                model = "gpt-4o-mini",
+                choices = new[]
+                {
+                    new
+                    {
+                        index = 0,
+                        delta = new
+                        {
+                            role = "assistant",
+                            content = body.Contains(receipt, StringComparison.Ordinal) ? receipt : "MISSING_HISTORY",
+                        },
+                        finish_reason = "stop",
+                    },
+                },
+            });
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"data: {chunk}\n\ndata: [DONE]\n\n", Encoding.UTF8, "text/event-stream"),
+            };
+        }
     }
 
     private sealed class SkillInference : CopilotRequestHandler

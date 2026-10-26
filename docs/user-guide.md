@@ -1447,7 +1447,7 @@ fail explicitly; startup failures include the recent captured output.
 ## Tool approvals
 
 How much Lumi does on its own is one choice, enforced by GitHub Copilot's native permission
-controls (GitHub.Copilot.SDK **1.0.23-preview.5**, runtime **1.0.100-1**), never by asking the
+controls (GitHub.Copilot.SDK **1.0.27-preview.3**, runtime **1.0.104-3**), never by asking the
 model to check first. Lumi only chooses them and installs them again on every session create and
 resume, because the runtime keeps neither rules nor session approvals across a resume.
 

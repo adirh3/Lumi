@@ -167,6 +167,7 @@ public sealed class ClassifySendFailureTests
     [InlineData("There is not enough space on the disk", false)]
     [InlineData("The CancellationTokenSource has been disposed", false)]
     [InlineData("500 internal server error", false)]
+    [InlineData("Plugin activation snapshot does not match the installed plugin set", false)]
     public void ResumeFallback_OnlyCreatesReplacementForMissingSession(string message, bool expected)
     {
         var error = new InvalidOperationException(

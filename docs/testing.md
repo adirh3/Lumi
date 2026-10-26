@@ -13,8 +13,13 @@ regressions are included too. The curated set also exercises editor state,
 edit/regenerate interruption failures, stopping attached work, assistant/session
 readiness, background-job dispatch/editing, and management create/save/discard/
 delete behaviour. These are component or headless UI tests, not additional
-headed user journeys. No account secrets, model inference, microphone,
+headed user journeys. No account secrets, live model inference, microphone,
 external website, timing SLA, or screenshot baseline is required by this gate.
+
+The plugin-resume regression uses the real Copilot runtime with scripted inference
+and a per-test runtime home in both Debug and Release. It calls the SDK directly
+and checks warm/cold resume, native history, and kept, replaced or cleared plugin
+directories without a live account or a Lumi recovery workaround.
 
 ## Local commands
 

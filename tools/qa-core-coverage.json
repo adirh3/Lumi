@@ -153,6 +153,7 @@
     "Lumi.Tests.ManagementPagesViewModelTests.Skills_SaveKeepsTheSkillOpen",
     "Lumi.Tests.ManagementPagesViewModelTests.Skills_ShowWhichLumisUseThem",
     "Lumi.Tests.ManagementPagesViewModelTests.Skills_SwitchingItemsOrStartingANewDraftResetsDirtyState",
+    "Lumi.Tests.NativeSkillProviderIntegrationTests.ResumeSession_WithInstalledPlugin_PreservesSession",
     "Lumi.Tests.OnboardingTests.FoldersThatAreAlreadyProjectsAreNotAddedTwice",
     "Lumi.Tests.OnboardingTests.SkippingEverythingWithoutAnAiStillFinishesCleanly",
     "Lumi.Tests.OnboardingTests.WalkthroughSetsUpProjectsRemembersAnswersAndStartsAFirstTask",
