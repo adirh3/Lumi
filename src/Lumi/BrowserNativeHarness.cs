@@ -238,6 +238,9 @@ internal sealed class BrowserNativeHarness
         Check("history-back", !back.Contains("Error:", StringComparison.Ordinal)
             && (await browser.LookAsync()).Contains("Native Browser Fixture", StringComparison.Ordinal));
         await browser.ClearCookiesAsync();
+        // WebKit's document-cookie cache can update after the native store finishes clearing.
+        await WaitAsync(async () =>
+            !(await browser.EvaluateAsync("return document.cookie")).Contains("nativeSession=", StringComparison.Ordinal));
         Check("clear-cookies", !(await browser.EvaluateAsync("return document.cookie")).Contains("nativeSession=", StringComparison.Ordinal));
 
 #if WINDOWS

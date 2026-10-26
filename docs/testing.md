@@ -116,6 +116,8 @@ its request counts, deadline, cleanup and checked bytes as part of CoreQA.
 Tests and headed UI actions themselves are never retried to obtain a pass.
 Scroll-position regressions settle the chat-open reveal before capturing their
 baseline, rather than relaxing their viewport-preservation assertions.
+The browser cookie-reset check waits for the document to observe the completed
+native-store deletion; it never repeats the clearing action.
 
 `browser-native-validation.yml` is displayed as **Extended UI QA**. It runs
 nightly and on manual dispatch on all four native desktop targets. Each job runs
