@@ -89,7 +89,7 @@ public sealed class RemoteCommandRouterSurfaceTests
 
         var unknown = await Pin("retired-model", "true");
         Assert.False(unknown.Ok);
-        Assert.Equal("That model isn't available on this PC.", unknown.Error);
+        Assert.Equal(Loc.Remote_ModelUnavailable, unknown.Error);
         Assert.False((await Pin("", "true")).Ok);
         Assert.False((await Pin("auto", null)).Ok);
         Assert.Equal(["gpt-5.4"], settings.FavoriteModelIds);
