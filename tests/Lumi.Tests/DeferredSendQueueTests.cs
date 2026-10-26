@@ -37,6 +37,7 @@ namespace Lumi.Tests;
 /// lossy, re-deferred while the chat is still running, delivered exactly once, and clearly flagged as
 /// undelivered when it can no longer be sent.
 /// </summary>
+[Collection("Headless UI")]
 public sealed class DeferredSendQueueTests
 {
     [Fact]
