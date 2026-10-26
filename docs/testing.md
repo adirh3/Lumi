@@ -118,6 +118,8 @@ Scroll-position regressions settle the chat-open reveal before capturing their
 baseline, rather than relaxing their viewport-preservation assertions.
 The browser cookie-reset check waits for the document to observe the completed
 native-store deletion; it never repeats the clearing action.
+The Strata image-viewer cancellation check waits for asynchronous cleanup to
+return its semaphore permits before asserting that none remain in use.
 
 `browser-native-validation.yml` is displayed as **Extended UI QA**. It runs
 nightly and on manual dispatch on all four native desktop targets. Each job runs
