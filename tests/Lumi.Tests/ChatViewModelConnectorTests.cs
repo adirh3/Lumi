@@ -233,7 +233,7 @@ public sealed class ChatViewModelConnectorTests
         var setters = Lumi.App.CreateConnectorPickerTextStyle().Setters.OfType<Avalonia.Styling.Setter>()
             .ToDictionary(setter => setter.Property!, setter => setter.Value);
 
-        Assert.Equal(15, setters.Count);
+        Assert.Equal(16, setters.Count);
         Assert.Equal(Loc.Mcp_SearchPlaceholder, setters[StrataConnectorPicker.SearchWatermarkProperty]);
         Assert.Equal(Loc.ConnectorPicker_Summary, setters[StrataConnectorPicker.SummaryFormatProperty]);
         Assert.Equal(Loc.ConnectorPicker_Off, setters[StrataConnectorPicker.OffLabelProperty]);
@@ -241,6 +241,7 @@ public sealed class ChatViewModelConnectorTests
         Assert.Equal(Loc.ConnectorPicker_EmptyAction, setters[StrataConnectorPicker.EmptyActionLabelProperty]);
         Assert.Equal(Loc.ConnectorPicker_Loading, setters[StrataConnectorPicker.LoadingTextProperty]);
         Assert.Equal(Loc.Composer_Connectors, setters[StrataConnectorPicker.LabelProperty]);
+        Assert.Equal(Loc.Chat_ConnectorsHeader, setters[StrataConnectorPicker.HeaderProperty]);
     }
 
     [Fact]

@@ -865,13 +865,15 @@ public sealed class StrataModelPickerInteractionTests
         var setters = Lumi.App.CreateModelPickerTextStyle().Setters.OfType<Avalonia.Styling.Setter>()
             .ToDictionary(setter => setter.Property!, setter => setter.Value);
 
-        Assert.Equal(6, setters.Count);
+        Assert.Equal(8, setters.Count);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_SearchWatermark, setters[StrataModelPicker.SearchWatermarkProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_NoResults, setters[StrataModelPicker.NoResultsTextProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Models, setters[StrataModelPicker.ModelsLabelProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Pinned, setters[StrataModelPicker.PinnedLabelProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Reasoning, setters[StrataModelPicker.ReasoningLabelProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Context, setters[StrataModelPicker.ContextLabelProperty]);
+        Assert.Equal(Lumi.Localization.Loc.ModelPicker_Pin, setters[StrataModelPicker.PinToolTipProperty]);
+        Assert.Equal(Lumi.Localization.Loc.ModelPicker_Unpin, setters[StrataModelPicker.UnpinToolTipProperty]);
     }
 
     private static StrataModelPicker NewPicker() => new()
