@@ -52,6 +52,8 @@
     "Lumi.Tests.AppDataSnapshotFactoryTests.MergeChatIndexChanges_PreservesPersistedPairedDevices_WhenSecurityStateWasNotChangedLocally",
     "Lumi.Tests.AppDataSnapshotFactoryTests.MergeChatIndexChanges_PreventsRecoveredShutdownFromBeingRevertedByStaleSnapshot",
     "Lumi.Tests.AppDataSnapshotFactoryTests.MergeChatIndexChanges_RemovesDeletedChats",
+    "Lumi.Tests.AppDataSnapshotFactoryTests.PersonalSkillDirectories_DefaultForExistingProfilesButPreserveAnEmptyList",
+    "Lumi.Tests.AppDataSnapshotFactoryTests.PersonalSkillDirectories_SurviveSnapshotsWithoutSharingTheMutableList",
     "Lumi.Tests.AppDataSnapshotFactoryTests.ProjectCodingSettings_AreSerializedAndPreservedInSnapshots",
     "Lumi.Tests.AppDataSnapshotFactoryTests.RemoteSecuritySnapshotReplacesEveryOwnerControlledField",
     "Lumi.Tests.BackgroundJobChatEventTests.DispatchChatEventAsync_MatchingEventWakesTargetChatWithoutScheduling",

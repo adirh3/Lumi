@@ -242,6 +242,7 @@ public sealed class AssistantMessageActionsTests
             var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
             var view = new ChatView { DataContext = vm };
             var window = new Window { Width = 1000, Height = 800, Content = view };
+            window.Styles.Add(App.CreateSharedControlTextStyles());
             window.Show();
             try
             {
