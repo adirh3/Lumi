@@ -391,13 +391,14 @@ internal sealed class BrowserNativeHarness
     {
         const string stateScript = """
             return JSON.stringify({y:scrollY,focus:document.hasFocus(),
-                active:document.activeElement?.id,events:window.fixtureEvents})
+                active:document.activeElement?.id,events:window.fixtureEvents,frames:window.fixtureFrameOffsets})
             """;
         using var stream = File.Create(Path.Combine(_output, "focus-probe.json"));
         using var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
         Console.WriteLine("[FOCUS-PROBE] Controlled observations only; completing these cases is not evidence that the original intermittent failure is fixed.");
         json.WriteStartArray();
-        foreach (var name in new[] { "blurred", "focus-once", "rapid-refocus", "three-real-types", "focus-and-scroll-same-script" })
+        foreach (var name in new[] { "blurred", "focus-once", "rapid-refocus", "three-real-types",
+            "focus-and-scroll-same-script", "focus-and-scroll-prevent-restore", "focus-and-scroll-prevent-both" })
         {
             var opened = await browser.OpenAndSnapshotAsync(_server.Url + "/fixture");
             if (opened.Contains("Error:", StringComparison.Ordinal))
@@ -412,9 +413,21 @@ internal sealed class BrowserNativeHarness
                 for (var index = 0; index < 3; index++)
                     await browser.DoAsync("type", "#query", "focus probe");
             var before = await browser.EvaluateAsync(stateScript);
-            var result = name == "focus-and-scroll-same-script"
-                ? await browser.EvaluateAsync("const q=document.getElementById('query');q.focus();q.blur();q.focus();window.scrollBy(0,300);return String(scrollY)")
-                : await browser.DoAsync("scroll", "down", "300");
+            string result;
+            if (name.StartsWith("focus-and-scroll-", StringComparison.Ordinal))
+            {
+                var first = name == "focus-and-scroll-prevent-both" ? "{preventScroll:true}" : "";
+                var restored = name == "focus-and-scroll-same-script" ? "" : "{preventScroll:true}";
+                result = await browser.EvaluateAsync(
+                    $"const q=document.getElementById('query');q.focus({first});q.blur();q.focus({restored});" +
+                    "window.scrollBy(0,300);window.fixtureFrameOffsets=[];" +
+                    "const observe=()=>{window.fixtureFrameOffsets.push(scrollY);" +
+                    "if(window.fixtureFrameOffsets.length<4)requestAnimationFrame(observe);" +
+                    "else document.body.dataset.focusProbeReady='true';};requestAnimationFrame(observe);" +
+                    "return String(scrollY)");
+            }
+            else
+                result = await browser.DoAsync("scroll", "down", "300");
             var reached = true;
             try
             {
@@ -422,6 +435,12 @@ internal sealed class BrowserNativeHarness
                     System.Globalization.CultureInfo.InvariantCulture) > 0);
             }
             catch (TimeoutException) { reached = false; }
+            if (name.StartsWith("focus-and-scroll-", StringComparison.Ordinal))
+            {
+                var frames = await browser.DoAsync("wait", "body[data-focus-probe-ready='true']", "4000");
+                if (frames.Contains("Error:", StringComparison.Ordinal))
+                    throw new InvalidOperationException("The focus comparison did not observe its four rendering opportunities: " + frames);
+            }
             var after = await browser.EvaluateAsync(stateScript);
             Console.WriteLine($"[FOCUS-PROBE] {name} observedScroll={reached} result={result} before={before} after={after}");
             json.WriteStartObject();
