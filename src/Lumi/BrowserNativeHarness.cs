@@ -490,6 +490,26 @@ internal sealed class BrowserNativeHarness
         Check("focus-restoration-preserves-initial-reveal",
             await browser.EvaluateAsync("return document.activeElement?.id") == "query"
             && await browser.EvaluateAsync("return document.getElementById('query').value") == "offscreen field revealed");
+
+        await FreshDocumentAsync();
+        Check("focus-restoration-nested-precondition", await browser.EvaluateAsync("""
+            const panel=document.createElement('div');panel.id='focus-panel';
+            panel.style.cssText='height:100px;width:280px;overflow:auto;position:relative';
+            const spacer=document.createElement('div');spacer.style.height='1000px';
+            panel.append(spacer,document.getElementById('query'));document.querySelector('main').prepend(panel);
+            return String(document.getElementById('query').getBoundingClientRect().top>=panel.getBoundingClientRect().bottom)
+            """) == "true");
+        var nested = await browser.DoAsync("type", "#query", "nested field revealed");
+        if (nested.Contains("Error:", StringComparison.Ordinal))
+            throw new InvalidOperationException(nested);
+        await WaitAsync(async () => await browser.EvaluateAsync("""
+            const r=document.getElementById('query').getBoundingClientRect();
+            const p=document.getElementById('focus-panel').getBoundingClientRect();
+            return String(r.top>=p.top&&r.bottom<=p.bottom+1&&r.top>=0&&r.bottom<=innerHeight+1)
+            """) == "true");
+        Check("focus-restoration-preserves-nested-reveal",
+            await browser.EvaluateAsync("return document.activeElement?.id") == "query"
+            && await browser.EvaluateAsync("return document.getElementById('query').value") == "nested field revealed");
         await FreshDocumentAsync();
     }
 

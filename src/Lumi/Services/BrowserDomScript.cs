@@ -184,7 +184,8 @@ internal static class BrowserDomScript
             const text = String(next);
             if (el.type === 'password' && text) registry.secrets.add(text);
             if (el.type === 'file') throw new AutomationError('Use upload for file inputs.');
-            el.focus();
+            el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
+            el.focus({preventScroll:true});
             let property = 'value', expected = el.tagName === 'TEXTAREA' ? text.replace(/\r\n?/g, '\n') : text;
             if (el.type === 'checkbox' || el.type === 'radio') {
                 if (![true,false,'true','false','on','off'].includes(next)) throw new AutomationError('Checkbox/radio value must be true or false.');

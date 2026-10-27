@@ -127,8 +127,9 @@ The browser's focus-restoration regression runs the actual generated type/fill/
 clear setter immediately before scrolling, and requires the offset to remain
 after four rendering opportunities rather than accepting one transient sample.
 It also checks blur validation, exact field values, type-then-Enter, page-managed
-focus and the initial reveal of an offscreen input. Restoring focus suppresses
-implicit scrolling; the initial focus still reveals the requested field.
+focus and the initial reveal of an offscreen input, including a nested scroller.
+Editing first reveals the field with nearest-edge scrolling, then focuses it
+without implicit scrolling; restoring focus also suppresses implicit scrolling.
 The Strata image-viewer cancellation check waits for asynchronous cleanup to
 return its semaphore permits before asserting that none remain in use.
 
