@@ -398,7 +398,8 @@ internal sealed class BrowserNativeHarness
         Console.WriteLine("[FOCUS-PROBE] Controlled observations only; completing these cases is not evidence that the original intermittent failure is fixed.");
         json.WriteStartArray();
         foreach (var name in new[] { "blurred", "focus-once", "rapid-refocus", "three-real-types",
-            "focus-and-scroll-same-script", "focus-and-scroll-prevent-restore", "focus-and-scroll-prevent-both" })
+            "focus-and-scroll-same-script", "focus-and-scroll-prevent-restore", "focus-and-scroll-prevent-both",
+            "setter-and-scroll-same-script", "setter-and-scroll-prevent-restore" })
         {
             var opened = await browser.OpenAndSnapshotAsync(_server.Url + "/fixture");
             if (opened.Contains("Error:", StringComparison.Ordinal))
@@ -414,12 +415,29 @@ internal sealed class BrowserNativeHarness
                     await browser.DoAsync("type", "#query", "focus probe");
             var before = await browser.EvaluateAsync(stateScript);
             string result;
-            if (name.StartsWith("focus-and-scroll-", StringComparison.Ordinal))
+            var sampleFrames = name.StartsWith("focus-and-scroll-", StringComparison.Ordinal)
+                || name.StartsWith("setter-and-scroll-", StringComparison.Ordinal);
+            if (sampleFrames)
             {
                 var first = name == "focus-and-scroll-prevent-both" ? "{preventScroll:true}" : "";
                 var restored = name == "focus-and-scroll-same-script" ? "" : "{preventScroll:true}";
+                var preparation = $"const q=document.getElementById('query');q.focus({first});q.blur();q.focus({restored});";
+                if (name.StartsWith("setter-and-scroll-", StringComparison.Ordinal))
+                {
+                    var setter = BrowserDomScript.Build("type", "#query", "focus probe");
+                    if (name == "setter-and-scroll-prevent-restore")
+                    {
+                        const string original = "if (document.activeElement === document.body && visible(el)) el.focus();";
+                        if (!setter.Contains(original, StringComparison.Ordinal))
+                            throw new InvalidOperationException("The generated setter no longer contains the focus restoration under investigation.");
+                        setter = setter.Replace(original,
+                            "if (document.activeElement === document.body && visible(el)) el.focus({preventScroll:true});",
+                            StringComparison.Ordinal);
+                    }
+                    preparation = "const edited=" + setter + ";if(!edited.ok)throw new Error(edited.message);";
+                }
                 result = await browser.EvaluateAsync(
-                    $"const q=document.getElementById('query');q.focus({first});q.blur();q.focus({restored});" +
+                    preparation +
                     "window.scrollBy(0,300);window.fixtureFrameOffsets=[];" +
                     "const observe=()=>{window.fixtureFrameOffsets.push(scrollY);" +
                     "if(window.fixtureFrameOffsets.length<4)requestAnimationFrame(observe);" +
@@ -435,7 +453,7 @@ internal sealed class BrowserNativeHarness
                     System.Globalization.CultureInfo.InvariantCulture) > 0);
             }
             catch (TimeoutException) { reached = false; }
-            if (name.StartsWith("focus-and-scroll-", StringComparison.Ordinal))
+            if (sampleFrames)
             {
                 var frames = await browser.DoAsync("wait", "body[data-focus-probe-ready='true']", "4000");
                 if (frames.Contains("Error:", StringComparison.Ordinal))
