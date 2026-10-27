@@ -225,7 +225,7 @@ internal static class BrowserDomScript
             // Coordinated fills may be temporarily invalid until the other fields are updated.
             validateEdit(edit, operation !== 'fill');
             // Keep blur-driven validation while preserving ordinary type-then-Enter continuation.
-            if (document.activeElement === document.body && visible(el)) el.focus();
+            if (document.activeElement === document.body && visible(el)) el.focus({preventScroll:true});
         };
         try {
             rememberSecrets();

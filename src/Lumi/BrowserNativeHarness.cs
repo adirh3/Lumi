@@ -470,10 +470,23 @@ internal sealed class BrowserNativeHarness
         var revealed = await browser.DoAsync("type", "#query", "offscreen field revealed");
         if (revealed.Contains("Error:", StringComparison.Ordinal))
             throw new InvalidOperationException(revealed);
-        await WaitAsync(async () => await browser.EvaluateAsync("""
-            const r=document.getElementById('query').getBoundingClientRect();
-            return String(r.top>=0&&r.bottom<=innerHeight+1)
-            """) == "true");
+        try
+        {
+            await WaitAsync(async () => await browser.EvaluateAsync("""
+                const r=document.getElementById('query').getBoundingClientRect();
+                return String(r.top>=0&&r.bottom<=innerHeight+1)
+                """) == "true");
+        }
+        catch (TimeoutException)
+        {
+            Console.WriteLine("[FOCUS-REVEAL] " + await browser.EvaluateAsync("""
+                const q=document.getElementById('query'),r=q.getBoundingClientRect();
+                return JSON.stringify({top:r.top,bottom:r.bottom,y:scrollY,viewport:innerHeight,
+                    height:document.documentElement.scrollHeight,active:document.activeElement?.id,
+                    focus:document.hasFocus(),value:q.value})
+                """));
+            throw;
+        }
         Check("focus-restoration-preserves-initial-reveal",
             await browser.EvaluateAsync("return document.activeElement?.id") == "query"
             && await browser.EvaluateAsync("return document.getElementById('query').value") == "offscreen field revealed");

@@ -123,6 +123,12 @@ Scroll-position regressions settle the chat-open reveal before capturing their
 baseline, rather than relaxing their viewport-preservation assertions.
 The browser cookie-reset check waits for the document to observe the completed
 native-store deletion; it never repeats the clearing action.
+The browser's focus-restoration regression runs the actual generated type/fill/
+clear setter immediately before scrolling, and requires the offset to remain
+after four rendering opportunities rather than accepting one transient sample.
+It also checks blur validation, exact field values, type-then-Enter, page-managed
+focus and the initial reveal of an offscreen input. Restoring focus suppresses
+implicit scrolling; the initial focus still reveals the requested field.
 The Strata image-viewer cancellation check waits for asynchronous cleanup to
 return its semaphore permits before asserting that none remain in use.
 
