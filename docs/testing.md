@@ -125,6 +125,9 @@ The browser cookie-reset check waits for the document to observe the completed
 native-store deletion; it never repeats the clearing action.
 The Strata image-viewer cancellation check waits for asynchronous cleanup to
 return its semaphore permits before asserting that none remain in use.
+Browser evidence includes the complete cold-open result and the native scroll
+action's result, focus state and observed offsets. These diagnostics do not
+repeat actions or change their assertions.
 
 `browser-native-validation.yml` is displayed as **Extended UI QA**. It runs
 nightly and on manual dispatch on all four native desktop targets. Each job runs

@@ -187,7 +187,6 @@ internal sealed class BrowserNativeHarness
                 elementTop:document.scrollingElement?.scrollTop,
                 activeElement:document.activeElement?.id,
                 hasFocus:document.hasFocus(),
-                scrollCalls:window.fixtureScrollCalls,
                 scrollEvents:window.fixtureScrollEvents
             })
             """;
@@ -195,6 +194,7 @@ internal sealed class BrowserNativeHarness
         var beforeScroll = await ScrollPositionAsync();
         var scrollY = beforeScroll;
         var scrollResult = await browser.DoAsync("scroll", "down", "300");
+        Console.WriteLine("[SCROLL] result: " + scrollResult);
         if (scrollResult.Contains("Error:", StringComparison.Ordinal))
             throw new InvalidOperationException(scrollResult);
         try { await WaitAsync(async () => (scrollY = await ScrollPositionAsync()) > beforeScroll); }
@@ -203,6 +203,7 @@ internal sealed class BrowserNativeHarness
             Console.WriteLine("[SCROLL] after timeout: " + await browser.EvaluateAsync(scrollState));
             throw;
         }
+        Console.WriteLine("[SCROLL] after: " + await browser.EvaluateAsync(scrollState));
         Check("scroll", scrollY > beforeScroll, $"scrollY={beforeScroll}->{scrollY}");
         scrollResult = await browser.DoAsync("scroll", "up", "300");
         if (scrollResult.Contains("Error:", StringComparison.Ordinal))
@@ -808,12 +809,7 @@ internal sealed class BrowserNativeHarness
         <a id="slow-nav" href="/delayed">Slow navigation</a>
         <div class="spacer"></div><button>Bottom</button></main><script>
         window.alphaClicks=0;window.submits=0;window.uploadSizes=[];window.uploadText='';
-        window.fixtureScrollCalls=[];window.fixtureScrollEvents=[];
-        const fixtureScrollBy=window.scrollBy;
-        window.scrollBy=function(...args){
-        const result=fixtureScrollBy.apply(this,args);
-        window.fixtureScrollCalls.push({args,y:scrollY});
-        return result;};
+        window.fixtureScrollEvents=[];
         addEventListener('scroll',()=>window.fixtureScrollEvents.push(scrollY));
         document.getElementById('files').addEventListener('change',async function(){
         window.uploadSizes=Array.from(this.files).map(f=>f.size);
