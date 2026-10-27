@@ -26,7 +26,7 @@ public partial class ChatWindow : Window
         // Keep this window's native host attached even when its Workspace browser page is closed.
         var scaledContent = Content as Control;
         Content = null;
-        var nativeWebViewLayer = new Canvas { Name = "NativeWebViewLayer", ClipToBounds = true };
+        var nativeWebViewLayer = NativeBrowserLogic.CreateHostLayer();
         var nativeHostRoot = new Grid { Name = "NativeWebViewHostRoot" };
         if (scaledContent is not null)
             nativeHostRoot.Children.Add(scaledContent);

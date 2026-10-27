@@ -14,6 +14,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -302,6 +303,7 @@ internal sealed class BrowserNativeHarness
         view.RefreshBounds();
         await VerifyDockAsync(browser, view, window, "ui-scale-125");
         await VerifyScreenshotAsync(browser, "scaled");
+        await VerifyRtlDockAsync(browser, view, window, "main-rtl-ui-scale-125");
         UiScaleService.Apply(100);
         await SettleBoundsAsync(view);
 
@@ -345,6 +347,7 @@ internal sealed class BrowserNativeHarness
         Check("window-transfer-preserves-state", browser.HasController
             && await browser.EvaluateAsync("return document.getElementById('query').value") == "transfer retained");
         await VerifyScreenshotAsync(browser, "detached");
+        await VerifyRtlDockAsync(browser, detachedView, detached, "detached-rtl");
 #if !WINDOWS
         var detachedLayer = detached.GetVisualDescendants().OfType<Canvas>()
             .FirstOrDefault(control => control.Name == "NativeWebViewLayer");
@@ -565,10 +568,30 @@ internal sealed class BrowserNativeHarness
     private static string JavaScriptEncoderQuote(string value) =>
         System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(value);
 
+    private async Task VerifyRtlDockAsync(BrowserService browser, BrowserView view, Window window, string phase)
+    {
+        var direction = window.FlowDirection;
+        try
+        {
+            window.FlowDirection = FlowDirection.RightToLeft;
+            await VerifyDockAsync(browser, view, window, phase);
+            await VerifyScreenshotAsync(browser, phase);
+        }
+        finally
+        {
+            window.FlowDirection = direction;
+            await SettleBoundsAsync(view);
+            view.RefreshBounds();
+        }
+    }
+
     private async Task VerifyDockAsync(BrowserService browser, BrowserView view, Window window, string phase)
     {
         await SettleBoundsAsync(view);
         view.RefreshBounds();
+        if (OperatingSystem.IsMacOS())
+            Check("vibrancy-" + phase, window.ActualTransparencyLevel == WindowTransparencyLevel.AcrylicBlur,
+                window.ActualTransparencyLevel.ToString());
         var layout = view.CalculateNativeWebViewLayout(window);
         if (layout is null)
         {

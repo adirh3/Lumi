@@ -26,6 +26,7 @@ using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Appearance;
 using Lumi.ViewModels;
 using Lumi.Views.Management;
 using StrataTheme;
@@ -170,7 +171,7 @@ public partial class MainWindow : Window
         // Native controls live outside UiScaleHost; BrowserView supplies transformed physical bounds.
         var scaledContent = Content as Control;
         Content = null;
-        var nativeWebViewLayer = new Canvas { Name = "NativeWebViewLayer", ClipToBounds = true };
+        var nativeWebViewLayer = NativeBrowserLogic.CreateHostLayer();
         var nativeHostRoot = new Grid { Name = "NativeWebViewHostRoot" };
         if (scaledContent is not null)
             nativeHostRoot.Children.Add(scaledContent);
@@ -3285,18 +3286,8 @@ public partial class MainWindow : Window
     {
         if (_acrylicFallback is null) return;
 
-        var opacity = 0.8;
-        if (ActualTransparencyLevel == WindowTransparencyLevel.None)
-            opacity = 0.88;
-        else if (ActualTransparencyLevel == WindowTransparencyLevel.Mica)
-            opacity = 0.62;
-        else if (ActualTransparencyLevel == WindowTransparencyLevel.Blur && OperatingSystem.IsMacOS())
-            // macOS uses the Blur level (native vibrancy); lighten the fallback so the vibrancy shows
-            // through. Gated to macOS because Linux (KDE/KWin) can also resolve to Blur, and its fallback
-            // opacity must stay unchanged. Windows never resolves to Blur (it gets AcrylicBlur/Mica).
-            opacity = 0.62;
-
-        _acrylicFallback.Opacity = opacity;
+        _acrylicFallback.Opacity = WindowMaterials.FallbackOpacityFor(
+            ActualTransparencyLevel, OperatingSystem.IsMacOS());
     }
 
     /// <summary>Handles navigation when a search result is selected from the command palette.</summary>

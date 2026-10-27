@@ -26,14 +26,27 @@ public static class WindowMaterials
         => Available.FirstOrDefault(material => string.Equals(material, id, StringComparison.OrdinalIgnoreCase))
            ?? UserSettings.WindowMaterialAuto;
 
-    public static IReadOnlyList<WindowTransparencyLevel> HintFor(string? id) => Normalize(id) switch
+    public static IReadOnlyList<WindowTransparencyLevel> HintFor(string? id)
+        => HintFor(id, OperatingSystem.IsMacOS());
+
+    internal static IReadOnlyList<WindowTransparencyLevel> HintFor(string? id, bool isMacOS) => Normalize(id) switch
     {
         UserSettings.WindowMaterialSolid => [WindowTransparencyLevel.None],
         UserSettings.WindowMaterialMica =>
             [WindowTransparencyLevel.Mica, WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Blur],
-        _ when OperatingSystem.IsMacOS() => [WindowTransparencyLevel.Blur],
+        // Avalonia's macOS backend maps AcrylicBlur, not Blur, to NSVisualEffectView.
+        _ when isMacOS => [WindowTransparencyLevel.AcrylicBlur],
         _ => [WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Mica, WindowTransparencyLevel.Blur],
     };
+
+    internal static double FallbackOpacityFor(WindowTransparencyLevel level, bool isMacOS)
+    {
+        if (level == WindowTransparencyLevel.None)
+            return 0.88;
+        if (level == WindowTransparencyLevel.Mica || isMacOS && level == WindowTransparencyLevel.AcrylicBlur)
+            return 0.62;
+        return 0.8;
+    }
 
     /// <summary>
     /// Shows <paramref name="id"/> on <paramref name="window"/>. A solid window paints the theme's
@@ -44,7 +57,10 @@ public static class WindowMaterials
         ArgumentNullException.ThrowIfNull(window);
 
         var solid = Normalize(id) == UserSettings.WindowMaterialSolid;
-        window.TransparencyLevelHint = HintFor(id);
+        var hints = HintFor(id);
+        // The native macOS backend resets an already active hint to None if it is submitted again.
+        if (!window.TransparencyLevelHint.SequenceEqual(hints))
+            window.TransparencyLevelHint = hints;
 
         if (solid)
         {

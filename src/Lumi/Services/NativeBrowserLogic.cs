@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media;
 
 namespace Lumi.Services;
 
@@ -69,6 +70,14 @@ internal static class NativeBrowserLogic
         var normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
         return new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)).AsSpan(0, 16));
     }
+
+    // Native views use physical coordinates even when the surrounding window is mirrored for RTL.
+    internal static Canvas CreateHostLayer() => new()
+    {
+        Name = "NativeWebViewLayer",
+        ClipToBounds = true,
+        FlowDirection = FlowDirection.LeftToRight,
+    };
 
     internal static Rect? GetOverlayBounds(Canvas layer, Rect physicalBounds, double rasterizationScale)
     {

@@ -1,11 +1,16 @@
 using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
 using Lumi.Services;
 using Xunit;
 
 namespace Lumi.Tests;
 
+[Collection("Headless UI")]
 public sealed class NativeBrowserLogicTests
 {
     [Fact]
@@ -70,6 +75,56 @@ public sealed class NativeBrowserLogicTests
             NativeBrowserLogic.GetOverlayBounds(physical, 2, default));
         Assert.Equal(new Rect(120, 50, 400, 300),
             NativeBrowserLogic.GetOverlayBounds(physical, 2, new Point(20, 25), 1.5, 1.5));
+    }
+
+    [Theory]
+    [InlineData(FlowDirection.LeftToRight)]
+    [InlineData(FlowDirection.RightToLeft)]
+    public async Task NativeHostKeepsPhysicalCoordinatesInEitherWindowDirection(FlowDirection direction)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var expected = new Rect(40, 60, 240, 180);
+            var nativeView = new Border { Width = expected.Width, Height = expected.Height };
+            var layer = NativeBrowserLogic.CreateHostLayer();
+            layer.Children.Add(nativeView);
+            var root = new Grid();
+            root.Children.Add(new Border());
+            root.Children.Add(layer);
+            var window = new Window
+            {
+                Width = 640,
+                Height = 480,
+                FlowDirection = direction,
+                Content = root,
+            };
+            window.Show();
+            try
+            {
+                window.UpdateLayout();
+                var scale = window.RenderScaling;
+                var physical = new Rect(expected.X * scale, expected.Y * scale,
+                    expected.Width * scale, expected.Height * scale);
+                var bounds = NativeBrowserLogic.GetOverlayBounds(layer, physical, scale);
+
+                Assert.NotNull(bounds);
+                Assert.Equal(expected, bounds.Value);
+                Assert.Equal(FlowDirection.LeftToRight, layer.FlowDirection);
+                Assert.Equal(FlowDirection.LeftToRight, nativeView.FlowDirection);
+                Canvas.SetLeft(nativeView, bounds.Value.X);
+                Canvas.SetTop(nativeView, bounds.Value.Y);
+                window.UpdateLayout();
+                Assert.Equal(expected.TopLeft, nativeView.TranslatePoint(default, window));
+                Assert.Equal(expected.BottomRight,
+                    nativeView.TranslatePoint(new Point(expected.Width, expected.Height), window));
+            }
+            finally
+            {
+                window.Close();
+                window.Content = null;
+            }
+        }, CancellationToken.None);
     }
 
     [Fact]

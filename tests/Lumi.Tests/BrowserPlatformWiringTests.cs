@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
@@ -15,8 +16,10 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class BrowserPlatformWiringTests
 {
-    [Fact]
-    public async Task WindowHostsKeepScaledContentAndCloseIndependently()
+    [Theory]
+    [InlineData("en")]
+    [InlineData("he")]
+    public async Task WindowHostsKeepScaledContentAndCloseIndependently(string language)
     {
         var copilot = TestCopilot.Shared;
         using var session = HeadlessTestSession.Start();
@@ -24,7 +27,8 @@ public sealed class BrowserPlatformWiringTests
         Exception? bodyFailure = null;
         void ExerciseWindows()
         {
-            Loc.Load("en");
+            Loc.Load(language);
+            var direction = Loc.IsRightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
             var store = new DataStore(new AppData
             {
                 Settings = new UserSettings
@@ -48,8 +52,14 @@ public sealed class BrowserPlatformWiringTests
                 IsPrimaryWindow = false,
                 Width = 1000,
                 Height = 720,
+                FlowDirection = direction,
             };
-            var detached = new ChatWindow(store, detachedVm) { Width = 1000, Height = 720 };
+            var detached = new ChatWindow(store, detachedVm)
+            {
+                Width = 1000,
+                Height = 720,
+                FlowDirection = direction,
+            };
             main.Show();
             detached.Show();
             try
@@ -87,6 +97,7 @@ public sealed class BrowserPlatformWiringTests
             {
                 try { ExerciseWindows(); }
                 catch (Exception ex) { bodyFailure = ex; }
+                finally { Loc.Load("en"); }
             }, CancellationToken.None);
         }
         catch (Exception resetFailure) when (bodyFailure is not null)
@@ -256,6 +267,8 @@ public sealed class BrowserPlatformWiringTests
         Assert.Same(scaledContent, root.Children[0]);
         var layer = Assert.IsType<Canvas>(root.Children[1]);
         Assert.Equal("NativeWebViewLayer", layer.Name);
+        Assert.Equal(FlowDirection.LeftToRight, layer.FlowDirection);
+        Assert.NotNull(NativeBrowserLogic.GetOverlayBounds(layer, new Rect(0, 0, 100, 80), window.RenderScaling));
         Assert.Same(window, TopLevel.GetTopLevel(layer));
         Assert.True(layer.IsVisible);
         Assert.True(layer.ClipToBounds);

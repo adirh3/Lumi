@@ -179,6 +179,9 @@ Lumi agents receive a one-time tool upgrade; later permission changes are preser
 Linux needs WebKitGTK 4.1 (`sudo apt install libwebkit2gtk-4.1-0` on Ubuntu).
 The native macOS browser requires macOS 14 or later for private per-profile
 storage; older macOS versions use the system browser instead.
+Native browser views use a left-to-right physical-coordinate host layer in both
+the main and detached windows, even when the surrounding interface is Hebrew/RTL.
+This does not change the direction of webpage content.
 WebKitGTK stores browser data under Lumi's app-data directory; macOS selects a
 separate system-managed WKWebView data store for each Lumi app-data profile.
 Cookie import uses the user's local browser profiles; unavailable keyring access and unsupported
@@ -210,7 +213,9 @@ real Workspace, navigation and actions (including waits during slow navigation),
 uploads, native cookie round-trips, Settings import/reset across existing tabs,
 profile isolation, tab policy, page-reported viewport
 dimensions, screenshot pixels, hide/show, resizing, UI scaling, detached-window
-transfer, and disposal. It exits nonzero on failure. Add
+transfer, and disposal. RTL checks cover the scaled main window and a detached
+chat, including native screenshots and their expected page pixels.
+It exits nonzero on failure. Add
 `--browser-native-output <directory>` to collect JSON/PNG evidence, or
 `--browser-native-keep-open` to leave the fixture open for inspection.
 The dedicated validation workflow runs on Windows, Linux, Intel macOS, and Apple
@@ -549,6 +554,20 @@ system's, another window's, a reset) and Show animations off change it at once. 
 render-thread motion: capture the window (`PrintWindow`) or the screen while clicking a theme card through
 UI Automation, which raises the button's `Click` as a real click does. A locked or disconnected session
 draws only a few frames a second, so the reveal plays slowed down there.
+
+### Window materials
+
+On macOS, Auto requests `AcrylicBlur`, which Avalonia maps to native
+`NSVisualEffectView` vibrancy. The similarly named `Blur` hint is not supported
+by the pinned macOS backend and falls back to `None`. Keep the initial hints in
+both window types, `WindowMaterials` and the main window's tint policy aligned.
+Do not resubmit unchanged hints: this backend resets an already active hint to
+`None` when it is requested again.
+The native browser fixture checks the actual macOS window material through its
+main-window, scaling and detached-window phases.
+Solid remains opaque. Check the actual transparency level and composited screen
+pixels, not only the requested hint or an Avalonia-rendered screenshot; macOS
+accessibility settings can also suppress the native effect.
 
 ### Windows Installer
 
