@@ -61,8 +61,30 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 browser.SetBounds(0, 0, 940, 700);
                 browser.SetControllerVisible(true);
                 var coldOpenTimer = Stopwatch.StartNew();
+                var coldEvents = new List<string>();
+                browser.BrowserReady += () =>
+                {
+                    if (browser.WebView is not { } native || coldEvents.Count > 0)
+                        return;
+                    coldEvents.Add($"{coldOpenTimer.ElapsedMilliseconds}ms ready WebView2={native.Environment.BrowserVersionString}");
+                    native.NavigationStarting += (_, args) => coldEvents.Add(
+                        $"{coldOpenTimer.ElapsedMilliseconds}ms starting id={args.NavigationId} uri={args.Uri} redirect={args.IsRedirected}");
+                    native.SourceChanged += (_, args) => coldEvents.Add(
+                        $"{coldOpenTimer.ElapsedMilliseconds}ms source newDocument={args.IsNewDocument} uri={native.Source}");
+                    native.DOMContentLoaded += (_, args) => coldEvents.Add(
+                        $"{coldOpenTimer.ElapsedMilliseconds}ms DOMContentLoaded id={args.NavigationId}");
+                    native.NavigationCompleted += (_, args) => coldEvents.Add(
+                        $"{coldOpenTimer.ElapsedMilliseconds}ms completed id={args.NavigationId} success={args.IsSuccess} error={args.WebErrorStatus}");
+                    native.ProcessFailed += (_, args) => coldEvents.Add(
+                        $"{coldOpenTimer.ElapsedMilliseconds}ms processFailed kind={args.ProcessFailedKind}");
+                };
                 var opened = await browser.OpenAndSnapshotAsync(url);
                 output.WriteLine($"BENCH cold open/profile initialization: {coldOpenTimer.ElapsedMilliseconds} ms.");
+                output.WriteLine(opened);
+                output.WriteLine("COLD NAVIGATION EVENTS:\n" + string.Join("\n", coldEvents));
+                if (!opened.Contains("Navigation: completed.", StringComparison.Ordinal) && browser.WebView is { } failedView)
+                    output.WriteLine("COLD FAILURE DOCUMENT: " + await failedView.ExecuteScriptAsync(
+                        "JSON.stringify({url:location.href,title:document.title,ready:document.readyState})"));
                 Assert.Contains("Navigation: completed.", opened);
                 Assert.Contains("Readiness: DOM available", opened);
                 browser.WebView!.Profile.DefaultDownloadFolderPath = root;

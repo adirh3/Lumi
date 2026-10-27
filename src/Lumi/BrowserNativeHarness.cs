@@ -185,13 +185,16 @@ internal sealed class BrowserNativeHarness
                 documentHeight:document.documentElement.scrollHeight,
                 scrollingElement:document.scrollingElement?.tagName,
                 elementTop:document.scrollingElement?.scrollTop,
-                activeElement:document.activeElement?.id
+                activeElement:document.activeElement?.id,
+                hasFocus:document.hasFocus(),
+                events:window.fixtureEvents
             })
             """;
         Console.WriteLine("[SCROLL] before: " + await browser.EvaluateAsync(scrollState));
         var beforeScroll = await ScrollPositionAsync();
         var scrollY = beforeScroll;
         var scrollResult = await browser.DoAsync("scroll", "down", "300");
+        Console.WriteLine("[SCROLL] result: " + scrollResult);
         if (scrollResult.Contains("Error:", StringComparison.Ordinal))
             throw new InvalidOperationException(scrollResult);
         try { await WaitAsync(async () => (scrollY = await ScrollPositionAsync()) > beforeScroll); }
@@ -200,6 +203,7 @@ internal sealed class BrowserNativeHarness
             Console.WriteLine("[SCROLL] after timeout: " + await browser.EvaluateAsync(scrollState));
             throw;
         }
+        Console.WriteLine("[SCROLL] after: " + await browser.EvaluateAsync(scrollState));
         Check("scroll", scrollY > beforeScroll, $"scrollY={beforeScroll}->{scrollY}");
         scrollResult = await browser.DoAsync("scroll", "up", "300");
         if (scrollResult.Contains("Error:", StringComparison.Ordinal))
@@ -805,6 +809,12 @@ internal sealed class BrowserNativeHarness
         <a id="slow-nav" href="/delayed">Slow navigation</a>
         <div class="spacer"></div><button>Bottom</button></main><script>
         window.alphaClicks=0;window.submits=0;window.uploadSizes=[];window.uploadText='';
+        window.fixtureEvents=[];
+        const traceFixtureEvent=event=>{
+        if(window.fixtureEvents.length<160)window.fixtureEvents.push({
+        type:event.type,t:performance.now(),y:scrollY,focus:document.hasFocus(),active:document.activeElement?.id});};
+        for(const type of ['scroll','resize','focus','blur','focusin','focusout','selectionchange'])
+        document.addEventListener(type,traceFixtureEvent,true);
         document.getElementById('files').addEventListener('change',async function(){
         window.uploadSizes=Array.from(this.files).map(f=>f.size);
         window.uploadText=this.files.length?await this.files[0].text():'';});

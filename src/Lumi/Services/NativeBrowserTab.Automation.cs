@@ -102,8 +102,12 @@ internal sealed partial class NativeBrowserTab
     {
         await EnsureInitializedAsync();
         var delta = direction.Equals("up", StringComparison.OrdinalIgnoreCase) ? -pixels : pixels;
-        await BrowserService.OnUiThreadAsync(() =>
+        var result = await BrowserService.OnUiThreadAsync(() =>
             ExecuteScriptAsync($"window.scrollBy(0,{delta.ToString(System.Globalization.CultureInfo.InvariantCulture)})"));
+#if DEBUG
+        if (Program.BrowserNativeHarnessEnabled)
+            Console.WriteLine($"[SCROLL-NATIVE] tab={Id} direction={direction} raw={result} document={_documentVersion} navigating={_isNavigating} visible={_visible}");
+#endif
         return $"Scrolled {direction} by {pixels}px";
     }
 
