@@ -63,6 +63,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 var coldOpenTimer = Stopwatch.StartNew();
                 var opened = await browser.OpenAndSnapshotAsync(url);
                 output.WriteLine($"BENCH cold open/profile initialization: {coldOpenTimer.ElapsedMilliseconds} ms.");
+                output.WriteLine(opened);
                 Assert.Contains("Navigation: completed.", opened);
                 Assert.Contains("Readiness: DOM available", opened);
                 browser.WebView!.Profile.DefaultDownloadFolderPath = root;

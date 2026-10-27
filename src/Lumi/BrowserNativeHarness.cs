@@ -185,7 +185,10 @@ internal sealed class BrowserNativeHarness
                 documentHeight:document.documentElement.scrollHeight,
                 scrollingElement:document.scrollingElement?.tagName,
                 elementTop:document.scrollingElement?.scrollTop,
-                activeElement:document.activeElement?.id
+                activeElement:document.activeElement?.id,
+                hasFocus:document.hasFocus(),
+                scrollCalls:window.fixtureScrollCalls,
+                scrollEvents:window.fixtureScrollEvents
             })
             """;
         Console.WriteLine("[SCROLL] before: " + await browser.EvaluateAsync(scrollState));
@@ -805,6 +808,13 @@ internal sealed class BrowserNativeHarness
         <a id="slow-nav" href="/delayed">Slow navigation</a>
         <div class="spacer"></div><button>Bottom</button></main><script>
         window.alphaClicks=0;window.submits=0;window.uploadSizes=[];window.uploadText='';
+        window.fixtureScrollCalls=[];window.fixtureScrollEvents=[];
+        const fixtureScrollBy=window.scrollBy;
+        window.scrollBy=function(...args){
+        const result=fixtureScrollBy.apply(this,args);
+        window.fixtureScrollCalls.push({args,y:scrollY});
+        return result;};
+        addEventListener('scroll',()=>window.fixtureScrollEvents.push(scrollY));
         document.getElementById('files').addEventListener('change',async function(){
         window.uploadSizes=Array.from(this.files).map(f=>f.size);
         window.uploadText=this.files.length?await this.files[0].text():'';});
