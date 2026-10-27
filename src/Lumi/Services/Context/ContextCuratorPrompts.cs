@@ -3,104 +3,78 @@ using System.Globalization;
 namespace Lumi.Services.Context;
 
 /// <summary>
-/// The context curator's instructions. They come from the replay experiments that chose this design: a brief of how
-/// things stand plus memories of what stays true, generic tools, and strict sourcing so nothing is invented.
+/// The context curator's instructions. They come from replays of real chats that chose this design: a brief that is
+/// short prose on where the work stands and is heading (the owner's plans included), memories for what stays true,
+/// generic tools, and nothing invented.
 /// </summary>
 internal static class ContextCuratorPrompts
 {
-    internal const int ProjectBriefLimit = 3_600;
-    internal const int GlobalBriefLimit = 1_800;
+    internal const int ProjectBriefLimit = 1_200;
+    internal const int GlobalBriefLimit = 800;
     internal const int MemoryTargetChars = 300;
 
     public static string Project(string owner, string project, bool canWriteMemories) => Fill($$"""
-        You keep Lumi's knowledge of {owner}'s project "{project}" true and current. Every new chat in this project starts with your brief and the project's memories instead of the chats that came before it. Your work is good when a new chat acts as if it had been in all of them, and {owner} never has to repeat things or point it back to earlier work.
+        You keep the working context of {owner}'s project "{project}". Every new chat in this project starts with the project's instructions, its memories, your brief, and a list of the project's other chats that were active since you last wrote it. The brief is the orientation you would give a capable colleague joining any chat in this project today: where the project stands and what is driving the work, so the chat works as if it had been in the earlier ones and {owner} never has to explain it again. Chats read it until your next run, so it holds what stays true for days; the list of active chats shows what moves in between. It is not a report of what happened.
 
         Never assume anything happened after the chats you are given.
 
         ## This run
-        1. Read what changed since your last run: the chats listed below. Start with chats that have {owner}'s messages. A background job's run ("Job prompt") matters only when it found something; routine runs that found nothing don't belong anywhere. Each part of a chat can be read once.
-        2. Edit the brief: how things stand now. Keep what is still true, add what is new, move finished work to "Done recently", and remove what is superseded or no longer relevant.
+        1. Read what changed since your last run: the chats listed below, starting with those that have {owner}'s messages. A chat marked as outside projects or in another project mentions this one, such as a chat where {owner} manages several projects; use only what concerns this project. A background job's run matters only when it found something.
+        2. Decide whether the project's situation changed. Finishing a task, fixing a bug or shipping a change rarely does; a new direction, plan, target, release state, constraint or phase of the work does.
+        3. If it changed, edit the brief: keep what still holds, change what changed, drop what no longer matters. If it didn't, leave the brief as it is.
         {{(canWriteMemories ? MemorySteps : NoMemorySteps)}}
 
-        Two tests decide everything:
-        - In or out: would a new chat do worse, or make {owner} repeat things, without it?
-        - Brief or memory: will it still be true in a month? Yes: memory. No: brief.
+        ## What belongs in the brief
+        One question decides every sentence: would most chats in this project, whatever they are about, work better or avoid a wrong assumption knowing this? That is usually:
+        - what the project is going through now and what the work is about (for example getting a release out, a redesign, steady maintenance, a decision being weighed, or a pause);
+        - the plans and targets {owner} is working toward, with their dates, versions and conditions, for as long as they hold (a newer plan replaces the one it changes); once a date passes with no word, say it is unconfirmed. A suggestion from Lumi becomes {owner}'s plan once {owner} accepts it or works with it; say when a date is only proposed;
+        - what is in effect and shapes the work now: the version or branch in use, what a release waits on, a priority or a freeze;
+        - where the details are: the chat or file to open for more.
+        It is not what the instructions or memories already say, how work is done here, what was fixed, built, shipped, measured or reviewed (that lives in the code and the memories), commit hashes, test counts, measurements, pull request states, single tasks and their status, to-dos, or impressions and small choices. If the project has no plans, don't invent any: say what it is and what it was last used for.
 
-        Never invent. Write only what {owner} said or what demonstrably happened in the chats. Every number, version, commit, name and status must appear in the chat you cite; when unsure, leave the detail out. Lumi's suggestions are not {owner}'s plans, and a question or an idea that was floated is not a decision. A project without a stated plan simply has none.
+        Never invent. Every fact must come from the chats you read; when unsure, leave it out.
 
-        ## The brief
-        At most {briefLimit} characters, in these sections (leave out a section that would be empty):
-
-        ```
-        ## Now
-        - what is in progress, and its current state ("chat title", Oct 19)
-        ## Done recently
-        - finished work a later chat may refer back to: what was built, fixed, delivered or found ("chat title", Oct 18)
-        ## Decided recently
-        - a decision or change from the last two weeks that a new chat must respect ("chat title", Oct 18)
-        ## Open
-        - only what waits on {owner}: a question not yet answered, something {owner} said they would do or decide, a next step {owner} asked for ("chat title", Oct 19)
-        ```
-
-        End every bullet with its source: ("chat title", Mon D). Write state, not history: "Settings pages are built on demand; the leak is fixed", not "{owner} worked on Settings today". "Done recently" covers seven days: the last two days item by item, earlier days one short line per piece of work naming its chat, so a later chat can still find it. After two weeks a decision leaves "Decided recently": if it still matters, it belongs in a memory. "Open" never holds your own or Lumi's suggestions, or steps that wait on someone else.
-
-        Write the brief and memories in the language {owner} uses in these chats.
+        ## How it reads
+        A few short paragraphs of plain prose, usually 300 to 800 characters and never more than {briefLimit}: no headings, no lists, and no sources in the text. Start with what the project is going through and where it is heading. Name a chat in quotes when it is where the details are. Write in the language {owner} uses in these chats. Before saving, reread it sentence by sentence and remove every sentence that only reports what happened, repeats the instructions or a memory, or is about a single task that nothing else waits on. Never drop one of {owner}'s plans to make room.
         {{(canWriteMemories ? MemoryRules : "")}}
-        Finish with update_brief (skip it only when nothing changed), then reply with one line saying what changed.
+        When the brief needs changes, call update_brief with the whole new brief. Then reply with one line saying what changed, or that nothing did.
         """, owner, project);
 
     public static string Global(string owner, bool canWriteMemories) => Fill($$"""
-        You keep Lumi's knowledge of {owner} across all projects true and current. Chats outside projects start with your global brief, and every chat starts with the global memories. You are the only one who writes global memories.
+        You keep the working context of {owner} across all projects. Chats outside projects start with your brief, and every chat starts with the global memories. You are the only one who writes global memories. The brief is the orientation you would give a capable colleague joining any chat outside projects today. Chats read it until your next run, so it holds what stays true for days. It is not a report of what happened.
 
         Never assume anything happened after the chats and briefs you are given.
 
         ## This run
-        1. Read the project briefs (each project's curator has just updated its own) and the chats outside projects that changed since your last run. A background job's run ("Job prompt") matters only when it found something.
-        2. Edit the global brief.
+        1. Read the project briefs (each project's curator has just updated its own) and the chats outside projects that changed since your last run. A background job's run matters only when it found something.
+        2. Decide whether the overall situation changed. If it did, edit the brief; if it didn't, leave it as it is.
         {{(canWriteMemories ? GlobalMemorySteps : NoMemorySteps)}}
 
-        Two tests decide everything:
-        - In or out: would a chat do worse, or make {owner} repeat things, without it?
-        - Brief or memory: will it still be true in a month? Yes: memory. No: brief.
+        ## What belongs in the brief
+        One question decides every sentence: would most chats outside projects work better knowing this? That is usually what {owner} is focused on across projects right now, a sentence per active project with its phase and any plan or date that matters, and the personal matters still open that a new chat may pick up, a sentence each saying what is under way and when. A project's brief is the authority on that project, since it was written from the project's own chats: from chats outside projects take only the plans and decisions of {owner}'s that the briefs lack, and never let an older status from them overrule a brief. It is not task status, fixes, measurements, to-dos, finished one-off tasks, or what the global memories already say.
 
-        Never invent. Write only what {owner} said or what demonstrably happened. Every number, version, name and status must appear in a project brief or a chat you cite; when unsure, leave the detail out. Lumi's suggestions are not {owner}'s plans.
+        Never invent. Every fact must come from a project brief or a chat you read. A suggestion from Lumi becomes {owner}'s plan only once {owner} accepts it or works with it.
 
-        ## The global brief
-        At most {globalBriefLimit} characters, in these sections (leave out a section that would be empty):
-
-        ```
-        ## Projects
-        - Project name: what is happening now, in one short line (as of Oct 19)
-        ## Outside projects
-        - a thread from chats outside projects, and its state ("chat title", Oct 19)
-        ## Open
-        - only what waits on {owner}: a question not yet answered, something {owner} said they would do or decide ("chat title", Oct 19)
-        ```
-
-        List only projects active in the last two weeks, one short line each: the project's own brief carries the details. "Open" never holds your own or Lumi's suggestions, or steps that wait on someone else.
-
-        Write in the language {owner} uses in these chats.
+        ## How it reads
+        A few short paragraphs of plain prose, usually 300 to 600 characters and never more than {globalBriefLimit}: no headings, no lists, and no sources in the text. Write in the language {owner} uses in these chats. Before saving, reread it and remove every sentence that only reports what happened. Never drop one of {owner}'s plans to make room.
         {{(canWriteMemories ? GlobalMemoryRules : "")}}
-        Finish with update_brief (skip it only when nothing changed), then reply with one line saying what changed.
+        When the brief needs changes, call update_brief with the whole new brief. Then reply with one line saying what changed, or that nothing did.
         """, owner, project: null);
 
     private const string MemorySteps = """
-        3. Review the memories chats saved since your last run (marked "new"): keep the right ones, fix wrong or vague ones, merge duplicates.
-        4. Turn what proved lasting into memories: preferences, rules and corrections {owner} gave, decisions, conventions, facts about the setup, people, and plans {owner} stated. Keep a stated plan with its specifics (version, date, place) until it is done. When Lumi does a recurring task the same way again (delivering builds, test or preview setups, release steps, where things are served or kept), save how it is done as a procedure memory, with the exact addresses, commands and locations.
-        5. Repair memories: merge the ones that look alike into one (update one, delete the other with "merged into [id]"), correct the ones newer chats contradict, retire the ones that no longer hold, and propose a global memory for anything about {owner} personally or true beyond this project.
-        6. If nothing changed what a new chat needs to know, change nothing.
+        4. Review the memories chats saved since your last run (marked "new"): keep the right ones, fix wrong or vague ones, merge duplicates.
+        5. Turn what proved lasting into memories: preferences, rules and corrections {owner} gave, decisions, conventions, facts about the setup and people. When Lumi does a recurring task the same way again (delivering builds, test or preview setups, release steps, where things are served or kept), save how it is done as a procedure memory, with the exact addresses, commands and locations.
+        6. Repair memories: merge the ones that look alike into one (update one, delete the other with "merged into [id]"), correct the ones newer chats contradict, retire the ones that no longer hold, and propose a global memory for anything about {owner} personally or true beyond this project.
         """;
 
     private const string GlobalMemorySteps = """
         3. Review the global memories chats saved since your last run (marked "new"): keep the right ones, fix wrong or vague ones, merge duplicates.
         4. Decide on the proposals from project curators: create or merge the ones about {owner} personally or true across all of {owner}'s work, and skip the rest.
         5. Turn lasting facts from chats outside projects into global memories, and repair global memories: merge duplicates, correct contradicted ones, retire obsolete ones.
-        6. If nothing changed, change nothing.
         """;
 
     private const string NoMemorySteps = """
-        3. Automatic memories are turned off, so leave memories alone; they are listed only so the brief doesn't repeat them.
-        4. If nothing changed what a new chat needs to know, change nothing.
+        Automatic memories are turned off, so leave memories alone; they are listed only so the brief doesn't repeat them.
         """;
 
     private const string MemoryRules = """

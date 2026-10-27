@@ -43,6 +43,9 @@ internal sealed partial class ContextCuratorScope
     private readonly IReadOnlyCollection<Guid> _updatedProjects;
     private readonly HashSet<string> _readParts = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, List<string>> _parts = [];
+    private readonly HashSet<Guid> _hintedMemories = [];
+    // The owner's and the project's names are in most sentences and memories, so they don't make two of them alike.
+    private readonly HashSet<string> _nameTerms;
     private string? _briefSeen;
     private int _toolCalls;
     private int _memoryChanges;
@@ -70,6 +73,7 @@ internal sealed partial class ContextCuratorScope
         _proposals = proposals;
         _updatedProjects = updatedProjects;
         Owner = owner;
+        _nameTerms = ChatDigest.Terms($"{owner} {project?.Name}");
         CanWriteMemories = canWriteMemories;
     }
 
@@ -214,7 +218,7 @@ internal sealed partial class ContextCuratorScope
             var last = chat.Window[^1].Timestamp.ToLocalTime();
             var span = first.Date == last.Date ? $"{first:MMM d HH:mm}–{last:HH:mm}" : $"{first:MMM d HH:mm} – {last:MMM d HH:mm}";
             sb.Append(CultureInfo.InvariantCulture,
-                $"- [{chat.ShortId}] \"{chat.Chat.Title}\": {Owner} {chat.OwnerMessages} msgs{(phone > 0 ? $" ({phone} from phone)" : "")}, Lumi {replies} replies, {tools} tool calls, {span}");
+                $"- [{chat.ShortId}] \"{chat.Chat.Title}\"{Elsewhere(chat.Chat)}: {Owner} {chat.OwnerMessages} msgs{(phone > 0 ? $" ({phone} from phone)" : "")}, Lumi {replies} replies, {tools} tool calls, {span}");
             if (parts > 1)
                 sb.Append(CultureInfo.InvariantCulture, $", {parts} parts");
             if (jobRuns > 0)
@@ -230,6 +234,14 @@ internal sealed partial class ContextCuratorScope
         }
 
         return sb.ToString();
+    }
+
+    private string Elsewhere(Chat chat)
+    {
+        if (Project is not { } project || chat.ProjectId == project.Id)
+            return "";
+        var other = chat.ProjectId is { } id ? _dataStore.Data.Projects.ToArray().FirstOrDefault(item => item.Id == id) : null;
+        return other is null ? " (outside projects)" : $" (in the project \"{other.Name}\")";
     }
 
     private List<string> Parts(CuratorChat chat)
@@ -271,7 +283,7 @@ internal sealed partial class ContextCuratorScope
                     : "Search this project's chats (the owner's messages and Lumi's replies). Use it to check whether something was said or decided before.",
                 AppDataJsonContext.Default.Options),
             AIFunctionFactory.Create(
-                ([Description("The complete new brief in markdown")] string content) =>
+                ([Description("The complete new brief: a few short paragraphs of plain prose")] string content) =>
                     Safe("update_brief", () => UpdateBrief(content)),
                 "update_brief",
                 global ? "Replace the global brief." : "Replace this project's brief.",
@@ -395,8 +407,8 @@ internal sealed partial class ContextCuratorScope
                ?? chats.FirstOrDefault(chat => string.Equals(chat.Title, value, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>A project's curator stays inside its project; the all-projects curator may open any chat it finds. Chats
-    /// started after the window are left for the next run.</summary>
+    /// <summary>Beyond the chats in its activity list, a project's curator finds and opens only its project's chats; the
+    /// all-projects curator may open any chat it finds. Chats started after the window are left for the next run.</summary>
     private bool CanRead(Chat chat) => chat.CreatedAt <= To && (Project is null || chat.ProjectId == Project.Id);
 
     internal async Task<string> SearchChatsAsync(string query, CancellationToken cancellationToken)
@@ -428,38 +440,82 @@ internal sealed partial class ContextCuratorScope
         if (content.Length > BriefLimit)
             return $"Too long: {content.Length} characters, the limit is {BriefLimit}. Shorten it and call update_brief again.";
 
-        var warnings = ValidateBrief(content, Project is null);
+        var warning = ValidateBrief(content);
         Brief.Content = content;
         Brief.UpdatedAt = DateTimeOffset.Now;
         Brief.EditedByUser = false;
         _briefSeen = content;
         BriefChanged = true;
-        return warnings.Count == 0
+        var repeats = RepeatedMemories(content);
+        var reply = warning is null
             ? "Brief saved."
-            : $"Brief saved, but: {string.Join(" ", warnings)} Fix it and call update_brief again if it matters.";
+            : $"Brief saved, but: {warning} Fix it and call update_brief again if it matters.";
+        return repeats.Length == 0 ? reply : $"{reply}\n{repeats}";
     }
 
-    [GeneratedRegex(@"\([^()]*?(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}(?:\s*[–-]\s*\d{1,2})?\)\s*\.?\s*$")]
-    private static partial Regex SourcePattern();
+    [GeneratedRegex(@"(?<=[.!?;])\s+")]
+    private static partial Regex SentenceBreak();
 
-    internal static List<string> ValidateBrief(string content, bool global)
+    private static readonly HashSet<string> BriefFillers = new(StringComparer.OrdinalIgnoreCase)
+        { "chat", "chats", "project", "projects", "remain", "remains", "still", "while", "where", "other", "details", "see" };
+
+    private HashSet<string> BriefTerms(string text)
+        => ChatDigest.Terms(text)
+            .Where(term => !BriefFillers.Contains(term) && !_nameTerms.Contains(term))
+            .Select(term => term.Length > 6 ? term[..6] : term)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Memories that look close to sentences of a saved brief. Every chat already receives them, so the session
+    /// decides whether those sentences only repeat them; each memory is pointed out once per session.</summary>
+    internal string RepeatedMemories(string brief)
     {
-        var warnings = new List<string>();
-        var bullets = content.Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal))
+        var memories = Visible()
+            .Select(memory => (Memory: memory, Terms: BriefTerms($"{memory.Key} {memory.Content}")))
             .ToList();
-        var uncited = bullets.Where(bullet => !SourcePattern().IsMatch(bullet)).ToList();
-        if (uncited.Count > 0)
+        var hints = new List<(int Shared, double Score, string Sentence, Memory Memory)>();
+        foreach (var sentence in SentenceBreak().Split(brief))
         {
-            warnings.Add($"{uncited.Count} of {bullets.Count} bullets don't end with a source like (\"chat title\", Oct 19){(global ? " or (as of Oct 19)" : "")}: "
-                         + string.Join(" | ", uncited.Take(2).Select(bullet => ChatDigest.Excerpt(bullet, 90))) + ".");
+            var terms = BriefTerms(sentence);
+            if (terms.Count < 3)
+                continue;
+            var best = memories
+                .Select(item => (item.Memory, Shared: terms.Count(item.Terms.Contains)))
+                .Where(item => item.Shared >= 3 && item.Shared >= terms.Count * 0.3)
+                .OrderByDescending(item => item.Shared)
+                .FirstOrDefault();
+            if (best.Memory is { } memory && !_hintedMemories.Contains(memory.Id))
+                hints.Add((best.Shared, (double)best.Shared / terms.Count, sentence.Trim(), memory));
         }
 
-        var required = global ? "## Projects" : "## Now";
-        if (bullets.Count > 0 && !global && !content.Contains(required, StringComparison.OrdinalIgnoreCase))
-            warnings.Add($"There is no \"{required}\" section.");
-        return warnings;
+        var picked = hints
+            .OrderByDescending(hint => hint.Score)
+            .DistinctBy(hint => hint.Memory.Id)
+            .Take(5)
+            .ToList();
+        foreach (var hint in picked)
+            _hintedMemories.Add(hint.Memory.Id);
+        return picked.Count == 0
+            ? ""
+            : "These memories, which every chat already receives, look close to sentences in it:\n"
+              + string.Join("\n", picked.Select(hint =>
+                  $"- \"{ChatDigest.Excerpt(hint.Sentence, 160)}\" ↔ [{Short(hint.Memory)}] {hint.Memory.Key}: {ChatDigest.Excerpt(hint.Memory.Content, 200)}"))
+              + "\nWhere a memory already says it, remove that sentence and call update_brief again.";
+    }
+
+    // A heading is "#" to "######" and a space, so a sentence that opens with an issue number ("#1307 …") stays prose.
+    [GeneratedRegex(@"^(?:#{1,6}\s|[-*]\s|\d+[.)]\s)")]
+    private static partial Regex StructuredLine();
+
+    /// <summary>A warning when lines of the brief are headings or list items: it is meant to be plain prose.</summary>
+    internal static string? ValidateBrief(string content)
+    {
+        var structured = content.Split('\n').Count(line => StructuredLine().IsMatch(line.Trim()));
+        return structured switch
+        {
+            0 => null,
+            1 => "1 line is a heading or a list item; the brief is a few short paragraphs of plain prose.",
+            _ => $"{structured} lines are headings or list items; the brief is a few short paragraphs of plain prose.",
+        };
     }
 
     // ───────────── memories ─────────────

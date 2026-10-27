@@ -64,7 +64,7 @@ public sealed class ContextCuratorTests
             lock (reviews)
                 reviews.Add(scope);
             if (scope.Project is not null)
-                scope.UpdateBrief("## Now\n- Shipping 1.0 next week (\"Release\", Oct 21)");
+                scope.UpdateBrief("Lumi is shipping 1.0 next week.");
             else
                 globalPrompt = scope.BuildPrompt();
             return Task.CompletedTask;
@@ -160,7 +160,7 @@ public sealed class ContextCuratorTests
                     "Preferences", "global", "\"Theme\", Oct 21: 'Always use a dark theme, everywhere'", null);
             }
 
-            scope.UpdateBrief("## Now\n- Working on it (\"Release\", Oct 21)");
+            scope.UpdateBrief("The work continues.");
             return Task.CompletedTask;
         });
 
@@ -213,7 +213,7 @@ public sealed class ContextCuratorTests
             {
                 scope.ManageMemories("create", null, "Prefers dark themes", "Adir wants dark themes in every app.",
                     "Preferences", "global", "\"Theme\", Oct 21: 'Always use a dark theme, everywhere'", null);
-                scope.UpdateBrief("## Now\n- Dark theme everywhere (\"Theme\", Oct 21)");
+                scope.UpdateBrief("Blast uses a dark theme everywhere.");
                 return Task.CompletedTask;
             }
 
@@ -409,10 +409,64 @@ public sealed class ContextCuratorTests
         Assert.Equal("Edited by hand", scope.Brief.Content);
         Assert.False(scope.BriefChanged);
 
-        Assert.Equal("Brief saved.", scope.UpdateBrief("## Now\n- Shipping 1.0 next week (\"Release\", Oct 21)"));
+        Assert.Equal("Brief saved.", scope.UpdateBrief("Lumi ships 1.0 next week; the release waits on the signed installer."));
         Assert.False(scope.Brief.EditedByUser);
         Assert.True(scope.BriefChanged);
-        Assert.Contains("don't end with a source", scope.UpdateBrief("## Now\n- Shipping 1.0 next week"));
+        Assert.Contains("2 lines are headings or list items", scope.UpdateBrief("## Now\n- Shipping 1.0 next week"));
+    }
+
+    [Fact]
+    public void ABriefIsPlainProse()
+    {
+        Assert.Null(ContextCuratorScope.ValidateBrief("Lumi is preparing its 1.0 release.\n\n#1307's fix waits for 1.5.0.5; 1.5.0.4 is live."));
+        Assert.Equal(
+            "1 line is a heading or a list item; the brief is a few short paragraphs of plain prose.",
+            ContextCuratorScope.ValidateBrief("Lumi ships next week.\n1. Sign the installer"));
+        Assert.Equal(
+            "3 lines are headings or list items; the brief is a few short paragraphs of plain prose.",
+            ContextCuratorScope.ValidateBrief("## Projects\n- Lumi: shipping 1.0\n* Blast: nightly"));
+    }
+
+    [Fact]
+    public void SavingABriefPointsOutTheMemoriesItMayRepeatOncePerSession()
+    {
+        var lumi = new Project { Name = "Lumi" };
+        var gates = new Memory
+        {
+            Key = "Release QA versus merge-gate boundary",
+            Content = "For Lumi, keep deterministic component QA in the required PR gate; Extended UI QA must gate release publication.",
+            Category = "Project", Scope = MemoryScopes.Project, ProjectId = lumi.Id,
+        };
+        var food = new Memory { Key = "Likes burgers", Content = "Adir Hudayfi likes burgers and pizza.", Category = "Preferences" };
+        var store = new DataStore(new AppData { Projects = [lumi], Memories = [gates, food] });
+        var scope = CreateScope(store, lumi, owner: "Adir Hudayfi");
+        const string brief = "Lumi is preparing its 1.0 release. Deterministic component QA gates PRs, and Extended UI QA gates release "
+                             + "publication. Adir Hudayfi plans the launch party with pizza.";
+
+        var answer = scope.UpdateBrief(brief);
+        Assert.StartsWith("Brief saved.", answer);
+        Assert.Contains("Release QA versus merge-gate boundary", answer);
+        Assert.Contains("Deterministic component QA gates PRs", answer);
+        Assert.DoesNotContain("Likes burgers", answer); // the owner's name alone doesn't make two sentences alike
+        Assert.Equal(brief, scope.Brief.Content);
+
+        // Each memory is pointed out once: the session decided to keep the sentence.
+        Assert.Equal("Brief saved.", scope.UpdateBrief(brief));
+    }
+
+    [Fact]
+    public void TheProjectsNameAloneDoesNotMakeASentenceRepeatAMemory()
+    {
+        var search = new Project { Name = "Fluent Search" };
+        var branch = new Memory
+        {
+            Key = "Release branch", Content = "Fluent Search stable releases ship from the release branch.",
+            Category = "Project", Scope = MemoryScopes.Project, ProjectId = search.Id,
+        };
+        var store = new DataStore(new AppData { Projects = [search], Memories = [branch] });
+        var scope = CreateScope(store, search);
+
+        Assert.Equal("Brief saved.", scope.UpdateBrief("Fluent Search waits for .NET 11 GA before the next stable release."));
     }
 
     [Fact]
@@ -422,26 +476,117 @@ public sealed class ContextCuratorTests
         var lumi = new Project { Name = "Lumi" };
         var store = new DataStore(new AppData { Projects = [lumi] });
         var scope = CreateScope(store, lumi);
-        scope.Brief.Content = "## Now\n- Shipping 1.0 (\"Release\", Oct 20)";
+        scope.Brief.Content = "Lumi is shipping 1.0.";
         scope.BuildPrompt();
 
         // Saved on the Memories page while the session reads the chats.
-        scope.Brief.Content = "## Now\n- Shipping 1.0 on Monday (as of Oct 21)";
+        scope.Brief.Content = "Lumi ships 1.0 on Monday.";
         scope.Brief.EditedByUser = true;
-        var answer = scope.UpdateBrief("## Now\n- Shipping 1.0 next week (\"Release\", Oct 21)");
+        var answer = scope.UpdateBrief("Lumi ships 1.0 next week.");
 
         Assert.StartsWith("Not saved: Adir edited this brief while you were working.", answer);
-        Assert.EndsWith("Shipping 1.0 on Monday (as of Oct 21)", answer);
-        Assert.Equal("## Now\n- Shipping 1.0 on Monday (as of Oct 21)", scope.Brief.Content);
+        Assert.EndsWith("Lumi ships 1.0 on Monday.", answer);
+        Assert.Equal("Lumi ships 1.0 on Monday.", scope.Brief.Content);
         Assert.True(scope.Brief.EditedByUser);
         Assert.False(scope.BriefChanged);
 
-        Assert.Equal("Brief saved.", scope.UpdateBrief("## Now\n- Shipping 1.0 on Monday (\"Release\", Oct 21)"));
+        Assert.Equal("Brief saved.", scope.UpdateBrief("Lumi ships 1.0 on Monday, once the installer is signed."));
         Assert.True(scope.BriefChanged);
 
         scope.Brief.Content = "";
-        Assert.StartsWith("Not saved: Adir cleared this brief", scope.UpdateBrief("## Now\n- Shipping 1.0 on Monday (\"Release\", Oct 21)"));
+        Assert.StartsWith("Not saved: Adir cleared this brief", scope.UpdateBrief("Lumi ships 1.0 on Monday."));
         Assert.Equal("", scope.Brief.Content);
+    }
+
+    [Fact]
+    public async Task ChatsElsewhereThatNameAProjectInUseJoinItsReview()
+    {
+        var search = new Project { Name = "Fluent Search" };
+        var issues = new Project { Name = "Fluent Search Issues" };
+        var lumi = new Project { Name = "Lumi" };
+        var strata = new Project { Name = "Strata" }; // in use, but quiet yesterday
+        var finance = new Project { Name = "Finance" }; // in use, but quiet yesterday
+        var avalonia = new Project { Name = "Avalonia" }; // last used three weeks ago
+        var data = new AppData
+        {
+            Settings = new UserSettings { UserName = "Adir" },
+            Projects = [search, issues, lumi, strata, finance, avalonia],
+            Chats =
+            [
+                ChatIn(search, "Localization", (At(21, 9), "user", "Review the 1.5 translations")),
+                ChatIn(issues, "Issue #1307", (At(21, 10), "user", "Fix it carefully, we're preparing to ship Fluent Search to stable")),
+                ChatIn(null, "Manager", (At(21, 11), "user", "Fluent Search stable waits for .NET 11 GA; move the Finance review to Friday")),
+                ChatIn(lumi, "Launch plan",
+                    (At(21, 12), "user", "Ask Avalonia's CEO about a showcase after the quiet release, now that Strata's scrollbar is done"),
+                    (At(21, 12, 5), "assistant", "Fluent Search's history makes a good opener.")),
+                ChatIn(lumi, "Digest", (At(21, 13), "user", "Fluent Search nightly report")),
+                ChatIn(strata, "Scrollbar", (At(15, 10), "user", "Restyle the scrollbar")),
+                ChatIn(finance, "Budget", (At(16, 10), "user", "Track October")),
+                ChatIn(avalonia, "Fork sync", (At(1, 10), "user", "Rebase the fork")),
+            ],
+            Briefs =
+            [
+                .. new[] { search, issues, lumi, strata, finance, avalonia }
+                    .Select(project => new ContextBrief { ProjectId = project.Id, CuratedThrough = At(21, 5) }),
+                new ContextBrief { CuratedThrough = At(21, 5) },
+            ],
+        };
+        data.Chats.Single(chat => chat.Title == "Digest").Messages[0].Author = "Lumi Job - Nightly digest";
+        var reviews = new List<ContextCuratorScope>();
+        var curator = CreateCurator(new DataStore(data), () => At(22, 8), scope =>
+        {
+            lock (reviews)
+                reviews.Add(scope);
+            return Task.CompletedTask;
+        });
+
+        Assert.True(await curator.RunAsync(everything: false, CancellationToken.None));
+
+        // Naming Strata or Avalonia in a Lumi chat starts no review of them; a chat outside projects can start one.
+        Assert.Equal(["All projects", "Finance", "Fluent Search", "Fluent Search Issues", "Lumi"], reviews.Select(scope => scope.Name).Order());
+        var reviewed = reviews.Single(scope => scope.Name == "Fluent Search");
+        Assert.Equal(["Issue #1307", "Localization", "Manager"], reviewed.Chats.Select(chat => chat.Chat.Title).Order());
+        var activity = reviewed.ActivityList();
+        Assert.Contains("\"Issue #1307\" (in the project \"Fluent Search Issues\")", activity);
+        Assert.Contains("\"Manager\" (outside projects)", activity);
+        Assert.Contains("\"Localization\": Adir", activity);
+        Assert.Equal("Manager", Assert.Single(reviews.Single(scope => scope.Name == "Finance").Chats).Chat.Title);
+        Assert.Equal(["Digest", "Launch plan"], reviews.Single(scope => scope.Name == "Lumi").Chats.Select(chat => chat.Chat.Title).Order());
+        Assert.Equal("Manager", Assert.Single(reviews.Single(scope => scope.Project is null).Chats).Chat.Title);
+        Assert.All(new[] { strata, avalonia }, project => Assert.Equal(At(22, 5), data.Briefs.Single(brief => brief.ProjectId == project.Id).CuratedThrough));
+    }
+
+    [Fact]
+    public async Task NamingALongerProjectDoesNotNameTheProjectItHolds()
+    {
+        var search = new Project { Name = "Fluent Search" };
+        var issues = new Project { Name = "Fluent Search Issues" };
+        var data = new AppData
+        {
+            Settings = new UserSettings { UserName = "Adir" },
+            Projects = [search, issues],
+            Chats =
+            [
+                ChatIn(search, "Localization", (At(15, 9), "user", "Review the 1.5 translations")), // in use, quiet yesterday
+                ChatIn(null, "Manager", (At(21, 11), "user", "Triage the new Fluent Search Issues reports")),
+            ],
+            Briefs =
+            [
+                new ContextBrief { ProjectId = search.Id, CuratedThrough = At(21, 5) },
+                new ContextBrief { ProjectId = issues.Id, CuratedThrough = At(21, 5) },
+                new ContextBrief { CuratedThrough = At(21, 5) },
+            ],
+        };
+        var reviews = new List<string>();
+        var curator = CreateCurator(new DataStore(data), () => At(22, 8), scope =>
+        {
+            lock (reviews)
+                reviews.Add(scope.Name);
+            return Task.CompletedTask;
+        });
+
+        Assert.True(await curator.RunAsync(everything: false, CancellationToken.None));
+        Assert.Equal(["All projects"], reviews);
     }
 
     [Fact]
@@ -528,6 +673,20 @@ public sealed class ContextCuratorTests
         Assert.Equal("", projectBrief.Content);
         Assert.False(briefs.IsOpen);
         Assert.Single(briefs.Cards);
+    }
+
+    [Fact]
+    public void ABriefCardOpensWithTheBriefsFirstParagraphsOrItsFirstSection()
+    {
+        Assert.Equal(
+            "Lumi is preparing its 1.0 release.\n#1307's fix waits for 1.5.0.5.",
+            BriefCard.Summarize("Lumi is preparing its 1.0 release.\n\n#1307's fix waits for 1.5.0.5."));
+        Assert.Equal(
+            "Fluent Search stable waits on .NET 11 GA (expected Nov 11).",
+            BriefCard.Summarize("Fluent Search stable waits on .NET 11 GA (expected Nov 11)."));
+        Assert.Equal(
+            "Shipping 1.0 next week\nTesting nightly builds",
+            BriefCard.Summarize("## Now\n- Shipping 1.0 next week (\"Release\", Oct 21)\n- Testing nightly builds\n\n## Decided\n- Weekly releases"));
     }
 
     [Fact]
@@ -702,12 +861,13 @@ public sealed class ContextCuratorTests
         Project? project,
         List<CuratorProposal>? proposals = null,
         bool canWriteMemories = true,
-        IReadOnlyList<CuratorChat>? chats = null)
+        IReadOnlyList<CuratorChat>? chats = null,
+        string owner = "Adir")
     {
         var brief = new ContextBrief { ProjectId = project?.Id };
         store.Data.Briefs.Add(brief);
         return new ContextCuratorScope(store, new ChatHistoryService(store, searchService: null), project, brief, At(21, 5), At(22, 5),
-            chats ?? [], proposals ?? [], new HashSet<Guid>(), "Adir", canWriteMemories);
+            chats ?? [], proposals ?? [], new HashSet<Guid>(), owner, canWriteMemories);
     }
 
     private static Chat ChatIn(Project? project, string title, params (DateTimeOffset At, string Role, string Text)[] messages)

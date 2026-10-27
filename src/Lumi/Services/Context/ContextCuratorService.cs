@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using GitHub.Copilot;
@@ -11,8 +12,9 @@ namespace Lumi.Services.Context;
 
 /// <summary>
 /// Keeps Lumi's cross-chat context current. Once a day (05:00, or at the first chance after it when Lumi wasn't
-/// running) it reviews the chats since its last run: one curator session per project with activity, then one across
-/// all projects. Each session updates its brief and curates memories; projects without activity are skipped.
+/// running) it reviews the chats since its last run: one curator session per project with activity (its own chats and,
+/// while it's in use, chats elsewhere that name it), then one across all projects. Each session updates its brief and
+/// curates memories; projects without activity are skipped.
 /// </summary>
 /// <remarks>
 /// A missed day is caught up a day at a time (at most a week back), so each session sees one day like the nightly
@@ -24,6 +26,9 @@ public sealed class ContextCuratorService : IAsyncDisposable
     internal const int DayStartHour = 5;
     internal static readonly TimeSpan FirstRunLookback = TimeSpan.FromDays(3);
     internal static readonly TimeSpan MaxLookback = TimeSpan.FromDays(7);
+
+    /// <summary>A project with chats of its own this recently is in use: chats elsewhere that name it join its review.</summary>
+    internal static readonly TimeSpan InUseLookback = TimeSpan.FromDays(14);
     private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromHours(3);
     private static readonly TimeSpan SessionTimeout = TimeSpan.FromMinutes(15);
     private const int MaxParallelProjects = 2;
@@ -298,6 +303,8 @@ public sealed class ContextCuratorService : IAsyncDisposable
         foreach (var (stepFrom, stepTo) in SplitIntoSteps(earliest, to))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // Each chat is read once per step, however many reviews it is part of.
+            var transcripts = new Dictionary<Guid, List<ChatMessage>>();
             var projectScopes = new List<ContextCuratorScope>();
             foreach (var project in projects)
             {
@@ -305,7 +312,7 @@ public sealed class ContextCuratorService : IAsyncDisposable
                 var from = WindowStart(brief, firstRunStart, stepFrom);
                 if (!due.Contains(project.Id) || failed.Contains(project.Id) || from >= stepTo)
                     continue;
-                var chats = await LoadActivityAsync(project.Id, projects, from, stepTo, cancellationToken).ConfigureAwait(false);
+                var chats = await LoadActivityAsync(project, projects, from, stepTo, transcripts, cancellationToken).ConfigureAwait(false);
                 if (chats.Count == 0)
                 {
                     brief.CuratedThrough = stepTo;
@@ -323,7 +330,7 @@ public sealed class ContextCuratorService : IAsyncDisposable
             var pending = _updatedProjects.Count > 0 || HasPendingProposals;
             if (!failed.Contains(null) && globalFrom < stepTo && (due.Contains(Guid.Empty) || pending))
             {
-                var outside = await LoadActivityAsync(null, projects, globalFrom, stepTo, cancellationToken).ConfigureAwait(false);
+                var outside = await LoadActivityAsync(null, projects, globalFrom, stepTo, transcripts, cancellationToken).ConfigureAwait(false);
                 if (outside.Count > 0 || pending)
                 {
                     var scope = new ContextCuratorScope(_dataStore, _history, null, globalBrief, globalFrom, stepTo, outside,
@@ -458,35 +465,70 @@ public sealed class ContextCuratorService : IAsyncDisposable
         return result;
     }
 
-    /// <summary>Chats of a scope (a project, or outside projects when <paramref name="projectId"/> is null) with
-    /// messages in (from, to], busiest first.</summary>
+    /// <summary>Chats of a scope with messages in (from, to], busiest first: a project's own chats and, while the project
+    /// is in use, the chats elsewhere that name it (such as one where the owner manages several projects, or one in a
+    /// related project; a chat in another project only joins a review that is happening anyway); for the all-projects
+    /// scope (<paramref name="project"/> null), every chat outside projects. <paramref name="transcripts"/> keeps each
+    /// chat read once for the step.</summary>
     private async Task<List<CuratorChat>> LoadActivityAsync(
-        Guid? projectId,
+        Project? project,
         IReadOnlyList<Project> projects,
         DateTimeOffset from,
         DateTimeOffset to,
+        Dictionary<Guid, List<ChatMessage>> transcripts,
         CancellationToken cancellationToken)
     {
-        var projectIds = projects.Select(project => project.Id).ToHashSet();
-        var candidates = _dataStore.Data.Chats.ToArray()
-            .Where(chat => projectId is { } id
-                ? chat.ProjectId == id
-                : chat.ProjectId is not { } chatProject || !projectIds.Contains(chatProject))
+        var projectIds = projects.Select(item => item.Id).ToHashSet();
+        bool Outside(Chat chat) => chat.ProjectId is not { } chatProject || !projectIds.Contains(chatProject);
+        var chats = _dataStore.Data.Chats.ToArray();
+        // Only a project in use takes in chats elsewhere, so one named like a technology or a word that other projects'
+        // chats use isn't reviewed from them.
+        var mention = project is not null && chats.Any(chat => chat.ProjectId == project.Id && chat.UpdatedAt > to - InUseLookback)
+            ? new Regex($@"(?<!\w){Regex.Escape(project.Name.Trim())}(?!\w)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            : null;
+        // A longer project name that holds this one ("Fluent Search Issues" for "Fluent Search") names the other project.
+        List<string> longerNames = mention is null
+            ? []
+            : [.. projects.Where(other => other.Id != project!.Id && other.Name.Trim().Length > project.Name.Trim().Length && mention.IsMatch(other.Name))
+                .Select(other => other.Name.Trim())];
+        bool Names(string text)
+        {
+            foreach (var name in longerNames)
+                text = text.Replace(name, " ", StringComparison.OrdinalIgnoreCase);
+            return mention!.IsMatch(text);
+        }
+
+        var candidates = chats
+            .Where(chat => project is null ? Outside(chat) : chat.ProjectId == project.Id || mention is not null)
             .Where(chat => chat.UpdatedAt > from.AddMinutes(-1))
             .ToList();
 
         var result = new List<CuratorChat>();
         foreach (var chat in candidates)
         {
-            var messages = (await _dataStore.ReadChatMessagesAsync(chat, cancellationToken).ConfigureAwait(false))
-                .Where(message => message.ParentToolCallId is null)
-                .OrderBy(message => message.Timestamp)
-                .ToList();
+            if (!transcripts.TryGetValue(chat.Id, out var messages))
+            {
+                messages = (await _dataStore.ReadChatMessagesAsync(chat, cancellationToken).ConfigureAwait(false))
+                    .Where(message => message.ParentToolCallId is null)
+                    .OrderBy(message => message.Timestamp)
+                    .ToList();
+                transcripts[chat.Id] = messages;
+            }
+
             var window = messages.Where(message => message.Timestamp > from && message.Timestamp <= to).ToList();
             if (window.Count == 0)
                 continue;
+            if (mention is not null && chat.ProjectId != project!.Id
+                && !Names(chat.Title)
+                && !window.Any(message => ChatDigest.IsOwnerMessage(message) && Names(message.Content)))
+                continue;
             result.Add(new CuratorChat(chat, window, messages.Where(message => message.Timestamp <= from).ToList()));
         }
+
+        // A chat in another project only joins a review the project's own chats, or a chat outside projects (such as one
+        // where the owner manages several projects), started: naming a project in passing doesn't start one.
+        if (project is not null && !result.Any(chat => chat.Chat.ProjectId == project.Id || Outside(chat.Chat)))
+            return [];
 
         return result
             .OrderByDescending(chat => chat.OwnerMessages)

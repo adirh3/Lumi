@@ -443,16 +443,23 @@ public sealed partial class BriefCard
     [GeneratedRegex(@"\s*\([^()]*\)\s*\.?\s*$")]
     private static partial Regex TrailingSource();
 
-    /// <summary>The first lines of the brief's first section ("Now" in a project brief), without bullets or sources.</summary>
+    [GeneratedRegex(@"^#{1,6}\s")]
+    private static partial Regex Heading();
+
+    [GeneratedRegex(@"^[-*]\s+")]
+    private static partial Regex ListItem();
+
+    /// <summary>The opening of a brief: its first paragraphs, or, in a brief written in sections, the first lines of its
+    /// first section ("Now" in a project brief) without their bullets and the sources that end them.</summary>
     internal static string Summarize(string content)
     {
         var lines = content.Split('\n').Select(line => line.Trim()).ToList();
-        var start = lines.FindIndex(line => line.StartsWith("#", StringComparison.Ordinal));
+        var start = lines.FindIndex(line => Heading().IsMatch(line));
         var section = lines
             .Skip(start + 1)
-            .TakeWhile(line => !line.StartsWith("#", StringComparison.Ordinal))
+            .TakeWhile(line => !Heading().IsMatch(line))
             .Where(line => line.Length > 0)
-            .Select(line => TrailingSource().Replace(line.TrimStart('-', '*', ' '), ""))
+            .Select(line => ListItem().IsMatch(line) ? TrailingSource().Replace(ListItem().Replace(line, ""), "") : line)
             .Where(line => line.Length > 0)
             .Take(3);
         return string.Join("\n", section);
