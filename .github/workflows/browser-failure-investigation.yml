@@ -1,0 +1,52 @@
+name: Browser failure investigation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    name: Controlled observation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Observe controlled boundaries
+        shell: pwsh
+        env:
+          LUMI_BROWSER_FOCUS_PROBE: '1'
+        run: |
+          New-Item -ItemType Directory -Force BrowserInvestigation | Out-Null
+          if ($IsWindows) {
+            dotnet test tests\Lumi.Tests\Lumi.Tests.csproj -c Debug --verbosity quiet `
+              --filter FullyQualifiedName~ColdNavigationDiagnostic_HeldDocument `
+              --logger 'trx;LogFileName=held-document.trx' --results-directory BrowserInvestigation `
+              *> BrowserInvestigation\run.log
+          } else {
+            dotnet run --project src\Lumi\Lumi.csproj -c Debug -- `
+              --test-browser-native --browser-native-output BrowserInvestigation `
+              *> BrowserInvestigation\run.log
+          }
+          $code = $LASTEXITCODE
+          Get-Content BrowserInvestigation\run.log
+          if ($code -ne 0) { exit $code }
+      - name: Upload observations
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-investigation-${{ matrix.os }}
+          path: BrowserInvestigation
+          if-no-files-found: error
+          retention-days: 7

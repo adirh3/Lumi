@@ -148,6 +148,74 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         Assert.True(completed, "Native test body did not complete.");
     }
 
+    [SkippableFact]
+    public async Task ColdNavigationDiagnostic_HeldDocumentSeparatesInitializationFromNavigationTimeout()
+    {
+        Skip.IfNot(Environment.UserInteractive, "Real WebView2 requires an interactive Windows desktop.");
+        var root = Path.Combine(TestProfile.Root, "browser-navigation-deadline", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var page = Path.Combine(root, "held.html");
+        await File.WriteAllTextAsync(page, "<!doctype html><title>Held document</title><p>Released once</p>");
+        var url = new Uri(page).AbsoluteUri;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        await RunOnNativeStaAsync(async () =>
+        {
+            var window = new Window { Width = 600, Height = 400, Title = "Lumi isolated navigation diagnostic" };
+            window.Show();
+            await using var browser = new BrowserService(Path.Combine(root, "profile"));
+            CoreWebView2Deferral? responseGate = null;
+            var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var requests = 0;
+            var timeline = new List<string>();
+            var timer = Stopwatch.StartNew();
+            try
+            {
+                browser.SetParentHwnd(window.TryGetPlatformHandle()!.Handle);
+                browser.SetBounds(0, 0, 580, 360);
+                browser.SetControllerVisible(true);
+                browser.BrowserReady += () =>
+                {
+                    var native = browser.WebView!;
+                    timeline.Add($"{timer.ElapsedMilliseconds}ms initialized");
+                    native.AddWebResourceRequestedFilter(url, CoreWebView2WebResourceContext.Document);
+                    native.WebResourceRequested += (_, args) =>
+                    {
+                        requests++;
+                        responseGate = args.GetDeferral();
+                        timeline.Add($"{timer.ElapsedMilliseconds}ms document request held");
+                        requested.TrySetResult();
+                    };
+                    native.NavigationCompleted += (_, args) =>
+                    {
+                        timeline.Add($"{timer.ElapsedMilliseconds}ms navigation completed success={args.IsSuccess} error={args.WebErrorStatus}");
+                        completed.TrySetResult(args.IsSuccess);
+                    };
+                };
+                var opening = browser.OpenAndSnapshotAsync(url);
+                await requested.Task.WaitAsync(timeout.Token);
+                var result = await opening.WaitAsync(timeout.Token);
+                timeline.Add($"{timer.ElapsedMilliseconds}ms open returned: {result}");
+                Assert.Contains("Navigation failed or timed out", result);
+                Assert.DoesNotContain("Navigation: completed.", result);
+                Assert.False(completed.Task.IsCompleted);
+
+                responseGate!.Complete();
+                responseGate = null;
+                Assert.True(await completed.Task.WaitAsync(timeout.Token));
+                Assert.Equal(1, requests);
+                Assert.Equal("Held document", browser.WebView!.DocumentTitle);
+            }
+            finally
+            {
+                output.WriteLine(string.Join("\n", timeline));
+                responseGate?.Complete();
+                await browser.DisposeAsync();
+                window.Close();
+            }
+        }, timeout.Token);
+    }
+
     private static async Task VerifyRoundedClipping(BrowserService browser, Window window, string root)
     {
         var parent = window.TryGetPlatformHandle()!.Handle;

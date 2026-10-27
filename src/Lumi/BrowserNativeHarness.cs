@@ -321,6 +321,8 @@ internal sealed class BrowserNativeHarness
 #endif
         await VerifyWindowTransferAsync(desktop, vm, chat, browser, window);
 #if !WINDOWS
+        if (Environment.GetEnvironmentVariable("LUMI_BROWSER_FOCUS_PROBE") == "1")
+            await ObserveScrollFocusCasesAsync(browser);
         await VerifyNavigationWaitAsync(browser);
         await VerifyDisposalAsync(window, browser);
         await VerifySettingsCookieResetAsync(vm, store, browser);
@@ -385,6 +387,57 @@ internal sealed class BrowserNativeHarness
     }
 
 #if !WINDOWS
+    private async Task ObserveScrollFocusCasesAsync(BrowserService browser)
+    {
+        const string stateScript = """
+            return JSON.stringify({y:scrollY,focus:document.hasFocus(),
+                active:document.activeElement?.id,events:window.fixtureEvents})
+            """;
+        using var stream = File.Create(Path.Combine(_output, "focus-probe.json"));
+        using var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+        Console.WriteLine("[FOCUS-PROBE] Controlled observations only; completing these cases is not evidence that the original intermittent failure is fixed.");
+        json.WriteStartArray();
+        foreach (var name in new[] { "blurred", "focus-once", "rapid-refocus", "three-real-types", "focus-and-scroll-same-script" })
+        {
+            var opened = await browser.OpenAndSnapshotAsync(_server.Url + "/fixture");
+            if (opened.Contains("Error:", StringComparison.Ordinal))
+                throw new InvalidOperationException("The focus comparison could not load its fresh document: " + opened);
+            if (name == "blurred")
+                await browser.EvaluateAsync("document.activeElement?.blur();return true");
+            if (name == "focus-once")
+                await browser.EvaluateAsync("document.getElementById('query').focus();return true");
+            if (name == "rapid-refocus")
+                await browser.EvaluateAsync("const q=document.getElementById('query');q.focus();q.blur();q.focus();return true");
+            if (name == "three-real-types")
+                for (var index = 0; index < 3; index++)
+                    await browser.DoAsync("type", "#query", "focus probe");
+            var before = await browser.EvaluateAsync(stateScript);
+            var result = name == "focus-and-scroll-same-script"
+                ? await browser.EvaluateAsync("const q=document.getElementById('query');q.focus();q.blur();q.focus();window.scrollBy(0,300);return String(scrollY)")
+                : await browser.DoAsync("scroll", "down", "300");
+            var reached = true;
+            try
+            {
+                await WaitAsync(async () => double.Parse(await browser.EvaluateAsync("return String(scrollY)"),
+                    System.Globalization.CultureInfo.InvariantCulture) > 0);
+            }
+            catch (TimeoutException) { reached = false; }
+            var after = await browser.EvaluateAsync(stateScript);
+            Console.WriteLine($"[FOCUS-PROBE] {name} observedScroll={reached} result={result} before={before} after={after}");
+            json.WriteStartObject();
+            json.WriteString("case", name);
+            json.WriteBoolean("observedScroll", reached);
+            json.WriteString("result", result);
+            json.WritePropertyName("before");
+            json.WriteRawValue(before);
+            json.WritePropertyName("after");
+            json.WriteRawValue(after);
+            json.WriteEndObject();
+            await json.FlushAsync();
+        }
+        json.WriteEndArray();
+    }
+
     private async Task VerifyNavigationWaitAsync(BrowserService browser)
     {
         var click = browser.DoAsync("click", "#slow-nav");

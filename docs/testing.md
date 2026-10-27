@@ -164,6 +164,16 @@ Microphone capture, hardware/OS permission prompts, and real-device or packaged
 upgrade testing remain separate coverage gaps. Live model/agent assessments
 are not merge gates and are not used as substitutes for coded assertions.
 
+## Browser failure investigation
+
+The investigation branch's manual **Browser failure investigation** workflow is
+an experiment, not an added release gate. It records controlled macOS focus/scroll
+cases (`LUMI_BROWSER_FOCUS_PROBE=1`) after the unchanged native checks, and holds a
+Windows document request until the existing navigation deadline before releasing
+that same request. `focus-probe.json` reports observed outcomes, including
+non-scrolling cases; a completed experiment or later green smoke run is not proof
+that an earlier intermittent failure was fixed.
+
 ## Maintaining coverage
 
 Add a focused regression beside its existing component tests. Mark a method or
