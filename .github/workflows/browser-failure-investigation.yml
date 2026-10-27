@@ -2,6 +2,9 @@ name: Browser failure investigation
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - investigate/browser-qa-eed9b2b2
 
 permissions:
   contents: read

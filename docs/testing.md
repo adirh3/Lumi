@@ -166,8 +166,9 @@ are not merge gates and are not used as substitutes for coded assertions.
 
 ## Browser failure investigation
 
-The investigation branch's manual **Browser failure investigation** workflow is
-an experiment, not an added release gate. It records controlled macOS focus/scroll
+The investigation branch's **Browser failure investigation** workflow runs only
+on that diagnostic branch's pushes (or manual dispatch once registered on the
+default branch). It is an experiment, not an added release gate. It records controlled macOS focus/scroll
 cases (`LUMI_BROWSER_FOCUS_PROBE=1`) after the unchanged native checks, and holds a
 Windows document request until the existing navigation deadline before releasing
 that same request. `focus-probe.json` reports observed outcomes, including
