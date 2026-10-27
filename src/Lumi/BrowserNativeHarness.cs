@@ -316,6 +316,7 @@ internal sealed class BrowserNativeHarness
         Check("no-native-host-on-windows", !window.GetVisualDescendants().Any(control => control.Name == "NativeWebViewLayer"));
 #endif
         await VerifyWindowTransferAsync(desktop, vm, chat, browser, window);
+        await VerifyInputFocusAndScrollAsync(browser);
 #if !WINDOWS
         await VerifyNavigationWaitAsync(browser);
         await VerifyDisposalAsync(window, browser);
@@ -378,6 +379,105 @@ internal sealed class BrowserNativeHarness
             $"layer found={detachedLayer is not null}, native views={detachedLayer?.Children.OfType<NativeWebView>().Count()}");
 #endif
         await VerifyScreenshotAsync(restoredBrowser, "returned");
+    }
+
+    private async Task VerifyInputFocusAndScrollAsync(BrowserService browser)
+    {
+        async Task FreshDocumentAsync()
+        {
+            var opened = await browser.OpenAndSnapshotAsync(_server.Url + "/fixture");
+            if (opened.Contains("Error:", StringComparison.Ordinal))
+                throw new InvalidOperationException("The input-focus regression could not load its document: " + opened);
+            await browser.EvaluateAsync("""
+                const q=document.getElementById('query');q.value='seed';window.queryBlurs=0;
+                q.addEventListener('blur',function(){window.queryBlurs++;window.committedQuery=this.value;});
+                return true
+                """);
+        }
+
+        foreach (var action in new[] { "type", "fill", "clear" })
+        {
+            await FreshDocumentAsync();
+            var edit = BrowserDomScript.Build(action, "#query",
+                action == "fill" ? """{"#query":"focus retained"}""" : "focus retained");
+            // Hold the real setter and next scroll in one rendering turn to expose deferred focus scrolling.
+            var dispatched = await browser.EvaluateAsync("const edited=" + edit + ";" + """
+                if(!edited.ok)throw new Error(edited.message);
+                window.scrollBy(0,300);window.focusScrollFrames=[];
+                const observe=()=>{
+                    window.focusScrollFrames.push(scrollY);
+                    if(window.focusScrollFrames.length<4)requestAnimationFrame(observe);
+                    else document.body.dataset.focusScrollReady='true';
+                };
+                requestAnimationFrame(observe);return String(scrollY)
+                """);
+            var frames = await browser.DoAsync("wait", "body[data-focus-scroll-ready='true']", "4000");
+            if (frames.Contains("Error:", StringComparison.Ordinal))
+                throw new InvalidOperationException("The input-focus regression did not reach four rendering opportunities: " + frames);
+            var state = await browser.EvaluateAsync("""
+                return JSON.stringify({y:scrollY,frames:window.focusScrollFrames,
+                    active:document.activeElement?.id,value:document.getElementById('query').value,
+                    committed:window.committedQuery,blurs:window.queryBlurs,submits:window.submits})
+                """);
+            using var document = JsonDocument.Parse(state);
+            var result = document.RootElement;
+            var offsets = result.GetProperty("frames").EnumerateArray().Select(value => value.GetDouble()).ToArray();
+            Check("focus-restoration-retains-scroll-" + action,
+                dispatched == "300" && offsets.Length == 4 && offsets.All(offset => Math.Abs(offset - 300) <= 1)
+                && Math.Abs(result.GetProperty("y").GetDouble() - 300) <= 1, state);
+            var expected = action == "clear" ? "" : "focus retained";
+            Check("focus-restoration-retains-edit-" + action,
+                result.GetProperty("active").GetString() == "query"
+                && result.GetProperty("value").GetString() == expected
+                && result.GetProperty("committed").GetString() == expected
+                && result.GetProperty("blurs").GetInt32() == 1
+                && result.GetProperty("submits").GetInt32() == 0, state);
+            var entered = await browser.DoAsync("press", "Enter");
+            Check("focus-restoration-enter-submits-once-" + action,
+                !entered.Contains("Error:", StringComparison.Ordinal)
+                && await browser.EvaluateAsync("return String(window.submits)") == "1", entered);
+        }
+
+        await FreshDocumentAsync();
+        await browser.EvaluateAsync("""
+            document.getElementById('query').addEventListener('blur',
+                ()=>document.getElementById('notes').focus(),{once:true});return true
+            """);
+        var redirected = await browser.DoAsync("type", "#query", "page-managed focus");
+        Check("focus-restoration-respects-page-focus",
+            !redirected.Contains("Error:", StringComparison.Ordinal)
+            && await browser.EvaluateAsync("return document.activeElement?.id") == "notes"
+            && await browser.EvaluateAsync("return String(window.queryBlurs)") == "1", redirected);
+
+        await FreshDocumentAsync();
+        await browser.EvaluateAsync("""
+            document.getElementById('query').addEventListener('blur',
+                function(){this.setCustomValidity('Rejected after blur');},{once:true});return true
+            """);
+        var rejected = await browser.DoAsync("steps", value: """
+            [{"action":"type","target":"#query","value":"invalid edit"},{"action":"click","target":"#submit"}]
+            """);
+        Check("focus-restoration-preserves-validation-fail-stop",
+            rejected.Contains("Error:", StringComparison.Ordinal)
+            && rejected.Contains("Rejected after blur", StringComparison.Ordinal)
+            && await browser.EvaluateAsync("return String(window.submits)") == "0", rejected);
+
+        await FreshDocumentAsync();
+        Check("focus-restoration-offscreen-precondition", await browser.EvaluateAsync("""
+            const q=document.getElementById('query');q.style.position='absolute';q.style.top='1800px';
+            return String(q.getBoundingClientRect().top>innerHeight)
+            """) == "true");
+        var revealed = await browser.DoAsync("type", "#query", "offscreen field revealed");
+        if (revealed.Contains("Error:", StringComparison.Ordinal))
+            throw new InvalidOperationException(revealed);
+        await WaitAsync(async () => await browser.EvaluateAsync("""
+            const r=document.getElementById('query').getBoundingClientRect();
+            return String(r.top>=0&&r.bottom<=innerHeight+1)
+            """) == "true");
+        Check("focus-restoration-preserves-initial-reveal",
+            await browser.EvaluateAsync("return document.activeElement?.id") == "query"
+            && await browser.EvaluateAsync("return document.getElementById('query').value") == "offscreen field revealed");
+        await FreshDocumentAsync();
     }
 
 #if !WINDOWS
