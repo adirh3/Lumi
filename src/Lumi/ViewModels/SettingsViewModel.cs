@@ -703,7 +703,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         RefreshBrowserCookieStatus();
 
         // Language
-        var langEntry = Loc.AvailableLanguages.FirstOrDefault(l => l.Code == s.Language);
+        var langEntry = Loc.AvailableLanguages.FirstOrDefault(l => l.Code == Loc.NormalizeLanguage(s.Language));
         _selectedLanguage = langEntry.Code is not null
             ? $"{langEntry.DisplayName} ({langEntry.Code})"
             : $"English (en)";

@@ -17,22 +17,42 @@ namespace Lumi.Tests;
 
 public sealed class LocalizationCoverageTests
 {
-    [Fact]
-    public void EnglishAndHebrewHaveMatchingKeysAndFormatArguments()
+    [Theory]
+    [InlineData("he")]
+    [InlineData("es")]
+    [InlineData("pt-BR")]
+    [InlineData("zh-Hans")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("ja")]
+    [InlineData("ko")]
+    [InlineData("ar")]
+    public void SupportedCatalogsHaveMatchingKeysAndFormatArguments(string language)
     {
         var english = ReadCatalog("en");
-        var hebrew = ReadCatalog("he");
-        Assert.Equal(english.Keys.Order(StringComparer.Ordinal), hebrew.Keys.Order(StringComparer.Ordinal));
+        var translated = ReadCatalog(language);
+        Assert.Equal(english.Keys.Order(StringComparer.Ordinal), translated.Keys.Order(StringComparer.Ordinal));
 
         foreach (var (key, value) in english)
         {
-            Assert.False(string.IsNullOrWhiteSpace(hebrew[key]), $"Empty Hebrew translation: {key}");
-            Assert.Equal(Arguments(value), Arguments(hebrew[key]));
+            Assert.False(string.IsNullOrWhiteSpace(translated[key]), $"Empty {language} translation: {key}");
+            Assert.Equal(Arguments(value), Arguments(translated[key]));
             if (Arguments(value).Length > 0)
             {
                 _ = CompositeFormat.Parse(value);
-                _ = CompositeFormat.Parse(hebrew[key]);
+                _ = CompositeFormat.Parse(translated[key]);
             }
+        }
+
+        try
+        {
+            Loc.Load(language);
+            foreach (var (key, value) in translated)
+                Assert.Equal(Loc.AdaptKeyboardHint(value), Loc.Get(key));
+        }
+        finally
+        {
+            Loc.Load("en");
         }
     }
 
@@ -149,7 +169,7 @@ public sealed class LocalizationCoverageTests
         string? loadedInstructions = null;
         try
         {
-            foreach (var language in new[] { "en", "he" })
+            foreach (var (language, _) in Loc.AvailableLanguages)
             {
                 Loc.Load(language);
                 var catalog = new LumiCapabilityProvider(store).Load();
@@ -174,7 +194,7 @@ public sealed class LocalizationCoverageTests
                 Assert.Equal(advertisedDescription, descriptor.Description);
                 Assert.Equal(loadedInstructions, markdown);
 
-                if (language == "he")
+                if (language != "en")
                     Assert.NotEqual(capability.Description, capability.DisplayDescription);
             }
         }
@@ -293,7 +313,7 @@ public sealed class LocalizationCoverageTests
 
     private static string[] Arguments(string value) =>
         Regex.Matches(value, @"(?<!\{)\{(\d+)(?:,[^{}:]+)?(?::[^{}]+)?\}(?!\})")
-            .Select(static match => match.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
+            .Select(static match => match.Value).Order(StringComparer.Ordinal).ToArray();
 
     private static Dictionary<string, string> ReadCatalog(string language)
     {

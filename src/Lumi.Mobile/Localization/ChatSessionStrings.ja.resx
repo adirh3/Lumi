@@ -1,0 +1,1891 @@
+<?xml version='1.0' encoding='utf-8'?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <data name="ReadyWithBackgroundActivity" xml:space="preserve">
+    <value>準備完了 · バックグラウンド作業あり</value>
+  </data>
+  <data name="StopSession" xml:space="preserve">
+    <value>セッションを停止</value>
+  </data>
+  <data name="Retry" xml:space="preserve">
+    <value>再試行</value>
+  </data>
+  <data name="TryAgain" xml:space="preserve">
+    <value>もう一度試す</value>
+  </data>
+  <data name="SignInAgain" xml:space="preserve">
+    <value>再度サインイン</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>キャンセル</value>
+  </data>
+  <data name="Save" xml:space="preserve">
+    <value>保存</value>
+  </data>
+  <data name="Saving" xml:space="preserve">
+    <value>保存中…</value>
+  </data>
+  <data name="Delete" xml:space="preserve">
+    <value>削除</value>
+  </data>
+  <data name="DeleteEllipsis" xml:space="preserve">
+    <value>削除…</value>
+  </data>
+  <data name="Edit" xml:space="preserve">
+    <value>編集</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>戻る</value>
+  </data>
+  <data name="Done" xml:space="preserve">
+    <value>完了</value>
+  </data>
+  <data name="Copy" xml:space="preserve">
+    <value>コピー</value>
+  </data>
+  <data name="SelectAll" xml:space="preserve">
+    <value>すべて選択</value>
+  </data>
+  <data name="SelectText" xml:space="preserve">
+    <value>テキストを選択</value>
+  </data>
+  <data name="OpenWith" xml:space="preserve">
+    <value>別のアプリで開く</value>
+  </data>
+  <data name="ClearSearch" xml:space="preserve">
+    <value>検索をクリア</value>
+  </data>
+  <data name="Settings" xml:space="preserve">
+    <value>設定</value>
+  </data>
+  <data name="Chats" xml:space="preserve">
+    <value>チャット</value>
+  </data>
+  <data name="Chat" xml:space="preserve">
+    <value>チャット</value>
+  </data>
+  <data name="Jobs" xml:space="preserve">
+    <value>ジョブ</value>
+  </data>
+  <data name="Customize" xml:space="preserve">
+    <value>カスタマイズ</value>
+  </data>
+  <data name="Library" xml:space="preserve">
+    <value>ライブラリ</value>
+  </data>
+  <data name="Memories" xml:space="preserve">
+    <value>メモリー</value>
+  </data>
+  <data name="Projects" xml:space="preserve">
+    <value>プロジェクト</value>
+  </data>
+  <data name="Project" xml:space="preserve">
+    <value>プロジェクト</value>
+  </data>
+  <data name="Skills" xml:space="preserve">
+    <value>スキル</value>
+  </data>
+  <data name="Skill" xml:space="preserve">
+    <value>スキル</value>
+  </data>
+  <data name="Agents" xml:space="preserve">
+    <value>エージェント</value>
+  </data>
+  <data name="Agent" xml:space="preserve">
+    <value>エージェント</value>
+  </data>
+  <data name="Connectors" xml:space="preserve">
+    <value>コネクタ</value>
+  </data>
+  <data name="ConnectorsHeader" xml:space="preserve">
+    <value>コネクタ</value>
+  </data>
+  <data name="Model" xml:space="preserve">
+    <value>モデル</value>
+  </data>
+  <data name="ReasoningEffort" xml:space="preserve">
+    <value>推論の強度</value>
+  </data>
+  <data name="ContextWindow" xml:space="preserve">
+    <value>コンテキストウィンドウ</value>
+  </data>
+  <data name="Plan" xml:space="preserve">
+    <value>計画</value>
+  </data>
+  <data name="Sources" xml:space="preserve">
+    <value>情報源</value>
+  </data>
+  <data name="Instructions" xml:space="preserve">
+    <value>指示</value>
+  </data>
+  <data name="Output" xml:space="preserve">
+    <value>出力</value>
+  </data>
+  <data name="Started" xml:space="preserve">
+    <value>開始</value>
+  </data>
+  <data name="Completed" xml:space="preserve">
+    <value>完了</value>
+  </data>
+  <data name="ExitCode" xml:space="preserve">
+    <value>終了コード</value>
+  </data>
+  <data name="Preferences" xml:space="preserve">
+    <value>環境設定</value>
+  </data>
+  <data name="Workspace" xml:space="preserve">
+    <value>ワークスペース</value>
+  </data>
+  <data name="LocalCheckout" xml:space="preserve">
+    <value>ローカルチェックアウト</value>
+  </data>
+  <data name="NewWorktree" xml:space="preserve">
+    <value>新しいワークツリー</value>
+  </data>
+  <data name="None" xml:space="preserve">
+    <value>なし</value>
+  </data>
+  <data name="Name" xml:space="preserve">
+    <value>名前</value>
+  </data>
+  <data name="Description" xml:space="preserve">
+    <value>説明</value>
+  </data>
+  <data name="Icon" xml:space="preserve">
+    <value>アイコン</value>
+  </data>
+  <data name="Details" xml:space="preserve">
+    <value>詳細</value>
+  </data>
+  <data name="Appearance" xml:space="preserve">
+    <value>外観</value>
+  </data>
+  <data name="Connection" xml:space="preserve">
+    <value>接続</value>
+  </data>
+  <data name="About" xml:space="preserve">
+    <value>バージョン情報</value>
+  </data>
+  <data name="System" xml:space="preserve">
+    <value>システム</value>
+  </data>
+  <data name="Light" xml:space="preserve">
+    <value>ライト</value>
+  </data>
+  <data name="Dark" xml:space="preserve">
+    <value>ダーク</value>
+  </data>
+  <data name="Language" xml:space="preserve">
+    <value>言語</value>
+  </data>
+  <data name="LanguageDescription" xml:space="preserve">
+    <value>このアプリの言語を選んでください。</value>
+  </data>
+  <data name="LanguageRestart" xml:space="preserve">
+    <value>言語を反映するには Lumi を閉じて開き直してください。ブラウザーでは未送信のテキストを保存してから再読み込みしてください。</value>
+  </data>
+  <data name="AllProjects" xml:space="preserve">
+    <value>すべてのプロジェクト</value>
+  </data>
+  <data name="AllChats" xml:space="preserve">
+    <value>すべてのチャット</value>
+  </data>
+  <data name="NewChat" xml:space="preserve">
+    <value>新しいチャット</value>
+  </data>
+  <data name="StartNewChat" xml:space="preserve">
+    <value>新しいチャットを始める</value>
+  </data>
+  <data name="SearchChats" xml:space="preserve">
+    <value>チャットを検索</value>
+  </data>
+  <data name="SearchYourChats" xml:space="preserve">
+    <value>チャットを検索</value>
+  </data>
+  <data name="LoadMoreChats" xml:space="preserve">
+    <value>チャットをさらに読み込む</value>
+  </data>
+  <data name="LongPressChatActions" xml:space="preserve">
+    <value>長押しでチャットの操作</value>
+  </data>
+  <data name="RenameChat" xml:space="preserve">
+    <value>チャット名を変更</value>
+  </data>
+  <data name="DeleteChat" xml:space="preserve">
+    <value>チャットを削除</value>
+  </data>
+  <data name="ChatName" xml:space="preserve">
+    <value>チャット名</value>
+  </data>
+  <data name="DeleteChatWarning" xml:space="preserve">
+    <value>この会話をスマートフォンと端末から削除します。元に戻せません。</value>
+  </data>
+  <data name="PinChat" xml:space="preserve">
+    <value>チャットをピン留め</value>
+  </data>
+  <data name="UnpinChat" xml:space="preserve">
+    <value>チャットのピン留めを外す</value>
+  </data>
+  <data name="DeleteChatQuestion" xml:space="preserve">
+    <value>このチャットを削除しますか？</value>
+  </data>
+  <data name="ChatActions" xml:space="preserve">
+    <value>チャットの操作</value>
+  </data>
+  <data name="OpenNamed" xml:space="preserve">
+    <value>{0} を開く</value>
+  </data>
+  <data name="RemoveNamed" xml:space="preserve">
+    <value>{0} を削除</value>
+  </data>
+  <data name="JobWakeNamed" xml:space="preserve">
+    <value>ジョブの呼び出し: {0}</value>
+  </data>
+  <data name="ChatDetailsNamed" xml:space="preserve">
+    <value>チャットの詳細: {0}</value>
+  </data>
+  <data name="ModelNamed" xml:space="preserve">
+    <value>モデル: {0}</value>
+  </data>
+  <data name="ProjectNamed" xml:space="preserve">
+    <value>プロジェクト: {0}</value>
+  </data>
+  <data name="AgentNamed" xml:space="preserve">
+    <value>エージェント: {0}</value>
+  </data>
+  <data name="SkillNamed" xml:space="preserve">
+    <value>スキル: {0}</value>
+  </data>
+  <data name="StartWithNamed" xml:space="preserve">
+    <value>{0} で始める</value>
+  </data>
+  <data name="EffortNamed" xml:space="preserve">
+    <value>推論の強度: {0}</value>
+  </data>
+  <data name="ContextNamed" xml:space="preserve">
+    <value>コンテキストウィンドウ: {0}</value>
+  </data>
+  <data name="SelectProjectNamed" xml:space="preserve">
+    <value>プロジェクトを選択: {0}</value>
+  </data>
+  <data name="InProjectNamed" xml:space="preserve">
+    <value>{0} 内</value>
+  </data>
+  <data name="ChatNamed" xml:space="preserve">
+    <value>チャット: {0}</value>
+  </data>
+  <data name="NewInSection" xml:space="preserve">
+    <value>{0} の新規チャット</value>
+  </data>
+  <data name="ProfileNamed" xml:space="preserve">
+    <value>{0}: プロフィールとメモリー</value>
+  </data>
+  <data name="ProfileMemories" xml:space="preserve">
+    <value>プロフィール · {0}</value>
+  </data>
+  <data name="ConnectionNamed" xml:space="preserve">
+    <value>接続: {0}</value>
+  </data>
+  <data name="JobWokeChat" xml:space="preserve">
+    <value>バックグラウンドジョブがこのチャットを呼び出しました</value>
+  </data>
+  <data name="CopyAnswer" xml:space="preserve">
+    <value>回答をコピー</value>
+  </data>
+  <data name="ShareAnswer" xml:space="preserve">
+    <value>回答を共有</value>
+  </data>
+  <data name="ChatDetailsHelp" xml:space="preserve">
+    <value>モデル、推論の強度、コンテキスト、計画、作業場所、チャットの操作</value>
+  </data>
+  <data name="EarlierActivity" xml:space="preserve">
+    <value>以前のアクティビティ</value>
+  </data>
+  <data name="ReturnToLatest" xml:space="preserve">
+    <value>最新に戻る</value>
+  </data>
+  <data name="LoadingConversation" xml:space="preserve">
+    <value>会話を読み込み中</value>
+  </data>
+  <data name="LoadingConversationEllipsis" xml:space="preserve">
+    <value>会話を読み込み中...</value>
+  </data>
+  <data name="MessageLumi" xml:space="preserve">
+    <value>Lumi にメッセージ</value>
+  </data>
+  <data name="AddFilesAndContext" xml:space="preserve">
+    <value>ファイル、エージェント、スキルなどを追加</value>
+  </data>
+  <data name="AddsToMessage" xml:space="preserve">
+    <value>メッセージに追加します</value>
+  </data>
+  <data name="SetupsRequireUpdate" xml:space="preserve">
+    <value>よく使う設定をここに表示するには、端末の Lumi を更新してください。</value>
+  </data>
+  <data name="HowLumiWorked" xml:space="preserve">
+    <value>Lumi の作業内容</value>
+  </data>
+  <data name="JobDetails" xml:space="preserve">
+    <value>ジョブの詳細</value>
+  </data>
+  <data name="ContextUsed" xml:space="preserve">
+    <value>使用コンテキスト</value>
+  </data>
+  <data name="ChooseFirstWorkspace" xml:space="preserve">
+    <value>最初のコード作業の実行場所を選んでください。</value>
+  </data>
+  <data name="AddToChat" xml:space="preserve">
+    <value>このチャットに追加</value>
+  </data>
+  <data name="FilesAndPhotos" xml:space="preserve">
+    <value>ファイルと写真</value>
+  </data>
+  <data name="ForThisChat" xml:space="preserve">
+    <value>このチャット用</value>
+  </data>
+  <data name="ContextDescription" xml:space="preserve">
+    <value>モデルが参照できる会話の範囲。</value>
+  </data>
+  <data name="EffortDescription" xml:space="preserve">
+    <value>強度を上げると、より丁寧な回答になりますが時間がかかります。</value>
+  </data>
+  <data name="Faster" xml:space="preserve">
+    <value>速く</value>
+  </data>
+  <data name="MoreThorough" xml:space="preserve">
+    <value>より丁寧に</value>
+  </data>
+  <data name="ConnectTagline" xml:space="preserve">
+    <value>いつものすべてを、もっと身近に。</value>
+  </data>
+  <data name="ConnectStepFind" xml:space="preserve">
+    <value>1  端末を探す</value>
+  </data>
+  <data name="ConnectStepPair" xml:space="preserve">
+    <value>2  スマートフォンをペアリング</value>
+  </data>
+  <data name="ConnectTitle" xml:space="preserve">
+    <value>外出先でも、あなたの Lumi。</value>
+  </data>
+  <data name="ConnectDescription" xml:space="preserve">
+    <value>スマートフォンから会話を続け、端末での作業を進められます。</value>
+  </data>
+  <data name="ConnectFirstOpen" xml:space="preserve">
+    <value>まず端末で Lumi を開いてください</value>
+  </data>
+  <data name="ConnectDesktopInstructions" xml:space="preserve">
+    <value>設定 → モバイルでスマートフォンのアクセスをオンにします。設定リンクを開くか、下にアドレスを入力してください。</value>
+  </data>
+  <data name="PcAddress" xml:space="preserve">
+    <value>端末のアドレス</value>
+  </data>
+  <data name="PcAddressHelp" xml:space="preserve">
+    <value>Lumi デスクトップに表示されるアドレスを使ってください。</value>
+  </data>
+  <data name="PcAddressExample" xml:space="preserve">
+    <value>例: 100.100.20.10</value>
+  </data>
+  <data name="Continue" xml:space="preserve">
+    <value>続ける</value>
+  </data>
+  <data name="TailscaleAdvice" xml:space="preserve">
+    <value>どこからでも安全に接続するには、両方の端末で Tailscale を接続したままにしてください。</value>
+  </data>
+  <data name="UseLocalWifi" xml:space="preserve">
+    <value>代わりにローカル Wi-Fi を使う</value>
+  </data>
+  <data name="LocalWifiWarning" xml:space="preserve">
+    <value>ローカル Wi-Fi の通信は暗号化されません。信頼できるネットワークでのみ使ってください。</value>
+  </data>
+  <data name="FindNearby" xml:space="preserve">
+    <value>近くの Lumi を探す</value>
+  </data>
+  <data name="Nearby" xml:space="preserve">
+    <value>近くの端末</value>
+  </data>
+  <data name="OneLastStep" xml:space="preserve">
+    <value>あと一歩です。</value>
+  </data>
+  <data name="PairCodeInstructions" xml:space="preserve">
+    <value>端末の設定 → モバイルに表示される 6 桁のコードを入力して、このスマートフォンをペアリングします。</value>
+  </data>
+  <data name="PairCodeAccessible" xml:space="preserve">
+    <value>6 桁のペアリングコード</value>
+  </data>
+  <data name="DifferentPc" xml:space="preserve">
+    <value>別の端末を使う</value>
+  </data>
+  <data name="BackToChat" xml:space="preserve">
+    <value>チャットに戻る</value>
+  </data>
+  <data name="Working" xml:space="preserve">
+    <value>作業中</value>
+  </data>
+  <data name="BackToSettings" xml:space="preserve">
+    <value>設定に戻る</value>
+  </data>
+  <data name="Theme" xml:space="preserve">
+    <value>テーマ</value>
+  </data>
+  <data name="LightOrDark" xml:space="preserve">
+    <value>ライトとダーク</value>
+  </data>
+  <data name="ThemeDescription" xml:space="preserve">
+    <value>外観を選ぶか、スマートフォンに合わせます。</value>
+  </data>
+  <data name="ThisConnection" xml:space="preserve">
+    <value>この接続</value>
+  </data>
+  <data name="Pc" xml:space="preserve">
+    <value>端末</value>
+  </data>
+  <data name="Status" xml:space="preserve">
+    <value>状態</value>
+  </data>
+  <data name="ThisDevice" xml:space="preserve">
+    <value>このデバイス</value>
+  </data>
+  <data name="RefreshConnection" xml:space="preserve">
+    <value>接続を更新</value>
+  </data>
+  <data name="RefreshConnectionHelp" xml:space="preserve">
+    <value>チャットとライブラリを最新にします。</value>
+  </data>
+  <data name="Refresh" xml:space="preserve">
+    <value>更新</value>
+  </data>
+  <data name="ConnectionActivity" xml:space="preserve">
+    <value>接続の状態</value>
+  </data>
+  <data name="BrowserSignIn" xml:space="preserve">
+    <value>ブラウザーでサインイン</value>
+  </data>
+  <data name="BrowserSignInHelp" xml:space="preserve">
+    <value>サインインが期限切れの場合はブラウザーから再読み込みしてください。ペアリングは残りますが、未送信のテキストは失われます。</value>
+  </data>
+  <data name="ReloadWebApp" xml:space="preserve">
+    <value>ウェブアプリを再読み込み</value>
+  </data>
+  <data name="DisconnectPc" xml:space="preserve">
+    <value>この端末との接続を解除</value>
+  </data>
+  <data name="ChatsStayOnPc" xml:space="preserve">
+    <value>チャットとファイルは端末に残ります。</value>
+  </data>
+  <data name="AppVersion" xml:space="preserve">
+    <value>アプリのバージョン</value>
+  </data>
+  <data name="YourAssistant" xml:space="preserve">
+    <value>あなたのアシスタント</value>
+  </data>
+  <data name="AboutDescription" xml:space="preserve">
+    <value>スマートフォンの Lumi は端末の Lumi と連携します。チャット、ファイル、ツールは端末に残ります。</value>
+  </data>
+  <data name="DisconnectQuestion" xml:space="preserve">
+    <value>この端末との接続を解除しますか？</value>
+  </data>
+  <data name="DisconnectDescription" xml:space="preserve">
+    <value>このスマートフォンからアクセスできなくなり、設定に戻ります。チャットとファイルは端末に残ります。</value>
+  </data>
+  <data name="DisconnectRevoke" xml:space="preserve">
+    <value>接続を解除しアクセスを取り消す</value>
+  </data>
+  <data name="KeepConnected" xml:space="preserve">
+    <value>接続を維持</value>
+  </data>
+  <data name="CantReachPcQuestion" xml:space="preserve">
+    <value>端末に接続できませんか？</value>
+  </data>
+  <data name="RemoveLocalConnectionHelp" xml:space="preserve">
+    <value>このスマートフォンからのみ保存済みの接続を削除します。端末側のアクセス許可は有効なままです。</value>
+  </data>
+  <data name="RemoveLocalConnection" xml:space="preserve">
+    <value>このスマートフォンからのみ削除</value>
+  </data>
+  <data name="UpdateNow" xml:space="preserve">
+    <value>今すぐ更新</value>
+  </data>
+  <data name="TryLoadingAgain" xml:space="preserve">
+    <value>もう一度読み込む</value>
+  </data>
+  <data name="ShortSummary" xml:space="preserve">
+    <value>短い概要</value>
+  </data>
+  <data name="EmojiOrSymbol" xml:space="preserve">
+    <value>絵文字または記号を 1 つ</value>
+  </data>
+  <data name="PcWorkspace" xml:space="preserve">
+    <value>端末のワークスペース</value>
+  </data>
+  <data name="PcFolder" xml:space="preserve">
+    <value>端末上のフォルダー</value>
+  </data>
+  <data name="LibrarySavedOnPc" xml:space="preserve">
+    <value>変更は端末上の共有ライブラリに保存されます。</value>
+  </data>
+  <data name="AppliesOnPc" xml:space="preserve">
+    <value>端末にすぐに適用</value>
+  </data>
+  <data name="OpenJobChat" xml:space="preserve">
+    <value>対応するチャットを開く</value>
+  </data>
+  <data name="OpenJobChatHelp" xml:space="preserve">
+    <value>結果を確認したり、質問したりできます</value>
+  </data>
+  <data name="LoadingDetails" xml:space="preserve">
+    <value>詳細を読み込み中…</value>
+  </data>
+  <data name="WorkingOnPc" xml:space="preserve">
+    <value>端末で作業中…</value>
+  </data>
+  <data name="DiscardQuestion" xml:space="preserve">
+    <value>変更を破棄しますか？</value>
+  </data>
+  <data name="KeepEditing" xml:space="preserve">
+    <value>編集を続ける</value>
+  </data>
+  <data name="Discard" xml:space="preserve">
+    <value>破棄</value>
+  </data>
+  <data name="GitChanges" xml:space="preserve">
+    <value>Git の変更</value>
+  </data>
+  <data name="PreviousFile" xml:space="preserve">
+    <value>前のファイル</value>
+  </data>
+  <data name="NextFile" xml:space="preserve">
+    <value>次のファイル</value>
+  </data>
+  <data name="RefreshChangedFiles" xml:space="preserve">
+    <value>変更ファイルを更新</value>
+  </data>
+  <data name="CloseGitChanges" xml:space="preserve">
+    <value>Git の変更を閉じる</value>
+  </data>
+  <data name="SelectFileToReview" xml:space="preserve">
+    <value>ファイルを選んで変更を確認</value>
+  </data>
+  <data name="BinaryFile" xml:space="preserve">
+    <value>バイナリファイル</value>
+  </data>
+  <data name="LineCountsUnavailable" xml:space="preserve">
+    <value>行数を取得できません</value>
+  </data>
+  <data name="NoChangedFiles" xml:space="preserve">
+    <value>変更ファイルなし</value>
+  </data>
+  <data name="NothingToReview" xml:space="preserve">
+    <value>この範囲に確認するものはありません。</value>
+  </data>
+  <data name="ReadingGitChanges" xml:space="preserve">
+    <value>リポジトリの変更を読み取り中…</value>
+  </data>
+  <data name="LoadingFileChanges" xml:space="preserve">
+    <value>ファイルの変更を読み込み中…</value>
+  </data>
+  <data name="NoTextPreview" xml:space="preserve">
+    <value>テキストプレビューなし</value>
+  </data>
+  <data name="SelectFile" xml:space="preserve">
+    <value>ファイルを選択</value>
+  </data>
+  <data name="GitReadOnlyHelp" xml:space="preserve">
+    <value>ここで差分を確認できます。リポジトリは変更されません。</value>
+  </data>
+  <data name="RunningSuffix" xml:space="preserve">
+    <value>、実行中</value>
+  </data>
+  <data name="UnreadSuffix" xml:space="preserve">
+    <value>、未読</value>
+  </data>
+  <data name="Pinned" xml:space="preserve">
+    <value>ピン留め</value>
+  </data>
+  <data name="Today" xml:space="preserve">
+    <value>今日</value>
+  </data>
+  <data name="VisibleChatCount" xml:space="preserve">
+    <value>{1:N0} 件中 {0:N0} 件表示</value>
+  </data>
+  <data name="NoChatsFound" xml:space="preserve">
+    <value>チャットが見つかりません</value>
+  </data>
+  <data name="NextIdeaStartsHere" xml:space="preserve">
+    <value>次のアイデアはここから</value>
+  </data>
+  <data name="TryDifferentSearch" xml:space="preserve">
+    <value>別の語や短い表現をお試しください。</value>
+  </data>
+  <data name="ProjectEmptyChats" xml:space="preserve">
+    <value>このプロジェクトでチャットを始めるか、すべてのチャットを表示してください。</value>
+  </data>
+  <data name="EmptyChatsDescription" xml:space="preserve">
+    <value>新しいチャットを始めましょう。会話はここと端末に表示されます。</value>
+  </data>
+  <data name="SearchingChats" xml:space="preserve">
+    <value>チャットを検索中...</value>
+  </data>
+  <data name="UpdatingChats" xml:space="preserve">
+    <value>チャットを更新中...</value>
+  </data>
+  <data name="ResultCountOne" xml:space="preserve">
+    <value>結果 1 件</value>
+  </data>
+  <data name="ResultCountMany" xml:space="preserve">
+    <value>結果 {0:N0} 件</value>
+  </data>
+  <data name="RecentChats" xml:space="preserve">
+    <value>最近のチャット</value>
+  </data>
+  <data name="LoadMoreChatsFailed" xml:space="preserve">
+    <value>チャットをさらに読み込めませんでした。端末との接続を確認して再試行してください。</value>
+  </data>
+  <data name="UpdateChatsFailed" xml:space="preserve">
+    <value>チャットを更新できませんでした。端末との接続を確認して再試行してください。</value>
+  </data>
+  <data name="ConnectWebApp" xml:space="preserve">
+    <value>ウェブアプリを接続</value>
+  </data>
+  <data name="ConnectPhone" xml:space="preserve">
+    <value>スマートフォンを接続</value>
+  </data>
+  <data name="AddressReadyTrust" xml:space="preserve">
+    <value>端末のアドレスを取得しました。ローカルネットワークを信頼できることを確認し、「続ける」を押してください。</value>
+  </data>
+  <data name="AddressReady" xml:space="preserve">
+    <value>端末のアドレスを取得しました。下の内容を確認して「続ける」を押してください。</value>
+  </data>
+  <data name="ConfirmLanSearch" xml:space="preserve">
+    <value>LAN を検索する前に、信頼できるネットワークでのアクセスを確認してください。</value>
+  </data>
+  <data name="LookingForLumi" xml:space="preserve">
+    <value>ネットワーク上の Lumi を検索中…</value>
+  </data>
+  <data name="NoLumiFound" xml:space="preserve">
+    <value>Lumi が見つかりません。端末で Lumi を開き、スマートフォンのアクセスをオンにするか、下にアドレスを入力してください。</value>
+  </data>
+  <data name="EnableLanBeforeContinuing" xml:space="preserve">
+    <value>ローカル接続は暗号化されません。続ける前に LAN オプションを有効にしてください。</value>
+  </data>
+  <data name="DirectLanWarning" xml:space="preserve">
+    <value>直接の LAN 接続は暗号化されません。信頼できるネットワークでのみ有効にしてください。</value>
+  </data>
+  <data name="SayingHello" xml:space="preserve">
+    <value>接続を確認中…</value>
+  </data>
+  <data name="AddressNoAnswer" xml:space="preserve">
+    <value>そのアドレスの Lumi が応答しませんでした。</value>
+  </data>
+  <data name="InvalidPcAddress" xml:space="preserve">
+    <value>有効な端末のアドレスを入力してください。</value>
+  </data>
+  <data name="VersionMismatch" xml:space="preserve">
+    <value>Lumi のバージョンが異なります。両方のアプリを更新して再試行してください。</value>
+  </data>
+  <data name="AddressTimeout" xml:space="preserve">
+    <value>そのアドレスの応答がタイムアウトしました。</value>
+  </data>
+  <data name="Pairing" xml:space="preserve">
+    <value>ペアリング中…</value>
+  </data>
+  <data name="PairingFailed" xml:space="preserve">
+    <value>ペアリングに失敗しました。</value>
+  </data>
+  <data name="PairingTimeout" xml:space="preserve">
+    <value>ペアリングがタイムアウトしました。</value>
+  </data>
+  <data name="NewChatBrief" xml:space="preserve">
+    <value>質問したり、端末での作業を頼んだりしてください。</value>
+  </data>
+  <data name="UsualSetups" xml:space="preserve">
+    <value>よく使う設定</value>
+  </data>
+  <data name="SetupsBeforeFirstMessage" xml:space="preserve">
+    <value>設定は最初のメッセージの前に使えます。</value>
+  </data>
+  <data name="SetupUnavailable" xml:space="preserve">
+    <value>その設定は利用できません。別の設定を選んでください。</value>
+  </data>
+  <data name="ActionIncomplete" xml:space="preserve">
+    <value>操作を完了できませんでした。もう一度お試しください。</value>
+  </data>
+  <data name="ProjectCountOne" xml:space="preserve">
+    <value>プロジェクト 1 件</value>
+  </data>
+  <data name="ProjectCountMany" xml:space="preserve">
+    <value>プロジェクト {0} 件</value>
+  </data>
+  <data name="UpdateDownloading" xml:space="preserve">
+    <value>更新をダウンロード中</value>
+  </data>
+  <data name="UpdateReady" xml:space="preserve">
+    <value>更新の準備完了</value>
+  </data>
+  <data name="UpdateApplying" xml:space="preserve">
+    <value>更新を適用中</value>
+  </data>
+  <data name="UpdateFailed" xml:space="preserve">
+    <value>更新を完了できませんでした</value>
+  </data>
+  <data name="UpdateDownloadingHelp" xml:space="preserve">
+    <value>検証済みアプリのダウンロード中も Lumi を使えます。</value>
+  </data>
+  <data name="UpdateReadyHelp" xml:space="preserve">
+    <value>安全に更新できるときに自動で更新します。ダウンロードや操作の完了後、「今すぐ更新」も選べます。</value>
+  </data>
+  <data name="UpdateDiscardHelp" xml:space="preserve">
+    <value>更新時に Lumi を開き直します。各ページの未送信の下書き、質問の回答、未保存の編集は破棄されます。ペアリングと保存済みチャットは残ります。</value>
+  </data>
+  <data name="UpdateAndDiscard" xml:space="preserve">
+    <value>破棄して更新</value>
+  </data>
+  <data name="UpdateApplyingHelp" xml:space="preserve">
+    <value>新しいビルドで Lumi を開き直します。ペアリングは保持します。</value>
+  </data>
+  <data name="UpdateFailedHelp" xml:space="preserve">
+    <value>現在のアプリとペアリングは保持しています。接続後に再試行してください。</value>
+  </data>
+  <data name="Unknown" xml:space="preserve">
+    <value>不明</value>
+  </data>
+  <data name="GreetingLateNight" xml:space="preserve">
+    <value>引き続き稼働中</value>
+  </data>
+  <data name="GreetingMorning" xml:space="preserve">
+    <value>おはようございます</value>
+  </data>
+  <data name="GreetingAfternoon" xml:space="preserve">
+    <value>こんにちは</value>
+  </data>
+  <data name="GreetingEvening" xml:space="preserve">
+    <value>こんばんは</value>
+  </data>
+  <data name="GreetingWithName" xml:space="preserve">
+    <value>{0}、{1}。</value>
+  </data>
+  <data name="GreetingWithoutName" xml:space="preserve">
+    <value>{0}。</value>
+  </data>
+  <data name="SignInRequired" xml:space="preserve">
+    <value>サインインが必要</value>
+  </data>
+  <data name="Offline" xml:space="preserve">
+    <value>オフライン</value>
+  </data>
+  <data name="Reconnecting" xml:space="preserve">
+    <value>再接続中</value>
+  </data>
+  <data name="Connected" xml:space="preserve">
+    <value>接続済み</value>
+  </data>
+  <data name="GettingReady" xml:space="preserve">
+    <value>準備中</value>
+  </data>
+  <data name="MicrosoftSignInAttention" xml:space="preserve">
+    <value>Microsoft サインインの確認が必要です。Lumi のペアリングは保持しています。</value>
+  </data>
+  <data name="YourPc" xml:space="preserve">
+    <value>端末</value>
+  </data>
+  <data name="CantReachHost" xml:space="preserve">
+    <value>{0} に接続できません。スリープしておらずオンラインであることを確認して、再試行してください。</value>
+  </data>
+  <data name="PhoneOffline" xml:space="preserve">
+    <value>このスマートフォンはオフラインです。ネットワークが戻ると {0} に再接続します。</value>
+  </data>
+  <data name="ReconnectingToHost" xml:space="preserve">
+    <value>{0} に再接続中...</value>
+  </data>
+  <data name="ReconnectingToHostReason" xml:space="preserve">
+    <value>{0} に再接続中... {1}</value>
+  </data>
+  <data name="LumiGettingReady" xml:space="preserve">
+    <value>Lumi は準備中です...</value>
+  </data>
+  <data name="BackToChats" xml:space="preserve">
+    <value>チャット一覧に戻る</value>
+  </data>
+  <data name="HideChats" xml:space="preserve">
+    <value>チャットを非表示</value>
+  </data>
+  <data name="ShowChats" xml:space="preserve">
+    <value>チャットを表示</value>
+  </data>
+  <data name="AlreadyPaired" xml:space="preserve">
+    <value>このスマートフォンは {0} とペアリング済みです。別の端末に接続するには先に解除してください。</value>
+  </data>
+  <data name="RevokeFailed" xml:space="preserve">
+    <value>このスマートフォンの許可を取り消せませんでした。端末がオンラインのときに再試行してください。</value>
+  </data>
+  <data name="LoadActivityFailed" xml:space="preserve">
+    <value>端末からアクティビティを読み込めませんでした。</value>
+  </data>
+  <data name="WrongChatActivity" xml:space="preserve">
+    <value>別のチャットのアクティビティが返されました。</value>
+  </data>
+  <data name="ConnectionChangedAction" xml:space="preserve">
+    <value>操作の完了前に端末との接続が変わりました。</value>
+  </data>
+  <data name="ConnectionChangedUpload" xml:space="preserve">
+    <value>アップロード中に端末との接続が変わりました。</value>
+  </data>
+  <data name="ActivityDetailsUnavailable" xml:space="preserve">
+    <value>この Lumi ではアクティビティの詳細を利用できません。</value>
+  </data>
+  <data name="ActivityDetailsFailed" xml:space="preserve">
+    <value>アクティビティの詳細を読み込めませんでした。</value>
+  </data>
+  <data name="ActivityDetailsFailedReason" xml:space="preserve">
+    <value>アクティビティの詳細を読み込めませんでした: {0}</value>
+  </data>
+  <data name="ReceiveFileFailed" xml:space="preserve">
+    <value>ファイルを受信できませんでした。</value>
+  </data>
+  <data name="SendFileFailed" xml:space="preserve">
+    <value>端末にファイルを送れませんでした。</value>
+  </data>
+  <data name="StarterPlanDay" xml:space="preserve">
+    <value>一日の計画を立てる</value>
+  </data>
+  <data name="StarterResearch" xml:space="preserve">
+    <value>テーマを調べる</value>
+  </data>
+  <data name="StarterCreateDocument" xml:space="preserve">
+    <value>ドキュメントを作る</value>
+  </data>
+  <data name="NewerActivityAvailable" xml:space="preserve">
+    <value>新しいアクティビティがあります</value>
+  </data>
+  <data name="NewerActivity" xml:space="preserve">
+    <value>新しいアクティビティ</value>
+  </data>
+  <data name="ActivityWindow" xml:space="preserve">
+    <value>アクティビティ {0:N0}～{1:N0} / {2:N0}</value>
+  </data>
+  <data name="WaitingForInput" xml:space="preserve">
+    <value>入力を待っています</value>
+  </data>
+  <data name="ThinkingEllipsis" xml:space="preserve">
+    <value>考え中…</value>
+  </data>
+  <data name="WritingEllipsis" xml:space="preserve">
+    <value>書き込み中…</value>
+  </data>
+  <data name="WorkingEllipsis" xml:space="preserve">
+    <value>作業中…</value>
+  </data>
+  <data name="WorkingDots" xml:space="preserve">
+    <value>作業中...</value>
+  </data>
+  <data name="NotSupported" xml:space="preserve">
+    <value>非対応</value>
+  </data>
+  <data name="SetByDesktop" xml:space="preserve">
+    <value>デスクトップで設定</value>
+  </data>
+  <data name="PcNoAnswer" xml:space="preserve">
+    <value>端末から応答がありません。</value>
+  </data>
+  <data name="PinModelFailed" xml:space="preserve">
+    <value>{0} をピン留めできませんでした。{1}</value>
+  </data>
+  <data name="UnpinModelFailed" xml:space="preserve">
+    <value>{0} のピン留めを外せませんでした。{1}</value>
+  </data>
+  <data name="PinNamed" xml:space="preserve">
+    <value>{0} をピン留め</value>
+  </data>
+  <data name="UnpinNamed" xml:space="preserve">
+    <value>{0} のピン留めを外す</value>
+  </data>
+  <data name="EffortNone" xml:space="preserve">
+    <value>なし</value>
+  </data>
+  <data name="EffortMinimal" xml:space="preserve">
+    <value>最小</value>
+  </data>
+  <data name="EffortLow" xml:space="preserve">
+    <value>低</value>
+  </data>
+  <data name="EffortMedium" xml:space="preserve">
+    <value>中</value>
+  </data>
+  <data name="EffortHigh" xml:space="preserve">
+    <value>高</value>
+  </data>
+  <data name="EffortXHigh" xml:space="preserve">
+    <value>非常に高い</value>
+  </data>
+  <data name="EffortMax" xml:space="preserve">
+    <value>最大</value>
+  </data>
+  <data name="ContextDefault" xml:space="preserve">
+    <value>既定</value>
+  </data>
+  <data name="ContextLong" xml:space="preserve">
+    <value>長いコンテキスト</value>
+  </data>
+  <data name="ContextTokens" xml:space="preserve">
+    <value>{0} / {1} トークン</value>
+  </data>
+  <data name="SendRestarted" xml:space="preserve">
+    <value>送信の確認前に Lumi が再起動しました。再試行前に履歴を更新するか、メッセージを編集して新しいリクエストとして送ってください。</value>
+  </data>
+  <data name="SendReplayUnavailable" xml:space="preserve">
+    <value>安全に再送信できなくなりました。チャットを更新して結果を確認するか、メッセージを編集してから再送信してください。</value>
+  </data>
+  <data name="SendMessageFailed" xml:space="preserve">
+    <value>メッセージを送信できませんでした。</value>
+  </data>
+  <data name="Stopping" xml:space="preserve">
+    <value>停止中…</value>
+  </data>
+  <data name="StopTurnFailedReason" xml:space="preserve">
+    <value>ターンを停止できませんでした: {0}</value>
+  </data>
+  <data name="StopTurnFailed" xml:space="preserve">
+    <value>ターンを停止できませんでした。</value>
+  </data>
+  <data name="AgentPickerDescription" xml:space="preserve">
+    <value>エージェントは専用の指示、スキル、ツールを持ちます。</value>
+  </data>
+  <data name="ProjectPickerDescription" xml:space="preserve">
+    <value>チャットの保存先と、従う指示。</value>
+  </data>
+  <data name="SkillsPickerDescription" xml:space="preserve">
+    <value>このチャットで Lumi が使えるもの。</value>
+  </data>
+  <data name="ConnectorsPickerDescription" xml:space="preserve">
+    <value>このチャットで Lumi が使えるアプリやサービス。</value>
+  </data>
+  <data name="NoAgentsOnPc" xml:space="preserve">
+    <value>端末にエージェントがありません。「カスタマイズ」で作成してください。</value>
+  </data>
+  <data name="NoProjectsOnPc" xml:space="preserve">
+    <value>端末にプロジェクトがありません。「カスタマイズ」で作成してください。</value>
+  </data>
+  <data name="NoSkillsOnPc" xml:space="preserve">
+    <value>端末にスキルがありません。「カスタマイズ」で作成してください。</value>
+  </data>
+  <data name="NoConnectorsEnabled" xml:space="preserve">
+    <value>オンのコネクタがありません。「カスタマイズ」でオンにしてください。</value>
+  </data>
+  <data name="NoAgent" xml:space="preserve">
+    <value>エージェントなし</value>
+  </data>
+  <data name="LumiOnItsOwn" xml:space="preserve">
+    <value>Lumi だけで対応</value>
+  </data>
+  <data name="NoProject" xml:space="preserve">
+    <value>プロジェクトなし</value>
+  </data>
+  <data name="ChatOfItsOwn" xml:space="preserve">
+    <value>独立したチャット</value>
+  </data>
+  <data name="SkillsCount" xml:space="preserve">
+    <value>スキル {0} 件</value>
+  </data>
+  <data name="ConnectorsCount" xml:space="preserve">
+    <value>コネクタ {0} 件</value>
+  </data>
+  <data name="InteractiveUpdateRequired" xml:space="preserve">
+    <value>対話の回答を保存するには、端末の Lumi を更新してください。</value>
+  </data>
+  <data name="AnswerClosed" xml:space="preserve">
+    <value>その回答はもう開かれていません。</value>
+  </data>
+  <data name="WaitForReply" xml:space="preserve">
+    <value>Lumi の返信が終わるまでお待ちください。</value>
+  </data>
+  <data name="InteractionChatChanged" xml:space="preserve">
+    <value>開いているチャットか端末が変わりました。別のチャットには送信していません。</value>
+  </data>
+  <data name="InteractionUnconfirmed" xml:space="preserve">
+    <value>操作はまだ確認できていません。選択内容は保持しています。再試行すると同じリクエストを確認します。</value>
+  </data>
+  <data name="InteractionSaveFailed" xml:space="preserve">
+    <value>対話内容を保存できませんでした。</value>
+  </data>
+  <data name="InteractionInterrupted" xml:space="preserve">
+    <value>接続が中断しました。選択内容は保持しています。</value>
+  </data>
+  <data name="AnswerPlaceholder" xml:space="preserve">
+    <value>回答を入力...</value>
+  </data>
+  <data name="You" xml:space="preserve">
+    <value>あなた</value>
+  </data>
+  <data name="Queued" xml:space="preserve">
+    <value>待機列に追加中...</value>
+  </data>
+  <data name="Steering" xml:space="preserve">
+    <value>方針を伝えています...</value>
+  </data>
+  <data name="Steered" xml:space="preserve">
+    <value>方針を反映しました</value>
+  </data>
+  <data name="SteerFailed" xml:space="preserve">
+    <value>方針を反映できませんでした</value>
+  </data>
+  <data name="JobWakeSummary" xml:space="preserve">
+    <value>ジョブがこのチャットを呼び出しました。</value>
+  </data>
+  <data name="SourceCountOne" xml:space="preserve">
+    <value>情報源 1 件</value>
+  </data>
+  <data name="SourceCountMany" xml:space="preserve">
+    <value>情報源 {0} 件</value>
+  </data>
+  <data name="Thinking" xml:space="preserve">
+    <value>考え中</value>
+  </data>
+  <data name="DurationSeconds" xml:space="preserve">
+    <value>{0} 秒</value>
+  </data>
+  <data name="DurationMinutesSeconds" xml:space="preserve">
+    <value>{0} 分 {1} 秒</value>
+  </data>
+  <data name="Researched" xml:space="preserve">
+    <value>調査済み</value>
+  </data>
+  <data name="Implemented" xml:space="preserve">
+    <value>実装済み</value>
+  </data>
+  <data name="Verified" xml:space="preserve">
+    <value>検証済み</value>
+  </data>
+  <data name="Worked" xml:space="preserve">
+    <value>作業完了</value>
+  </data>
+  <data name="ActionCountOne" xml:space="preserve">
+    <value>1 操作</value>
+  </data>
+  <data name="ActionCountMany" xml:space="preserve">
+    <value>{0} 操作</value>
+  </data>
+  <data name="FileChangedOne" xml:space="preserve">
+    <value>ファイル 1 件を変更</value>
+  </data>
+  <data name="FileChangedMany" xml:space="preserve">
+    <value>ファイル {0} 件を変更</value>
+  </data>
+  <data name="FinishedWithIssue" xml:space="preserve">
+    <value>問題を伴って終了</value>
+  </data>
+  <data name="Stopped" xml:space="preserve">
+    <value>停止</value>
+  </data>
+  <data name="WorkForDuration" xml:space="preserve">
+    <value>{0} · {1}</value>
+  </data>
+  <data name="WorkForDurationActions" xml:space="preserve">
+    <value>{0} · {1} · {2}</value>
+  </data>
+  <data name="WorkedForDuration" xml:space="preserve">
+    <value>作業時間 {0}</value>
+  </data>
+  <data name="HideTechnicalDetails" xml:space="preserve">
+    <value>技術的な詳細を非表示</value>
+  </data>
+  <data name="ShowTechnicalDetails" xml:space="preserve">
+    <value>技術的な詳細を表示</value>
+  </data>
+  <data name="PinnedModels" xml:space="preserve">
+    <value>ピン留め</value>
+  </data>
+  <data name="ReadOnly" xml:space="preserve">
+    <value>読み取り専用</value>
+  </data>
+  <data name="ReadOnlyHeader" xml:space="preserve">
+    <value>読み取り専用</value>
+  </data>
+  <data name="ReadOnlyAfter" xml:space="preserve">
+    <value>{0} · 読み取り専用</value>
+  </data>
+  <data name="ReadOnlyBefore" xml:space="preserve">
+    <value>読み取り専用 · {0}</value>
+  </data>
+  <data name="GitKnownTextChanges" xml:space="preserve">
+    <value>判明しているテキストの変更 · 一部</value>
+  </data>
+  <data name="GitTotalTextChanges" xml:space="preserve">
+    <value>テキストの変更合計</value>
+  </data>
+  <data name="BackToChangedFiles" xml:space="preserve">
+    <value>変更ファイルに戻る</value>
+  </data>
+  <data name="GitChangedFileOne" xml:space="preserve">
+    <value>変更ファイル 1 件</value>
+  </data>
+  <data name="GitChangedFileMany" xml:space="preserve">
+    <value>変更ファイル {0} 件</value>
+  </data>
+  <data name="LimitedSuffix" xml:space="preserve">
+    <value> · 制限あり</value>
+  </data>
+  <data name="PositionOfCount" xml:space="preserve">
+    <value>{0} / {1}</value>
+  </data>
+  <data name="GitResolvingScope" xml:space="preserve">
+    <value>プロジェクト・ワークツリーを確認中…</value>
+  </data>
+  <data name="GitNoRepositorySelected" xml:space="preserve">
+    <value>リポジトリが未選択です</value>
+  </data>
+  <data name="GitOpenChat" xml:space="preserve">
+    <value>チャットを開くとプロジェクトやワークツリーを確認できます。</value>
+  </data>
+  <data name="GitScopeUnavailable" xml:space="preserve">
+    <value>プロジェクト・ワークツリーの範囲を利用できません</value>
+  </data>
+  <data name="GitUpdateRequired" xml:space="preserve">
+    <value>スマートフォンで Git の変更を見るには、端末の Lumi を更新してください。</value>
+  </data>
+  <data name="GitLoadFailed" xml:space="preserve">
+    <value>Git の変更を読み込めませんでした。</value>
+  </data>
+  <data name="GitScopeDescription" xml:space="preserve">
+    <value>チャット: {0}
+{1} · 読み取り専用</value>
+  </data>
+  <data name="GitWorkingTreeClean" xml:space="preserve">
+    <value>作業ツリーに変更はありません。デスクトップで変更した後、更新してください。</value>
+  </data>
+  <data name="GitNoRepository" xml:space="preserve">
+    <value>このチャットに利用可能な Git リポジトリはありません。</value>
+  </data>
+  <data name="GitCancelled" xml:space="preserve">
+    <value>Git のリクエストをキャンセルしました。更新して再試行してください。</value>
+  </data>
+  <data name="GitWorkspaceChanged" xml:space="preserve">
+    <value>作業場所が変わりました。Git の変更を更新してください。</value>
+  </data>
+  <data name="GitDiffTruncated" xml:space="preserve">
+    <value>モバイルでは差分を省略しています。全体はデスクトップで確認してください。</value>
+  </data>
+  <data name="GitNoTextDiff" xml:space="preserve">
+    <value>このファイルのテキスト差分はありません（バイナリ、空、メタデータのみの変更）。</value>
+  </data>
+  <data name="PreviewOnlySuffix" xml:space="preserve">
+    <value> · プレビューのみ</value>
+  </data>
+  <data name="GitDiffLoadFailed" xml:space="preserve">
+    <value>ファイルの差分を読み込めませんでした。</value>
+  </data>
+  <data name="GitKindModified" xml:space="preserve">
+    <value>変更済み</value>
+  </data>
+  <data name="GitKindAdded" xml:space="preserve">
+    <value>追加済み</value>
+  </data>
+  <data name="GitKindDeleted" xml:space="preserve">
+    <value>削除済み</value>
+  </data>
+  <data name="GitKindRenamed" xml:space="preserve">
+    <value>名前変更済み</value>
+  </data>
+  <data name="GitKindCopied" xml:space="preserve">
+    <value>コピーしました</value>
+  </data>
+  <data name="GitKindUntracked" xml:space="preserve">
+    <value>未追跡</value>
+  </data>
+  <data name="GitKindTypeChanged" xml:space="preserve">
+    <value>種類変更</value>
+  </data>
+  <data name="GitKindConflicted" xml:space="preserve">
+    <value>競合</value>
+  </data>
+  <data name="GitKindRecreated" xml:space="preserve">
+    <value>再作成</value>
+  </data>
+  <data name="GitKindSubmodule" xml:space="preserve">
+    <value>サブモジュール</value>
+  </data>
+  <data name="GitKindUnknown" xml:space="preserve">
+    <value>不明</value>
+  </data>
+  <data name="SwitchState" xml:space="preserve">
+    <value>{0}: {1}</value>
+  </data>
+  <data name="SwitchOn" xml:space="preserve">
+    <value>オン</value>
+  </data>
+  <data name="SwitchOff" xml:space="preserve">
+    <value>オフ</value>
+  </data>
+  <data name="On" xml:space="preserve">
+    <value>オン</value>
+  </data>
+  <data name="Off" xml:space="preserve">
+    <value>オフ</value>
+  </data>
+  <data name="Enabled" xml:space="preserve">
+    <value>有効</value>
+  </data>
+  <data name="Disabled" xml:space="preserve">
+    <value>無効</value>
+  </data>
+  <data name="Paused" xml:space="preserve">
+    <value>一時停止中</value>
+  </data>
+  <data name="BuiltIn" xml:space="preserve">
+    <value>組み込み</value>
+  </data>
+  <data name="Yours" xml:space="preserve">
+    <value>自分のもの</value>
+  </data>
+  <data name="LibraryBuiltInNote" xml:space="preserve">
+    <value>Lumi 組み込みです。変更するには端末でコピーを作成してください。</value>
+  </data>
+  <data name="LibraryConnectorNote" xml:space="preserve">
+    <value>コネクタの設定は端末で行います。ここでオン・オフを切り替えられます。</value>
+  </data>
+  <data name="LibraryJobNote" xml:space="preserve">
+    <value>ジョブの編集は端末で行います。ここでオン・オフを切り替えられます。</value>
+  </data>
+  <data name="ActionsForNamed" xml:space="preserve">
+    <value>{0} の操作</value>
+  </data>
+  <data name="JobsSummary" xml:space="preserve">
+    <value>オン {0} 件 · 一時停止中 {1} 件</value>
+  </data>
+  <data name="LibraryNewItem" xml:space="preserve">
+    <value>新しい {0}</value>
+  </data>
+  <data name="LibraryEditItem" xml:space="preserve">
+    <value>{0} を編集</value>
+  </data>
+  <data name="LibraryDiscardDescription" xml:space="preserve">
+    <value>「{0}」への変更が失われます。端末から削除されるものはありません。</value>
+  </data>
+  <data name="LibraryDeleteQuestion" xml:space="preserve">
+    <value>ライブラリから削除しますか？</value>
+  </data>
+  <data name="LibraryEnableItem" xml:space="preserve">
+    <value>{0} を有効化</value>
+  </data>
+  <data name="LibraryDisableItem" xml:space="preserve">
+    <value>{0} を無効化</value>
+  </data>
+  <data name="LibraryDeleteDescription" xml:space="preserve">
+    <value>共有ライブラリから「{0}」を削除しますか？スマートフォンと端末の両方から削除されます。元に戻せません。</value>
+  </data>
+  <data name="LibraryNoResults" xml:space="preserve">
+    <value>{0} が見つかりません</value>
+  </data>
+  <data name="LibraryEmptyYet" xml:space="preserve">
+    <value>まだ {0} はありません</value>
+  </data>
+  <data name="LibrarySearchHelp" xml:space="preserve">
+    <value>別の名前を試すか、検索をクリアしてすべての {0} を表示してください。</value>
+  </data>
+  <data name="LibraryAddConnectors" xml:space="preserve">
+    <value>端末でコネクタを追加してください。ここで有効・無効を切り替えられます。</value>
+  </data>
+  <data name="LibraryAddJobs" xml:space="preserve">
+    <value>端末でジョブを作成してください。ここで有効・無効を切り替えられます。</value>
+  </data>
+  <data name="LibraryAddAgent" xml:space="preserve">
+    <value>+ または端末で {0} を追加できます。ライブラリは共有されます。</value>
+  </data>
+  <data name="LibraryAddItem" xml:space="preserve">
+    <value>+ または端末で {0} を追加できます。ライブラリは共有されます。</value>
+  </data>
+  <data name="LibrarySearch" xml:space="preserve">
+    <value>{0} を検索</value>
+  </data>
+  <data name="LibraryChooseConnector" xml:space="preserve">
+    <value>コネクタを選んで機能を確認できます。行から直接オン・オフを切り替えられます。</value>
+  </data>
+  <data name="LibraryChooseJob" xml:space="preserve">
+    <value>ジョブを選んで実行時刻を確認し、チャットを開けます。行から直接オン・オフを切り替えられます。</value>
+  </data>
+  <data name="LibraryChooseAgent" xml:space="preserve">
+    <value>{0} を選んで開くか、+ で追加してください。</value>
+  </data>
+  <data name="LibraryChooseItem" xml:space="preserve">
+    <value>{0} を選んで開くか、+ で追加してください。</value>
+  </data>
+  <data name="ProjectSingular" xml:space="preserve">
+    <value>プロジェクト</value>
+  </data>
+  <data name="SkillSingular" xml:space="preserve">
+    <value>スキル</value>
+  </data>
+  <data name="AgentSingular" xml:space="preserve">
+    <value>エージェント</value>
+  </data>
+  <data name="MemorySingular" xml:space="preserve">
+    <value>メモリー</value>
+  </data>
+  <data name="ConnectorSingular" xml:space="preserve">
+    <value>コネクタ</value>
+  </data>
+  <data name="JobSingular" xml:space="preserve">
+    <value>ジョブ</value>
+  </data>
+  <data name="ItemSingular" xml:space="preserve">
+    <value>項目</value>
+  </data>
+  <data name="SkillContent" xml:space="preserve">
+    <value>スキルの内容</value>
+  </data>
+  <data name="SystemPrompt" xml:space="preserve">
+    <value>システムプロンプト</value>
+  </data>
+  <data name="Content" xml:space="preserve">
+    <value>内容</value>
+  </data>
+  <data name="Memory" xml:space="preserve">
+    <value>メモリー</value>
+  </data>
+  <data name="MemoryCountOne" xml:space="preserve">
+    <value>メモリー 1 件</value>
+  </data>
+  <data name="MemoryCountMany" xml:space="preserve">
+    <value>メモリー {0} 件</value>
+  </data>
+  <data name="ChatCountOne" xml:space="preserve">
+    <value>チャット 1 件</value>
+  </data>
+  <data name="ChatCountMany" xml:space="preserve">
+    <value>チャット {0} 件</value>
+  </data>
+  <data name="SkillCountOne" xml:space="preserve">
+    <value>スキル 1 件</value>
+  </data>
+  <data name="SkillCountMany" xml:space="preserve">
+    <value>スキル {0} 件</value>
+  </data>
+  <data name="ToolCount" xml:space="preserve">
+    <value>ツール {0} 件</value>
+  </data>
+  <data name="SkillBuiltIn" xml:space="preserve">
+    <value>スキル · 組み込み</value>
+  </data>
+  <data name="AgentBuiltIn" xml:space="preserve">
+    <value>エージェント · 組み込み</value>
+  </data>
+  <data name="Tools" xml:space="preserve">
+    <value>ツール</value>
+  </data>
+  <data name="RunsOnPc" xml:space="preserve">
+    <value>端末で実行</value>
+  </data>
+  <data name="OnlineService" xml:space="preserve">
+    <value>オンラインサービス</value>
+  </data>
+  <data name="ConnectorOnPc" xml:space="preserve">
+    <value>コネクタ · 端末上</value>
+  </data>
+  <data name="ConnectorOnline" xml:space="preserve">
+    <value>コネクタ · オンライン</value>
+  </data>
+  <data name="Command" xml:space="preserve">
+    <value>コマンド</value>
+  </data>
+  <data name="Address" xml:space="preserve">
+    <value>アドレス</value>
+  </data>
+  <data name="JobTrigger" xml:space="preserve">
+    <value>ジョブ · {0}</value>
+  </data>
+  <data name="Prompt" xml:space="preserve">
+    <value>プロンプト</value>
+  </data>
+  <data name="Runs" xml:space="preserve">
+    <value>実行内容</value>
+  </data>
+  <data name="LastRun" xml:space="preserve">
+    <value>前回の実行</value>
+  </data>
+  <data name="Watches" xml:space="preserve">
+    <value>監視</value>
+  </data>
+  <data name="Scheduled" xml:space="preserve">
+    <value>スケジュール済み</value>
+  </data>
+  <data name="WakeScript" xml:space="preserve">
+    <value>呼び出しスクリプト</value>
+  </data>
+  <data name="FollowsChat" xml:space="preserve">
+    <value>チャットを監視</value>
+  </data>
+  <data name="Automation" xml:space="preserve">
+    <value>自動処理</value>
+  </data>
+  <data name="LibraryFullDetailsFailed" xml:space="preserve">
+    <value>詳細をすべて読み込めませんでした。端末が接続されているときに再試行してください。</value>
+  </data>
+  <data name="LibraryFullDetailsFailedReason" xml:space="preserve">
+    <value>詳細をすべて読み込めませんでした。{0}</value>
+  </data>
+  <data name="LibraryChangeFailed" xml:space="preserve">
+    <value>この項目を変更できませんでした。もう一度お試しください。</value>
+  </data>
+  <data name="LibraryChangeFailedReason" xml:space="preserve">
+    <value>この項目を変更できませんでした。{0}</value>
+  </data>
+  <data name="DonePeriod" xml:space="preserve">
+    <value>完了しました。</value>
+  </data>
+  <data name="LibraryLoadingFullDetails" xml:space="preserve">
+    <value>詳細をすべて読み込み中…</value>
+  </data>
+  <data name="LibraryCannotEdit" xml:space="preserve">
+    <value>この接続からは編集できません。</value>
+  </data>
+  <data name="LibraryFullItemFailed" xml:space="preserve">
+    <value>項目全体を読み込めませんでした。端末が接続されているときに再試行してください。</value>
+  </data>
+  <data name="LibraryLoadItemFailedReason" xml:space="preserve">
+    <value>項目を読み込めませんでした。{0}</value>
+  </data>
+  <data name="LibraryNameRequired" xml:space="preserve">
+    <value>先に名前を付けてください。</value>
+  </data>
+  <data name="LibrarySaveFailed" xml:space="preserve">
+    <value>保存できませんでした。変更内容は残っています。</value>
+  </data>
+  <data name="LibrarySavedOnPcMessage" xml:space="preserve">
+    <value>端末に保存しました。</value>
+  </data>
+  <data name="LibrarySaveFailedReason" xml:space="preserve">
+    <value>保存できませんでした。変更内容は残っています。{0}</value>
+  </data>
+  <data name="LibraryDeleteFailed" xml:space="preserve">
+    <value>この項目を削除できませんでした。もう一度お試しください。</value>
+  </data>
+  <data name="LibraryDeleted" xml:space="preserve">
+    <value>共有ライブラリから削除しました。</value>
+  </data>
+  <data name="LibraryDeleteFailedReason" xml:space="preserve">
+    <value>この項目を削除できませんでした。{0}</value>
+  </data>
+  <data name="EnabledOnPc" xml:space="preserve">
+    <value>端末で有効にしました。</value>
+  </data>
+  <data name="DisabledOnPc" xml:space="preserve">
+    <value>端末で無効にしました。</value>
+  </data>
+  <data name="LibraryRefreshFailed" xml:space="preserve">
+    <value>{0} 一覧を更新できませんでした。端末に再接続して読み直してください。</value>
+  </data>
+  <data name="RequestTimeout" xml:space="preserve">
+    <value>Lumi の応答がタイムアウトしました。</value>
+  </data>
+  <data name="ProtocolRequired" xml:space="preserve">
+    <value>このスマートフォンには範囲指定イベント付きの Lumi リモートプロトコル {0} が必要です。</value>
+  </data>
+  <data name="UnreadableResponse" xml:space="preserve">
+    <value>読み取れない応答が返されました。</value>
+  </data>
+  <data name="NotConnectedToDesktop" xml:space="preserve">
+    <value>Lumi デスクトップに接続されていません。</value>
+  </data>
+  <data name="WaitingCompatibleDesktop" xml:space="preserve">
+    <value>対応する Lumi デスクトップへの接続を待っています。</value>
+  </data>
+  <data name="NoLongerPaired" xml:space="preserve">
+    <value>このデバイスの Lumi とのペアリングは解除されています。</value>
+  </data>
+  <data name="ProducedFileTooLarge" xml:space="preserve">
+    <value>作成されたファイルはモバイルで開くには大きすぎます。</value>
+  </data>
+  <data name="ProducedFileDownloadLimit" xml:space="preserve">
+    <value>作成されたファイルがモバイルのダウンロード上限を超えています。</value>
+  </data>
+  <data name="FileTooLargeToSend" xml:space="preserve">
+    <value>ファイルが大きすぎて送信できません。</value>
+  </data>
+  <data name="ConnectionClosed" xml:space="preserve">
+    <value>Lumi が接続を閉じました。</value>
+  </data>
+  <data name="InvalidBootstrap" xml:space="preserve">
+    <value>有効な初期スナップショットが送られませんでした。</value>
+  </data>
+  <data name="ConnectionClosedBeforeBootstrap" xml:space="preserve">
+    <value>初期スナップショットの前にストリームが閉じられました。</value>
+  </data>
+  <data name="LiveConnectionTimeout" xml:space="preserve">
+    <value>Lumi のライブ接続が応答しなくなりました。</value>
+  </data>
+  <data name="SseLineTooLarge" xml:space="preserve">
+    <value>SSE の行が大きすぎます。</value>
+  </data>
+  <data name="SseLineUnterminated" xml:space="preserve">
+    <value>SSE ストリームが行を完結せずに終了しました。</value>
+  </data>
+  <data name="ResponseProtocolLimit" xml:space="preserve">
+    <value>応答がプロトコル上限の {0:N0} バイトを超えています。</value>
+  </data>
+  <data name="CantReachLumi" xml:space="preserve">
+    <value>Lumi に接続できません。端末がスリープしておらず、同じ Wi-Fi に接続されているか確認してください。</value>
+  </data>
+  <data name="HttpResponseError" xml:space="preserve">
+    <value>Lumi が HTTP {0}{1} を返しました。</value>
+  </data>
+  <data name="TailscaleNotConnected" xml:space="preserve">
+    <value>この端末のアドレスに Tailscale が接続されていません。Tailscale に再接続して再試行してください。</value>
+  </data>
+  <data name="SavedFileLengthMismatch" xml:space="preserve">
+    <value>保存したファイルがダウンロードと一致しません（{0} / {1} バイト）。</value>
+  </data>
+  <data name="Phone" xml:space="preserve">
+    <value>スマートフォン</value>
+  </data>
+  <data name="AndroidPhone" xml:space="preserve">
+    <value>Android スマートフォン</value>
+  </data>
+  <data name="ThisLumiPc" xml:space="preserve">
+    <value>この Lumi 端末</value>
+  </data>
+  <data name="LumiWebApp" xml:space="preserve">
+    <value>Lumi Web App</value>
+  </data>
+  <data name="BrowserDownloadLimit" xml:space="preserve">
+    <value>ダウンロードがブラウザーの上限を超えています。</value>
+  </data>
+  <data name="BrowserSameOriginOnly" xml:space="preserve">
+    <value>Lumi Web は、このアプリを配信した端末にのみ接続できます。</value>
+  </data>
+  <data name="BrowserGatewaySignIn" xml:space="preserve">
+    <value>Microsoft サインインの確認が必要です。トンネルの所有者で再度サインインしてください。ペアリングは保持します。再読み込み前に下書きをコピーしてください。設定の「ウェブアプリを再読み込み」も使えます。</value>
+  </data>
+  <data name="AttachToLumi" xml:space="preserve">
+    <value>Lumi に添付</value>
+  </data>
+  <data name="PhoneAttachTooLarge" xml:space="preserve">
+    <value>このスマートフォンで送るにはファイルが大きすぎます。</value>
+  </data>
+  <data name="AttachFileFailed" xml:space="preserve">
+    <value>ファイルを添付できませんでした。</value>
+  </data>
+  <data name="FileTooLargeKnownSize" xml:space="preserve">
+    <value>{0} は送信するには大きすぎます（{1} MB）。上限は {2} MB です。</value>
+  </data>
+  <data name="FileTooLargeUnknownSize" xml:space="preserve">
+    <value>{0} は送信するには大きすぎます。上限は {1} MB です。</value>
+  </data>
+  <data name="CopyAnswerFailed" xml:space="preserve">
+    <value>回答をコピーできませんでした。</value>
+  </data>
+  <data name="ShareAnswerFailed" xml:space="preserve">
+    <value>回答を共有できませんでした。</value>
+  </data>
+  <data name="OpenSourceFailed" xml:space="preserve">
+    <value>情報源を開けませんでした。</value>
+  </data>
+  <data name="DownloadFileFailed" xml:space="preserve">
+    <value>ファイルをダウンロードできませんでした。</value>
+  </data>
+  <data name="SaveLumiFile" xml:space="preserve">
+    <value>Lumi のファイルを保存</value>
+  </data>
+  <data name="DownloadedFileCannotOpen" xml:space="preserve">
+    <value>ダウンロードしましたが、このスマートフォンでは開けませんでした。</value>
+  </data>
+  <data name="OpenFileFailed" xml:space="preserve">
+    <value>ファイルを開けませんでした。</value>
+  </data>
+  <data name="LocalNetworkPermissionRequired" xml:space="preserve">
+    <value>Lumi の端末に接続するにはローカルネットワークへのアクセスが必要です。</value>
+  </data>
+  <data name="LumiText" xml:space="preserve">
+    <value>Lumi のテキスト</value>
+  </data>
+  <data name="TransportRequestOne" xml:space="preserve">
+    <value>リクエスト {0} 件</value>
+  </data>
+  <data name="TransportRequestMany" xml:space="preserve">
+    <value>リクエスト {0} 件</value>
+  </data>
+  <data name="TransportLiveUpdateOne" xml:space="preserve">
+    <value>ライブ更新 {0} 回</value>
+  </data>
+  <data name="TransportLiveUpdateMany" xml:space="preserve">
+    <value>ライブ更新 {0} 回</value>
+  </data>
+  <data name="TransportReconnectOne" xml:space="preserve">
+    <value>再接続 {0} 回</value>
+  </data>
+  <data name="TransportReconnectMany" xml:space="preserve">
+    <value>再接続 {0} 回</value>
+  </data>
+  <data name="TransportChatReloadOne" xml:space="preserve">
+    <value>チャット再読み込み {0} 回</value>
+  </data>
+  <data name="TransportChatReloadMany" xml:space="preserve">
+    <value>チャット再読み込み {0} 回</value>
+  </data>
+  <data name="TransportSummary" xml:space="preserve">
+    <value>{0}、{1} 受信、{2}、{3}</value>
+  </data>
+  <data name="TransportUnchanged" xml:space="preserve">
+    <value>、{0} / {1} 件は更新済み</value>
+  </data>
+  <data name="WebOpening" xml:space="preserve">
+    <value>Lumi を開いています...</value>
+  </data>
+  <data name="WebNeedsReload" xml:space="preserve">
+    <value>Lumi の再読み込みが必要です</value>
+  </data>
+  <data name="WebReload" xml:space="preserve">
+    <value>Lumi を再読み込み</value>
+  </data>
+  <data name="WebReloadNote" xml:space="preserve">
+    <value>保存済みのチャットは端末に残ります。再読み込みで未送信のテキストが失われる場合があります。</value>
+  </data>
+  <data name="WebOffline" xml:space="preserve">
+    <value>オフラインです。インターネットに接続して再試行してください。</value>
+  </data>
+  <data name="WebStartFailed" xml:space="preserve">
+    <value>Lumi を起動できませんでした: {0}</value>
+  </data>
+  <data name="WebContextLost" xml:space="preserve">
+    <value>ブラウザーでの表示が停止しました。再読み込みして再接続してください。</value>
+  </data>
+  <data name="MessageText" xml:space="preserve">
+    <value>メッセージのテキスト</value>
+  </data>
+  <data name="TextInput" xml:space="preserve">
+    <value>テキスト入力</value>
+  </data>
+  <data name="WebRefreshing" xml:space="preserve">
+    <value>ウェブアプリを更新中...</value>
+  </data>
+  <data name="WebUpdateInstallFailed" xml:space="preserve">
+    <value>ウェブアプリの更新をインストールできませんでした。</value>
+  </data>
+  <data name="WebUpdateTimeout" xml:space="preserve">
+    <value>ウェブアプリの更新がタイムアウトしました。</value>
+  </data>
+  <data name="WebFindingRegistration" xml:space="preserve">
+    <value>アプリの登録を検索中</value>
+  </data>
+  <data name="WebReplacingRegistration" xml:space="preserve">
+    <value>アプリの登録を置換中</value>
+  </data>
+  <data name="WebRegistering" xml:space="preserve">
+    <value>現在のアプリを登録中</value>
+  </data>
+  <data name="WebUpdatingRuntime" xml:space="preserve">
+    <value>キャッシュしたランタイムを更新中...</value>
+  </data>
+  <data name="WebCheckingBuild" xml:space="preserve">
+    <value>現在のビルドを確認中</value>
+  </data>
+  <data name="WebInstallingFiles" xml:space="preserve">
+    <value>検証済みのアプリファイルをインストール中</value>
+  </data>
+  <data name="WebActivatingUpdate" xml:space="preserve">
+    <value>アプリの更新を有効化中</value>
+  </data>
+  <data name="WebOpeningStage" xml:space="preserve">
+    <value>Lumi を開いています</value>
+  </data>
+  <data name="WebRefreshFailed" xml:space="preserve">
+    <value>ウェブアプリを更新できませんでした。ペアリングは保持しています。{0}: {1} もう一度お試しください。</value>
+  </data>
+  <data name="AndroidInstallTitle" xml:space="preserve">
+    <value>Android 版 Lumi をインストール</value>
+  </data>
+  <data name="AndroidSetup" xml:space="preserve">
+    <value>Android のセットアップ</value>
+  </data>
+  <data name="AndroidInstallIntro" xml:space="preserve">
+    <value>ネイティブアプリはウェブアプリと同じ会話と画面を使い、Android 標準のキーボードとファイル選択を利用できます。</value>
+  </data>
+  <data name="AndroidDownloadOfficial" xml:space="preserve">
+    <value>公式 APK をダウンロード</value>
+  </data>
+  <data name="AndroidNoAppStore" xml:space="preserve">
+    <value>Lumi はアプリストアで配布していません。下の GitHub から公式 APK を取得してください。</value>
+  </data>
+  <data name="AndroidMatchingRelease" xml:space="preserve">
+    <value>この Lumi Desktop のリリースに対応しています。</value>
+  </data>
+  <data name="AndroidDownloadApk" xml:space="preserve">
+    <value>Android APK をダウンロード</value>
+  </data>
+  <data name="AndroidInstallHint" xml:space="preserve">
+    <value>ダウンロード後、APK を開いて「インストール」を押してください。Android がこのブラウザーからのインストール許可を一度だけ求める場合があります。</value>
+  </data>
+  <data name="OpenLumi" xml:space="preserve">
+    <value>Lumi を開く</value>
+  </data>
+  <data name="AndroidOpenHint" xml:space="preserve">
+    <value>インストール後、このページに戻って続けてください。未インストールの場合は、アプリストアではなく公式 APK のダウンロードを開きます。</value>
+  </data>
+  <data name="AndroidEnterPairingCode" xml:space="preserve">
+    <value>ペアリングコードを入力</value>
+  </data>
+  <data name="AndroidPairingHint" xml:space="preserve">
+    <value>Lumi Desktop の 6 桁のコードを使います。この操作は初回のみ必要です。</value>
+  </data>
+  <data name="UseWebApp" xml:space="preserve">
+    <value>代わりにウェブアプリを使う</value>
+  </data>
+  <data name="AndroidVersionMatching" xml:space="preserve">
+    <value>Lumi {0}。このデスクトップ版に対応しています。</value>
+  </data>
+  <data name="WebManifestDescription" xml:space="preserve">
+    <value>スマートフォンから、いつもの Lumi 端末へ。</value>
+  </data>
+  <data name="WorkerStarting" xml:space="preserve">
+    <value>ワーカーレンダラーを開始中</value>
+  </data>
+  <data name="WorkerUnavailable" xml:space="preserve">
+    <value>通常レンダラー（ワーカー利用不可）</value>
+  </data>
+  <data name="WorkerStopped" xml:space="preserve">
+    <value>通常レンダラー（ワーカー停止）</value>
+  </data>
+  <data name="WorkerRenderer" xml:space="preserve">
+    <value>ワーカーレンダラー</value>
+  </data>
+  <data name="WorkerRendererStats" xml:space="preserve">
+    <value>ワーカーレンダラー（クロック {0} Hz、新規フレーム {1}/秒）</value>
+  </data>
+  <data name="SimulatorTitle" xml:space="preserve">
+    <value>Lumi Mobile — デバイスシミュレーター</value>
+  </data>
+  <data name="Device" xml:space="preserve">
+    <value>デバイス</value>
+  </data>
+  <data name="Bezel" xml:space="preserve">
+    <value>ベゼル</value>
+  </data>
+  <data name="SimulatorUnknownDevice" xml:space="preserve">
+    <value>不明なデバイス '{0}'。利用可能: {1}</value>
+  </data>
+  <data name="SimulatorHinge" xml:space="preserve">
+    <value> · ヒンジ {0:0.#} dp</value>
+  </data>
+  <data name="SimulatorFoldPosition" xml:space="preserve">
+    <value> · 折り目 {0:0} dp</value>
+  </data>
+  <data name="SimulatorThreePanes" xml:space="preserve">
+    <value>3 ペイン</value>
+  </data>
+  <data name="SimulatorTwoPanes" xml:space="preserve">
+    <value>2 ペイン</value>
+  </data>
+  <data name="SimulatorOnePane" xml:space="preserve">
+    <value>1 ペイン</value>
+  </data>
+  <data name="SimulatorShort" xml:space="preserve">
+    <value> · 短い</value>
+  </data>
+  <data name="SimulatorReadout" xml:space="preserve">
+    <value>{0:0}×{1:0} dp · {2}{3}{4}</value>
+  </data>
+  <data name="SimFlipCover" xml:space="preserve">
+    <value>カバー画面を反転</value>
+  </data>
+  <data name="SimCompactPhone" xml:space="preserve">
+    <value>小型スマートフォン</value>
+  </data>
+  <data name="SimFoldFolded" xml:space="preserve">
+    <value>Fold — 折りたたみ</value>
+  </data>
+  <data name="SimGalaxyCover" xml:space="preserve">
+    <value>Galaxy Z Fold7 — カバー</value>
+  </data>
+  <data name="SimGalaxyCoverLandscape" xml:space="preserve">
+    <value>Galaxy Z Fold7 — カバー横向き</value>
+  </data>
+  <data name="SimPhoneLandscape" xml:space="preserve">
+    <value>スマートフォン横向き</value>
+  </data>
+  <data name="SimGalaxyOpenLarge" xml:space="preserve">
+    <value>Galaxy Z Fold7 — 展開、大きい表示サイズ</value>
+  </data>
+  <data name="SimFoldUnfolded" xml:space="preserve">
+    <value>Fold — 展開</value>
+  </data>
+  <data name="SimGalaxyOpen" xml:space="preserve">
+    <value>Galaxy Z Fold7 — 展開</value>
+  </data>
+  <data name="SimGalaxyBook" xml:space="preserve">
+    <value>Galaxy Z Fold7 — ブック</value>
+  </data>
+  <data name="SimGalaxyTabletop" xml:space="preserve">
+    <value>Galaxy Z Fold7 — テーブルトップ</value>
+  </data>
+  <data name="SimFoldTabletop" xml:space="preserve">
+    <value>Fold — テーブルトップ</value>
+  </data>
+  <data name="SimTablet" xml:space="preserve">
+    <value>タブレット</value>
+  </data>
+  <data name="SimTabletLandscape" xml:space="preserve">
+    <value>タブレット横向き</value>
+  </data>
+  <data name="SimLargeTabletLandscape" xml:space="preserve">
+    <value>大型タブレット横向き</value>
+  </data>
+  <data name="DesignPreviewTitle" xml:space="preserve">
+    <value>Lumi Mobile - デザインプレビュー</value>
+  </data>
+  <data name="PopupPreviewTitle" xml:space="preserve">
+    <value>Lumi Mobile - 仕上げたポップアップのプレビュー</value>
+  </data>
+  <data name="Models" xml:space="preserve">
+    <value>モデル</value>
+  </data>
+  <data name="ChatDetails" xml:space="preserve">
+    <value>チャットの詳細</value>
+  </data>
+  <data name="Activity" xml:space="preserve">
+    <value>アクティビティ</value>
+  </data>
+  <data name="LibraryActions" xml:space="preserve">
+    <value>ライブラリの操作</value>
+  </data>
+  <data name="DiscardChanges" xml:space="preserve">
+    <value>変更を破棄</value>
+  </data>
+  <data name="Disconnect" xml:space="preserve">
+    <value>接続を解除</value>
+  </data>
+  <data name="FormChoices" xml:space="preserve">
+    <value>フォームの選択肢</value>
+  </data>
+  <data name="DatePicker" xml:space="preserve">
+    <value>日付の選択</value>
+  </data>
+  <data name="SubmittedInput" xml:space="preserve">
+    <value>送信済みの入力</value>
+  </data>
+  <data name="ActionReceipts" xml:space="preserve">
+    <value>操作の記録</value>
+  </data>
+  <data name="LocalUiFixture" xml:space="preserve">
+    <value>ローカル UI フィクスチャ</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>閉じる</value>
+  </data>
+  <data name="ComposerFilesPhotos" xml:space="preserve">
+    <value>ファイルと写真</value>
+  </data>
+  <data name="CopyDetails" xml:space="preserve">
+    <value>詳細をコピー</value>
+  </data>
+  <data name="BackgroundJob" xml:space="preserve">
+    <value>バックグラウンドジョブ</value>
+  </data>
+  <data name="WakeSignalReceived" xml:space="preserve">
+    <value>呼び出しシグナルを受信しました。</value>
+  </data>
+  <data name="MobileTruncationNotice" xml:space="preserve">
+    <value>[モバイルでは省略。全出力はデスクトップで確認してください]</value>
+  </data>
+</root>

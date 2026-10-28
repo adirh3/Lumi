@@ -1,7 +1,16 @@
 // The pre-runtime pages read the same resx catalogs that ResourceManager uses in the mobile app.
 // Publishing copies them as XML; the service worker includes them in its verified offline assets.
 (() => {
-    const supportedLanguage = value => /^he(?:-|$)/i.test(value || '') ? 'he' : 'en';
+    const supportedLanguage = value => {
+        const code = (value || '').trim().toLowerCase();
+        if (/^he(?:-|$)/.test(code)) return 'he';
+        const base = code.split('-')[0];
+        if (['de', 'fr', 'ja', 'ko', 'ar'].includes(base)) return base;
+        if (/^es(?:-|$)/.test(code)) return 'es';
+        if (/^pt(?:-|$)/.test(code)) return 'pt-BR';
+        if (/^zh(?:-hans(?:-|$)|-cn$|-sg$|$)/.test(code)) return 'zh-Hans';
+        return 'en';
+    };
     let language;
     try {
         const saved = JSON.parse(globalThis.localStorage?.getItem('lumi.mobile.connection.v1') || 'null');
@@ -18,7 +27,7 @@
             : template.replace(/\{(\d+)\}/g, (match, index) => String(args[Number(index)] ?? match));
     };
     document.documentElement.lang = language;
-    document.documentElement.dir = language === 'he' ? 'rtl' : 'ltr';
+    document.documentElement.dir = language === 'he' || language === 'ar' ? 'rtl' : 'ltr';
 
     const ready = (async () => {
         const cancellation = new AbortController();
@@ -39,8 +48,8 @@
             for (const element of document.querySelectorAll('[data-lumi-string]'))
                 element.textContent = text(element.dataset.lumiString, element.textContent);
             const manifest = document.querySelector('link[rel="manifest"]');
-            if (manifest && language === 'he')
-                manifest.setAttribute('href', './manifest.he.webmanifest');
+            if (manifest && language !== 'en')
+                manifest.setAttribute('href', `./manifest.${language}.webmanifest`);
         } catch {
             // The HTML and call sites retain English fallbacks if the first network load fails.
         } finally {

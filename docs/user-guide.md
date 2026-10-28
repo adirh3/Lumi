@@ -37,7 +37,7 @@ Quick links: [AI accounts](#ai-accounts), [voice input](#voice-input),
 - **Interactive answers** — Native forms, checklists and step-by-step guides, selectable choice cards, what-if calculators (bill split, budget, savings, loan, recipe), and practice quizzes with hints and feedback
 - **MCP Apps & canvases** — Connector-provided interactive apps and Copilot canvas extensions open in Workspace, with lightweight reopen cards in the transcript. App tool calls reuse the chat's Copilot connection; canvas behavior and data stay with the extension.
 - **CSV previews** — Preview CSV and TSV files as clean, themed, read-only tables with sortable/resizable columns, row search, footer stats, full-value tooltips, and row copying
-- **Localization** — English and Hebrew, with easy extension to other languages
+- **Localization** — English, Hebrew, Spanish, Brazilian Portuguese, Simplified Chinese, German, French, Japanese, Korean and Arabic. Choose a language in Settings and restart to apply it; Hebrew and Arabic use right-to-left layouts.
 - **Make it yours** — Settings → Appearance: a Light, Dark or System theme that spreads across the window from where you pick it, eight accent palettes that recolor buttons, selection, your messages, Lumi's glow and Lumi's icon in the app and the tray, the window material, text size, density and how brightly the presence glows — each shown at once in a live preview, with **Restore default look** one click away
 - **Voice input** — Local, multilingual dictation on Windows, Linux and macOS: asks once before its one-time download, listens instantly with a live waveform, and shows your words as you speak
 - **Desktop notifications** — Toast notifications when responses complete in the background

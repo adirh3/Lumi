@@ -148,7 +148,7 @@
         <sc:StrataSetting Header="{loc:Str Setting_Language}" Description="{loc:Str SettingDesc_Language}">
           <ComboBox ItemsSource="{Binding LanguageOptions}"
                     SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}"
-                    Width="220" />
+                    Width="260" />
         </sc:StrataSetting>
       </sc:StrataSettingGroup>
 

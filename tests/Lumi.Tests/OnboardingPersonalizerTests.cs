@@ -1,4 +1,5 @@
 using Lumi.Localization;
+using System.Globalization;
 using Lumi.Services;
 using Lumi.Services.Onboarding;
 using Xunit;
@@ -19,6 +20,22 @@ public sealed class OnboardingPersonalizerTests
         new WorkspaceDocuments(Recent: 14, Pdfs: 4, Office: 6, Downloads: 230));
 
     public OnboardingPersonalizerTests() => Loc.Load("en");
+
+    [Theory]
+    [InlineData("es")]
+    [InlineData("pt-BR")]
+    [InlineData("zh-Hans")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("ja")]
+    [InlineData("ko")]
+    [InlineData("ar")]
+    public void PersonalizationKeepsTheSelectedLanguageVariant(string language)
+    {
+        var culture = CultureInfo.GetCultureInfo(language);
+        Assert.Contains($"Write every user-facing string in {culture.EnglishName}.",
+            OnboardingPersonalizer.BuildSystemPrompt(culture));
+    }
 
     [Fact]
     public void ParsesTheModelsAnswerAndKeepsOnlyWellFormedPieces()

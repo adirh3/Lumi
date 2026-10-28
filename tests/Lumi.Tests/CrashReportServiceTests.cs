@@ -7,6 +7,20 @@ namespace Lumi.Tests;
 
 public sealed class CrashReportServiceTests
 {
+    [Theory]
+    [InlineData("es-MX", "es")]
+    [InlineData("pt-BR", "pt-BR")]
+    [InlineData("zh-Hans", "zh-Hans")]
+    [InlineData("he-IL", "he")]
+    [InlineData("de-DE", "de")]
+    [InlineData("fr-FR", "fr")]
+    [InlineData("ja-JP", "ja")]
+    [InlineData("ko-KR", "ko")]
+    [InlineData("ar-EG", "ar")]
+    [InlineData("unsupported", "en")]
+    public void CrashReporterKeepsTheSupportedUiLanguage(string requested, string expected)
+        => Assert.Equal(expected, CrashReportService.NormalizeLanguage(requested));
+
     [Fact]
     public void Create_PreservesCompleteExceptionText()
     {

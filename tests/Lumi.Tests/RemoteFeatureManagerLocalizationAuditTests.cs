@@ -77,6 +77,11 @@ public sealed class RemoteFeatureManagerLocalizationAuditTests : IDisposable
 
         Loc.Load("en");
         var english = Capture();
+        foreach (var (language, _) in Loc.AvailableLanguages)
+        {
+            Loc.Load(language);
+            Assert.Equal(english, Capture());
+        }
         Loc.Load("he");
         Assert.Equal(english, Capture());
         Assert.Contains(skill.Description, model.ManageSkills("list").Message);

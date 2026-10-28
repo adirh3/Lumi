@@ -285,7 +285,7 @@ usable.
 | <a id="validating-computer-use-from-the-repository"></a>Computer-use validation | [Existing test and benchmark runner](docs/development.md#validating-computer-use-from-the-repository) |
 | <a id="repeatable-windows-desktop-benchmarks"></a>Desktop benchmarks | [Repeatable fixtures and evidence](docs/development.md#repeatable-windows-desktop-benchmarks) |
 | <a id="app-icon"></a>App icon | [Code-drawn art and asset generation](docs/development.md#app-icon) |
-| <a id="localization"></a>Localization | [English/Hebrew resources and display boundaries](docs/development.md#localization) |
+| <a id="localization"></a>Localization | [Supported languages, resources and display boundaries](docs/development.md#localization) |
 | <a id="local-stratatheme-development"></a>Strata development | [Submodule references and licensing note](docs/development.md#local-stratatheme-development) |
 
 ## Tech Stack

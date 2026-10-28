@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const webSource = name => readFileSync(
     new URL(`../../src/Lumi.Mobile.Browser/wwwroot/${name}`, import.meta.url), 'utf8');
 const resourceSource = language => readFileSync(new URL(
-    `../../src/Lumi.Mobile/Localization/ChatSessionStrings${language === 'he' ? '.he' : ''}.resx`,
+    `../../src/Lumi.Mobile/Localization/ChatSessionStrings${language === 'en' ? '' : `.${language}`}.resx`,
     import.meta.url), 'utf8');
 const decode = value => value.replace(/&lt;/g, '<').replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
@@ -45,7 +45,7 @@ async function page({ savedLanguage, browserLanguage = 'en-US', blockedStorage =
             requests.push({ url: url.href, options });
             if (failedFetch)
                 throw new Error('Offline');
-            const language = url.pathname.endsWith('/he.xml') ? 'he' : 'en';
+            const language = url.pathname.match(/\/([^/]+)\.xml$/)[1];
             return { ok: true, text: async () => resourceSource(language) };
         },
         DOMParser: class {
@@ -87,13 +87,34 @@ test('explicit English overrides the Hebrew browser and retains English fallback
         'Lumi could not start: <unexpected response>');
 });
 
+for (const [requested, expected] of [
+    ['es-MX', 'es'], ['pt-BR', 'pt-BR'], ['zh-CN', 'zh-Hans'], ['zh-Hans', 'zh-Hans'],
+    ['de-DE', 'de'], ['fr-CA', 'fr'], ['ja-JP', 'ja'], ['ko-KR', 'ko'], ['ar-EG', 'ar']
+]) {
+    test(`${requested} selects translated startup, installation and manifest`, async () => {
+        const catalog = readCatalog(resourceSource(expected));
+        for (const options of [{ savedLanguage: requested }, { browserLanguage: requested }]) {
+            const app = await page(options);
+            assert.equal(app.localization.language, expected);
+            assert.equal(app.document.documentElement.lang, expected);
+            assert.equal(app.document.documentElement.dir, expected === 'ar' ? 'rtl' : 'ltr');
+            assert.equal(app.nodes[0].textContent, catalog.get('WebOpening'));
+            assert.notEqual(app.nodes[0].textContent, 'Opening Lumi...');
+            assert.equal(app.nodes[2].textContent, catalog.get('AndroidInstallTitle'));
+            assert.equal(app.manifest.href, `./manifest.${expected}.webmanifest`);
+            assert.equal(app.requests[0].url, `https://lumi.test/app/localization/${expected}.xml`);
+        }
+    });
+}
+
 test('first run and blocked browser storage follow the browser language', async () => {
     for (const blockedStorage of [false, true]) {
         const app = await page({ browserLanguage: 'he-IL', blockedStorage });
         assert.equal(app.localization.language, 'he');
         assert.equal(app.requests[0].url, 'https://lumi.test/app/localization/he.xml');
     }
-    assert.equal((await page({ browserLanguage: 'fr-FR' })).localization.language, 'en');
+    assert.equal((await page({ browserLanguage: 'it-IT' })).localization.language, 'en');
+    assert.equal((await page({ browserLanguage: 'zh-TW' })).localization.language, 'en');
 });
 
 test('offline first-load failure leaves usable English fallbacks and never blocks startup', async () => {
@@ -105,14 +126,16 @@ test('offline first-load failure leaves usable English fallbacks and never block
 
 test('pre-runtime pages use matching resx keys and format arguments', () => {
     const english = readCatalog(resourceSource('en'));
-    const hebrew = readCatalog(resourceSource('he'));
-    assert.deepEqual([...english.keys()].sort(), [...hebrew.keys()].sort());
-    for (const [key, value] of english) {
-        const argumentsOf = text => [...text.matchAll(/\{(\d+)(?:[^{}]*)\}/g)]
-            .map(match => match[1]).sort();
-        assert.ok(value.trim(), key);
-        assert.ok(hebrew.get(key).trim(), key);
-        assert.deepEqual(argumentsOf(value), argumentsOf(hebrew.get(key)), key);
+    for (const language of ['he', 'es', 'pt-BR', 'zh-Hans', 'de', 'fr', 'ja', 'ko', 'ar']) {
+        const translated = readCatalog(resourceSource(language));
+        assert.deepEqual([...english.keys()].sort(), [...translated.keys()].sort(), language);
+        for (const [key, value] of english) {
+            const argumentsOf = text => [...text.matchAll(/\{(\d+)(?:[^{}]*)\}/g)]
+                .map(match => match[0]).sort();
+            assert.ok(value.trim(), key);
+            assert.ok(translated.get(key).trim(), `${language}: ${key}`);
+            assert.deepEqual(argumentsOf(value), argumentsOf(translated.get(key)), `${language}: ${key}`);
+        }
     }
     for (const name of ['index.html', 'android.html', 'cache-recovery.html']) {
         const html = webSource(name);
@@ -125,4 +148,7 @@ test('pre-runtime pages use matching resx keys and format arguments', () => {
             assert.ok(english.has(key), `${name}: ${key}`);
     }
     assert.equal(JSON.parse(webSource('manifest.webmanifest')).description, english.get('WebManifestDescription'));
+    assert.match(webSource('main.js'),
+        /\.withApplicationCulture\(globalThis\.lumiLocalization\?\.language \?\? 'en'\)/);
+    assert.match(webSource('main.js'), /\.withConfig\(\{\s*loadAllSatelliteResources:\s*true\s*\}\)/);
 });

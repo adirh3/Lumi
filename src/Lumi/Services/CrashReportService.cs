@@ -35,7 +35,7 @@ internal sealed class CrashReportData
             OperatingSystem = RuntimeInformation.OSDescription,
             ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
             Language = CrashReportService.NormalizeLanguage(
-                CultureInfo.CurrentUICulture.TwoLetterISOLanguageName),
+                CultureInfo.CurrentUICulture.Name),
             IsDarkTheme = isDarkTheme,
         };
     }
@@ -187,7 +187,7 @@ internal static class CrashReportService
         => JsonSerializer.Deserialize(json, CrashReportJsonContext.Default.CrashReportData);
 
     internal static string NormalizeLanguage(string? language)
-        => string.Equals(language, "he", StringComparison.OrdinalIgnoreCase) ? "he" : "en";
+        => Localization.Loc.NormalizeLanguage(language);
 
     private static string WriteHandoffReport(CrashReportData report)
     {

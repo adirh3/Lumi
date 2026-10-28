@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -23,6 +24,14 @@ public sealed class MobileLocalizationTests
     [Theory]
     [InlineData("en", "Copy")]
     [InlineData("he", "העתקה")]
+    [InlineData("es", "Copiar")]
+    [InlineData("pt-BR", "Copiar")]
+    [InlineData("zh-Hans", "复制")]
+    [InlineData("de", "Kopieren")]
+    [InlineData("fr", "Copier")]
+    [InlineData("ja", "コピー")]
+    [InlineData("ko", "복사")]
+    [InlineData("ar", "نسخ")]
     public async Task PlanMarkdownUsesTheUiLanguageWithoutChangingItsContent(string language, string copy)
     {
         using var session = HeadlessMobileSession.Start();
@@ -62,6 +71,16 @@ public sealed class MobileLocalizationTests
     [InlineData("en", "en", "Settings", FlowDirection.LeftToRight)]
     [InlineData("he", "he", "הגדרות", FlowDirection.RightToLeft)]
     [InlineData("he-IL", "he", "הגדרות", FlowDirection.RightToLeft)]
+    [InlineData("es-MX", "es", "Configuración", FlowDirection.LeftToRight)]
+    [InlineData("pt-BR", "pt-BR", "Configurações", FlowDirection.LeftToRight)]
+    [InlineData("zh-CN", "zh-Hans", "设置", FlowDirection.LeftToRight)]
+    [InlineData("zh-Hans", "zh-Hans", "设置", FlowDirection.LeftToRight)]
+    [InlineData("de-DE", "de", "Einstellungen", FlowDirection.LeftToRight)]
+    [InlineData("fr-CA", "fr", "Paramètres", FlowDirection.LeftToRight)]
+    [InlineData("ja-JP", "ja", "設定", FlowDirection.LeftToRight)]
+    [InlineData("ko-KR", "ko", "설정", FlowDirection.LeftToRight)]
+    [InlineData("ar-SA", "ar", "الإعدادات", FlowDirection.RightToLeft)]
+    [InlineData("zh-TW", "en", "Settings", FlowDirection.LeftToRight)]
     [InlineData("unsupported", "en", "Settings", FlowDirection.LeftToRight)]
     public void StartupCultureSelectsResourcesAndBackgroundThreadDefaults(
         string requested, string expectedLanguage, string settings, FlowDirection direction)
@@ -80,29 +99,145 @@ public sealed class MobileLocalizationTests
         Assert.Equal("missing-mobile-key", ChatSessionStrings.Get("missing-mobile-key"));
     }
 
-    [Fact]
-    public void EmbeddedCatalogsHaveMatchingKeysAndValidFormatArguments()
+    [Theory]
+    [InlineData("he")]
+    [InlineData("es")]
+    [InlineData("pt-BR")]
+    [InlineData("zh-Hans")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("ja")]
+    [InlineData("ko")]
+    [InlineData("ar")]
+    public void EmbeddedCatalogsHaveMatchingKeysAndValidFormatArguments(string language)
     {
         var manager = new ResourceManager(
             "Lumi.Mobile.Localization.ChatSessionStrings", typeof(ChatSessionStrings).Assembly);
         var english = ReadCatalog(manager, CultureInfo.InvariantCulture);
-        var hebrew = ReadCatalog(manager, CultureInfo.GetCultureInfo("he"));
+        var translated = ReadCatalog(manager, CultureInfo.GetCultureInfo(language));
 
         Assert.Contains("Settings", english.Keys);
         Assert.Contains("MobileTruncationNotice", english.Keys);
-        Assert.Equal(english.Keys.Order(StringComparer.Ordinal), hebrew.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(english.Keys.Order(StringComparer.Ordinal), translated.Keys.Order(StringComparer.Ordinal));
         foreach (var (key, value) in english)
         {
             Assert.False(string.IsNullOrWhiteSpace(value), key);
-            Assert.False(string.IsNullOrWhiteSpace(hebrew[key]), key);
-            Assert.Equal(FormatArguments(value), FormatArguments(hebrew[key]));
-            foreach (var localized in new[] { value, hebrew[key] })
+            Assert.False(string.IsNullOrWhiteSpace(translated[key]), key);
+            Assert.Equal(FormatArguments(value), FormatArguments(translated[key]));
+            foreach (var localized in new[] { value, translated[key] })
             {
                 var format = CompositeFormat.Parse(localized);
                 var arguments = Enumerable.Repeat<object>(42, format.MinimumArgumentCount).ToArray();
                 _ = string.Format(CultureInfo.InvariantCulture, localized, arguments);
             }
         }
+    }
+
+    [Theory]
+    [InlineData("es")]
+    [InlineData("pt-BR")]
+    [InlineData("zh-Hans")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("ja")]
+    [InlineData("ko")]
+    [InlineData("ar")]
+    public async Task AddedLanguagesPersistWithoutChangingDraftsAndApplyOnRestart(string language)
+    {
+        using var cultures = new CultureScope();
+        var store = new MemorySettingsStore();
+        await using (var shell = new MobileShellViewModel(store: store, post: action => action()))
+        {
+            shell.Chat.PromptText = "Keep this authored draft";
+            shell.SelectLanguageCommand.Execute(language);
+            Assert.Equal(language, store.Settings.Language);
+            Assert.True(shell.LanguageRestartRequired);
+            Assert.Equal("en", ChatSessionStrings.Language);
+            Assert.Equal("Keep this authored draft", shell.Chat.PromptText);
+        }
+
+        await using var reopened = new MobileShellViewModel(store: store, post: action => action());
+        Assert.Equal(language, ChatSessionStrings.Language);
+        Assert.False(reopened.LanguageRestartRequired);
+        Assert.NotEqual("Connect phone", reopened.Connect.PairActionText);
+        Assert.NotEqual("High", MobileChatViewModel.EffortDisplay("high"));
+        Assert.Equal("provider-defined", MobileChatViewModel.ContextDisplay("provider-defined"));
+    }
+
+    [Theory]
+    [InlineData("es")]
+    [InlineData("pt-BR")]
+    [InlineData("zh-Hans")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("ja")]
+    [InlineData("ko")]
+    [InlineData("ar")]
+    public async Task LanguageChoicesRenderAndWorkInSetupAndSettings(string language)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            using var cultures = new CultureScope();
+            var store = new MemorySettingsStore();
+            store.Settings.Language = language;
+            await using var shell = new MobileShellViewModel(store: store, post: action => action());
+            var view = new MobileShellView { DataContext = shell };
+            var window = new Window { Width = 360, Height = 780, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var setup = view.FindControl<ConnectView>("ConnectPage")!;
+                foreach (var caption in setup.FindControl<Grid>("SetupProgress")!.GetVisualDescendants().OfType<TextBlock>())
+                {
+                    Assert.Equal(TextWrapping.Wrap, caption.TextWrapping);
+                    Assert.All(caption.TextLayout.TextLines,
+                        line => Assert.True(line.WidthIncludingTrailingWhitespace <= caption.Bounds.Width + 1,
+                            $"Setup step overflows in {language}: {caption.Text}"));
+                }
+                var picker = setup.FindControl<StrataComboBox>("SetupLanguagePicker")!;
+                Assert.True(picker.IsEffectivelyVisible);
+                Assert.InRange(picker.Bounds.Height, 48, 60);
+                Assert.InRange(picker.TranslatePoint(new Avalonia.Point(picker.Bounds.Width, 0), view)!.Value.X,
+                    0, view.Bounds.Width);
+                Assert.Equal(ChatSessionStrings.AvailableLanguages.Select(option => option.DisplayName),
+                    picker.ItemsSource!.Cast<string>());
+                var nativeName = ChatSessionStrings.AvailableLanguages.Single(option => option.Code == language).DisplayName;
+                Assert.Equal(nativeName, picker.SelectedItem);
+                picker.IsDropDownOpen = true;
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var popup = picker.GetVisualDescendants().OfType<Popup>().Single();
+                Assert.True(popup.ShouldUseOverlayLayer);
+                var options = popup.Child!.GetVisualDescendants().OfType<StrataComboBoxItem>()
+                    .Where(option => option.IsEffectivelyVisible).ToArray();
+                Assert.Equal(ChatSessionStrings.AvailableLanguages.Length, options.Length);
+                Assert.All(options, option => Assert.True(option.Bounds.Height >= 48, option.Text));
+                picker.IsDropDownOpen = false;
+
+                shell.IsPaired = true;
+                shell.Page = MobilePage.Settings;
+                shell.OpenSettingsSectionCommand.Execute("Appearance");
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var settings = view.FindControl<MobileSettingsView>("SettingsPage")!;
+                var choice = settings.FindControl<StrataComboBox>("SettingsLanguagePicker")!;
+                Assert.True(choice.IsEffectivelyVisible);
+                Assert.Equal(nativeName, choice.SelectedItem);
+                shell.Chat.PromptText = "Unsent original content";
+                choice.SelectedItem = "English";
+                Assert.Equal("en", store.Settings.Language);
+                Assert.True(shell.LanguageRestartRequired);
+                Assert.Equal("Unsent original content", shell.Chat.PromptText);
+                Assert.Equal(language, ChatSessionStrings.Language);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
     }
 
     [Theory]
@@ -285,7 +420,7 @@ public sealed class MobileLocalizationTests
 
     private static string[] FormatArguments(string value) =>
         Regex.Matches(value, @"(?<!\{)\{(\d+)(?:[^{}]*)\}(?!\})")
-            .Select(match => match.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
+            .Select(match => match.Value).Order(StringComparer.Ordinal).ToArray();
 
     private sealed class MemorySettingsStore : IMobileSettingsStore
     {

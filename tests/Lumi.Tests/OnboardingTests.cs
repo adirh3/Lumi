@@ -225,8 +225,17 @@ public sealed class OnboardingTests
         }, CancellationToken.None);
     }
 
-    [Fact]
-    public async Task ChoosingAnotherLanguageAsksTheShellToRestartInIt()
+    [Theory]
+    [InlineData("he")]
+    [InlineData("es")]
+    [InlineData("pt-BR")]
+    [InlineData("zh-Hans")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("ja")]
+    [InlineData("ko")]
+    [InlineData("ar")]
+    public async Task ChoosingAnotherLanguageAsksTheShellToRestartInIt(string code)
     {
         using var session = HeadlessTestSession.Start();
         await session.Dispatch(() =>
@@ -235,14 +244,14 @@ public sealed class OnboardingTests
             var vm = CreateViewModel(new AppData(), new FakeDiscovery([]), withAi: false);
             var requested = new List<string>();
             vm.LanguageChangeRequested += requested.Add;
-            var hebrew = Array.FindIndex(Loc.AvailableLanguages, language => language.Code == "he");
+            var selected = Array.FindIndex(Loc.AvailableLanguages, language => language.Code == code);
             var english = Array.FindIndex(Loc.AvailableLanguages, language => language.Code == "en");
 
             Assert.Equal(english, vm.LanguageIndex);
-            vm.LanguageIndex = hebrew;
+            vm.LanguageIndex = selected;
             vm.LanguageIndex = english;
 
-            Assert.Equal(new[] { "he" }, requested);
+            Assert.Equal(new[] { code }, requested);
         }, CancellationToken.None);
     }
 

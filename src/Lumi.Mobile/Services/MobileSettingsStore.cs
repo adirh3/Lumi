@@ -27,7 +27,7 @@ public sealed class MobileConnectionSettings
     /// </summary>
     public string Theme { get; set; } = "System";
 
-    /// <summary>Empty follows the device at startup; explicit choices are the stable en/he culture codes.</summary>
+    /// <summary>Empty follows the device at startup; explicit choices use a supported UI culture code.</summary>
     public string Language { get; set; } = "";
 
     /// <summary>Docked sidebar collapsed on a tablet or unfolded foldable.</summary>

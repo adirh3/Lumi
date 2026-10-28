@@ -87,7 +87,7 @@ public partial class OnboardingViewModel : ObservableObject
             "female" => OnboardingPronoun.She,
             _ => OnboardingPronoun.Unset,
         };
-        _activeLanguage = string.IsNullOrWhiteSpace(settings.Language) ? "en" : settings.Language;
+        _activeLanguage = Loc.NormalizeLanguage(settings.Language);
         _languageIndex = Math.Max(0, Array.FindIndex(Loc.AvailableLanguages,
             language => string.Equals(language.Code, _activeLanguage, StringComparison.OrdinalIgnoreCase)));
 

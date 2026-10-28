@@ -245,14 +245,20 @@
               <sc:StrataSetting Header="{loc:Str Language}" Classes="mobile stacked"
                                 Description="{loc:Str LanguageDescription}">
                 <StackPanel Spacing="10">
-                  <Grid ColumnDefinitions="*,*" ColumnSpacing="8" FlowDirection="LeftToRight">
-                    <Button x:Name="LanguageEnglishButton" Classes="theme-option" Content="English"
-                            Classes.selected="{Binding IsEnglishLanguage}"
-                            Command="{Binding SelectLanguageCommand}" CommandParameter="en" />
-                    <Button x:Name="LanguageHebrewButton" Grid.Column="1" Classes="theme-option" Content="עברית"
-                            Classes.selected="{Binding IsHebrewLanguage}"
-                            Command="{Binding SelectLanguageCommand}" CommandParameter="he" />
-                  </Grid>
+                  <sc:StrataComboBox x:Name="SettingsLanguagePicker" FlowDirection="LeftToRight"
+                                     ItemsSource="{Binding LanguageOptions}"
+                                     SelectedItem="{Binding SelectedLanguageName, Mode=TwoWay}"
+                                     MinHeight="{DynamicResource Touch.MinTarget}"
+                                     AutomationProperties.Name="{loc:Str Language}">
+                    <sc:StrataComboBox.Styles>
+                      <Style Selector="sc|StrataComboBox#SettingsLanguagePicker /template/ Popup#PART_Popup">
+                        <Setter Property="ShouldUseOverlayLayer" Value="True" />
+                      </Style>
+                      <Style Selector="sc|StrataComboBoxItem">
+                        <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+                      </Style>
+                    </sc:StrataComboBox.Styles>
+                  </sc:StrataComboBox>
                   <TextBlock Text="{loc:Str LanguageRestart}" Classes="supporting" TextWrapping="Wrap"
                              IsVisible="{Binding LanguageRestartRequired}" />
                 </StackPanel>

@@ -5,6 +5,49 @@ namespace Lumi.Tests;
 
 public sealed class LocLanguageTests
 {
+    [Theory]
+    [InlineData("es", "es")]
+    [InlineData("es-MX", "es")]
+    [InlineData("de-DE", "de")]
+    [InlineData("fr-CA", "fr")]
+    [InlineData("ja-JP", "ja")]
+    [InlineData("ko-KR", "ko")]
+    [InlineData("ar-SA", "ar")]
+    [InlineData("pt", "pt-BR")]
+    [InlineData("pt-BR", "pt-BR")]
+    [InlineData("pt-PT", "pt-BR")]
+    [InlineData("zh", "zh-Hans")]
+    [InlineData("zh-CN", "zh-Hans")]
+    [InlineData("zh-SG", "zh-Hans")]
+    [InlineData("zh-Hans", "zh-Hans")]
+    [InlineData("zh-Hans-CN", "zh-Hans")]
+    [InlineData("zh-Hant", "en")]
+    [InlineData("zh-TW", "en")]
+    [InlineData("unsupported", "en")]
+    public void StartupSelectsSupportedCatalogAndCulture(string requested, string expected)
+    {
+        try
+        {
+            Loc.Load("he");
+            Loc.Load(requested);
+            Assert.Equal(expected, Loc.Culture.Name);
+            Assert.Equal(expected is "he" or "ar", Loc.IsRightToLeft);
+            if (expected == "en")
+                Assert.Equal("Profile", Loc.Settings_Profile);
+            else
+                Assert.NotEqual("Profile", Loc.Settings_Profile);
+            Assert.Contains(Loc.AvailableLanguages, language => language.Code == expected);
+        }
+        finally
+        {
+            Loc.Load("en");
+        }
+    }
+
+    [Fact]
+    public void DesktopAndMobileOfferTheSameLanguageChoices()
+        => Assert.Equal(Loc.AvailableLanguages, Lumi.Mobile.Localization.ChatSessionStrings.AvailableLanguages);
+
     [Fact]
     public void LoadingEnglishAfterAnotherLanguageRestoresEnglish()
     {

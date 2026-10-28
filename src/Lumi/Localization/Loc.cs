@@ -55,19 +55,36 @@ public static partial class Loc
     /// </summary>
     public static void Load(string language)
     {
+        language = NormalizeLanguage(language);
         SelectLanguage(language);
 
-        try
-        {
-            Culture = new CultureInfo(language);
-            CultureInfo.CurrentUICulture = Culture;
-            CultureInfo.CurrentCulture = Culture;
-        }
-        catch
-        {
-            Culture = CultureInfo.InvariantCulture;
-        }
+        Culture = CultureInfo.GetCultureInfo(language);
+        CultureInfo.CurrentUICulture = Culture;
+        CultureInfo.CurrentCulture = Culture;
     }
+
+    internal static string NormalizeLanguage(string? language) => language?.Trim().ToLowerInvariant() switch
+    {
+        "he" => "he",
+        { } code when code.StartsWith("he-", StringComparison.Ordinal) => "he",
+        "de" => "de",
+        "fr" => "fr",
+        "ja" => "ja",
+        "ko" => "ko",
+        "ar" => "ar",
+        { } code when code.StartsWith("de-", StringComparison.Ordinal) => "de",
+        { } code when code.StartsWith("fr-", StringComparison.Ordinal) => "fr",
+        { } code when code.StartsWith("ja-", StringComparison.Ordinal) => "ja",
+        { } code when code.StartsWith("ko-", StringComparison.Ordinal) => "ko",
+        { } code when code.StartsWith("ar-", StringComparison.Ordinal) => "ar",
+        "es" => "es",
+        { } code when code.StartsWith("es-", StringComparison.Ordinal) => "es",
+        "pt" => "pt-BR",
+        { } code when code.StartsWith("pt-", StringComparison.Ordinal) => "pt-BR",
+        "zh" or "zh-hans" or "zh-cn" or "zh-sg" => "zh-Hans",
+        { } code when code.StartsWith("zh-hans-", StringComparison.Ordinal) => "zh-Hans",
+        _ => "en"
+    };
 
     /// <summary>Gets a localized string by key via FrozenDictionary lookup.</summary>
 #if WINDOWS
@@ -120,6 +137,14 @@ public static partial class Loc
     [
         ("en", "English"),
         ("he", "עברית"),
+        ("es", "Español"),
+        ("pt-BR", "Português (Brasil)"),
+        ("zh-Hans", "简体中文"),
+        ("de", "Deutsch"),
+        ("fr", "Français"),
+        ("ja", "日本語"),
+        ("ko", "한국어"),
+        ("ar", "العربية"),
     ];
 }
 

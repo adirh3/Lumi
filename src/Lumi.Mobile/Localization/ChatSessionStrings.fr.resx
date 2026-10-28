@@ -1,0 +1,637 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <data name="ReadyWithBackgroundActivity" xml:space="preserve">
+    <value>Prêt · Activité en arrière-plan</value>
+  </data>
+  <data name="StopSession" xml:space="preserve">
+    <value>Arrêter la session</value>
+  </data>
+  <data name="Retry" xml:space="preserve"><value>Réessayer</value></data>
+  <data name="TryAgain" xml:space="preserve"><value>Réessayer</value></data>
+  <data name="SignInAgain" xml:space="preserve"><value>Se reconnecter</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Annuler</value></data>
+  <data name="Save" xml:space="preserve"><value>Enregistrer</value></data>
+  <data name="Saving" xml:space="preserve"><value>Enregistrement…</value></data>
+  <data name="Delete" xml:space="preserve"><value>Supprimer</value></data>
+  <data name="DeleteEllipsis" xml:space="preserve"><value>Supprimer…</value></data>
+  <data name="Edit" xml:space="preserve"><value>Modifier</value></data>
+  <data name="Back" xml:space="preserve"><value>Retour</value></data>
+  <data name="Done" xml:space="preserve"><value>Terminé</value></data>
+  <data name="Copy" xml:space="preserve"><value>Copier</value></data>
+  <data name="SelectAll" xml:space="preserve"><value>Tout sélectionner</value></data>
+  <data name="SelectText" xml:space="preserve"><value>Sélectionner le texte</value></data>
+  <data name="OpenWith" xml:space="preserve"><value>Ouvrir avec</value></data>
+  <data name="ClearSearch" xml:space="preserve"><value>Effacer la recherche</value></data>
+  <data name="Settings" xml:space="preserve"><value>Paramètres</value></data>
+  <data name="Chats" xml:space="preserve"><value>Conversations</value></data>
+  <data name="Chat" xml:space="preserve"><value>Conversation</value></data>
+  <data name="Jobs" xml:space="preserve"><value>Tâches</value></data>
+  <data name="Customize" xml:space="preserve"><value>Personnaliser</value></data>
+  <data name="Library" xml:space="preserve"><value>Bibliothèque</value></data>
+  <data name="Memories" xml:space="preserve"><value>Souvenirs</value></data>
+  <data name="Projects" xml:space="preserve"><value>Projets</value></data>
+  <data name="Project" xml:space="preserve"><value>Projet</value></data>
+  <data name="Skills" xml:space="preserve"><value>Compétences</value></data>
+  <data name="Skill" xml:space="preserve"><value>Compétence</value></data>
+  <data name="Agents" xml:space="preserve"><value>Agents</value></data>
+  <data name="Agent" xml:space="preserve"><value>Agent</value></data>
+  <data name="Connectors" xml:space="preserve"><value>Connecteurs</value></data>
+  <data name="ConnectorsHeader" xml:space="preserve"><value>CONNECTEURS</value></data>
+  <data name="Model" xml:space="preserve"><value>Modèle</value></data>
+  <data name="ReasoningEffort" xml:space="preserve"><value>Effort de raisonnement</value></data>
+  <data name="ContextWindow" xml:space="preserve"><value>Fenêtre de contexte</value></data>
+  <data name="Plan" xml:space="preserve"><value>Plan</value></data>
+  <data name="Sources" xml:space="preserve"><value>Sources</value></data>
+  <data name="Instructions" xml:space="preserve"><value>Instructions</value></data>
+  <data name="Output" xml:space="preserve"><value>Sortie</value></data>
+  <data name="Started" xml:space="preserve"><value>Début</value></data>
+  <data name="Completed" xml:space="preserve"><value>Fin</value></data>
+  <data name="ExitCode" xml:space="preserve"><value>Code de sortie</value></data>
+  <data name="Preferences" xml:space="preserve"><value>Préférences</value></data>
+  <data name="Workspace" xml:space="preserve"><value>Espace de travail</value></data>
+  <data name="LocalCheckout" xml:space="preserve"><value>Copie de travail locale</value></data>
+  <data name="NewWorktree" xml:space="preserve"><value>Nouveau worktree</value></data>
+  <data name="None" xml:space="preserve"><value>Aucun</value></data>
+  <data name="Name" xml:space="preserve"><value>Nom</value></data>
+  <data name="Description" xml:space="preserve"><value>Description</value></data>
+  <data name="Icon" xml:space="preserve"><value>Icône</value></data>
+  <data name="Details" xml:space="preserve"><value>Détails</value></data>
+  <data name="Appearance" xml:space="preserve"><value>Apparence</value></data>
+  <data name="Connection" xml:space="preserve"><value>Connexion</value></data>
+  <data name="About" xml:space="preserve"><value>À propos</value></data>
+  <data name="System" xml:space="preserve"><value>Système</value></data>
+  <data name="Light" xml:space="preserve"><value>Clair</value></data>
+  <data name="Dark" xml:space="preserve"><value>Sombre</value></data>
+  <data name="Language" xml:space="preserve"><value>Langue</value></data>
+  <data name="LanguageDescription" xml:space="preserve"><value>Choisissez la langue de cette application.</value></data>
+  <data name="LanguageRestart" xml:space="preserve"><value>Fermez puis rouvrez Lumi pour appliquer la langue. Dans un navigateur, rechargez la page après avoir enregistré le texte non envoyé.</value></data>
+  <data name="AllProjects" xml:space="preserve"><value>Tous les projets</value></data>
+  <data name="AllChats" xml:space="preserve"><value>Toutes les conversations</value></data>
+  <data name="NewChat" xml:space="preserve"><value>Nouvelle conversation</value></data>
+  <data name="StartNewChat" xml:space="preserve"><value>Commencer une conversation</value></data>
+  <data name="SearchChats" xml:space="preserve"><value>Rechercher des conversations</value></data>
+  <data name="SearchYourChats" xml:space="preserve"><value>Rechercher vos conversations</value></data>
+  <data name="LoadMoreChats" xml:space="preserve"><value>Charger plus de conversations</value></data>
+  <data name="LongPressChatActions" xml:space="preserve"><value>Appui long pour les actions de conversation</value></data>
+  <data name="RenameChat" xml:space="preserve"><value>Renommer la conversation</value></data>
+  <data name="DeleteChat" xml:space="preserve"><value>Supprimer la conversation</value></data>
+  <data name="ChatName" xml:space="preserve"><value>Nom de la conversation</value></data>
+  <data name="DeleteChatWarning" xml:space="preserve"><value>Cette conversation sera supprimée du téléphone et de l’ordinateur. Cette action est irréversible.</value></data>
+  <data name="PinChat" xml:space="preserve"><value>Épingler la conversation</value></data>
+  <data name="UnpinChat" xml:space="preserve"><value>Désépingler la conversation</value></data>
+  <data name="DeleteChatQuestion" xml:space="preserve"><value>Supprimer cette conversation ?</value></data>
+  <data name="ChatActions" xml:space="preserve"><value>Actions de la conversation</value></data>
+  <data name="OpenNamed" xml:space="preserve"><value>Ouvrir {0}</value></data>
+  <data name="RemoveNamed" xml:space="preserve"><value>Retirer {0}</value></data>
+  <data name="JobWakeNamed" xml:space="preserve"><value>Réveil par une tâche : {0}</value></data>
+  <data name="ChatDetailsNamed" xml:space="preserve"><value>Détails de la conversation : {0}</value></data>
+  <data name="ModelNamed" xml:space="preserve"><value>Modèle : {0}</value></data>
+  <data name="ProjectNamed" xml:space="preserve"><value>Projet : {0}</value></data>
+  <data name="AgentNamed" xml:space="preserve"><value>Agent : {0}</value></data>
+  <data name="SkillNamed" xml:space="preserve"><value>Compétence : {0}</value></data>
+  <data name="StartWithNamed" xml:space="preserve"><value>Commencer avec {0}</value></data>
+  <data name="EffortNamed" xml:space="preserve"><value>Effort de raisonnement : {0}</value></data>
+  <data name="ContextNamed" xml:space="preserve"><value>Fenêtre de contexte : {0}</value></data>
+  <data name="SelectProjectNamed" xml:space="preserve"><value>Choisir un projet : {0}</value></data>
+  <data name="InProjectNamed" xml:space="preserve"><value>Dans {0}</value></data>
+  <data name="ChatNamed" xml:space="preserve"><value>Conversation : {0}</value></data>
+  <data name="NewInSection" xml:space="preserve"><value>Nouveau dans {0}</value></data>
+  <data name="ProfileNamed" xml:space="preserve"><value>{0} : profil et souvenirs</value></data>
+  <data name="ProfileMemories" xml:space="preserve"><value>Profil · {0}</value></data>
+  <data name="ConnectionNamed" xml:space="preserve"><value>Connexion : {0}</value></data>
+  <data name="JobWokeChat" xml:space="preserve"><value>Une tâche en arrière-plan a réveillé cette conversation</value></data>
+  <data name="CopyAnswer" xml:space="preserve"><value>Copier la réponse</value></data>
+  <data name="ShareAnswer" xml:space="preserve"><value>Partager la réponse</value></data>
+  <data name="ChatDetailsHelp" xml:space="preserve"><value>Modèle, effort de raisonnement, contexte, plan, espace de travail et actions</value></data>
+  <data name="EarlierActivity" xml:space="preserve"><value>Activité précédente</value></data>
+  <data name="ReturnToLatest" xml:space="preserve"><value>Revenir au plus récent</value></data>
+  <data name="LoadingConversation" xml:space="preserve"><value>Chargement de la conversation</value></data>
+  <data name="LoadingConversationEllipsis" xml:space="preserve"><value>Chargement de la conversation...</value></data>
+  <data name="MessageLumi" xml:space="preserve"><value>Écrivez à Lumi</value></data>
+  <data name="AddFilesAndContext" xml:space="preserve"><value>Ajouter des fichiers, un agent, des compétences et plus</value></data>
+  <data name="AddsToMessage" xml:space="preserve"><value>Ajoute cet élément à votre message</value></data>
+  <data name="SetupsRequireUpdate" xml:space="preserve"><value>Mettez Lumi à jour sur votre ordinateur pour retrouver vos configurations habituelles ici.</value></data>
+  <data name="HowLumiWorked" xml:space="preserve"><value>Comment Lumi a travaillé</value></data>
+  <data name="JobDetails" xml:space="preserve"><value>Détails de la tâche</value></data>
+  <data name="ContextUsed" xml:space="preserve"><value>Contexte utilisé</value></data>
+  <data name="ChooseFirstWorkspace" xml:space="preserve"><value>Choisissez où exécuter le premier tour de code.</value></data>
+  <data name="AddToChat" xml:space="preserve"><value>Ajouter à cette conversation</value></data>
+  <data name="FilesAndPhotos" xml:space="preserve"><value>Fichiers et photos</value></data>
+  <data name="ForThisChat" xml:space="preserve"><value>Pour cette conversation</value></data>
+  <data name="ContextDescription" xml:space="preserve"><value>La quantité de conversation que le modèle garde en vue.</value></data>
+  <data name="EffortDescription" xml:space="preserve"><value>Plus d’effort donne des réponses plus approfondies, mais prend plus de temps.</value></data>
+  <data name="Faster" xml:space="preserve"><value>Plus rapide</value></data>
+  <data name="MoreThorough" xml:space="preserve"><value>Plus approfondi</value></data>
+  <data name="ConnectTagline" xml:space="preserve"><value>Tout, un peu plus près de vous.</value></data>
+  <data name="ConnectStepFind" xml:space="preserve"><value>1  Trouvez votre ordinateur</value></data>
+  <data name="ConnectStepPair" xml:space="preserve"><value>2  Associez votre téléphone</value></data>
+  <data name="ConnectTitle" xml:space="preserve"><value>Votre Lumi, partout avec vous.</value></data>
+  <data name="ConnectDescription" xml:space="preserve"><value>Reprenez vos conversations et agissez sur votre ordinateur depuis votre téléphone.</value></data>
+  <data name="ConnectFirstOpen" xml:space="preserve"><value>Ouvrez d’abord Lumi sur votre ordinateur</value></data>
+  <data name="ConnectDesktopInstructions" xml:space="preserve"><value>Dans Paramètres → Mobile, activez l’accès mobile. Ouvrez le lien de configuration ou saisissez l’adresse ci-dessous.</value></data>
+  <data name="PcAddress" xml:space="preserve"><value>Adresse de l’ordinateur</value></data>
+  <data name="PcAddressHelp" xml:space="preserve"><value>Utilisez l’adresse affichée par Lumi sur le bureau.</value></data>
+  <data name="PcAddressExample" xml:space="preserve"><value>ex. 100.100.20.10</value></data>
+  <data name="Continue" xml:space="preserve"><value>Continuer</value></data>
+  <data name="TailscaleAdvice" xml:space="preserve"><value>Pour une connexion privée partout, gardez Tailscale connecté sur les deux appareils.</value></data>
+  <data name="UseLocalWifi" xml:space="preserve"><value>Utiliser plutôt le Wi-Fi local</value></data>
+  <data name="LocalWifiWarning" xml:space="preserve"><value>Le trafic Wi-Fi local n’est pas chiffré. Utilisez uniquement un réseau de confiance.</value></data>
+  <data name="FindNearby" xml:space="preserve"><value>Trouver Lumi à proximité</value></data>
+  <data name="Nearby" xml:space="preserve"><value>À proximité</value></data>
+  <data name="OneLastStep" xml:space="preserve"><value>Une dernière étape.</value></data>
+  <data name="PairCodeInstructions" xml:space="preserve"><value>Saisissez le code à 6 chiffres de Paramètres → Mobile sur votre ordinateur pour associer ce téléphone.</value></data>
+  <data name="PairCodeAccessible" xml:space="preserve"><value>Code d’association à six chiffres</value></data>
+  <data name="DifferentPc" xml:space="preserve"><value>Utiliser un autre ordinateur</value></data>
+  <data name="BackToChat" xml:space="preserve"><value>Retour à la conversation</value></data>
+  <data name="Working" xml:space="preserve"><value>Au travail</value></data>
+  <data name="BackToSettings" xml:space="preserve"><value>Retour aux paramètres</value></data>
+  <data name="Theme" xml:space="preserve"><value>Thème</value></data>
+  <data name="LightOrDark" xml:space="preserve"><value>Clair ou sombre</value></data>
+  <data name="ThemeDescription" xml:space="preserve"><value>Choisissez une apparence ou suivez votre téléphone.</value></data>
+  <data name="ThisConnection" xml:space="preserve"><value>Cette connexion</value></data>
+  <data name="Pc" xml:space="preserve"><value>Ordinateur</value></data>
+  <data name="Status" xml:space="preserve"><value>État</value></data>
+  <data name="ThisDevice" xml:space="preserve"><value>Cet appareil</value></data>
+  <data name="RefreshConnection" xml:space="preserve"><value>Actualiser la connexion</value></data>
+  <data name="RefreshConnectionHelp" xml:space="preserve"><value>Mettre vos conversations et votre bibliothèque à jour.</value></data>
+  <data name="Refresh" xml:space="preserve"><value>Actualiser</value></data>
+  <data name="ConnectionActivity" xml:space="preserve"><value>Activité de connexion</value></data>
+  <data name="BrowserSignIn" xml:space="preserve"><value>Connexion dans le navigateur</value></data>
+  <data name="BrowserSignInHelp" xml:space="preserve"><value>Rechargez dans votre navigateur si la connexion a expiré. L’association est conservée, mais pas le texte non envoyé.</value></data>
+  <data name="ReloadWebApp" xml:space="preserve"><value>Recharger l’application web</value></data>
+  <data name="DisconnectPc" xml:space="preserve"><value>Se déconnecter de cet ordinateur</value></data>
+  <data name="ChatsStayOnPc" xml:space="preserve"><value>Vos conversations et fichiers restent sur votre ordinateur.</value></data>
+  <data name="AppVersion" xml:space="preserve"><value>Version de l’application</value></data>
+  <data name="YourAssistant" xml:space="preserve"><value>Votre assistant</value></data>
+  <data name="AboutDescription" xml:space="preserve"><value>Lumi sur votre téléphone travaille avec Lumi sur votre ordinateur : conversations, fichiers et outils y restent.</value></data>
+  <data name="DisconnectQuestion" xml:space="preserve"><value>Se déconnecter de cet ordinateur ?</value></data>
+  <data name="DisconnectDescription" xml:space="preserve"><value>Ce téléphone perdra l’accès et reviendra à la configuration. Vos conversations et fichiers restent sur l’ordinateur.</value></data>
+  <data name="DisconnectRevoke" xml:space="preserve"><value>Déconnecter et révoquer l’accès</value></data>
+  <data name="KeepConnected" xml:space="preserve"><value>Rester connecté</value></data>
+  <data name="CantReachPcQuestion" xml:space="preserve"><value>Votre ordinateur est injoignable ?</value></data>
+  <data name="RemoveLocalConnectionHelp" xml:space="preserve"><value>Retirer la connexion enregistrée uniquement de ce téléphone. Son accès sur l’ordinateur reste actif.</value></data>
+  <data name="RemoveLocalConnection" xml:space="preserve"><value>Retirer uniquement de ce téléphone</value></data>
+  <data name="UpdateNow" xml:space="preserve"><value>Mettre à jour maintenant</value></data>
+  <data name="TryLoadingAgain" xml:space="preserve"><value>Réessayer le chargement</value></data>
+  <data name="ShortSummary" xml:space="preserve"><value>Un court résumé</value></data>
+  <data name="EmojiOrSymbol" xml:space="preserve"><value>Un emoji ou symbole</value></data>
+  <data name="PcWorkspace" xml:space="preserve"><value>Espace de travail de l’ordinateur</value></data>
+  <data name="PcFolder" xml:space="preserve"><value>Un dossier sur votre ordinateur</value></data>
+  <data name="LibrarySavedOnPc" xml:space="preserve"><value>Les modifications sont enregistrées dans la bibliothèque partagée de votre ordinateur.</value></data>
+  <data name="AppliesOnPc" xml:space="preserve"><value>S’applique immédiatement sur votre ordinateur</value></data>
+  <data name="OpenJobChat" xml:space="preserve"><value>Ouvrir sa conversation</value></data>
+  <data name="OpenJobChatHelp" xml:space="preserve"><value>Voir ses résultats ou lui poser une question</value></data>
+  <data name="LoadingDetails" xml:space="preserve"><value>Chargement des détails…</value></data>
+  <data name="WorkingOnPc" xml:space="preserve"><value>Au travail sur votre ordinateur…</value></data>
+  <data name="DiscardQuestion" xml:space="preserve"><value>Abandonner les modifications ?</value></data>
+  <data name="KeepEditing" xml:space="preserve"><value>Continuer à modifier</value></data>
+  <data name="Discard" xml:space="preserve"><value>Abandonner</value></data>
+  <data name="GitChanges" xml:space="preserve"><value>Modifications Git</value></data>
+  <data name="PreviousFile" xml:space="preserve"><value>Fichier précédent</value></data>
+  <data name="NextFile" xml:space="preserve"><value>Fichier suivant</value></data>
+  <data name="RefreshChangedFiles" xml:space="preserve"><value>Actualiser les fichiers modifiés</value></data>
+  <data name="CloseGitChanges" xml:space="preserve"><value>Fermer les modifications Git</value></data>
+  <data name="SelectFileToReview" xml:space="preserve"><value>Sélectionnez un fichier pour examiner ses modifications</value></data>
+  <data name="BinaryFile" xml:space="preserve"><value>Fichier binaire</value></data>
+  <data name="LineCountsUnavailable" xml:space="preserve"><value>Nombre de lignes indisponible</value></data>
+  <data name="NoChangedFiles" xml:space="preserve"><value>Aucun fichier modifié</value></data>
+  <data name="NothingToReview" xml:space="preserve"><value>Rien à examiner dans ce périmètre.</value></data>
+  <data name="ReadingGitChanges" xml:space="preserve"><value>Lecture des modifications du dépôt…</value></data>
+  <data name="LoadingFileChanges" xml:space="preserve"><value>Chargement des modifications du fichier…</value></data>
+  <data name="NoTextPreview" xml:space="preserve"><value>Aucun aperçu textuel</value></data>
+  <data name="SelectFile" xml:space="preserve"><value>Sélectionnez un fichier</value></data>
+  <data name="GitReadOnlyHelp" xml:space="preserve"><value>Examinez les différences ici. Votre dépôt reste inchangé.</value></data>
+  <data name="RunningSuffix" xml:space="preserve"><value>, En cours</value></data>
+  <data name="UnreadSuffix" xml:space="preserve"><value>, Non lu</value></data>
+  <data name="Pinned" xml:space="preserve"><value>Épinglés</value></data>
+  <data name="Today" xml:space="preserve"><value>Aujourd’hui</value></data>
+  <data name="VisibleChatCount" xml:space="preserve"><value>{0:N0} affichés sur {1:N0}</value></data>
+  <data name="NoChatsFound" xml:space="preserve"><value>Aucune conversation trouvée</value></data>
+  <data name="NextIdeaStartsHere" xml:space="preserve"><value>Votre prochaine idée commence ici</value></data>
+  <data name="TryDifferentSearch" xml:space="preserve"><value>Essayez un autre mot ou une expression plus courte.</value></data>
+  <data name="ProjectEmptyChats" xml:space="preserve"><value>Commencez une conversation dans ce projet ou affichez toutes les conversations.</value></data>
+  <data name="EmptyChatsDescription" xml:space="preserve"><value>Commencez une conversation. Elle apparaîtra ici et sur votre ordinateur.</value></data>
+  <data name="SearchingChats" xml:space="preserve"><value>Recherche dans vos conversations...</value></data>
+  <data name="UpdatingChats" xml:space="preserve"><value>Mise à jour des conversations...</value></data>
+  <data name="ResultCountOne" xml:space="preserve"><value>1 résultat</value></data>
+  <data name="ResultCountMany" xml:space="preserve"><value>{0:N0} résultats</value></data>
+  <data name="RecentChats" xml:space="preserve"><value>Conversations récentes</value></data>
+  <data name="LoadMoreChatsFailed" xml:space="preserve"><value>Impossible de charger d’autres conversations. Vérifiez la connexion à votre ordinateur et réessayez.</value></data>
+  <data name="UpdateChatsFailed" xml:space="preserve"><value>Impossible de mettre vos conversations à jour. Vérifiez la connexion à votre ordinateur et réessayez.</value></data>
+  <data name="ConnectWebApp" xml:space="preserve"><value>Connecter l’application web</value></data>
+  <data name="ConnectPhone" xml:space="preserve"><value>Connecter le téléphone</value></data>
+  <data name="AddressReadyTrust" xml:space="preserve"><value>L’adresse de votre ordinateur est prête. Confirmez que le réseau local est fiable, puis touchez Continuer.</value></data>
+  <data name="AddressReady" xml:space="preserve"><value>L’adresse de votre ordinateur est prête. Vérifiez-la ci-dessous, puis touchez Continuer.</value></data>
+  <data name="ConfirmLanSearch" xml:space="preserve"><value>Confirmez l’accès au réseau de confiance avant de rechercher sur votre réseau local.</value></data>
+  <data name="LookingForLumi" xml:space="preserve"><value>Recherche de Lumi sur votre réseau…</value></data>
+  <data name="NoLumiFound" xml:space="preserve"><value>Lumi introuvable. Vérifiez qu’il est ouvert sur l’ordinateur avec l’accès mobile activé, ou saisissez son adresse ci-dessous.</value></data>
+  <data name="EnableLanBeforeContinuing" xml:space="preserve"><value>Les connexions locales ne sont pas chiffrées. Activez l’option LAN avant de continuer.</value></data>
+  <data name="DirectLanWarning" xml:space="preserve"><value>Les connexions LAN directes ne sont pas chiffrées. Activez l’option uniquement sur un réseau de confiance.</value></data>
+  <data name="SayingHello" xml:space="preserve"><value>Premier contact…</value></data>
+  <data name="AddressNoAnswer" xml:space="preserve"><value>Lumi n’a pas répondu à cette adresse.</value></data>
+  <data name="InvalidPcAddress" xml:space="preserve"><value>Saisissez une adresse d’ordinateur valide.</value></data>
+  <data name="VersionMismatch" xml:space="preserve"><value>Cette version de Lumi est différente. Mettez les deux applications à jour et réessayez.</value></data>
+  <data name="AddressTimeout" xml:space="preserve"><value>Cette adresse a mis trop de temps à répondre.</value></data>
+  <data name="Pairing" xml:space="preserve"><value>Association…</value></data>
+  <data name="PairingFailed" xml:space="preserve"><value>Échec de l’association.</value></data>
+  <data name="PairingTimeout" xml:space="preserve"><value>L’association a pris trop de temps.</value></data>
+  <data name="NewChatBrief" xml:space="preserve"><value>Posez une question ou agissez sur votre ordinateur.</value></data>
+  <data name="UsualSetups" xml:space="preserve"><value>Vos configurations habituelles</value></data>
+  <data name="SetupsBeforeFirstMessage" xml:space="preserve"><value>Les configurations sont disponibles avant le premier message.</value></data>
+  <data name="SetupUnavailable" xml:space="preserve"><value>Cette configuration n’est plus disponible. Choisissez-en une autre.</value></data>
+  <data name="ActionIncomplete" xml:space="preserve"><value>Cette action n’a pas abouti. Réessayez.</value></data>
+  <data name="ProjectCountOne" xml:space="preserve"><value>1 projet</value></data>
+  <data name="ProjectCountMany" xml:space="preserve"><value>{0} projets</value></data>
+  <data name="UpdateDownloading" xml:space="preserve"><value>Téléchargement de la mise à jour</value></data>
+  <data name="UpdateReady" xml:space="preserve"><value>Mise à jour prête</value></data>
+  <data name="UpdateApplying" xml:space="preserve"><value>Application de la mise à jour</value></data>
+  <data name="UpdateFailed" xml:space="preserve"><value>La mise à jour n’a pas abouti</value></data>
+  <data name="UpdateDownloadingHelp" xml:space="preserve"><value>Vous pouvez utiliser Lumi pendant le téléchargement de l’application vérifiée.</value></data>
+  <data name="UpdateReadyHelp" xml:space="preserve"><value>Lumi se mettra à jour automatiquement quand votre travail sera en sécurité. Ou choisissez Mettre à jour maintenant après la fin des téléchargements et actions.</value></data>
+  <data name="UpdateDiscardHelp" xml:space="preserve"><value>La mise à jour rouvre Lumi. Les brouillons non envoyés, réponses aux questions et modifications non enregistrées seront perdus. L’association et les conversations enregistrées sont conservées.</value></data>
+  <data name="UpdateAndDiscard" xml:space="preserve"><value>Mettre à jour et abandonner</value></data>
+  <data name="UpdateApplyingHelp" xml:space="preserve"><value>Réouverture de la nouvelle version de Lumi. L’association est conservée.</value></data>
+  <data name="UpdateFailedHelp" xml:space="preserve"><value>L’application actuelle et l’association sont conservées. Réessayez une fois connecté.</value></data>
+  <data name="Unknown" xml:space="preserve"><value>inconnu</value></data>
+  <data name="GreetingLateNight" xml:space="preserve"><value>Toujours actif</value></data>
+  <data name="GreetingMorning" xml:space="preserve"><value>Bonjour</value></data>
+  <data name="GreetingAfternoon" xml:space="preserve"><value>Bon après-midi</value></data>
+  <data name="GreetingEvening" xml:space="preserve"><value>Bonsoir</value></data>
+  <data name="GreetingWithName" xml:space="preserve"><value>{0}, {1}.</value></data>
+  <data name="GreetingWithoutName" xml:space="preserve"><value>{0}.</value></data>
+  <data name="SignInRequired" xml:space="preserve"><value>Connexion requise</value></data>
+  <data name="Offline" xml:space="preserve"><value>Hors ligne</value></data>
+  <data name="Reconnecting" xml:space="preserve"><value>Reconnexion</value></data>
+  <data name="Connected" xml:space="preserve"><value>Connecté</value></data>
+  <data name="GettingReady" xml:space="preserve"><value>Préparation</value></data>
+  <data name="MicrosoftSignInAttention" xml:space="preserve"><value>La connexion Microsoft nécessite votre attention. Votre association Lumi est conservée.</value></data>
+  <data name="YourPc" xml:space="preserve"><value>votre ordinateur</value></data>
+  <data name="CantReachHost" xml:space="preserve"><value>Impossible de joindre {0}. Vérifiez qu’il est éveillé et en ligne, puis réessayez.</value></data>
+  <data name="PhoneOffline" xml:space="preserve"><value>Ce téléphone est hors ligne. Lumi se reconnectera à {0} au retour du réseau.</value></data>
+  <data name="ReconnectingToHost" xml:space="preserve"><value>Reconnexion à {0}...</value></data>
+  <data name="ReconnectingToHostReason" xml:space="preserve"><value>Reconnexion à {0}... {1}</value></data>
+  <data name="LumiGettingReady" xml:space="preserve"><value>Lumi se prépare...</value></data>
+  <data name="BackToChats" xml:space="preserve"><value>Retour aux conversations</value></data>
+  <data name="HideChats" xml:space="preserve"><value>Masquer les conversations</value></data>
+  <data name="ShowChats" xml:space="preserve"><value>Afficher les conversations</value></data>
+  <data name="AlreadyPaired" xml:space="preserve"><value>Ce téléphone est déjà associé à {0}. Déconnectez-le avant de le connecter à un autre ordinateur.</value></data>
+  <data name="RevokeFailed" xml:space="preserve"><value>Lumi n’a pas pu révoquer ce téléphone. Réessayez lorsque l’ordinateur est en ligne.</value></data>
+  <data name="LoadActivityFailed" xml:space="preserve"><value>Impossible de charger cette activité depuis votre ordinateur.</value></data>
+  <data name="WrongChatActivity" xml:space="preserve"><value>Lumi a renvoyé l’activité d’une autre conversation.</value></data>
+  <data name="ConnectionChangedAction" xml:space="preserve"><value>La connexion à l’ordinateur a changé avant la fin de cette action.</value></data>
+  <data name="ConnectionChangedUpload" xml:space="preserve"><value>La connexion à l’ordinateur a changé pendant le téléversement.</value></data>
+  <data name="ActivityDetailsUnavailable" xml:space="preserve"><value>Les détails d’activité ne sont pas disponibles depuis cette version de Lumi.</value></data>
+  <data name="ActivityDetailsFailed" xml:space="preserve"><value>Les détails d’activité n’ont pas pu être chargés.</value></data>
+  <data name="ActivityDetailsFailedReason" xml:space="preserve"><value>Les détails d’activité n’ont pas pu être chargés : {0}</value></data>
+  <data name="ReceiveFileFailed" xml:space="preserve"><value>Lumi n’a pas pu recevoir ce fichier.</value></data>
+  <data name="SendFileFailed" xml:space="preserve"><value>Impossible d’envoyer ce fichier à votre ordinateur.</value></data>
+  <data name="StarterPlanDay" xml:space="preserve"><value>Planifier ma journée</value></data>
+  <data name="StarterResearch" xml:space="preserve"><value>Explorer un sujet</value></data>
+  <data name="StarterCreateDocument" xml:space="preserve"><value>Créer un document</value></data>
+  <data name="NewerActivityAvailable" xml:space="preserve"><value>Activité plus récente disponible</value></data>
+  <data name="NewerActivity" xml:space="preserve"><value>Activité plus récente</value></data>
+  <data name="ActivityWindow" xml:space="preserve"><value>Activité {0:N0}–{1:N0} sur {2:N0}</value></data>
+  <data name="WaitingForInput" xml:space="preserve"><value>En attente de votre saisie</value></data>
+  <data name="ThinkingEllipsis" xml:space="preserve"><value>Réflexion…</value></data>
+  <data name="WritingEllipsis" xml:space="preserve"><value>Rédaction…</value></data>
+  <data name="WorkingEllipsis" xml:space="preserve"><value>Au travail…</value></data>
+  <data name="WorkingDots" xml:space="preserve"><value>Au travail...</value></data>
+  <data name="NotSupported" xml:space="preserve"><value>Non pris en charge</value></data>
+  <data name="SetByDesktop" xml:space="preserve"><value>Défini sur l’ordinateur</value></data>
+  <data name="PcNoAnswer" xml:space="preserve"><value>L’ordinateur n’a pas répondu.</value></data>
+  <data name="PinModelFailed" xml:space="preserve"><value>Impossible d’épingler {0}. {1}</value></data>
+  <data name="UnpinModelFailed" xml:space="preserve"><value>Impossible de désépingler {0}. {1}</value></data>
+  <data name="PinNamed" xml:space="preserve"><value>Épingler {0}</value></data>
+  <data name="UnpinNamed" xml:space="preserve"><value>Désépingler {0}</value></data>
+  <data name="EffortNone" xml:space="preserve"><value>Aucun</value></data>
+  <data name="EffortMinimal" xml:space="preserve"><value>Minimal</value></data>
+  <data name="EffortLow" xml:space="preserve"><value>Faible</value></data>
+  <data name="EffortMedium" xml:space="preserve"><value>Moyen</value></data>
+  <data name="EffortHigh" xml:space="preserve"><value>Élevé</value></data>
+  <data name="EffortXHigh" xml:space="preserve"><value>Très élevé</value></data>
+  <data name="EffortMax" xml:space="preserve"><value>Max</value></data>
+  <data name="ContextDefault" xml:space="preserve"><value>Par défaut</value></data>
+  <data name="ContextLong" xml:space="preserve"><value>Contexte long</value></data>
+  <data name="ContextTokens" xml:space="preserve"><value>{0} / {1} jetons</value></data>
+  <data name="SendRestarted" xml:space="preserve"><value>Lumi a redémarré avant de confirmer l’envoi. Actualisez la transcription avant de réessayer ou modifiez le message pour en faire une nouvelle demande.</value></data>
+  <data name="SendReplayUnavailable" xml:space="preserve"><value>Lumi ne peut plus répéter cet envoi en sécurité. Actualisez pour vérifier son résultat ou modifiez le message avant de le renvoyer.</value></data>
+  <data name="SendMessageFailed" xml:space="preserve"><value>Lumi n’a pas pu envoyer ce message.</value></data>
+  <data name="Stopping" xml:space="preserve"><value>Arrêt…</value></data>
+  <data name="StopTurnFailedReason" xml:space="preserve"><value>Impossible d’arrêter ce tour : {0}</value></data>
+  <data name="StopTurnFailed" xml:space="preserve"><value>Lumi n’a pas pu arrêter ce tour.</value></data>
+  <data name="AgentPickerDescription" xml:space="preserve"><value>Un agent apporte ses propres instructions, compétences et outils.</value></data>
+  <data name="ProjectPickerDescription" xml:space="preserve"><value>Le projet de cette conversation et les instructions qu’elle suit.</value></data>
+  <data name="SkillsPickerDescription" xml:space="preserve"><value>Ce que Lumi peut utiliser dans cette conversation.</value></data>
+  <data name="ConnectorsPickerDescription" xml:space="preserve"><value>Les applications et services utilisables par Lumi dans cette conversation.</value></data>
+  <data name="NoAgentsOnPc" xml:space="preserve"><value>Aucun agent sur votre ordinateur. Créez-en un dans Personnaliser.</value></data>
+  <data name="NoProjectsOnPc" xml:space="preserve"><value>Aucun projet sur votre ordinateur. Créez-en un dans Personnaliser.</value></data>
+  <data name="NoSkillsOnPc" xml:space="preserve"><value>Aucune compétence sur votre ordinateur. Créez-en une dans Personnaliser.</value></data>
+  <data name="NoConnectorsEnabled" xml:space="preserve"><value>Aucun connecteur actif. Activez-en un dans Personnaliser pour l’utiliser ici.</value></data>
+  <data name="NoAgent" xml:space="preserve"><value>Aucun agent</value></data>
+  <data name="LumiOnItsOwn" xml:space="preserve"><value>Lumi seul</value></data>
+  <data name="NoProject" xml:space="preserve"><value>Sans projet</value></data>
+  <data name="ChatOfItsOwn" xml:space="preserve"><value>Une conversation indépendante</value></data>
+  <data name="SkillsCount" xml:space="preserve"><value>{0} compétences</value></data>
+  <data name="ConnectorsCount" xml:space="preserve"><value>{0} connecteurs</value></data>
+  <data name="InteractiveUpdateRequired" xml:space="preserve"><value>Mettez Lumi à jour sur votre ordinateur pour enregistrer les réponses interactives.</value></data>
+  <data name="AnswerClosed" xml:space="preserve"><value>Cette réponse n’est plus ouverte.</value></data>
+  <data name="WaitForReply" xml:space="preserve"><value>Attendez la fin de la réponse de Lumi pour continuer.</value></data>
+  <data name="InteractionChatChanged" xml:space="preserve"><value>La conversation ouverte ou l’ordinateur a changé. Ces données n’ont pas été envoyées ailleurs.</value></data>
+  <data name="InteractionUnconfirmed" xml:space="preserve"><value>Lumi n’a pas encore confirmé cette action. Vos choix sont conservés ; réessayer vérifie la même demande.</value></data>
+  <data name="InteractionSaveFailed" xml:space="preserve"><value>L’interaction n’a pas pu être enregistrée.</value></data>
+  <data name="InteractionInterrupted" xml:space="preserve"><value>La connexion a été interrompue. Vos choix sont conservés.</value></data>
+  <data name="AnswerPlaceholder" xml:space="preserve"><value>Saisissez votre réponse...</value></data>
+  <data name="You" xml:space="preserve"><value>Vous</value></data>
+  <data name="Queued" xml:space="preserve"><value>En attente...</value></data>
+  <data name="Steering" xml:space="preserve"><value>Réorientation...</value></data>
+  <data name="Steered" xml:space="preserve"><value>Intégré</value></data>
+  <data name="SteerFailed" xml:space="preserve"><value>Intégration impossible</value></data>
+  <data name="JobWakeSummary" xml:space="preserve"><value>La tâche a réveillé cette conversation.</value></data>
+  <data name="SourceCountOne" xml:space="preserve"><value>1 source</value></data>
+  <data name="SourceCountMany" xml:space="preserve"><value>{0} sources</value></data>
+  <data name="Thinking" xml:space="preserve"><value>Réflexion</value></data>
+  <data name="DurationSeconds" xml:space="preserve"><value>{0}s</value></data>
+  <data name="DurationMinutesSeconds" xml:space="preserve"><value>{0}m {1}s</value></data>
+  <data name="Researched" xml:space="preserve"><value>Recherche effectuée</value></data>
+  <data name="Implemented" xml:space="preserve"><value>Implémentation réalisée</value></data>
+  <data name="Verified" xml:space="preserve"><value>Vérifié</value></data>
+  <data name="Worked" xml:space="preserve"><value>Travail effectué</value></data>
+  <data name="ActionCountOne" xml:space="preserve"><value>1 action</value></data>
+  <data name="ActionCountMany" xml:space="preserve"><value>{0} actions</value></data>
+  <data name="FileChangedOne" xml:space="preserve"><value>1 fichier modifié</value></data>
+  <data name="FileChangedMany" xml:space="preserve"><value>{0} fichiers modifiés</value></data>
+  <data name="FinishedWithIssue" xml:space="preserve"><value>Terminé avec un problème</value></data>
+  <data name="Stopped" xml:space="preserve"><value>Arrêté</value></data>
+  <data name="WorkForDuration" xml:space="preserve"><value>{0} pendant {1}</value></data>
+  <data name="WorkForDurationActions" xml:space="preserve"><value>{0} pendant {1} · {2}</value></data>
+  <data name="WorkedForDuration" xml:space="preserve"><value>Travail pendant {0}</value></data>
+  <data name="HideTechnicalDetails" xml:space="preserve"><value>Masquer les détails techniques</value></data>
+  <data name="ShowTechnicalDetails" xml:space="preserve"><value>Afficher les détails techniques</value></data>
+  <data name="PinnedModels" xml:space="preserve"><value>Épinglés</value></data>
+  <data name="ReadOnly" xml:space="preserve"><value>Lecture seule</value></data>
+  <data name="ReadOnlyHeader" xml:space="preserve"><value>LECTURE SEULE</value></data>
+  <data name="ReadOnlyAfter" xml:space="preserve"><value>{0} · Lecture seule</value></data>
+  <data name="ReadOnlyBefore" xml:space="preserve"><value>Lecture seule · {0}</value></data>
+  <data name="GitKnownTextChanges" xml:space="preserve"><value>Modifications textuelles connues · partielles</value></data>
+  <data name="GitTotalTextChanges" xml:space="preserve"><value>Total des modifications textuelles</value></data>
+  <data name="BackToChangedFiles" xml:space="preserve"><value>Retour aux fichiers modifiés</value></data>
+  <data name="GitChangedFileOne" xml:space="preserve"><value>1 fichier modifié</value></data>
+  <data name="GitChangedFileMany" xml:space="preserve"><value>{0} fichiers modifiés</value></data>
+  <data name="LimitedSuffix" xml:space="preserve"><value> · Limité</value></data>
+  <data name="PositionOfCount" xml:space="preserve"><value>{0} sur {1}</value></data>
+  <data name="GitResolvingScope" xml:space="preserve"><value>Résolution du projet / worktree…</value></data>
+  <data name="GitNoRepositorySelected" xml:space="preserve"><value>Aucun dépôt sélectionné</value></data>
+  <data name="GitOpenChat" xml:space="preserve"><value>Ouvrez une conversation pour inspecter son projet ou son worktree.</value></data>
+  <data name="GitScopeUnavailable" xml:space="preserve"><value>Périmètre du projet / worktree indisponible</value></data>
+  <data name="GitUpdateRequired" xml:space="preserve"><value>Mettez Lumi à jour sur l’ordinateur pour voir les modifications Git depuis votre téléphone.</value></data>
+  <data name="GitLoadFailed" xml:space="preserve"><value>Les modifications Git n’ont pas pu être chargées.</value></data>
+  <data name="GitScopeDescription" xml:space="preserve"><value>Conversation : {0}
+{1} · Lecture seule</value></data>
+  <data name="GitWorkingTreeClean" xml:space="preserve"><value>Votre arborescence de travail est propre. Actualisez après des modifications sur l’ordinateur.</value></data>
+  <data name="GitNoRepository" xml:space="preserve"><value>Cette conversation n’a pas de dépôt Git disponible.</value></data>
+  <data name="GitCancelled" xml:space="preserve"><value>Requête Git annulée. Actualisez pour réessayer.</value></data>
+  <data name="GitWorkspaceChanged" xml:space="preserve"><value>L’espace de travail a changé. Actualisez les modifications Git.</value></data>
+  <data name="GitDiffTruncated" xml:space="preserve"><value>Ces différences sont tronquées sur mobile. Ouvrez la version bureau pour tout voir.</value></data>
+  <data name="GitNoTextDiff" xml:space="preserve"><value>Aucune différence textuelle pour ce fichier (binaire, vide ou métadonnées uniquement).</value></data>
+  <data name="PreviewOnlySuffix" xml:space="preserve"><value> · Aperçu uniquement</value></data>
+  <data name="GitDiffLoadFailed" xml:space="preserve"><value>Les différences du fichier n’ont pas pu être chargées.</value></data>
+  <data name="GitKindModified" xml:space="preserve"><value>Modifié</value></data>
+  <data name="GitKindAdded" xml:space="preserve"><value>Ajouté</value></data>
+  <data name="GitKindDeleted" xml:space="preserve"><value>Supprimé</value></data>
+  <data name="GitKindRenamed" xml:space="preserve"><value>Renommé</value></data>
+  <data name="GitKindCopied" xml:space="preserve"><value>Copié</value></data>
+  <data name="GitKindUntracked" xml:space="preserve"><value>Non suivi</value></data>
+  <data name="GitKindTypeChanged" xml:space="preserve"><value>Type modifié</value></data>
+  <data name="GitKindConflicted" xml:space="preserve"><value>En conflit</value></data>
+  <data name="GitKindRecreated" xml:space="preserve"><value>Recréé</value></data>
+  <data name="GitKindSubmodule" xml:space="preserve"><value>Sous-module</value></data>
+  <data name="GitKindUnknown" xml:space="preserve"><value>Inconnu</value></data>
+  <data name="SwitchState" xml:space="preserve"><value>{0} : {1}</value></data>
+  <data name="SwitchOn" xml:space="preserve"><value>activé</value></data>
+  <data name="SwitchOff" xml:space="preserve"><value>désactivé</value></data>
+  <data name="On" xml:space="preserve"><value>Activé</value></data>
+  <data name="Off" xml:space="preserve"><value>Désactivé</value></data>
+  <data name="Enabled" xml:space="preserve"><value>Activé</value></data>
+  <data name="Disabled" xml:space="preserve"><value>Désactivé</value></data>
+  <data name="Paused" xml:space="preserve"><value>Suspendu</value></data>
+  <data name="BuiltIn" xml:space="preserve"><value>Intégré</value></data>
+  <data name="Yours" xml:space="preserve"><value>Les vôtres</value></data>
+  <data name="LibraryBuiltInNote" xml:space="preserve"><value>Intégré à Lumi. Pour le modifier, créez une copie sur votre ordinateur.</value></data>
+  <data name="LibraryConnectorNote" xml:space="preserve"><value>Les connecteurs sont configurés sur votre ordinateur. Vous pouvez activer ou désactiver celui-ci ici.</value></data>
+  <data name="LibraryJobNote" xml:space="preserve"><value>Les tâches se modifient sur votre ordinateur. Vous pouvez activer ou désactiver celle-ci ici.</value></data>
+  <data name="ActionsForNamed" xml:space="preserve"><value>Actions pour {0}</value></data>
+  <data name="JobsSummary" xml:space="preserve"><value>{0} activés · {1} suspendus</value></data>
+  <data name="LibraryNewItem" xml:space="preserve"><value>Créer : {0}</value></data>
+  <data name="LibraryEditItem" xml:space="preserve"><value>Modifier : {0}</value></data>
+  <data name="LibraryDiscardDescription" xml:space="preserve"><value>Vos modifications de « {0} » seront perdues. Rien ne sera supprimé de votre ordinateur.</value></data>
+  <data name="LibraryDeleteQuestion" xml:space="preserve"><value>Supprimer de la bibliothèque ?</value></data>
+  <data name="LibraryEnableItem" xml:space="preserve"><value>Activer {0}</value></data>
+  <data name="LibraryDisableItem" xml:space="preserve"><value>Désactiver {0}</value></data>
+  <data name="LibraryDeleteDescription" xml:space="preserve"><value>Supprimer « {0} » de la bibliothèque partagée ? Il sera supprimé sur l’ordinateur et ce téléphone. Cette action est irréversible.</value></data>
+  <data name="LibraryNoResults" xml:space="preserve"><value>Aucun élément de type {0} trouvé</value></data>
+  <data name="LibraryEmptyYet" xml:space="preserve"><value>Aucun élément de type {0}</value></data>
+  <data name="LibrarySearchHelp" xml:space="preserve"><value>Essayez un autre nom ou effacez la recherche pour tout voir dans {0}.</value></data>
+  <data name="LibraryAddConnectors" xml:space="preserve"><value>Ajoutez des connecteurs sur votre ordinateur. Vous pouvez les activer ou les désactiver ici.</value></data>
+  <data name="LibraryAddJobs" xml:space="preserve"><value>Créez des tâches sur votre ordinateur. Vous pouvez les activer ou les désactiver ici.</value></data>
+  <data name="LibraryAddAgent" xml:space="preserve"><value>Utilisez + pour ajouter un élément de type {0}, ou ajoutez-en un sur l’ordinateur. Votre bibliothèque est partagée.</value></data>
+  <data name="LibraryAddItem" xml:space="preserve"><value>Utilisez + pour ajouter un élément de type {0}, ou ajoutez-en un sur l’ordinateur. Votre bibliothèque est partagée.</value></data>
+  <data name="LibrarySearch" xml:space="preserve"><value>Rechercher : {0}</value></data>
+  <data name="LibraryChooseConnector" xml:space="preserve"><value>Choisissez un connecteur pour voir son rôle. Activez-le ou désactivez-le directement sur sa ligne.</value></data>
+  <data name="LibraryChooseJob" xml:space="preserve"><value>Choisissez une tâche pour voir ses horaires et sa conversation. Activez-la ou désactivez-la sur sa ligne.</value></data>
+  <data name="LibraryChooseAgent" xml:space="preserve"><value>Choisissez un élément de type {0} pour l’ouvrir ou ajoutez-en un avec +.</value></data>
+  <data name="LibraryChooseItem" xml:space="preserve"><value>Choisissez un élément de type {0} pour l’ouvrir ou ajoutez-en un avec +.</value></data>
+  <data name="ProjectSingular" xml:space="preserve"><value>projet</value></data>
+  <data name="SkillSingular" xml:space="preserve"><value>compétence</value></data>
+  <data name="AgentSingular" xml:space="preserve"><value>agent</value></data>
+  <data name="MemorySingular" xml:space="preserve"><value>souvenir</value></data>
+  <data name="ConnectorSingular" xml:space="preserve"><value>connecteur</value></data>
+  <data name="JobSingular" xml:space="preserve"><value>tâche</value></data>
+  <data name="ItemSingular" xml:space="preserve"><value>élément</value></data>
+  <data name="SkillContent" xml:space="preserve"><value>Contenu de la compétence</value></data>
+  <data name="SystemPrompt" xml:space="preserve"><value>Consigne système</value></data>
+  <data name="Content" xml:space="preserve"><value>Contenu</value></data>
+  <data name="Memory" xml:space="preserve"><value>Mémoire</value></data>
+  <data name="MemoryCountOne" xml:space="preserve"><value>1 souvenir</value></data>
+  <data name="MemoryCountMany" xml:space="preserve"><value>{0} souvenirs</value></data>
+  <data name="ChatCountOne" xml:space="preserve"><value>1 conversation</value></data>
+  <data name="ChatCountMany" xml:space="preserve"><value>{0} conversations</value></data>
+  <data name="SkillCountOne" xml:space="preserve"><value>1 compétence</value></data>
+  <data name="SkillCountMany" xml:space="preserve"><value>{0} compétences</value></data>
+  <data name="ToolCount" xml:space="preserve"><value>{0} outils</value></data>
+  <data name="SkillBuiltIn" xml:space="preserve"><value>Compétence · Intégrée</value></data>
+  <data name="AgentBuiltIn" xml:space="preserve"><value>Agent · Intégré</value></data>
+  <data name="Tools" xml:space="preserve"><value>Outils</value></data>
+  <data name="RunsOnPc" xml:space="preserve"><value>S’exécute sur votre ordinateur</value></data>
+  <data name="OnlineService" xml:space="preserve"><value>Service en ligne</value></data>
+  <data name="ConnectorOnPc" xml:space="preserve"><value>Connecteur · Sur votre ordinateur</value></data>
+  <data name="ConnectorOnline" xml:space="preserve"><value>Connecteur · En ligne</value></data>
+  <data name="Command" xml:space="preserve"><value>Commande</value></data>
+  <data name="Address" xml:space="preserve"><value>Adresse</value></data>
+  <data name="JobTrigger" xml:space="preserve"><value>Tâche · {0}</value></data>
+  <data name="Prompt" xml:space="preserve"><value>Consigne</value></data>
+  <data name="Runs" xml:space="preserve"><value>Exécute</value></data>
+  <data name="LastRun" xml:space="preserve"><value>Dernière exécution</value></data>
+  <data name="Watches" xml:space="preserve"><value>Surveille</value></data>
+  <data name="Scheduled" xml:space="preserve"><value>Planifié</value></data>
+  <data name="WakeScript" xml:space="preserve"><value>Script de réveil</value></data>
+  <data name="FollowsChat" xml:space="preserve"><value>Suit une conversation</value></data>
+  <data name="Automation" xml:space="preserve"><value>Automatisation</value></data>
+  <data name="LibraryFullDetailsFailed" xml:space="preserve"><value>Lumi n’a pas pu charger tous les détails. Réessayez lorsque l’ordinateur est connecté.</value></data>
+  <data name="LibraryFullDetailsFailedReason" xml:space="preserve"><value>Impossible de charger tous les détails. {0}</value></data>
+  <data name="LibraryChangeFailed" xml:space="preserve"><value>Impossible de modifier cet élément. Réessayez.</value></data>
+  <data name="LibraryChangeFailedReason" xml:space="preserve"><value>Impossible de modifier cet élément. {0}</value></data>
+  <data name="DonePeriod" xml:space="preserve"><value>Terminé.</value></data>
+  <data name="LibraryLoadingFullDetails" xml:space="preserve"><value>Chargement des détails complets…</value></data>
+  <data name="LibraryCannotEdit" xml:space="preserve"><value>Cet élément ne peut pas être modifié depuis cette connexion.</value></data>
+  <data name="LibraryFullItemFailed" xml:space="preserve"><value>Lumi n’a pas pu charger l’élément complet. Réessayez lorsque l’ordinateur est connecté.</value></data>
+  <data name="LibraryLoadItemFailedReason" xml:space="preserve"><value>Impossible de charger cet élément. {0}</value></data>
+  <data name="LibraryNameRequired" xml:space="preserve"><value>Donnez-lui d’abord un nom.</value></data>
+  <data name="LibrarySaveFailed" xml:space="preserve"><value>Enregistrement impossible. Vos modifications restent ici.</value></data>
+  <data name="LibrarySavedOnPcMessage" xml:space="preserve"><value>Enregistré sur votre ordinateur.</value></data>
+  <data name="LibrarySaveFailedReason" xml:space="preserve"><value>Enregistrement impossible. Vos modifications restent ici. {0}</value></data>
+  <data name="LibraryDeleteFailed" xml:space="preserve"><value>Impossible de supprimer cet élément. Réessayez.</value></data>
+  <data name="LibraryDeleted" xml:space="preserve"><value>Supprimé de votre bibliothèque partagée.</value></data>
+  <data name="LibraryDeleteFailedReason" xml:space="preserve"><value>Impossible de supprimer cet élément. {0}</value></data>
+  <data name="EnabledOnPc" xml:space="preserve"><value>Activé sur votre ordinateur.</value></data>
+  <data name="DisabledOnPc" xml:space="preserve"><value>Désactivé sur votre ordinateur.</value></data>
+  <data name="LibraryRefreshFailed" xml:space="preserve"><value>{0} Impossible d’actualiser la liste. Reconnectez-vous à l’ordinateur pour la recharger.</value></data>
+  <data name="RequestTimeout" xml:space="preserve"><value>Lumi a mis trop de temps à répondre.</value></data>
+  <data name="ProtocolRequired" xml:space="preserve"><value>Ce téléphone nécessite le protocole distant Lumi {0} avec événements délimités.</value></data>
+  <data name="UnreadableResponse" xml:space="preserve"><value>Lumi a renvoyé une réponse illisible.</value></data>
+  <data name="NotConnectedToDesktop" xml:space="preserve"><value>Pas de connexion à Lumi sur ordinateur.</value></data>
+  <data name="WaitingCompatibleDesktop" xml:space="preserve"><value>En attente d’une connexion compatible à Lumi sur ordinateur.</value></data>
+  <data name="NoLongerPaired" xml:space="preserve"><value>Cet appareil n’est plus associé à Lumi.</value></data>
+  <data name="ProducedFileTooLarge" xml:space="preserve"><value>Ce fichier créé est trop volumineux pour le mobile.</value></data>
+  <data name="ProducedFileDownloadLimit" xml:space="preserve"><value>Le fichier créé dépasse la limite de téléchargement mobile.</value></data>
+  <data name="FileTooLargeToSend" xml:space="preserve"><value>Ce fichier est trop volumineux pour être envoyé.</value></data>
+  <data name="ConnectionClosed" xml:space="preserve"><value>Lumi a fermé la connexion.</value></data>
+  <data name="InvalidBootstrap" xml:space="preserve"><value>Lumi n’a pas envoyé d’instantané initial valide.</value></data>
+  <data name="ConnectionClosedBeforeBootstrap" xml:space="preserve"><value>Lumi a fermé le flux avant l’instantané initial.</value></data>
+  <data name="LiveConnectionTimeout" xml:space="preserve"><value>La connexion en direct de Lumi ne répond plus.</value></data>
+  <data name="SseLineTooLarge" xml:space="preserve"><value>La ligne SSE est trop volumineuse.</value></data>
+  <data name="SseLineUnterminated" xml:space="preserve"><value>Le flux SSE s’est terminé avec une ligne inachevée.</value></data>
+  <data name="ResponseProtocolLimit" xml:space="preserve"><value>La réponse dépasse la limite de {0:N0} octets du protocole.</value></data>
+  <data name="CantReachLumi" xml:space="preserve"><value>Impossible de joindre Lumi. Vérifiez que l’ordinateur est éveillé et sur le même Wi-Fi.</value></data>
+  <data name="HttpResponseError" xml:space="preserve"><value>Lumi a renvoyé HTTP {0}{1}.</value></data>
+  <data name="TailscaleNotConnected" xml:space="preserve"><value>Tailscale n’est pas connecté pour cette adresse. Reconnectez Tailscale et réessayez.</value></data>
+  <data name="SavedFileLengthMismatch" xml:space="preserve"><value>Le fichier enregistré ne correspond pas au téléchargement ({0} octets sur {1}).</value></data>
+  <data name="Phone" xml:space="preserve"><value>Téléphone</value></data>
+  <data name="AndroidPhone" xml:space="preserve"><value>Téléphone Android</value></data>
+  <data name="ThisLumiPc" xml:space="preserve"><value>Cet ordinateur Lumi</value></data>
+  <data name="LumiWebApp" xml:space="preserve"><value>Application web Lumi</value></data>
+  <data name="BrowserDownloadLimit" xml:space="preserve"><value>Le téléchargement dépasse la limite du navigateur.</value></data>
+  <data name="BrowserSameOriginOnly" xml:space="preserve"><value>Lumi Web peut uniquement se connecter à l’ordinateur qui a fourni cette application.</value></data>
+  <data name="BrowserGatewaySignIn" xml:space="preserve"><value>La connexion Microsoft nécessite votre attention. Reconnectez-vous avec le compte propriétaire du tunnel. L’association Lumi est conservée ; copiez tout brouillon avant de recharger. Vous pouvez aussi recharger l’application web dans Paramètres.</value></data>
+  <data name="AttachToLumi" xml:space="preserve"><value>Joindre à Lumi</value></data>
+  <data name="PhoneAttachTooLarge" xml:space="preserve"><value>Ce fichier est trop volumineux pour être envoyé par ce téléphone.</value></data>
+  <data name="AttachFileFailed" xml:space="preserve"><value>Ce fichier n’a pas pu être joint.</value></data>
+  <data name="FileTooLargeKnownSize" xml:space="preserve"><value>{0} est trop volumineux pour être envoyé ({1} Mo). La limite est de {2} Mo.</value></data>
+  <data name="FileTooLargeUnknownSize" xml:space="preserve"><value>{0} est trop volumineux pour être envoyé. La limite est de {1} Mo.</value></data>
+  <data name="CopyAnswerFailed" xml:space="preserve"><value>La réponse n’a pas pu être copiée.</value></data>
+  <data name="ShareAnswerFailed" xml:space="preserve"><value>La réponse n’a pas pu être partagée.</value></data>
+  <data name="OpenSourceFailed" xml:space="preserve"><value>Cette source n’a pas pu être ouverte.</value></data>
+  <data name="DownloadFileFailed" xml:space="preserve"><value>Ce fichier n’a pas pu être téléchargé.</value></data>
+  <data name="SaveLumiFile" xml:space="preserve"><value>Enregistrer le fichier Lumi</value></data>
+  <data name="DownloadedFileCannotOpen" xml:space="preserve"><value>Le fichier est téléchargé, mais ce téléphone n’a pas pu l’ouvrir.</value></data>
+  <data name="OpenFileFailed" xml:space="preserve"><value>Ce fichier n’a pas pu être ouvert.</value></data>
+  <data name="LocalNetworkPermissionRequired" xml:space="preserve"><value>L’accès au réseau local est requis pour se connecter à votre ordinateur Lumi.</value></data>
+  <data name="LumiText" xml:space="preserve"><value>Texte Lumi</value></data>
+  <data name="TransportRequestOne" xml:space="preserve"><value>{0} requête</value></data>
+  <data name="TransportRequestMany" xml:space="preserve"><value>{0} requêtes</value></data>
+  <data name="TransportLiveUpdateOne" xml:space="preserve"><value>{0} mise à jour en direct</value></data>
+  <data name="TransportLiveUpdateMany" xml:space="preserve"><value>{0} mises à jour en direct</value></data>
+  <data name="TransportReconnectOne" xml:space="preserve"><value>{0} reconnexion</value></data>
+  <data name="TransportReconnectMany" xml:space="preserve"><value>{0} reconnexions</value></data>
+  <data name="TransportChatReloadOne" xml:space="preserve"><value>{0} rechargement de conversation</value></data>
+  <data name="TransportChatReloadMany" xml:space="preserve"><value>{0} rechargements de conversation</value></data>
+  <data name="TransportSummary" xml:space="preserve"><value>{0}, {1} reçus, {2}, {3}</value></data>
+  <data name="TransportUnchanged" xml:space="preserve"><value>, {0} sur {1} déjà à jour</value></data>
+  <data name="WebOpening" xml:space="preserve"><value>Ouverture de Lumi...</value></data>
+  <data name="WebNeedsReload" xml:space="preserve"><value>Lumi doit être rechargé</value></data>
+  <data name="WebReload" xml:space="preserve"><value>Recharger Lumi</value></data>
+  <data name="WebReloadNote" xml:space="preserve"><value>Les conversations enregistrées restent sur l’ordinateur. Le rechargement peut perdre le texte non envoyé.</value></data>
+  <data name="WebOffline" xml:space="preserve"><value>Vous êtes hors ligne. Connectez-vous à Internet et réessayez.</value></data>
+  <data name="WebStartFailed" xml:space="preserve"><value>Lumi n’a pas pu démarrer : {0}</value></data>
+  <data name="WebContextLost" xml:space="preserve"><value>Votre navigateur n’affiche plus Lumi. Rechargez pour vous reconnecter.</value></data>
+  <data name="MessageText" xml:space="preserve"><value>Texte du message</value></data>
+  <data name="TextInput" xml:space="preserve"><value>Saisie de texte</value></data>
+  <data name="WebRefreshing" xml:space="preserve"><value>Actualisation de l’application web...</value></data>
+  <data name="WebUpdateInstallFailed" xml:space="preserve"><value>La mise à jour de l’application web n’a pas pu être installée.</value></data>
+  <data name="WebUpdateTimeout" xml:space="preserve"><value>La mise à jour de l’application web a pris trop de temps.</value></data>
+  <data name="WebFindingRegistration" xml:space="preserve"><value>Recherche de l’enregistrement de l’application</value></data>
+  <data name="WebReplacingRegistration" xml:space="preserve"><value>Remplacement de l’enregistrement de l’application</value></data>
+  <data name="WebRegistering" xml:space="preserve"><value>Enregistrement de l’application actuelle</value></data>
+  <data name="WebUpdatingRuntime" xml:space="preserve"><value>Mise à jour de l’environnement en cache...</value></data>
+  <data name="WebCheckingBuild" xml:space="preserve"><value>Vérification de la version actuelle</value></data>
+  <data name="WebInstallingFiles" xml:space="preserve"><value>Installation des fichiers vérifiés de l’application</value></data>
+  <data name="WebActivatingUpdate" xml:space="preserve"><value>Activation de la mise à jour</value></data>
+  <data name="WebOpeningStage" xml:space="preserve"><value>Ouverture de Lumi</value></data>
+  <data name="WebRefreshFailed" xml:space="preserve"><value>Lumi n’a pas pu actualiser l’application web. L’association est conservée. {0} : {1} Réessayez.</value></data>
+  <data name="AndroidInstallTitle" xml:space="preserve"><value>Installer Lumi pour Android</value></data>
+  <data name="AndroidSetup" xml:space="preserve"><value>Configuration Android</value></data>
+  <data name="AndroidInstallIntro" xml:space="preserve"><value>L’application native utilise les mêmes conversations et interface que l’application web, avec le clavier et le sélecteur de fichiers Android.</value></data>
+  <data name="AndroidDownloadOfficial" xml:space="preserve"><value>Télécharger l’APK officiel</value></data>
+  <data name="AndroidNoAppStore" xml:space="preserve"><value>Lumi n’est publié dans aucune boutique d’applications. Téléchargez l’APK officiel depuis GitHub ci-dessous.</value></data>
+  <data name="AndroidMatchingRelease" xml:space="preserve"><value>Correspond à cette version de Lumi sur ordinateur.</value></data>
+  <data name="AndroidDownloadApk" xml:space="preserve"><value>Télécharger l’APK Android</value></data>
+  <data name="AndroidInstallHint" xml:space="preserve"><value>À la fin du téléchargement, ouvrez l’APK et touchez Installer. Android peut vous demander d’autoriser une fois les installations depuis ce navigateur.</value></data>
+  <data name="OpenLumi" xml:space="preserve"><value>Ouvrir Lumi</value></data>
+  <data name="AndroidOpenHint" xml:space="preserve"><value>Après l’installation, revenez sur cette page et continuez. Si Lumi n’est pas installé, ce bouton ouvre le téléchargement officiel de l’APK, pas une boutique.</value></data>
+  <data name="AndroidEnterPairingCode" xml:space="preserve"><value>Saisissez le code d’association</value></data>
+  <data name="AndroidPairingHint" xml:space="preserve"><value>Utilisez le code à 6 chiffres affiché dans Lumi sur ordinateur. Une seule fois suffit.</value></data>
+  <data name="UseWebApp" xml:space="preserve"><value>Utiliser plutôt l’application web</value></data>
+  <data name="AndroidVersionMatching" xml:space="preserve"><value>Lumi {0}, correspondant à cette version bureau.</value></data>
+  <data name="WebManifestDescription" xml:space="preserve"><value>Votre ordinateur Lumi, depuis votre téléphone.</value></data>
+  <data name="WorkerStarting" xml:space="preserve"><value>Démarrage du rendu dans un worker</value></data>
+  <data name="WorkerUnavailable" xml:space="preserve"><value>Rendu normal (worker indisponible)</value></data>
+  <data name="WorkerStopped" xml:space="preserve"><value>Rendu normal (worker arrêté)</value></data>
+  <data name="WorkerRenderer" xml:space="preserve"><value>Rendu dans un worker</value></data>
+  <data name="WorkerRendererStats" xml:space="preserve"><value>Rendu dans un worker (horloge {0} Hz, {1} nouvelles images/s)</value></data>
+  <data name="SimulatorTitle" xml:space="preserve"><value>Lumi Mobile — simulateur d’appareil</value></data>
+  <data name="Device" xml:space="preserve"><value>Appareil</value></data>
+  <data name="Bezel" xml:space="preserve"><value>Cadre</value></data>
+  <data name="SimulatorUnknownDevice" xml:space="preserve"><value>Appareil inconnu « {0} ». Appareils connus : {1}</value></data>
+  <data name="SimulatorHinge" xml:space="preserve"><value> · charnière {0:0.#} dp</value></data>
+  <data name="SimulatorFoldPosition" xml:space="preserve"><value> · pli à {0:0} dp</value></data>
+  <data name="SimulatorThreePanes" xml:space="preserve"><value>trois volets</value></data>
+  <data name="SimulatorTwoPanes" xml:space="preserve"><value>deux volets</value></data>
+  <data name="SimulatorOnePane" xml:space="preserve"><value>un volet</value></data>
+  <data name="SimulatorShort" xml:space="preserve"><value> · court</value></data>
+  <data name="SimulatorReadout" xml:space="preserve"><value>{0:0}×{1:0} dp · {2}{3}{4}</value></data>
+  <data name="SimFlipCover" xml:space="preserve"><value>Écran externe Flip</value></data>
+  <data name="SimCompactPhone" xml:space="preserve"><value>Téléphone compact</value></data>
+  <data name="SimFoldFolded" xml:space="preserve"><value>Fold — plié</value></data>
+  <data name="SimGalaxyCover" xml:space="preserve"><value>Galaxy Z Fold7 — écran externe</value></data>
+  <data name="SimGalaxyCoverLandscape" xml:space="preserve"><value>Galaxy Z Fold7 — écran externe paysage</value></data>
+  <data name="SimPhoneLandscape" xml:space="preserve"><value>Téléphone paysage</value></data>
+  <data name="SimGalaxyOpenLarge" xml:space="preserve"><value>Galaxy Z Fold7 — ouvert, grande taille d’affichage</value></data>
+  <data name="SimFoldUnfolded" xml:space="preserve"><value>Fold — déplié</value></data>
+  <data name="SimGalaxyOpen" xml:space="preserve"><value>Galaxy Z Fold7 — ouvert</value></data>
+  <data name="SimGalaxyBook" xml:space="preserve"><value>Galaxy Z Fold7 — livre</value></data>
+  <data name="SimGalaxyTabletop" xml:space="preserve"><value>Galaxy Z Fold7 — sur table</value></data>
+  <data name="SimFoldTabletop" xml:space="preserve"><value>Fold — sur table</value></data>
+  <data name="SimTablet" xml:space="preserve"><value>Tablette</value></data>
+  <data name="SimTabletLandscape" xml:space="preserve"><value>Tablette paysage</value></data>
+  <data name="SimLargeTabletLandscape" xml:space="preserve"><value>Grande tablette paysage</value></data>
+  <data name="DesignPreviewTitle" xml:space="preserve"><value>Lumi Mobile - aperçu du design</value></data>
+  <data name="PopupPreviewTitle" xml:space="preserve"><value>Lumi Mobile - aperçu des fenêtres soignées</value></data>
+  <data name="Models" xml:space="preserve"><value>Modèles</value></data>
+  <data name="ChatDetails" xml:space="preserve"><value>Détails de la conversation</value></data>
+  <data name="Activity" xml:space="preserve"><value>Activité</value></data>
+  <data name="LibraryActions" xml:space="preserve"><value>Actions de la bibliothèque</value></data>
+  <data name="DiscardChanges" xml:space="preserve"><value>Abandonner les modifications</value></data>
+  <data name="Disconnect" xml:space="preserve"><value>Déconnecter</value></data>
+  <data name="FormChoices" xml:space="preserve"><value>Choix du formulaire</value></data>
+  <data name="DatePicker" xml:space="preserve"><value>Sélecteur de date</value></data>
+  <data name="SubmittedInput" xml:space="preserve"><value>Données envoyées</value></data>
+  <data name="ActionReceipts" xml:space="preserve"><value>Reçus d’actions</value></data>
+  <data name="LocalUiFixture" xml:space="preserve"><value>Démonstration locale d’interface</value></data>
+  <data name="Close" xml:space="preserve"><value>Fermer</value></data>
+  <data name="ComposerFilesPhotos" xml:space="preserve"><value>Fichiers et photos</value></data>
+  <data name="CopyDetails" xml:space="preserve"><value>Copier les détails</value></data>
+  <data name="BackgroundJob" xml:space="preserve"><value>Tâche en arrière-plan</value></data>
+  <data name="WakeSignalReceived" xml:space="preserve"><value>Signal de réveil reçu.</value></data>
+  <data name="MobileTruncationNotice" xml:space="preserve"><value>[tronqué sur mobile ; ouvrez la version bureau pour la sortie complète]</value></data>
+</root>

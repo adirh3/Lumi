@@ -1,0 +1,633 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <data name="ReadyWithBackgroundActivity" xml:space="preserve"><value>준비됨 · 백그라운드 활동</value></data>
+  <data name="StopSession" xml:space="preserve"><value>세션 중지</value></data>
+  <data name="Retry" xml:space="preserve"><value>다시 시도</value></data>
+  <data name="TryAgain" xml:space="preserve"><value>다시 시도</value></data>
+  <data name="SignInAgain" xml:space="preserve"><value>다시 로그인</value></data>
+  <data name="Cancel" xml:space="preserve"><value>취소</value></data>
+  <data name="Save" xml:space="preserve"><value>저장</value></data>
+  <data name="Saving" xml:space="preserve"><value>저장 중…</value></data>
+  <data name="Delete" xml:space="preserve"><value>삭제</value></data>
+  <data name="DeleteEllipsis" xml:space="preserve"><value>삭제…</value></data>
+  <data name="Edit" xml:space="preserve"><value>편집</value></data>
+  <data name="Back" xml:space="preserve"><value>뒤로</value></data>
+  <data name="Done" xml:space="preserve"><value>완료</value></data>
+  <data name="Copy" xml:space="preserve"><value>복사</value></data>
+  <data name="SelectAll" xml:space="preserve"><value>모두 선택</value></data>
+  <data name="SelectText" xml:space="preserve"><value>텍스트 선택</value></data>
+  <data name="OpenWith" xml:space="preserve"><value>다른 앱으로 열기</value></data>
+  <data name="ClearSearch" xml:space="preserve"><value>검색 지우기</value></data>
+  <data name="Settings" xml:space="preserve"><value>설정</value></data>
+  <data name="Chats" xml:space="preserve"><value>채팅</value></data>
+  <data name="Chat" xml:space="preserve"><value>채팅</value></data>
+  <data name="Jobs" xml:space="preserve"><value>작업</value></data>
+  <data name="Customize" xml:space="preserve"><value>맞춤 설정</value></data>
+  <data name="Library" xml:space="preserve"><value>라이브러리</value></data>
+  <data name="Memories" xml:space="preserve"><value>기억</value></data>
+  <data name="Projects" xml:space="preserve"><value>프로젝트</value></data>
+  <data name="Project" xml:space="preserve"><value>프로젝트</value></data>
+  <data name="Skills" xml:space="preserve"><value>스킬</value></data>
+  <data name="Skill" xml:space="preserve"><value>스킬</value></data>
+  <data name="Agents" xml:space="preserve"><value>에이전트</value></data>
+  <data name="Agent" xml:space="preserve"><value>에이전트</value></data>
+  <data name="Connectors" xml:space="preserve"><value>커넥터</value></data>
+  <data name="ConnectorsHeader" xml:space="preserve"><value>커넥터</value></data>
+  <data name="Model" xml:space="preserve"><value>모델</value></data>
+  <data name="ReasoningEffort" xml:space="preserve"><value>추론 수준</value></data>
+  <data name="ContextWindow" xml:space="preserve"><value>컨텍스트 창</value></data>
+  <data name="Plan" xml:space="preserve"><value>계획</value></data>
+  <data name="Sources" xml:space="preserve"><value>출처</value></data>
+  <data name="Instructions" xml:space="preserve"><value>지침</value></data>
+  <data name="Output" xml:space="preserve"><value>출력</value></data>
+  <data name="Started" xml:space="preserve"><value>시작</value></data>
+  <data name="Completed" xml:space="preserve"><value>완료</value></data>
+  <data name="ExitCode" xml:space="preserve"><value>종료 코드</value></data>
+  <data name="Preferences" xml:space="preserve"><value>환경설정</value></data>
+  <data name="Workspace" xml:space="preserve"><value>작업 공간</value></data>
+  <data name="LocalCheckout" xml:space="preserve"><value>로컬 체크아웃</value></data>
+  <data name="NewWorktree" xml:space="preserve"><value>새 워크트리</value></data>
+  <data name="None" xml:space="preserve"><value>없음</value></data>
+  <data name="Name" xml:space="preserve"><value>이름</value></data>
+  <data name="Description" xml:space="preserve"><value>설명</value></data>
+  <data name="Icon" xml:space="preserve"><value>아이콘</value></data>
+  <data name="Details" xml:space="preserve"><value>세부 정보</value></data>
+  <data name="Appearance" xml:space="preserve"><value>모양</value></data>
+  <data name="Connection" xml:space="preserve"><value>연결</value></data>
+  <data name="About" xml:space="preserve"><value>소개</value></data>
+  <data name="System" xml:space="preserve"><value>시스템</value></data>
+  <data name="Light" xml:space="preserve"><value>라이트</value></data>
+  <data name="Dark" xml:space="preserve"><value>다크</value></data>
+  <data name="Language" xml:space="preserve"><value>언어</value></data>
+  <data name="LanguageDescription" xml:space="preserve"><value>앱에서 사용할 언어를 선택하세요.</value></data>
+  <data name="LanguageRestart" xml:space="preserve"><value>언어를 적용하려면 Lumi를 닫았다 다시 여세요. 브라우저에서는 보내지 않은 텍스트를 저장한 뒤 페이지를 새로고침하세요.</value></data>
+  <data name="AllProjects" xml:space="preserve"><value>모든 프로젝트</value></data>
+  <data name="AllChats" xml:space="preserve"><value>모든 채팅</value></data>
+  <data name="NewChat" xml:space="preserve"><value>새 채팅</value></data>
+  <data name="StartNewChat" xml:space="preserve"><value>새 채팅 시작</value></data>
+  <data name="SearchChats" xml:space="preserve"><value>채팅 검색</value></data>
+  <data name="SearchYourChats" xml:space="preserve"><value>내 채팅 검색</value></data>
+  <data name="LoadMoreChats" xml:space="preserve"><value>채팅 더 불러오기</value></data>
+  <data name="LongPressChatActions" xml:space="preserve"><value>길게 눌러 채팅 작업 열기</value></data>
+  <data name="RenameChat" xml:space="preserve"><value>채팅 이름 바꾸기</value></data>
+  <data name="DeleteChat" xml:space="preserve"><value>채팅 삭제</value></data>
+  <data name="ChatName" xml:space="preserve"><value>채팅 이름</value></data>
+  <data name="DeleteChatWarning" xml:space="preserve"><value>휴대폰과 컴퓨터에서 이 대화를 삭제해요. 되돌릴 수 없어요.</value></data>
+  <data name="PinChat" xml:space="preserve"><value>채팅 고정</value></data>
+  <data name="UnpinChat" xml:space="preserve"><value>채팅 고정 해제</value></data>
+  <data name="DeleteChatQuestion" xml:space="preserve"><value>이 채팅을 삭제할까요?</value></data>
+  <data name="ChatActions" xml:space="preserve"><value>채팅 작업</value></data>
+  <data name="OpenNamed" xml:space="preserve"><value>{0} 열기</value></data>
+  <data name="RemoveNamed" xml:space="preserve"><value>{0} 제거</value></data>
+  <data name="JobWakeNamed" xml:space="preserve"><value>작업 깨우기: {0}</value></data>
+  <data name="ChatDetailsNamed" xml:space="preserve"><value>채팅 세부 정보: {0}</value></data>
+  <data name="ModelNamed" xml:space="preserve"><value>모델: {0}</value></data>
+  <data name="ProjectNamed" xml:space="preserve"><value>프로젝트: {0}</value></data>
+  <data name="AgentNamed" xml:space="preserve"><value>에이전트: {0}</value></data>
+  <data name="SkillNamed" xml:space="preserve"><value>스킬: {0}</value></data>
+  <data name="StartWithNamed" xml:space="preserve"><value>{0}(으)로 시작</value></data>
+  <data name="EffortNamed" xml:space="preserve"><value>추론 수준: {0}</value></data>
+  <data name="ContextNamed" xml:space="preserve"><value>컨텍스트 창: {0}</value></data>
+  <data name="SelectProjectNamed" xml:space="preserve"><value>프로젝트 선택: {0}</value></data>
+  <data name="InProjectNamed" xml:space="preserve"><value>{0}에서</value></data>
+  <data name="ChatNamed" xml:space="preserve"><value>채팅: {0}</value></data>
+  <data name="NewInSection" xml:space="preserve"><value>{0}에 새 항목</value></data>
+  <data name="ProfileNamed" xml:space="preserve"><value>{0}: 프로필 및 기억</value></data>
+  <data name="ProfileMemories" xml:space="preserve"><value>프로필 · {0}</value></data>
+  <data name="ConnectionNamed" xml:space="preserve"><value>연결: {0}</value></data>
+  <data name="JobWokeChat" xml:space="preserve"><value>백그라운드 작업이 이 채팅을 깨웠어요</value></data>
+  <data name="CopyAnswer" xml:space="preserve"><value>답변 복사</value></data>
+  <data name="ShareAnswer" xml:space="preserve"><value>답변 공유</value></data>
+  <data name="ChatDetailsHelp" xml:space="preserve"><value>모델, 추론 수준, 컨텍스트, 계획, 작업 공간 및 채팅 작업</value></data>
+  <data name="EarlierActivity" xml:space="preserve"><value>이전 활동</value></data>
+  <data name="ReturnToLatest" xml:space="preserve"><value>최신 내용으로 이동</value></data>
+  <data name="LoadingConversation" xml:space="preserve"><value>대화 불러오는 중</value></data>
+  <data name="LoadingConversationEllipsis" xml:space="preserve"><value>대화 불러오는 중...</value></data>
+  <data name="MessageLumi" xml:space="preserve"><value>Lumi에게 메시지 보내기</value></data>
+  <data name="AddFilesAndContext" xml:space="preserve"><value>파일, 에이전트, 스킬 등 추가</value></data>
+  <data name="AddsToMessage" xml:space="preserve"><value>메시지에 추가해요</value></data>
+  <data name="SetupsRequireUpdate" xml:space="preserve"><value>자주 쓰는 환경을 여기서 보려면 컴퓨터의 Lumi를 업데이트하세요.</value></data>
+  <data name="HowLumiWorked" xml:space="preserve"><value>Lumi의 작업 과정</value></data>
+  <data name="JobDetails" xml:space="preserve"><value>작업 세부 정보</value></data>
+  <data name="ContextUsed" xml:space="preserve"><value>사용한 컨텍스트</value></data>
+  <data name="ChooseFirstWorkspace" xml:space="preserve"><value>첫 코딩 턴을 실행할 위치를 선택하세요.</value></data>
+  <data name="AddToChat" xml:space="preserve"><value>이 채팅에 추가</value></data>
+  <data name="FilesAndPhotos" xml:space="preserve"><value>파일 및 사진</value></data>
+  <data name="ForThisChat" xml:space="preserve"><value>이 채팅에 적용</value></data>
+  <data name="ContextDescription" xml:space="preserve"><value>모델이 한 번에 참고하는 대화의 양이에요.</value></data>
+  <data name="EffortDescription" xml:space="preserve"><value>추론 수준이 높으면 더 꼼꼼한 답변을 하지만 오래 걸려요.</value></data>
+  <data name="Faster" xml:space="preserve"><value>더 빠르게</value></data>
+  <data name="MoreThorough" xml:space="preserve"><value>더 꼼꼼하게</value></data>
+  <data name="ConnectTagline" xml:space="preserve"><value>모든 것에 한 걸음 더 가까이.</value></data>
+  <data name="ConnectStepFind" xml:space="preserve"><value>1  컴퓨터 찾기</value></data>
+  <data name="ConnectStepPair" xml:space="preserve"><value>2  휴대폰 페어링</value></data>
+  <data name="ConnectTitle" xml:space="preserve"><value>어디서나 나의 Lumi.</value></data>
+  <data name="ConnectDescription" xml:space="preserve"><value>휴대폰에서 대화를 이어가고 컴퓨터의 작업을 처리하세요.</value></data>
+  <data name="ConnectFirstOpen" xml:space="preserve"><value>먼저 컴퓨터에서 Lumi를 여세요</value></data>
+  <data name="ConnectDesktopInstructions" xml:space="preserve"><value>설정 → 모바일에서 휴대폰 접근을 켜세요. 설정 링크를 열거나 아래에 주소를 입력하세요.</value></data>
+  <data name="PcAddress" xml:space="preserve"><value>컴퓨터 주소</value></data>
+  <data name="PcAddressHelp" xml:space="preserve"><value>Lumi Desktop에 표시된 주소를 사용하세요.</value></data>
+  <data name="PcAddressExample" xml:space="preserve"><value>예: 100.100.20.10</value></data>
+  <data name="Continue" xml:space="preserve"><value>계속</value></data>
+  <data name="TailscaleAdvice" xml:space="preserve"><value>어디서나 비공개로 연결하려면 두 기기에서 Tailscale 연결을 유지하세요.</value></data>
+  <data name="UseLocalWifi" xml:space="preserve"><value>대신 로컬 Wi-Fi 사용</value></data>
+  <data name="LocalWifiWarning" xml:space="preserve"><value>로컬 Wi-Fi 트래픽은 암호화되지 않아요. 신뢰하는 네트워크에서만 사용하세요.</value></data>
+  <data name="FindNearby" xml:space="preserve"><value>주변 Lumi 찾기</value></data>
+  <data name="Nearby" xml:space="preserve"><value>주변</value></data>
+  <data name="OneLastStep" xml:space="preserve"><value>마지막 한 단계예요.</value></data>
+  <data name="PairCodeInstructions" xml:space="preserve"><value>컴퓨터의 설정 → 모바일에 있는 6자리 코드를 입력해 휴대폰을 페어링하세요.</value></data>
+  <data name="PairCodeAccessible" xml:space="preserve"><value>6자리 페어링 코드</value></data>
+  <data name="DifferentPc" xml:space="preserve"><value>다른 컴퓨터 사용</value></data>
+  <data name="BackToChat" xml:space="preserve"><value>채팅으로 돌아가기</value></data>
+  <data name="Working" xml:space="preserve"><value>작업 중</value></data>
+  <data name="BackToSettings" xml:space="preserve"><value>설정으로 돌아가기</value></data>
+  <data name="Theme" xml:space="preserve"><value>테마</value></data>
+  <data name="LightOrDark" xml:space="preserve"><value>라이트 또는 다크</value></data>
+  <data name="ThemeDescription" xml:space="preserve"><value>모양을 선택하거나 휴대폰 설정을 따르세요.</value></data>
+  <data name="ThisConnection" xml:space="preserve"><value>현재 연결</value></data>
+  <data name="Pc" xml:space="preserve"><value>컴퓨터</value></data>
+  <data name="Status" xml:space="preserve"><value>상태</value></data>
+  <data name="ThisDevice" xml:space="preserve"><value>이 기기</value></data>
+  <data name="RefreshConnection" xml:space="preserve"><value>연결 새로고침</value></data>
+  <data name="RefreshConnectionHelp" xml:space="preserve"><value>채팅과 라이브러리를 최신 상태로 갱신해요.</value></data>
+  <data name="Refresh" xml:space="preserve"><value>새로고침</value></data>
+  <data name="ConnectionActivity" xml:space="preserve"><value>연결 활동</value></data>
+  <data name="BrowserSignIn" xml:space="preserve"><value>브라우저 로그인</value></data>
+  <data name="BrowserSignInHelp" xml:space="preserve"><value>로그인이 만료되면 브라우저에서 다시 불러오세요. 페어링은 유지되지만 보내지 않은 텍스트는 사라져요.</value></data>
+  <data name="ReloadWebApp" xml:space="preserve"><value>웹 앱 다시 불러오기</value></data>
+  <data name="DisconnectPc" xml:space="preserve"><value>이 컴퓨터와 연결 해제</value></data>
+  <data name="ChatsStayOnPc" xml:space="preserve"><value>채팅과 파일은 컴퓨터에 남아요.</value></data>
+  <data name="AppVersion" xml:space="preserve"><value>앱 버전</value></data>
+  <data name="YourAssistant" xml:space="preserve"><value>나만의 어시스턴트</value></data>
+  <data name="AboutDescription" xml:space="preserve"><value>휴대폰의 Lumi는 컴퓨터의 Lumi와 함께 작동해요. 채팅, 파일, 도구는 컴퓨터에 있어요.</value></data>
+  <data name="DisconnectQuestion" xml:space="preserve"><value>이 컴퓨터와 연결을 해제할까요?</value></data>
+  <data name="DisconnectDescription" xml:space="preserve"><value>이 휴대폰의 접근 권한이 없어지고 설정 화면으로 돌아가요. 채팅과 파일은 컴퓨터에 남아요.</value></data>
+  <data name="DisconnectRevoke" xml:space="preserve"><value>연결 해제 및 접근 취소</value></data>
+  <data name="KeepConnected" xml:space="preserve"><value>연결 유지</value></data>
+  <data name="CantReachPcQuestion" xml:space="preserve"><value>컴퓨터에 연결할 수 없나요?</value></data>
+  <data name="RemoveLocalConnectionHelp" xml:space="preserve"><value>이 휴대폰의 저장된 연결만 삭제해요. 컴퓨터의 접근 권한은 유지돼요.</value></data>
+  <data name="RemoveLocalConnection" xml:space="preserve"><value>이 휴대폰에서만 제거</value></data>
+  <data name="UpdateNow" xml:space="preserve"><value>지금 업데이트</value></data>
+  <data name="TryLoadingAgain" xml:space="preserve"><value>다시 불러오기</value></data>
+  <data name="ShortSummary" xml:space="preserve"><value>짧은 요약</value></data>
+  <data name="EmojiOrSymbol" xml:space="preserve"><value>이모지 또는 기호 하나</value></data>
+  <data name="PcWorkspace" xml:space="preserve"><value>컴퓨터 작업 공간</value></data>
+  <data name="PcFolder" xml:space="preserve"><value>컴퓨터의 폴더</value></data>
+  <data name="LibrarySavedOnPc" xml:space="preserve"><value>변경 사항은 컴퓨터의 공유 라이브러리에 저장돼요.</value></data>
+  <data name="AppliesOnPc" xml:space="preserve"><value>컴퓨터에 바로 적용돼요</value></data>
+  <data name="OpenJobChat" xml:space="preserve"><value>연결된 채팅 열기</value></data>
+  <data name="OpenJobChatHelp" xml:space="preserve"><value>찾은 내용을 보거나 질문하세요</value></data>
+  <data name="LoadingDetails" xml:space="preserve"><value>세부 정보 불러오는 중…</value></data>
+  <data name="WorkingOnPc" xml:space="preserve"><value>컴퓨터에서 작업 중…</value></data>
+  <data name="DiscardQuestion" xml:space="preserve"><value>변경 사항을 버릴까요?</value></data>
+  <data name="KeepEditing" xml:space="preserve"><value>계속 편집</value></data>
+  <data name="Discard" xml:space="preserve"><value>버리기</value></data>
+  <data name="GitChanges" xml:space="preserve"><value>Git 변경 사항</value></data>
+  <data name="PreviousFile" xml:space="preserve"><value>이전 파일</value></data>
+  <data name="NextFile" xml:space="preserve"><value>다음 파일</value></data>
+  <data name="RefreshChangedFiles" xml:space="preserve"><value>변경된 파일 새로고침</value></data>
+  <data name="CloseGitChanges" xml:space="preserve"><value>Git 변경 사항 닫기</value></data>
+  <data name="SelectFileToReview" xml:space="preserve"><value>변경 사항을 검토할 파일을 선택하세요</value></data>
+  <data name="BinaryFile" xml:space="preserve"><value>바이너리 파일</value></data>
+  <data name="LineCountsUnavailable" xml:space="preserve"><value>줄 수 정보 없음</value></data>
+  <data name="NoChangedFiles" xml:space="preserve"><value>변경된 파일 없음</value></data>
+  <data name="NothingToReview" xml:space="preserve"><value>이 범위에 검토할 내용이 없어요.</value></data>
+  <data name="ReadingGitChanges" xml:space="preserve"><value>저장소 변경 사항 읽는 중…</value></data>
+  <data name="LoadingFileChanges" xml:space="preserve"><value>파일 변경 사항 불러오는 중…</value></data>
+  <data name="NoTextPreview" xml:space="preserve"><value>텍스트 미리 보기 없음</value></data>
+  <data name="SelectFile" xml:space="preserve"><value>파일 선택</value></data>
+  <data name="GitReadOnlyHelp" xml:space="preserve"><value>여기서 차이를 검토하세요. 저장소는 변경되지 않아요.</value></data>
+  <data name="RunningSuffix" xml:space="preserve"><value>, 실행 중</value></data>
+  <data name="UnreadSuffix" xml:space="preserve"><value>, 읽지 않음</value></data>
+  <data name="Pinned" xml:space="preserve"><value>고정됨</value></data>
+  <data name="Today" xml:space="preserve"><value>오늘</value></data>
+  <data name="VisibleChatCount" xml:space="preserve"><value>{1:N0}개 중 {0:N0}개 표시</value></data>
+  <data name="NoChatsFound" xml:space="preserve"><value>채팅을 찾지 못했어요</value></data>
+  <data name="NextIdeaStartsHere" xml:space="preserve"><value>다음 아이디어가 여기서 시작돼요</value></data>
+  <data name="TryDifferentSearch" xml:space="preserve"><value>다른 단어나 더 짧은 문구로 검색하세요.</value></data>
+  <data name="ProjectEmptyChats" xml:space="preserve"><value>이 프로젝트에서 채팅을 시작하거나 모든 채팅을 표시하세요.</value></data>
+  <data name="EmptyChatsDescription" xml:space="preserve"><value>새 채팅을 시작하세요. 대화는 여기와 컴퓨터에 표시돼요.</value></data>
+  <data name="SearchingChats" xml:space="preserve"><value>내 채팅 검색 중...</value></data>
+  <data name="UpdatingChats" xml:space="preserve"><value>채팅 갱신 중...</value></data>
+  <data name="ResultCountOne" xml:space="preserve"><value>결과 1개</value></data>
+  <data name="ResultCountMany" xml:space="preserve"><value>결과 {0:N0}개</value></data>
+  <data name="RecentChats" xml:space="preserve"><value>최근 채팅</value></data>
+  <data name="LoadMoreChatsFailed" xml:space="preserve"><value>채팅을 더 불러오지 못했어요. 컴퓨터 연결을 확인하고 다시 시도하세요.</value></data>
+  <data name="UpdateChatsFailed" xml:space="preserve"><value>채팅을 갱신하지 못했어요. 컴퓨터 연결을 확인하고 다시 시도하세요.</value></data>
+  <data name="ConnectWebApp" xml:space="preserve"><value>웹 앱 연결</value></data>
+  <data name="ConnectPhone" xml:space="preserve"><value>휴대폰 연결</value></data>
+  <data name="AddressReadyTrust" xml:space="preserve"><value>컴퓨터 주소가 준비됐어요. 신뢰할 수 있는 로컬 네트워크인지 확인하고 계속을 누르세요.</value></data>
+  <data name="AddressReady" xml:space="preserve"><value>컴퓨터 주소가 준비됐어요. 아래에서 확인하고 계속을 누르세요.</value></data>
+  <data name="ConfirmLanSearch" xml:space="preserve"><value>LAN 검색 전에 신뢰할 수 있는 네트워크 접근을 확인하세요.</value></data>
+  <data name="LookingForLumi" xml:space="preserve"><value>네트워크에서 Lumi 찾는 중…</value></data>
+  <data name="NoLumiFound" xml:space="preserve"><value>Lumi를 찾지 못했어요. 컴퓨터에서 Lumi를 열고 휴대폰 접근을 켰는지 확인하거나 아래에 주소를 입력하세요.</value></data>
+  <data name="EnableLanBeforeContinuing" xml:space="preserve"><value>로컬 네트워크 연결은 암호화되지 않아요. 계속하기 전에 LAN 옵션을 켜세요.</value></data>
+  <data name="DirectLanWarning" xml:space="preserve"><value>직접 LAN 연결은 암호화되지 않아요. 신뢰하는 네트워크에서만 LAN 옵션을 켜세요.</value></data>
+  <data name="SayingHello" xml:space="preserve"><value>인사하는 중…</value></data>
+  <data name="AddressNoAnswer" xml:space="preserve"><value>해당 주소에서 Lumi가 응답하지 않았어요.</value></data>
+  <data name="InvalidPcAddress" xml:space="preserve"><value>올바른 컴퓨터 주소를 입력하세요.</value></data>
+  <data name="VersionMismatch" xml:space="preserve"><value>Lumi 버전이 달라요. 두 앱을 모두 업데이트하고 다시 시도하세요.</value></data>
+  <data name="AddressTimeout" xml:space="preserve"><value>주소의 응답 시간이 초과됐어요.</value></data>
+  <data name="Pairing" xml:space="preserve"><value>페어링 중…</value></data>
+  <data name="PairingFailed" xml:space="preserve"><value>페어링에 실패했어요.</value></data>
+  <data name="PairingTimeout" xml:space="preserve"><value>페어링 시간이 초과됐어요.</value></data>
+  <data name="NewChatBrief" xml:space="preserve"><value>질문하거나 컴퓨터에서 할 일을 요청하세요.</value></data>
+  <data name="UsualSetups" xml:space="preserve"><value>자주 쓰는 환경</value></data>
+  <data name="SetupsBeforeFirstMessage" xml:space="preserve"><value>첫 메시지를 보내기 전에 환경을 선택할 수 있어요.</value></data>
+  <data name="SetupUnavailable" xml:space="preserve"><value>더 이상 사용할 수 없는 환경이에요. 다른 환경을 선택하세요.</value></data>
+  <data name="ActionIncomplete" xml:space="preserve"><value>작업이 완료되지 않았어요. 다시 시도하세요.</value></data>
+  <data name="ProjectCountOne" xml:space="preserve"><value>프로젝트 1개</value></data>
+  <data name="ProjectCountMany" xml:space="preserve"><value>프로젝트 {0}개</value></data>
+  <data name="UpdateDownloading" xml:space="preserve"><value>업데이트 다운로드 중</value></data>
+  <data name="UpdateReady" xml:space="preserve"><value>업데이트 준비 완료</value></data>
+  <data name="UpdateApplying" xml:space="preserve"><value>업데이트 적용 중</value></data>
+  <data name="UpdateFailed" xml:space="preserve"><value>업데이트를 마치지 못했어요</value></data>
+  <data name="UpdateDownloadingHelp" xml:space="preserve"><value>검증된 앱을 다운로드하는 동안 계속 사용할 수 있어요.</value></data>
+  <data name="UpdateReadyHelp" xml:space="preserve"><value>작업이 안전할 때 자동 업데이트해요. 다운로드와 작업이 끝난 후 지금 업데이트를 선택해도 돼요.</value></data>
+  <data name="UpdateDiscardHelp" xml:space="preserve"><value>업데이트하면 Lumi가 다시 열려요. 모든 페이지의 미전송 초안, 질문 답변, 저장하지 않은 수정은 사라져요. 페어링과 저장된 채팅은 유지돼요.</value></data>
+  <data name="UpdateAndDiscard" xml:space="preserve"><value>버리고 업데이트</value></data>
+  <data name="UpdateApplyingHelp" xml:space="preserve"><value>새 빌드로 Lumi를 다시 여는 중이에요. 페어링은 유지돼요.</value></data>
+  <data name="UpdateFailedHelp" xml:space="preserve"><value>현재 앱과 페어링은 유지돼요. 연결되면 다시 시도하세요.</value></data>
+  <data name="Unknown" xml:space="preserve"><value>알 수 없음</value></data>
+  <data name="GreetingLateNight" xml:space="preserve"><value>아직 안 주무시네요</value></data>
+  <data name="GreetingMorning" xml:space="preserve"><value>좋은 아침이에요</value></data>
+  <data name="GreetingAfternoon" xml:space="preserve"><value>좋은 오후예요</value></data>
+  <data name="GreetingEvening" xml:space="preserve"><value>좋은 저녁이에요</value></data>
+  <data name="GreetingWithName" xml:space="preserve"><value>{0}, {1}님.</value></data>
+  <data name="GreetingWithoutName" xml:space="preserve"><value>{0}.</value></data>
+  <data name="SignInRequired" xml:space="preserve"><value>로그인 필요</value></data>
+  <data name="Offline" xml:space="preserve"><value>오프라인</value></data>
+  <data name="Reconnecting" xml:space="preserve"><value>다시 연결 중</value></data>
+  <data name="Connected" xml:space="preserve"><value>연결됨</value></data>
+  <data name="GettingReady" xml:space="preserve"><value>준비 중</value></data>
+  <data name="MicrosoftSignInAttention" xml:space="preserve"><value>Microsoft 로그인을 확인해 주세요. Lumi 페어링은 유지돼요.</value></data>
+  <data name="YourPc" xml:space="preserve"><value>내 컴퓨터</value></data>
+  <data name="CantReachHost" xml:space="preserve"><value>{0}에 연결할 수 없어요. 컴퓨터가 켜져 있고 온라인인지 확인한 뒤 다시 시도하세요.</value></data>
+  <data name="PhoneOffline" xml:space="preserve"><value>휴대폰이 오프라인이에요. 네트워크가 복구되면 {0}에 다시 연결해요.</value></data>
+  <data name="ReconnectingToHost" xml:space="preserve"><value>{0}에 다시 연결 중...</value></data>
+  <data name="ReconnectingToHostReason" xml:space="preserve"><value>{0}에 다시 연결 중... {1}</value></data>
+  <data name="LumiGettingReady" xml:space="preserve"><value>Lumi가 준비 중이에요...</value></data>
+  <data name="BackToChats" xml:space="preserve"><value>채팅 목록으로</value></data>
+  <data name="HideChats" xml:space="preserve"><value>채팅 숨기기</value></data>
+  <data name="ShowChats" xml:space="preserve"><value>채팅 표시</value></data>
+  <data name="AlreadyPaired" xml:space="preserve"><value>이 휴대폰은 이미 {0}와(과) 페어링됐어요. 다른 컴퓨터에 연결하려면 먼저 연결을 해제하세요.</value></data>
+  <data name="RevokeFailed" xml:space="preserve"><value>이 휴대폰의 접근을 취소하지 못했어요. 컴퓨터가 온라인일 때 다시 시도하세요.</value></data>
+  <data name="LoadActivityFailed" xml:space="preserve"><value>컴퓨터에서 이 활동을 불러오지 못했어요.</value></data>
+  <data name="WrongChatActivity" xml:space="preserve"><value>다른 채팅의 활동을 반환했어요.</value></data>
+  <data name="ConnectionChangedAction" xml:space="preserve"><value>작업 완료 전에 컴퓨터 연결이 바뀌었어요.</value></data>
+  <data name="ConnectionChangedUpload" xml:space="preserve"><value>업로드 중 컴퓨터 연결이 바뀌었어요.</value></data>
+  <data name="ActivityDetailsUnavailable" xml:space="preserve"><value>이 Lumi에서는 활동 세부 정보를 제공하지 않아요.</value></data>
+  <data name="ActivityDetailsFailed" xml:space="preserve"><value>활동 세부 정보를 불러오지 못했어요.</value></data>
+  <data name="ActivityDetailsFailedReason" xml:space="preserve"><value>활동 세부 정보를 불러오지 못했어요: {0}</value></data>
+  <data name="ReceiveFileFailed" xml:space="preserve"><value>파일을 받지 못했어요.</value></data>
+  <data name="SendFileFailed" xml:space="preserve"><value>컴퓨터에 파일을 보내지 못했어요.</value></data>
+  <data name="StarterPlanDay" xml:space="preserve"><value>하루 계획하기</value></data>
+  <data name="StarterResearch" xml:space="preserve"><value>주제 조사하기</value></data>
+  <data name="StarterCreateDocument" xml:space="preserve"><value>문서 만들기</value></data>
+  <data name="NewerActivityAvailable" xml:space="preserve"><value>더 최근 활동이 있어요</value></data>
+  <data name="NewerActivity" xml:space="preserve"><value>더 최근 활동</value></data>
+  <data name="ActivityWindow" xml:space="preserve"><value>활동 {2:N0}개 중 {0:N0}–{1:N0}</value></data>
+  <data name="WaitingForInput" xml:space="preserve"><value>입력을 기다리는 중</value></data>
+  <data name="ThinkingEllipsis" xml:space="preserve"><value>생각 중…</value></data>
+  <data name="WritingEllipsis" xml:space="preserve"><value>작성 중…</value></data>
+  <data name="WorkingEllipsis" xml:space="preserve"><value>작업 중…</value></data>
+  <data name="WorkingDots" xml:space="preserve"><value>작업 중...</value></data>
+  <data name="NotSupported" xml:space="preserve"><value>지원되지 않음</value></data>
+  <data name="SetByDesktop" xml:space="preserve"><value>데스크톱에서 설정됨</value></data>
+  <data name="PcNoAnswer" xml:space="preserve"><value>컴퓨터가 응답하지 않았어요.</value></data>
+  <data name="PinModelFailed" xml:space="preserve"><value>{0}을(를) 고정하지 못했어요. {1}</value></data>
+  <data name="UnpinModelFailed" xml:space="preserve"><value>{0}의 고정을 해제하지 못했어요. {1}</value></data>
+  <data name="PinNamed" xml:space="preserve"><value>{0} 고정</value></data>
+  <data name="UnpinNamed" xml:space="preserve"><value>{0} 고정 해제</value></data>
+  <data name="EffortNone" xml:space="preserve"><value>없음</value></data>
+  <data name="EffortMinimal" xml:space="preserve"><value>최소</value></data>
+  <data name="EffortLow" xml:space="preserve"><value>낮음</value></data>
+  <data name="EffortMedium" xml:space="preserve"><value>보통</value></data>
+  <data name="EffortHigh" xml:space="preserve"><value>높음</value></data>
+  <data name="EffortXHigh" xml:space="preserve"><value>매우 높음</value></data>
+  <data name="EffortMax" xml:space="preserve"><value>최대</value></data>
+  <data name="ContextDefault" xml:space="preserve"><value>기본값</value></data>
+  <data name="ContextLong" xml:space="preserve"><value>긴 컨텍스트</value></data>
+  <data name="ContextTokens" xml:space="preserve"><value>{0} / {1}토큰</value></data>
+  <data name="SendRestarted" xml:space="preserve"><value>전송 확인 전에 Lumi가 다시 시작됐어요. 다시 시도하기 전에 기록을 새로고침하거나 메시지를 편집해 새 요청으로 보내세요.</value></data>
+  <data name="SendReplayUnavailable" xml:space="preserve"><value>이 전송을 안전하게 재시도할 수 없어요. 채팅을 새로고침해 결과를 확인하거나 메시지를 편집한 뒤 다시 보내세요.</value></data>
+  <data name="SendMessageFailed" xml:space="preserve"><value>메시지를 보내지 못했어요.</value></data>
+  <data name="Stopping" xml:space="preserve"><value>중지 중…</value></data>
+  <data name="StopTurnFailedReason" xml:space="preserve"><value>이 턴을 중지하지 못했어요: {0}</value></data>
+  <data name="StopTurnFailed" xml:space="preserve"><value>이 턴을 중지하지 못했어요.</value></data>
+  <data name="AgentPickerDescription" xml:space="preserve"><value>에이전트는 고유한 지침, 스킬, 도구를 제공해요.</value></data>
+  <data name="ProjectPickerDescription" xml:space="preserve"><value>채팅의 소속과 적용할 지침을 정해요.</value></data>
+  <data name="SkillsPickerDescription" xml:space="preserve"><value>이 채팅에서 Lumi가 활용할 스킬이에요.</value></data>
+  <data name="ConnectorsPickerDescription" xml:space="preserve"><value>이 채팅에서 사용할 앱과 서비스예요.</value></data>
+  <data name="NoAgentsOnPc" xml:space="preserve"><value>컴퓨터에 아직 에이전트가 없어요. 맞춤 설정에서 만드세요.</value></data>
+  <data name="NoProjectsOnPc" xml:space="preserve"><value>컴퓨터에 아직 프로젝트가 없어요. 맞춤 설정에서 만드세요.</value></data>
+  <data name="NoSkillsOnPc" xml:space="preserve"><value>컴퓨터에 아직 스킬이 없어요. 맞춤 설정에서 만드세요.</value></data>
+  <data name="NoConnectorsEnabled" xml:space="preserve"><value>켜진 커넥터가 없어요. 여기서 사용하려면 맞춤 설정에서 켜세요.</value></data>
+  <data name="NoAgent" xml:space="preserve"><value>에이전트 없음</value></data>
+  <data name="LumiOnItsOwn" xml:space="preserve"><value>Lumi 기본</value></data>
+  <data name="NoProject" xml:space="preserve"><value>프로젝트 없음</value></data>
+  <data name="ChatOfItsOwn" xml:space="preserve"><value>독립 채팅</value></data>
+  <data name="SkillsCount" xml:space="preserve"><value>스킬 {0}개</value></data>
+  <data name="ConnectorsCount" xml:space="preserve"><value>커넥터 {0}개</value></data>
+  <data name="InteractiveUpdateRequired" xml:space="preserve"><value>대화형 답변 저장을 사용하려면 컴퓨터의 Lumi를 업데이트하세요.</value></data>
+  <data name="AnswerClosed" xml:space="preserve"><value>더 이상 열려 있는 답변이 아니에요.</value></data>
+  <data name="WaitForReply" xml:space="preserve"><value>계속하려면 Lumi의 답변이 끝날 때까지 기다리세요.</value></data>
+  <data name="InteractionChatChanged" xml:space="preserve"><value>열린 채팅이나 컴퓨터가 바뀌었어요. 입력을 다른 채팅에 보내지 않았어요.</value></data>
+  <data name="InteractionUnconfirmed" xml:space="preserve"><value>아직 작업이 확인되지 않았어요. 선택 내용은 유지되며 다시 시도하면 같은 요청을 확인해요.</value></data>
+  <data name="InteractionSaveFailed" xml:space="preserve"><value>상호작용을 저장하지 못했어요.</value></data>
+  <data name="InteractionInterrupted" xml:space="preserve"><value>연결이 중단됐어요. 선택 내용은 유지돼요.</value></data>
+  <data name="AnswerPlaceholder" xml:space="preserve"><value>답변을 입력하세요...</value></data>
+  <data name="You" xml:space="preserve"><value>나</value></data>
+  <data name="Queued" xml:space="preserve"><value>대기열에 추가됨...</value></data>
+  <data name="Steering" xml:space="preserve"><value>방향 전달 중...</value></data>
+  <data name="Steered" xml:space="preserve"><value>반영됨</value></data>
+  <data name="SteerFailed" xml:space="preserve"><value>방향을 전달하지 못했어요</value></data>
+  <data name="JobWakeSummary" xml:space="preserve"><value>작업이 이 채팅을 깨웠어요.</value></data>
+  <data name="SourceCountOne" xml:space="preserve"><value>출처 1개</value></data>
+  <data name="SourceCountMany" xml:space="preserve"><value>출처 {0}개</value></data>
+  <data name="Thinking" xml:space="preserve"><value>생각 중</value></data>
+  <data name="DurationSeconds" xml:space="preserve"><value>{0}초</value></data>
+  <data name="DurationMinutesSeconds" xml:space="preserve"><value>{0}분 {1}초</value></data>
+  <data name="Researched" xml:space="preserve"><value>조사함</value></data>
+  <data name="Implemented" xml:space="preserve"><value>구현함</value></data>
+  <data name="Verified" xml:space="preserve"><value>검증함</value></data>
+  <data name="Worked" xml:space="preserve"><value>작업함</value></data>
+  <data name="ActionCountOne" xml:space="preserve"><value>작업 1개</value></data>
+  <data name="ActionCountMany" xml:space="preserve"><value>작업 {0}개</value></data>
+  <data name="FileChangedOne" xml:space="preserve"><value>파일 1개 변경됨</value></data>
+  <data name="FileChangedMany" xml:space="preserve"><value>파일 {0}개 변경됨</value></data>
+  <data name="FinishedWithIssue" xml:space="preserve"><value>문제가 있지만 완료됨</value></data>
+  <data name="Stopped" xml:space="preserve"><value>중지됨</value></data>
+  <data name="WorkForDuration" xml:space="preserve"><value>{1} 동안 {0}</value></data>
+  <data name="WorkForDurationActions" xml:space="preserve"><value>{1} 동안 {0} · {2}</value></data>
+  <data name="WorkedForDuration" xml:space="preserve"><value>{0} 동안 작업함</value></data>
+  <data name="HideTechnicalDetails" xml:space="preserve"><value>기술 세부 정보 숨기기</value></data>
+  <data name="ShowTechnicalDetails" xml:space="preserve"><value>기술 세부 정보 표시</value></data>
+  <data name="PinnedModels" xml:space="preserve"><value>고정됨</value></data>
+  <data name="ReadOnly" xml:space="preserve"><value>읽기 전용</value></data>
+  <data name="ReadOnlyHeader" xml:space="preserve"><value>읽기 전용</value></data>
+  <data name="ReadOnlyAfter" xml:space="preserve"><value>{0} · 읽기 전용</value></data>
+  <data name="ReadOnlyBefore" xml:space="preserve"><value>읽기 전용 · {0}</value></data>
+  <data name="GitKnownTextChanges" xml:space="preserve"><value>확인된 텍스트 변경 · 일부</value></data>
+  <data name="GitTotalTextChanges" xml:space="preserve"><value>전체 텍스트 변경</value></data>
+  <data name="BackToChangedFiles" xml:space="preserve"><value>변경된 파일로 돌아가기</value></data>
+  <data name="GitChangedFileOne" xml:space="preserve"><value>변경된 파일 1개</value></data>
+  <data name="GitChangedFileMany" xml:space="preserve"><value>변경된 파일 {0}개</value></data>
+  <data name="LimitedSuffix" xml:space="preserve"><value> · 제한됨</value></data>
+  <data name="PositionOfCount" xml:space="preserve"><value>{1}개 중 {0}개째</value></data>
+  <data name="GitResolvingScope" xml:space="preserve"><value>프로젝트 / 워크트리 확인 중…</value></data>
+  <data name="GitNoRepositorySelected" xml:space="preserve"><value>선택한 저장소 없음</value></data>
+  <data name="GitOpenChat" xml:space="preserve"><value>프로젝트나 워크트리를 확인하려면 채팅을 여세요.</value></data>
+  <data name="GitScopeUnavailable" xml:space="preserve"><value>프로젝트 / 워크트리 범위 확인 불가</value></data>
+  <data name="GitUpdateRequired" xml:space="preserve"><value>휴대폰에서 Git 변경 사항을 보려면 데스크톱의 Lumi를 업데이트하세요.</value></data>
+  <data name="GitLoadFailed" xml:space="preserve"><value>Git 변경 사항을 불러오지 못했어요.</value></data>
+  <data name="GitScopeDescription" xml:space="preserve"><value>채팅: {0}
+{1} · 읽기 전용</value></data>
+  <data name="GitWorkingTreeClean" xml:space="preserve"><value>작업 트리가 깨끗해요. 데스크톱에서 변경 후 새로고침하세요.</value></data>
+  <data name="GitNoRepository" xml:space="preserve"><value>이 채팅에는 사용할 수 있는 Git 저장소가 없어요.</value></data>
+  <data name="GitCancelled" xml:space="preserve"><value>Git 요청이 취소됐어요. 새로고침하여 다시 시도하세요.</value></data>
+  <data name="GitWorkspaceChanged" xml:space="preserve"><value>작업 공간이 바뀌었어요. Git 변경 사항을 새로고침하세요.</value></data>
+  <data name="GitDiffTruncated" xml:space="preserve"><value>모바일에서 차이가 잘렸어요. 전체 파일은 데스크톱에서 확인하세요.</value></data>
+  <data name="GitNoTextDiff" xml:space="preserve"><value>텍스트 차이가 없어요(바이너리, 빈 파일 또는 메타데이터만 변경).</value></data>
+  <data name="PreviewOnlySuffix" xml:space="preserve"><value> · 미리 보기 전용</value></data>
+  <data name="GitDiffLoadFailed" xml:space="preserve"><value>파일 차이를 불러오지 못했어요.</value></data>
+  <data name="GitKindModified" xml:space="preserve"><value>수정됨</value></data>
+  <data name="GitKindAdded" xml:space="preserve"><value>추가됨</value></data>
+  <data name="GitKindDeleted" xml:space="preserve"><value>삭제됨</value></data>
+  <data name="GitKindRenamed" xml:space="preserve"><value>이름 변경됨</value></data>
+  <data name="GitKindCopied" xml:space="preserve"><value>복사됨</value></data>
+  <data name="GitKindUntracked" xml:space="preserve"><value>추적되지 않음</value></data>
+  <data name="GitKindTypeChanged" xml:space="preserve"><value>유형 변경됨</value></data>
+  <data name="GitKindConflicted" xml:space="preserve"><value>충돌</value></data>
+  <data name="GitKindRecreated" xml:space="preserve"><value>다시 생성됨</value></data>
+  <data name="GitKindSubmodule" xml:space="preserve"><value>서브모듈</value></data>
+  <data name="GitKindUnknown" xml:space="preserve"><value>알 수 없음</value></data>
+  <data name="SwitchState" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="SwitchOn" xml:space="preserve"><value>켜짐</value></data>
+  <data name="SwitchOff" xml:space="preserve"><value>꺼짐</value></data>
+  <data name="On" xml:space="preserve"><value>켜짐</value></data>
+  <data name="Off" xml:space="preserve"><value>꺼짐</value></data>
+  <data name="Enabled" xml:space="preserve"><value>활성</value></data>
+  <data name="Disabled" xml:space="preserve"><value>비활성</value></data>
+  <data name="Paused" xml:space="preserve"><value>일시 중지</value></data>
+  <data name="BuiltIn" xml:space="preserve"><value>기본 제공</value></data>
+  <data name="Yours" xml:space="preserve"><value>내 항목</value></data>
+  <data name="LibraryBuiltInNote" xml:space="preserve"><value>Lumi 기본 제공 항목이에요. 변경하려면 컴퓨터에서 사본을 만드세요.</value></data>
+  <data name="LibraryConnectorNote" xml:space="preserve"><value>커넥터 설정은 컴퓨터에서 해요. 여기서는 켜거나 끌 수 있어요.</value></data>
+  <data name="LibraryJobNote" xml:space="preserve"><value>작업 편집은 컴퓨터에서 해요. 여기서는 켜거나 끌 수 있어요.</value></data>
+  <data name="ActionsForNamed" xml:space="preserve"><value>{0} 작업</value></data>
+  <data name="JobsSummary" xml:space="preserve"><value>{0}개 켜짐 · {1}개 일시 중지</value></data>
+  <data name="LibraryNewItem" xml:space="preserve"><value>새 {0}</value></data>
+  <data name="LibraryEditItem" xml:space="preserve"><value>{0} 편집</value></data>
+  <data name="LibraryDiscardDescription" xml:space="preserve"><value>“{0}”의 변경 사항이 사라져요. 컴퓨터의 항목은 삭제하지 않아요.</value></data>
+  <data name="LibraryDeleteQuestion" xml:space="preserve"><value>라이브러리에서 삭제할까요?</value></data>
+  <data name="LibraryEnableItem" xml:space="preserve"><value>{0} 활성화</value></data>
+  <data name="LibraryDisableItem" xml:space="preserve"><value>{0} 비활성화</value></data>
+  <data name="LibraryDeleteDescription" xml:space="preserve"><value>공유 라이브러리에서 “{0}”을(를) 삭제할까요? 휴대폰과 컴퓨터에서 모두 삭제되며 되돌릴 수 없어요.</value></data>
+  <data name="LibraryNoResults" xml:space="preserve"><value>{0}을(를) 찾지 못했어요</value></data>
+  <data name="LibraryEmptyYet" xml:space="preserve"><value>아직 {0}이(가) 없어요</value></data>
+  <data name="LibrarySearchHelp" xml:space="preserve"><value>다른 이름으로 검색하거나 검색을 지워 모든 {0}을(를) 확인하세요.</value></data>
+  <data name="LibraryAddConnectors" xml:space="preserve"><value>컴퓨터에서 커넥터를 추가하세요. 여기서는 켜거나 끌 수 있어요.</value></data>
+  <data name="LibraryAddJobs" xml:space="preserve"><value>컴퓨터에서 작업을 만드세요. 여기서는 켜거나 끌 수 있어요.</value></data>
+  <data name="LibraryAddAgent" xml:space="preserve"><value>+로 {0}을(를) 추가하거나 컴퓨터에서 추가하세요. 라이브러리는 공유돼요.</value></data>
+  <data name="LibraryAddItem" xml:space="preserve"><value>+로 {0}을(를) 추가하거나 컴퓨터에서 추가하세요. 라이브러리는 공유돼요.</value></data>
+  <data name="LibrarySearch" xml:space="preserve"><value>{0} 검색</value></data>
+  <data name="LibraryChooseConnector" xml:space="preserve"><value>커넥터를 선택해 역할을 확인하세요. 해당 행에서 바로 켜거나 끌 수 있어요.</value></data>
+  <data name="LibraryChooseJob" xml:space="preserve"><value>작업을 선택해 일정을 보고 채팅을 여세요. 해당 행에서 바로 켜거나 끌 수 있어요.</value></data>
+  <data name="LibraryChooseAgent" xml:space="preserve"><value>{0}을(를) 선택해 열거나 +로 추가하세요.</value></data>
+  <data name="LibraryChooseItem" xml:space="preserve"><value>{0}을(를) 선택해 열거나 +로 추가하세요.</value></data>
+  <data name="ProjectSingular" xml:space="preserve"><value>프로젝트</value></data>
+  <data name="SkillSingular" xml:space="preserve"><value>스킬</value></data>
+  <data name="AgentSingular" xml:space="preserve"><value>에이전트</value></data>
+  <data name="MemorySingular" xml:space="preserve"><value>기억</value></data>
+  <data name="ConnectorSingular" xml:space="preserve"><value>커넥터</value></data>
+  <data name="JobSingular" xml:space="preserve"><value>작업</value></data>
+  <data name="ItemSingular" xml:space="preserve"><value>항목</value></data>
+  <data name="SkillContent" xml:space="preserve"><value>스킬 내용</value></data>
+  <data name="SystemPrompt" xml:space="preserve"><value>시스템 프롬프트</value></data>
+  <data name="Content" xml:space="preserve"><value>내용</value></data>
+  <data name="Memory" xml:space="preserve"><value>기억</value></data>
+  <data name="MemoryCountOne" xml:space="preserve"><value>기억 1개</value></data>
+  <data name="MemoryCountMany" xml:space="preserve"><value>기억 {0}개</value></data>
+  <data name="ChatCountOne" xml:space="preserve"><value>채팅 1개</value></data>
+  <data name="ChatCountMany" xml:space="preserve"><value>채팅 {0}개</value></data>
+  <data name="SkillCountOne" xml:space="preserve"><value>스킬 1개</value></data>
+  <data name="SkillCountMany" xml:space="preserve"><value>스킬 {0}개</value></data>
+  <data name="ToolCount" xml:space="preserve"><value>도구 {0}개</value></data>
+  <data name="SkillBuiltIn" xml:space="preserve"><value>스킬 · 기본 제공</value></data>
+  <data name="AgentBuiltIn" xml:space="preserve"><value>에이전트 · 기본 제공</value></data>
+  <data name="Tools" xml:space="preserve"><value>도구</value></data>
+  <data name="RunsOnPc" xml:space="preserve"><value>컴퓨터에서 실행</value></data>
+  <data name="OnlineService" xml:space="preserve"><value>온라인 서비스</value></data>
+  <data name="ConnectorOnPc" xml:space="preserve"><value>커넥터 · 컴퓨터에서</value></data>
+  <data name="ConnectorOnline" xml:space="preserve"><value>커넥터 · 온라인</value></data>
+  <data name="Command" xml:space="preserve"><value>명령</value></data>
+  <data name="Address" xml:space="preserve"><value>주소</value></data>
+  <data name="JobTrigger" xml:space="preserve"><value>작업 · {0}</value></data>
+  <data name="Prompt" xml:space="preserve"><value>프롬프트</value></data>
+  <data name="Runs" xml:space="preserve"><value>실행</value></data>
+  <data name="LastRun" xml:space="preserve"><value>마지막 실행</value></data>
+  <data name="Watches" xml:space="preserve"><value>감시</value></data>
+  <data name="Scheduled" xml:space="preserve"><value>예약됨</value></data>
+  <data name="WakeScript" xml:space="preserve"><value>깨우기 스크립트</value></data>
+  <data name="FollowsChat" xml:space="preserve"><value>채팅 추적</value></data>
+  <data name="Automation" xml:space="preserve"><value>자동화</value></data>
+  <data name="LibraryFullDetailsFailed" xml:space="preserve"><value>전체 정보를 불러오지 못했어요. 컴퓨터가 연결되면 다시 시도하세요.</value></data>
+  <data name="LibraryFullDetailsFailedReason" xml:space="preserve"><value>전체 정보를 불러오지 못했어요. {0}</value></data>
+  <data name="LibraryChangeFailed" xml:space="preserve"><value>항목을 변경하지 못했어요. 다시 시도하세요.</value></data>
+  <data name="LibraryChangeFailedReason" xml:space="preserve"><value>항목을 변경하지 못했어요. {0}</value></data>
+  <data name="DonePeriod" xml:space="preserve"><value>완료했어요.</value></data>
+  <data name="LibraryLoadingFullDetails" xml:space="preserve"><value>전체 정보 불러오는 중…</value></data>
+  <data name="LibraryCannotEdit" xml:space="preserve"><value>이 연결에서는 항목을 편집할 수 없어요.</value></data>
+  <data name="LibraryFullItemFailed" xml:space="preserve"><value>전체 항목을 불러오지 못했어요. 컴퓨터가 연결되면 다시 시도하세요.</value></data>
+  <data name="LibraryLoadItemFailedReason" xml:space="preserve"><value>항목을 불러오지 못했어요. {0}</value></data>
+  <data name="LibraryNameRequired" xml:space="preserve"><value>먼저 이름을 입력하세요.</value></data>
+  <data name="LibrarySaveFailed" xml:space="preserve"><value>저장하지 못했어요. 변경 사항은 여기에 남아 있어요.</value></data>
+  <data name="LibrarySavedOnPcMessage" xml:space="preserve"><value>컴퓨터에 저장했어요.</value></data>
+  <data name="LibrarySaveFailedReason" xml:space="preserve"><value>저장하지 못했어요. 변경 사항은 여기에 남아 있어요. {0}</value></data>
+  <data name="LibraryDeleteFailed" xml:space="preserve"><value>항목을 삭제하지 못했어요. 다시 시도하세요.</value></data>
+  <data name="LibraryDeleted" xml:space="preserve"><value>공유 라이브러리에서 삭제했어요.</value></data>
+  <data name="LibraryDeleteFailedReason" xml:space="preserve"><value>항목을 삭제하지 못했어요. {0}</value></data>
+  <data name="EnabledOnPc" xml:space="preserve"><value>컴퓨터에서 활성화했어요.</value></data>
+  <data name="DisabledOnPc" xml:space="preserve"><value>컴퓨터에서 비활성화했어요.</value></data>
+  <data name="LibraryRefreshFailed" xml:space="preserve"><value>{0} 목록을 갱신하지 못했어요. 컴퓨터에 다시 연결해 불러오세요.</value></data>
+  <data name="RequestTimeout" xml:space="preserve"><value>Lumi 응답 시간이 초과됐어요.</value></data>
+  <data name="ProtocolRequired" xml:space="preserve"><value>이 휴대폰에는 범위별 이벤트를 지원하는 Lumi 원격 프로토콜 {0}이(가) 필요해요.</value></data>
+  <data name="UnreadableResponse" xml:space="preserve"><value>Lumi가 읽을 수 없는 응답을 반환했어요.</value></data>
+  <data name="NotConnectedToDesktop" xml:space="preserve"><value>Lumi 데스크톱에 연결되지 않았어요.</value></data>
+  <data name="WaitingCompatibleDesktop" xml:space="preserve"><value>호환되는 Lumi 데스크톱 연결을 기다리는 중이에요.</value></data>
+  <data name="NoLongerPaired" xml:space="preserve"><value>이 기기는 더 이상 Lumi와 페어링되어 있지 않아요.</value></data>
+  <data name="ProducedFileTooLarge" xml:space="preserve"><value>생성된 파일이 모바일에서 열기에 너무 커요.</value></data>
+  <data name="ProducedFileDownloadLimit" xml:space="preserve"><value>생성된 파일이 모바일 다운로드 한도를 초과해요.</value></data>
+  <data name="FileTooLargeToSend" xml:space="preserve"><value>보내기에 너무 큰 파일이에요.</value></data>
+  <data name="ConnectionClosed" xml:space="preserve"><value>Lumi가 연결을 닫았어요.</value></data>
+  <data name="InvalidBootstrap" xml:space="preserve"><value>유효한 초기 스냅샷을 받지 못했어요.</value></data>
+  <data name="ConnectionClosedBeforeBootstrap" xml:space="preserve"><value>초기 스냅샷 전에 스트림이 닫혔어요.</value></data>
+  <data name="LiveConnectionTimeout" xml:space="preserve"><value>Lumi 실시간 연결이 응답을 멈췄어요.</value></data>
+  <data name="SseLineTooLarge" xml:space="preserve"><value>SSE 줄이 너무 커요.</value></data>
+  <data name="SseLineUnterminated" xml:space="preserve"><value>SSE 스트림이 줄을 끝내지 않고 종료됐어요.</value></data>
+  <data name="ResponseProtocolLimit" xml:space="preserve"><value>응답이 프로토콜 한도 {0:N0}바이트를 초과해요.</value></data>
+  <data name="CantReachLumi" xml:space="preserve"><value>Lumi에 연결할 수 없어요. 컴퓨터가 켜져 있고 같은 Wi-Fi에 있는지 확인하세요.</value></data>
+  <data name="HttpResponseError" xml:space="preserve"><value>Lumi가 HTTP {0}{1}을(를) 반환했어요.</value></data>
+  <data name="TailscaleNotConnected" xml:space="preserve"><value>이 컴퓨터 주소에 Tailscale이 연결되지 않았어요. Tailscale을 다시 연결하고 시도하세요.</value></data>
+  <data name="SavedFileLengthMismatch" xml:space="preserve"><value>저장된 파일이 다운로드와 일치하지 않아요({1}바이트 중 {0}).</value></data>
+  <data name="Phone" xml:space="preserve"><value>휴대폰</value></data>
+  <data name="AndroidPhone" xml:space="preserve"><value>Android 휴대폰</value></data>
+  <data name="ThisLumiPc" xml:space="preserve"><value>이 Lumi 컴퓨터</value></data>
+  <data name="LumiWebApp" xml:space="preserve"><value>Lumi 웹 앱</value></data>
+  <data name="BrowserDownloadLimit" xml:space="preserve"><value>다운로드가 브라우저 한도를 초과해요.</value></data>
+  <data name="BrowserSameOriginOnly" xml:space="preserve"><value>Lumi Web은 이 앱을 제공한 컴퓨터에만 연결할 수 있어요.</value></data>
+  <data name="BrowserGatewaySignIn" xml:space="preserve"><value>Microsoft 로그인을 확인해 주세요. 터널 소유자 계정으로 다시 로그인하세요. 페어링은 유지돼요. 다시 불러오기 전에 미전송 초안을 복사하세요. 설정의 웹 앱 다시 불러오기도 사용할 수 있어요.</value></data>
+  <data name="AttachToLumi" xml:space="preserve"><value>Lumi에 첨부</value></data>
+  <data name="PhoneAttachTooLarge" xml:space="preserve"><value>이 휴대폰에서 보내기에는 파일이 너무 커요.</value></data>
+  <data name="AttachFileFailed" xml:space="preserve"><value>파일을 첨부하지 못했어요.</value></data>
+  <data name="FileTooLargeKnownSize" xml:space="preserve"><value>{0}은(는) 보내기에 너무 커요({1} MB). 한도는 {2} MB예요.</value></data>
+  <data name="FileTooLargeUnknownSize" xml:space="preserve"><value>{0}은(는) 보내기에 너무 커요. 한도는 {1} MB예요.</value></data>
+  <data name="CopyAnswerFailed" xml:space="preserve"><value>답변을 복사하지 못했어요.</value></data>
+  <data name="ShareAnswerFailed" xml:space="preserve"><value>답변을 공유하지 못했어요.</value></data>
+  <data name="OpenSourceFailed" xml:space="preserve"><value>출처를 열지 못했어요.</value></data>
+  <data name="DownloadFileFailed" xml:space="preserve"><value>파일을 다운로드하지 못했어요.</value></data>
+  <data name="SaveLumiFile" xml:space="preserve"><value>Lumi 파일 저장</value></data>
+  <data name="DownloadedFileCannotOpen" xml:space="preserve"><value>다운로드했지만 이 휴대폰에서 파일을 열지 못했어요.</value></data>
+  <data name="OpenFileFailed" xml:space="preserve"><value>파일을 열지 못했어요.</value></data>
+  <data name="LocalNetworkPermissionRequired" xml:space="preserve"><value>Lumi 컴퓨터에 연결하려면 로컬 네트워크 접근이 필요해요.</value></data>
+  <data name="LumiText" xml:space="preserve"><value>Lumi 텍스트</value></data>
+  <data name="TransportRequestOne" xml:space="preserve"><value>요청 {0}개</value></data>
+  <data name="TransportRequestMany" xml:space="preserve"><value>요청 {0}개</value></data>
+  <data name="TransportLiveUpdateOne" xml:space="preserve"><value>실시간 갱신 {0}개</value></data>
+  <data name="TransportLiveUpdateMany" xml:space="preserve"><value>실시간 갱신 {0}개</value></data>
+  <data name="TransportReconnectOne" xml:space="preserve"><value>재연결 {0}회</value></data>
+  <data name="TransportReconnectMany" xml:space="preserve"><value>재연결 {0}회</value></data>
+  <data name="TransportChatReloadOne" xml:space="preserve"><value>채팅 다시 불러오기 {0}회</value></data>
+  <data name="TransportChatReloadMany" xml:space="preserve"><value>채팅 다시 불러오기 {0}회</value></data>
+  <data name="TransportSummary" xml:space="preserve"><value>{0}, {1} 수신, {2}, {3}</value></data>
+  <data name="TransportUnchanged" xml:space="preserve"><value>, {1}개 중 {0}개 이미 최신</value></data>
+  <data name="WebOpening" xml:space="preserve"><value>Lumi 여는 중...</value></data>
+  <data name="WebNeedsReload" xml:space="preserve"><value>Lumi를 다시 불러와야 해요</value></data>
+  <data name="WebReload" xml:space="preserve"><value>Lumi 다시 불러오기</value></data>
+  <data name="WebReloadNote" xml:space="preserve"><value>저장된 채팅은 컴퓨터에 남아요. 다시 불러오면 미전송 텍스트가 사라질 수 있어요.</value></data>
+  <data name="WebOffline" xml:space="preserve"><value>오프라인이에요. 인터넷에 연결하고 다시 시도하세요.</value></data>
+  <data name="WebStartFailed" xml:space="preserve"><value>Lumi를 시작하지 못했어요: {0}</value></data>
+  <data name="WebContextLost" xml:space="preserve"><value>브라우저가 Lumi 표시를 멈췄어요. 다시 불러와 연결하세요.</value></data>
+  <data name="MessageText" xml:space="preserve"><value>메시지 텍스트</value></data>
+  <data name="TextInput" xml:space="preserve"><value>텍스트 입력</value></data>
+  <data name="WebRefreshing" xml:space="preserve"><value>웹 앱 새로고침 중...</value></data>
+  <data name="WebUpdateInstallFailed" xml:space="preserve"><value>웹 앱 업데이트를 설치하지 못했어요.</value></data>
+  <data name="WebUpdateTimeout" xml:space="preserve"><value>웹 앱 업데이트 시간이 초과됐어요.</value></data>
+  <data name="WebFindingRegistration" xml:space="preserve"><value>앱 등록 찾는 중</value></data>
+  <data name="WebReplacingRegistration" xml:space="preserve"><value>앱 등록 교체 중</value></data>
+  <data name="WebRegistering" xml:space="preserve"><value>현재 앱 등록 중</value></data>
+  <data name="WebUpdatingRuntime" xml:space="preserve"><value>캐시된 런타임 업데이트 중...</value></data>
+  <data name="WebCheckingBuild" xml:space="preserve"><value>현재 빌드 확인 중</value></data>
+  <data name="WebInstallingFiles" xml:space="preserve"><value>검증된 앱 파일 설치 중</value></data>
+  <data name="WebActivatingUpdate" xml:space="preserve"><value>앱 업데이트 활성화 중</value></data>
+  <data name="WebOpeningStage" xml:space="preserve"><value>Lumi 여는 중</value></data>
+  <data name="WebRefreshFailed" xml:space="preserve"><value>웹 앱을 새로고침하지 못했어요. 페어링은 유지돼요. {0}: {1} 다시 시도하세요.</value></data>
+  <data name="AndroidInstallTitle" xml:space="preserve"><value>Android용 Lumi 설치</value></data>
+  <data name="AndroidSetup" xml:space="preserve"><value>Android 설정</value></data>
+  <data name="AndroidInstallIntro" xml:space="preserve"><value>기본 앱은 웹 앱과 같은 대화 및 인터페이스에 Android 시스템 키보드와 파일 선택기를 더해요.</value></data>
+  <data name="AndroidDownloadOfficial" xml:space="preserve"><value>공식 APK 다운로드</value></data>
+  <data name="AndroidNoAppStore" xml:space="preserve"><value>Lumi는 앱 스토어에 배포되지 않아요. 아래 GitHub에서 공식 APK를 받으세요.</value></data>
+  <data name="AndroidMatchingRelease" xml:space="preserve"><value>이 Lumi Desktop 릴리스와 일치해요.</value></data>
+  <data name="AndroidDownloadApk" xml:space="preserve"><value>Android APK 다운로드</value></data>
+  <data name="AndroidInstallHint" xml:space="preserve"><value>다운로드가 끝나면 APK를 열고 설치를 누르세요. Android가 이 브라우저의 설치 허용을 한 번 요청할 수 있어요.</value></data>
+  <data name="OpenLumi" xml:space="preserve"><value>Lumi 열기</value></data>
+  <data name="AndroidOpenHint" xml:space="preserve"><value>설치 후 이 페이지로 돌아와 계속하세요. Lumi가 없으면 앱 스토어 대신 공식 APK 다운로드가 열려요.</value></data>
+  <data name="AndroidEnterPairingCode" xml:space="preserve"><value>페어링 코드 입력</value></data>
+  <data name="AndroidPairingHint" xml:space="preserve"><value>Lumi Desktop의 6자리 코드를 사용하세요. 한 번만 하면 돼요.</value></data>
+  <data name="UseWebApp" xml:space="preserve"><value>대신 웹 앱 사용</value></data>
+  <data name="AndroidVersionMatching" xml:space="preserve"><value>Lumi {0}, 이 데스크톱 릴리스와 일치해요.</value></data>
+  <data name="WebManifestDescription" xml:space="preserve"><value>휴대폰에서 만나는 나의 Lumi 컴퓨터.</value></data>
+  <data name="WorkerStarting" xml:space="preserve"><value>워커 렌더러 시작 중</value></data>
+  <data name="WorkerUnavailable" xml:space="preserve"><value>일반 렌더러(워커 사용 불가)</value></data>
+  <data name="WorkerStopped" xml:space="preserve"><value>일반 렌더러(워커 중지됨)</value></data>
+  <data name="WorkerRenderer" xml:space="preserve"><value>워커 렌더러</value></data>
+  <data name="WorkerRendererStats" xml:space="preserve"><value>워커 렌더러({0} Hz 클록, 초당 새 프레임 {1}개)</value></data>
+  <data name="SimulatorTitle" xml:space="preserve"><value>Lumi Mobile — 기기 시뮬레이터</value></data>
+  <data name="Device" xml:space="preserve"><value>기기</value></data>
+  <data name="Bezel" xml:space="preserve"><value>베젤</value></data>
+  <data name="SimulatorUnknownDevice" xml:space="preserve"><value>알 수 없는 기기 '{0}'. 알려진 기기: {1}</value></data>
+  <data name="SimulatorHinge" xml:space="preserve"><value> · 힌지 {0:0.#} dp</value></data>
+  <data name="SimulatorFoldPosition" xml:space="preserve"><value> · 접힘 위치 {0:0} dp</value></data>
+  <data name="SimulatorThreePanes" xml:space="preserve"><value>패널 3개</value></data>
+  <data name="SimulatorTwoPanes" xml:space="preserve"><value>패널 2개</value></data>
+  <data name="SimulatorOnePane" xml:space="preserve"><value>패널 1개</value></data>
+  <data name="SimulatorShort" xml:space="preserve"><value> · 짧음</value></data>
+  <data name="SimulatorReadout" xml:space="preserve"><value>{0:0}×{1:0} dp · {2}{3}{4}</value></data>
+  <data name="SimFlipCover" xml:space="preserve"><value>플립 커버 화면</value></data>
+  <data name="SimCompactPhone" xml:space="preserve"><value>소형 휴대폰</value></data>
+  <data name="SimFoldFolded" xml:space="preserve"><value>폴드 — 접힘</value></data>
+  <data name="SimGalaxyCover" xml:space="preserve"><value>Galaxy Z Fold7 — 커버</value></data>
+  <data name="SimGalaxyCoverLandscape" xml:space="preserve"><value>Galaxy Z Fold7 — 커버 가로</value></data>
+  <data name="SimPhoneLandscape" xml:space="preserve"><value>휴대폰 가로</value></data>
+  <data name="SimGalaxyOpenLarge" xml:space="preserve"><value>Galaxy Z Fold7 — 펼침, 큰 디스플레이 크기</value></data>
+  <data name="SimFoldUnfolded" xml:space="preserve"><value>폴드 — 펼침</value></data>
+  <data name="SimGalaxyOpen" xml:space="preserve"><value>Galaxy Z Fold7 — 펼침</value></data>
+  <data name="SimGalaxyBook" xml:space="preserve"><value>Galaxy Z Fold7 — 책 모드</value></data>
+  <data name="SimGalaxyTabletop" xml:space="preserve"><value>Galaxy Z Fold7 — 탁상 모드</value></data>
+  <data name="SimFoldTabletop" xml:space="preserve"><value>폴드 — 탁상 모드</value></data>
+  <data name="SimTablet" xml:space="preserve"><value>태블릿</value></data>
+  <data name="SimTabletLandscape" xml:space="preserve"><value>태블릿 가로</value></data>
+  <data name="SimLargeTabletLandscape" xml:space="preserve"><value>대형 태블릿 가로</value></data>
+  <data name="DesignPreviewTitle" xml:space="preserve"><value>Lumi Mobile - 디자인 미리 보기</value></data>
+  <data name="PopupPreviewTitle" xml:space="preserve"><value>Lumi Mobile - 다듬어진 팝업 미리 보기</value></data>
+  <data name="Models" xml:space="preserve"><value>모델</value></data>
+  <data name="ChatDetails" xml:space="preserve"><value>채팅 세부 정보</value></data>
+  <data name="Activity" xml:space="preserve"><value>활동</value></data>
+  <data name="LibraryActions" xml:space="preserve"><value>라이브러리 작업</value></data>
+  <data name="DiscardChanges" xml:space="preserve"><value>변경 사항 버리기</value></data>
+  <data name="Disconnect" xml:space="preserve"><value>연결 해제</value></data>
+  <data name="FormChoices" xml:space="preserve"><value>양식 선택지</value></data>
+  <data name="DatePicker" xml:space="preserve"><value>날짜 선택기</value></data>
+  <data name="SubmittedInput" xml:space="preserve"><value>제출된 입력</value></data>
+  <data name="ActionReceipts" xml:space="preserve"><value>작업 처리 내역</value></data>
+  <data name="LocalUiFixture" xml:space="preserve"><value>로컬 UI 예제</value></data>
+  <data name="Close" xml:space="preserve"><value>닫기</value></data>
+  <data name="ComposerFilesPhotos" xml:space="preserve"><value>파일 및 사진</value></data>
+  <data name="CopyDetails" xml:space="preserve"><value>세부 정보 복사</value></data>
+  <data name="BackgroundJob" xml:space="preserve"><value>백그라운드 작업</value></data>
+  <data name="WakeSignalReceived" xml:space="preserve"><value>깨우기 신호를 받았어요.</value></data>
+  <data name="MobileTruncationNotice" xml:space="preserve"><value>[모바일에서 잘림; 전체 출력은 데스크톱에서 확인]</value></data>
+</root>

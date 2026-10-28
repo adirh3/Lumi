@@ -766,7 +766,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public string ModelSummary => Model is { Length: > 0 }
         ? HasQualityLevels && Quality is { Length: > 0 } quality
-            ? $"{ModelDisplayName} · {(Strings.Language == "he" ? EffortDisplay(quality) : quality)}"
+            ? $"{ModelDisplayName} · {(Strings.Language == "en" ? quality : EffortDisplay(quality))}"
             : ModelDisplayName
         : Strings.Get("Model");
 

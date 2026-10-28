@@ -71,24 +71,30 @@
                           x:DataType="vm:MobileShellViewModel"
                           DataContext="{Binding $parent[views:MobileShellView].DataContext}">
                 <TextBlock Text="{loc:Str Language}" Classes="field-label" />
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="8" FlowDirection="LeftToRight">
-                  <Button x:Name="SetupEnglishButton" Classes="theme-option" Content="English"
-                          Classes.selected="{Binding IsEnglishLanguage}"
-                          Command="{Binding SelectLanguageCommand}" CommandParameter="en" />
-                  <Button x:Name="SetupHebrewButton" Grid.Column="1" Classes="theme-option" Content="עברית"
-                          Classes.selected="{Binding IsHebrewLanguage}"
-                          Command="{Binding SelectLanguageCommand}" CommandParameter="he" />
-                </Grid>
+                <sc:StrataComboBox x:Name="SetupLanguagePicker" FlowDirection="LeftToRight"
+                                   ItemsSource="{Binding LanguageOptions}"
+                                   SelectedItem="{Binding SelectedLanguageName, Mode=TwoWay}"
+                                   MinHeight="{DynamicResource Touch.MinTarget}"
+                                   AutomationProperties.Name="{loc:Str Language}">
+                  <sc:StrataComboBox.Styles>
+                    <Style Selector="sc|StrataComboBox#SetupLanguagePicker /template/ Popup#PART_Popup">
+                      <Setter Property="ShouldUseOverlayLayer" Value="True" />
+                    </Style>
+                    <Style Selector="sc|StrataComboBoxItem">
+                      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+                    </Style>
+                  </sc:StrataComboBox.Styles>
+                </sc:StrataComboBox>
                 <TextBlock Text="{loc:Str LanguageRestart}" Classes="supporting"
                            TextWrapping="Wrap" IsVisible="{Binding LanguageRestartRequired}" />
               </StackPanel>
 
               <Grid x:Name="SetupProgress" ColumnDefinitions="*,*" ColumnSpacing="8">
                 <Border Classes="setup-step" Classes.current="{Binding IsFindStep}">
-                  <TextBlock Text="{loc:Str ConnectStepFind}" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" />
+                  <TextBlock Text="{loc:Str ConnectStepFind}" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" TextWrapping="Wrap" />
                 </Border>
                 <Border Grid.Column="1" Classes="setup-step" Classes.current="{Binding !IsFindStep}">
-                  <TextBlock Text="{loc:Str ConnectStepPair}" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" />
+                  <TextBlock Text="{loc:Str ConnectStepPair}" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" TextWrapping="Wrap" />
                 </Border>
               </Grid>
 

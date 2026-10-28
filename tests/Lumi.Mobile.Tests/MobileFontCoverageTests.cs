@@ -107,6 +107,61 @@ public sealed class MobileFontCoverageTests
     }
 
     [Fact]
+    public async Task BrowserChineseFallbackContainsSimplifiedChineseAndPunctuation()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(() =>
+        {
+            using var stream = File.OpenRead(Path.Combine(
+                AppContext.BaseDirectory, "BrowserFonts", "NotoSansSC-Regular.otf"));
+            using var typeface = SKTypeface.FromStream(stream, 0);
+
+            Assert.NotNull(typeface);
+            Assert.Equal(400, typeface.FontWeight);
+            foreach (var character in "简体中文设置聊天智能体技能连接器项目权限隐私记忆，。！？")
+                Assert.NotEqual(0, typeface.GetGlyph(character));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task BrowserScriptFontsContainTheirNativeNamesAndCommonUiText()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(() =>
+        {
+            foreach (var (file, family, sample) in new[]
+            {
+                ("NotoSansJP-Regular.otf", "Noto Sans JP", "日本語設定こんにちはチャットプロジェクトコピー。"),
+                ("NotoSansKR-Regular.otf", "Noto Sans KR", "한국어설정안녕하세요채팅프로젝트복사"),
+                ("NotoSansArabic.ttf", "Noto Sans Arabic", "العربيةالإعداداتمحادثةمشروعنسخ")
+            })
+            {
+                using var stream = File.OpenRead(Path.Combine(AppContext.BaseDirectory, "BrowserFonts", file));
+                using var typeface = SKTypeface.FromStream(stream, 0);
+                Assert.NotNull(typeface);
+                Assert.Equal(family, typeface.FamilyName);
+                foreach (var character in sample)
+                    Assert.NotEqual(0, typeface.GetGlyph(character));
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task BrowserOnlyScriptFontsAreNotBundledInNativeMobile()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(() =>
+        {
+            foreach (var file in new[]
+            {
+                "NotoSansSC-Regular.otf", "NotoSansJP-Regular.otf",
+                "NotoSansKR-Regular.otf", "NotoSansArabic.ttf"
+            })
+                Assert.False(AssetLoader.Exists(new Uri("avares://Lumi.Mobile/Assets/Fonts/" + file)), file);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task BundledEmojiFallbackContainsRepresentativeEmojiSequences()
     {
         using var session = HeadlessMobileSession.Start();

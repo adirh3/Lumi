@@ -78,20 +78,23 @@ internal static class Program
             })
             .With(new FontManagerOptions
             {
-                FontFallbacks =
-                [
-                    new FontFallback
+                FontFallbacks = new[]
+                {
+                    "Noto Sans Hebrew", "Noto Sans Arabic", "Noto Color Emoji",
+                    Strings.Language switch
                     {
-                        FontFamily = new FontFamily(
-                            "avares://Lumi.Mobile/Assets/Fonts#Noto Sans Hebrew"),
-                        UnicodeRange = new UnicodeRange(0x0590, 0x05FF)
+                        "ja" => "Noto Sans JP",
+                        "ko" => "Noto Sans KR",
+                        _ => "Noto Sans SC"
                     },
-                    new FontFallback
-                    {
-                        FontFamily = new FontFamily(
-                            "avares://Lumi.Mobile/Assets/Fonts#Noto Color Emoji")
-                    }
-                ]
+                    "Noto Sans SC", "Noto Sans JP", "Noto Sans KR"
+                }.Distinct(StringComparer.Ordinal).Select(family => new FontFallback
+                {
+                    FontFamily = new FontFamily(
+                        (family is "Noto Sans Hebrew" or "Noto Color Emoji"
+                            ? "avares://Lumi.Mobile/Assets/Fonts#"
+                            : "avares://Lumi.Mobile.Browser/Assets/Fonts#") + family)
+                }).ToArray()
             })
             .StartBrowserAppAsync(
                 "out",

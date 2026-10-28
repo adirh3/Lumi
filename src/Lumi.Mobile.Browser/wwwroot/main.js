@@ -41,6 +41,9 @@ try {
     const { dotnet } = await import('./_framework/dotnet.js');
     const runtime = await dotnet
         .withDiagnosticTracing(false)
+        .withApplicationCulture(globalThis.lumiLocalization?.language ?? 'en')
+        // Standalone WASM otherwise leaves the UI's satellite resource assemblies unloaded.
+        .withConfig({ loadAllSatelliteResources: true })
         // A larger young generation collects ~3x less often while scrolling and switching chats;
         // each collection is a main-thread pause that would otherwise drop frames.
         .withEnvironmentVariable('MONO_GC_PARAMS', 'nursery-size=16m')

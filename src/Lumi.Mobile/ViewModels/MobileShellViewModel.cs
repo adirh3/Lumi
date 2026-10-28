@@ -271,6 +271,7 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEnglishLanguage))]
     [NotifyPropertyChangedFor(nameof(IsHebrewLanguage))]
+    [NotifyPropertyChangedFor(nameof(SelectedLanguageName))]
     [NotifyPropertyChangedFor(nameof(LanguageRestartRequired))]
     private string _language = "";
     [ObservableProperty] private string _userName = "";
@@ -2006,6 +2007,20 @@ public sealed partial class MobileShellViewModel :
 
     public bool IsHebrewLanguage => Language == "he";
 
+    public IReadOnlyList<string> LanguageOptions { get; } =
+        Strings.AvailableLanguages.Select(language => language.DisplayName).ToArray();
+
+    public string? SelectedLanguageName
+    {
+        get => Strings.AvailableLanguages.First(language => language.Code == Strings.NormalizeLanguage(Language)).DisplayName;
+        set
+        {
+            var code = Strings.AvailableLanguages.FirstOrDefault(language => language.DisplayName == value).Code;
+            if (code is not null)
+                SelectLanguage(code);
+        }
+    }
+
     public bool LanguageRestartRequired => Language != Strings.Language;
 
     partial void OnLanguageChanged(string value)
@@ -2017,7 +2032,7 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void SelectLanguage(string? language)
     {
-        if (language is "en" or "he")
+        if (language is not null && Strings.AvailableLanguages.Any(option => option.Code == language))
             Language = language;
     }
 

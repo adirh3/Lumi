@@ -9,13 +9,21 @@ namespace Lumi.Mobile.Localization;
 /// <summary>The mobile UI catalog. Like desktop Lumi, a language change takes effect at startup.</summary>
 public static class ChatSessionStrings
 {
+    public static readonly (string Code, string DisplayName)[] AvailableLanguages =
+    [
+        ("en", "English"), ("he", "עברית"), ("es", "Español"),
+        ("pt-BR", "Português (Brasil)"), ("zh-Hans", "简体中文"),
+        ("de", "Deutsch"), ("fr", "Français"), ("ja", "日本語"),
+        ("ko", "한국어"), ("ar", "العربية")
+    ];
+
     private static readonly ResourceManager Resources = new(
         "Lumi.Mobile.Localization.ChatSessionStrings",
         typeof(ChatSessionStrings).Assembly);
 
-    public static string Language => CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "he" ? "he" : "en";
+    public static string Language => NormalizeLanguage(CultureInfo.CurrentUICulture.Name);
 
-    public static Avalonia.Media.FlowDirection UiFlowDirection => Language == "he"
+    public static Avalonia.Media.FlowDirection UiFlowDirection => CultureInfo.CurrentUICulture.TextInfo.IsRightToLeft
         ? Avalonia.Media.FlowDirection.RightToLeft
         : Avalonia.Media.FlowDirection.LeftToRight;
 
@@ -37,14 +45,35 @@ public static class ChatSessionStrings
     public static void Load(string? language)
     {
         var requested = string.IsNullOrWhiteSpace(language) ? CultureInfo.InstalledUICulture.Name : language;
-        var culture = CultureInfo.GetCultureInfo(
-            requested.Equals("he", StringComparison.OrdinalIgnoreCase)
-            || requested.StartsWith("he-", StringComparison.OrdinalIgnoreCase) ? "he" : "en");
+        var culture = CultureInfo.GetCultureInfo(NormalizeLanguage(requested));
         CultureInfo.CurrentUICulture = culture;
         CultureInfo.CurrentCulture = culture;
         CultureInfo.DefaultThreadCurrentUICulture = culture;
         CultureInfo.DefaultThreadCurrentCulture = culture;
     }
+
+    internal static string NormalizeLanguage(string? language) => language?.Trim().ToLowerInvariant() switch
+    {
+        "he" => "he",
+        { } code when code.StartsWith("he-", StringComparison.Ordinal) => "he",
+        "de" => "de",
+        "fr" => "fr",
+        "ja" => "ja",
+        "ko" => "ko",
+        "ar" => "ar",
+        { } code when code.StartsWith("de-", StringComparison.Ordinal) => "de",
+        { } code when code.StartsWith("fr-", StringComparison.Ordinal) => "fr",
+        { } code when code.StartsWith("ja-", StringComparison.Ordinal) => "ja",
+        { } code when code.StartsWith("ko-", StringComparison.Ordinal) => "ko",
+        { } code when code.StartsWith("ar-", StringComparison.Ordinal) => "ar",
+        "es" => "es",
+        { } code when code.StartsWith("es-", StringComparison.Ordinal) => "es",
+        "pt" => "pt-BR",
+        { } code when code.StartsWith("pt-", StringComparison.Ordinal) => "pt-BR",
+        "zh" or "zh-hans" or "zh-cn" or "zh-sg" => "zh-Hans",
+        { } code when code.StartsWith("zh-hans-", StringComparison.Ordinal) => "zh-Hans",
+        _ => "en"
+    };
 
     public static string ReadyWithBackgroundActivity => Get(nameof(ReadyWithBackgroundActivity));
 

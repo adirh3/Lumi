@@ -22,6 +22,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AvaloniaResource Include="Assets\Fonts\NotoSansSC-Regular.otf" />
+    <AvaloniaResource Include="Assets\Fonts\NotoSansSC-OFL.txt" />
+    <AvaloniaResource Include="Assets\Fonts\NotoSansJP-Regular.otf" />
+    <AvaloniaResource Include="Assets\Fonts\NotoSansKR-Regular.otf" />
+    <AvaloniaResource Include="Assets\Fonts\NotoSansArabic.ttf" />
+    <AvaloniaResource Include="Assets\Fonts\NotoSansArabic-OFL.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Lumi.Mobile\Lumi.Mobile.csproj" />
     <Content Include="..\..\LICENSE" Link="wwwroot\LICENSE.txt"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
@@ -29,26 +38,34 @@
     <Content Include="..\Lumi.Mobile\Localization\ChatSessionStrings.resx"
              Link="wwwroot\localization\en.xml" TargetPath="wwwroot\localization\en.xml"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\Lumi.Mobile\Localization\ChatSessionStrings.he.resx"
-             Link="wwwroot\localization\he.xml" TargetPath="wwwroot\localization\he.xml"
+    <Content Include="..\Lumi.Mobile\Localization\ChatSessionStrings.*.resx"
+             Link="wwwroot\localization\$([System.String]::Copy('%(Filename)').Replace('ChatSessionStrings.', '')).xml"
+             TargetPath="wwwroot\localization\$([System.String]::Copy('%(Filename)').Replace('ChatSessionStrings.', '')).xml"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <_PwaLanguage Include="he;es;pt-BR;zh-Hans;de;fr;ja;ko;ar">
+      <Direction>ltr</Direction>
+    </_PwaLanguage>
+    <_PwaLanguage Update="he;ar">
+      <Direction>rtl</Direction>
+    </_PwaLanguage>
   </ItemGroup>
 
-  <Target Name="GenerateHebrewPwaManifest" BeforeTargets="GeneratePwaAssetManifest">
+  <Target Name="GenerateLocalizedPwaManifests" BeforeTargets="GeneratePwaAssetManifest"
+          Outputs="$(PublishDir)wwwroot\manifest.%(_PwaLanguage.Identity).webmanifest">
     <XmlPeek XmlInputPath="..\Lumi.Mobile\Localization\ChatSessionStrings.resx"
              Query="/root/data[@name='WebManifestDescription']/value/text()">
       <Output TaskParameter="Result" PropertyName="_PwaManifestDescriptionEn" />
     </XmlPeek>
-    <XmlPeek XmlInputPath="..\Lumi.Mobile\Localization\ChatSessionStrings.he.resx"
+    <XmlPeek XmlInputPath="..\Lumi.Mobile\Localization\ChatSessionStrings.%(_PwaLanguage.Identity).resx"
              Query="/root/data[@name='WebManifestDescription']/value/text()">
-      <Output TaskParameter="Result" PropertyName="_PwaManifestDescriptionHe" />
+      <Output TaskParameter="Result" PropertyName="_PwaManifestDescriptionLocalized" />
     </XmlPeek>
     <PropertyGroup>
-      <_HebrewPwaManifest>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/wwwroot/manifest.webmanifest').Replace('$(_PwaManifestDescriptionEn)', '$(_PwaManifestDescriptionHe)'))</_HebrewPwaManifest>
-      <_HebrewPwaManifest>$(_HebrewPwaManifest.Replace('&quot;description&quot;', '&quot;lang&quot;: &quot;he&quot;, &quot;dir&quot;: &quot;rtl&quot;, &quot;description&quot;'))</_HebrewPwaManifest>
+      <_LocalizedPwaManifest>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/wwwroot/manifest.webmanifest').Replace('$(_PwaManifestDescriptionEn)', '$(_PwaManifestDescriptionLocalized)'))</_LocalizedPwaManifest>
+      <_LocalizedPwaManifest>$(_LocalizedPwaManifest.Replace('&quot;description&quot;', '&quot;lang&quot;: &quot;%(_PwaLanguage.Identity)&quot;, &quot;dir&quot;: &quot;%(_PwaLanguage.Direction)&quot;, &quot;description&quot;'))</_LocalizedPwaManifest>
     </PropertyGroup>
-    <WriteLinesToFile File="$(PublishDir)wwwroot\manifest.he.webmanifest"
-                      Lines="$(_HebrewPwaManifest)" Overwrite="true" Encoding="UTF-8" />
+    <WriteLinesToFile File="$(PublishDir)wwwroot\manifest.%(_PwaLanguage.Identity).webmanifest"
+                      Lines="$(_LocalizedPwaManifest)" Overwrite="true" Encoding="UTF-8" />
   </Target>
 
   <Target Name="GeneratePwaAssetManifest" AfterTargets="Publish">

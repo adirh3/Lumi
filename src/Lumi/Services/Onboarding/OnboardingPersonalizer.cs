@@ -80,7 +80,7 @@ public static class OnboardingPersonalizer
         var language = culture.TwoLetterISOLanguageName switch
         {
             "iv" or "" => "English",
-            _ => culture.Parent is { Name.Length: > 0 } parent ? parent.EnglishName : culture.EnglishName,
+            _ => culture.EnglishName,
         };
 
         return $$"""
