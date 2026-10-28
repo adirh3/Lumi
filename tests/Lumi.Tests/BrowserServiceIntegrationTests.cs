@@ -63,6 +63,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
                 var coldOpenTimer = Stopwatch.StartNew();
                 var opened = await browser.OpenAndSnapshotAsync(url);
                 output.WriteLine($"BENCH cold open/profile initialization: {coldOpenTimer.ElapsedMilliseconds} ms.");
+                output.WriteLine("Cold open: " + string.Join(" | ", opened.Split('\n').Take(4)).Trim());
                 Assert.Contains("Navigation: completed.", opened);
                 Assert.Contains("Readiness: DOM available", opened);
                 browser.WebView!.Profile.DefaultDownloadFolderPath = root;
@@ -216,7 +217,7 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         Assert.NotEqual(IntPtr.Zero, region);
         try
         {
-            Assert.True(GetWindowRgn(window, region) == 3, $"WebView HWND {window} has no rounded native region.");
+            Assert.True(ReadWindowRegion(window, region) == 3, $"WebView HWND {window} has no rounded native region.");
             Assert.True(PtInRegion(region, 0, 0));
             Assert.True(PtInRegion(region, width - 1, 0));
             Assert.True(PtInRegion(region, width / 2, height - 1));
@@ -238,6 +239,20 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         Assert.NotEqual(IntPtr.Zero, region);
         try { Assert.Equal(0, GetWindowRgn(window, region)); }
         finally { DeleteObject(region); }
+    }
+
+    // Right after WebView2 creates or moves a controller, a single GetWindowRgn call can return
+    // ERROR, which also means "no region", while the window keeps its region: a second read, or a
+    // read from another thread at the same moment, finds it intact. Only SetBounds applies a region,
+    // and this waits without pumping messages, so a region that is really missing still reads ERROR
+    // on every attempt and fails the assertion.
+    private static int ReadWindowRegion(IntPtr window, IntPtr region)
+    {
+        var elapsed = Stopwatch.StartNew();
+        int type;
+        while ((type = GetWindowRgn(window, region)) == 0 && elapsed.ElapsedMilliseconds < 1000)
+            Thread.Sleep(1);
+        return type;
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
