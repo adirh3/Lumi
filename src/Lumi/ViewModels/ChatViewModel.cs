@@ -2602,6 +2602,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var createConfig = buildSessionConfig();
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
                 await PrepareSessionPermissionsAsync(createdSession, chat, askLayer, sessionCt);
+                await PrepareResponseDetailAsync(createdSession, chat, sessionCt);
                 if (!TryPublishSession(
                         createdSession,
                         chat,
@@ -2647,6 +2648,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 await PrepareSessionPermissionsAsync(session, chat, askLayer, sessionCt);
+                await PrepareResponseDetailAsync(session, chat, sessionCt);
                 if (!TryPublishSession(
                         session,
                         chat,
@@ -2736,6 +2738,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var createConfig = buildSessionConfig();
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             await PrepareSessionPermissionsAsync(createdSession, chat, askLayer, sessionCt);
+            await PrepareResponseDetailAsync(createdSession, chat, sessionCt);
             if (!TryPublishSession(
                     createdSession,
                     chat,
@@ -2757,6 +2760,25 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
             throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
+        }
+    }
+
+    private async Task PrepareResponseDetailAsync(CopilotSession session, Chat chat, CancellationToken ct)
+    {
+        try
+        {
+            var verbosity = SessionConfigBuilder.CreateResponseVerbosity(_dataStore.Data.Settings.ResponseDetail);
+            if (verbosity is null)
+                return;
+
+            var result = await session.Rpc.Options.UpdateAsync(verbosity: verbosity, cancellationToken: ct);
+            if (!result.Success)
+                throw new InvalidOperationException(Loc.Get("ResponseDetail_ApplyFailed"));
+        }
+        catch
+        {
+            _ = TrackSessionRelease(chat.Id, session);
+            throw;
         }
     }
 
@@ -3249,6 +3271,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// Busy turns finish with the previous prompt; the new prompt is used on the next send.
     /// </summary>
     public void InvalidateSystemPromptSession() => InvalidateSessionConfiguration();
+
+    // The native verbosity patch is session-local. A clean resume also restores Model default,
+    // whereas omitting the patch on an already configured session would keep its old level.
+    public void InvalidateResponseDetailSession() => InvalidateSessionConfiguration();
 
     private void InvalidateSessionConfiguration()
     {

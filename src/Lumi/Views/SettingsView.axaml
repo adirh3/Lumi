@@ -1687,6 +1687,23 @@
               </sc:StrataModelPicker.SelectedModelTemplate>
             </sc:StrataModelPicker>
           </sc:StrataSetting>
+          <sc:StrataSetting x:Name="ResponseDetailSetting"
+                            Header="{loc:Str Setting_ResponseDetail}"
+                            Description="{loc:Str SettingDesc_ResponseDetail}"
+                            st:SettingsChrome.SearchText="{loc:Str Settings_ResponseDetail_Search}"
+                            IsModified="{Binding IsResponseDetailModified}">
+            <ComboBox x:Name="ResponseDetailPicker"
+                      ItemsSource="{Binding ResponseDetailOptions}"
+                      SelectedItem="{Binding SelectedResponseDetailOption, Mode=TwoWay}"
+                      Width="260"
+                      AutomationProperties.Name="{loc:Str Setting_ResponseDetail}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ResponseDetailOption">
+                  <TextBlock Text="{Binding DisplayName}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </sc:StrataSetting>
           <!-- Lumi's own uses of AI, and the model they run on, have a page of their own. -->
           <sc:StrataSetting x:Name="AiFeaturesLinkSetting"
                             Header="{loc:Str Setting_AiFeaturesLink}"

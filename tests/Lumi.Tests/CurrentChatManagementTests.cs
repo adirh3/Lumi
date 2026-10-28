@@ -51,6 +51,21 @@ public sealed class CurrentChatManagementTests
     }
 
     [Fact]
+    public void ResponseDetailChange_DefersReconfigurationWithoutDiscardingTheRunningSession()
+    {
+        var chat = new Chat { CopilotSessionId = "session-with-history" };
+        using var harness = CreateHarness(new AppData { Chats = [chat] });
+        harness.ViewModel.CurrentChat = chat;
+        MarkBusy(harness.ViewModel, chat);
+
+        harness.ViewModel.InvalidateResponseDetailSession();
+
+        Assert.Equal("session-with-history", chat.CopilotSessionId);
+        Assert.Contains(chat.Id, GetPendingSessionReconfigurations(harness.ViewModel));
+        Assert.DoesNotContain(chat.Id, GetPendingSessionInvalidations(harness.ViewModel));
+    }
+
+    [Fact]
     public void Update_TitlePersistsInMemoryAndRaisesEvents()
     {
         var chat = new Chat { Id = Guid.NewGuid(), Title = "Old title" };

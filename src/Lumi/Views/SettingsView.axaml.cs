@@ -415,8 +415,8 @@ public partial class SettingsView : UserControl, IDisposable
             return;
         }
 
-        var header = setting.Header;
-        if (_revertActions.TryGetValue(header ?? "", out var action))
+        if (_revertActions.TryGetValue(setting.Name ?? "", out var action)
+            || _revertActions.TryGetValue(setting.Header ?? "", out action))
             action(vm);
     }
 
@@ -447,6 +447,7 @@ public partial class SettingsView : UserControl, IDisposable
         [Loc.Get("Permissions_OnItsOwn")] = vm => vm.RevertAwayApprovalBehaviorCommand.Execute(null),
         [Loc.Setting_GlobalCustomInstructions] = vm => vm.RevertGlobalCustomInstructionsCommand.Execute(null),
         [Loc.Setting_PreferredModel] = vm => vm.RevertDefaultModelSelectionCommand.Execute(null),
+        ["ResponseDetailSetting"] = vm => vm.RevertResponseDetailCommand.Execute(null),
         [Loc.Setting_BackgroundModel] = vm => vm.RevertBackgroundModelCommand.Execute(null),
         [Loc.Setting_UseMcpProxy] = vm => vm.RevertUseMcpProxyCommand.Execute(null),
         [Loc.Setting_UseLazyMcpInitialization] = vm => vm.RevertUseLazyMcpInitializationCommand.Execute(null),

@@ -18,6 +18,8 @@ public sealed record ByokApiKeyModeOption(ByokApiKeyMode Value, string DisplayNa
     public override string ToString() => DisplayName;
 }
 
+public sealed record ResponseDetailOption(ResponseDetailLevel Value, string DisplayName);
+
 public partial class SettingsViewModel : ObservableObject, IDisposable
 {
     public const int AiModelsPageIndex = 5;
@@ -160,6 +162,19 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string[]? _contextWindowTiers;
     [ObservableProperty] private string? _selectedContextWindowTier;
     [ObservableProperty] private string _globalCustomInstructions;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedResponseDetailOption))]
+    private ResponseDetailLevel _responseDetail;
+    public IReadOnlyList<ResponseDetailOption> ResponseDetailOptions { get; }
+    public ResponseDetailOption? SelectedResponseDetailOption
+    {
+        get => ResponseDetailOptions.FirstOrDefault(option => option.Value == ResponseDetail);
+        set
+        {
+            if (value is not null)
+                ResponseDetail = value.Value;
+        }
+    }
     private bool _suppressSelectedQualitySync;
     private bool _suppressSelectedContextWindowTierSync;
     private readonly Dictionary<string, List<string>> _modelReasoningEfforts = new(StringComparer.OrdinalIgnoreCase);
@@ -641,6 +656,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _preferredModel = s.PreferredModel;
         _backgroundModel = CopilotService.NormalizeBackgroundModel(s.BackgroundModel);
         _reasoningEffort = s.ReasoningEffort;
+        _responseDetail = s.ResponseDetail;
+        ResponseDetailOptions =
+        [
+            new(ResponseDetailLevel.ModelDefault, Loc.Get("Settings_ResponseDetail_Default")),
+            new(ResponseDetailLevel.Concise, Loc.Get("Settings_ResponseDetail_Concise")),
+            new(ResponseDetailLevel.Balanced, Loc.Get("Settings_ResponseDetail_Balanced")),
+            new(ResponseDetailLevel.Detailed, Loc.Get("Settings_ResponseDetail_Detailed"))
+        ];
         _contextWindowTier = string.IsNullOrWhiteSpace(s.ContextWindowTier)
             ? ModelContextWindowTiers.Default
             : s.ContextWindowTier;
@@ -1072,6 +1095,20 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _dataStore.Data.Settings.GlobalCustomInstructions = value;
         Save();
         SystemPromptSettingsChanged?.Invoke();
+        NotifyModified();
+    }
+
+    partial void OnResponseDetailChanging(ResponseDetailLevel value)
+    {
+        if (!Enum.IsDefined(value))
+            throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown response detail.");
+    }
+
+    partial void OnResponseDetailChanged(ResponseDetailLevel value)
+    {
+        _dataStore.Data.Settings.ResponseDetail = value;
+        Save();
+        SettingsChanged?.Invoke();
         NotifyModified();
     }
 
@@ -2104,6 +2141,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsPreferredModelModified=> PreferredModel != _defaults.PreferredModel;
     public bool IsBackgroundModelModified => BackgroundModel != _defaults.BackgroundModel;
     public bool IsReasoningEffortModified => ReasoningEffort != _defaults.ReasoningEffort;
+    public bool IsResponseDetailModified => ResponseDetail != _defaults.ResponseDetail;
     public bool IsGlobalCustomInstructionsModified => GlobalCustomInstructions != _defaults.GlobalCustomInstructions;
     public bool IsUseMcpProxyModified => UseMcpProxy != _defaults.UseMcpProxy;
     public bool IsUseLazyMcpInitializationModified => UseLazyMcpInitialization != _defaults.UseLazyMcpInitialization;
@@ -2141,6 +2179,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsPreferredModelModified));
         OnPropertyChanged(nameof(IsBackgroundModelModified));
         OnPropertyChanged(nameof(IsReasoningEffortModified));
+        OnPropertyChanged(nameof(IsResponseDetailModified));
         OnPropertyChanged(nameof(IsGlobalCustomInstructionsModified));
         OnPropertyChanged(nameof(IsUseMcpProxyModified));
         OnPropertyChanged(nameof(IsUseLazyMcpInitializationModified));
@@ -2197,6 +2236,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ContextWindowTier = _defaults.ContextWindowTier;
     }
     [RelayCommand] private void RevertBackgroundModel() => BackgroundModel = _defaults.BackgroundModel;
+    [RelayCommand] private void RevertResponseDetail() => ResponseDetail = _defaults.ResponseDetail;
     [RelayCommand] private void RevertGlobalCustomInstructions() => GlobalCustomInstructions = _defaults.GlobalCustomInstructions;
     [RelayCommand] private void RevertUseMcpProxy() => UseMcpProxy = _defaults.UseMcpProxy;
     [RelayCommand] private void RevertUseLazyMcpInitialization() => UseLazyMcpInitialization = _defaults.UseLazyMcpInitialization;
@@ -2385,6 +2425,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         BackgroundModel = defaults.BackgroundModel;
         ResetAiFeatureModels();
         ReasoningEffort = defaults.ReasoningEffort;
+        ResponseDetail = defaults.ResponseDetail;
         UseMcpProxy = defaults.UseMcpProxy;
         UseLazyMcpInitialization = defaults.UseLazyMcpInitialization;
         McpToolTimeoutSeconds = defaults.McpToolTimeoutSeconds;

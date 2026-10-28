@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -379,6 +380,63 @@ public sealed class SettingsCustomizationTests
         Assert.True(accountsShown);
         Assert.False(byokOnlyShown);
         Assert.False(byokOnlyHighlighted);
+    }
+
+    [Theory]
+    [InlineData("en", "Response detail", "Detailed")]
+    [InlineData("he", "רמת פירוט התשובות", "מפורט")]
+    public async Task ResponseDetail_RendersSelectsRevertsAndIsSearchable(
+        string language, string header, string detailedLabel)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            Loc.Load(language);
+            var data = new AppData();
+            using var viewModel = CreateViewModel(new DataStore(data));
+            viewModel.LoginVM = new GitHubLoginViewModel(TestCopilot.Shared);
+            viewModel.SelectedPageIndex = SettingsViewModel.AiModelsPageIndex;
+            var view = new SettingsView { DataContext = viewModel };
+            var window = new Window { Width = 1000, Height = 800, Content = view };
+            window.Show();
+            try
+            {
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var row = view.FindSettingsControl<StrataSetting>("ResponseDetailSetting")!;
+                var picker = view.FindSettingsControl<ComboBox>("ResponseDetailPicker")!;
+                Assert.Equal(header, row.Header);
+                Assert.Equal(4, picker.Items.Count);
+                Assert.Equal(ResponseDetailLevel.ModelDefault,
+                    Assert.IsType<ResponseDetailOption>(picker.SelectedItem).Value);
+
+                picker.SelectedItem = viewModel.ResponseDetailOptions.Single(
+                    option => option.Value == ResponseDetailLevel.Detailed);
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(detailedLabel,
+                    Assert.IsType<ResponseDetailOption>(picker.SelectedItem).DisplayName);
+                Assert.Equal(ResponseDetailLevel.Detailed, data.Settings.ResponseDetail);
+                Assert.True(row.IsModified);
+
+                row.RaiseEvent(new RoutedEventArgs(StrataSetting.RevertedEvent));
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(ResponseDetailLevel.ModelDefault,
+                    Assert.IsType<ResponseDetailOption>(picker.SelectedItem).Value);
+                Assert.False(row.IsModified);
+
+                viewModel.SearchQuery = "verbosity";
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                row = view.FindSettingsControl<StrataSetting>("ResponseDetailSetting")!;
+                Assert.True(row.IsEffectivelyVisible);
+                Assert.True(row.IsHighlighted);
+            }
+            finally
+            {
+                window.Close();
+                Loc.Load("en");
+            }
+        }, CancellationToken.None);
     }
 
     [Fact]

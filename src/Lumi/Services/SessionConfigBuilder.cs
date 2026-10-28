@@ -326,6 +326,15 @@ public sealed class LightweightSessionOptions
         config.PluginDirectories = pluginDirectories.ToList();
     }
 
+    internal static Verbosity? CreateResponseVerbosity(ResponseDetailLevel detail) => detail switch
+    {
+        ResponseDetailLevel.ModelDefault => null,
+        ResponseDetailLevel.Concise => Verbosity.Low,
+        ResponseDetailLevel.Balanced => Verbosity.Medium,
+        ResponseDetailLevel.Detailed => Verbosity.High,
+        _ => throw new ArgumentOutOfRangeException(nameof(detail), detail, "Unknown response detail.")
+    };
+
     internal static ContextTier? CreateContextTier(string? contextTier)
     {
         if (string.IsNullOrWhiteSpace(contextTier))

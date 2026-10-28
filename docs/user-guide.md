@@ -182,6 +182,14 @@ If loading the model catalog times out at startup, a successful later picker
 refresh restores the connection status and model lists on desktop and phone
 without restarting active chats or resetting their model selections.
 
+**Settings > AI & Models > Model > Response detail** chooses **Model default**,
+**Concise**, **Balanced**, or **Detailed** for chat replies. Model default leaves
+the native behavior unchanged. The setting affects supported GPT models; other
+models may ignore it. It is separate from reasoning effort and does not change
+automatic AI features such as titles or follow-up suggestions. A reply already
+running finishes normally; the next reply uses the new choice, including when
+returning to Model default.
+
 The Debug UI responsiveness harness includes a **Model picker** category:
 `dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness --ui-perf-filter model-picker`.
 It measures opening, reopening, searching and scrolling a synthetic 64-model

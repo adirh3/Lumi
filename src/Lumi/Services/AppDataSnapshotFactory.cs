@@ -59,6 +59,7 @@ internal static class AppDataSnapshotFactory
                 AiFeatureModels = new Dictionary<string, string>(settings.AiFeatureModels),
                 FavoriteModelIds = settings.FavoriteModelIds is null ? [] : [.. settings.FavoriteModelIds],
                 ReasoningEffort = settings.ReasoningEffort,
+                ResponseDetail = settings.ResponseDetail,
                 GlobalCustomInstructions = settings.GlobalCustomInstructions,
                 UseMcpProxy = settings.UseMcpProxy,
                 UseLazyMcpInitialization = settings.UseLazyMcpInitialization,

@@ -830,6 +830,14 @@ public class ChatTag : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
+public enum ResponseDetailLevel
+{
+    ModelDefault = 0,
+    Concise = 1,
+    Balanced = 2,
+    Detailed = 3
+}
+
 /// <summary>How much a chat may do on its own. Each value is a native Copilot permission mode.</summary>
 public enum ApprovalMode
 {
@@ -1835,6 +1843,7 @@ public class UserSettings
     /// </summary>
     public List<string> FavoriteModelIds { get; set; } = [];
     public string ReasoningEffort { get; set; } = ""; // CLI-defined value, e.g. low, medium, high, xhigh, max
+    public ResponseDetailLevel ResponseDetail { get; set; } = ResponseDetailLevel.ModelDefault;
     public string ContextWindowTier { get; set; } = ModelContextWindowTiers.Default;
     public string GlobalCustomInstructions { get; set; } = "";
 

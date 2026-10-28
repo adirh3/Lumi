@@ -607,6 +607,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 ChatVM.RestoreDefaultModelSelection();
             else if (args.PropertyName == nameof(SettingsViewModel.SendWithEnter))
                 _chatSessionStore.ApplyToSurfaces(surface => surface.SendWithEnter = SettingsVM.SendWithEnter);
+            else if (args.PropertyName == nameof(SettingsViewModel.ResponseDetail))
+                _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateResponseDetailSession());
             else if (args.PropertyName is nameof(SettingsViewModel.ShowTimestamps)
                      or nameof(SettingsViewModel.ShowToolCalls)
                      or nameof(SettingsViewModel.ShowReasoning)
