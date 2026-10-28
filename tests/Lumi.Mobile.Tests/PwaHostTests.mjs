@@ -364,7 +364,7 @@ test('native picker errors still reach the caller without retaining its input or
     assert.equal(changes, 0, 'The canceled handler is removed after failure');
 });
 
-function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '' } = {}) {
+function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '', language } = {}) {
     const retry = eventTarget({ hidden: true });
     const label = { textContent: 'Opening Lumi...' };
     const errors = [];
@@ -375,6 +375,8 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '' } =
     let reloads = 0;
     let recoveries = 0;
     let started = false;
+    let culture;
+    let runtimeConfig = {};
     const window = eventTarget({
         location: { href: `https://lumi.test/app/${search}`, search, reload: () => reloads++ }
     });
@@ -389,6 +391,8 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '' } =
     };
     const dotnet = {
         withDiagnosticTracing() { return this; },
+        withApplicationCulture(value) { culture = value; return this; },
+        withConfig(value) { runtimeConfig = { ...runtimeConfig, ...value }; return this; },
         withEnvironmentVariable() { return this; },
         withApplicationArgumentsFromQuery() { return this; },
         create: async () => { lifecycle.push('runtime-created'); return runtime; }
@@ -396,6 +400,9 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '' } =
     const context = vm.createContext({
         window, location: window.location, URLSearchParams, navigator: { onLine: true, userAgent },
         getDotnetRuntime: () => ({ runtimeBuildInfo: { wasmEnableThreads: false } }),
+        lumiLocalization: language
+            ? { language, ready: Promise.resolve(), text: (key, fallback) => fallback }
+            : undefined,
         document: {
             getElementById: () => retry,
             querySelector: () => ({
@@ -437,7 +444,9 @@ function startup(failedModule, { userAgent = 'Chrome/143.0.0.0', search = '' } =
         retry, label, errors, modules, ready, installed, warnings, lifecycle,
         get started() { return started; },
         get reloads() { return reloads; },
-        get recoveries() { return recoveries; }
+        get recoveries() { return recoveries; },
+        get culture() { return culture; },
+        get runtimeConfig() { return runtimeConfig; }
     };
 }
 
@@ -473,6 +482,18 @@ test('picker preparation requires the runtime, precedes app startup, and fails w
     assert.equal(failed.started, true);
     assert.equal(failed.errors.length, 0);
     assert.match(failed.warnings[0][0], /attachment picker could not be prepared/);
+});
+
+test('the runtime starts in the page language and loads every translated resource assembly', async () => {
+    const english = startup(null);
+    await english.ready;
+    assert.equal(english.culture, 'en');
+    assert.equal(english.runtimeConfig.loadAllSatelliteResources, true);
+    const japanese = startup(null, { language: 'ja' });
+    await japanese.ready;
+    assert.equal(japanese.culture, 'ja');
+    assert.equal(japanese.started, true);
+    assert.equal(japanese.errors.length, 0);
 });
 
 test('Android Chromium enables worker rendering without diagnostic UI; other browsers keep their renderer', async () => {
