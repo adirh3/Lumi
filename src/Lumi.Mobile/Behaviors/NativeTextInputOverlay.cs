@@ -27,8 +27,13 @@ public sealed class NativeTextInputOverlay
     private static readonly ConditionalWeakTable<TextBox, Controller> Controllers = new();
 
     // Sheets that are open or still animating closed. Occlusion is checked after every layout pass, so
-    // it consults this short list instead of walking the whole visual tree each time.
-    private static readonly List<WeakReference<StrataBottomSheet>> PresentedSheets = [];
+    // it consults this short list instead of walking the whole visual tree each time. Each UI thread
+    // keeps its own: a sheet can only cover windows of its own thread, and reading another thread's
+    // sheet throws (headless test sessions each run their own UI thread).
+    [ThreadStatic]
+    private static List<WeakReference<StrataBottomSheet>>? t_presentedSheets;
+
+    private static List<WeakReference<StrataBottomSheet>> PresentedSheets => t_presentedSheets ??= [];
 
     public static readonly AttachedProperty<bool> IsEnabledProperty =
         AvaloniaProperty.RegisterAttached<NativeTextInputOverlay, TextBox, bool>("IsEnabled");
@@ -145,11 +150,12 @@ public sealed class NativeTextInputOverlay
             return true;
 
         var anySheetPresented = false;
-        for (var i = PresentedSheets.Count - 1; i >= 0; i--)
+        var presentedSheets = PresentedSheets;
+        for (var i = presentedSheets.Count - 1; i >= 0; i--)
         {
-            if (!PresentedSheets[i].TryGetTarget(out var sheet) || !(sheet.IsOpen || sheet.IsPresented))
+            if (!presentedSheets[i].TryGetTarget(out var sheet) || !(sheet.IsOpen || sheet.IsPresented))
             {
-                PresentedSheets.RemoveAt(i);
+                presentedSheets.RemoveAt(i);
                 continue;
             }
 

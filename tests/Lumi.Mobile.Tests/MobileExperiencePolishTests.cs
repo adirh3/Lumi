@@ -1357,17 +1357,20 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.True(input.TranslatePoint(default, composer)!.Value.X
                         >= attach.TranslatePoint(new Point(attach.Bounds.Width, 0), composer)!.Value.X);
 
+            // Every frame the composer lays out while it grows, so the test sees the animation itself
+            // rather than one moment of it, which a delay that overruns on a busy runner misses.
+            var heights = new List<double>();
+            void RecordHeight(object? sender, EventArgs e) => heights.Add(composer.Bounds.Height);
+            composer.LayoutUpdated += RecordHeight;
             Assert.True(input.Focus());
             Pump(window);
             Assert.False(composer.IsCompact);
-            await Task.Delay(65);
+            // The secondary tools are fully revealed only once the expansion has finished.
+            await Eventually(() => actions.Opacity == 1);
             Pump(window);
-            var intermediateHeight = composer.Bounds.Height;
-            await Task.Delay(300);
-            Pump(window);
+            composer.LayoutUpdated -= RecordHeight;
             var expandedHeight = composer.Bounds.Height;
-            Assert.True(intermediateHeight > compactHeight + 1);
-            Assert.True(intermediateHeight < expandedHeight - 1);
+            Assert.Contains(heights, height => height > compactHeight + 1 && height < expandedHeight - 1);
             Assert.True(expandedHeight >= compactHeight + 40);
             Assert.True(actions.IsEffectivelyEnabled);
             var editorBottom = input.TranslatePoint(new Point(0, input.Bounds.Height), composer)!.Value.Y;
@@ -1381,10 +1384,8 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             Assert.False(composer.IsCompact);
             Required<Button>(view, "MenuButton").Focus();
             Pump(window);
-            await Task.Delay(340);
-            Pump(window);
+            await Eventually(() => Math.Abs(composer.Bounds.Height - compactHeight) < 0.05);
             Assert.True(composer.IsCompact);
-            Assert.Equal(compactHeight, composer.Bounds.Height, precision: 1);
             Assert.Empty(shell.Chat.PromptText);
         });
 
