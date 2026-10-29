@@ -33,9 +33,11 @@ them.** Chat needs access to an AI account or a configured model endpoint;
 | Platform | Download |
 |---|---|
 | Windows x64 | [Installer (.exe)](https://github.com/adirh3/Lumi/releases/latest/download/Lumi-win-Setup.exe) |
+| Windows ARM64 | [Installer (.exe)](https://github.com/adirh3/Lumi/releases/latest/download/Lumi-win-arm64-Setup.exe) |
 | macOS Apple Silicon (M-series) | [Installer (.pkg)](https://github.com/adirh3/Lumi/releases/latest/download/Lumi-osx-arm64-Setup.pkg) |
 | macOS Intel | [Installer (.pkg)](https://github.com/adirh3/Lumi/releases/latest/download/Lumi-osx-x64-Setup.pkg) |
 | Linux x64 | [AppImage](https://github.com/adirh3/Lumi/releases/latest/download/Lumi.AppImage) or [portable archive on the latest release](https://github.com/adirh3/Lumi/releases/latest) |
+| Linux ARM64 | [AppImage](https://github.com/adirh3/Lumi/releases/latest/download/Lumi-linux-arm64.AppImage) or [portable archive on the latest release](https://github.com/adirh3/Lumi/releases/latest) |
 | Android ARM64 | [Companion APK on the latest release](https://github.com/adirh3/Lumi/releases/latest) |
 
 [All downloads and release notes](https://github.com/adirh3/Lumi/releases)
@@ -43,7 +45,8 @@ them.** Chat needs access to an AI account or a configured model endpoint;
 Download links follow the latest published release. Android APK and Linux
 portable filenames include a version, so those links open the release page:
 under **Assets**, choose the file ending in `-android-arm64.apk` or
-`-linux-x64-portable.tar.gz`. Match the phone app to your desktop release.
+`-linux-x64-portable.tar.gz` / `-linux-arm64-portable.tar.gz`. Choose the desktop
+package matching your processor, and match the phone app to your desktop release.
 
 **Documentation scope:** this README and the detailed guides follow `main` and
 may describe features not yet in a published package. Check the
@@ -85,14 +88,18 @@ for that specific item. Do not disable Gatekeeper globally.
 ### Windows
 
 Open the downloaded `.exe` and follow the installer. A
-[portable ZIP](https://github.com/adirh3/Lumi/releases/latest/download/Lumi-win-Portable.zip)
-is also available; extract it before running `Lumi.exe`.
+portable ZIP is also available for
+[x64](https://github.com/adirh3/Lumi/releases/latest/download/Lumi-win-Portable.zip) or
+[ARM64](https://github.com/adirh3/Lumi/releases/latest/download/Lumi-win-arm64-Portable.zip);
+extract it before running `Lumi.exe`.
 
 <a id="linux-release-packages"></a>
 
 ### Linux
 
-Download the AppImage, make it executable, and run it:
+Download the AppImage matching your processor, make it executable, and run it.
+This example is for x64; on ARM64 use `Lumi-linux-arm64.AppImage` in both the
+download URL and the local filename:
 
 ```sh
 curl -fL "https://github.com/adirh3/Lumi/releases/latest/download/Lumi.AppImage" -o "Lumi.AppImage" &&
@@ -101,12 +108,12 @@ curl -fL "https://github.com/adirh3/Lumi/releases/latest/download/Lumi.AppImage"
 ```
 
 AppImages need FUSE 2 (`libfuse2` or `libfuse2t64`, depending on your distribution).
-If FUSE is unavailable, download the portable archive instead and save or rename
-it as `Lumi-linux-x64-portable.tar.gz`. From that folder:
+If FUSE is unavailable, download the matching x64 or ARM64 portable archive
+instead and save or rename it as `Lumi-linux-portable.tar.gz`. From that folder:
 
 ```sh
 mkdir -p lumi-portable
-tar -xzf "Lumi-linux-x64-portable.tar.gz" -C lumi-portable
+tar -xzf "Lumi-linux-portable.tar.gz" -C lumi-portable
 chmod +x lumi-portable/Lumi
 ./lumi-portable/Lumi
 ```

@@ -12,8 +12,8 @@ Use this when the user asks to publish or release a new version of Lumi. For unp
 `release.yml` builds the commit `main` points to when it's dispatched, and refuses production releases from any other ref. [docs/testing.md](../../../docs/testing.md) describes its QA gate.
 
 1. `validate_release_inputs` checks the version.
-2. In parallel: **Extended UI QA** on Windows, Linux and both kinds of Mac, `build-pwa`, and `build-android`. `build-android` uses the `android-production` environment, which waits for a maintainer's approval. The user asking for the release is that approval (step 6).
-3. Once those pass, `release-windows` creates a **draft** GitHub release with Velopack. `release-linux` and `release-macos` merge their packages onto it, and `publish-android` attaches the APK. `publish-android` also appends an `## Android` installation note to the release notes, unless they already contain `## Android`.
+2. In parallel: **Extended UI QA** on Windows x64/ARM64, Linux x64/ARM64 and both kinds of Mac, `build-pwa`, and `build-android`. `build-android` uses the `android-production` environment, which waits for a maintainer's approval. The user asking for the release is that approval (step 6).
+3. Once those pass, `create-release` creates one **draft** GitHub release. Both `release-windows` architectures merge their Velopack packages onto it; then `release-linux` and `release-macos` merge theirs, and `publish-android` attaches the APK. `publish-android` also appends an `## Android` installation note to the release notes, unless they already contain `## Android`.
 4. `publish-release` makes the draft public after everything else has passed. Until then, nothing is public.
 
 A full run takes about 35 to 50 minutes.
@@ -50,7 +50,7 @@ A full run takes about 35 to 50 minutes.
    '{"environment_ids":[<id>],"state":"approved","comment":"Release X.Y.Z"}' |
      gh api --method POST repos/adirh3/Lumi/actions/runs/<run-id>/pending_deployments --input -
    ```
-7. **Attach the notes while the release is a draft**, after `release-windows` creates it and before `publish-release` runs. Linux and macOS packaging leaves several minutes.
+7. **Attach the notes while the release is a draft**, after `create-release` creates it and before `publish-release` runs. Windows, Linux and macOS packaging leaves several minutes.
    ```powershell
    gh api repos/adirh3/Lumi/releases --jq '.[] | select(.tag_name == "vX.Y.Z") | {id, draft}'
    gh release edit vX.Y.Z --notes-file <notes.md>
@@ -67,8 +67,8 @@ A full run takes about 35 to 50 minutes.
    ```
    - The release is public, not a prerelease, and the latest release.
    - Its notes match the notes file, with exactly one `## Android` section.
-   - All assets are there (23 for 1.0.0): Windows `Setup.exe`, `Portable.zip` and nupkgs; Linux `AppImage`, portable `tar.gz` and nupkgs; macOS arm64 and x64 `Setup.pkg`, `Portable.zip` and nupkgs; the APK and its `.txt`; `RELEASES` and `releases.{win,linux,osx-arm64,osx-x64}.json`.
-   - The update feeds offer the new version: `https://github.com/adirh3/Lumi/releases/latest/download/releases.<channel>.json` for `win`, `linux`, `osx-arm64` and `osx-x64`.
+   - All assets are there: Windows x64/ARM64 `Setup.exe`, `Portable.zip` and nupkgs; Linux x64/ARM64 `AppImage`, portable `tar.gz` and nupkgs; macOS arm64 and x64 `Setup.pkg`, `Portable.zip` and nupkgs; the APK and its `.txt`; `RELEASES` and `releases.{win,win-arm64,linux,linux-arm64,osx-arm64,osx-x64}.json`. Delta nupkgs only exist when a previous package is available for that channel.
+   - The update feeds offer the new version: `https://github.com/adirh3/Lumi/releases/latest/download/releases.<channel>.json` for `win`, `win-arm64`, `linux`, `linux-arm64`, `osx-arm64` and `osx-x64`.
    - The APK's `SIGNER_SHA256` (in its `.txt`) matches the previous release's, so Android users can install it over their current app.
 
 ## If a published release has a problem

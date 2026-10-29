@@ -31,12 +31,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Windows WebView2
+          - name: Windows x64 WebView2
             os: windows-latest
             architecture: x64
-          - name: Linux WebKitGTK
+          - name: Windows ARM64 WebView2
+            os: windows-11-arm
+            architecture: arm64
+          - name: Linux x64 WebKitGTK
             os: ubuntu-latest
             architecture: x64
+          - name: Linux ARM64 WebKitGTK
+            os: ubuntu-24.04-arm
+            architecture: arm64
           - name: macOS Intel WKWebView
             os: macos-15-intel
             architecture: x64
@@ -61,6 +67,11 @@ jobs:
           $architecture
           if ($architecture -ne "${{ matrix.architecture }}") {
             throw "This runner does not provide the requested native architecture."
+          }
+          $sdkRid = dotnet msbuild src/Lumi/Lumi.csproj -nologo -getProperty:NETCoreSdkPortableRuntimeIdentifier | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($sdkRid -ne "${{ runner.os == 'Windows' && 'win' || runner.os == 'macOS' && 'osx' || 'linux' }}-${{ matrix.architecture }}") {
+            throw "The .NET SDK is not native to this runner: $sdkRid."
           }
           dotnet --info
 

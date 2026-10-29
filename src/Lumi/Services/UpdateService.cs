@@ -128,30 +128,30 @@ public sealed class UpdateService
     }
 
     /// <summary>
-    /// Velopack's default update channel per OS is <c>win</c> / <c>linux</c> / <c>osx</c>
-    /// (<see cref="VelopackRuntimeInfo.GetOsShortName"/>). The release pipeline publishes Windows and
-    /// Linux on those exact default channels, but macOS is published per-architecture
-    /// (<c>osx-arm64</c> / <c>osx-x64</c>) because there is no universal build — so on macOS the client
-    /// must request the architecture-matched channel explicitly, otherwise the default <c>osx</c> feed
-    /// doesn't exist and update checks silently find nothing. We key off the running process
-    /// architecture (not the OS architecture) so an <c>osx-x64</c> build under Rosetta on Apple Silicon
-    /// correctly stays on the <c>osx-x64</c> channel it was installed from. Windows/Linux return
-    /// <c>null</c> here, preserving their exact previous default-channel behavior.
+    /// Windows/Linux x64 retain Velopack's default channels. ARM64 and both macOS builds
+    /// explicitly select their architecture-matched feeds. Use the process architecture so
+    /// an x64 build running under emulation stays on its original channel.
     /// </summary>
     private static UpdateOptions? ResolveUpdateOptions()
     {
         var channel = ResolveUpdateChannel(
-            OperatingSystem.IsMacOS(),
+            OperatingSystem.IsWindows() ? OSPlatform.Windows
+            : OperatingSystem.IsLinux() ? OSPlatform.Linux
+            : OperatingSystem.IsMacOS() ? OSPlatform.OSX : default,
             RuntimeInformation.ProcessArchitecture);
         return channel is null ? null : new UpdateOptions { ExplicitChannel = channel };
     }
 
-    internal static string? ResolveUpdateChannel(bool isMacOS, Architecture processArchitecture)
+    internal static string? ResolveUpdateChannel(OSPlatform platform, Architecture processArchitecture)
     {
-        if (!isMacOS)
+        if (platform == OSPlatform.OSX)
+            return processArchitecture == Architecture.Arm64 ? "osx-arm64" : "osx-x64";
+
+        if (processArchitecture != Architecture.Arm64)
             return null;
 
-        return processArchitecture == Architecture.Arm64 ? "osx-arm64" : "osx-x64";
+        return platform == OSPlatform.Windows ? "win-arm64"
+            : platform == OSPlatform.Linux ? "linux-arm64" : null;
     }
 
     /// <summary>Start periodic background checks. Call once after UI is ready.</summary>

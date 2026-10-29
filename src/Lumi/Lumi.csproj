@@ -125,10 +125,12 @@
   <Import Project="..\..\build\Copilot\CopilotCli.targets" />
 
   <!-- Whisper.net's Vulkan runtime adds both its Windows and its Linux GPU library (each about 57 MB) to every build.
-       Keep only the one this build can load: win-x64 for Windows, linux-x64 for Linux, none for macOS. -->
+       Keep only the one this build can load: win-x64 or linux-x64, none for ARM64 or macOS. -->
   <PropertyGroup>
-    <_LumiVulkanRid Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows'">win-x64</_LumiVulkanRid>
-    <_LumiVulkanRid Condition="'$(_LumiVulkanRid)' == '' and ($(RuntimeIdentifier.StartsWith('linux-x64')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux')) and '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'))">linux-x64</_LumiVulkanRid>
+    <_LumiVulkanTargetRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_LumiVulkanTargetRid>
+    <_LumiVulkanTargetRid Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_LumiVulkanTargetRid>
+    <_LumiVulkanRid Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows' and '$(_LumiVulkanTargetRid)' == 'win-x64'">win-x64</_LumiVulkanRid>
+    <_LumiVulkanRid Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' != 'windows' and '$(_LumiVulkanTargetRid)' == 'linux-x64'">linux-x64</_LumiVulkanRid>
   </PropertyGroup>
   <Target Name="LumiKeepOwnVulkanRuntime" BeforeTargets="AssignTargetPaths">
     <ItemGroup>

@@ -33,8 +33,12 @@ jobs:
           # Every desktop shipping architecture runs the deterministic CoreQA gate.
           - os: windows-latest
             architecture: x64
+          - os: windows-11-arm
+            architecture: arm64
           - os: ubuntu-latest
             architecture: x64
+          - os: ubuntu-24.04-arm
+            architecture: arm64
           - os: macos-15
             architecture: arm64
           - os: macos-15-intel
@@ -58,6 +62,11 @@ jobs:
           $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
           if ($architecture -ne "${{ matrix.architecture }}") {
             throw "Expected ${{ matrix.architecture }}, got $architecture."
+          }
+          $sdkRid = dotnet msbuild src/Lumi/Lumi.csproj -nologo -getProperty:NETCoreSdkPortableRuntimeIdentifier | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($sdkRid -ne "${{ runner.os == 'Windows' && 'win' || runner.os == 'macOS' && 'osx' || 'linux' }}-${{ matrix.architecture }}") {
+            throw "The .NET SDK is not native to this runner: $sdkRid."
           }
 
       - name: Restore
@@ -91,6 +100,18 @@ jobs:
           -Configuration Release
           -NoBuild
           -ResultsDirectory QaResults
+
+      - name: Test (native desktop packaging and update channels)
+        run: >
+          dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=packaging.trx"
+          --results-directory TestResults
+          --filter
+          "(FullyQualifiedName~Lumi.Tests.CopilotPackagingTests
+          |FullyQualifiedName~Lumi.Tests.VoiceInputPackagingTests
+          |FullyQualifiedName~Lumi.Tests.UpdateServiceSafetyTests.UpdateChannel_)"
 
       - name: Test (cross-platform runtime behavior)
         if: ${{ runner.os != 'Windows' }}

@@ -34,8 +34,9 @@ public sealed class VoiceInputPackagingTests
     public void OnlyThisPlatformsGpuRuntimeIsCopied()
     {
         // Whisper.net's Vulkan package carries both its Windows and its Linux GPU library; each build keeps its own.
-        var expected = OperatingSystem.IsWindows() ? "win-x64"
-            : OperatingSystem.IsLinux() && RuntimeInformation.OSArchitecture == Architecture.X64 ? "linux-x64"
+        var expected = RuntimeInformation.ProcessArchitecture != Architecture.X64 ? null
+            : OperatingSystem.IsWindows() ? "win-x64"
+            : OperatingSystem.IsLinux() ? "linux-x64"
             : null;
         var vulkan = Path.Combine(AppContext.BaseDirectory, "runtimes", "vulkan");
         string?[] copied = Directory.Exists(vulkan) ? Directory.GetDirectories(vulkan).Select(Path.GetFileName).ToArray() : [];

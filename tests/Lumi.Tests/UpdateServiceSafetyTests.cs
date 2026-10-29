@@ -20,15 +20,26 @@ public sealed class UpdateServiceSafetyTests
     {
         Assert.Equal(
             expectedChannel,
-            UpdateService.ResolveUpdateChannel(isMacOS: true, processArchitecture));
+            UpdateService.ResolveUpdateChannel(OSPlatform.OSX, processArchitecture));
     }
 
     [Theory]
-    [InlineData(Architecture.Arm64)]
-    [InlineData(Architecture.X64)]
-    public void UpdateChannel_ForNonMacOS_UsesVelopackDefault(Architecture processArchitecture)
+    [InlineData("WINDOWS", "win-arm64")]
+    [InlineData("LINUX", "linux-arm64")]
+    public void UpdateChannel_ForWindowsAndLinuxArm64_MatchesProcessArchitecture(
+        string platform,
+        string expectedChannel)
     {
-        Assert.Null(UpdateService.ResolveUpdateChannel(isMacOS: false, processArchitecture));
+        Assert.Equal(expectedChannel,
+            UpdateService.ResolveUpdateChannel(OSPlatform.Create(platform), Architecture.Arm64));
+    }
+
+    [Theory]
+    [InlineData("WINDOWS")]
+    [InlineData("LINUX")]
+    public void UpdateChannel_ForWindowsAndLinuxX64_PreservesVelopackDefault(string platform)
+    {
+        Assert.Null(UpdateService.ResolveUpdateChannel(OSPlatform.Create(platform), Architecture.X64));
     }
 
     [Fact]

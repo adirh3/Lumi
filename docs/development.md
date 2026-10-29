@@ -571,7 +571,8 @@ accessibility settings can also suppress the native effect.
 
 ### Windows Installer
 
-Windows releases use the standard Velopack installer with the branded
+Windows x64 and ARM64 releases use separate Velopack installers
+(`Lumi-win-Setup.exe` and `Lumi-win-arm64-Setup.exe`) with the branded
 `src\Lumi\Assets\installer-splash.png` image, configured through `--splashImage`
 in the release workflow. Velopack displays progress and launches Lumi when
 installation completes. This is presentation-only: installer locking, repair,
@@ -579,7 +580,9 @@ command-line options, code signing, and automatic updates are unchanged.
 
 ### Linux Release Packages
 
-The auto-updating Linux release is an AppImage. Make it executable before launching:
+The auto-updating Linux release is an AppImage: `Lumi.AppImage` for x64 or
+`Lumi-linux-arm64.AppImage` for ARM64. Make the matching file executable before
+launching (x64 shown):
 
 ```bash
 chmod +x "Lumi.AppImage"
@@ -587,12 +590,13 @@ chmod +x "Lumi.AppImage"
 ```
 
 Ubuntu 24.04 requires `libfuse2t64` for AppImages (`libfuse2` on older Ubuntu releases).
-If FUSE is unavailable, use the release's `linux-x64-portable.tar.gz` archive
-instead. Save or rename it as `Lumi-linux-x64-portable.tar.gz` before running:
+If FUSE is unavailable, use the release's `linux-x64-portable.tar.gz` or
+`linux-arm64-portable.tar.gz` archive matching your processor instead.
+Save or rename it as `Lumi-linux-portable.tar.gz` before running:
 
 ```bash
 mkdir -p lumi-portable
-tar -xzf "Lumi-linux-x64-portable.tar.gz" -C lumi-portable
+tar -xzf "Lumi-linux-portable.tar.gz" -C lumi-portable
 chmod +x lumi-portable/Lumi
 ./lumi-portable/Lumi
 ```

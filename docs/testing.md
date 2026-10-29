@@ -107,8 +107,10 @@ not in the merge gate.
 
 `pr-validation.yml` keeps the existing required **Validate** check, solution
 builds, Strata validation, Android APK build, PWA publish/JavaScript checks, and
-platform-sensitive runtime checks. It runs CoreQA on Windows x64, Linux x64,
-macOS Apple Silicon, and macOS Intel. The longer Windows desktop batches and
+platform-sensitive runtime checks. It runs CoreQA and native CLI/voice packaging
+and update-channel checks on Windows x64/ARM64, Linux x64/ARM64, macOS Apple
+Silicon, and macOS Intel. ARM64 uses `windows-11-arm` and `ubuntu-24.04-arm`
+native runners. The longer Windows desktop batches and
 complete mobile suite run nightly, or via **Run workflow > full_suite**.
 This removes account/native/animation-sensitive tests from the ordinary PR
 critical path without deleting their broader coverage.
@@ -134,7 +136,7 @@ The Strata image-viewer cancellation check waits for asynchronous cleanup to
 return its semaphore permits before asserting that none remain in use.
 
 `browser-native-validation.yml` is displayed as **Extended UI QA**. It runs
-nightly and on manual dispatch on all four native desktop targets. Each job runs
+nightly and on manual dispatch on all six native desktop targets. Each job runs
 the headed workflows/restart check, then the existing real native-browser,
 docking, screenshot, platform-contract, and Windows WebView2 checks. It is
 deliberately separate from the PR **Validate** dependency graph: a graphics
@@ -145,14 +147,23 @@ Both workflows publish evidence and the QA runner writes an Actions job
 summary. UI artifacts explicitly omit the isolated profile directory.
 
 The **Release** workflow calls this same Extended UI QA workflow at the release
-commit, in parallel with the PWA and Android builds. All four native targets
-must pass before the Windows job can create the draft release; final
+commit, in parallel with the PWA and Android builds. All six native targets
+must pass before `create-release` creates the draft release; final
 publication also depends explicitly on that QA result. Failures, cancellations
 and timeouts cannot be bypassed by a successful packaging job. Dry runs include
 the same gate but never sign/publish a desktop release. QA receives only a
 read-only repository token, not the release-signing secrets. Each release
 passes a unique concurrency group, so nightly/manual QA and other release runs
 cannot cancel its checks.
+
+Windows packages cross-publish `win-x64` and `win-arm64` on the existing x64
+signing host; Linux packages build natively for `linux-x64` and `linux-arm64`.
+Each uses an explicit Velopack runtime and a distinct channel. Existing x64
+feeds remain `win` and `linux`; ARM64 uses `win-arm64` and `linux-arm64`.
+macOS retains `osx-arm64` and `osx-x64`. All desktop uploads merge onto the one
+pre-created draft, and publication waits for every architecture. Dry-run
+artifact names include the runtime identifier so packages cannot overwrite one
+another.
 
 To exercise a candidate branch before merging:
 

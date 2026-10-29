@@ -2,24 +2,25 @@
 # desktop package, signs and publishes the Velopack installers, and produces a
 # production-signed Android APK from a single workflow_dispatch run.
 #
-# Auto-update: Velopack's GithubSource uses the default win/linux channels on those
-# platforms, while Lumi's UpdateService explicitly selects osx-arm64 or osx-x64 on macOS.
+# Auto-update: Windows/Linux x64 retain Velopack's default win/linux channels.
+# UpdateService explicitly selects win-arm64, linux-arm64, osx-arm64 or osx-x64 otherwise.
 # Each job below packs and uploads the matching channel feed (releases.<channel>.json).
 #
 #   Channel     Platform                       Installer produced by Velopack
 #   --------    ---------------------------    ------------------------------------------
 #   win         Windows x64                    Lumi-win-Setup.exe (+ delta nupkg)
+#   win-arm64   Windows ARM64                  Lumi-win-arm64-Setup.exe (+ delta nupkg)
 #   linux       Linux x64                      Lumi.AppImage
+#   linux-arm64 Linux ARM64                    Lumi-linux-arm64.AppImage
 #   osx-arm64   macOS Apple Silicon            Lumi.pkg + Lumi.app (Portable zip)
 #   osx-x64     macOS Intel                    Lumi.pkg + Lumi.app (Portable zip)
 #   android     Android arm64                  Lumi-<version>-android-arm64.apk
 #
-# Orchestration: the platform-neutral PWA and Android APK build in parallel. Windows waits for
-# both, then creates a draft GitHub release via Velopack. Linux and macOS merge their assets onto
-# that draft, publish-android attaches the verified APK, and publish-release makes the complete
-# release public. Sequencing avoids both partial releases and concurrent create-release races.
-# Extended UI QA runs against this same commit alongside the initial builds. Its four native
-# targets must pass before Windows can create the draft release, and before final publication.
+# Orchestration: the platform-neutral PWA, Android APK and Extended UI QA build in parallel.
+# After all six native QA targets pass, create-release creates one draft before either Windows
+# architecture uploads. Linux and macOS then merge their assets onto that draft, publish-android
+# attaches the verified APK, and publish-release makes the complete release public.
+# Sequencing avoids both partial releases and concurrent create-release races.
 #
 # vpk CLI is pinned to 0.0.1298 to exactly match the Velopack library referenced by the app
 # (src/Lumi/Lumi.csproj). Velopack recommends matching CLI and library versions so the
@@ -197,9 +198,36 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Windows is the authoritative job: it creates the draft GitHub release.
-  release-windows:
+  create-release:
     needs: [validate_release_inputs, build-android, build-pwa, extended-ui-qa]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Create draft GitHub release
+        if: ${{ inputs.dry_run == false }}
+        run: >
+          gh release create "v$RELEASE_VERSION"
+          --target "$GITHUB_SHA"
+          --title "Lumi v$RELEASE_VERSION"
+          --notes ""
+          --draft
+
+  # Cross-publish both Windows architectures on x64, keeping the established signing host.
+  # Native Windows ARM64 behavior is exercised by PR validation and Extended UI QA.
+  release-windows:
+    name: Release (${{ matrix.rid }})
+    needs: [validate_release_inputs, build-pwa, create-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            channel: win
+          - rid: win-arm64
+            channel: win-arm64
     runs-on: windows-latest
     env:
       RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
@@ -223,11 +251,11 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
-      - name: Publish (Single-file, trimmed, win-x64)
+      - name: Publish (Single-file, trimmed, ${{ matrix.rid }})
         run: >
           dotnet publish src/Lumi/Lumi.csproj
           -c Release
-          -r win-x64
+          -r ${{ matrix.rid }}
           -o publish
           /p:Version=$env:RELEASE_VERSION
 
@@ -281,7 +309,7 @@ jobs:
           vpk download github
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
-          --channel win
+          --channel ${{ matrix.channel }}
         continue-on-error: true
 
       - name: Pack Velopack release
@@ -293,20 +321,21 @@ jobs:
           --mainExe Lumi.exe
           --icon src/Lumi/Assets/lumi-icon.ico
           --splashImage src\Lumi\Assets\installer-splash.png
-          --channel win
+          --runtime ${{ matrix.rid }}
+          --channel ${{ matrix.channel }}
 
       - name: Sign Setup.exe
         if: ${{ inputs.dry_run == false }}
         shell: pwsh
         run: |
-          sign code trusted-signing "${{ github.workspace }}\Releases\Lumi-win-Setup.exe" `
+          sign code trusted-signing "${{ github.workspace }}\Releases\Lumi-${{ matrix.channel }}-Setup.exe" `
             -tse "https://wus2.codesigning.azure.net/" `
             -tsa "acsfluentsearch" `
             -tscp "profileFluentSearch1" `
             -act azure-cli `
             -v Information
 
-      - name: Upload to GitHub Releases (creates draft release)
+      - name: Merge onto GitHub release
         if: ${{ inputs.dry_run == false }}
         run: >
           vpk upload github
@@ -314,18 +343,19 @@ jobs:
           --token ${{ secrets.GITHUB_TOKEN }}
           --releaseName "Lumi v$env:RELEASE_VERSION"
           --tag "v$env:RELEASE_VERSION"
-          --channel win
+          --channel ${{ matrix.channel }}
+          --merge
 
       - name: Upload dry-run Windows packages
         if: ${{ inputs.dry_run }}
         uses: actions/upload-artifact@v4
         with:
-          name: release-dry-run-win-${{ needs.validate_release_inputs.outputs.version }}
+          name: release-dry-run-${{ matrix.rid }}-${{ needs.validate_release_inputs.outputs.version }}
           path: Releases
           if-no-files-found: error
           retention-days: 3
 
-  # Android: production-signed arm64 APK, attached to the draft GitHub release created by Windows.
+  # Android: production-signed arm64 APK, attached after both Windows packages are uploaded.
   # Dry runs use a disposable keystore so the full packaging path stays testable without secrets.
   build-android:
     needs: validate_release_inputs
@@ -502,12 +532,24 @@ jobs:
             gh release edit $tag --notes-file $notes
           }
 
-  # Linux: self-contained AppImage (channel "linux"), merged onto the Windows release.
+  # Linux: native self-contained AppImage per architecture, merged onto the draft release.
+  # Keep the existing x64 "linux" channel and use "linux-arm64" for ARM64.
   # A portable tarball is also published for systems without FUSE 2 (including stock
   # Ubuntu 24.04), while the AppImage remains the auto-updating package.
   release-linux:
+    name: Release (${{ matrix.rid }})
     needs: [validate_release_inputs, build-pwa, release-windows]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            channel: linux
+            runner: ubuntu-latest
+          - rid: linux-arm64
+            channel: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     env:
       RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
     steps:
@@ -532,11 +574,16 @@ jobs:
           dotnet tool install -g vpk --version 0.0.1298
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
-      - name: Publish (Single-file, self-contained, linux-x64)
+      - name: Install AppImage packaging dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools
+
+      - name: Publish (Single-file, self-contained, ${{ matrix.rid }})
         run: >
           dotnet publish src/Lumi/Lumi.csproj
           -c Release
-          -r linux-x64
+          -r ${{ matrix.rid }}
           -o publish-linux
           /p:Version=$RELEASE_VERSION
 
@@ -558,10 +605,10 @@ jobs:
           vpk download github
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
-          --channel linux
+          --channel ${{ matrix.channel }}
         continue-on-error: true
 
-      - name: Pack Velopack release (linux)
+      - name: Pack Velopack release (${{ matrix.rid }})
         run: >
           vpk pack
           -u Lumi
@@ -570,12 +617,13 @@ jobs:
           -o Releases
           -e Lumi
           -i src/Lumi/Assets/lumi-icon.png
-          --channel linux
+          --runtime ${{ matrix.rid }}
+          --channel ${{ matrix.channel }}
 
       - name: Create FUSE-independent portable archive
         run: >
           tar -C publish-linux
-          -czf "Releases/Lumi-$RELEASE_VERSION-linux-x64-portable.tar.gz"
+          -czf "Releases/Lumi-$RELEASE_VERSION-${{ matrix.rid }}-portable.tar.gz"
           .
 
       - name: Merge onto GitHub release
@@ -585,7 +633,7 @@ jobs:
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
           --tag "v$RELEASE_VERSION"
-          --channel linux
+          --channel ${{ matrix.channel }}
           --merge
 
       - name: Upload portable Linux archive
@@ -594,14 +642,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
           gh release upload "v$RELEASE_VERSION"
-          "Releases/Lumi-$RELEASE_VERSION-linux-x64-portable.tar.gz"
+          "Releases/Lumi-$RELEASE_VERSION-${{ matrix.rid }}-portable.tar.gz"
           --clobber
 
       - name: Upload dry-run Linux packages
         if: ${{ inputs.dry_run }}
         uses: actions/upload-artifact@v4
         with:
-          name: release-dry-run-linux-${{ needs.validate_release_inputs.outputs.version }}
+          name: release-dry-run-${{ matrix.rid }}-${{ needs.validate_release_inputs.outputs.version }}
           path: Releases
           if-no-files-found: error
           retention-days: 3
@@ -792,7 +840,7 @@ jobs:
 
   publish-release:
     if: ${{ inputs.dry_run == false }}
-    needs: [validate_release_inputs, publish-android, release-linux, release-macos, extended-ui-qa]
+    needs: [validate_release_inputs, publish-android, release-windows, release-linux, release-macos, extended-ui-qa]
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
