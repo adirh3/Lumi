@@ -634,4 +634,7 @@
   <data name="BackgroundJob" xml:space="preserve"><value>משימה ברקע</value></data>
   <data name="WakeSignalReceived" xml:space="preserve"><value>התקבל אות הפעלה.</value></data>
   <data name="MobileTruncationNotice" xml:space="preserve"><value>[התוכן קוצר בנייד; הפלט המלא זמין במחשב]</value></data>
+  <data name="EffortStandard" xml:space="preserve"><value>רגיל</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>רמת המאמץ של Fusion</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>בחירת האיזון בין מהירות, עלות ועומק באמצעות ניתוב המודלים של Fusion.</value></data>
 </root>

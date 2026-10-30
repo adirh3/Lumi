@@ -2030,8 +2030,8 @@
     <sc:StrataBottomSheet x:Name="EffortSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsEffortSheetOpen, Mode=TwoWay}"
-                          Title="{loc:Str ReasoningEffort}"
-                          Description="{loc:Str EffortDescription}">
+                          Title="{Binding Chat.ModelEffortName}"
+                          Description="{Binding Chat.ModelEffortDescription}">
       <Border x:Name="EffortSheetSideInset">
         <StackPanel Margin="{DynamicResource Mobile.Sheet.ContentMargin}" Spacing="4">
           <TextBlock Text="{Binding Chat.EffortLabel}"
@@ -2040,7 +2040,7 @@
 
           <Slider x:Name="EffortSlider"
                   MinHeight="{DynamicResource Touch.MinTarget}"
-                  AutomationProperties.Name="{loc:Str ReasoningEffort}"
+                  AutomationProperties.Name="{Binding Chat.ModelEffortName}"
                   Minimum="0"
                   Maximum="{Binding Chat.EffortMax}"
                   Value="{Binding Chat.EffortIndex, Mode=TwoWay}"

@@ -179,7 +179,7 @@
               <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
                 <PathIcon Classes="sheet-leading"
                           Data="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
-                <TextBlock Grid.Column="1" Text="{loc:Str ReasoningEffort}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1" Text="{Binding Chat.ModelEffortName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                 <TextBlock Grid.Column="2" Classes="sheet-value" Text="{Binding Chat.EffortLabel}" />
                 <PathIcon Grid.Column="3" Classes="sheet-chevron" Data="M9 5 7.6 6.4 13.2 12 7.6 17.6 9 19l7-7-7-7z" />
               </Grid>
@@ -291,7 +291,7 @@
                     IsVisible="{Binding Chat.HasModelSettings}">
               <StackPanel>
                 <StackPanel x:Name="ModelSheetEffort" IsVisible="{Binding Chat.HasQualityLevels}">
-                  <TextBlock Text="{loc:Str ReasoningEffort}" Classes="sheet-label" />
+                  <TextBlock Text="{Binding Chat.ModelEffortName}" Classes="sheet-label" />
                   <Border Classes="segment-track">
                     <ItemsControl ItemsSource="{Binding Chat.QualityOptions}">
                       <ItemsControl.ItemsPanel>

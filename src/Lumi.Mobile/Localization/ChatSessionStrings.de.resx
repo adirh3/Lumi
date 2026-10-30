@@ -634,4 +634,7 @@
   <data name="BackgroundJob" xml:space="preserve"><value>Hintergrundauftrag</value></data>
   <data name="WakeSignalReceived" xml:space="preserve"><value>Wecksignal erhalten.</value></data>
   <data name="MobileTruncationNotice" xml:space="preserve"><value>[mobil gekürzt; vollständige Ausgabe auf dem Desktop öffnen]</value></data>
+  <data name="EffortStandard" xml:space="preserve"><value>Standard</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>Fusion-Aufwand</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>Geschwindigkeit, Kosten und Tiefe mit der nativen Modellauswahl von Fusion ausbalancieren.</value></data>
 </root>

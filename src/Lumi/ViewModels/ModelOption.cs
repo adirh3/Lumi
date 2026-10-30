@@ -21,7 +21,8 @@ public sealed record ModelOptionMetadata(
     double? CostMultiplier,
     bool SupportsVision,
     bool SupportsReasoning,
-    bool RequiresOptIn);
+    bool RequiresOptIn,
+    string? DisplayName = null);
 
 /// <summary>
 /// One row in the composer's model picker: the model id plus the metadata the row renders as badges,
@@ -37,10 +38,22 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
         _providerName = ByokConfigHelper.IsByokModel(id) ? null : "GitHub Copilot";
     }
 
-    /// <summary>Model id exactly as the catalog reports it (also the value written back on select).</summary>
+    /// <summary>Catalog selection token, including an explicit native Auto tier when selected.</summary>
     public string Id { get; }
 
     string IStrataModelOption.ModelId => Id;
+
+    public IReadOnlyList<string> SelectionAliases { get; private set; } = [];
+
+    public int SortPriority => SelectionAliases.Count > 0 ? 1 : 0;
+
+    internal void UpdateSelectionAliases(IReadOnlyList<string> aliases)
+    {
+        if (SelectionAliases.SequenceEqual(aliases, StringComparer.Ordinal))
+            return;
+        SelectionAliases = aliases;
+        OnPropertyChanged(nameof(SelectionAliases));
+    }
 
     [ObservableProperty] private string _displayName;
     [NotifyPropertyChangedFor(nameof(DetailsText), nameof(HasDetails), nameof(DetailsToolTip), nameof(PinnedProviderSuffix))]
@@ -132,7 +145,9 @@ public sealed partial class ModelOption : ObservableObject, IStrataModelOption
     /// live catalog refresh updates badges without replacing (and re-rendering) the row.</summary>
     public void Apply(ModelOptionMetadata metadata, UserSettings? settings = null)
     {
-        DisplayName = ChatViewModel.FormatModelDisplay(Id) ?? Id;
+        DisplayName = SelectionAliases.Count > 0 ? Localization.Loc.Get("ModelPicker_Fusion")
+            : CopilotModelCatalog.FormatAutoTierName(Id, metadata.DisplayName)
+            ?? ChatViewModel.FormatModelDisplay(Id) ?? Id;
         if (settings is not null && ByokConfigHelper.IsByokModel(Id))
         {
             var model = settings.ByokModels.FirstOrDefault(model => ByokConfigHelper.BuildModelToken(model) == Id);
@@ -181,7 +196,8 @@ public static class ModelOptionCatalog
             model.Billing?.Multiplier,
             supports?.Vision == true,
             supportsReasoning,
-            requiresOptIn);
+            requiresOptIn,
+            CopilotModelCatalog.IsAutoTierSelection(model.Id) ? model.Name : null);
     }
 
     public static Dictionary<string, ModelOptionMetadata> BuildMetadata(IEnumerable<ModelInfo> models)
@@ -213,10 +229,20 @@ public static class ModelOptionCatalog
     /// <summary>Updates provider labels, badges and pin order without replacing existing row instances.</summary>
     public static void SyncOptions(
         ObservableCollection<ModelOption> target, IEnumerable<string> modelIds, UserSettings settings,
-        IReadOnlyDictionary<string, ModelOptionMetadata> metadata)
+        IReadOnlyDictionary<string, ModelOptionMetadata> metadata,
+        bool backgroundChoices = false)
     {
-        var ordered = OrderPinnedFirst(modelIds, settings.FavoriteModelIds);
-        var pinned = new HashSet<string>(settings.FavoriteModelIds ?? [], StringComparer.Ordinal);
+        var ids = modelIds.Distinct(StringComparer.Ordinal).ToList();
+        var tiers = CopilotModelCatalog.GetAutoTierSelections(ids.Where(metadata.ContainsKey));
+        var fusion = CopilotModelCatalog.DefaultAutoTierSelection(tiers);
+        var aliases = fusion is null ? [] : tiers.Concat(backgroundChoices ? [] : new[] { "auto" }).ToArray();
+        var displayedIds = fusion is null ? ids
+            : ids.Where(id => !tiers.Contains(id, StringComparer.Ordinal)
+                && (backgroundChoices || id != "auto")).Prepend(fusion).ToList();
+        var favorites = settings.FavoriteModelIds?.Select(id =>
+            aliases.Contains(id, StringComparer.Ordinal) ? fusion! : id);
+        var ordered = OrderPinnedFirst(displayedIds, favorites);
+        var pinned = new HashSet<string>(favorites ?? [], StringComparer.Ordinal);
         var existing = target.ToDictionary(static option => option.Id, StringComparer.Ordinal);
         for (var index = target.Count - 1; index >= 0; index--)
             if (!ordered.Contains(target[index].Id, StringComparer.Ordinal))
@@ -226,7 +252,18 @@ public static class ModelOptionCatalog
         {
             var id = ordered[index];
             var option = existing.TryGetValue(id, out var current) ? current : new ModelOption(id);
+            option.UpdateSelectionAliases(id == fusion ? aliases : []);
             option.Apply(metadata.TryGetValue(id, out var facts) ? facts : UnknownMetadata, settings);
+            if (backgroundChoices && id == UserSettings.AutomaticBackgroundModel)
+            {
+                option.DisplayName = Localization.Loc.Setting_BackgroundModelAuto;
+                option.ProviderName = null;
+            }
+            else if (backgroundChoices && id == SettingsViewModel.DefaultAiFeatureModel)
+            {
+                option.DisplayName = Localization.Loc.Get("AiFeatures_DefaultModelChoice");
+                option.ProviderName = null;
+            }
             option.IsPinned = pinned.Contains(id);
             var currentIndex = target.IndexOf(option);
             if (currentIndex < 0)
@@ -234,6 +271,20 @@ public static class ModelOptionCatalog
             else if (currentIndex != index)
                 target.Move(currentIndex, index);
         }
+    }
+
+    internal static void SetPinned(UserSettings settings, ModelOption option, bool pinned)
+    {
+        settings.FavoriteModelIds ??= [];
+        if (pinned)
+        {
+            if (!settings.FavoriteModelIds.Any(id => id == option.Id
+                    || option.SelectionAliases.Contains(id, StringComparer.Ordinal)))
+                settings.FavoriteModelIds.Add(option.Id);
+        }
+        else
+            settings.FavoriteModelIds.RemoveAll(id => id == option.Id
+                || option.SelectionAliases.Contains(id, StringComparer.Ordinal));
     }
 
     /// <summary>

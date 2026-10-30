@@ -1888,4 +1888,7 @@
   <data name="MobileTruncationNotice" xml:space="preserve">
     <value>[モバイルでは省略。全出力はデスクトップで確認してください]</value>
   </data>
+  <data name="EffortStandard" xml:space="preserve"><value>標準</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>Fusion の思考レベル</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>Fusion のネイティブなモデル選択で、速度、コスト、深さのバランスを調整します。</value></data>
 </root>

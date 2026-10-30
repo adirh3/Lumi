@@ -828,7 +828,7 @@ public static class ByokConfigHelper
             && !string.IsNullOrWhiteSpace(persistedSessionId)
             && !string.IsNullOrWhiteSpace(persistedProviderSignature);
         if (!hasLegacyEvidence)
-            return new(selectedModel, selectedModel, null, null, IsInvalidByok: false);
+            return new(selectedModel, CopilotModelCatalog.GetWireModelId(selectedModel), null, null, IsInvalidByok: false);
 
         var candidates = new List<(ByokModel Model, ProviderConfig Provider)>();
         foreach (var model in settings.ByokModels.Where(model =>

@@ -10,6 +10,47 @@ namespace Lumi.Mobile.Tests;
 
 public sealed class MobileStateCorrectnessTests
 {
+    [Fact]
+    public async Task FusionIsOneModelRowAndItsEffortChangesTheNativeSelectionNotReasoning()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        string[] variants = ["auto:balance", "auto:hydrafusion", "auto:hydrafusion-max"];
+        string[] labels = ["Standard", "High", "Max"];
+        chat.ApplyCatalogs(new RemoteSettings
+        {
+            PreferredModel = variants[2],
+            AvailableModels = ["auto", .. variants],
+            ModelOptions =
+            [
+                new RemoteModelOption
+                {
+                    Model = variants[0], DisplayName = "Copilot Fusion", ProviderName = "GitHub Copilot",
+                    SelectionAliases = ["auto", .. variants]
+                }
+            ],
+            ModelReasoningEfforts = [.. variants.Select(model => $"{model}=Standard,High,Max")],
+            ModelDefaults = [.. variants.Select((model, index) => new RemoteModelDefaults { Model = model, Quality = labels[index] })]
+        });
+        chat.Reset(Guid.Empty, "New Fusion chat");
+        Assert.Equal("Copilot Fusion", Assert.Single(chat.ModelOptions).Label);
+        Assert.True(chat.ModelOptions[0].IsSelected);
+        Assert.Equal("Max", chat.Quality);
+        Assert.Equal("Copilot Fusion · Max", chat.ModelSummary);
+
+        chat.PickModelCommand.Execute(variants[0]);
+        Assert.Equal(variants[2], chat.Model);
+        chat.Quality = "High";
+        Assert.Equal(variants[1], chat.Model);
+        Assert.Equal("High", chat.Quality);
+        chat.PromptText = "Use the selected native Fusion tier.";
+        await chat.SendCommand.ExecuteAsync(null);
+        var command = Assert.Single(sink.Commands);
+        Assert.Equal(variants[1], command.Get("model"));
+        Assert.Null(command.Get("quality"));
+        Assert.Null(command.Get("reasoningEffort"));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

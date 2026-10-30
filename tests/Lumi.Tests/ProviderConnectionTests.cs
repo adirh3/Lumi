@@ -642,8 +642,9 @@ public sealed class ProviderConnectionTests
 
         typeof(MainViewModel).GetMethod("ApplyModelCatalog", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .Invoke(vm, [
-                new List<GitHub.Copilot.ModelInfo> { new() { Id = "claude-sonnet-4.5", Name = "Claude Sonnet 4.5" } },
-                new ModelContextWindowCatalog(new HashSet<string>(), new Dictionary<string, ModelContextWindowLimits>()),
+                new ModelCatalogSnapshot(
+                    [new GitHub.Copilot.ModelInfo { Id = "claude-sonnet-4.5", Name = "Claude Sonnet 4.5" }],
+                    ModelCatalogCache.Empty),
                 true]);
 
         Assert.Equal(token, vm.SettingsVM.PreferredModel);

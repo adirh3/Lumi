@@ -18,6 +18,29 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ModelSelectionCatalogTests
 {
+    [Theory]
+    [InlineData("auto:hydrafusion-max")]
+    [InlineData("gpt-6-luna")]
+    public async Task NativeAutoCommitKeepsTheNextMessagePreferenceSeparate(string nextModel)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            using var vm = CreateViewModel(out var chat);
+            vm.UpdateModelCapabilities(CopilotModelCatalog.BuildModels(CopilotModelCatalogTests.NativeCatalog()));
+            vm.ApplyModelSelection(nextModel, "low");
+            chat.LastModelUsed = nextModel;
+            var runtime = new ChatRuntimeState();
+            var committed = CopilotModelCatalog.GetSessionModelSelection("auto", new AutoTier("hydrafusion"))!;
+
+            InvokeApplySessionModelState(vm, chat, runtime, committed, sessionContextTier: null);
+
+            Assert.Equal("auto:hydrafusion", runtime.ActiveModelId);
+            Assert.Equal(nextModel, chat.LastModelUsed);
+            Assert.Equal(nextModel, vm.SelectedModel);
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task KnownByokModelWithoutReasoning_DoesNotUsePreloadFallback()
     {
@@ -289,6 +312,26 @@ public sealed class ModelSelectionCatalogTests
         Assert.Equal("Low", selectedQuality);
         Assert.Equal("low", resolvedDefault);
         Assert.Equal("high", resolvedExplicitChoice);
+    }
+
+    [Fact]
+    public async Task AutoWireModelKeepsThePersistedFusionTierSelection()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            using var viewModel = CreateViewModel(out var chat);
+            chat.LastModelUsed = "auto:hydrafusion";
+            var models = CopilotModelCatalog.BuildModels(CopilotModelCatalogTests.NativeCatalog());
+            viewModel.UpdateModelCapabilities(models);
+            var runtime = new ChatRuntimeState();
+
+            InvokeApplySessionModelState(viewModel, chat, runtime, "auto", sessionContextTier: null);
+
+            Assert.Equal("auto:hydrafusion", chat.LastModelUsed);
+            Assert.Equal("auto:hydrafusion", runtime.ActiveModelId);
+            Assert.Equal("auto:hydrafusion", viewModel.SelectedModel);
+        }, CancellationToken.None);
     }
 
     [Fact]

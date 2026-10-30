@@ -15,7 +15,7 @@ The Copilot SDK archives below are unchanged and are not active dependencies.
 
 ## Archived Copilot SDK packages
 
-Lumi now references official `GitHub.Copilot.SDK 1.0.27-preview.3` from NuGet.org
+Lumi now references official `GitHub.Copilot.SDK 1.0.28` from NuGet.org
 and implements its upstream `ISkillProvider` API. The packages below are retained
 only as historical provenance: they are not referenced or source-mapped by Lumi.
 This directory is retained as an archive, not an active package feed.

@@ -1682,7 +1682,7 @@
               </sc:StrataModelPicker.ModelItemTemplate>
               <sc:StrataModelPicker.SelectedModelTemplate>
                 <DataTemplate>
-                  <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
+                  <TextBlock Text="{Binding $parent[sc:StrataModelPicker].SelectedModelDisplayName}" />
                 </DataTemplate>
               </sc:StrataModelPicker.SelectedModelTemplate>
             </sc:StrataModelPicker>
@@ -1818,12 +1818,14 @@
                 <sc:StrataModelPicker Grid.Column="1" Width="NaN" MinWidth="120" MaxWidth="240"
                                       HorizontalAlignment="Right" VerticalAlignment="Center"
                                       AutomationProperties.Name="{Binding ModelPickerName}"
-                                      Models="{Binding ModelChoices}"
+                                      Models="{Binding ModelOptions}"
                                       PickerOpenedCommand="{Binding RefreshModelsCommand}"
-                                      SelectedModel="{Binding ModelChoice, Mode=TwoWay}">
+                                      SelectedModel="{Binding ModelChoice, Mode=TwoWay}"
+                                      QualityLevels="{Binding QualityLevels}"
+                                      SelectedQuality="{Binding SelectedQuality, Mode=TwoWay}">
                   <sc:StrataModelPicker.ModelItemTemplate>
-                    <DataTemplate>
-                      <TextBlock Text="{Binding Converter={x:Static conv:ModelDisplayConverter.Instance}}" />
+                    <DataTemplate x:DataType="vm:ModelOption">
+                      <TextBlock Text="{Binding DisplayName}" />
                     </DataTemplate>
                   </sc:StrataModelPicker.ModelItemTemplate>
                   <sc:StrataModelPicker.SelectedModelTemplate>
@@ -1881,14 +1883,21 @@
                           IsModified="{Binding IsBackgroundModelModified}">
           <StackPanel Spacing="6">
             <sc:StrataModelPicker x:Name="BackgroundModelPicker" Width="300"
-                                  Models="{Binding AvailableBackgroundModels}"
+                                  Models="{Binding BackgroundModelOptions}"
                                   PickerOpenedCommand="{Binding RefreshModelCatalogCommand}"
-                                  SelectedModel="{Binding BackgroundModel, Mode=TwoWay}">
+                                  SelectedModel="{Binding BackgroundModel, Mode=TwoWay}"
+                                  QualityLevels="{Binding BackgroundQualityLevels}"
+                                  SelectedQuality="{Binding SelectedBackgroundQuality, Mode=TwoWay}">
               <sc:StrataModelPicker.ModelItemTemplate>
-                <DataTemplate>
-                  <TextBlock Text="{Binding Converter={x:Static conv:ModelDisplayConverter.Instance}}" />
+                <DataTemplate x:DataType="vm:ModelOption">
+                  <TextBlock Text="{Binding DisplayName}" />
                 </DataTemplate>
               </sc:StrataModelPicker.ModelItemTemplate>
+              <sc:StrataModelPicker.SelectedModelTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding $parent[sc:StrataModelPicker].SelectedModelDisplayName}" />
+                </DataTemplate>
+              </sc:StrataModelPicker.SelectedModelTemplate>
             </sc:StrataModelPicker>
             <TextBlock x:Name="BackgroundModelStatusText"
                        Text="{Binding BackgroundModelStatus}"

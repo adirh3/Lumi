@@ -5,16 +5,16 @@ using GitHub.Copilot;
 
 namespace Lumi.Services;
 
-/// <summary>The full model catalog as returned by a single fetch: the SDK model list plus the
-/// context-window metadata that is only exposed through the raw models RPC.</summary>
+/// <summary>The model list and native metadata returned by one models RPC.</summary>
 public sealed record ModelCatalogSnapshot(
     IReadOnlyList<ModelInfo> Models,
-    ModelContextWindowCatalog ContextWindows);
+    ModelContextWindowCatalog ContextWindows,
+    string? DefaultAutoTier = null);
 
 /// <summary>
 /// Caches the Copilot model catalog and refreshes it on demand so a model released while Lumi is
 /// running shows up without a restart. Deliberately knows nothing about the CLI connection: it takes
-/// fetch delegates, and treats any <see cref="Invalidate"/> (which <see cref="CopilotService"/> calls
+/// a fetch delegate, and treats any <see cref="Invalidate"/> (which <see cref="CopilotService"/> calls
 /// on every connect and disconnect) as "the connection changed", which is what makes a refresh that
 /// raced a reconnect safe to discard.
 /// </summary>
@@ -24,25 +24,15 @@ public sealed class ModelCatalogCache
     /// the CLI again. Keeps repeated picker opens from issuing an RPC every click.</summary>
     public static readonly TimeSpan Freshness = TimeSpan.FromMinutes(5);
 
-    private readonly Func<CancellationToken, Task<List<ModelInfo>>> _fetchModels;
-    private readonly Func<CancellationToken, Task<ModelContextWindowCatalog?>> _fetchContextWindows;
+    private readonly Func<CancellationToken, Task<ModelCatalogSnapshot>> _fetch;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private List<ModelInfo>? _models;
-    private ModelContextWindowCatalog? _contextWindows;
+    private ModelCatalogSnapshot? _snapshot;
     private long _loadedAtTicks;
     private long _generation;
 
-    /// <param name="fetchModels">Reads the SDK model list. Throws when not connected.</param>
-    /// <param name="fetchContextWindows">Reads context-window metadata, returning null when the
-    /// fetch failed so a known-good catalog is never replaced by an empty one.</param>
-    public ModelCatalogCache(
-        Func<CancellationToken, Task<List<ModelInfo>>> fetchModels,
-        Func<CancellationToken, Task<ModelContextWindowCatalog?>> fetchContextWindows)
-    {
-        _fetchModels = fetchModels;
-        _fetchContextWindows = fetchContextWindows;
-    }
+    /// <param name="fetch">Reads the complete native catalog. Throws when the fetch fails.</param>
+    public ModelCatalogCache(Func<CancellationToken, Task<ModelCatalogSnapshot>> fetch) => _fetch = fetch;
 
     /// <summary>
     /// Fires when a refresh found a catalog that differs from the cached one. Never fires for an
@@ -55,24 +45,34 @@ public sealed class ModelCatalogCache
         new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase));
 
     public async Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct = default)
+        => (await GetSnapshotAsync(ct).ConfigureAwait(false)).Models.ToList();
+
+    public async Task<ModelCatalogSnapshot> GetSnapshotAsync(CancellationToken ct = default)
     {
-        if (_models is null)
+        if (_snapshot is null)
         {
-            _models = await _fetchModels(ct).ConfigureAwait(false);
+            _snapshot = await _fetch(ct).ConfigureAwait(false);
             Stamp();
         }
 
-        return _models;
+        return _snapshot;
     }
 
     public async Task<ModelContextWindowCatalog> GetContextWindowsAsync(CancellationToken ct = default)
     {
-        if (_contextWindows is not null)
-            return _contextWindows;
-
-        _contextWindows = await _fetchContextWindows(ct).ConfigureAwait(false) ?? Empty;
-        Stamp();
-        return _contextWindows;
+        try
+        {
+            return (await GetSnapshotAsync(ct).ConfigureAwait(false)).ContextWindows;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Model context-window catalog unavailable: {ex.Message}");
+            return Empty;
+        }
     }
 
     /// <summary>
@@ -98,14 +98,7 @@ public sealed class ModelCatalogCache
                 return false;
 
             var generation = Interlocked.Read(ref _generation);
-            var models = await _fetchModels(ct).ConfigureAwait(false);
-
-            // A failed context-window fetch must not wipe the cached one: publishing an empty catalog
-            // would strip long context from every model and persist that loss per chat. Keeping the
-            // previous one still lets a newly released model surface.
-            var contextWindows = await _fetchContextWindows(ct).ConfigureAwait(false) ?? _contextWindows;
-            if (contextWindows is null)
-                return false;
+            var snapshot = await _fetch(ct).ConfigureAwait(false);
 
             // A reconnect or explicit invalidation during the fetch already discarded the catalog;
             // committing this now-stale read would resurrect it.
@@ -113,15 +106,14 @@ public sealed class ModelCatalogCache
                 return false;
 
             var previousSignature = CurrentSignature;
-            _models = models;
-            _contextWindows = contextWindows;
+            _snapshot = snapshot;
             Stamp();
 
-            var signature = BuildSignature(models, contextWindows);
+            var signature = BuildSignature(snapshot.Models, snapshot.ContextWindows, snapshot.DefaultAutoTier);
             if (string.Equals(previousSignature, signature, StringComparison.Ordinal))
                 return false;
 
-            Changed?.Invoke(new ModelCatalogSnapshot(models, contextWindows));
+            Changed?.Invoke(snapshot);
             return true;
         }
         catch (OperationCanceledException)
@@ -142,8 +134,7 @@ public sealed class ModelCatalogCache
     /// <summary>Drops the cached catalog and marks any refresh already in flight as stale.</summary>
     public void Invalidate()
     {
-        _models = null;
-        _contextWindows = null;
+        _snapshot = null;
         Interlocked.Exchange(ref _loadedAtTicks, 0);
         Interlocked.Increment(ref _generation);
     }
@@ -152,7 +143,7 @@ public sealed class ModelCatalogCache
     {
         get
         {
-            if (_models is null || _contextWindows is null)
+            if (_snapshot is null)
                 return true;
 
             var loadedAt = Interlocked.Read(ref _loadedAtTicks);
@@ -162,8 +153,8 @@ public sealed class ModelCatalogCache
 
     /// <summary>Fingerprint of the currently cached catalog, or empty when nothing is cached yet.</summary>
     private string CurrentSignature
-        => _models is not null && _contextWindows is not null
-            ? BuildSignature(_models, _contextWindows)
+        => _snapshot is { } snapshot
+            ? BuildSignature(snapshot.Models, snapshot.ContextWindows, snapshot.DefaultAutoTier)
             : string.Empty;
 
     private void Stamp() => Interlocked.Exchange(ref _loadedAtTicks, Stopwatch.GetTimestamp());
@@ -175,14 +166,17 @@ public sealed class ModelCatalogCache
     /// </summary>
     internal static string BuildSignature(
         IEnumerable<ModelInfo> models,
-        ModelContextWindowCatalog contextWindows)
+        ModelContextWindowCatalog contextWindows,
+        string? defaultAutoTier = null)
     {
         var builder = new StringBuilder();
+        builder.Append("default-auto-tier|").Append(defaultAutoTier).Append('\n');
         foreach (var model in models
                      .Where(static model => !string.IsNullOrWhiteSpace(model.Id))
                      .OrderBy(static model => model.Id, StringComparer.Ordinal))
         {
             builder.Append(model.Id).Append('|');
+            builder.Append(model.Name).Append('|');
             builder.Append(model.DefaultReasoningEffort).Append('|');
             if (model.SupportedReasoningEfforts is { Count: > 0 } efforts)
                 builder.AppendJoin(',', efforts.OrderBy(static effort => effort, StringComparer.Ordinal));

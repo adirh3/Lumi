@@ -634,4 +634,7 @@
   <data name="BackgroundJob" xml:space="preserve"><value>Background job</value></data>
   <data name="WakeSignalReceived" xml:space="preserve"><value>Wake signal received.</value></data>
   <data name="MobileTruncationNotice" xml:space="preserve"><value>[truncated on mobile; open desktop for full output]</value></data>
+  <data name="EffortStandard" xml:space="preserve"><value>Standard</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>Fusion effort</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>Balance speed, cost and depth with Fusion's native model routing.</value></data>
 </root>

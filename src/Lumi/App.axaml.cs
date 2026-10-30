@@ -167,7 +167,7 @@ public partial class App : Application
             new Setter(StrataTheme.Controls.StrataModelPicker.NoResultsTextProperty, Loc.ModelPicker_NoResults),
             new Setter(StrataTheme.Controls.StrataModelPicker.ModelsLabelProperty, Loc.ModelPicker_Models),
             new Setter(StrataTheme.Controls.StrataModelPicker.PinnedLabelProperty, Loc.ModelPicker_Pinned),
-            new Setter(StrataTheme.Controls.StrataModelPicker.ReasoningLabelProperty, Loc.ModelPicker_Reasoning),
+            new Setter(StrataTheme.Controls.StrataModelPicker.ReasoningLabelProperty, Loc.Get("ModelPicker_Effort")),
             new Setter(StrataTheme.Controls.StrataModelPicker.ContextLabelProperty, Loc.ModelPicker_Context),
             new Setter(StrataTheme.Controls.StrataModelPicker.PinToolTipProperty, Loc.ModelPicker_Pin),
             new Setter(StrataTheme.Controls.StrataModelPicker.UnpinToolTipProperty, Loc.ModelPicker_Unpin)

@@ -233,6 +233,68 @@ public class CopilotIntegrationTests : IAsyncLifetime
         await _service.ConnectAsync();
     }
 
+#pragma warning disable GHCP001 // Verify native Fusion execution, rather than only an accepted model selection.
+    [SkippableFact]
+    public async Task FusionTier_UsesNativeRoutingAndSwitchesItsPreference()
+    {
+        SkipIfDisabled();
+        const string selection = "auto:hydrafusion";
+        const string marker = "LUMI_FUSION_NATIVE_OK";
+        var catalog = await _service.GetModelsAsync();
+        Skip.If(catalog.All(model => model.Id != selection), "The account does not advertise Fusion High.");
+        var config = await _service.BuildLightweightSessionConfigAsync(new LightweightSessionOptions
+        {
+            Model = selection,
+            SystemPrompt = "Reply with exactly the marker requested in the latest user message. Do not use any tools."
+        });
+        var session = await _service.CreateSessionAsync(config);
+        var nativeEvents = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var eventSubscription = session.On<SessionEvent>(evt =>
+        {
+            if (evt.Type.StartsWith("assistant.", StringComparison.Ordinal)
+                || evt.Type.StartsWith("session.fusion", StringComparison.Ordinal)
+                || evt.Type == "session.idle")
+            {
+                nativeEvents.Enqueue($"{evt.Type} root={string.IsNullOrEmpty(evt.AgentId)} ephemeral={evt.Ephemeral}");
+            }
+        });
+        try
+        {
+            var routed = new TaskCompletionSource<SessionFusionResolvedData>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var subscription = session.On<SessionFusionResolvedEvent>(evt => routed.TrySetResult(evt.Data));
+            var reply = await session.SendAndWaitAsync(
+                new MessageOptions { Prompt = $"Reply with exactly {marker}. Do not use any tools." },
+                TimeSpan.FromSeconds(120));
+            Assert.Equal(marker, reply?.Data.Content?.Trim());
+            var route = await routed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(string.IsNullOrWhiteSpace(route.FusionId));
+            Assert.False(string.IsNullOrWhiteSpace(route.PrimaryModel));
+            _output.WriteLine($"FUSION_NATIVE_ROUTE: pattern={route.Pattern}, primary={route.PrimaryModel}, synthetic={route.SyntheticModel}");
+
+            Assert.Equal("hydrafusion", (await session.Rpc.Model.GetCurrentAsync()).AutoTier?.ToString());
+            if (catalog.Any(model => model.Id == "auto:hydrafusion-max"))
+            {
+                var maxRouted = new TaskCompletionSource<SessionFusionResolvedData>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var maxSubscription = session.On<SessionFusionResolvedEvent>(evt => maxRouted.TrySetResult(evt.Data));
+                await session.SetModelAsync("auto", SessionConfigBuilder.CreateSetModelOptions("auto:hydrafusion-max", null, null));
+                var maxReply = await session.SendAndWaitAsync(
+                    new MessageOptions { Prompt = "Reply with exactly LUMI_FUSION_MAX_OK. Do not use any tools." },
+                    TimeSpan.FromSeconds(120));
+                Assert.Equal("LUMI_FUSION_MAX_OK", maxReply?.Data.Content?.Trim());
+                var maxRoute = await maxRouted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                Assert.Equal("hydrafusion-max", maxRoute.SyntheticModel);
+                _output.WriteLine($"FUSION_MAX_ROUTE: pattern={maxRoute.Pattern}, primary={maxRoute.PrimaryModel}, synthetic={maxRoute.SyntheticModel}");
+                Assert.Equal("hydrafusion-max", (await session.Rpc.Model.GetCurrentAsync()).AutoTier?.ToString());
+            }
+        }
+        finally
+        {
+            _output.WriteLine("FUSION_NATIVE_EVENTS:\n" + string.Join('\n', nativeEvents));
+            await _service.DisposeAndDeleteSessionAsync(session);
+        }
+    }
+#pragma warning restore GHCP001
+
 #pragma warning disable GHCP001 // Deterministic native permission pipeline; no model inference.
     /// <summary>
     /// Lumi's approval choices, applied by its own policy code, are what the native runtime enforces:

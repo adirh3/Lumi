@@ -1239,8 +1239,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var models = await _copilotService.GetModelsAsync();
-            var contextWindowCatalog = await _copilotService.GetContextWindowCatalogAsync();
+            var catalog = await _copilotService.GetModelCatalogAsync();
 
             if (_isDisposed)
                 return;
@@ -1248,7 +1247,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             IsConnected = true;
             ConnectionStatus = Loc.Status_Connected;
 
-            ApplyModelCatalog(models, contextWindowCatalog, resetSurfaceSelections: true);
+            ApplyModelCatalog(catalog, resetSurfaceSelections: true);
 
             // Refresh account quota in background
             _ = ChatVM.RefreshQuotaAsync();
@@ -1280,10 +1279,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// back when that model is no longer offered.
     /// </param>
     private void ApplyModelCatalog(
-        List<GitHub.Copilot.ModelInfo> models,
-        ModelContextWindowCatalog contextWindowCatalog,
+        ModelCatalogSnapshot catalog,
         bool resetSurfaceSelections)
     {
+        var models = catalog.Models.ToList();
+        var contextWindowCatalog = catalog.ContextWindows;
         var longContextModelIds = contextWindowCatalog.LongContextModelIds;
         var modelIds = models
             .Select(m => m.Id)
@@ -1300,13 +1300,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _chatSessionStore.ApplyToSurfaces(surface =>
         {
-            surface.UpdateModelCapabilities(models, longContextModelIds, contextWindowCatalog.Limits);
+            surface.UpdateModelCapabilities(models, longContextModelIds, contextWindowCatalog.Limits,
+                defaultAutoTier: catalog.DefaultAutoTier);
             surface.ApplyAvailableModels(modelIds, selected);
             if (resetSurfaceSelections)
                 surface.SelectedModel = selected;
         });
 
-        SettingsVM.UpdateModelCapabilities(models, longContextModelIds);
+        SettingsVM.UpdateModelCapabilities(models, longContextModelIds, defaultAutoTier: catalog.DefaultAutoTier);
         SettingsVM.UpdateAvailableModels(modelIds);
         if (isCleanState && selected is not null)
             SettingsVM.PreferredModel = selected;
@@ -1328,7 +1329,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 || connectionGeneration != _copilotService.ConnectionGeneration)
                 return;
 
-            ApplyModelCatalog(snapshot.Models.ToList(), snapshot.ContextWindows, resetSurfaceSelections: false);
+            ApplyModelCatalog(snapshot, resetSurfaceSelections: false);
 
             // An initial catalog timeout can leave the UI disconnected while the CLI still works.
             // A successful refresh recovers that state without reconnecting or resetting chat choices.

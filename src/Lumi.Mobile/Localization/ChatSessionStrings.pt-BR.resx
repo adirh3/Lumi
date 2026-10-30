@@ -634,4 +634,7 @@
   <data name="BackgroundJob" xml:space="preserve"><value>Tarefa em segundo plano</value></data>
   <data name="WakeSignalReceived" xml:space="preserve"><value>Sinal de despertar recebido.</value></data>
   <data name="MobileTruncationNotice" xml:space="preserve"><value>[truncado no celular; abra no desktop para a saída completa]</value></data>
+  <data name="EffortStandard" xml:space="preserve"><value>Padrão</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>Esforço do Fusion</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>Equilibre velocidade, custo e profundidade com o roteamento nativo de modelos do Fusion.</value></data>
 </root>

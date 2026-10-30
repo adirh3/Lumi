@@ -82,10 +82,10 @@ public sealed class RemoteChatStatus
     // Everything below mirrors what the desktop composer shows for the open chat, so the phone can
     // offer the same choices instead of silently inheriting whatever the PC was last set to.
 
-    /// <summary>Display name of the reasoning-effort level ("Balanced", "Thorough", ...).</summary>
+    /// <summary>Display name of the selected model effort or native Fusion routing tier.</summary>
     public string? Quality { get; set; }
 
-    /// <summary>Reasoning-effort levels this model supports. Empty when the model has no choice.</summary>
+    /// <summary>Effort-control labels for this model, including Fusion tiers. Not SDK reasoning-effort IDs.</summary>
     public List<string> QualityLevels { get; set; } = [];
 
     /// <summary>Display name of the selected context-window tier ("Standard", "Long context").</summary>

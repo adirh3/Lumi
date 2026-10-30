@@ -53,8 +53,7 @@ public class ModelCatalogCacheTests
     {
         var published = 0;
         var cache = new ModelCatalogCache(
-            _ => Task.FromResult(new List<ModelInfo> { Model("gpt-5.4") }),
-            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+            _ => Task.FromResult(new ModelCatalogSnapshot([Model("gpt-5.4")], Catalog())));
         cache.Changed += _ => published++;
 
         Assert.True(await cache.RefreshAsync());
@@ -68,8 +67,7 @@ public class ModelCatalogCacheTests
         var models = new List<ModelInfo> { Model("gpt-5.4") };
         ModelCatalogSnapshot? latest = null;
         var cache = new ModelCatalogCache(
-            _ => Task.FromResult(models),
-            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+            _ => Task.FromResult(new ModelCatalogSnapshot(models, Catalog())));
         cache.Changed += snapshot => latest = snapshot;
 
         await cache.RefreshAsync();
@@ -90,8 +88,7 @@ public class ModelCatalogCacheTests
         var models = new List<ModelInfo> { RichModel() };
         var published = 0;
         var cache = new ModelCatalogCache(
-            _ => Task.FromResult(models),
-            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+            _ => Task.FromResult(new ModelCatalogSnapshot(models, Catalog())));
         cache.Changed += _ => published++;
 
         Assert.True(await cache.RefreshAsync());
@@ -102,20 +99,20 @@ public class ModelCatalogCacheTests
     }
 
     /// <summary>
-    /// The bug a human reviewer caught: the raw context-window RPC is a preview API that is expected
-    /// to fail, and committing its empty result would strip long context from every model — and that
-    /// loss is then persisted per chat.
+    /// A failed native RPC must not strip known context limits from the cached catalog.
     /// </summary>
     [Fact]
     public async Task Refresh_KeepsCachedContextWindows_WhenContextFetchFails()
     {
-        var contextWindows = (ModelContextWindowCatalog?)CatalogWithLimits("gpt-5.4", 128_000, 1_000_000);
+        var fail = false;
         var cache = new ModelCatalogCache(
-            _ => Task.FromResult(new List<ModelInfo> { Model("gpt-5.4") }),
-            _ => Task.FromResult(contextWindows));
+            _ => fail
+                ? Task.FromException<ModelCatalogSnapshot>(new TimeoutException("Native catalog unavailable"))
+                : Task.FromResult(new ModelCatalogSnapshot(
+                    [Model("gpt-5.4")], CatalogWithLimits("gpt-5.4", 128_000, 1_000_000))));
 
         await cache.RefreshAsync();
-        contextWindows = null; // the raw RPC now fails
+        fail = true;
 
         await cache.RefreshAsync(force: true);
 
@@ -129,8 +126,7 @@ public class ModelCatalogCacheTests
     {
         var published = 0;
         var cache = new ModelCatalogCache(
-            _ => Task.FromResult(new List<ModelInfo> { Model("gpt-5.4") }),
-            _ => Task.FromResult<ModelContextWindowCatalog?>(null));
+            _ => Task.FromException<ModelCatalogSnapshot>(new TimeoutException("Native catalog unavailable")));
         cache.Changed += _ => published++;
 
         Assert.False(await cache.RefreshAsync());
@@ -142,8 +138,7 @@ public class ModelCatalogCacheTests
     {
         var fetches = 0;
         var cache = new ModelCatalogCache(
-            _ => { fetches++; return Task.FromResult(new List<ModelInfo> { Model("gpt-5.4") }); },
-            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+            _ => { fetches++; return Task.FromResult(new ModelCatalogSnapshot([Model("gpt-5.4")], Catalog())); });
 
         await cache.RefreshAsync();
         await cache.RefreshAsync();
@@ -171,9 +166,8 @@ public class ModelCatalogCacheTests
             {
                 entered.TrySetResult();
                 await released.Task;
-                return [Model("gpt-5.4")];
-            },
-            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+                return new([Model("gpt-5.4")], Catalog());
+            });
         cache.Changed += _ => published++;
 
         var refresh = cache.RefreshAsync();
@@ -198,9 +192,8 @@ public class ModelCatalogCacheTests
                 Interlocked.Increment(ref fetches);
                 entered.TrySetResult();
                 await released.Task;
-                return [Model("gpt-5.4")];
-            },
-            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+                return new([Model("gpt-5.4")], Catalog());
+            });
 
         var first = cache.RefreshAsync();
         await entered.Task;
@@ -218,9 +211,8 @@ public class ModelCatalogCacheTests
         var fail = false;
         var cache = new ModelCatalogCache(
             _ => fail
-                ? Task.FromException<List<ModelInfo>>(new InvalidOperationException("Not connected"))
-                : Task.FromResult(new List<ModelInfo> { Model("gpt-5.4") }),
-            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+                ? Task.FromException<ModelCatalogSnapshot>(new InvalidOperationException("Not connected"))
+                : Task.FromResult(new ModelCatalogSnapshot([Model("gpt-5.4")], Catalog())));
 
         await cache.RefreshAsync();
         fail = true;
@@ -234,11 +226,12 @@ public class ModelCatalogCacheTests
     {
         var fetches = 0;
         var cache = new ModelCatalogCache(
-            _ => { fetches++; return Task.FromResult(new List<ModelInfo> { Model("gpt-5.4") }); },
-            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+            _ => { fetches++; return Task.FromResult(new ModelCatalogSnapshot([Model("gpt-5.4")], Catalog())); });
 
         await cache.GetModelsAsync();
         await cache.GetModelsAsync();
+        await cache.GetContextWindowsAsync();
+        await cache.GetSnapshotAsync();
         Assert.Equal(1, fetches);
 
         cache.Invalidate();
@@ -250,12 +243,29 @@ public class ModelCatalogCacheTests
     public async Task GetContextWindows_FallsBackToEmpty_WhenFetchFailsOnColdStart()
     {
         var cache = new ModelCatalogCache(
-            _ => Task.FromResult(new List<ModelInfo>()),
-            _ => Task.FromResult<ModelContextWindowCatalog?>(null));
+            _ => Task.FromException<ModelCatalogSnapshot>(new TimeoutException("Native catalog unavailable")));
 
         var catalog = await cache.GetContextWindowsAsync();
 
         Assert.Empty(catalog.LongContextModelIds);
         Assert.Empty(catalog.Limits);
+    }
+
+    [Fact]
+    public async Task Refresh_Publishes_WhenOnlyTheNativeAutoDefaultChanges()
+    {
+        var defaultTier = "balance";
+        var cache = new ModelCatalogCache(_ => Task.FromResult(
+            new ModelCatalogSnapshot([Model("auto"), Model("auto:balance"), Model("auto:hydrafusion")],
+                Catalog(), defaultTier)));
+        await cache.GetSnapshotAsync();
+        ModelCatalogSnapshot? published = null;
+        cache.Changed += snapshot => published = snapshot;
+
+        defaultTier = "hydrafusion";
+        Assert.True(await cache.RefreshAsync(force: true));
+        Assert.Equal(defaultTier, published!.DefaultAutoTier);
+        Assert.Equal(defaultTier, (await cache.GetSnapshotAsync()).DefaultAutoTier);
+        Assert.False(await cache.RefreshAsync(force: true));
     }
 }

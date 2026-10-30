@@ -28,6 +28,69 @@ namespace Lumi.Tests;
 public sealed class StrataModelPickerInteractionTests
 {
     [Fact]
+    public async Task FusionLeadsItsProviderWithoutChangingPinOrVersionOrder()
+    {
+        await WithOpenPickerAsync(() =>
+        {
+            var fusion = new ModelOption("auto:balance") { DisplayName = "Copilot Fusion" };
+            fusion.UpdateSelectionAliases(["auto", "auto:balance", "auto:hydrafusion", "auto:hydrafusion-max"]);
+            return new StrataModelPicker
+            {
+                Models = new[]
+                {
+                    new ModelOption("claude-opus-5.5") { IsPinned = true },
+                    new ModelOption("gpt-6-luna") { IsPinned = true },
+                    new ModelOption("gpt-5.5"),
+                    fusion,
+                    new ModelOption("gpt-6.1-sol"),
+                    new ModelOption("byok:external") { ProviderName = "Connected account" }
+                },
+                SelectedModel = "auto:hydrafusion-max"
+            };
+        }, (picker, _) =>
+        {
+            var sections = StrataModelPicker.GetModelSections(picker.Models);
+            Assert.True(sections[0].IsPinned);
+            Assert.Equal(["claude-opus-5.5", "gpt-6-luna"],
+                sections[0].Models.Cast<ModelOption>().Select(model => model.Id));
+            Assert.Equal(["auto:balance", "gpt-6.1-sol", "gpt-5.5"],
+                sections[1].Models.Cast<ModelOption>().Select(model => model.Id));
+            Assert.Equal(["byok:external"], sections[2].Models.Cast<ModelOption>().Select(model => model.Id));
+            Assert.Equal(["claude-opus-5.5", "gpt-6-luna", "auto:balance", "gpt-6.1-sol", "gpt-5.5", "byok:external"],
+                ReadRows(picker).Select(row => row.Tag as string));
+            Assert.Equal("auto:hydrafusion-max", picker.SelectedModel);
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public async Task GroupedModelRetainsItsVariantWhenHighlightedOrChosenAgain()
+    {
+        await WithOpenPickerAsync(() =>
+        {
+            var fusion = new ModelOption("auto:balance") { DisplayName = "Copilot Fusion" };
+            fusion.UpdateSelectionAliases(["auto", "auto:balance", "auto:hydrafusion", "auto:hydrafusion-max"]);
+            return new StrataModelPicker
+            {
+                Models = new[] { fusion },
+                SelectedModel = "auto:hydrafusion-max",
+                QualityLevels = new[] { "Standard", "High", "Max" },
+                SelectedQuality = "Max"
+            };
+        }, (picker, _) =>
+        {
+            Assert.Equal("Copilot Fusion", picker.SelectedModelDisplayName);
+            var row = Assert.Single(ReadRows(picker));
+            Assert.Contains(row.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>(),
+                path => path.Classes.Contains("model-picker-check") && path.IsVisible);
+            new ButtonAutomationPeer(row.GetVisualDescendants().OfType<Button>().First()).Invoke();
+            Assert.Equal("auto:hydrafusion-max", picker.SelectedModel);
+            Assert.Equal("Max", picker.SelectedQuality);
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
     public async Task PickerEntrance_UsesAShortNearFullSizeMotionWithoutChangingOtherPopups()
     {
         using var session = HeadlessTestSession.Start();
@@ -870,7 +933,7 @@ public sealed class StrataModelPickerInteractionTests
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_NoResults, setters[StrataModelPicker.NoResultsTextProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Models, setters[StrataModelPicker.ModelsLabelProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Pinned, setters[StrataModelPicker.PinnedLabelProperty]);
-        Assert.Equal(Lumi.Localization.Loc.ModelPicker_Reasoning, setters[StrataModelPicker.ReasoningLabelProperty]);
+        Assert.Equal(Lumi.Localization.Loc.Get("ModelPicker_Effort"), setters[StrataModelPicker.ReasoningLabelProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Context, setters[StrataModelPicker.ContextLabelProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Pin, setters[StrataModelPicker.PinToolTipProperty]);
         Assert.Equal(Lumi.Localization.Loc.ModelPicker_Unpin, setters[StrataModelPicker.UnpinToolTipProperty]);

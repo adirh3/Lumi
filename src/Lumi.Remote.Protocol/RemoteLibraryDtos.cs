@@ -162,6 +162,8 @@ public sealed class RemoteModelDefaults
 public sealed class RemoteModelOption
 {
     public string Model { get; set; } = "";
+    /// <summary>Configured selections represented by this row, such as a Fusion routing tier.</summary>
+    public List<string> SelectionAliases { get; set; } = [];
 
     /// <summary>The row's name. Unlike the model's display name it leaves out the account, which heads its group.</summary>
     public string? DisplayName { get; set; }

@@ -141,6 +141,8 @@ internal sealed class RemoteCommandRouter
             return Fail(agentError);
 
         var model = command.Get("model") ?? settings.PreferredModel;
+        model = _main.ChatVM.ResolveModelQualitySelection(
+            model, command.Get("quality") ?? command.Get("reasoningEffort"));
 
         var chat = new Chat
         {
@@ -260,18 +262,11 @@ internal sealed class RemoteCommandRouter
         if (command.GetBool("pinned") is not { } pinned)
             return Fail(Loc.Get("Remote_ArgumentRequired", "pinned"));
 
-        var favorites = _dataStore.Data.Settings.FavoriteModelIds ??= [];
-        if (pinned)
-        {
-            if (!_main.ChatVM.AvailableModels.Contains(model, StringComparer.Ordinal))
-                return Fail(Loc.Remote_ModelUnavailable);
-            if (!favorites.Contains(model, StringComparer.Ordinal))
-                favorites.Add(model);
-        }
-        else
-        {
-            favorites.RemoveAll(id => string.Equals(id, model, StringComparison.Ordinal));
-        }
+        if (pinned && !_main.ChatVM.AvailableModels.Contains(model, StringComparer.Ordinal))
+            return Fail(Loc.Remote_ModelUnavailable);
+        var option = _main.ChatVM.CreateModelOptions(_main.ChatVM.AvailableModels)
+            .FirstOrDefault(candidate => ((IStrataModelOption)candidate).MatchesModelId(model));
+        ModelOptionCatalog.SetPinned(_dataStore.Data.Settings, option ?? new ModelOption(model), pinned);
 
         await _dataStore.SaveAsync().ConfigureAwait(true);
         return Success(pinned ? Loc.Remote_ModelPinned : Loc.Remote_ModelUnpinned);
@@ -747,15 +742,22 @@ internal sealed class RemoteCommandRouter
                         && chatVm.CurrentChat is { Messages.Count: 0 } emptyChat
             ? emptyChat
             : null;
+        var requestedModel = command.Get("model");
+        var selectedModel = requestedModel ?? chatVm.SelectedModel;
+        if (selectedModel is not null)
+            selectedModel = chatVm.ResolveModelQualitySelection(
+                selectedModel, command.Get("quality") ?? command.Get("reasoningEffort"));
+        var changesModel = requestedModel is not null || selectedModel != chatVm.SelectedModel;
         if (setupChat is not null)
         {
             chatVm.ApplyModelSelection(
-                command.Get("model") ?? chatVm.SelectedModel,
+                selectedModel,
                 command.Get("quality") ?? command.Get("reasoningEffort") ?? chatVm.SelectedQuality,
                 command.Get("contextWindowTier") ?? chatVm.SelectedContextWindowTier);
         }
 
-        if (command.Get("model") is { Length: > 0 } model)
+        if (selectedModel is { Length: > 0 } model
+            && changesModel)
         {
             if (setupChat is not null)
                 setupChat.LastModelUsed = model;

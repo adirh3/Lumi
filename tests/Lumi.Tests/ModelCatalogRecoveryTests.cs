@@ -50,9 +50,8 @@ public sealed class ModelCatalogRecoveryTests
             };
             var cache = new ModelCatalogCache(
                 _ => ++requests == 1
-                    ? Task.FromException<List<ModelInfo>>(new TimeoutException("Model catalog request timed out"))
-                    : Task.FromResult(models),
-                _ => Task.FromResult<ModelContextWindowCatalog?>(ModelCatalogCache.Empty));
+                    ? Task.FromException<ModelCatalogSnapshot>(new TimeoutException("Model catalog request timed out"))
+                    : Task.FromResult(new ModelCatalogSnapshot(models, ModelCatalogCache.Empty)));
             cache.Changed += snapshot =>
             {
                 published++;

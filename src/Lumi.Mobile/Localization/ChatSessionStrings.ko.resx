@@ -630,4 +630,7 @@
   <data name="BackgroundJob" xml:space="preserve"><value>백그라운드 작업</value></data>
   <data name="WakeSignalReceived" xml:space="preserve"><value>깨우기 신호를 받았어요.</value></data>
   <data name="MobileTruncationNotice" xml:space="preserve"><value>[모바일에서 잘림; 전체 출력은 데스크톱에서 확인]</value></data>
+  <data name="EffortStandard" xml:space="preserve"><value>표준</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>Fusion 수준</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>Fusion의 기본 모델 라우팅으로 속도, 비용, 깊이의 균형을 조절하세요.</value></data>
 </root>

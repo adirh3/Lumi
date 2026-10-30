@@ -655,15 +655,9 @@ public partial class ChatViewModel
             {
                 await session.SetModelAsync(
                     modelRoute.WireModelId,
-                    new SetModelOptions
-                    {
-                        ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
-                        ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                        ContextTier = SessionConfigBuilder.CreateContextTier(contextTier),
-                        ModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
-                            modelRoute.ByokModel,
-                            contextTier)
-                    });
+                    SessionConfigBuilder.CreateSetModelOptions(
+                        modelRoute.SelectionToken, reasoningEffort, contextTier,
+                        ByokConfigHelper.BuildModelCapabilitiesOverride(modelRoute.ByokModel, contextTier)));
                 return true;
             }
             catch

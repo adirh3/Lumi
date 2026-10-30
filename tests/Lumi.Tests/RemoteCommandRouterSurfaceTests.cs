@@ -17,6 +17,61 @@ namespace Lumi.Tests;
 public sealed class RemoteCommandRouterSurfaceTests
 {
     [Fact]
+    public Task SetupOnlyFusionEffortEditPersistsTheTierWithoutChangingDefaults() => RunAsync(async () =>
+    {
+        var settings = TestSettings();
+        settings.PreferredModel = "gpt-6-luna";
+        settings.ReasoningEffort = "low";
+        var chat = new Chat { LastModelUsed = "auto:balance" };
+        var store = new DataStore(new AppData { Settings = settings, Chats = [chat] });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            startBackgroundJobs: false, initializeCopilotOnStartup: false);
+        var models = CopilotModelCatalog.BuildModels(CopilotModelCatalogTests.NativeCatalog());
+        main.ChatVM.UpdateModelCapabilities(models);
+        main.SettingsVM.UpdateModelCapabilities(models);
+        await main.OpenChatByIdAsync(chat.Id);
+        var router = new RemoteCommandRouter(store, main);
+        var configured = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.ConfigureChat)
+            .With("chatId", chat.Id.ToString()).With("useChatSetup", "true").With("quality", "Max"),
+            CancellationToken.None);
+        Assert.True(configured.Ok, configured.Error);
+        Assert.Equal("auto:hydrafusion-max", main.ChatVM.SelectedModel);
+        Assert.Equal("auto:hydrafusion-max", chat.LastModelUsed);
+        Assert.Equal("auto:hydrafusion-max", main.ChatVM.ResolveSelectedModelForChat(chat));
+        Assert.Equal("gpt-6-luna", settings.PreferredModel);
+        Assert.Equal("low", settings.ReasoningEffort);
+    });
+
+    [Fact]
+    public Task FusionEffortFromThePhoneSelectsANativeTierAndUnpinsTheWholeGroup() => RunAsync(async () =>
+    {
+        var settings = TestSettings();
+        settings.PreferredModel = "gpt-6-luna";
+        settings.ReasoningEffort = "low";
+        settings.FavoriteModelIds = ["auto:hydrafusion-max"];
+        var store = new DataStore(new AppData { Settings = settings });
+        using var main = new MainViewModel(store, TestCopilot.Shared, new UpdateService(),
+            startBackgroundJobs: false, initializeCopilotOnStartup: false);
+        var models = CopilotModelCatalog.BuildModels(CopilotModelCatalogTests.NativeCatalog());
+        main.ChatVM.UpdateModelCapabilities(models);
+        main.SettingsVM.UpdateModelCapabilities(models);
+        main.ChatVM.ApplyAvailableModels(models.Select(model => model.Id).ToArray(), "gpt-6-luna");
+        var router = new RemoteCommandRouter(store, main);
+        var created = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.CreateChat)
+            .With("model", "auto:balance").With("quality", "Max").With("open", "false"), CancellationToken.None);
+        Assert.True(created.Ok, created.Error);
+        var chat = Assert.Single(store.Data.Chats);
+        Assert.Equal("auto:hydrafusion-max", chat.LastModelUsed);
+        Assert.Null(chat.LastReasoningEffortUsed);
+        Assert.Equal("low", settings.ReasoningEffort);
+
+        var unpinned = await router.ExecuteAsync(new RemoteCommand(RemoteProtocol.Actions.PinModel)
+            .With("model", "auto:balance").With("pinned", "false"), CancellationToken.None);
+        Assert.True(unpinned.Ok, unpinned.Error);
+        Assert.Empty(settings.FavoriteModelIds);
+    });
+
+    [Fact]
     public Task InteractiveEditsSaveWithoutOpeningAnotherDesktopChat() => RunAsync(async () =>
     {
         var current = new Chat { Title = "Current" };

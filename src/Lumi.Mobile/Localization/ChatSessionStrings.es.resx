@@ -634,4 +634,7 @@
   <data name="BackgroundJob" xml:space="preserve"><value>Tarea en segundo plano</value></data>
   <data name="WakeSignalReceived" xml:space="preserve"><value>Señal de activación recibida.</value></data>
   <data name="MobileTruncationNotice" xml:space="preserve"><value>[truncado en móvil; abre la versión de escritorio para ver toda la salida]</value></data>
+  <data name="EffortStandard" xml:space="preserve"><value>Estándar</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>Esfuerzo de Fusion</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>Equilibra velocidad, coste y profundidad con el enrutamiento nativo de modelos de Fusion.</value></data>
 </root>

@@ -75,6 +75,24 @@ public sealed class MobileModelPickerTests
         chat.ModelOptions.Single(option => option.Name == model);
 
     [Fact]
+    public void FusionLeadsTheCopilotSectionAfterPinnedFavorites()
+    {
+        var catalog = Catalog("claude-opus-5.5", "byok:or-sol");
+        var fusion = catalog.ModelOptions.Single(row => row.Model == "auto");
+        fusion.Model = "auto:balance";
+        fusion.DisplayName = "Copilot Fusion";
+        fusion.SelectionAliases = ["auto", "auto:balance", "auto:hydrafusion", "auto:hydrafusion-max"];
+        catalog.AvailableModels.InsertRange(1, fusion.SelectionAliases.Skip(1));
+        var chat = OpenSheet(new PinSink(), catalog);
+
+        Assert.Equal(["PINNED", "GITHUB COPILOT"], chat.ModelGroups.Select(group => group.Label));
+        Assert.Equal(["claude-opus-5.5", "byok:or-sol"], Section(chat, "PINNED"));
+        Assert.Equal(["auto:balance", "gpt-6.1-sol", "claude-sonnet-5"], Section(chat, "GITHUB COPILOT"));
+        Assert.Equal("Copilot Fusion", Row(chat, "auto:balance").Label);
+        Assert.Single(chat.ModelOptions, option => option.SelectionAliases.Count > 0);
+    }
+
+    [Fact]
     public void TheSheetListsModelsAsTheDesktopPickerDoes()
     {
         var chat = OpenSheet(new PinSink(), Catalog("claude-opus-5.5", "byok:or-sol"));

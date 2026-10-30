@@ -182,6 +182,22 @@ If loading the model catalog times out at startup, a successful later picker
 refresh restores the connection status and model lists on desktop and phone
 without restarting active chats or resetting their model selections.
 
+**Copilot Fusion** appears once, at the top of the GitHub Copilot section on
+desktop and phone, below any pinned favorites. Select it, then use the
+existing effort control to choose **Standard**, **High** or **Max**, according
+to what Copilot makes available for your account. These select Copilot's native
+model routing, not a concrete model's reasoning effort. Desktop, phone and
+AI-feature model menus use the same grouping. Saved tier choices stay with the
+chat, and choosing its Fusion row again does not reset its effort. A pin keeps
+Fusion together rather than pinning each level separately. In AI Features,
+**Auto** still means automatically choosing the helper model, not Fusion.
+Older chats saved as **Auto** keep Copilot's reported default level. If Copilot
+cannot activate a requested level, Lumi shows a warning with the level that
+remains active; the reply can continue without stopping the session.
+Fusion rows do not claim a fixed context size or cost multiplier because the
+models used can vary. Models unavailable through Copilot's SDK cannot be enabled
+by adding their names to Lumi's picker.
+
 **Settings > AI & Models > Model > Response detail** chooses **Model default**,
 **Concise**, **Balanced**, or **Detailed** for chat replies. Model default leaves
 the native behavior unchanged. The setting affects supported GPT models; other
@@ -1455,7 +1471,7 @@ fail explicitly; startup failures include the recent captured output.
 ## Tool approvals
 
 How much Lumi does on its own is one choice, enforced by GitHub Copilot's native permission
-controls (GitHub.Copilot.SDK **1.0.27-preview.3**, runtime **1.0.104-3**), never by asking the
+controls (GitHub.Copilot.SDK **1.0.28**, runtime **1.0.105**), never by asking the
 model to check first. Lumi only chooses them and installs them again on every session create and
 resume, because the runtime keeps neither rules nor session approvals across a resume.
 

@@ -354,14 +354,14 @@ public partial class ChatViewModel
         var settings = _dataStore.Data.Settings;
         settings.FavoriteModelIds ??= [];
 
-        if (!settings.FavoriteModelIds.Remove(option.Id))
-            settings.FavoriteModelIds.Add(option.Id);
+        ModelOptionCatalog.SetPinned(settings, option, !option.IsPinned);
 
         _dataStore.Save();
         RebuildModelOptions();
     }
 
     public int ModelCatalogVersion { get; private set; }
+    private string? _defaultAutoTier;
 
 
     /// <summary>
@@ -379,7 +379,8 @@ public partial class ChatViewModel
         List<GitHub.Copilot.ModelInfo> models,
         IReadOnlySet<string>? longContextModelIds = null,
         IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits = null,
-        bool merge = false)
+        bool merge = false,
+        string? defaultAutoTier = null)
     {
         // Populate fresh instances and swap them in, rather than clearing and refilling the live
         // ones. A catalog refresh now lands while the user is interacting, so another surface may be
@@ -443,6 +444,7 @@ public partial class ChatViewModel
         else
         {
             _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+            _defaultAutoTier = defaultAutoTier;
             _nativeModelCatalogLoaded = true;
         }
         ModelCatalogVersion++;
@@ -528,6 +530,7 @@ public partial class ChatViewModel
             StringComparer.OrdinalIgnoreCase);
         _nativeModelCatalogLoaded = source._nativeModelCatalogLoaded;
         _byokModelCatalogLoaded = source._byokModelCatalogLoaded;
+        _defaultAutoTier = source._defaultAutoTier;
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
         RebuildModelOptions();
@@ -535,18 +538,28 @@ public partial class ChatViewModel
 
     private void UpdateQualityLevels(string? modelId)
     {
-        QualityLevels = ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
+        QualityLevels = CopilotModelCatalog.GetAutoTierQualityLevels(modelId, _modelOptionMetadata.Keys)
+            ?? ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
         SyncSelectedQualityFromState(modelId);
     }
 
     /// <summary>
-    /// The reasoning efforts a given model supports, independent of the open chat.
+    /// A model's effort-control labels, independent of the open chat. Fusion uses native routing
+    /// tiers here; <see cref="NormalizeReasoningEffortFor"/> remains the separate SDK reasoning boundary.
     ///
     /// <para>Exposed for the remote projector: the phone defers chat creation until the first
     /// message, so it needs to know a model's efforts before any chat exists to read them from.</para>
     /// </summary>
     public string[]? GetQualityLevelsFor(string? modelId) =>
-        ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
+        CopilotModelCatalog.GetAutoTierQualityLevels(modelId, _modelOptionMetadata.Keys)
+            ?? ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
+
+    internal string? GetAutoTierQualityFor(string? modelId)
+        => CopilotModelCatalog.GetAutoTierQuality(modelId, _modelOptionMetadata.Keys,
+            defaultAutoTier: _defaultAutoTier);
+
+    internal string ResolveModelQualitySelection(string model, string? quality)
+        => CopilotModelCatalog.ResolveAutoTierQuality(model, quality, _modelOptionMetadata.Keys) ?? model;
 
     public string[]? GetContextWindowTiersFor(string? modelId) =>
         ModelSelectionHelper.GetContextWindowTiers(modelId, _modelsWithLongContext);
@@ -634,6 +647,8 @@ public partial class ChatViewModel
 
     internal string? GetSelectedReasoningEffort()
     {
+        if (CopilotModelCatalog.IsAutoSelection(SelectedModel))
+            return null;
         var explicitEffort = ModelSelectionHelper.DisplayToEffort(SelectedQuality);
         if (!string.IsNullOrWhiteSpace(explicitEffort))
         {
@@ -653,6 +668,8 @@ public partial class ChatViewModel
 
     internal string? GetPersistedReasoningEffortPreference()
     {
+        if (CopilotModelCatalog.IsAutoSelection(SelectedModel))
+            return GetStoredReasoningEffortPreference();
         var normalizedEffort = GetSelectedReasoningEffort();
         if (!string.IsNullOrWhiteSpace(normalizedEffort))
             return normalizedEffort;
@@ -754,6 +771,8 @@ public partial class ChatViewModel
     // model — which would defeat a manage_chats model override.
     internal string? ResolveReasoningEffortForModel(string? storedEffort, string? modelId)
     {
+        if (CopilotModelCatalog.IsAutoSelection(modelId))
+            return null;
         var normalized = ModelSelectionHelper.NormalizeEffort(
             storedEffort,
             modelId,
@@ -801,6 +820,11 @@ public partial class ChatViewModel
         }
 
         var selectedModelId = modelId ?? SelectedModel;
+        if (GetAutoTierQualityFor(selectedModelId) is { } tierQuality)
+        {
+            SetSelectedQualityValue(tierQuality);
+            return;
+        }
         var effectiveEffort = preferredEffort;
         if (string.IsNullOrWhiteSpace(effectiveEffort)
             && Lumi.Services.ByokConfigHelper.IsByokModel(selectedModelId)
@@ -874,6 +898,28 @@ public partial class ChatViewModel
     {
         if (_suppressSelectedQualitySync || _suppressModelSelectionSideEffects || IsEditingMessage)
             return;
+
+        if (CopilotModelCatalog.GetAutoTierQualityLevels(SelectedModel, _modelOptionMetadata.Keys) is not null)
+        {
+            var selection = CopilotModelCatalog.ResolveAutoTierQuality(SelectedModel, value, _modelOptionMetadata.Keys);
+            if (selection is not null)
+            {
+                if (IsLaunchpadSetupApplied && CurrentChat is null or { Messages.Count: 0 })
+                {
+                    ApplyModelSelection(selection, GetStoredReasoningEffortPreference(), GetSelectedContextWindowTier());
+                    if (CurrentChat is { } draft)
+                        draft.LastModelUsed = selection;
+                }
+                else
+                    SelectedModel = selection;
+            }
+            else
+            {
+                Debug.WriteLine($"[Lumi] Unsupported Fusion effort selection: {value}");
+                SyncSelectedQualityFromState();
+            }
+            return;
+        }
 
         var effort = GetPersistedReasoningEffortPreference();
         var persistedEffort = effort ?? string.Empty;

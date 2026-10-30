@@ -1285,7 +1285,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ? ResolveSelectedModelForChat(chat)
             : modelId;
         var persistedModel = effectiveModel;
-        if (ByokConfigHelper.IsByokModel(chat.LastModelUsed)
+        // Auto commits can arrive after a newer choice was staged for the next message.
+        // Keep that preference separate from the tier the session actually committed.
+        if (CopilotModelCatalog.IsAutoSelection(effectiveModel)
+            && !string.IsNullOrWhiteSpace(chat.LastModelUsed))
+        {
+            persistedModel = chat.LastModelUsed;
+        }
+        else if (ByokConfigHelper.IsByokModel(chat.LastModelUsed)
             && ByokConfigHelper.TryResolveModel(
                 _dataStore.Data.Settings,
                 chat.LastModelUsed,
@@ -1302,7 +1309,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (route.IsByok)
                 persistedModel = route.SelectionToken;
         }
-        effectiveModel = persistedModel;
+        if (!CopilotModelCatalog.IsAutoSelection(effectiveModel)
+            || (effectiveModel == "auto" && CopilotModelCatalog.IsAutoSelection(persistedModel)))
+            effectiveModel = persistedModel;
         var effectiveContextTier = ResolveSessionContextWindowTier(
             effectiveModel,
             sessionContextTier,
@@ -2568,7 +2577,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         SessionConfig buildSessionConfig()
         {
             var config = SessionConfigBuilder.Build(
-                systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
+                systemPrompt, byokProvider is null ? modelRoute.SelectionToken : selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, permissionHandler, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
@@ -2580,7 +2589,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             // The Ask layer is startup-only: a resume must supply it again or it is dropped.
             var config = SessionConfigBuilder.BuildForResume(
-                systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
+                systemPrompt, byokProvider is null ? modelRoute.SelectionToken : selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, permissionHandler, hooks, agentName, contextTier,
                 provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
                 modelCapabilities: byokModelCapabilities, pluginDirectories: capabilities.SessionPluginRoots);
@@ -2676,16 +2685,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     {
                         await session.SetModelAsync(
                             selectedModel,
-                            new SetModelOptions
-                            {
-                                ReasoningEffort = effort,
-                                ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                                ContextTier = SessionConfigBuilder.CreateContextTier(contextTier),
-                                ModelCapabilities = byokModelCapabilities
-                            },
+                            SessionConfigBuilder.CreateSetModelOptions(
+                                modelRoute.SelectionToken, effort, contextTier, byokModelCapabilities),
                             sessionCt);
                     }
-                    catch { /* best-effort — session works with original model if this fails */ }
+                    catch (Exception ex) when (!CopilotModelCatalog.IsAutoTierSelection(modelRoute.SelectionToken))
+                    {
+                        Debug.WriteLine($"[Lumi] Could not restore the resumed session's model: {ex.Message}");
+                    }
                 }
 
                 if (mcpPlan.Servers is { Count: > 0 })
@@ -3947,19 +3954,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 {
                     await sendSession.SetModelAsync(
                         overrideModel,
-                        new SetModelOptions
-                        {
-                            ReasoningEffort = string.IsNullOrWhiteSpace(overrideEffort) ? null : overrideEffort,
-                            ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                            ContextTier = SessionConfigBuilder.CreateContextTier(overrideContextTier),
-                            ModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
-                                overrideRoute.ByokModel,
-                                overrideContextTier)
-                        });
+                        SessionConfigBuilder.CreateSetModelOptions(
+                            overrideRoute.SelectionToken, overrideEffort, overrideContextTier,
+                            ByokConfigHelper.BuildModelCapabilitiesOverride(overrideRoute.ByokModel, overrideContextTier)));
                 }
-                catch
+                catch (Exception ex) when (!CopilotModelCatalog.IsAutoTierSelection(overrideRoute.SelectionToken))
                 {
-                    // Best-effort: keep the session's current model if the mid-session switch fails.
+                    Debug.WriteLine($"[Lumi] Could not apply the external model selection: {ex.Message}");
                 }
             }
 
@@ -6990,6 +6991,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     internal static string? FormatModelDisplay(string? modelId)
     {
         if (string.IsNullOrWhiteSpace(modelId)) return null;
+
+        if (CopilotModelCatalog.FormatAutoTierName(modelId) is { } autoTierName)
+            return autoTierName;
 
         // Provider labels live in the picker groups, not in the model name.
         // Missing entries retain the explicit stale-BYOK fallback.

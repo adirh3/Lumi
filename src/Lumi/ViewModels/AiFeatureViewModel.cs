@@ -89,12 +89,24 @@ public sealed partial class AiFeatureViewModel : ObservableObject
     }
 
     public ObservableCollection<string> ModelChoices => _owner.AiFeatureModelChoices;
+    public ObservableCollection<ModelOption> ModelOptions => _owner.AiFeatureModelOptions;
+    public string[]? QualityLevels => _owner.GetFusionQualityLevels(ModelChoice);
+    public string? SelectedQuality
+    {
+        get => _owner.GetFusionQuality(ModelChoice);
+        set
+        {
+            if (_owner.ResolveFusionQuality(ModelChoice, value) is { } selection)
+                ModelChoice = selection;
+        }
+    }
 
     /// <summary>Opening a feature's model picker refreshes the catalog, as the default model's picker does.</summary>
     public IAsyncRelayCommand RefreshModelsCommand => _owner.RefreshModelCatalogCommand;
 
     /// <summary>What the model picker shows: "Default · GPT 5.6 Luna", or the model chosen for the feature.</summary>
-    public string ModelLabel => _owner.DescribeAiFeatureModel(Id);
+    public string ModelLabel => Services.CopilotModelCatalog.IsAutoTierSelection(ModelChoice)
+        ? Loc.Get("ModelPicker_Fusion") : _owner.DescribeAiFeatureModel(Id);
 
     /// <summary>With "Use only your own accounts" on, a feature whose model isn't from those accounts can't run.</summary>
     public bool IsBlocked => _owner.IsAiFeatureBlocked(Id);
@@ -113,6 +125,8 @@ public sealed partial class AiFeatureViewModel : ObservableObject
         OnPropertyChanged(nameof(IsOn));
         OnPropertyChanged(nameof(ModelChoice));
         OnPropertyChanged(nameof(ModelLabel));
+        OnPropertyChanged(nameof(QualityLevels));
+        OnPropertyChanged(nameof(SelectedQuality));
         OnPropertyChanged(nameof(IsBlocked));
         OnPropertyChanged(nameof(IsModified));
     }

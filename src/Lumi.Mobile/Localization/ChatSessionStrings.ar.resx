@@ -1888,4 +1888,7 @@
   <data name="MobileTruncationNotice" xml:space="preserve">
     <value>[مقتطع على الهاتف؛ افتح سطح المكتب للمخرجات الكاملة]</value>
   </data>
+  <data name="EffortStandard" xml:space="preserve"><value>قياسي</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>جهد Fusion</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>وازن بين السرعة والتكلفة والعمق باستخدام توجيه النماذج الأصلي في Fusion.</value></data>
 </root>

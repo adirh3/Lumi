@@ -42,7 +42,7 @@ git submodule update --init --recursive
 ### Build & Run
 
 The Copilot SDK is an official NuGet dependency: `GitHub.Copilot.SDK`
-`1.0.27-preview.3`, restored from NuGet.org. This is a prerelease; its native
+`1.0.28`, restored from NuGet.org. Its native
 skill-provider API is experimental. Avalonia is also restored from NuGet.org;
 no vendored package feed is needed. No SDK submodule, source build, patch step,
 feed credentials, or Node.js installation
@@ -80,7 +80,7 @@ does not by itself require loading the same skill again. New skills, explicit
 reloads, edits and instructions lost to compaction still use the native loader.
 
 Installed plugin directories are supplied on both create and resume because chat
-sessions use Lumi's own Copilot configuration folder. The matching CLI `1.0.104-3`
+sessions use Lumi's own Copilot configuration folder. The matching CLI `1.0.105`
 fixes plugin activation snapshot failures when an already-live session resumes
 with those directories. Lumi uses the normal SDK resume call without stripping
 plugin configuration, resetting native history, or adding a custom recovery retry.
@@ -109,6 +109,31 @@ The [reviewed CLI pins](../build/Copilot/CopilotCliPins.props) must be updated w
 SDK upgrade changes `CopilotCliVersion`; both downloaded archives and extracted
 executables are verified. `CopilotSkipCliDownload` and `CopilotCliBinaryPath`
 overrides remain available.
+
+Model discovery reads the native `models.list` RPC rather than the SDK's
+connection-lifetime-cached flat helper, so the existing on-demand refresh can
+actually discover new models. The targeted `DYNAMIC_AUTO_TIERS` runtime flag
+also exposes account-bound routing metadata; `HYDRAFUSION_PLAN_V2` enables the
+native execution plan required by Max. Models, context limits and the provider's
+default Auto tier share one cached native snapshot. A legacy `auto` choice uses
+that reported default, not the picker's Standard representative. Only enabled, picker-visible tiers
+become choices; `auto:<tier>` is a Lumi selection token stored through the existing
+model fields, not a wire model ID. Create, resume, helper sessions and live
+switches send native model `auto` with its `capi.autoTier` preference. The phone
+receives the same choices through the existing model-option contract.
+The picker groups these tokens into one Fusion row using Strata selection
+aliases. Its existing effort control selects a tier token; neither the control's
+display label nor the Fusion level is copied into native `reasoningEffort`.
+Saved tier tokens and normal model reasoning preferences remain separate.
+Native committed tiers update session state without overwriting a newer choice
+for the next message. A deferred `session.auto_tier_switch_failed` restores the
+effective tier only if the failed request is still selected, and adds a
+non-blocking warning without terminating the assistant or its background work.
+Transient Fusion phase answers are not saved as final replies; only the native
+committed assistant message enters the transcript.
+Image-only entries and the unauthenticated built-in ID inventory are not chat
+models. Provider availability and account policies still apply; Lumi does not
+add unavailable models or override the SDK's client identity.
 
 **Updating Copilot:** choose a specific SDK version and update its `PackageReference`
 in `src/Lumi/Lumi.csproj`, then run the maintainer-only pin updater with Python 3.10+:

@@ -62,6 +62,10 @@ public sealed class CopilotProcessEnvironmentTests
         Assert.False(string.IsNullOrWhiteSpace(options.Environment[CopilotService.SkillListingBudgetVariable]));
         Assert.Contains(CopilotService.AutoReviewFeatureFlag,
             options.Environment[CopilotService.FeatureFlagsVariable].Split(','));
+        Assert.Contains("DYNAMIC_AUTO_TIERS",
+            options.Environment[CopilotService.FeatureFlagsVariable].Split(','));
+        Assert.Contains("HYDRAFUSION_PLAN_V2",
+            options.Environment[CopilotService.FeatureFlagsVariable].Split(','));
     }
 
     [Fact]
@@ -84,6 +88,18 @@ public sealed class CopilotProcessEnvironmentTests
         };
         CopilotService.ApplyAutoReviewFeature(already);
         Assert.Equal("sandbox, auto_approval", already[CopilotService.FeatureFlagsVariable]);
+    }
+
+    [Fact]
+    public void DynamicAutoTiers_PreservesExistingFlagsAndDoesNotDuplicateTheFeature()
+    {
+        var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [CopilotService.FeatureFlagsVariable] = "AUTO_APPROVAL"
+        };
+        CopilotService.ApplyDynamicAutoTiersFeature(environment);
+        CopilotService.ApplyDynamicAutoTiersFeature(environment);
+        Assert.Equal("AUTO_APPROVAL,DYNAMIC_AUTO_TIERS,HYDRAFUSION_PLAN_V2", environment[CopilotService.FeatureFlagsVariable]);
     }
 
     [Fact]

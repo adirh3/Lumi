@@ -99,7 +99,8 @@ public sealed class LightweightSessionOptions
         var config = new SessionConfig
         {
             ClientName = ClientName,
-            Model = model,
+            Model = CopilotModelCatalog.GetWireModelId(model, provider),
+            Capi = CopilotModelCatalog.CreateCapiOptions(model, provider),
             Streaming = true,
             WorkingDirectory = workingDirectory,
             ConfigDirectory = GetDefaultConfigDir(),
@@ -154,7 +155,8 @@ public sealed class LightweightSessionOptions
         {
             ContinuePendingWork = false,
             ClientName = ClientName,
-            Model = model,
+            Model = CopilotModelCatalog.GetWireModelId(model, provider),
+            Capi = CopilotModelCatalog.CreateCapiOptions(model, provider),
             Streaming = true,
             WorkingDirectory = workingDirectory,
             ConfigDirectory = GetDefaultConfigDir(),
@@ -192,7 +194,8 @@ public sealed class LightweightSessionOptions
         var config = new SessionConfig
         {
             ClientName = ClientName,
-            Model = options.Model,
+            Model = CopilotModelCatalog.GetWireModelId(options.Model, options.Provider),
+            Capi = CopilotModelCatalog.CreateCapiOptions(options.Model, options.Provider),
             Provider = options.Provider,
             ModelCapabilities = options.ModelCapabilities,
             Streaming = options.Streaming,
@@ -224,6 +227,25 @@ public sealed class LightweightSessionOptions
         }
 
         return config;
+    }
+
+    internal static SetModelOptions CreateSetModelOptions(
+        string? selection,
+        string? reasoningEffort,
+        string? contextTier,
+        ModelCapabilitiesOverride? capabilities = null)
+    {
+#pragma warning disable GHCP001 // Switch the Auto model and its advertised routing preference atomically.
+        return new SetModelOptions
+        {
+            ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
+            ReasoningSummary = DefaultReasoningSummary,
+            ContextTier = CreateContextTier(contextTier),
+            ModelCapabilities = capabilities,
+            AutoTier = CopilotModelCatalog.GetAutoTier(selection),
+            ResetAutoTier = string.Equals(selection, "auto", StringComparison.Ordinal)
+        };
+#pragma warning restore GHCP001
     }
 
     /// <summary>

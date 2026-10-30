@@ -909,7 +909,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void RefreshPickerOptions()
     {
         var sections = StrataModelPicker.GetModelSections(
-            OrderPinnedFirst(AvailableModels).Select(CreateModelRow).ToList(), Strings.Get("PinnedModels"));
+            OrderPinnedFirst(AvailableModels
+                .Where(model => FindModelRow(model) is not { } row || row.Model == model).ToArray())
+                .Select(CreateModelRow).ToList(), Strings.Get("PinnedModels"));
         var rows = sections.SelectMany(section => section.Models).Cast<ModelPickerOption>().ToList();
         SyncRows(ModelOptions, rows);
         for (var i = 0; i < sections.Count; i++)
@@ -972,8 +974,19 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(model))
             return null;
 
-        return _modelDisplayNames.TryGetValue(model, out var display) ? display : model;
+        return FindModelRow(model)?.DisplayName
+            ?? (_modelDisplayNames.TryGetValue(model, out var display) ? display : model);
     }
+
+    private RemoteModelOption? FindModelRow(string? model)
+        => model is null ? null : _modelRows.GetValueOrDefault(model)
+            ?? _modelRows.Values.FirstOrDefault(row => row.SelectionAliases.Contains(model, StringComparer.Ordinal));
+
+    public string ModelEffortName => FindModelRow(Model)?.SelectionAliases.Count > 0
+        ? Strings.Get("FusionEffort") : Strings.Get("ReasoningEffort");
+
+    public string ModelEffortDescription => FindModelRow(Model)?.SelectionAliases.Count > 0
+        ? Strings.Get("FusionEffortDescription") : Strings.Get("EffortDescription");
 
     /// <summary>Pinned models first in the order they were pinned, then the rest in catalog order, as on the PC.</summary>
     private IEnumerable<string> OrderPinnedFirst(IReadOnlyList<string> models)
@@ -988,14 +1001,16 @@ public sealed partial class MobileChatViewModel : ObservableObject
         return new ModelPickerOption(
             model,
             row?.DisplayName is { Length: > 0 } name ? name : DisplayModel(model) ?? model,
-            string.Equals(model, Model, StringComparison.OrdinalIgnoreCase),
+            string.Equals(model, Model, StringComparison.OrdinalIgnoreCase)
+                || row?.SelectionAliases.Contains(Model ?? "", StringComparer.Ordinal) == true,
             IsModelPinned(model),
             CanPinModels,
             row?.ProviderName,
             row?.Account,
             row?.Status,
             row?.Cost,
-            row?.ContextSize);
+            row?.ContextSize,
+            row?.SelectionAliases);
     }
 
     private bool IsModelPinned(string model) => _pinnedModels.Contains(model, StringComparer.Ordinal);
@@ -1115,6 +1130,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     {
         "none" => Strings.Get("EffortNone"),
         "minimal" => Strings.Get("EffortMinimal"),
+        "standard" => Strings.Get("EffortStandard"),
         "low" => Strings.Get("EffortLow"),
         "medium" => Strings.Get("EffortMedium"),
         "high" => Strings.Get("EffortHigh"),
@@ -1148,7 +1164,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void PickModel(string? model)
     {
         if (model is { Length: > 0 })
-            Model = model;
+        {
+            var row = FindModelRow(model);
+            if (row?.SelectionAliases.Contains(Model ?? "", StringComparer.Ordinal) != true)
+                Model = model;
+        }
 
         IsModelSheetOpen = false;
     }
@@ -1395,10 +1415,28 @@ public sealed partial class MobileChatViewModel : ObservableObject
         RefreshEffortLevels();
         RefreshContextWindowTiers();
         RefreshBlankModelDefaults();
+        if (FindModelRow(value)?.SelectionAliases.Count > 0
+            && value is not null && _modelDefaults.TryGetValue(value, out var defaults))
+        {
+            var wasApplying = _applyingServerState;
+            _applyingServerState = true;
+            try { Quality = defaults.Quality; }
+            finally { _applyingServerState = wasApplying; }
+            _pendingConfiguration.RemoveScalar("quality");
+        }
     }
 
     partial void OnQualityChanged(string? value)
     {
+        if (!_applyingServerState && FindModelRow(Model) is { SelectionAliases.Count: > 0 } row)
+        {
+            var selection = row.SelectionAliases.FirstOrDefault(alias =>
+                _modelDefaults.TryGetValue(alias, out var defaults)
+                && string.Equals(defaults.Quality, value, StringComparison.OrdinalIgnoreCase));
+            if (selection is not null && selection != Model)
+                Model = selection;
+            return;
+        }
         PushConfiguration("quality", value);
         OnPropertyChanged(nameof(ModelSummary));
         OnPropertyChanged(nameof(RunSettingsSummary));
@@ -2833,7 +2871,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void CaptureBlankModelSelection(PendingChatConfiguration configuration)
     {
         Capture("model", Model);
-        Capture("quality", Quality);
+        if (FindModelRow(Model)?.SelectionAliases.Count > 0)
+            configuration.RemoveScalar("quality");
+        else
+            Capture("quality", Quality);
         Capture("contextWindowTier", ContextWindowTier);
 
         void Capture(string key, string? value)
@@ -2871,6 +2912,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasQualityLevels));
+        OnPropertyChanged(nameof(ModelEffortName));
+        OnPropertyChanged(nameof(ModelEffortDescription));
         OnPropertyChanged(nameof(HasModelSettings));
         OnPropertyChanged(nameof(EffortMax));
         OnPropertyChanged(nameof(EffortIndex));
@@ -4238,8 +4281,11 @@ public sealed record ModelPickerOption(
     string? Account = null,
     string? Status = null,
     string? Cost = null,
-    string? ContextSize = null) : IStrataModelOption
+    string? ContextSize = null,
+    IReadOnlyList<string>? Aliases = null) : IStrataModelOption
 {
+    public IReadOnlyList<string> SelectionAliases => Aliases ?? [];
+    public int SortPriority => SelectionAliases.Count > 0 ? 1 : 0;
     string IStrataModelOption.ModelId => Name;
 
     string IStrataModelOption.DisplayName => Label;

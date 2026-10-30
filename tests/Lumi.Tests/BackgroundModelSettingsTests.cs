@@ -138,7 +138,7 @@ public sealed class BackgroundModelSettingsTests
                 new() { Id = "gpt-6-luna" }
             };
             typeof(MainViewModel).GetMethod("ApplyModelCatalog", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(main, [models, ModelCatalogCache.Empty, true]);
+                .Invoke(main, [new ModelCatalogSnapshot(models, ModelCatalogCache.Empty), true]);
 #if DEBUG
             var expected = preferredModel == "claude-opus-5.5" ? preferredModel : "gpt-6-luna";
 #else
@@ -190,7 +190,7 @@ public sealed class BackgroundModelSettingsTests
                 new DataStore(data), TestCopilot.Shared, new UpdateService(),
                 startBackgroundJobs: false, initializeCopilotOnStartup: false);
             typeof(MainViewModel).GetMethod("ApplyModelCatalog", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(main, [new List<ModelInfo> { new() { Id = "gpt-6-luna" } }, ModelCatalogCache.Empty, false]);
+                .Invoke(main, [new ModelCatalogSnapshot([new ModelInfo { Id = "gpt-6-luna" }], ModelCatalogCache.Empty), false]);
 
             Assert.Equal("gpt-6-luna", main.ChatVM.SelectedModel);
             Assert.Equal("gpt-6-luna", main.SettingsVM.PreferredModel);

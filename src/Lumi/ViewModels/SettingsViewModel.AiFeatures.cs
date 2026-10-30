@@ -40,6 +40,7 @@ public partial class SettingsViewModel
 
     /// <summary>What a feature's model picker offers: the default model, then every model the default can be.</summary>
     public ObservableCollection<string> AiFeatureModelChoices { get; } = [];
+    public ObservableCollection<ModelOption> AiFeatureModelOptions { get; } = [];
 
     public string AiFeaturesSummary
     {
@@ -167,6 +168,8 @@ public partial class SettingsViewModel
             AiFeatureModelChoices,
             [DefaultAiFeatureModel, .. _aiFeatureCatalogModels, .. _dataStore.Data.Settings.AiFeatureModels.Values],
             pinnedModel: null);
+        ModelOptionCatalog.SyncOptions(AiFeatureModelOptions, AiFeatureModelChoices,
+            _dataStore.Data.Settings, _modelOptionMetadata, backgroundChoices: true);
     }
 
     private AiFeatureViewModel[] CreateAiFeatures()

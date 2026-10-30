@@ -144,8 +144,51 @@ public partial class ChatViewModel
         return string.IsNullOrWhiteSpace(existingContent) ? null : existingContent;
     }
 
-    internal static bool ShouldDeferAssistantMessageEvent(string? finalEventContent, string? phase)
-        => string.IsNullOrWhiteSpace(finalEventContent) && string.IsNullOrWhiteSpace(phase);
+    internal static bool ShouldDeferAssistantMessageEvent(
+        string? finalEventContent, string? phase, bool? ephemeral = null)
+        => ephemeral == true
+            || (string.IsNullOrWhiteSpace(finalEventContent) && string.IsNullOrWhiteSpace(phase));
+
+    internal void ApplyAutoTierSwitchFailure(
+        Chat chat, ChatRuntimeState runtime, SessionAutoTierSwitchFailedData failure, bool updateDisplayed)
+    {
+        System.Diagnostics.Trace.TraceWarning(
+            "[Chat] Auto tier switch failed ({0}): requested={1}, effective={2}",
+            failure.Reason, failure.RequestedAutoTier, failure.EffectiveAutoTier);
+        var effectiveModel = CopilotModelCatalog.GetSessionModelSelection("auto", failure.EffectiveAutoTier)!;
+        if (CopilotModelCatalog.IsAutoSelection(chat.LastModelUsed)
+            && CopilotModelCatalog.GetAutoTier(chat.LastModelUsed)?.Value == failure.RequestedAutoTier?.Value)
+        {
+            chat.LastModelUsed = effectiveModel;
+            if (updateDisplayed)
+                ApplyModelSelection(effectiveModel, chat.LastReasoningEffortUsed, chat.LastContextWindowTierUsed);
+        }
+
+        if (CopilotModelCatalog.IsAutoSelection(runtime.ActiveModelId))
+        {
+            runtime.ActiveModelId = effectiveModel;
+            if (updateDisplayed)
+                OnPropertyChanged(nameof(ActiveSessionModelId));
+        }
+
+        var warning = new ChatMessage
+        {
+            Role = "system",
+            Author = Loc.Author_Warning,
+            Content = Loc.Get("ModelPicker_FusionSwitchFailed",
+                CopilotModelCatalog.FormatAutoTierLevel(
+                    CopilotModelCatalog.GetSessionModelSelection("auto", failure.RequestedAutoTier))
+                    ?? Loc.ContextWindow_Default,
+                CopilotModelCatalog.FormatAutoTierLevel(effectiveModel) ?? Loc.ContextWindow_Default)
+        };
+        chat.Messages.Add(warning);
+        if (updateDisplayed)
+        {
+            Messages.Add(new ChatMessageViewModel(warning));
+            ScrollToEndRequested?.Invoke();
+        }
+        QueueSaveChat(chat, saveIndex: true, releaseIfInactive: CurrentChat?.Id != chat.Id);
+    }
 
     internal static bool FinalizeTerminalAssistantMessage(Chat chat, ChatMessage streamingMessage)
     {
@@ -1218,6 +1261,10 @@ public partial class ChatViewModel
                     }
                     if (!IsRootAgentEvent(msg))
                         break;
+                    // Fusion emits transient phase answers before committing one authoritative message.
+                    // Empty legacy envelopes also wait for the substantive event or turn-end fallback.
+                    if (ShouldDeferAssistantMessageEvent(msg.Data.Content, msg.Data.Phase, msg.Ephemeral))
+                        break;
                     var capturedFinalContent = msg.Data.Content;
                     var capturedPhase = msg.Data.Phase;
                     var capturedRequestedTools = msg.Data.ToolRequests is { Length: > 0 };
@@ -1232,12 +1279,6 @@ public partial class ChatViewModel
                             AssistantProgress.DemoteEarlierPiecesOfCall(
                                 chat.Messages, capturedPhase, capturedRequestedTools, capturedApiCallId)));
                     }
-                    // Older CLI versions can emit an empty assistant envelope immediately before the
-                    // substantive message for the same turn. Finalizing from buffered deltas here
-                    // commits the stream once, then the following content event creates it again.
-                    // Keep the stream open instead; the content event or turn-end fallback will finish it.
-                    if (ShouldDeferAssistantMessageEvent(capturedFinalContent, msg.Data.Phase))
-                        break;
                     assistantStream.CancelPending();
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -2605,11 +2646,11 @@ public partial class ChatViewModel
                     var effectiveModel = !string.IsNullOrWhiteSpace(start.Data.SelectedModel)
                         ? start.Data.SelectedModel
                         : ResolveSelectedModelForChat(chat);
-                    // BYOK is sticky: never let a server-side SelectedModel overwrite the user's
-                    // current BYOK choice on session start.
+                    // Native events report the wire model, not the selected BYOK or Auto-tier token.
                     var chatModelStart = ResolveSelectedModelForChat(chat);
                     if (!string.IsNullOrWhiteSpace(chatModelStart)
-                        && ByokConfigHelper.IsByokModel(chatModelStart)
+                        && (ByokConfigHelper.IsByokModel(chatModelStart)
+                            || CopilotModelCatalog.IsAutoTierSelection(chatModelStart))
                         && !string.Equals(chatModelStart, effectiveModel, StringComparison.Ordinal))
                     {
                         effectiveModel = chatModelStart;
@@ -2622,7 +2663,7 @@ public partial class ChatViewModel
                     ApplySessionModelState(
                         chat,
                         runtime,
-                        effectiveModel,
+                        CopilotModelCatalog.GetSessionModelSelection(effectiveModel, start.Data.AutoTier),
                         start.Data.ReasoningEffort,
                         start.Data.ContextTier,
                         IsDisplayedSession());
@@ -2650,7 +2691,8 @@ public partial class ChatViewModel
                         : ResolveSelectedModelForChat(chat);
                     var chatModelResume = ResolveSelectedModelForChat(chat);
                     if (!string.IsNullOrWhiteSpace(chatModelResume)
-                        && ByokConfigHelper.IsByokModel(chatModelResume)
+                        && (ByokConfigHelper.IsByokModel(chatModelResume)
+                            || CopilotModelCatalog.IsAutoTierSelection(chatModelResume))
                         && !string.Equals(chatModelResume, effectiveModel, StringComparison.Ordinal))
                     {
                         effectiveModel = chatModelResume;
@@ -2663,7 +2705,7 @@ public partial class ChatViewModel
                     ApplySessionModelState(
                         chat,
                         runtime,
-                        effectiveModel,
+                        CopilotModelCatalog.GetSessionModelSelection(effectiveModel, resume.Data.AutoTier),
                         resume.Data.ReasoningEffort,
                         resume.Data.ContextTier,
                         IsDisplayedSession());
@@ -2699,16 +2741,35 @@ public partial class ChatViewModel
                         ApplySessionModelState(
                             chat,
                             runtime,
-                            modelChange.Data.NewModel,
+                            CopilotModelCatalog.GetSessionModelSelection(
+                                modelChange.Data.NewModel, modelChange.Data.AutoTier),
                             modelChange.Data.ReasoningEffort,
                             modelChange.Data.ContextTier,
                             IsDisplayedSession());
                         // Update in-flight streaming message with the actual model used
                         if (streamingMsg is not null)
-                            streamingMsg.Model = modelChange.Data.NewModel;
+                            streamingMsg.Model = runtime.ActiveModelId;
                     }
 
                     QueueModelSelectionSave(chat);
+                    });
+                    break;
+
+                case SessionAutoTierSwitchFailedEvent tierFailure when IsRootAgentEvent(evt):
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (!IsAuthoritativeSession())
+                            return;
+                        ApplyAutoTierSwitchFailure(chat, runtime, tierFailure.Data, IsDisplayedSession());
+                        if (CopilotModelCatalog.IsAutoSelection(turnModelId)
+                            && CopilotModelCatalog.GetAutoTier(turnModelId)?.Value
+                                == tierFailure.Data.RequestedAutoTier?.Value)
+                        {
+                            turnModelId = CopilotModelCatalog.GetSessionModelSelection(
+                                "auto", tierFailure.Data.EffectiveAutoTier);
+                            if (streamingMsg is not null)
+                                streamingMsg.Model = turnModelId;
+                        }
                     });
                     break;
 

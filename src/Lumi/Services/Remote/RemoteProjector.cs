@@ -272,7 +272,8 @@ internal static class RemoteProjector
             PlanContent = RemoteProtocol.TruncateForMobile(
                 isActive ? chatVm.PlanContent : chat.PlanContent,
                 RemoteProtocol.MobilePlanTextLimit),
-            Quality = isActive ? chatVm.SelectedQuality : chat.LastReasoningEffortUsed,
+            Quality = isActive ? chatVm.SelectedQuality
+                : chatVm.GetAutoTierQualityFor(model) ?? chat.LastReasoningEffortUsed,
             QualityLevels = BoundStrings(
                 chatVm.GetQualityLevelsFor(model) ?? [],
                 RemoteProtocol.MobileStatusValueLimit),
@@ -501,7 +502,8 @@ internal static class RemoteProjector
                     return new RemoteModelDefaults
                     {
                         Model = model,
-                        Quality = effort is null ? null : ModelSelectionHelper.EffortToDisplay(effort),
+                        Quality = chatVm.GetAutoTierQualityFor(model)
+                            ?? (effort is null ? null : ModelSelectionHelper.EffortToDisplay(effort)),
                         ContextWindowTier = tier is null ? null : ModelSelectionHelper.ContextWindowTierToDisplay(tier)
                     };
                 }).ToList()
@@ -520,6 +522,7 @@ internal static class RemoteProjector
         return chatVm.CreateModelOptions(models).Select(option => new RemoteModelOption
         {
             Model = option.Id,
+            SelectionAliases = option.SelectionAliases.ToList(),
             DisplayName = BoundOptional(option.DisplayName, RemoteProtocol.MobileMetadataTextLimit),
             ProviderName = BoundOptional(option.ProviderName, RemoteProtocol.MobileMetadataTextLimit),
             Account = ByokConfigHelper.IsByokModel(option.Id)
@@ -533,7 +536,7 @@ internal static class RemoteProjector
     }
 
     /// <summary>
-    /// Which reasoning efforts each model supports, as <c>model=low,medium,high</c> lines.
+    /// Each model's effort-control labels, including native Fusion tiers, as <c>model=Low,High</c> lines.
     ///
     /// <para>The phone needs this to offer an effort control on a chat that does not exist yet — it
     /// defers creation until the first message, so there is no chat status to read levels from.

@@ -5273,7 +5273,7 @@
           <!-- The collapsed picker button shows the selected model *id*, not the row item, and has
                nowhere near the width for badges. -->
           <DataTemplate>
-            <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
+            <TextBlock Text="{Binding $parent[sc:StrataModelPicker].SelectedModelDisplayName}" />
           </DataTemplate>
         </sc:StrataChatComposer.SelectedModelTemplate>
         <sc:StrataChatComposer.AttachmentContent>

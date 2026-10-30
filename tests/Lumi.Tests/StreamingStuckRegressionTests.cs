@@ -22,6 +22,14 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class StreamingStuckRegressionTests
 {
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(null, false)]
+    public void FusionPhaseAnswerWaitsForItsAuthoritativeCommit(bool? ephemeral, bool expected)
+        => Assert.Equal(expected, ChatViewModel.ShouldDeferAssistantMessageEvent(
+            "The same answer may be committed after this phase.", "final_answer", ephemeral));
+
     // ───────────────────── UiThrottler ─────────────────────
 
     [Fact]

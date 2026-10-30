@@ -180,6 +180,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, List<string>> _modelReasoningEfforts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _modelDefaultEfforts = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
+    private string? _defaultAutoTier;
     public ObservableCollection<string> AvailableModels { get; } = [];
     public ObservableCollection<string> AvailableBackgroundModels { get; } = [];
     private GitHub.Copilot.ModelInfo? _automaticBackgroundModel;
@@ -202,6 +203,29 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
                             : ModelOptionCatalog.FormatCostMultiplier(CopilotService.GetModelCostMultiplier(model))
                                 ?? Loc.SettingStatus_BackgroundModelUnknownCost);
     public ObservableCollection<ModelOption> ModelOptions { get; } = [];
+    public ObservableCollection<ModelOption> BackgroundModelOptions { get; } = [];
+
+    public string[]? BackgroundQualityLevels => GetFusionQualityLevels(BackgroundModel);
+
+    public string? SelectedBackgroundQuality
+    {
+        get => GetFusionQuality(BackgroundModel);
+        set
+        {
+            if (ResolveFusionQuality(BackgroundModel, value) is { } selection)
+                BackgroundModel = selection;
+        }
+    }
+
+    internal string[]? GetFusionQualityLevels(string model)
+        => CopilotModelCatalog.GetAutoTierQualityLevels(model, _modelOptionMetadata.Keys, includeDefaultAuto: false);
+
+    internal string? GetFusionQuality(string model)
+        => CopilotModelCatalog.GetAutoTierQuality(model, _modelOptionMetadata.Keys, includeDefaultAuto: false);
+
+    internal string? ResolveFusionQuality(string model, string? quality)
+        => CopilotModelCatalog.IsAutoTierSelection(model)
+            ? CopilotModelCatalog.ResolveAutoTierQuality(model, quality, _modelOptionMetadata.Keys) : null;
     private readonly Dictionary<string, ModelOptionMetadata> _modelOptionMetadata = new(StringComparer.OrdinalIgnoreCase);
 
     // ── BYOK (Bring Your Own Key) ──
@@ -1114,7 +1138,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private void UpdateQualityLevels(string? modelId)
     {
-        QualityLevels = ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
+        QualityLevels = CopilotModelCatalog.GetAutoTierQualityLevels(modelId, _modelOptionMetadata.Keys)
+            ?? ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
         SyncSelectedQualityFromState(modelId);
     }
 
@@ -1126,6 +1151,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private string? GetSelectedReasoningEffort()
     {
+        if (CopilotModelCatalog.IsAutoSelection(PreferredModel))
+            return null;
         var explicitEffort = ModelSelectionHelper.DisplayToEffort(SelectedQuality);
         if (!string.IsNullOrWhiteSpace(explicitEffort))
         {
@@ -1164,6 +1191,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         }
 
         var selectedModelId = modelId ?? PreferredModel;
+        if (CopilotModelCatalog.GetAutoTierQuality(selectedModelId, _modelOptionMetadata.Keys,
+                defaultAutoTier: _defaultAutoTier) is { } tierQuality)
+        {
+            SetSelectedQualityValue(tierQuality);
+            return;
+        }
         var effectiveEffort = preferredEffort;
         if (string.IsNullOrWhiteSpace(effectiveEffort)
             && Lumi.Services.ByokConfigHelper.IsByokModel(selectedModelId)
@@ -1226,7 +1259,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         UpdateQualityLevels(value);
         UpdateContextWindowTiers(value);
         var resolvedEffort = GetSelectedReasoningEffort() ?? string.Empty;
-        if (!Lumi.Services.ByokConfigHelper.IsByokModel(value) && ReasoningEffort != resolvedEffort)
+        if (!Lumi.Services.ByokConfigHelper.IsByokModel(value)
+            && !CopilotModelCatalog.IsAutoSelection(value) && ReasoningEffort != resolvedEffort)
         {
             ReasoningEffort = resolvedEffort;
             return;
@@ -1248,6 +1282,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _dataStore.Data.Settings.BackgroundModel = normalized;
         if (!AvailableBackgroundModels.Contains(normalized))
             AvailableBackgroundModels.Add(normalized);
+        OnPropertyChanged(nameof(BackgroundQualityLevels));
+        OnPropertyChanged(nameof(SelectedBackgroundQuality));
+        RefreshAiFeatures();
         Save();
         NotifyModified();
     }
@@ -1256,6 +1293,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         if (_suppressSelectedQualitySync)
             return;
+
+        if (CopilotModelCatalog.GetAutoTierQualityLevels(PreferredModel, _modelOptionMetadata.Keys) is not null)
+        {
+            if (CopilotModelCatalog.ResolveAutoTierQuality(PreferredModel, value, _modelOptionMetadata.Keys) is { } selection)
+                PreferredModel = selection;
+            else
+            {
+                Debug.WriteLine($"[Lumi] Unsupported default Fusion effort selection: {value}");
+                SyncSelectedQualityFromState();
+            }
+            return;
+        }
 
         var resolvedEffort = GetSelectedReasoningEffort() ?? string.Empty;
         if (ReasoningEffort != resolvedEffort)
@@ -1341,7 +1390,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(model))
             return;
 
-        var normalizedEffort = Lumi.Services.ByokConfigHelper.IsByokModel(model)
+        var normalizedEffort = CopilotModelCatalog.IsAutoSelection(model)
+            ? reasoningEffort ?? ReasoningEffort
+            : Lumi.Services.ByokConfigHelper.IsByokModel(model)
             ? reasoningEffort ?? string.Empty
             : ModelSelectionHelper.NormalizeEffort(
                 reasoningEffort,
@@ -1378,7 +1429,16 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     }
 
     private void RebuildModelOptions()
-        => ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
+    {
+        ModelOptionCatalog.SyncOptions(ModelOptions, AvailableModels, _dataStore.Data.Settings, _modelOptionMetadata);
+        ModelOptionCatalog.SyncOptions(BackgroundModelOptions, AvailableBackgroundModels,
+            _dataStore.Data.Settings, _modelOptionMetadata, backgroundChoices: true);
+        ModelOptionCatalog.SyncOptions(AiFeatureModelOptions, AiFeatureModelChoices,
+            _dataStore.Data.Settings, _modelOptionMetadata, backgroundChoices: true);
+        OnPropertyChanged(nameof(BackgroundQualityLevels));
+        OnPropertyChanged(nameof(SelectedBackgroundQuality));
+        RefreshAiFeatures();
+    }
 
     /// <summary>
     /// Asks the Copilot service for a fresher model catalog. Bound to the preferred-model picker so
@@ -1402,7 +1462,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public void UpdateModelCapabilities(
         List<GitHub.Copilot.ModelInfo> models,
         IReadOnlySet<string>? longContextModelIds = null,
-        bool merge = false)
+        bool merge = false,
+        string? defaultAutoTier = null)
     {
         if (!merge)
         {
@@ -1417,7 +1478,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
                 _modelOptionMetadata.Remove(id);
         }
         else
+        {
+            _defaultAutoTier = defaultAutoTier;
             _modelOptionMetadata.Clear();
+        }
         foreach (var (id, metadata) in ModelOptionCatalog.BuildMetadata(models))
             _modelOptionMetadata[id] = metadata;
         if (merge)

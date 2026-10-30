@@ -104,8 +104,13 @@ public class CopilotService : IAsyncDisposable
     public CopilotService()
     {
         _modelCatalog = new ModelCatalogCache(
-            async ct => (await RequireClient().ListModelsAsync(ct).ConfigureAwait(false)).ToList(),
-            ct => LoadContextWindowCatalogAsync(RequireClient(), ct));
+            async ct =>
+            {
+#pragma warning disable GHCP001
+                var catalog = await RequireClient().Rpc.Models.ListAsync(cancellationToken: ct).ConfigureAwait(false);
+                return CopilotModelCatalog.BuildSnapshot(catalog);
+#pragma warning restore GHCP001
+            });
 
         _modelCatalog.Changed += snapshot => ModelCatalogChanged?.Invoke(snapshot);
     }
@@ -621,6 +626,9 @@ public class CopilotService : IAsyncDisposable
     public Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct = default)
         => _modelCatalog.GetModelsAsync(ct);
 
+    public Task<ModelCatalogSnapshot> GetModelCatalogAsync(CancellationToken ct = default)
+        => _modelCatalog.GetSnapshotAsync(ct);
+
     public async Task<IReadOnlySet<string>> GetLongContextModelIdsAsync(CancellationToken ct = default)
         => (await GetContextWindowCatalogAsync(ct).ConfigureAwait(false)).LongContextModelIds;
 
@@ -639,64 +647,6 @@ public class CopilotService : IAsyncDisposable
     private void InvalidateModelCatalog()
     {
         _modelCatalog.Invalidate();
-    }
-
-    /// <summary>
-    /// Reads the context-window metadata exposed only by the raw models RPC. Returns null when the
-    /// fetch failed, so callers can tell "the CLI did not answer" apart from "there is genuinely no
-    /// long-context data" — overwriting a good catalog with an empty one would silently strip long
-    /// context support from every model.
-    /// </summary>
-    private static async Task<ModelContextWindowCatalog?> LoadContextWindowCatalogAsync(
-        CopilotClient client,
-        CancellationToken ct)
-    {
-        try
-        {
-#pragma warning disable GHCP001
-            var rawModels = await client.Rpc.Models.ListAsync(cancellationToken: ct).ConfigureAwait(false);
-#pragma warning restore GHCP001
-            var longContextModelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var limits = new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var model in rawModels.Models)
-            {
-                if (string.IsNullOrWhiteSpace(model.Id))
-                    continue;
-
-                var tokenPrices = model.Billing?.TokenPrices;
-                var defaultContextMax = NormalizeContextMax(tokenPrices?.ContextMax);
-                var longContextMax = NormalizeContextMax(tokenPrices?.LongContext?.ContextMax);
-                if (longContextMax > 0)
-                    longContextModelIds.Add(model.Id);
-
-                if (defaultContextMax > 0 || longContextMax > 0)
-                {
-                    limits[model.Id] = new ModelContextWindowLimits(
-                        defaultContextMax > 0 ? defaultContextMax : 0,
-                        longContextMax > 0 ? longContextMax : null);
-                }
-            }
-
-            return new ModelContextWindowCatalog(longContextModelIds, limits);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Failed to load context window model catalog: {ex}");
-            return null;
-        }
-    }
-
-    private static long NormalizeContextMax(double? tokens)
-    {
-        if (tokens is null || double.IsNaN(tokens.Value) || double.IsInfinity(tokens.Value) || tokens.Value <= 0)
-            return 0;
-
-        return (long)Math.Round(tokens.Value);
     }
 
     internal static string NormalizeBackgroundModel(string? model)
@@ -769,6 +719,7 @@ public class CopilotService : IAsyncDisposable
         var available = models
             .Where(static model => !string.IsNullOrWhiteSpace(model.Id)
                 && !string.Equals(model.Id, UserSettings.AutomaticBackgroundModel, StringComparison.OrdinalIgnoreCase)
+                && !CopilotModelCatalog.IsAutoTierSelection(model.Id)
                 && !ByokConfigHelper.IsByokModel(model.Id) && IsModelEnabled(model))
             .ToList();
         var useTokenPrices = available.Any(static model => GetModelTokenCost(model) is not null);
@@ -914,6 +865,7 @@ public class CopilotService : IAsyncDisposable
             if (route.IsInvalidByok)
                 throw new InvalidOperationException("The model chosen for this AI feature is missing, disabled, or invalid. Update it in Settings → AI Features.");
             config.Model = route.WireModelId;
+            config.Capi = CopilotModelCatalog.CreateCapiOptions(route.SelectionToken, route.Provider);
             config.Provider = route.Provider;
             config.ModelCapabilities ??= ByokConfigHelper.BuildModelCapabilitiesOverride(route.ByokModel, null);
             byokModel = route.ByokModel;
@@ -928,6 +880,7 @@ public class CopilotService : IAsyncDisposable
     internal static string GetLightweightSessionModelSignature(SessionConfig config)
         => string.Join("|",
             config.Model,
+            config.Capi?.AutoTier?.Value,
             ByokConfigHelper.BuildProviderSignature(config.Provider),
             config.ModelCapabilities?.Limits?.MaxContextWindowTokens,
             config.ModelCapabilities?.Supports?.ReasoningEffort);
@@ -1920,6 +1873,7 @@ public class CopilotService : IAsyncDisposable
         ApplyAgentProcessEnvironment(env);
         ApplySkillListingBudget(env);
         ApplyAutoReviewFeature(env);
+        ApplyDynamicAutoTiersFeature(env);
         if (NativeBrowserLogic.IsEmbeddedBrowserAvailable)
             ApplyMcpAppsFeature(env);
         return env;
@@ -1936,6 +1890,12 @@ public class CopilotService : IAsyncDisposable
     /// </summary>
     internal static void ApplyAutoReviewFeature(IDictionary<string, string> environment)
         => EnableRuntimeFeature(environment, AutoReviewFeatureFlag);
+
+    internal static void ApplyDynamicAutoTiersFeature(IDictionary<string, string> environment)
+    {
+        EnableRuntimeFeature(environment, "DYNAMIC_AUTO_TIERS");
+        EnableRuntimeFeature(environment, "HYDRAFUSION_PLAN_V2");
+    }
 
     internal static void ApplyMcpAppsFeature(IDictionary<string, string> environment)
         => environment.TryAdd("COPILOT_MCP_APPS", "true");

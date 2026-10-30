@@ -634,4 +634,7 @@
   <data name="BackgroundJob" xml:space="preserve"><value>后台任务</value></data>
   <data name="WakeSignalReceived" xml:space="preserve"><value>已收到唤醒信号。</value></data>
   <data name="MobileTruncationNotice" xml:space="preserve"><value>[移动端内容已截断；请打开桌面端查看完整输出]</value></data>
+  <data name="EffortStandard" xml:space="preserve"><value>标准</value></data>
+  <data name="FusionEffort" xml:space="preserve"><value>Fusion 强度</value></data>
+  <data name="FusionEffortDescription" xml:space="preserve"><value>通过 Fusion 原生模型路由平衡速度、成本和深度。</value></data>
 </root>
