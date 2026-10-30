@@ -312,7 +312,7 @@ public static class BackgroundJobSchedule
         return TimeSpan.TryParse(value.Trim(), CultureInfo.CurrentCulture, out time);
     }
 
-    private static bool TryParseDaysOfWeek(string value, out IReadOnlyList<DayOfWeek> days)
+    internal static bool TryParseDaysOfWeek(string value, out IReadOnlyList<DayOfWeek> days)
     {
         days = [];
         if (string.IsNullOrWhiteSpace(value))

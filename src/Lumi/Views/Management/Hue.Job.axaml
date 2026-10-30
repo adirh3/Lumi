@@ -1,0 +1,22 @@
+<!-- Page hue for Jobs: sky, for time and the day ahead. Deliberately muted: it only tints identity
+     glyphs (page tile, job tiles, empty states) and a barely-there header wash; job states keep their
+     own colours, and selection and focus use Lumi's own accent. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#72BCDF" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0D72BCDF" />
+        <GradientStop Offset="1" Color="#0072BCDF" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#22709A" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0A22709A" />
+        <GradientStop Offset="1" Color="#0022709A" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

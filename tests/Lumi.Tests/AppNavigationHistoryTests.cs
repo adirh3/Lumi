@@ -364,9 +364,13 @@ public sealed class AppNavigationHistoryTests
     });
 
     [Fact]
-    public Task Jobs_RestoreTheSelectedJobAndNewEditor() => Run(async (vm, data) =>
+    public Task Jobs_RestoreTheOverviewTheSelectedJobAndNewEditor() => Run(async (vm, data) =>
     {
         vm.SelectedNavIndex = 1;
+        await Settle();
+        Assert.Null(vm.JobsVM.SelectedJob);
+        Assert.True(vm.JobsVM.ShowOverview);
+        vm.JobsVM.SelectedJob = data.BackgroundJobs[0];
         await Settle();
         vm.JobsVM.SelectedJob = data.BackgroundJobs[1];
         await Settle();
@@ -377,9 +381,34 @@ public sealed class AppNavigationHistoryTests
         Assert.Same(data.BackgroundJobs[1], vm.JobsVM.SelectedJob);
         Assert.True(await vm.TryNavigateHistoryAsync(-1));
         Assert.Same(data.BackgroundJobs[0], vm.JobsVM.SelectedJob);
+        Assert.True(await vm.TryNavigateHistoryAsync(-1));
+        Assert.Null(vm.JobsVM.SelectedJob);
+        Assert.True(vm.JobsVM.ShowOverview);
+        Assert.True(await vm.TryNavigateHistoryAsync(1));
+        Assert.Same(data.BackgroundJobs[0], vm.JobsVM.SelectedJob);
         Assert.True(await vm.TryNavigateHistoryAsync(1));
         Assert.True(await vm.TryNavigateHistoryAsync(1));
         Assert.Null(vm.JobsVM.SelectedJob);
+        Assert.True(vm.JobsVM.IsEditing);
+    });
+
+    [Fact]
+    public Task Jobs_GoingBackFromANewJob_LeavesNothingOfItBehind() => Run(async (vm, data) =>
+    {
+        vm.SelectedNavIndex = 1;
+        await Settle();
+        vm.JobsVM.NewJobCommand.Execute(null);
+        await Settle();
+        vm.JobsVM.SaveJobCommand.Execute(null);
+        Assert.True(vm.JobsVM.HasValidationMessage);
+
+        Assert.True(await vm.TryNavigateHistoryAsync(-1));
+        Assert.True(vm.JobsVM.ShowOverview);
+        Assert.False(vm.JobsVM.HasValidationMessage);
+
+        // A job named afterwards, by a wake or a detached chat window, still opens.
+        vm.ShowAutomations(data.BackgroundJobs[1].Id);
+        Assert.Same(data.BackgroundJobs[1], vm.JobsVM.SelectedJob);
         Assert.True(vm.JobsVM.IsEditing);
     });
 

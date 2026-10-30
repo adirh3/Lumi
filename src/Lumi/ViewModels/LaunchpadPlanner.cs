@@ -307,8 +307,8 @@ internal static class LaunchpadPlanner
         return Truncate(StripMarkdown(value.Replace("```", " ")), PreviewMaxLength);
     }
 
-    /// <summary>Formats when an automation runs next, relative to today.</summary>
-    private static string FormatRunTime(DateTimeOffset at, DateTimeOffset now)
+    /// <summary>Formats when an automation runs next, relative to today. The Jobs page shows next runs the same way.</summary>
+    internal static string FormatRunTime(DateTimeOffset at, DateTimeOffset now)
     {
         var culture = CultureInfo.CurrentCulture;
         var local = at.ToLocalTime();

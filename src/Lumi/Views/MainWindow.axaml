@@ -961,70 +961,45 @@
       <Setter Property="IsVisible" Value="False" />
     </Style>
 
-    <Style Selector="ComboBox.jobs-filter">
-      <Setter Property="MinHeight" Value="30" />
-      <Setter Property="Padding" Value="8,3" />
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <!-- ── Jobs sidebar: what wakes each job on its tile, and a dot for how it is doing ── -->
+    <Style Selector="Border#SidebarBorder sc|StrataLineIcon.job-side-glyph">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="StrokeThickness" Value="1.9" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
     </Style>
-
-    <Style Selector="Button.job-activation-toggle">
-      <Setter Property="Padding" Value="7,3" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="CornerRadius" Value="999" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="FontSize" Value="10.5" />
+    <Style Selector="Border#SidebarBorder sc|StrataLineIcon.job-facet-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.job-activation-toggle.enabled">
-      <Setter Property="Background" Value="{DynamicResource Brush.SuccessSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SuccessSubtle}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    <Style Selector="Border#SidebarBorder Border.job-side-dot">
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Height" Value="9" />
+      <Setter Property="CornerRadius" Value="4.5" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.Background}" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="Margin" Value="0,0,-2,-2" />
+      <Setter Property="IsHitTestVisible" Value="False" />
     </Style>
-    <Style Selector="Button.job-activation-toggle.paused">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Style Selector="Border#SidebarBorder Border.job-side-dot.on">
+      <Setter Property="Background" Value="{DynamicResource Brush.SuccessDefault}" />
     </Style>
-
-    <Style Selector="Border.job-lifecycle-pill">
-      <Setter Property="CornerRadius" Value="999" />
-      <Setter Property="Padding" Value="6,2" />
-      <Setter Property="HorizontalAlignment" Value="Left" />
+    <Style Selector="Border#SidebarBorder Border.job-side-dot.failed">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerDefault}" />
     </Style>
-    <Style Selector="Border.job-lifecycle-pill TextBlock">
-      <Setter Property="FontSize" Value="10.5" />
-      <Setter Property="FontWeight" Value="Medium" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.progress">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.progress TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.completed">
-      <Setter Property="Background" Value="{DynamicResource Brush.SuccessSubtle}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.completed TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.skipped">
-      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.skipped TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.failed">
-      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.failed TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.idle">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-    </Style>
-    <Style Selector="Border.job-lifecycle-pill.idle TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Style Selector="Border#SidebarBorder Border.job-side-dot.live">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.35" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.1" />
+      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
 
     <Style Selector="Border#SidebarBorder Button.project-switcher-row">
@@ -2075,249 +2050,198 @@
 
           <!-- ── 1: Jobs sidebar ── -->
           <Panel x:Name="SidebarJobs" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:BackgroundJobsViewModel">
+            <Panel.Resources>
+              <ResourceDictionary>
+                <ResourceDictionary.MergedDictionaries>
+                  <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Job.axaml" />
+                </ResourceDictionary.MergedDictionaries>
+              </ResourceDictionary>
+            </Panel.Resources>
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
-                <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
-                        CornerRadius="{DynamicResource Radius.Base}"
+              <!-- Search and New share one row; the bar below already names the place. -->
+              <DockPanel DockPanel.Dock="Top" Margin="16,8,12,4">
+                <Button x:Name="JobsSidebarNewButton" DockPanel.Dock="Right" Classes="subtle mg-side-action" Margin="4,0,0,0"
+                        VerticalAlignment="Center"
                         Command="{Binding NewJobCommand}"
                         ToolTip.Tip="{loc:Str Sidebar_NewJobTooltip}"
                         AutomationProperties.Name="{loc:Str Sidebar_NewJobTooltip}">
-                  <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
-                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <PathIcon Data="{StaticResource Icon.Plus}" />
                 </Button>
-                <TextBlock Text="{loc:Str Sidebar_Jobs}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" Margin="6,0,0,0" />
+                <Border Classes="project-switcher-search">
+                  <DockPanel>
+                    <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                    <Button DockPanel.Dock="Right" Classes="subtle mg-side-clear" Command="{Binding ClearSearchCommand}"
+                            IsVisible="{Binding IsSearching}" ToolTip.Tip="{loc:Str Mg_ClearSearch}"
+                            AutomationProperties.Name="{loc:Str Mg_ClearSearch}">
+                      <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
+                    </Button>
+                    <TextBox x:Name="JobsSearchBox" Classes="project-switcher-search-box"
+                             Text="{Binding SearchQuery, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Sidebar_Search_Short}"
+                             AutomationProperties.Name="{loc:Str Sidebar_Search_Short}" />
+                  </DockPanel>
+                </Border>
               </DockPanel>
-              <Border DockPanel.Dock="Top"
-                      Classes="project-switcher-search"
-                      Margin="16,8,16,0">
-                <Grid ColumnDefinitions="Auto,*">
-                  <PathIcon
-                            Data="{StaticResource Icon.Search}"
-                            Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            VerticalAlignment="Center"
-                            Margin="0,0,7,0" />
-                  <TextBox x:Name="JobsSearchBox"
-                           Grid.Column="1"
-                           Classes="project-switcher-search-box"
-                           Text="{Binding SearchQuery}"
-                           Padding="0,0,24,0"
-                           PlaceholderText="{loc:Str Sidebar_Search_Short}"
-                           AutomationProperties.Name="{loc:Str Sidebar_Search_Short}" />
-                  <Button Grid.Column="1"
-                          HorizontalAlignment="Right"
-                          Classes="subtle"
-                          Padding="4"
-                          MinWidth="0"
-                          MinHeight="0"
-                          Command="{Binding ClearSearchCommand}"
-                          IsVisible="{Binding SearchQuery, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                          ToolTip.Tip="{loc:Str Common_Clear}"
-                          AutomationProperties.Name="{loc:Str Common_Clear}">
-                    <PathIcon Data="{StaticResource Icon.Dismiss}" Width="11" Height="11"
-                              Foreground="{DynamicResource Brush.TextTertiary}" />
-                  </Button>
-                </Grid>
-              </Border>
-              <Grid DockPanel.Dock="Top"
-                    ColumnDefinitions="*,*"
-                    ColumnSpacing="6"
-                    Margin="16,8,16,0">
-                <StackPanel Spacing="3">
-                  <TextBlock Text="{loc:Str Jobs_FilterActivation}"
-                             FontSize="10"
-                             Foreground="{DynamicResource Brush.TextTertiary}" />
-                  <ComboBox x:Name="JobsActivationFilter"
-                            Classes="jobs-filter"
-                            SelectedIndex="{Binding ActivationFilterIndex}"
-                            AutomationProperties.Name="{loc:Str Jobs_FilterActivation}">
-                    <ComboBoxItem Content="{loc:Str Jobs_FilterAllActivation}" />
-                    <ComboBoxItem Content="{loc:Str Jobs_FilterEnabled}" />
-                    <ComboBoxItem Content="{loc:Str Jobs_FilterPaused}" />
-                  </ComboBox>
-                </StackPanel>
-                <StackPanel Grid.Column="1" Spacing="3">
-                  <TextBlock Text="{loc:Str Jobs_FilterLifecycle}"
-                             FontSize="10"
-                             Foreground="{DynamicResource Brush.TextTertiary}" />
-                  <ComboBox x:Name="JobsLifecycleFilter"
-                            Classes="jobs-filter"
-                            SelectedIndex="{Binding LifecycleFilterIndex}"
-                            AutomationProperties.Name="{loc:Str Jobs_FilterLifecycle}">
-                    <ComboBoxItem Content="{loc:Str Jobs_FilterAnyLifecycle}" />
-                    <ComboBoxItem Content="{loc:Str Jobs_FilterInProgress}" />
-                    <ComboBoxItem Content="{loc:Str Jobs_FilterFinished}" />
-                    <ComboBoxItem Content="{loc:Str Jobs_FilterFailed}" />
-                    <ComboBoxItem Content="{loc:Str Jobs_FilterNotRun}" />
-                  </ComboBox>
-                </StackPanel>
-              </Grid>
-              <DockPanel DockPanel.Dock="Top" Margin="16,7,16,0">
-                <Button x:Name="JobsResetFiltersButton"
-                        DockPanel.Dock="Right"
-                        Classes="subtle"
-                        Content="{loc:Str Jobs_ClearFilters}"
-                        Command="{Binding ResetFiltersCommand}"
-                        IsVisible="{Binding HasActiveFilters}"
-                        Padding="7,3"
-                        MinHeight="0"
-                        FontSize="10.5" />
-                <TextBlock Text="{Binding JobCountDisplay}"
-                           FontSize="10.5"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           VerticalAlignment="Center" />
-              </DockPanel>
-              <Grid>
-                <ListBox x:Name="JobsList"
-                         Classes="sidebar-list"
-                         Margin="8,6,8,8"
-                         ItemsSource="{Binding Jobs}"
-                         SelectedItem="{Binding SelectedVisibleJob, Mode=TwoWay}"
-                         SelectionMode="Single"
-                         IsVisible="{Binding HasVisibleJobs}">
-                  <ListBox.Styles>
-                    <Style Selector="ListBoxItem" x:DataType="models:BackgroundJob">
-                      <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
-                    </Style>
-                  </ListBox.Styles>
-                  <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="models:BackgroundJob">
-                      <Panel Background="Transparent"
-                             PointerPressed="OnJobRowPointerPressed"
-                             AutomationProperties.Name="{Binding Name}">
-                        <Panel.ContextMenu>
-                          <ContextMenu x:CompileBindings="False">
-                            <MenuItem Header="{loc:Str Jobs_RunNow}"
-                                      Command="{Binding $parent[Window].DataContext.JobsVM.RunNowCommand}"
-                                      CommandParameter="{Binding}">
-                              <MenuItem.Icon>
-                                <PathIcon Data="{StaticResource Icon.Play}" Width="14" Height="14" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                            <MenuItem Header="{loc:Str Jobs_PauseAction}"
-                                      Command="{Binding $parent[Window].DataContext.JobsVM.ToggleJobCommand}"
-                                      CommandParameter="{Binding}"
-                                      IsVisible="{Binding IsEnabled}">
-                              <MenuItem.Icon>
-                                <PathIcon Data="{StaticResource Icon.Pause}" Width="14" Height="14" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                            <MenuItem Header="{loc:Str Jobs_EnableAction}"
-                                      Command="{Binding $parent[Window].DataContext.JobsVM.ToggleJobCommand}"
-                                      CommandParameter="{Binding}"
-                                      IsVisible="{Binding !IsEnabled}">
-                              <MenuItem.Icon>
-                                <PathIcon Data="{StaticResource Icon.Check}" Width="14" Height="14" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                            <Separator />
-                            <MenuItem Header="{loc:Str Menu_Delete}"
-                                      Command="{Binding $parent[Window].DataContext.JobsVM.DeleteJobCommand}"
-                                      CommandParameter="{Binding}">
-                              <MenuItem.Icon>
-                                <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
-                              </MenuItem.Icon>
-                            </MenuItem>
-                          </ContextMenu>
-                        </Panel.ContextMenu>
-                        <StackPanel Spacing="4">
-                          <DockPanel>
-                            <Button DockPanel.Dock="Right"
-                                    Classes="job-activation-toggle enabled"
-                                    Command="{Binding $parent[Window].DataContext.JobsVM.ToggleJobCommand}"
-                                    CommandParameter="{Binding}"
-                                    IsVisible="{Binding IsEnabled}"
-                                    x:CompileBindings="False"
-                                    ToolTip.Tip="{loc:Str Jobs_PauseAction}"
-                                    AutomationProperties.Name="{Binding ActivationActionAutomationName}">
-                              <StackPanel Orientation="Horizontal" Spacing="3">
-                                <PathIcon Data="{StaticResource Icon.Check}" Width="10" Height="10"
-                                          Foreground="{DynamicResource Brush.SuccessDefault}" />
-                                <TextBlock Text="{loc:Str Jobs_StateEnabled}"
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,4,0,12">
+                  <!-- What state of job to show; each count follows the search. -->
+                  <StackPanel x:Name="JobsFacets" Margin="10,0" Spacing="1">
+                    <Button x:Name="JobsFacetAll" Classes="library-facet" Classes.selected="{Binding AllFacet.IsSelected}"
+                            Command="{Binding AllFacet.SelectCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <sc:StrataLineIcon Classes="job-facet-icon" Data="{x:Static sc:StrataIcons.Layers}"
+                                           Foreground="{DynamicResource Brush.TextTertiary}" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Jobs_FacetAll}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding AllFacet.CountText}" />
+                      </Grid>
+                    </Button>
+                    <Button x:Name="JobsFacetEnabled" Classes="library-facet" Classes.selected="{Binding EnabledFacet.IsSelected}"
+                            Classes.empty="{Binding !EnabledFacet.HasItems}" Command="{Binding EnabledFacet.SelectCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <sc:StrataLineIcon Classes="job-facet-icon" Data="{x:Static sc:StrataIcons.CheckCircle}"
                                            Foreground="{DynamicResource Brush.SuccessDefault}" />
-                              </StackPanel>
-                            </Button>
-                            <Button DockPanel.Dock="Right"
-                                    Classes="job-activation-toggle paused"
-                                    Command="{Binding $parent[Window].DataContext.JobsVM.ToggleJobCommand}"
-                                    CommandParameter="{Binding}"
-                                    IsVisible="{Binding !IsEnabled}"
-                                    x:CompileBindings="False"
-                                    ToolTip.Tip="{loc:Str Jobs_EnableAction}"
-                                    AutomationProperties.Name="{Binding ActivationActionAutomationName}">
-                              <StackPanel Orientation="Horizontal" Spacing="3">
-                                <PathIcon Data="{StaticResource Icon.Pause}" Width="10" Height="10"
-                                          Foreground="{DynamicResource Brush.TextSecondary}" />
-                                <TextBlock Text="{loc:Str Jobs_StatePaused}"
-                                           Foreground="{DynamicResource Brush.TextSecondary}" />
-                              </StackPanel>
-                            </Button>
-                            <TextBlock Text="{Binding Name}"
-                                       FontSize="{DynamicResource Font.SizeBody}"
-                                       TextTrimming="CharacterEllipsis"
-                                       VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Jobs_FilterEnabled}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding EnabledFacet.CountText}" />
+                      </Grid>
+                    </Button>
+                    <Button x:Name="JobsFacetPaused" Classes="library-facet" Classes.selected="{Binding PausedFacet.IsSelected}"
+                            Classes.empty="{Binding !PausedFacet.HasItems}" Command="{Binding PausedFacet.SelectCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <sc:StrataLineIcon Classes="job-facet-icon" Data="{x:Static sc:StrataIcons.Pause}"
+                                           Foreground="{DynamicResource Brush.TextTertiary}" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Jobs_FilterPaused}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding PausedFacet.CountText}" />
+                      </Grid>
+                    </Button>
+                    <Button x:Name="JobsFacetInProgress" Classes="library-facet" Classes.selected="{Binding InProgressFacet.IsSelected}"
+                            Classes.empty="{Binding !InProgressFacet.HasItems}" Command="{Binding InProgressFacet.SelectCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <sc:StrataLineIcon Classes="job-facet-icon" Data="{x:Static sc:StrataIcons.Retry}"
+                                           Foreground="{DynamicResource Brush.AccentDefault}" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Jobs_FilterInProgress}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding InProgressFacet.CountText}" />
+                      </Grid>
+                    </Button>
+                    <Button x:Name="JobsFacetFailed" Classes="library-facet" Classes.selected="{Binding FailedFacet.IsSelected}"
+                            Classes.empty="{Binding !FailedFacet.HasItems}" Command="{Binding FailedFacet.SelectCommand}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <sc:StrataLineIcon Classes="job-facet-icon" Data="{x:Static sc:StrataIcons.Alert}"
+                                           Foreground="{DynamicResource Brush.DangerDefault}" />
+                        <TextBlock Grid.Column="1" Classes="facet-label" Text="{loc:Str Jobs_FilterFailed}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding FailedFacet.CountText}" />
+                      </Grid>
+                    </Button>
+                  </StackPanel>
+
+                  <Border Classes="library-section-head" IsVisible="{Binding HasVisibleJobs}">
+                    <TextBlock Text="{loc:Str NavLabel_Jobs}" />
+                  </Border>
+                  <!-- Rows move as jobs start and finish, so they carry no tooltips. -->
+                  <ListBox x:Name="JobsList"
+                           Classes="sidebar-list mg-side-list"
+                           Margin="8,0,8,0"
+                           ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                           ItemsSource="{Binding Jobs}"
+                           SelectedItem="{Binding SelectedVisibleJob, Mode=TwoWay}"
+                           SelectionMode="Single"
+                           IsVisible="{Binding HasVisibleJobs}">
+                    <ListBox.Styles>
+                      <Style Selector="ListBoxItem" x:DataType="models:BackgroundJob">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                      </Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:BackgroundJob">
+                        <Panel Background="Transparent"
+                               Classes.mg-side-muted="{Binding !IsEnabled}"
+                               PointerPressed="OnJobRowPointerPressed"
+                               AutomationProperties.Name="{Binding Name}">
+                          <Panel.ContextMenu>
+                            <ContextMenu x:CompileBindings="False">
+                              <MenuItem Header="{loc:Str Jobs_RunNow}"
+                                        Command="{Binding $parent[Window].DataContext.JobsVM.RunNowCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Play}" Width="14" Height="14" FlowDirection="LeftToRight" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <MenuItem Header="{loc:Str Jobs_PauseAction}"
+                                        Command="{Binding $parent[Window].DataContext.JobsVM.ToggleJobCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding IsEnabled}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Pause}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <MenuItem Header="{loc:Str Jobs_EnableAction}"
+                                        Command="{Binding $parent[Window].DataContext.JobsVM.ToggleJobCommand}"
+                                        CommandParameter="{Binding}"
+                                        IsVisible="{Binding !IsEnabled}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Check}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                              <Separator />
+                              <MenuItem Header="{loc:Str Menu_Delete}"
+                                        Command="{Binding $parent[Window].DataContext.JobsVM.DeleteJobCommand}"
+                                        CommandParameter="{Binding}">
+                                <MenuItem.Icon>
+                                  <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                                </MenuItem.Icon>
+                              </MenuItem>
+                            </ContextMenu>
+                          </Panel.ContextMenu>
+                          <DockPanel>
+                            <Panel DockPanel.Dock="Left" Margin="0,0,10,0" VerticalAlignment="Center">
+                              <Border Classes="mg-side-tile">
+                                <Panel>
+                                  <sc:StrataLineIcon Classes="job-side-glyph" Data="{x:Static sc:StrataIcons.Clock}"
+                                                     IsVisible="{Binding IsTimeTriggered}" />
+                                  <sc:StrataLineIcon Classes="job-side-glyph" Data="{x:Static sc:StrataIcons.Terminal}"
+                                                     IsVisible="{Binding IsScriptTriggered}" />
+                                  <sc:StrataLineIcon Classes="job-side-glyph" Data="{x:Static sc:StrataIcons.Chats}"
+                                                     IsVisible="{Binding IsChatEventTriggered}" />
+                                </Panel>
+                              </Border>
+                              <!-- How it is doing: enabled, failing, or running now (drawn over each other). -->
+                              <Border Classes="job-side-dot on" IsVisible="{Binding IsEnabled}" />
+                              <Border Classes="job-side-dot failed" IsVisible="{Binding IsLifecycleFailed}" />
+                              <Border Classes="job-side-dot live" IsVisible="{Binding IsLifecycleInProgress}" />
+                            </Panel>
+                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}"
+                                         TextTrimming="CharacterEllipsis" />
+                              <TextBlock Classes="mg-side-subtitle" Text="{Binding ScheduleDisplay}" />
+                            </StackPanel>
                           </DockPanel>
-                          <TextBlock Text="{Binding Description}"
-                                     FontSize="{DynamicResource Font.SizeCaption}"
-                                     Foreground="{DynamicResource Brush.TextTertiary}"
-                                     TextTrimming="CharacterEllipsis"
-                                     TextWrapping="NoWrap" />
-                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                            <Border Classes="job-lifecycle-pill progress"
-                                    IsVisible="{Binding IsLifecycleInProgress}">
-                              <TextBlock Text="{Binding LifecycleDisplay}" />
-                            </Border>
-                            <Border Classes="job-lifecycle-pill completed"
-                                    IsVisible="{Binding IsLifecycleCompleted}">
-                              <TextBlock Text="{Binding LifecycleDisplay}" />
-                            </Border>
-                            <Border Classes="job-lifecycle-pill skipped"
-                                    IsVisible="{Binding IsLifecycleSkipped}">
-                              <TextBlock Text="{Binding LifecycleDisplay}" />
-                            </Border>
-                            <Border Classes="job-lifecycle-pill failed"
-                                    IsVisible="{Binding IsLifecycleFailed}">
-                              <TextBlock Text="{Binding LifecycleDisplay}" />
-                            </Border>
-                            <Border Classes="job-lifecycle-pill idle"
-                                    IsVisible="{Binding IsLifecycleIdle}">
-                              <TextBlock Text="{Binding LifecycleDisplay}" />
-                            </Border>
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding TriggerDisplay}"
-                                       FontSize="{DynamicResource Font.SizeCaption}"
-                                       Foreground="{DynamicResource Brush.TextTertiary}"
-                                       TextTrimming="CharacterEllipsis"
-                                       VerticalAlignment="Center" />
-                          </Grid>
-                          <TextBlock Text="{Binding UpcomingRunDisplay}"
-                                     FontSize="10.5"
-                                     Foreground="{DynamicResource Brush.TextTertiary}"
-                                     TextTrimming="CharacterEllipsis"
-                                     TextWrapping="NoWrap" />
-                        </StackPanel>
-                      </Panel>
-                    </DataTemplate>
-                  </ListBox.ItemTemplate>
-                </ListBox>
-                <StackPanel HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Spacing="8"
-                            Margin="20"
-                            IsVisible="{Binding HasNoFilterResults}">
-                  <TextBlock Text="{loc:Str Jobs_NoFilterResults}"
-                             Classes="caption tertiary"
-                             TextAlignment="Center"
-                             TextWrapping="Wrap" />
-                  <Button Content="{loc:Str Jobs_ClearFilters}"
-                          Classes="subtle"
-                          Command="{Binding ResetFiltersCommand}"
-                          Padding="10,5"
-                          MinHeight="0" />
+                        </Panel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <StackPanel HorizontalAlignment="Center"
+                              Spacing="8"
+                              Margin="20,24,20,0"
+                              IsVisible="{Binding HasNoFilterResults}">
+                    <TextBlock Text="{loc:Str Jobs_NoFilterResults}"
+                               Classes="caption tertiary"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button x:Name="JobsResetFiltersButton"
+                            Content="{loc:Str Jobs_ClearFilters}"
+                            Classes="subtle"
+                            HorizontalAlignment="Center"
+                            Command="{Binding ResetFiltersCommand}"
+                            Padding="10,5"
+                            MinHeight="0" />
+                  </StackPanel>
                 </StackPanel>
-              </Grid>
+              </ScrollViewer>
             </DockPanel>
           </Panel>
 

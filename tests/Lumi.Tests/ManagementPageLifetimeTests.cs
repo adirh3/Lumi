@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Localization;
@@ -56,6 +57,7 @@ public sealed class ManagementPageLifetimeTests
     }
 
     [Theory]
+    [InlineData(1, "PageJobsHost", "JobNameInput")]
     [InlineData(2, "PageProjectsHost", "ProjectNameInput")]
     [InlineData(3, "PageSkillsHost", "SkillNameInput")]
     [InlineData(4, "PageAgentsHost", "LumiNameInput")]
@@ -90,6 +92,7 @@ public sealed class ManagementPageLifetimeTests
     }
 
     [Theory]
+    [InlineData(1, "PageJobsHost", "JobNameInput")]
     [InlineData(2, "PageProjectsHost", "ProjectNameInput")]
     [InlineData(3, "PageSkillsHost", "SkillNameInput")]
     [InlineData(4, "PageAgentsHost", "LumiNameInput")]
@@ -107,6 +110,7 @@ public sealed class ManagementPageLifetimeTests
                 main.SelectedNavIndex = index;
                 switch (index)
                 {
+                    case 1: main.JobsVM.NewJobCommand.Execute(null); break;
                     case 2: main.ProjectsVM.NewProjectCommand.Execute(null); break;
                     case 3: main.SkillsVM.NewSkillCommand.Execute(null); break;
                     case 4: main.AgentsVM.NewAgentCommand.Execute(null); break;
@@ -150,6 +154,41 @@ public sealed class ManagementPageLifetimeTests
                 Assert.Equal(37, main.JobsVM.EditIntervalMinutes);
                 Assert.Equal(23, main.JobsVM.EditMonthlyDay);
                 Assert.True(main.JobsVM.IsEditing);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task TheSaveShortcutSavesAJobOnlyWhenItWasEdited()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            using var main = CreateMain();
+            var chat = new Chat { Id = Guid.NewGuid(), Title = "Builds" };
+            main.DataStore.Data.Chats.Add(chat);
+            var job = main.DataStore.Data.BackgroundJobs[0];
+            job.ChatId = chat.Id;
+            job.Prompt = "Check the nightly build.";
+            var stored = job.UpdatedAt;
+            var window = Show(main);
+            try
+            {
+                main.SelectedNavIndex = 1;
+                main.JobsVM.SelectedJob = job;
+                Pump(window);
+                var page = Page(window, "PageJobsHost");
+
+                // Saving moves a job's schedule anchor, so an unedited job is left as it is.
+                PressSave(page);
+                Assert.Equal(stored, job.UpdatedAt);
+                Assert.False(main.JobsVM.ShowSavedToast);
+
+                main.JobsVM.EditName = "Nightly build check";
+                PressSave(page);
+                Assert.Equal("Nightly build check", job.Name);
+                Assert.False(main.JobsVM.HasUnsavedWork);
             }
             finally { window.Close(); }
         }, CancellationToken.None);
@@ -330,6 +369,7 @@ public sealed class ManagementPageLifetimeTests
     {
         switch (index)
         {
+            case 1: main.JobsVM.SelectedJob = main.JobsVM.Jobs[0]; break;
             case 2: main.ProjectsVM.SelectedProject = main.ProjectsVM.Projects[0]; break;
             case 3: main.SkillsVM.SelectedSkill = main.SkillsVM.Skills[0]; break;
             case 4: main.AgentsVM.SelectedAgent = main.AgentsVM.Agents[0]; break;
@@ -340,6 +380,7 @@ public sealed class ManagementPageLifetimeTests
 
     private static object? SelectedItem(MainViewModel main, int index) => index switch
     {
+        1 => main.JobsVM.SelectedJob,
         2 => main.ProjectsVM.SelectedProject, 3 => main.SkillsVM.SelectedSkill,
         4 => main.AgentsVM.SelectedAgent, 5 => main.MemoriesVM.SelectedMemory,
         6 => main.McpServersVM.SelectedServer, _ => null
@@ -363,6 +404,13 @@ public sealed class ManagementPageLifetimeTests
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();
     }
+
+    private static void PressSave(Control page) => page.RaiseEvent(new KeyEventArgs
+    {
+        RoutedEvent = InputElement.KeyDownEvent,
+        Key = Key.S,
+        KeyModifiers = OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control
+    });
 
     private static async Task CollectAsync()
     {

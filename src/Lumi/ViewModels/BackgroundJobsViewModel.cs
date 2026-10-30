@@ -11,13 +11,17 @@ using StrataSearch;
 
 namespace Lumi.ViewModels;
 
+/// <summary>
+/// The Jobs page: an overview of every background job, grouped by how it is doing, and a full-page
+/// editor for one job. The page opens on its overview; a job opens when it is picked there or in the
+/// sidebar, or when a wake or a search result names it.
+/// </summary>
 public partial class BackgroundJobsViewModel : ObservableObject
 {
     private readonly DataStore _dataStore;
     private readonly BackgroundJobService _jobService;
     private Guid? _preferredChatId;
     private Guid? _preferredJobId;
-    private bool _selectPreferredChatOnNextRefresh;
     private bool _isCreatingNewJob;
     private Guid? _preservedEditorJobId;
     private bool _isSynchronizingVisibleSelection;
@@ -32,8 +36,6 @@ public partial class BackgroundJobsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(SelectedRunStatus))]
     [NotifyPropertyChangedFor(nameof(SelectedNextRunText))]
     [NotifyPropertyChangedFor(nameof(HasSelectedNextRun))]
-    [NotifyPropertyChangedFor(nameof(SelectedLastRunSummary))]
-    [NotifyPropertyChangedFor(nameof(HasSelectedLastRunSummary))]
     [NotifyPropertyChangedFor(nameof(IsSelectedScriptJob))]
     [NotifyPropertyChangedFor(nameof(SelectedStartedText))]
     [NotifyPropertyChangedFor(nameof(HasSelectedStarted))]
@@ -46,6 +48,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasActiveFilters))]
+    [NotifyPropertyChangedFor(nameof(IsSearching))]
     private string _searchQuery = "";
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasActiveFilters))]
@@ -54,7 +57,9 @@ public partial class BackgroundJobsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasActiveFilters))]
     private int _lifecycleFilterIndex;
     [ObservableProperty] private int _totalJobCount;
-    [ObservableProperty] private string _validationMessage = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasValidationMessage))]
+    private string _validationMessage = "";
 
     [ObservableProperty] private string _editName = "";
     [ObservableProperty] private string _editDescription = "";
@@ -75,6 +80,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
     [ObservableProperty] private bool _editIsEnabled = true;
     [ObservableProperty] private bool _editIsTemporary;
 
+    /// <summary>The jobs the search and filters leave, in the sidebar's order.</summary>
     public ObservableCollection<BackgroundJob> Jobs { get; } = [];
     public ObservableCollection<Chat> AvailableChats { get; } = [];
 
@@ -104,16 +110,10 @@ public partial class BackgroundJobsViewModel : ObservableObject
     public bool IsOnceSchedule => EditScheduleTypeIndex == 4;
     public bool IsCronSchedule => EditScheduleTypeIndex == 5;
     public bool HasSelectedJob => SelectedJob is not null;
+    public bool HasValidationMessage => !string.IsNullOrEmpty(ValidationMessage);
     public string SelectedRunStatus => SelectedJob?.LifecycleDisplay ?? "";
     public string SelectedNextRunText => SelectedJob?.NextRunAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "";
     public bool HasSelectedNextRun => SelectedJob?.NextRunAt is not null;
-    public string SelectedLastRunSummary => SelectedJob switch
-    {
-        { IsLifecycleInterrupted: true } => Loc.Get("Jobs_LifecycleInterruptedDescription"),
-        { } job => job.LastRunSummary,
-        _ => ""
-    };
-    public bool HasSelectedLastRunSummary => !string.IsNullOrWhiteSpace(SelectedJob?.LastRunSummary);
     public bool IsSelectedScriptJob => SelectedJob?.TriggerType == BackgroundJobTriggerTypes.Script;
     public string SelectedStartedText => SelectedJob?.LastRunStartedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "";
     public bool HasSelectedStarted => SelectedJob?.LastRunStartedAt is not null;
@@ -121,6 +121,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
     public bool HasSelectedExitCode => SelectedJob?.LastScriptExitCode is not null;
     public string SelectedScriptOutput => SelectedJob?.LastScriptOutput ?? "";
     public bool HasSelectedScriptOutput => IsSelectedScriptJob && !string.IsNullOrWhiteSpace(SelectedJob?.LastScriptOutput);
+    public bool IsSearching => !string.IsNullOrWhiteSpace(SearchQuery);
     public bool HasActiveFilters => !string.IsNullOrWhiteSpace(SearchQuery)
         || ActivationFilterIndex != 0
         || LifecycleFilterIndex != 0;
@@ -130,13 +131,6 @@ public partial class BackgroundJobsViewModel : ObservableObject
         ? Loc.Get("Jobs_FilterCount", Jobs.Count, TotalJobCount)
         : Loc.Get("Jobs_Count", TotalJobCount);
     public string SelectedActivationStatus => SelectedJob?.ActivationDisplay ?? "";
-    public string SelectedActivationDescription => SelectedJob is null
-        ? ""
-        : Loc.Get(SelectedJob.IsEnabled ? "Jobs_AutomationOn" : "Jobs_AutomationOff");
-    public string SelectedActivationActionText => SelectedJob?.IsEnabled == true
-        ? Loc.Get("Jobs_PauseAction")
-        : Loc.Get("Jobs_EnableAction");
-    public string SelectedActivationActionAutomationName => SelectedJob?.ActivationActionAutomationName ?? "";
     public bool IsSelectedJobEnabled => SelectedJob?.IsEnabled == true;
     public bool IsSelectedJobPaused => SelectedJob is { IsEnabled: false };
     public string SelectedLifecycleStatus => SelectedJob?.LifecycleDisplay ?? "";
@@ -148,13 +142,6 @@ public partial class BackgroundJobsViewModel : ObservableObject
         null => "",
         _ => Loc.Get("Jobs_LifecycleNoSummary")
     };
-    public string SelectedUpcomingRunText => SelectedJob?.UpcomingRunDisplay ?? "";
-    public string SelectedLastRunTimeText => SelectedJob?.LastRunTimeDisplay ?? "";
-    public bool HasSelectedRunHistory => SelectedJob is not null
-        && (SelectedJob.RunCount > 0
-            || SelectedJob.LastRunStartedAt is not null
-            || SelectedJob.LastRunStatus != BackgroundJobRunStatuses.Idle);
-    public bool HasNoSelectedRunHistory => !HasSelectedRunHistory;
     public bool IsSelectedLifecycleInProgress => SelectedJob?.IsLifecycleInProgress == true;
     public bool IsSelectedLifecycleCompleted => SelectedJob?.IsLifecycleCompleted == true;
     public bool IsSelectedLifecycleSkipped => SelectedJob?.IsLifecycleSkipped == true;
@@ -165,56 +152,69 @@ public partial class BackgroundJobsViewModel : ObservableObject
     {
         _dataStore = dataStore;
         _jobService = jobService;
+        AllFacet = CreateFacet(0, 0);
+        EnabledFacet = CreateFacet(1, 0);
+        PausedFacet = CreateFacet(2, 0);
+        InProgressFacet = CreateFacet(0, 1);
+        FailedFacet = CreateFacet(0, 3);
+        WeekDays = CreateWeekDays();
+        ChatEventOptions = CreateChatEventOptions();
+        SyncDayChips();
+        SyncChatEventChips();
         RefreshFromStore();
     }
 
     public void RefreshFromStore(bool preserveEditorBuffer = false)
     {
-        var preservedEditChatId = preserveEditorBuffer ? EditChat?.Id : null;
-        var preservedEditSourceChatId = preserveEditorBuffer ? EditSourceChat?.Id : null;
-        RefreshChats();
-        if (preserveEditorBuffer)
+        // A refresh never throws away edits in progress: only what a run changes follows the store.
+        preserveEditorBuffer |= HasUnsavedWork;
+        _isRefreshing = true;
+        try
         {
-            EditChat = preservedEditChatId is { } chatId
-                ? AvailableChats.FirstOrDefault(chat => chat.Id == chatId)
-                : null;
-            EditSourceChat = preservedEditSourceChatId is { } sourceChatId
-                ? AvailableChats.FirstOrDefault(chat => chat.Id == sourceChatId)
-                : null;
+            var preservedEditChatId = preserveEditorBuffer ? EditChat?.Id : null;
+            var preservedEditSourceChatId = preserveEditorBuffer ? EditSourceChat?.Id : null;
+            RefreshChats();
+            if (preserveEditorBuffer)
+            {
+                EditChat = preservedEditChatId is { } chatId
+                    ? AvailableChats.FirstOrDefault(chat => chat.Id == chatId)
+                    : null;
+                EditSourceChat = preservedEditSourceChatId is { } sourceChatId
+                    ? AvailableChats.FirstOrDefault(chat => chat.Id == sourceChatId)
+                    : null;
+            }
+        }
+        finally
+        {
+            _isRefreshing = false;
         }
 
         RefreshList();
 
-        if (TrySelectPreferredChatJob())
-            return;
-
-        if (SelectedJob is null)
+        if (!TrySelectPreferredJob() && SelectedJob is { } current)
         {
-            SelectDefaultJobIfNeeded();
-            return;
+            var selected = _dataStore.SnapshotBackgroundJobs().FirstOrDefault(job => job.Id == current.Id);
+            if (selected is null)
+            {
+                SelectedJob = null;
+                IsEditing = false;
+            }
+            else if (!ReferenceEquals(SelectedJob, selected))
+            {
+                SelectedJob = selected;
+            }
+            else
+            {
+                if (preserveEditorBuffer)
+                    RefreshEditorRuntimeState(selected);
+                else
+                    SyncEditorFromJob(selected);
+
+                RefreshSelectedJobDerivedProperties();
+            }
         }
 
-        var selected = _dataStore.SnapshotBackgroundJobs().FirstOrDefault(job => job.Id == SelectedJob.Id);
-        if (selected is null)
-        {
-            SelectedJob = null;
-            IsEditing = false;
-            SelectDefaultJobIfNeeded();
-            return;
-        }
-
-        if (!ReferenceEquals(SelectedJob, selected))
-        {
-            SelectedJob = selected;
-            return;
-        }
-
-        if (preserveEditorBuffer)
-            RefreshEditorRuntimeState(selected);
-        else
-            SyncEditorFromJob(selected);
-
-        RefreshSelectedJobDerivedProperties();
+        UpdateDirtyState();
     }
 
     private void RefreshChats()
@@ -225,14 +225,13 @@ public partial class BackgroundJobsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The chat whose job the page selects when it next refreshes, and the job itself when one is
-    /// named (a job's wake opens the page on that job); otherwise the chat's first job.
+    /// The chat the page was opened from, which a new job targets first, and the job to open when one
+    /// is named: a job's wake, or a search result, opens the page on that job.
     /// </summary>
     public void SetPreferredChat(Chat? chat, Guid? jobId = null)
     {
         _preferredChatId = chat?.Id;
         _preferredJobId = jobId;
-        _selectPreferredChatOnNextRefresh = _preferredChatId is not null || jobId is not null;
     }
 
     private Chat? GetPreferredChat()
@@ -259,27 +258,27 @@ public partial class BackgroundJobsViewModel : ObservableObject
             foreach (var job in orderedJobs)
                 job.NotifyPresentationStateChanged();
 
-            var filteredJobs = orderedJobs
+            var trimmedQuery = SearchQuery.Trim();
+            var hasQuery = trimmedQuery.Length > 0;
+            var searchedJobs = hasQuery
+                ? orderedJobs.Where(job => MatchesSearchQuery(job, trimmedQuery)).ToArray()
+                : orderedJobs;
+            var filteredJobs = searchedJobs
                 .Where(MatchesActivationFilter)
                 .Where(MatchesLifecycleFilter)
                 .ToArray();
-            var trimmedQuery = SearchQuery.Trim();
-            var hasQuery = trimmedQuery.Length > 0;
-            var searchCandidates = hasQuery
-                ? filteredJobs.Where(job => MatchesSearchQuery(job, trimmedQuery)).ToArray()
-                : filteredJobs;
             var items = hasQuery
                 ? SearchPipeline.Rank(
-                    searchCandidates,
+                    filteredJobs,
                     trimmedQuery,
                     static job =>
                     [
                         SearchField.Primary(job.Name, 3.5),
                         new SearchField(job.Description, 1.8)
-                    ])
-                : searchCandidates;
+                    ]).ToArray()
+                : filteredJobs;
 
-            ReconcileJobs(items.ToArray());
+            ReconcileJobs(items);
 
             if (!_isCreatingNewJob)
             {
@@ -298,10 +297,10 @@ public partial class BackgroundJobsViewModel : ObservableObject
                 {
                     SelectedJob = null;
                     IsEditing = false;
-                    SelectDefaultJobIfNeeded();
                 }
             }
 
+            RefreshOverview(jobs, searchedJobs, items);
             RefreshListDerivedProperties();
         }
         finally
@@ -375,52 +374,34 @@ public partial class BackgroundJobsViewModel : ObservableObject
         OnPropertyChanged(nameof(JobCountDisplay));
     }
 
-    private void SelectDefaultJobIfNeeded()
+    /// <summary>Opens the job a wake or search result named, once, even when the list's filters hid it.</summary>
+    private bool TrySelectPreferredJob()
     {
-        if (SelectedJob is not null || _isCreatingNewJob || Jobs.Count == 0)
-            return;
-
-        SelectedJob = GetDefaultJobSelection();
-    }
-
-    private bool TrySelectPreferredChatJob()
-    {
-        if (!_selectPreferredChatOnNextRefresh)
+        if (_preferredJobId is not { } jobId)
             return false;
 
-        _selectPreferredChatOnNextRefresh = false;
-        var preferredJobId = _preferredJobId;
         _preferredJobId = null;
         if (_isCreatingNewJob)
             return false;
 
-        // A job named by its wake shows even when the list's filters hid it.
-        if (preferredJobId is { } namedJobId
-            && Jobs.All(job => job.Id != namedJobId)
-            && _dataStore.SnapshotBackgroundJobs().Any(job => job.Id == namedJobId))
+        if (Jobs.All(job => job.Id != jobId)
+            && _dataStore.SnapshotBackgroundJobs().Any(job => job.Id == jobId))
         {
             ResetFilters();
         }
 
-        var preferredJob = (preferredJobId is { } jobId ? Jobs.FirstOrDefault(job => job.Id == jobId) : null)
-            ?? (_preferredChatId is { } preferredChatId ? Jobs.FirstOrDefault(job => job.ChatId == preferredChatId) : null);
-        if (preferredJob is null || SelectedJob?.Id == preferredJob.Id)
+        var preferredJob = Jobs.FirstOrDefault(job => job.Id == jobId);
+        if (preferredJob is null)
             return false;
+
+        if (SelectedJob?.Id == preferredJob.Id)
+        {
+            IsEditing = true;
+            return false;
+        }
 
         SelectedJob = preferredJob;
         return true;
-    }
-
-    private BackgroundJob? GetDefaultJobSelection()
-    {
-        if (_preferredChatId is { } preferredChatId)
-        {
-            var preferredJob = Jobs.FirstOrDefault(job => job.ChatId == preferredChatId);
-            if (preferredJob is not null)
-                return preferredJob;
-        }
-
-        return Jobs.FirstOrDefault();
     }
 
     partial void OnSearchQueryChanged(string value)
@@ -452,6 +433,8 @@ public partial class BackgroundJobsViewModel : ObservableObject
         OnPropertyChanged(nameof(EditUsesChatEventTrigger));
         if (value == 1)
             EditIsTemporary = true;
+        RefreshTriggerPreview();
+        UpdateDirtyState();
     }
 
     partial void OnEditScheduleTypeIndexChanged(int value)
@@ -462,30 +445,34 @@ public partial class BackgroundJobsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsMonthlySchedule));
         OnPropertyChanged(nameof(IsOnceSchedule));
         OnPropertyChanged(nameof(IsCronSchedule));
+        RefreshTriggerPreview();
+        UpdateDirtyState();
     }
 
     partial void OnSelectedJobChanged(BackgroundJob? value)
     {
         var preserveEditorBuffer = value is not null && _preservedEditorJobId == value.Id;
         if (!preserveEditorBuffer)
+        {
             ValidationMessage = "";
+            IsConfirmingDelete = false;
+        }
 
         SynchronizeVisibleSelection(value);
         RefreshSelectedJobDerivedProperties();
         if (value is null)
-            return;
-
-        _isCreatingNewJob = false;
-        if (preserveEditorBuffer)
         {
-            IsEditing = true;
-            RefreshSelectedJobDerivedProperties();
+            NotifyEditorState();
             return;
         }
 
-        SyncEditorFromJob(value);
+        _isCreatingNewJob = false;
+        if (!preserveEditorBuffer)
+            SyncEditorFromJob(value);
+
         IsEditing = true;
         RefreshSelectedJobDerivedProperties();
+        NotifyEditorState();
     }
 
     partial void OnSelectedVisibleJobChanged(BackgroundJob? value)
@@ -517,48 +504,63 @@ public partial class BackgroundJobsViewModel : ObservableObject
 
     private void SyncEditorFromJob(BackgroundJob job)
     {
-        EditName = job.Name;
-        EditDescription = job.Description;
-        EditPrompt = job.Prompt;
-        EditChat = AvailableChats.FirstOrDefault(chat => chat.Id == job.ChatId);
-        EditSourceChat = job.SourceChatId is { } sourceChatId
-            ? AvailableChats.FirstOrDefault(chat => chat.Id == sourceChatId)
-            : null;
-        EditTriggerTypeIndex = job.TriggerType switch
+        _syncingEditor = true;
+        try
         {
-            BackgroundJobTriggerTypes.Script => 1,
-            BackgroundJobTriggerTypes.ChatEvent => 2,
-            _ => 0
-        };
-        EditScheduleTypeIndex = job.ScheduleType switch
+            EditName = job.Name;
+            EditDescription = job.Description;
+            EditPrompt = job.Prompt;
+            EditChat = AvailableChats.FirstOrDefault(chat => chat.Id == job.ChatId);
+            EditSourceChat = job.SourceChatId is { } sourceChatId
+                ? AvailableChats.FirstOrDefault(chat => chat.Id == sourceChatId)
+                : null;
+            EditTriggerTypeIndex = job.TriggerType switch
+            {
+                BackgroundJobTriggerTypes.Script => 1,
+                BackgroundJobTriggerTypes.ChatEvent => 2,
+                _ => 0
+            };
+            EditScheduleTypeIndex = job.ScheduleType switch
+            {
+                BackgroundJobScheduleTypes.Daily => 1,
+                BackgroundJobScheduleTypes.Weekly => 2,
+                BackgroundJobScheduleTypes.Monthly => 3,
+                BackgroundJobScheduleTypes.Once => 4,
+                BackgroundJobScheduleTypes.Cron => 5,
+                _ => 0
+            };
+            EditIntervalMinutes = Math.Max(1, job.IntervalMinutes);
+            EditDailyTime = string.IsNullOrWhiteSpace(job.DailyTime) ? "08:00" : job.DailyTime;
+            EditDaysOfWeek = string.IsNullOrWhiteSpace(job.DaysOfWeek) ? "weekdays" : job.DaysOfWeek;
+            EditMonthlyDay = Math.Clamp(job.MonthlyDay, 1, 31);
+            EditCronExpression = string.IsNullOrWhiteSpace(job.CronExpression) ? "0 8 * * *" : job.CronExpression;
+            EditRunAt = job.RunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture) ?? "";
+            EditScriptLanguageIndex = ScriptLanguageToIndex(job.ScriptLanguage);
+            EditScriptContent = job.ScriptContent;
+            EditChatEventTypes = ChatLifecycleEventTypes.Describe(job.ChatEventTypes);
+            EditIsEnabled = job.IsEnabled;
+            _hydratedIsEnabled = job.IsEnabled;
+            EditIsTemporary = job.IsTemporary;
+        }
+        finally
         {
-            BackgroundJobScheduleTypes.Daily => 1,
-            BackgroundJobScheduleTypes.Weekly => 2,
-            BackgroundJobScheduleTypes.Monthly => 3,
-            BackgroundJobScheduleTypes.Once => 4,
-            BackgroundJobScheduleTypes.Cron => 5,
-            _ => 0
-        };
-        EditIntervalMinutes = Math.Max(1, job.IntervalMinutes);
-        EditDailyTime = string.IsNullOrWhiteSpace(job.DailyTime) ? "08:00" : job.DailyTime;
-        EditDaysOfWeek = string.IsNullOrWhiteSpace(job.DaysOfWeek) ? "weekdays" : job.DaysOfWeek;
-        EditMonthlyDay = Math.Clamp(job.MonthlyDay, 1, 31);
-        EditCronExpression = string.IsNullOrWhiteSpace(job.CronExpression) ? "0 8 * * *" : job.CronExpression;
-        EditRunAt = job.RunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture) ?? "";
-        EditScriptLanguageIndex = ScriptLanguageToIndex(job.ScriptLanguage);
-        EditScriptContent = job.ScriptContent;
-        EditChatEventTypes = ChatLifecycleEventTypes.Describe(job.ChatEventTypes);
-        EditIsEnabled = job.IsEnabled;
-        _hydratedIsEnabled = job.IsEnabled;
-        EditIsTemporary = job.IsTemporary;
+            _syncingEditor = false;
+        }
+
+        ResetEditorBaseline();
+        RefreshTriggerPreview();
     }
 
     private void RefreshEditorRuntimeState(BackgroundJob job)
     {
         if (EditIsEnabled == _hydratedIsEnabled)
+        {
             EditIsEnabled = job.IsEnabled;
+            FollowStoredActivation(job.IsEnabled);
+        }
 
         _hydratedIsEnabled = job.IsEnabled;
+        RefreshTriggerPreview();
     }
 
     [RelayCommand]
@@ -588,26 +590,39 @@ public partial class BackgroundJobsViewModel : ObservableObject
         SelectedJob = null;
         _isCreatingNewJob = true;
         ValidationMessage = "";
-        EditName = "";
-        EditDescription = "";
-        EditPrompt = "";
-        EditChat = GetPreferredChat() ?? AvailableChats.FirstOrDefault();
-        EditSourceChat = AvailableChats.FirstOrDefault(chat => chat.Id != EditChat?.Id);
-        EditTriggerTypeIndex = 0;
-        EditScheduleTypeIndex = 0;
-        EditIntervalMinutes = 1440;
-        EditDailyTime = "08:00";
-        EditDaysOfWeek = "weekdays";
-        EditMonthlyDay = DateTimeOffset.Now.Day;
-        EditCronExpression = "0 8 * * *";
-        EditRunAt = DateTimeOffset.Now.AddHours(1).ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
-        EditScriptLanguageIndex = ScriptLanguageToIndex(BackgroundJobScriptLanguages.DefaultForCurrentOs());
-        EditScriptContent = "";
-        EditChatEventTypes = ChatLifecycleEventTypes.Idle;
-        EditIsEnabled = true;
-        _hydratedIsEnabled = true;
-        EditIsTemporary = false;
+        IsConfirmingDelete = false;
+        _syncingEditor = true;
+        try
+        {
+            EditName = "";
+            EditDescription = "";
+            EditPrompt = "";
+            EditChat = GetPreferredChat() ?? AvailableChats.FirstOrDefault();
+            EditSourceChat = AvailableChats.FirstOrDefault(chat => chat.Id != EditChat?.Id);
+            EditTriggerTypeIndex = 0;
+            EditScheduleTypeIndex = 0;
+            EditIntervalMinutes = 1440;
+            EditDailyTime = "08:00";
+            EditDaysOfWeek = "weekdays";
+            EditMonthlyDay = DateTimeOffset.Now.Day;
+            EditCronExpression = "0 8 * * *";
+            EditRunAt = DateTimeOffset.Now.AddHours(1).ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
+            EditScriptLanguageIndex = ScriptLanguageToIndex(BackgroundJobScriptLanguages.DefaultForCurrentOs());
+            EditScriptContent = "";
+            EditChatEventTypes = ChatLifecycleEventTypes.Idle;
+            EditIsEnabled = true;
+            _hydratedIsEnabled = true;
+            EditIsTemporary = false;
+        }
+        finally
+        {
+            _syncingEditor = false;
+        }
+
+        RefreshTriggerPreview();
+        ResetEditorBaseline();
         IsEditing = true;
+        NotifyEditorState();
     }
 
     private bool ValidateTriggerConfiguration()
@@ -741,15 +756,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
                 : IsChatEventTrigger
                     ? BackgroundJobTriggerTypes.ChatEvent
                     : BackgroundJobTriggerTypes.Time;
-            job.ScheduleType = EditScheduleTypeIndex switch
-            {
-                1 => BackgroundJobScheduleTypes.Daily,
-                2 => BackgroundJobScheduleTypes.Weekly,
-                3 => BackgroundJobScheduleTypes.Monthly,
-                4 => BackgroundJobScheduleTypes.Once,
-                5 => BackgroundJobScheduleTypes.Cron,
-                _ => BackgroundJobScheduleTypes.Interval
-            };
+            job.ScheduleType = IndexToScheduleType(EditScheduleTypeIndex);
             job.IntervalMinutes = Math.Max(1, EditIntervalMinutes);
             job.DailyTime = string.IsNullOrWhiteSpace(EditDailyTime) ? "08:00" : EditDailyTime.Trim();
             job.DaysOfWeek = string.IsNullOrWhiteSpace(EditDaysOfWeek) ? "weekdays" : EditDaysOfWeek.Trim();
@@ -778,22 +785,29 @@ public partial class BackgroundJobsViewModel : ObservableObject
 
         _isCreatingNewJob = false;
         SelectedJob = job;
-        _hydratedIsEnabled = job.IsEnabled;
         _ = _dataStore.SaveAsync();
-        IsEditing = true;
         RefreshList();
+        // Saving keeps the job open, now showing what was stored.
+        SyncEditorFromJob(job);
+        IsEditing = true;
         RefreshSelectedJobDerivedProperties();
+        NotifyEditorState();
+        FlashSaved();
         JobsChanged?.Invoke();
         if (shouldRunImmediately)
             _ = _jobService.RunDueJobsNowAsync();
     }
 
+    /// <summary>Back to the overview. Unsaved edits are dropped; the save bar offered to keep them.</summary>
     [RelayCommand]
-    private void CancelEdit()
+    private void CloseDetail()
     {
         ValidationMessage = "";
+        IsConfirmingDelete = false;
         _isCreatingNewJob = false;
+        SelectedJob = null;
         IsEditing = false;
+        NotifyEditorState();
     }
 
     [RelayCommand]
@@ -803,14 +817,18 @@ public partial class BackgroundJobsViewModel : ObservableObject
         if (job is null)
             return;
 
+        IsConfirmingDelete = false;
         _dataStore.RemoveBackgroundJob(job);
+        // Deleting the open job goes back to the overview; deleting another one leaves the page as it is.
         if (SelectedJob?.Id == job.Id)
+        {
             SelectedJob = null;
-        _isCreatingNewJob = false;
+            IsEditing = false;
+        }
+
         _ = _dataStore.SaveAsync();
-        IsEditing = false;
         RefreshList();
-        SelectDefaultJobIfNeeded();
+        NotifyEditorState();
         JobsChanged?.Invoke();
     }
 
@@ -852,6 +870,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
         {
             EditIsEnabled = job.IsEnabled;
             _hydratedIsEnabled = job.IsEnabled;
+            FollowStoredActivation(job.IsEnabled);
         }
         RefreshList();
         RefreshSelectedJobDerivedProperties();
@@ -884,6 +903,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
         {
             EditIsEnabled = true;
             _hydratedIsEnabled = true;
+            FollowStoredActivation(true);
         }
         RefreshList();
         RefreshSelectedJobDerivedProperties();
@@ -897,8 +917,6 @@ public partial class BackgroundJobsViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedRunStatus));
         OnPropertyChanged(nameof(SelectedNextRunText));
         OnPropertyChanged(nameof(HasSelectedNextRun));
-        OnPropertyChanged(nameof(SelectedLastRunSummary));
-        OnPropertyChanged(nameof(HasSelectedLastRunSummary));
         OnPropertyChanged(nameof(IsSelectedScriptJob));
         OnPropertyChanged(nameof(SelectedStartedText));
         OnPropertyChanged(nameof(HasSelectedStarted));
@@ -907,22 +925,16 @@ public partial class BackgroundJobsViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedScriptOutput));
         OnPropertyChanged(nameof(HasSelectedScriptOutput));
         OnPropertyChanged(nameof(SelectedActivationStatus));
-        OnPropertyChanged(nameof(SelectedActivationDescription));
-        OnPropertyChanged(nameof(SelectedActivationActionText));
-        OnPropertyChanged(nameof(SelectedActivationActionAutomationName));
         OnPropertyChanged(nameof(IsSelectedJobEnabled));
         OnPropertyChanged(nameof(IsSelectedJobPaused));
         OnPropertyChanged(nameof(SelectedLifecycleStatus));
         OnPropertyChanged(nameof(SelectedLifecycleDescription));
-        OnPropertyChanged(nameof(SelectedUpcomingRunText));
-        OnPropertyChanged(nameof(SelectedLastRunTimeText));
-        OnPropertyChanged(nameof(HasSelectedRunHistory));
-        OnPropertyChanged(nameof(HasNoSelectedRunHistory));
         OnPropertyChanged(nameof(IsSelectedLifecycleInProgress));
         OnPropertyChanged(nameof(IsSelectedLifecycleCompleted));
         OnPropertyChanged(nameof(IsSelectedLifecycleSkipped));
         OnPropertyChanged(nameof(IsSelectedLifecycleFailed));
         OnPropertyChanged(nameof(IsSelectedLifecycleIdle));
+        RefreshSelectedJobPresentation();
     }
 
     [RelayCommand]
@@ -974,6 +986,19 @@ public partial class BackgroundJobsViewModel : ObservableObject
             2 => BackgroundJobScriptLanguages.Node,
             3 => BackgroundJobScriptLanguages.Command,
             _ => BackgroundJobScriptLanguages.PowerShell
+        };
+    }
+
+    private static string IndexToScheduleType(int index)
+    {
+        return index switch
+        {
+            1 => BackgroundJobScheduleTypes.Daily,
+            2 => BackgroundJobScheduleTypes.Weekly,
+            3 => BackgroundJobScheduleTypes.Monthly,
+            4 => BackgroundJobScheduleTypes.Once,
+            5 => BackgroundJobScheduleTypes.Cron,
+            _ => BackgroundJobScheduleTypes.Interval
         };
     }
 

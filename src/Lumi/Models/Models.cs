@@ -1473,12 +1473,31 @@ public class BackgroundJob : INotifyPropertyChanged
     public int RunCount { get; set; }
 
     [JsonIgnore]
-    public string TriggerDisplay => TriggerType switch
+    public bool IsTimeTriggered => !IsScriptTriggered && !IsChatEventTriggered;
+
+    [JsonIgnore]
+    public bool IsScriptTriggered => TriggerType == BackgroundJobTriggerTypes.Script;
+
+    [JsonIgnore]
+    public bool IsChatEventTriggered => TriggerType == BackgroundJobTriggerTypes.ChatEvent;
+
+    /// <summary>
+    /// When the job runs, in words ("Every day at 09:15"). Describing a job normalizes it, so this
+    /// describes a copy and leaves the stored job as it is.
+    /// </summary>
+    [JsonIgnore]
+    public string ScheduleDisplay => Services.BackgroundJobSchedule.Describe(new BackgroundJob
     {
-        BackgroundJobTriggerTypes.Script => Loc.Get("Jobs_TriggerScript"),
-        BackgroundJobTriggerTypes.ChatEvent => Loc.Get("Jobs_TriggerChatEvent"),
-        _ => Loc.Get("Jobs_TriggerTime")
-    };
+        TriggerType = TriggerType,
+        ScheduleType = ScheduleType,
+        IntervalMinutes = IntervalMinutes,
+        DailyTime = DailyTime,
+        DaysOfWeek = DaysOfWeek,
+        MonthlyDay = MonthlyDay,
+        CronExpression = CronExpression,
+        RunAt = RunAt,
+        ChatEventTypes = [.. ChatEventTypes]
+    });
 
     [JsonIgnore]
     public string ActivationDisplay => IsEnabled
@@ -1553,11 +1572,6 @@ public class BackgroundJob : INotifyPropertyChanged
     }
 
     [JsonIgnore]
-    public string LastRunTimeDisplay => LastRunAt is { } lastRunAt
-        ? Loc.Get("Jobs_LastRunAt", lastRunAt.ToLocalTime().ToString("g", Loc.Culture))
-        : Loc.Get("Jobs_NoCompletedRuns");
-
-    [JsonIgnore]
     public string StatusDisplay => LifecycleDisplay;
 
     [JsonIgnore]
@@ -1612,14 +1626,16 @@ public class BackgroundJob : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Description)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEnabled)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TriggerDisplay)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsTimeTriggered)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsScriptTriggered)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsChatEventTriggered)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ScheduleDisplay)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ActivationDisplay)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ActivationActionAutomationName)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RunNowAutomationName)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DeleteAutomationName)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LifecycleDisplay)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UpcomingRunDisplay)));
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LastRunTimeDisplay)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusDisplay)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLifecycleInProgress)));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsLifecycleInterrupted)));
