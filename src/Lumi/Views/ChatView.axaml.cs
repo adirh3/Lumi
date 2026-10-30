@@ -2612,12 +2612,28 @@ public partial class ChatView : UserControl
             return;
         if (revealed)
         {
+            // Details that open with motion open at once here, so the hit's position is already final.
+            if (FindTranscriptItemView(turnControl, hit.Item) is { } itemView)
+            {
+                foreach (var reveal in itemView.GetVisualDescendants().OfType<RevealPanel>())
+                    reveal.Settle();
+            }
+
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
             await RealizeFoldedItemAsync(turnControl, hit.Item);
         }
 
         if (HighlightHit(hit) is not { } stb)
+        {
+            // A wake's name and reason aren't selectable text: show the card that holds the hit.
+            if (hit.Item is JobWakeItem && FindTranscriptItemView(turnControl, hit.Item) is { } wakeView)
+            {
+                wakeView.BringIntoView(new Rect(0, -SearchHitContext, wakeView.Bounds.Width,
+                    wakeView.Bounds.Height + 2 * SearchHitContext));
+            }
+
             return;
+        }
 
         // Room around the hit keeps it clear of the floating header's soft edge, with context.
         var context = new Rect(0, -SearchHitContext, stb.Bounds.Width, stb.Bounds.Height + 2 * SearchHitContext);

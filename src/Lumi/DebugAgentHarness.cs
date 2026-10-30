@@ -850,11 +850,49 @@ public static class DebugAgentHarness
             ```
             """));
 
+        // Background jobs waking the chat, one of each kind, worded as the job service words them.
+        AddJobWake(
+            "Daily Lumi manager status report",
+            "Summarize what changed across my Lumi chats since yesterday and what needs me today.",
+            $"{BackgroundJobService.ScheduledRunContextPrefix}{t.AddSeconds(18):yyyy-MM-dd HH:mm:ss zzz}.",
+            "Here's today's status: two chats finished overnight and one is waiting on your review.");
+        AddJobWake(
+            "Landing page review follow-up",
+            "When the landing page chat finishes, review its latest changes and list anything that still looks off.",
+            BackgroundJobService.BuildChatEventTriggerContext(new ChatLifecycleEvent(
+                Guid.NewGuid(), "Lumi Landing Page", ChatLifecycleEventTypes.Idle, t.AddSeconds(18))),
+            "The landing page chat finished. The hero copy and the download button both look right now.");
+        var scriptStarted = t.AddMinutes(-2).AddSeconds(-14);
+        AddJobWake(
+            "PR #412 review watcher",
+            "Wake me when PR #412 gets new review comments, then summarize them and suggest replies.",
+            BackgroundJobService.ParseScriptOutput(
+                "Checked PR #412: 2 new review comments.\nLUMI_INVOKE: PR #412 has 2 new review comments from @octocat. One asks to rename ReadOverviewAsync.",
+                "", 0, "PowerShell", scriptStarted, t).Context,
+            "@octocat left two comments on PR #412. One asks to rename `ReadOverviewAsync`; I'd agree and reply with the new name.");
+        AddJobWake(
+            "Nightly build watcher",
+            "Build Lumi every night and tell me what broke.",
+            BackgroundJobService.ParseScriptOutput(
+                "Building Lumi.sln for Release...",
+                "error CS0246: The type or namespace name 'ChatOverview' could not be found (ChatStore.cs, line 212)",
+                1, "PowerShell", t.AddSeconds(-38), t).Context,
+            "Last night's build failed: `ChatStore.cs` references a `ChatOverview` type that no longer exists.");
+
         foreach (var message in chat.Messages.Where(message => message.Role == "assistant"
                      && message.ParentToolCallId is null && !string.IsNullOrWhiteSpace(message.Content)))
             message.Model ??= "gpt-5.5";
 
         return chat;
+
+        void AddJobWake(string name, string instructions, string triggerContext, string reply)
+        {
+            var wake = Message("user", ChatViewModel.BuildBackgroundJobPrompt(
+                new BackgroundJob { Name = name, Prompt = instructions }, triggerContext));
+            wake.Author = $"Lumi Job - {name}";
+            chat.Messages.Add(wake);
+            chat.Messages.Add(Message("assistant", reply));
+        }
 
         void AddStandaloneSubagentFixture(
             string userPrompt,

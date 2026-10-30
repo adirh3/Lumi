@@ -1667,19 +1667,185 @@
     <Style Selector="sc|StrataChatShell.flat-window /template/ Border#PART_HeaderChrome">
       <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="#Transcript Border.job-wake-card">
+    <!-- A background job's wake opens its turn: a step's glass, a tile naming what woke the chat (the
+         accent, or the danger colour when its wake script failed), and the job's instructions and the
+         script's output folded until the header is clicked. -->
+    <Style Selector="#Transcript Border.job-wake">
       <Setter Property="Background" Value="{DynamicResource Brush.GlassFill}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRim}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="16" />
       <Setter Property="BoxShadow" Value="{DynamicResource Shadow.GlassChip}" />
+      <Setter Property="Margin" Value="0,4" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.15" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
     </Style>
-    <Style Selector="#Transcript Border.job-wake-pill">
-      <Setter Property="Background" Value="{DynamicResource Brush.GlassRowHover}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassDivider}" />
+    <Style Selector="#Transcript Border.job-wake:pointerover">
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassFillHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassRimHover}" />
+    </Style>
+    <!-- The header is the card's toggle: it draws nothing of its own but keyboard focus. -->
+    <Style Selector="#Transcript Button.job-wake-header">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="12,11,14,11" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel>
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Background="{TemplateBinding Background}"
+                              Padding="{TemplateBinding Padding}"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" />
+            <Border Name="PART_FocusRing"
+                    BorderThickness="1"
+                    BorderBrush="Transparent"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    IsHitTestVisible="False" />
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="#Transcript Button.job-wake-header:focus-visible /template/ Border#PART_FocusRing">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake-tile">
+      <Setter Property="Width" Value="34" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="999" />
-      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="BorderBrush">
+        <SolidColorBrush Color="{DynamicResource Color.AccentDefault}" Opacity="0.28" />
+      </Setter>
+    </Style>
+    <Style Selector="#Transcript Border.job-wake-tile > sc|StrataLineIcon">
+      <Setter Property="Width" Value="17" />
+      <Setter Property="Height" Value="17" />
+      <Setter Property="StrokeThickness" Value="1.8" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Data" Value="{x:Static sc:StrataIcons.Bolt}" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.scheduled Border.job-wake-tile > sc|StrataLineIcon">
+      <Setter Property="Data" Value="{x:Static sc:StrataIcons.Clock}" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.script Border.job-wake-tile > sc|StrataLineIcon">
+      <Setter Property="Data" Value="{x:Static sc:StrataIcons.Terminal}" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.chat-event Border.job-wake-tile > sc|StrataLineIcon">
+      <Setter Property="Data" Value="{x:Static sc:StrataIcons.Chats}" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.failed Border.job-wake-tile">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+      <Setter Property="BorderBrush">
+        <SolidColorBrush Color="{DynamicResource Color.DangerDefault}" Opacity="0.28" />
+      </Setter>
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.failed Border.job-wake-tile > sc|StrataLineIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-title">
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake WrapPanel.job-wake-meta">
+      <Setter Property="ItemSpacing" Value="5" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake WrapPanel.job-wake-meta > TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.failed WrapPanel.job-wake-meta > TextBlock.job-wake-reason">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-time">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake sc|StrataLineIcon.job-wake-chevron">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="#Transcript Border.job-wake:pointerover sc|StrataLineIcon.job-wake-chevron">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake.expanded sc|StrataLineIcon.job-wake-chevron">
+      <Setter Property="RenderTransform" Value="rotate(180deg)" />
+    </Style>
+    <!-- What the wake script said: the card's message, under its title. -->
+    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-body">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="LineHeight" Value="19" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="3" />
+      <Setter Property="Margin" Value="0,6,0,0" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake Border.job-wake-divider">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Margin" Value="14,0,14,12" />
+      <Setter Property="Background" Value="{DynamicResource Brush.GlassDivider}" />
+    </Style>
+    <!-- Opened, the details line up under the title. -->
+    <Style Selector="#Transcript Border.job-wake StackPanel.job-wake-details">
+      <Setter Property="Spacing" Value="14" />
+      <Setter Property="Margin" Value="58,0,16,12" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-label">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake TextBlock.job-wake-run">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="12,0,0,0" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake SelectableTextBlock.job-wake-instructions">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="LineHeight" Value="19" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="#Transcript Border.job-wake SelectableTextBlock.job-wake-output">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="LineHeight" Value="18" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TerminalPreviewOutput}" />
     </Style>
 
     <!-- Token usage badge hover -->
@@ -2568,77 +2734,103 @@
 
   <UserControl.DataTemplates>
 
-    <!-- ── Background job wake event ─────────────────── -->
+    <!-- ── Background job wake: the opening of the turn a job started ── -->
     <DataTemplate DataType="vm:JobWakeItem">
-      <Border Classes="job-wake-card"
-              HorizontalAlignment="Left"
-              MaxWidth="700"
-              AutomationProperties.Name="JobWakeCard">
-        <StackPanel Spacing="8" Margin="13,11,13,11">
-          <DockPanel>
-            <sc:StrataLineIcon DockPanel.Dock="Left"
-                               Width="15" Height="15"
-                               Margin="0,0,10,0"
-                               VerticalAlignment="Center"
-                               Data="{x:Static sc:StrataIcons.Clock}"
-                               Foreground="{DynamicResource Brush.TextTertiary}" />
-            <TextBlock DockPanel.Dock="Right"
-                       Text="{Binding TimestampText}"
-                       Classes="caption tertiary"
-                       VerticalAlignment="Center" />
-            <StackPanel Spacing="1">
-              <TextBlock Text="{loc:Str Jobs_ChatWakeEyebrow}"
-                         FontSize="12"
-                         Foreground="{DynamicResource Brush.TextTertiary}" />
-              <TextBlock Text="{Binding JobName}"
-                         FontSize="13"
-                         Foreground="{DynamicResource Brush.TextPrimary}"
-                         TextTrimming="CharacterEllipsis" />
-            </StackPanel>
-          </DockPanel>
+      <!-- Every wake card is as wide as the column allows, up to 560, so opening one grows only its
+           height and the cards' times line up. -->
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" MaxWidth="560" />
+        </Grid.ColumnDefinitions>
+        <Border Classes="job-wake"
+                Classes.scheduled="{Binding IsScheduled}"
+                Classes.script="{Binding IsScript}"
+                Classes.chat-event="{Binding IsChatEvent}"
+                Classes.failed="{Binding IsFailed}"
+                Classes.expanded="{Binding IsExpanded}"
+                AutomationProperties.Name="JobWakeCard">
+          <StackPanel>
+            <Button x:Name="JobWakeHeader"
+                    Classes="job-wake-header"
+                    Command="{Binding ToggleExpandedCommand}"
+                    AutomationProperties.Name="{Binding JobName}"
+                    AutomationProperties.HelpText="{Binding ReasonText}">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="job-wake-tile">
+                  <sc:StrataLineIcon />
+                </Border>
+                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Classes="job-wake-title" Text="{Binding JobName}" />
+                  <WrapPanel Classes="job-wake-meta">
+                    <TextBlock Classes="job-wake-reason" Text="{Binding ReasonText}" />
+                    <TextBlock Text="·" IsVisible="{Binding HasDuration}" />
+                    <TextBlock Text="{Binding DurationText}" IsVisible="{Binding HasDuration}" />
+                  </WrapPanel>
+                  <TextBlock Classes="job-wake-body"
+                             Text="{Binding BodyText}"
+                             IsVisible="{Binding HasBody}" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Top" Margin="12,2,0,0">
+                  <TextBlock Classes="job-wake-time" Text="{Binding TimestampText}"
+                             IsVisible="{Binding HasTimestamp}" />
+                  <sc:StrataLineIcon Classes="job-wake-chevron" Data="{x:Static sc:StrataIcons.ChevronDown}" />
+                </StackPanel>
+              </Grid>
+            </Button>
 
-          <TextBlock Text="{Binding WakeSignal}"
-                     Margin="25,0,0,0"
-                     FontSize="12.5"
-                     Foreground="{DynamicResource Brush.TextSecondary}"
-                     TextWrapping="Wrap"
-                     MaxLines="2" />
-
-          <Expander Header="{loc:Str Jobs_Details}" Margin="25,0,0,0">
-            <StackPanel Spacing="10" Margin="0,4,0,0">
-              <WrapPanel Classes="transcript-chips">
-                <Border Classes="job-wake-pill" IsVisible="{Binding HasExitCode}">
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="{loc:Str Jobs_ResultExitCode}" Classes="caption tertiary" />
-                    <TextBlock Text="{Binding ExitCode}" Classes="caption" FontWeight="SemiBold" />
+            <!-- Opens and folds with the motion of a "worked for" row. -->
+            <lc:RevealPanel IsOpen="{Binding IsExpanded}"
+                            Classes.motion-disabled="{Binding !$parent[views:ChatView].((vm:ChatViewModel)DataContext).AreAnimationsEnabled}">
+              <StackPanel>
+                <Border Classes="job-wake-divider" />
+                <StackPanel Classes="job-wake-details">
+                  <StackPanel Spacing="5" IsVisible="{Binding HasInstructions}">
+                    <TextBlock Classes="job-wake-label" Text="{loc:Str Jobs_FieldPrompt}" />
+                    <SelectableTextBlock Classes="job-wake-instructions" Text="{Binding Instructions}" />
                   </StackPanel>
-                </Border>
-                <Border Classes="job-wake-pill" IsVisible="{Binding HasStarted}">
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="{loc:Str Jobs_ResultStarted}" Classes="caption tertiary" />
-                    <TextBlock Text="{Binding StartedText}" Classes="caption" />
+                  <StackPanel Spacing="6" IsVisible="{Binding HasOutput}">
+                    <DockPanel>
+                      <TextBlock DockPanel.Dock="Right" Classes="job-wake-run"
+                                 Text="{Binding RunText}" IsVisible="{Binding HasRunText}" />
+                      <TextBlock Classes="job-wake-label" Text="{loc:Str Jobs_ResultOutput}" />
+                    </DockPanel>
+                    <Border Classes="transcript-well">
+                      <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled">
+                        <SelectableTextBlock Classes="job-wake-output" Text="{Binding DisplayOutput}" />
+                      </ScrollViewer>
+                    </Border>
                   </StackPanel>
-                </Border>
-                <Border Classes="job-wake-pill" IsVisible="{Binding HasCompleted}">
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="{loc:Str Jobs_ResultCompleted}" Classes="caption tertiary" />
-                    <TextBlock Text="{Binding CompletedText}" Classes="caption" />
-                  </StackPanel>
-                </Border>
-              </WrapPanel>
-              <Border Classes="transcript-well" IsVisible="{Binding HasOutput}">
-                <TextBlock Classes="console-text"
-                           Text="{Binding OutputText}"
-                           Foreground="{DynamicResource Brush.TerminalPreviewOutput}" />
-              </Border>
-              <TextBlock Text="{Binding Instructions}"
-                         Classes="caption tertiary"
-                         TextWrapping="Wrap"
-                         IsVisible="{Binding HasInstructions}" />
-            </StackPanel>
-          </Expander>
-        </StackPanel>
-      </Border>
+                  <WrapPanel Classes="transcript-chips" IsVisible="{Binding HasActions}">
+                    <Button x:Name="JobWakeSourceChatButton"
+                            Classes="transcript-chip"
+                            Command="{Binding OpenSourceChatCommand}"
+                            IsVisible="{Binding CanOpenSourceChat}"
+                            AutomationProperties.Name="{loc:Str Jobs_OpenChat}">
+                      <StackPanel Orientation="Horizontal">
+                        <sc:StrataLineIcon Classes="chip-icon" Data="{x:Static sc:StrataIcons.Chat}" />
+                        <TextBlock Text="{Binding SourceChatTitle}" MaxWidth="240"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <sc:StrataLineIcon Classes="chip-chevron" Data="{x:Static sc:StrataIcons.ChevronRight}" />
+                      </StackPanel>
+                    </Button>
+                    <Button x:Name="JobWakeOpenJobButton"
+                            Classes="transcript-chip"
+                            Command="{Binding OpenJobCommand}"
+                            IsVisible="{Binding CanOpenJob}">
+                      <StackPanel Orientation="Horizontal">
+                        <sc:StrataLineIcon Classes="chip-icon" Data="{x:Static sc:StrataIcons.Clock}" />
+                        <TextBlock Text="{loc:Str JobWake_OpenJob}" VerticalAlignment="Center" />
+                        <sc:StrataLineIcon Classes="chip-chevron" Data="{x:Static sc:StrataIcons.ChevronRight}" />
+                      </StackPanel>
+                    </Button>
+                  </WrapPanel>
+                </StackPanel>
+              </StackPanel>
+            </lc:RevealPanel>
+          </StackPanel>
+        </Border>
+      </Grid>
     </DataTemplate>
 
     <!-- ── User message ─────────────────────────────── -->

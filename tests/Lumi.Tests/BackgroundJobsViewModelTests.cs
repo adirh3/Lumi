@@ -46,6 +46,45 @@ public sealed class BackgroundJobsViewModelTests
     }
 
     [Fact]
+    public void RefreshFromStore_SelectsTheJobAWakeNamed_OverItsChatsFirstJob()
+    {
+        var chat = CreateChat("Pull requests");
+        var firstJob = CreateJob(chat.Id, "A first watcher");
+        var wokenJob = CreateJob(chat.Id, "B second watcher");
+        var data = new AppData { Chats = [chat], BackgroundJobs = [firstJob, wokenJob] };
+        using var harness = CreateHarness(data);
+
+        harness.ViewModel.SetPreferredChat(chat, wokenJob.Id);
+        harness.ViewModel.RefreshFromStore();
+        Assert.Same(wokenJob, harness.ViewModel.SelectedJob);
+
+        // The named job is chosen once; reopening from the chat later picks its first job again.
+        harness.ViewModel.SetPreferredChat(chat);
+        harness.ViewModel.RefreshFromStore();
+        Assert.Same(firstJob, harness.ViewModel.SelectedJob);
+    }
+
+    [Fact]
+    public void RefreshFromStore_ShowsTheJobAWakeNamed_EvenWhenFiltersHideIt()
+    {
+        var chat = CreateChat("Pull requests");
+        var visibleJob = CreateJob(chat.Id, "A paused watcher");
+        var wokenJob = CreateJob(chat.Id, "B running watcher");
+        wokenJob.IsEnabled = true;
+        var data = new AppData { Chats = [chat], BackgroundJobs = [visibleJob, wokenJob] };
+        using var harness = CreateHarness(data);
+        harness.ViewModel.SearchQuery = "paused";
+        Assert.DoesNotContain(wokenJob, harness.ViewModel.Jobs);
+
+        harness.ViewModel.SetPreferredChat(chat, wokenJob.Id);
+        harness.ViewModel.RefreshFromStore();
+
+        Assert.Same(wokenJob, harness.ViewModel.SelectedJob);
+        Assert.Equal("", harness.ViewModel.SearchQuery);
+        Assert.Contains(wokenJob, harness.ViewModel.Jobs);
+    }
+
+    [Fact]
     public void DeleteSelectedJob_SelectsRemainingJob()
     {
         var chat = CreateChat("Monitoring");

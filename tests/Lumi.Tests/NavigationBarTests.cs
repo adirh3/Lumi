@@ -53,6 +53,36 @@ public sealed class NavigationBarTests
     }
 
     [Fact]
+    public void Jobs_OpensOnTheJobAWakeNamed_AndKeepsEditsWhenAlreadyOpen()
+    {
+        var chat = new Chat { Title = "Pull requests" };
+        var first = Job("A first watcher", chat.Id);
+        var second = Job("B second watcher", chat.Id);
+        using var vm = CreateMainViewModel(new AppData { Chats = [chat], BackgroundJobs = [first, second] });
+
+        vm.ShowAutomations(second.Id);
+        Assert.Equal(1, vm.SelectedNavIndex);
+        Assert.Same(second, vm.JobsVM.SelectedJob);
+
+        // Asked again from a detached chat window while Jobs is open: edits in progress stay.
+        vm.JobsVM.EditName = "Unsaved name";
+        vm.ShowAutomations();
+        vm.ShowAutomations(second.Id);
+        Assert.Same(second, vm.JobsVM.SelectedJob);
+        Assert.Equal("Unsaved name", vm.JobsVM.EditName);
+
+        vm.ShowAutomations(first.Id);
+        Assert.Same(first, vm.JobsVM.SelectedJob);
+        Assert.Equal("A first watcher", vm.JobsVM.EditName);
+
+        static BackgroundJob Job(string name, Guid chatId) => new()
+        {
+            Name = name, ChatId = chatId, Prompt = "Check something.",
+            TriggerType = BackgroundJobTriggerTypes.Time, ScheduleType = BackgroundJobScheduleTypes.Interval,
+        };
+    }
+
+    [Fact]
     public void Settings_ReopensMemories_WhenItWasTheLastSettingsPage()
     {
         using var vm = CreateMainViewModel(new AppData());

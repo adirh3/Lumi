@@ -20,6 +20,12 @@ internal sealed class BackgroundJobDeliveryInvalidatedException : Exception
 
 public sealed class BackgroundJobService : IDisposable
 {
+    /// <summary>How a time job's wake begins; a job wake in the transcript reads it as a scheduled run.</summary>
+    internal const string ScheduledRunContextPrefix = "Scheduled background job run at ";
+
+    /// <summary>How a chat-event job run from the Jobs page begins its wake.</summary>
+    internal const string ManualChatEventRunContextPrefix = "Chat-event background job was run manually at ";
+
     private static readonly TimeSpan MaxWallClockWaitSlice = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan SchedulerRetryDelay = TimeSpan.FromSeconds(15);
     private static readonly Encoding ScriptEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -701,8 +707,8 @@ public sealed class BackgroundJobService : IDisposable
                 await SaveAndNotifyAsync(ct);
 
             triggerContext ??= job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
-                ? $"Chat-event background job was run manually at {startedAt:yyyy-MM-dd HH:mm:ss zzz}."
-                : $"Scheduled background job run at {startedAt:yyyy-MM-dd HH:mm:ss zzz}.";
+                ? $"{ManualChatEventRunContextPrefix}{startedAt:yyyy-MM-dd HH:mm:ss zzz}."
+                : $"{ScheduledRunContextPrefix}{startedAt:yyyy-MM-dd HH:mm:ss zzz}.";
             ScriptTriggerResult? scriptResult = null;
 
             if (job.TriggerType == BackgroundJobTriggerTypes.Script)
@@ -1149,7 +1155,7 @@ public sealed class BackgroundJobService : IDisposable
         }
     }
 
-    private static ScriptTriggerResult ParseScriptOutput(
+    internal static ScriptTriggerResult ParseScriptOutput(
         string stdout,
         string stderr,
         int exitCode,
@@ -1306,7 +1312,11 @@ public sealed class BackgroundJobService : IDisposable
         return builder.ToString();
     }
 
-    private static string BuildChatEventTriggerContext(ChatLifecycleEvent chatEvent)
+    /// <summary>
+    /// What a chat event's wake says. A job wake in the transcript reads its first line
+    /// (<see cref="Lumi.ViewModels.JobWakeItem"/>) to name the source chat and its event, so keep the two in step.
+    /// </summary>
+    internal static string BuildChatEventTriggerContext(ChatLifecycleEvent chatEvent)
     {
         var builder = new StringBuilder()
             .Append("Chat event '")
@@ -1388,7 +1398,7 @@ public sealed class BackgroundJobService : IDisposable
         ChatLifecycleEvent SourceEvent,
         TaskCompletionSource Completion);
 
-    private sealed record ScriptTriggerResult(
+    internal sealed record ScriptTriggerResult(
         bool ShouldInvoke,
         string Summary,
         string Context,

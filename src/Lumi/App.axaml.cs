@@ -1261,10 +1261,10 @@ public partial class App : Application
         };
         chatVm.McpRepairRequested += windowVm.StartMcpRepairChatAsync;
 
-        void OnDetachedOpenAutomationsRequested()
+        void OnDetachedOpenAutomationsRequested(Guid? jobId)
         {
             ShowMainWindow();
-            (_mainWindow?.DataContext as MainViewModel)?.ShowAutomations();
+            (_mainWindow?.DataContext as MainViewModel)?.ShowAutomations(jobId);
         }
         chatVm.OpenAutomationsRequested += OnDetachedOpenAutomationsRequested;
 

@@ -160,7 +160,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         if (value == 1)
         {
-            JobsVM.SetPreferredChat(ChatVM.CurrentChat);
+            var jobId = _pendingJobSelection;
+            _pendingJobSelection = null;
+            JobsVM.SetPreferredChat(ChatVM.CurrentChat, jobId);
             JobsVM.RefreshFromStore();
         }
         else if (value == LibraryNavIndex)
@@ -905,10 +907,29 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _ = RevealChatAsync(chat);
     }
 
-    private void OnChatOpenAutomationsRequested() => ShowAutomations();
+    private void OnChatOpenAutomationsRequested(Guid? jobId) => ShowAutomations(jobId);
 
-    /// <summary>Shows the Jobs page, where the user's automations live.</summary>
-    public void ShowAutomations() => SelectedNavIndex = JobsNavIndex;
+    /// <summary>The job the Jobs page selects when it next opens, named by a job's wake.</summary>
+    private Guid? _pendingJobSelection;
+
+    /// <summary>Shows the Jobs page, where the user's automations live, on <paramref name="jobId"/> when given.</summary>
+    public void ShowAutomations(Guid? jobId = null)
+    {
+        if (SelectedNavIndex != JobsNavIndex)
+        {
+            _pendingJobSelection = jobId;
+            SelectedNavIndex = JobsNavIndex;
+            return;
+        }
+
+        // Already open (asked from a detached chat window): only another named job changes what it
+        // shows, and edits in progress are kept.
+        if (jobId is null || JobsVM.SelectedJob?.Id == jobId)
+            return;
+
+        JobsVM.SetPreferredChat(ChatVM.CurrentChat, jobId);
+        JobsVM.RefreshFromStore(preserveEditorBuffer: true);
+    }
 
     /// <summary>
     /// From a chat's connector list: Discover's connectors, searching for what the user typed, or the

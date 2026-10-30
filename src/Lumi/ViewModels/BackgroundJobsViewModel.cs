@@ -16,6 +16,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
     private readonly DataStore _dataStore;
     private readonly BackgroundJobService _jobService;
     private Guid? _preferredChatId;
+    private Guid? _preferredJobId;
     private bool _selectPreferredChatOnNextRefresh;
     private bool _isCreatingNewJob;
     private Guid? _preservedEditorJobId;
@@ -223,10 +224,15 @@ public partial class BackgroundJobsViewModel : ObservableObject
             AvailableChats.Add(chat);
     }
 
-    public void SetPreferredChat(Chat? chat)
+    /// <summary>
+    /// The chat whose job the page selects when it next refreshes, and the job itself when one is
+    /// named (a job's wake opens the page on that job); otherwise the chat's first job.
+    /// </summary>
+    public void SetPreferredChat(Chat? chat, Guid? jobId = null)
     {
         _preferredChatId = chat?.Id;
-        _selectPreferredChatOnNextRefresh = _preferredChatId is not null;
+        _preferredJobId = jobId;
+        _selectPreferredChatOnNextRefresh = _preferredChatId is not null || jobId is not null;
     }
 
     private Chat? GetPreferredChat()
@@ -383,13 +389,21 @@ public partial class BackgroundJobsViewModel : ObservableObject
             return false;
 
         _selectPreferredChatOnNextRefresh = false;
-        if (_preferredChatId is not { } preferredChatId)
-            return false;
-
+        var preferredJobId = _preferredJobId;
+        _preferredJobId = null;
         if (_isCreatingNewJob)
             return false;
 
-        var preferredJob = Jobs.FirstOrDefault(job => job.ChatId == preferredChatId);
+        // A job named by its wake shows even when the list's filters hid it.
+        if (preferredJobId is { } namedJobId
+            && Jobs.All(job => job.Id != namedJobId)
+            && _dataStore.SnapshotBackgroundJobs().Any(job => job.Id == namedJobId))
+        {
+            ResetFilters();
+        }
+
+        var preferredJob = (preferredJobId is { } jobId ? Jobs.FirstOrDefault(job => job.Id == jobId) : null)
+            ?? (_preferredChatId is { } preferredChatId ? Jobs.FirstOrDefault(job => job.ChatId == preferredChatId) : null);
         if (preferredJob is null || SelectedJob?.Id == preferredJob.Id)
             return false;
 

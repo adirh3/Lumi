@@ -4119,7 +4119,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ChatUpdated?.Invoke();
     }
 
-    private static string BuildBackgroundJobPrompt(BackgroundJob job, string triggerContext)
+    internal static string BuildBackgroundJobPrompt(BackgroundJob job, string triggerContext)
     {
         var builder = new StringBuilder();
         builder.Append("Background job triggered: ")

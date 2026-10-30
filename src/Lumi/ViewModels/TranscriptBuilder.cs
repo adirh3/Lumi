@@ -31,6 +31,7 @@ public class TranscriptBuilder
     private readonly Action? _subagentRunsChanged;
     private readonly Func<string, string>? _resolveFilePath;
     private readonly Action<MessageReply>? _openReplySourceAction;
+    private readonly Action<string>? _openJobAction;
     private readonly bool _foldProgressMessages;
     private readonly Func<ChatMessage, EmbeddedAppItem?>? _appItemFor;
     private readonly HashSet<ChatMessage> _shownApps = [];
@@ -177,7 +178,8 @@ public class TranscriptBuilder
         Func<string, string>? resolveFilePath = null,
         Action<MessageReply>? openReplySourceAction = null,
         bool foldProgressMessages = true,
-        Func<ChatMessage, EmbeddedAppItem?>? appItemFor = null)
+        Func<ChatMessage, EmbeddedAppItem?>? appItemFor = null,
+        Action<string>? openJobAction = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -195,6 +197,7 @@ public class TranscriptBuilder
         _openReplySourceAction = openReplySourceAction;
         _foldProgressMessages = foldProgressMessages;
         _appItemFor = appItemFor;
+        _openJobAction = openJobAction;
     }
 
     /// <summary>
@@ -1734,7 +1737,8 @@ public class TranscriptBuilder
             FinalizeCurrentTurn();
             _requestedAt = msgVm.Message.Timestamp;
 
-            AppendToCurrentTurn(new JobWakeItem(msgVm, showTimestamps), TurnStableIdFor($"job-wake:{msgVm.Message.Id}"));
+            AppendToCurrentTurn(new JobWakeItem(msgVm, showTimestamps, _openJobAction, _openChatAction),
+                TurnStableIdFor($"job-wake:{msgVm.Message.Id}"));
             BeginFileChipTurn(msgVm.Message.Id);
             FinalizeCurrentTurn();
             return;

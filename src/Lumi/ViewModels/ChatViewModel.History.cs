@@ -33,7 +33,8 @@ public partial class ChatViewModel
                 ? ResolveWorkspaceFileChangedPath(chat, path)
                 : path,
             openReplySourceAction: RequestReplySourceJump,
-            appItemFor: GetAppItem);
+            appItemFor: GetAppItem,
+            openJobAction: RequestOpenJob);
 
     /// <summary>True when <paramref name="message"/> belongs to the chat's stored history, before its live tail.</summary>
     private bool IsStoredHistoryMessage(Chat chat, ChatMessage message)

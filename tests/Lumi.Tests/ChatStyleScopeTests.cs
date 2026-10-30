@@ -42,7 +42,7 @@ public sealed class ChatStyleScopeTests
             host.IsViewportManaged = false;
         Pump(window);
         var card = transcript.GetVisualDescendants().OfType<Border>()
-            .Single(control => control.Classes.Contains("job-wake-card"));
+            .Single(control => control.Classes.Contains("job-wake"));
         Assert.NotNull(card.Background);
         Assert.NotNull(card.BorderBrush);
         Assert.Equal(new CornerRadius(16), card.CornerRadius);

@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -279,8 +281,35 @@ public sealed class LinkedChatItem : TranscriptItem
 
 // ── Background job wake event ──────────────────────────
 
-public sealed class JobWakeItem : TranscriptItem
+/// <summary>What woke the chat, read from how <see cref="BackgroundJobService"/> words its trigger.</summary>
+public enum JobWakeKind
 {
+    Other,
+    Scheduled,
+    RunManually,
+    Script,
+    ChatEvent,
+}
+
+/// <summary>
+/// A background job's wake, the opening of the turn it started: which job, why it ran (its schedule,
+/// a wake script's result or another chat's event) in words rather than the trigger text the model
+/// reads, and, opened, the job's instructions, the script's output and its run times.
+/// </summary>
+public sealed partial class JobWakeItem : TranscriptItem
+{
+    private static readonly Regex ChatEventPattern = new(
+        "^Chat event '(?<event>[^'\\r\\n]*)' occurred in source chat \"(?<title>[^\\r\\n]*)\" \\((?<id>[0-9a-fA-F-]{36})\\)",
+        RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly string[] ScriptOutputHeaders = ["Runner:", "Exit code:", "Started:", "Completed:"];
+
+    private readonly Action<string>? _openJob;
+    private readonly Action<Guid>? _openChat;
+
+    [ObservableProperty]
+    private bool _isExpanded;
+
+    public JobWakeKind Kind { get; }
     public string JobName { get; }
     public string TimestampText { get; }
     public string Instructions { get; }
@@ -289,15 +318,49 @@ public sealed class JobWakeItem : TranscriptItem
     public string StartedText { get; }
     public string CompletedText { get; }
     public string OutputText { get; }
-    public bool HasInstructions => !string.IsNullOrWhiteSpace(Instructions);
-    public bool HasExitCode => !string.IsNullOrWhiteSpace(ExitCode);
-    public bool HasStarted => !string.IsNullOrWhiteSpace(StartedText);
-    public bool HasCompleted => !string.IsNullOrWhiteSpace(CompletedText);
-    public bool HasOutput => !string.IsNullOrWhiteSpace(OutputText);
 
-    public JobWakeItem(ChatMessageViewModel source, bool showTimestamps)
+    /// <summary>Why the job ran, in a few words: "Scheduled run", "“Docs” finished".</summary>
+    public string ReasonText { get; }
+
+    /// <summary>What a wake script said when it woke the chat; empty for triggers that say nothing of their own.</summary>
+    public string BodyText { get; }
+
+    /// <summary>How long a wake script ran before it woke the chat, such as "ran 2m 14s".</summary>
+    public string DurationText { get; }
+
+    /// <summary>When the script ran, such as "PowerShell · 09:12:03 – 09:14:17".</summary>
+    public string RunText { get; }
+
+    /// <summary>The script's output without the runner, exit code and times shown above it.</summary>
+    public string DisplayOutput { get; }
+
+    /// <summary>The chat whose event woke this one, when a chat event did.</summary>
+    public Guid? SourceChatId { get; }
+    public string SourceChatTitle { get; }
+
+    public bool IsScheduled => Kind is JobWakeKind.Scheduled or JobWakeKind.RunManually;
+    public bool IsScript => Kind == JobWakeKind.Script;
+    public bool IsChatEvent => Kind == JobWakeKind.ChatEvent;
+    public bool IsFailed { get; }
+    public bool HasTimestamp => TimestampText.Length > 0;
+    public bool HasBody => BodyText.Length > 0;
+    public bool HasDuration => DurationText.Length > 0;
+    public bool HasRunText => RunText.Length > 0;
+    public bool HasInstructions => !string.IsNullOrWhiteSpace(Instructions);
+    public bool HasOutput => DisplayOutput.Length > 0;
+    public bool CanOpenSourceChat => SourceChatId is not null && _openChat is not null;
+    public bool CanOpenJob => _openJob is not null;
+    public bool HasActions => CanOpenSourceChat || CanOpenJob;
+
+    public JobWakeItem(
+        ChatMessageViewModel source,
+        bool showTimestamps,
+        Action<string>? openJob = null,
+        Action<Guid>? openChat = null)
         : base($"message:job-wake:{source.Message.Id}")
     {
+        _openJob = openJob;
+        _openChat = openChat;
         var details = Lumi.Remote.Protocol.RemoteJobWake.Parse(
             source.Author,
             source.Content,
@@ -312,6 +375,86 @@ public sealed class JobWakeItem : TranscriptItem
         StartedText = details.StartedText;
         CompletedText = details.CompletedText;
         OutputText = details.OutputText;
+        SourceChatTitle = "";
+        BodyText = "";
+        DurationText = "";
+        RunText = "";
+        DisplayOutput = OutputText.Trim();
+
+        var chatEvent = ChatEventPattern.Match(source.Content ?? "");
+        if (ExitCode.Length > 0)
+        {
+            Kind = JobWakeKind.Script;
+            IsFailed = ExitCode != "0";
+            ReasonText = IsFailed
+                ? Loc.Get(nameof(Loc.JobWake_ScriptFailed), ExitCode)
+                : Loc.JobWake_ScriptFinished;
+            // A script that wrote nothing, or wrote JSON, is described by its output rather than quoted.
+            BodyText = WakeSignal.StartsWith('{') || WakeSignal.StartsWith('[')
+                      || WakeSignal.StartsWith("The script did not write output", StringComparison.Ordinal)
+                ? ""
+                : WakeSignal;
+            var started = ParseRunTime(StartedText);
+            var completed = ParseRunTime(CompletedText);
+            if (started is { } from && completed is { } to && to >= from)
+                DurationText = Loc.Get(nameof(Loc.JobWake_RanFor), TranscriptBuilder.FormatWorkDuration(to - from));
+            DisplayOutput = WithoutScriptHeaders(OutputText, out var runner);
+            // A failed script is best told by its error, unless it wrote a message of its own.
+            if (IsFailed
+                && FirstLineAfter(DisplayOutput, "stderr:") is { Length: > 0 } error
+                && (BodyText.Length == 0 || BodyText == FirstLineAfter(DisplayOutput, "stdout:")))
+            {
+                BodyText = error;
+            }
+
+            // Output written only to stdout needs no stream label.
+            if (DisplayOutput.StartsWith("stdout:\n", StringComparison.Ordinal)
+                && !DisplayOutput.Contains("\nstderr:", StringComparison.Ordinal))
+            {
+                DisplayOutput = DisplayOutput["stdout:\n".Length..].Trim();
+            }
+
+            RunText = string.Join(" · ", new[]
+            {
+                runner,
+                StartedText.Length > 0 || CompletedText.Length > 0
+                    ? $"{FormatRunTime(started, StartedText)} – {FormatRunTime(completed, CompletedText)}".Trim(' ', '–')
+                    : "",
+            }.Where(static part => part.Length > 0));
+        }
+        else if (WakeSignal.StartsWith(BackgroundJobService.ScheduledRunContextPrefix, StringComparison.Ordinal))
+        {
+            Kind = JobWakeKind.Scheduled;
+            ReasonText = Loc.JobWake_Scheduled;
+        }
+        else if (WakeSignal.StartsWith(BackgroundJobService.ManualChatEventRunContextPrefix, StringComparison.Ordinal))
+        {
+            Kind = JobWakeKind.RunManually;
+            ReasonText = Loc.JobWake_RunManually;
+        }
+        else if (chatEvent.Success)
+        {
+            Kind = JobWakeKind.ChatEvent;
+            SourceChatTitle = chatEvent.Groups["title"].Value.Trim();
+            if (Guid.TryParse(chatEvent.Groups["id"].Value, out var sourceChatId))
+                SourceChatId = sourceChatId;
+            var title = SourceChatTitle.Length > 0 ? SourceChatTitle : Loc.Sidebar_NewChat;
+            ReasonText = Loc.Get(chatEvent.Groups["event"].Value switch
+            {
+                ChatLifecycleEventTypes.Idle => nameof(Loc.JobWake_EventIdle),
+                ChatLifecycleEventTypes.TurnStart => nameof(Loc.JobWake_EventTurnStart),
+                ChatLifecycleEventTypes.TurnEnd => nameof(Loc.JobWake_EventTurnEnd),
+                ChatLifecycleEventTypes.Error => nameof(Loc.JobWake_EventError),
+                ChatLifecycleEventTypes.Aborted => nameof(Loc.JobWake_EventAborted),
+                _ => nameof(Loc.JobWake_EventOther),
+            }, title);
+        }
+        else
+        {
+            Kind = JobWakeKind.Other;
+            ReasonText = Loc.Jobs_ChatWakeEyebrow;
+            BodyText = WakeSignal;
+        }
     }
 
     public static bool IsJobWakeMessage(ChatMessageViewModel source)
@@ -320,6 +463,67 @@ public sealed class JobWakeItem : TranscriptItem
 
     /// <summary>What in-chat search finds in the wake (see <see cref="TranscriptSearchText"/>).</summary>
     public string SearchText { get; }
+
+    [RelayCommand]
+    private void ToggleExpanded() => IsExpanded = !IsExpanded;
+
+    [RelayCommand]
+    private void OpenJob() => _openJob?.Invoke(JobName);
+
+    [RelayCommand]
+    private void OpenSourceChat()
+    {
+        if (SourceChatId is { } chatId)
+            _openChat?.Invoke(chatId);
+    }
+
+    private static DateTimeOffset? ParseRunTime(string text)
+        => DateTimeOffset.TryParseExact(text, "yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture,
+            DateTimeStyles.None, out var value)
+            ? value
+            : null;
+
+    private static string FormatRunTime(DateTimeOffset? time, string text)
+        => time?.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture) ?? text;
+
+    /// <summary>
+    /// The output a wake script printed, without the runner, exit code and times its wake lists first
+    /// (<see cref="BackgroundJobService"/>'s script output), which the card already shows.
+    /// </summary>
+    private static string WithoutScriptHeaders(string output, out string runner)
+    {
+        runner = "";
+        output = output.Replace("\r\n", "\n");
+        // A JSON wake without a message of its own carries its output twice; show it once.
+        var repeat = output.IndexOf("\nFull script output:", StringComparison.OrdinalIgnoreCase);
+        if (repeat >= 0)
+            output = output[..repeat];
+
+        var lines = output.Split('\n');
+        var start = 0;
+        while (start < lines.Length)
+        {
+            var line = lines[start].Trim();
+            var header = ScriptOutputHeaders.FirstOrDefault(prefix => line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            if (header is null)
+                break;
+            if (header == "Runner:")
+                runner = line[header.Length..].Trim();
+            start++;
+        }
+
+        return string.Join('\n', lines[start..]).Trim();
+    }
+
+    /// <summary>The first line written under <paramref name="header"/> ("stdout:", "stderr:") in a script's output.</summary>
+    private static string FirstLineAfter(string output, string header)
+    {
+        var lines = output.Split('\n');
+        var at = Array.FindIndex(lines, line => line.Trim() == header);
+        return at < 0
+            ? ""
+            : lines.Skip(at + 1).Select(static line => line.Trim()).FirstOrDefault(static line => line.Length > 0) ?? "";
+    }
 }
 
 // ── Assistant message ────────────────────────────────

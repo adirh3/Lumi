@@ -91,6 +91,13 @@ public sealed class TranscriptTurn : ObservableObject
     /// <summary>Opens the history row that folds <paramref name="item"/>. Returns false when it was not folded.</summary>
     internal bool RevealFoldedItem(TranscriptItem item)
     {
+        // A job's wake keeps its instructions and output folded; search opens them to show its hit.
+        if (item is JobWakeItem { IsExpanded: false } wake && Items.Contains(wake))
+        {
+            wake.IsExpanded = true;
+            return true;
+        }
+
         foreach (var summary in Items.OfType<TurnSummaryItem>())
         {
             if (!summary.InnerItems.Contains(item))

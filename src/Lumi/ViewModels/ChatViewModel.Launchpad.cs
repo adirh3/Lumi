@@ -30,8 +30,11 @@ public partial class ChatViewModel
     /// <summary>Raised when the launchpad opens a chat; the main window also reveals it in the sidebar.</summary>
     public event Action<Guid>? RevealChatRequested;
 
-    /// <summary>Raised when the launchpad asks to show the automations (Jobs) page.</summary>
-    public event Action? OpenAutomationsRequested;
+    /// <summary>
+    /// Raised when the launchpad, or a job's wake in the transcript, asks to show the automations (Jobs)
+    /// page; a wake names the job to select.
+    /// </summary>
+    public event Action<Guid?>? OpenAutomationsRequested;
 
     internal void RequestRevealChat(Guid chatId)
     {
@@ -41,7 +44,22 @@ public partial class ChatViewModel
             OpenChatRequested?.Invoke(chatId);
     }
 
-    internal void RequestOpenAutomations() => OpenAutomationsRequested?.Invoke();
+    internal void RequestOpenAutomations(Guid? jobId = null) => OpenAutomationsRequested?.Invoke(jobId);
+
+    /// <summary>
+    /// Shows the Jobs page on the job named by a wake in this chat. A wake records only the job's name,
+    /// so this chat's own job of that name is preferred, then the one that ran last.
+    /// </summary>
+    internal void RequestOpenJob(string jobName)
+    {
+        var chatId = CurrentChat?.Id;
+        var job = _dataStore.SnapshotBackgroundJobs()
+            .Where(job => string.Equals(job.Name, jobName, StringComparison.Ordinal))
+            .OrderByDescending(job => job.ChatId == chatId)
+            .ThenByDescending(job => job.LastRunStartedAt ?? DateTimeOffset.MinValue)
+            .FirstOrDefault();
+        RequestOpenAutomations(job?.Id);
+    }
 
     /// <summary>
     /// True while the draft carries a setup applied from the launchpad. It can be undone, and its
