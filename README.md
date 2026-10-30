@@ -10,7 +10,7 @@ the agent runtime.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[Download](#download) | [Help](#getting-help) | [Build from source](#getting-started) | [Contribute](CONTRIBUTING.md) | [Detailed guides](#documentation)
+[Website](https://letlumi.com) | [Download](#download) | [Help](#getting-help) | [Build from source](#getting-started) | [Contribute](CONTRIBUTING.md) | [Detailed guides](#documentation)
 
 ![Lumi's acrylic desktop window over a purple backdrop, showing code and an interactive review checklist](docs/images/lumi-desktop.png)
 
