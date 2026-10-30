@@ -203,14 +203,14 @@ public sealed class ChatCheckoutTests
                 };
                 using var vm = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
                 vm.SetProjectId(first.Id);
-                await vm.RefreshCodingProjectState();
+                await WaitForGitRefreshAsync(vm);
                 showedEditedChanges = vm.ShowCheckoutChanges;
 
                 // The edited folder's changes say nothing about the clean one: they leave at once, not when
                 // git answers for the new folder.
                 vm.SetProjectId(second.Id);
                 showedAfterMove = vm.ShowCheckoutChanges;
-                await vm.RefreshCodingProjectState();
+                await WaitForGitRefreshAsync(vm);
                 showedOnceSettled = vm.ShowCheckoutChanges;
             }, CancellationToken.None);
 
@@ -260,6 +260,14 @@ public sealed class ChatCheckoutTests
                        && (text.Classes.Contains("diff-added") || text.Classes.Contains("diff-removed")))
         .Select(text => text.Text ?? "")
         .ToArray();
+
+    private static async Task WaitForGitRefreshAsync(ChatViewModel vm)
+    {
+        // SetProjectId already starts the refresh; a second one can outlive fixture cleanup.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (vm.IsRefreshingGitStatus)
+            await Task.Delay(10, timeout.Token);
+    }
 
     private static Border ProjectChip(StrataChatComposer composer) => composer.GetVisualDescendants()
         .OfType<Border>()

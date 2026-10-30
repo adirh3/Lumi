@@ -505,11 +505,14 @@ public sealed class ChatWorkspaceViewTests
             window.Show();
             try
             {
+                // Draining dispatcher jobs alone does not realize the sidebar's list containers.
+                window.UpdateLayout();
                 await PumpAsync();
+                window.UpdateLayout();
 
-                var listItem = window.GetVisualDescendants()
-                    .OfType<ListBoxItem>()
-                    .First(item => ReferenceEquals(item.DataContext, chat));
+                var listItem = Assert.Single(window.GetVisualDescendants()
+                    .OfType<ListBoxItem>(), item => ReferenceEquals(item.DataContext, chat));
+                Assert.True(listItem.Bounds.Width > 0 && listItem.Bounds.Height > 0);
                 var topLeft = listItem.TranslatePoint(new Point(0, 0), window)
                     ?? throw new InvalidOperationException("Chat list item is not attached.");
                 var point = topLeft + new Point(listItem.Bounds.Width / 2, listItem.Bounds.Height / 2);

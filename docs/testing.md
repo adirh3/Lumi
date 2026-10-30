@@ -193,6 +193,13 @@ catalog too; changing theory arguments does not. Do not move a
 flaky test into CoreQA or add retries to make a gate green. Keep native/Skia
 dispatcher tests in their existing isolated processes.
 
+Headless pointer tests must flush window layout before locating generated list
+containers and measuring click coordinates. Draining dispatcher queues alone
+does not guarantee that the next layout pass has realized those containers.
+Tests that select a checkout wait for that selection's automatic Git refresh;
+starting a duplicate refresh can leave native Git processes using the fixture
+directory during cleanup.
+
 Add headed scenarios in `QaSmokeHarness`, register their IDs in
 `QaSmokeReport.ScenarioIds`, and assert outcomes rather than incidental control
 positions, model prose, or elapsed time. Use a named control or an existing
