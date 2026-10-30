@@ -1,0 +1,486 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Lumi.Mobile.Localization"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
+             xmlns:behaviors="using:Lumi.Mobile.Behaviors"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:sa="using:StrataTheme.Animation"
+             x:Class="Lumi.Mobile.Views.FilePreviewView"
+             x:DataType="vm:FilePreviewViewModel"
+             FlowDirection="{x:Static loc:ChatSessionStrings.UiFlowDirection}"
+             sc:StrataTextSelection.IsTouchSelectionEnabled="False">
+
+  <!--
+    A file Lumi made, in its own pane, as the desktop's Workspace previews it. The header names the
+    file and closes the pane; the file fills the rest; its actions float over it in the composer's glass,
+    where the thumb is. Every rule here is scoped to this view.
+  -->
+  <UserControl.Styles>
+    <Style Selector="views|FilePreviewView Border.preview-header">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.ChatPaneSeparation}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.preview-tile">
+      <Setter Property="Width" Value="40" />
+      <Setter Property="Height" Value="40" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Background" Value="{DynamicResource Brush.RowTile}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.preview-tile > Image">
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.preview-tile.large">
+      <Setter Property="Width" Value="72" />
+      <Setter Property="Height" Value="72" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.preview-tile.large > Image">
+      <Setter Property="Width" Value="40" />
+      <Setter Property="Height" Value="40" />
+    </Style>
+    <Style Selector="views|FilePreviewView TextBlock.preview-title">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="MaxLines" Value="1" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="views|FilePreviewView TextBlock.preview-subtitle">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="MaxLines" Value="1" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <!-- The note that only the start of a long file is shown: quiet, beneath the header. -->
+    <Style Selector="views|FilePreviewView Border.preview-notice">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="Padding" Value="16,8" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.preview-notice TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- The file's actions: one floating glass pill, each action a labelled 48 dp segment. -->
+    <Style Selector="views|FilePreviewView Border.preview-actions">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="26" />
+      <Setter Property="Padding" Value="3" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+    </Style>
+    <Style Selector="views|FilePreviewView Button.preview-action">
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="Padding" Value="14,0,16,0" />
+      <Setter Property="CornerRadius" Value="23" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="views|FilePreviewView Button.preview-action /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="views|FilePreviewView Button.preview-action:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlassPressed}" />
+      <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="views|FilePreviewView Button.preview-action /template/ Border#PART_Aurora">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="views|FilePreviewView Button.preview-action sc|StrataLineIcon">
+      <Setter Property="Width" Value="19" />
+      <Setter Property="Height" Value="19" />
+      <Setter Property="StrokeThickness" Value="1.8" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="views|FilePreviewView Button.preview-action TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.preview-toast">
+      <Setter Property="Background" Value="{DynamicResource Brush.FloatingGlass}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.FloatingGlassRim}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="Padding" Value="16,9" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingGlass}" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.preview-toast TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="TextAlignment" Value="Center" />
+    </Style>
+
+    <!-- A state in place of the file (loading, error, no preview): centred, calm, one primary action. -->
+    <Style Selector="views|FilePreviewView StackPanel.preview-state">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="MaxWidth" Value="360" />
+      <Setter Property="Margin" Value="28,24" />
+      <Setter Property="Spacing" Value="10" />
+    </Style>
+    <Style Selector="views|FilePreviewView TextBlock.preview-state-title">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeSubtitle}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="TextAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="views|FilePreviewView TextBlock.preview-state-detail">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="LineHeight" Value="{DynamicResource Font.LineHeightMeta}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="views|FilePreviewView Button.preview-state-action">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="CornerRadius" Value="24" />
+    </Style>
+    <Style Selector="views|FilePreviewView sc|StrataLineIcon.preview-state-icon">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="StrokeThickness" Value="1.7" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+
+    <!-- Code reads in the mono face at a compact size; prose wraps at body size. -->
+    <Style Selector="views|FilePreviewView sc|StrataCodeBlock.preview-code > SelectableTextBlock">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+      <Setter Property="FontSize" Value="13.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+
+    <!-- PDF pages: white sheets on a quiet backdrop, the shadow of paper and nothing more. -->
+    <Style Selector="views|FilePreviewView views|PdfPageView">
+      <Setter Property="Background" Value="White" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="BoxShadow" Value="0 1 3 0 #33000000, 0 6 18 -8 #59000000" />
+      <Setter Property="Margin" Value="0,0,0,14" />
+      <Setter Property="MaxWidth" Value="920" />
+    </Style>
+
+    <!-- The table: a sticky header, striped rows and numbers aligned on the right. -->
+    <Style Selector="views|FilePreviewView Border.csv-header">
+      <Setter Property="Background" Value="{DynamicResource Brush.GroupSurface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.RowDivider}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="MinHeight" Value="44" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.csv-row">
+      <Setter Property="Height" Value="42" />
+    </Style>
+    <Style Selector="views|FilePreviewView Border.csv-row.alternate">
+      <Setter Property="Background" Value="{DynamicResource Brush.QuietField}" />
+    </Style>
+    <Style Selector="views|FilePreviewView TextBlock.csv-cell">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Padding" Value="12,0" />
+      <Setter Property="MaxLines" Value="1" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="views|FilePreviewView TextBlock.csv-cell.numeric">
+      <Setter Property="TextAlignment" Value="Right" />
+    </Style>
+    <Style Selector="views|FilePreviewView TextBlock.csv-cell.heading">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="views|FilePreviewView TextBlock.csv-number">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextAlignment" Value="Right" />
+      <Setter Property="Padding" Value="0,0,12,0" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid x:Name="PreviewRoot" RowDefinitions="Auto,Auto,*">
+
+    <!-- ═══ Header: the file, and the way back to the chat ═══ -->
+    <Border x:Name="PreviewHeader" Classes="preview-header" Padding="12,10">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12" MinHeight="{DynamicResource Touch.MinTarget}">
+        <Button x:Name="PreviewBackButton" Classes="chat-header-action floating-action"
+                Click="OnCloseClick"
+                AutomationProperties.Name="{loc:Str BackToChat}">
+          <PathIcon Width="24" Height="24" Data="{DynamicResource Mobile.Icon.Back}" />
+        </Button>
+        <Border x:Name="PreviewFileTile" Grid.Column="1" Classes="preview-tile">
+          <Image Source="{Binding FileName, Converter={x:Static views:FileTypeIconConverter.Instance}}" />
+        </Border>
+        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+          <TextBlock x:Name="PreviewTitle" Classes="preview-title" Text="{Binding FileName}" />
+          <TextBlock x:Name="PreviewSubtitle" Classes="preview-subtitle" Text="{Binding Subtitle}" />
+        </StackPanel>
+        <Button x:Name="PreviewCloseButton" Grid.Column="3" Classes="chat-header-action"
+                Click="OnCloseClick"
+                AutomationProperties.Name="{loc:Str FilePreviewClose}">
+          <sc:StrataLineIcon Classes="header-glyph" Data="{x:Static sc:StrataIcons.Cross}" />
+        </Button>
+      </Grid>
+    </Border>
+
+    <StackPanel Grid.Row="1">
+      <ProgressBar x:Name="PreviewProgress" Height="2" IsIndeterminate="True"
+                   IsVisible="{Binding ShowLoading}" />
+      <Border x:Name="PreviewLimitNotice" Classes="preview-notice" IsVisible="{Binding ShowLimitNotice}">
+        <TextBlock Text="{Binding LimitNoticeText}" />
+      </Border>
+    </StackPanel>
+
+    <!-- ═══ The file ═══ -->
+    <Panel x:Name="PreviewBody" Grid.Row="2" ClipToBounds="True">
+
+      <!-- Images: fitted, then pinch, double-tap or drag to look closer. -->
+      <sc:StrataImageViewport x:Name="PreviewImage"
+                              Source="{Binding Image}"
+                              IsVisible="{Binding ShowImage}" />
+
+      <!-- The ScrollViewer measures a layout container, never the markdown itself. -->
+      <ScrollViewer x:Name="PreviewMarkdownScroll" Classes="mobile-scroll"
+                    IsVisible="{Binding ShowMarkdown}"
+                    HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="PreviewMarkdownContent" Classes="preview-content" MaxWidth="760">
+          <sc:StrataMarkdown x:Name="PreviewMarkdown"
+                             Markdown="{Binding Text}"
+                             InteractionLanguage="{x:Static loc:ChatSessionStrings.Language}"
+                             IsInline="True"
+                             behaviors:NativeTextSelection.IsEnabled="True"
+                             behaviors:NativeTextSelection.Text="{Binding Text}" />
+        </StackPanel>
+      </ScrollViewer>
+
+      <ScrollViewer x:Name="PreviewCodeScroll" Classes="mobile-scroll"
+                    IsVisible="{Binding ShowCode}"
+                    FlowDirection="LeftToRight"
+                    HorizontalScrollBarVisibility="Auto">
+        <StackPanel x:Name="PreviewCodeContent" Classes="preview-content">
+          <sc:StrataCodeBlock x:Name="PreviewCode" Classes="preview-code"
+                              Text="{Binding Text}"
+                              Language="{Binding CodeLanguage}"
+                              behaviors:NativeTextSelection.IsEnabled="True"
+                              behaviors:NativeTextSelection.Text="{Binding Text}" />
+        </StackPanel>
+      </ScrollViewer>
+
+      <ScrollViewer x:Name="PreviewTextScroll" Classes="mobile-scroll"
+                    IsVisible="{Binding ShowText}"
+                    HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="PreviewTextContent" Classes="preview-content" MaxWidth="760">
+          <SelectableTextBlock x:Name="PreviewText"
+                               Text="{Binding Text}"
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource Font.SizeBody}"
+                               LineHeight="{DynamicResource Font.LineHeightBody}"
+                               Foreground="{DynamicResource Brush.TextPrimary}"
+                               behaviors:NativeTextSelection.IsEnabled="True"
+                               behaviors:NativeTextSelection.Text="{Binding Text}" />
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- CSV: the table scrolls sideways as one; its rows scroll beneath a header that stays put.
+           The table is its own data context, so no binding reaches through a file that has none. -->
+      <ScrollViewer x:Name="PreviewCsvScroll" Classes="mobile-scroll"
+                    IsVisible="{Binding ShowCsv}"
+                    FlowDirection="LeftToRight"
+                    HorizontalScrollBarVisibility="Auto"
+                    VerticalScrollBarVisibility="Disabled">
+        <Panel DataContext="{Binding Table}">
+          <DockPanel x:Name="PreviewCsvTable" x:DataType="vm:CsvPreviewTable" Width="{Binding Width}">
+            <Border x:Name="PreviewCsvHeader" DockPanel.Dock="Top" Classes="csv-header">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Classes="csv-number" Text="#" Width="{Binding RowNumberWidth}" />
+                <ItemsControl ItemsSource="{Binding Columns}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:CsvPreviewColumn">
+                      <TextBlock Classes="csv-cell heading" Classes.numeric="{Binding IsNumeric}"
+                                 Width="{Binding Width}" Text="{Binding Header}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+            <ScrollViewer x:Name="PreviewCsvRowsScroll" Classes="mobile-scroll"
+                          HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl x:Name="PreviewCsvRows" ItemsSource="{Binding Rows}" Classes="preview-content">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <VirtualizingStackPanel />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CsvPreviewRow">
+                    <Border Classes="csv-row" Classes.alternate="{Binding IsAlternate}">
+                      <StackPanel Orientation="Horizontal">
+                        <TextBlock Classes="csv-number" Text="{Binding NumberText}" Width="{Binding NumberWidth}" />
+                        <ItemsControl ItemsSource="{Binding Cells}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                              <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:CsvPreviewCell">
+                              <TextBlock Classes="csv-cell" Classes.numeric="{Binding IsNumeric}"
+                                         Width="{Binding Width}" Text="{Binding Text}" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
+        </Panel>
+      </ScrollViewer>
+
+      <!-- PDF: its pages as sheets, each drawn only while it is near the screen. -->
+      <ScrollViewer x:Name="PreviewPdfScroll" Classes="mobile-scroll"
+                    IsVisible="{Binding ShowPdf}"
+                    HorizontalScrollBarVisibility="Disabled">
+        <Panel DataContext="{Binding Pdf}">
+          <ItemsControl x:Name="PreviewPdfPages" x:DataType="vm:PdfPreviewViewModel" Classes="preview-content"
+                        ItemsSource="{Binding Pages}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <VirtualizingStackPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:PdfPageViewModel">
+                <views:PdfPageView />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Panel>
+      </ScrollViewer>
+
+      <!-- Loading: the file's own tile breathing where the file will be. -->
+      <StackPanel x:Name="PreviewLoadingState" Classes="preview-state" IsVisible="{Binding ShowLoading}">
+        <Border Classes="preview-tile large"
+                sa:LifecycleOpacityPulse.IsActive="True"
+                sa:LifecycleOpacityPulse.FromOpacity="0.45"
+                sa:LifecycleOpacityPulse.ToOpacity="1"
+                sa:LifecycleOpacityPulse.Duration="0:0:0.9"
+                sa:LifecycleOpacityPulse.PlaybackDirection="Alternate">
+          <Image Source="{Binding FileName, Converter={x:Static views:FileTypeIconConverter.Instance}}" />
+        </Border>
+        <TextBlock Classes="preview-state-detail" Text="{loc:Str FilePreviewLoading}" />
+      </StackPanel>
+
+      <TextBlock x:Name="PreviewEmptyState" Classes="preview-state-detail"
+                 IsVisible="{Binding ShowEmpty}"
+                 VerticalAlignment="Center" HorizontalAlignment="Center" Margin="28"
+                 Text="{loc:Str FilePreviewEmpty}" />
+
+      <StackPanel x:Name="PreviewErrorState" Classes="preview-state" IsVisible="{Binding HasError}">
+        <sc:StrataLineIcon Classes="preview-state-icon" Data="{x:Static sc:StrataIcons.Alert}" />
+        <TextBlock Classes="preview-state-title" Text="{loc:Str FilePreviewFailedTitle}" />
+        <TextBlock x:Name="PreviewErrorText" Classes="preview-state-detail" Text="{Binding ErrorText}" />
+        <StackPanel Spacing="8" Margin="0,10,0,0">
+          <Button x:Name="PreviewRetryButton" Classes="accent touch preview-state-action"
+                  Command="{Binding RetryCommand}"
+                  Content="{loc:Str TryAgain}" />
+          <Button Classes="subtle touch preview-state-action"
+                  Click="OnOpenClick"
+                  IsEnabled="{Binding !IsActionRunning}"
+                  Content="{Binding OpenLabel}" />
+        </StackPanel>
+      </StackPanel>
+
+      <!-- No preview for this kind of file: what it is, and where it can open. -->
+      <StackPanel x:Name="PreviewUnsupportedState" Classes="preview-state" IsVisible="{Binding ShowUnsupported}">
+        <Border Classes="preview-tile large" Margin="0,0,0,6">
+          <Image Source="{Binding FileName, Converter={x:Static views:FileTypeIconConverter.Instance}}" />
+        </Border>
+        <TextBlock Classes="preview-state-title" Text="{loc:Str FilePreviewUnsupportedTitle}" />
+        <TextBlock Classes="preview-state-detail" Text="{loc:Str FilePreviewUnsupportedDetail}" />
+        <StackPanel Spacing="8" Margin="0,10,0,0">
+          <Button x:Name="PreviewUnsupportedOpenButton" Classes="accent touch preview-state-action"
+                  Click="OnOpenClick"
+                  IsEnabled="{Binding !IsActionRunning}"
+                  Content="{Binding OpenLabel}" />
+          <Button x:Name="PreviewUnsupportedShareButton" Classes="subtle touch preview-state-action"
+                  Click="OnShareClick"
+                  IsVisible="{Binding CanShare}"
+                  IsEnabled="{Binding !IsActionRunning}"
+                  Content="{loc:Str FilePreviewShare}" />
+          <Button x:Name="PreviewUnsupportedSaveButton" Classes="subtle touch preview-state-action"
+                  Click="OnSaveClick"
+                  IsVisible="{Binding CanSave}"
+                  IsEnabled="{Binding !IsActionRunning}"
+                  Content="{loc:Str FilePreviewSave}" />
+        </StackPanel>
+      </StackPanel>
+
+      <!-- ═══ The file's actions, floating where the thumb is ═══ -->
+      <StackPanel x:Name="PreviewActionsHost" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                  Margin="12,0,12,16" Spacing="10">
+        <Border x:Name="PreviewActionMessage" Classes="preview-toast" IsVisible="{Binding HasActionMessage}">
+          <TextBlock Text="{Binding ActionMessage}" />
+        </Border>
+        <Panel x:Name="PreviewActionsBar" IsVisible="{Binding ShowContentActions}" HorizontalAlignment="Center">
+          <sc:StrataBackdropBlur Classes="floating-frost" CornerRadius="26" />
+          <Border x:Name="PreviewActions" Classes="preview-actions">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+              <Button x:Name="PreviewOpenButton" Classes="preview-action"
+                      Click="OnOpenClick"
+                      IsEnabled="{Binding !IsActionRunning}"
+                      AutomationProperties.Name="{Binding OpenLabel}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <sc:StrataLineIcon Data="M13.5 4.5h6v6 M19.5 4.5 11 13 M17.5 13.5V18a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 18V8A1.5 1.5 0 0 1 6 6.5h4.5" />
+                  <TextBlock Text="{Binding OpenLabel}" />
+                </StackPanel>
+              </Button>
+              <Button x:Name="PreviewShareButton" Classes="preview-action"
+                      Click="OnShareClick"
+                      IsVisible="{Binding CanShare}"
+                      IsEnabled="{Binding !IsActionRunning}"
+                      AutomationProperties.Name="{loc:Str FilePreviewShare}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <sc:StrataLineIcon Data="M17 3.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z M7 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z M17 15.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z M9.2 13.3l5.6 3.3 M14.8 7.4 9.2 10.7" />
+                  <TextBlock Text="{loc:Str FilePreviewShare}" />
+                </StackPanel>
+              </Button>
+              <Button x:Name="PreviewSaveButton" Classes="preview-action"
+                      Click="OnSaveClick"
+                      IsVisible="{Binding CanSave}"
+                      IsEnabled="{Binding !IsActionRunning}"
+                      AutomationProperties.Name="{loc:Str FilePreviewSave}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <sc:StrataLineIcon Data="{x:Static sc:StrataIcons.Download}" />
+                  <TextBlock Text="{loc:Str FilePreviewSave}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+          </Border>
+        </Panel>
+      </StackPanel>
+    </Panel>
+  </Grid>
+</UserControl>

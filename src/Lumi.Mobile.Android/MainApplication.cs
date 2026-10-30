@@ -30,6 +30,7 @@ public class MainApplication : AvaloniaAndroidApplication<App>
         RemotePlatformServices.RouteVerifier = new AndroidRemoteRouteVerifier(this);
         MobilePlatformServices.NetworkMonitor = new AndroidNetworkMonitor(this);
         MobilePlatformServices.ProducedFileOpener = new AndroidProducedFileOpener(this);
+        MobilePlatformServices.PdfPreviewRenderer = new AndroidPdfPreviewRenderer();
         MobilePlatformServices.TextShare = new AndroidTextShareService(this);
         // Strata/theme defaults read the culture when their types and XAML are first loaded.
         Strings.Load(new MobileSettingsStore().Load().Language);

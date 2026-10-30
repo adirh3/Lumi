@@ -99,6 +99,7 @@ internal sealed class MobilePresenceController : IDisposable
 
     private bool CanAnimate => _shell is { IsChatPage: true } shell
                                && !shell.IsNavigationCoveringContent && !shell.Chat.IsGitChangesOpen
+                               && !shell.IsFilePreviewCoveringChat
                                && _host.IsEffectivelyVisible && !LifecycleOpacityPulse.GetIsPaused(_host);
 
     private void OnHostPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -258,7 +259,8 @@ internal sealed class MobilePresenceController : IDisposable
     {
         if (e.PropertyName is nameof(MobileShellViewModel.IsLive)
             or nameof(MobileShellViewModel.Page)
-            or nameof(MobileShellViewModel.IsNavigationCoveringContent))
+            or nameof(MobileShellViewModel.IsNavigationCoveringContent)
+            or nameof(MobileShellViewModel.IsFilePreviewCoveringChat))
         {
             Sync();
         }

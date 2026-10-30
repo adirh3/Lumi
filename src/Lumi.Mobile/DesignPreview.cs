@@ -13,6 +13,21 @@ namespace Lumi.Mobile;
 public static class DesignPreview
 {
     /// <summary>
+    /// Opens one of the design chat's files in its preview pane, as a tap on its chip does, so each
+    /// kind of file can be judged at every size (simulator <c>--open-file</c>, Android <c>lumi.open_file</c>).
+    /// </summary>
+    public static void OpenFile(MobileShellViewModel shell, string fileName)
+    {
+        shell.IsDrawerOpen = false;
+        shell.Chat.OpenFilePreviewCommand.Execute(new RemoteAttachment
+        {
+            FileName = fileName,
+            Extension = Path.GetExtension(fileName),
+            MessageId = Guid.NewGuid()
+        });
+    }
+
+    /// <summary>
     /// A paired, populated app on local fixture data: chats across projects in every state, a
     /// conversation, and each place's items. Nothing touches a PC; commands simply go nowhere.
     /// </summary>
@@ -223,6 +238,8 @@ public static class DesignPreview
         shell.ChatList.SelectedChatId = open.Id;
         shell.Chat.ProjectValue = lumi.Id.ToString();
         shell.Chat.ProjectName = lumi.Name;
+        // The files Lumi made in this chat open in the preview from local fixtures, as a PC would send them.
+        shell.DesignPreviewFiles = DesignPreviewFiles.DownloadAsync;
         shell.Chat.PlanContent = "## Fix the keyboard gap\n\n- [x] Reproduce on the Fold cover screen\n- [x] Clear cached insets on deactivate\n- [x] Read fresh IME insets on resume\n- [ ] Verify on the unfolded screen";
         shell.Chat.PlanContent += "\n\n## Touch viewers\n\nOpen either visual full screen to try pinch-to-zoom, panning and Back.\n\n"
             + "```mermaid\nflowchart LR\n    Phone[Phone or Fold] --> Viewer[Full-screen viewer]\n    Viewer --> Zoom[Pinch and pan]\n    Zoom --> Back[Back to the same screen]\n```\n\n"
@@ -312,7 +329,8 @@ public static class DesignPreview
                     Attachments =
                     [
                         new() { FileName = "fold-resume-after.png", Extension = ".png", MessageId = Guid.NewGuid() },
-                        new() { FileName = "keyboard-gap-report.md", Extension = ".md", MessageId = Guid.NewGuid() }
+                        new() { FileName = "keyboard-gap-report.md", Extension = ".md", MessageId = Guid.NewGuid() },
+                        new() { FileName = "ComposerInsetTests.cs", Extension = ".cs", MessageId = Guid.NewGuid() }
                     ]
                 }
             ]
@@ -354,6 +372,16 @@ public static class DesignPreview
                     Id = "answer-2", Kind = RemoteProtocol.ItemKinds.Assistant, Author = "Lumi", Model = "claude-opus-5.5", Timestamp = now.AddMinutes(-10),
                     Text = "The layout checks pass at large display size, with no stale keyboard gap.",
                     IsProgress = false
+                },
+                new()
+                {
+                    Id = "file-2", Kind = RemoteProtocol.ItemKinds.File, Timestamp = now.AddMinutes(-10),
+                    Attachments =
+                    [
+                        new() { FileName = "fold-layout-report.pdf", Extension = ".pdf", MessageId = Guid.NewGuid() },
+                        new() { FileName = "fold-layout-metrics.csv", Extension = ".csv", MessageId = Guid.NewGuid() },
+                        new() { FileName = "Lumi-1.0-release-notes.docx", Extension = ".docx", MessageId = Guid.NewGuid() }
+                    ]
                 }
             ]
         },

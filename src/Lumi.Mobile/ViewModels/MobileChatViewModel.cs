@@ -127,13 +127,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public bool HasSidePanelOpen => UseSidePanels && (IsPlanOpen || IsSourcesSheetOpen || IsActivitySheetOpen);
 
     // Beside the chat there is room for one supporting panel, as on the desktop: opening one
-    // replaces the other, so it never lands hidden underneath.
+    // replaces the other, so it never lands hidden underneath. A file preview is one of them too.
     partial void OnIsPlanOpenChanged(bool value)
     {
         if (!value || !UseSidePanels)
             return;
         IsSourcesSheetOpen = false;
         IsActivitySheetOpen = false;
+        CloseFilePreview();
     }
 
     partial void OnIsSourcesSheetOpenChanged(bool value)
@@ -142,6 +143,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
         IsPlanOpen = false;
         IsActivitySheetOpen = false;
+        CloseFilePreview();
     }
 
     partial void OnIsActivitySheetOpenChanged(bool value)
@@ -150,6 +152,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
         IsPlanOpen = false;
         IsSourcesSheetOpen = false;
+        CloseFilePreview();
     }
 
     [ObservableProperty] private AssistantItemViewModel? _selectedSourceAnswer;
@@ -1286,6 +1289,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return true;
         }
 
+        if (IsFilePreviewOpen)
+        {
+            CloseFilePreview();
+            return true;
+        }
+
         return false;
     }
 
@@ -1333,6 +1342,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         IsJobWakeSheetOpen = false;
         SelectedJobWake = null;
         ResetGitChanges();
+        // A preview belongs to its chat. A blank chat adopting the ID the PC gave it is the same surface.
+        if (FilePreview is { } preview && preview.ChatId != value)
+            ReplaceFilePreview(null);
         OnPropertyChanged(nameof(HasChat));
         OnPropertyChanged(nameof(CanChooseWorktree));
         OnPropertyChanged(nameof(RunSettingsSummary));
@@ -1975,6 +1987,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public void Reset(Guid chatId, string title, string? model = null, bool isLoading = false)
     {
         ResetGitChanges();
+        ReplaceFilePreview(null);
         var previousSurface = CurrentSurface;
         SaveDraft(previousSurface);
 

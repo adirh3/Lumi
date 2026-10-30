@@ -35,6 +35,7 @@ public static class Program
         var interactiveProfile = ReadOption(args, "--interactive-controls");
         var popupPreview = args.Contains("--popup-preview");
         var designPreview = args.Contains("--design-preview");
+        var designFile = ReadOption(args, "--open-file");
 #endif
 
         App.DesktopWindowFactory = () =>
@@ -48,7 +49,7 @@ public static class Program
             if (popupPreview)
                 window.Opened += (_, _) => window.OpenPopupPreview();
             if (designPreview)
-                window.Opened += (_, _) => window.OpenDesignPreview();
+                window.Opened += (_, _) => window.OpenDesignPreview(designFile);
 #endif
             return window;
         };

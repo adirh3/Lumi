@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Avalonia;
 using Avalonia.Input;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Lumi.Mobile.Views;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
@@ -13,6 +14,54 @@ public interface IProducedFileOpener
         string downloadedPath,
         string displayName,
         CancellationToken cancellationToken);
+
+    /// <summary>The platform can hand a downloaded file to another app through its share sheet.</summary>
+    bool CanShare => false;
+
+    Task<bool> TryShareAsync(
+        string downloadedPath,
+        string displayName,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(false);
+
+    /// <summary>
+    /// Opening a file already saves it, as a browser download does, so offering Save beside Open would
+    /// only repeat it.
+    /// </summary>
+    bool OpensBySaving => false;
+}
+
+/// <summary>Renders the pages of a PDF on this device, where the platform has a renderer.</summary>
+public interface IPdfPreviewRenderer
+{
+    bool IsAvailable { get; }
+
+    Task<IPdfPreviewDocument> OpenAsync(string path, CancellationToken cancellationToken);
+}
+
+/// <summary>An open PDF. Rendering runs one page at a time, off the UI thread.</summary>
+public interface IPdfPreviewDocument : IDisposable
+{
+    /// <summary>The pages this preview shows, at most <see cref="PdfPreviewLimits.MaxPages"/>.</summary>
+    int PageCount { get; }
+
+    /// <summary>All the pages the document has, which can be more than it shows.</summary>
+    int TotalPageCount { get; }
+
+    /// <summary>The page's size in points.</summary>
+    Size GetPageSize(int pageIndex);
+
+    /// <summary>Renders the page on white, <paramref name="pixelWidth"/> pixels wide.</summary>
+    Task<Bitmap> RenderPageAsync(int pageIndex, int pixelWidth, CancellationToken cancellationToken);
+}
+
+public static class PdfPreviewLimits
+{
+    /// <summary>A preview, not a reader: longer documents open in another app.</summary>
+    public const int MaxPages = 200;
+
+    /// <summary>Wide enough for a sharp page on a tablet, small enough to keep a few pages in memory.</summary>
+    public const int MaxPixelWidth = 2048;
 }
 
 public interface ITextSelectionPresenter
@@ -144,6 +193,9 @@ public static class MobilePlatformServices
 
     public static IProducedFileOpener ProducedFileOpener { get; set; } =
         new DefaultProducedFileOpener();
+
+    public static IPdfPreviewRenderer PdfPreviewRenderer { get; set; } =
+        new DefaultPdfPreviewRenderer();
 
     public static ITextSelectionPresenter TextSelectionPresenter { get; set; } =
         new DefaultTextSelectionPresenter();
@@ -297,6 +349,14 @@ internal sealed class DefaultProducedFileOpener : IProducedFileOpener
         string displayName,
         CancellationToken cancellationToken) =>
         Task.FromResult(false);
+}
+
+internal sealed class DefaultPdfPreviewRenderer : IPdfPreviewRenderer
+{
+    public bool IsAvailable => false;
+
+    public Task<IPdfPreviewDocument> OpenAsync(string path, CancellationToken cancellationToken) =>
+        throw new PlatformNotSupportedException("This platform has no PDF renderer.");
 }
 
 internal sealed class DefaultTextSelectionPresenter : ITextSelectionPresenter

@@ -293,6 +293,7 @@ public sealed partial class MobileShellViewModel :
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNavigationCoveringContent))]
+    [NotifyPropertyChangedFor(nameof(IsPaneMoving))]
     private bool _isDrawerMoving;
 
     [ObservableProperty]
@@ -433,6 +434,9 @@ public sealed partial class MobileShellViewModel :
 
             if (e.PropertyName is nameof(MobileChatViewModel.HasSidePanelOpen))
                 OnSidePanelChanged();
+
+            if (e.PropertyName is nameof(MobileChatViewModel.IsFilePreviewOpen))
+                OnFilePreviewChanged();
 
             if (e.PropertyName is nameof(MobileChatViewModel.HasUnsentWork)
                 or nameof(MobileChatViewModel.HasOpenSheet)
@@ -1002,6 +1006,7 @@ public sealed partial class MobileShellViewModel :
         && Page == MobilePage.Chat
         && !Chat.HasUnsentWork
         && !Chat.HasOpenSheet
+        && !Chat.IsFilePreviewOpen
         && !Library.HasUnsavedChanges
         && !Library.IsSaving
         && !IsRenamingChat
@@ -1023,6 +1028,7 @@ public sealed partial class MobileShellViewModel :
             || (!IsKeyboardOpen
                 && !Chat.HasUnsentWork
                 && !Chat.HasOpenSheet
+                && !Chat.IsFilePreviewOpen
                 && !Library.HasOpenSurface
                 && !IsModalSheetPresented
                 && !IsProjectPickerOpen
@@ -1434,7 +1440,7 @@ public sealed partial class MobileShellViewModel :
         !IsChatActionsOpen &&
         !IsProjectPickerOpen &&
         !IsDisconnectConfirmationOpen &&
-        (Page != MobilePage.Chat || (!Chat.HasOpenSheet && !Chat.HasSidePanelOpen)) &&
+        (Page != MobilePage.Chat || (!Chat.HasOpenSheet && !Chat.HasSidePanelOpen && !Chat.IsFilePreviewOpen)) &&
         (Page != MobilePage.Library || !Library.HasOpenSurface);
 
     /// <summary>Scrim is shown for the sliding drawer only; a docked drawer never dims the chat.</summary>
@@ -1451,7 +1457,7 @@ public sealed partial class MobileShellViewModel :
         : IsPhoneLayout ? Layout.Width + SafeArea.Left + SafeArea.Right : Math.Min(360, Layout.Width);
 
     /// <summary>Final reserved width. The view follows drawer progress between these endpoints.</summary>
-    public double NavigationLeadingWidth => HasHingeGap
+    public double NavigationLeadingWidth => ReservesHingeForNavigation
         ? Layout.HingePosition
         : IsDrawerDocked ? DrawerWidth : 0;
 
@@ -1643,13 +1649,15 @@ public sealed partial class MobileShellViewModel :
 
     /// <summary>
     /// Below three panes the chat list steps aside while a side panel is open; it returns when the
-    /// panel closes or the window grows room for all three.
+    /// panel closes or the window grows room for all three. A file preview always takes the list's
+    /// place, so the chat moves to the leading side and the preview opens beside it.
     /// </summary>
     private void ReconcileSidebarWithSidePanel()
     {
-        if (Chat.HasSidePanelOpen && !IsThreePane && IsDrawerDocked)
+        var wantsListAway = (Chat.HasSidePanelOpen && !IsThreePane) || IsFilePreviewBeside;
+        if (wantsListAway && IsDrawerDocked)
             YieldSidebar(collapsed: true);
-        else if (_sidebarYieldedToPanel && (!Chat.HasSidePanelOpen || IsThreePane))
+        else if (_sidebarYieldedToPanel && !wantsListAway)
             YieldSidebar(collapsed: false);
     }
 
@@ -1735,10 +1743,13 @@ public sealed partial class MobileShellViewModel :
             _settings.IsSidebarCollapsed = value;
             _store.Save(_settings);
 
-            // Asking for the list back below three panes trades the supporting panel for it.
+            // Asking for the list back below three panes trades the supporting panel for it, and
+            // at any width trades a preview for it: the preview had taken the list's place.
             _sidebarYieldedToPanel = false;
             if (!value && Chat.HasSidePanelOpen && !IsThreePane)
                 CloseSidePanels();
+            if (!value && IsFilePreviewBeside)
+                Chat.CloseFilePreviewCommand.Execute(null);
         }
 
         IsDrawerOpen = false;
@@ -1885,7 +1896,7 @@ public sealed partial class MobileShellViewModel :
         IsProjectPickerOpen ||
         _pageHistory.Count > 0 ||
         (Page == MobilePage.Library && Library.HasOpenSurface) ||
-        (Page == MobilePage.Chat && (Chat.HasOpenSheet || Chat.HasSidePanelOpen)) ||
+        (Page == MobilePage.Chat && (Chat.HasOpenSheet || Chat.HasSidePanelOpen || Chat.IsFilePreviewOpen)) ||
         HasPageOverlay ||
         IsReadingChatOverHome;
 
@@ -1894,6 +1905,9 @@ public sealed partial class MobileShellViewModel :
         IsWebAppUpdateConfirmationOpen = false;
         IsDisconnectConfirmationOpen = false;
         IsProjectPickerOpen = false;
+        // A preview belongs to the chat it was opened from; another page leaves it behind.
+        if (value != MobilePage.Chat)
+            Chat.CloseFilePreviewCommand.Execute(null);
         var previousPage = _lastObservedPage;
         _lastObservedPage = value;
         OnPropertyChanged(nameof(IsChatPage));
@@ -1957,6 +1971,8 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(ListPaneWidth));
         Chat.UseSidePanels = CanShowSidePanels;
         ReconcileSidebarWithSidePanel();
+        NotifyFilePreviewLayoutChanged();
+        SyncChatHiddenByPreview();
         OnPropertyChanged(nameof(SafeAreaSheetMargin));
         NotifyNavigationLayoutChanged();
         NotifySettingsSectionChanged();
@@ -2124,6 +2140,7 @@ public sealed partial class MobileShellViewModel :
     {
         OnPropertyChanged(nameof(DrawerWidth));
         OnPropertyChanged(nameof(SidePanelSheetMargin));
+        OnPropertyChanged(nameof(FilePreviewPaneMargin));
         OnPropertyChanged(nameof(SafeAreaTop));
         OnPropertyChanged(nameof(SafeAreaBottom));
         OnPropertyChanged(nameof(SafeAreaSides));
@@ -3045,7 +3062,7 @@ public sealed partial class MobileShellViewModel :
     }
 
     private bool IsChatTranscriptVisible => IsPaired && _isApplicationActive && Page == MobilePage.Chat
-        && !IsDrawerOverlay && !Chat.IsGitChangesOpen;
+        && !IsDrawerOverlay && !Chat.IsGitChangesOpen && !IsFilePreviewCoveringChat;
 
     private bool CanReadChatTranscript => IsChatTranscriptVisible && !Chat.IsLoading;
 
@@ -3961,26 +3978,6 @@ public sealed partial class MobileShellViewModel :
         catch (OperationCanceledException) when (
             connectionRequest.IsCancellationRequested
             && !cancellationToken.IsCancellationRequested)
-        {
-            return null;
-        }
-    }
-
-    public async Task<string?> DownloadProducedFileAsync(
-        Guid chatId,
-        Guid messageId,
-        string fileName)
-    {
-        using var request = CreateConnectionRequest();
-        try
-        {
-            return await Client.DownloadProducedFileAsync(
-                chatId,
-                messageId,
-                fileName,
-                request.Token);
-        }
-        catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
             return null;
         }

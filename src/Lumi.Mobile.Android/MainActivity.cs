@@ -91,10 +91,12 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
             DispatchConnectionRequest(launchRequest);
 #if DEBUG
         // Debug builds open the design preview on request (adb shell am start ... --ez lumi.design_preview
-        // true [--es lumi.theme Light]), so the design is judged on Android's own renderer without a PC.
+        // true [--es lumi.theme Light] [--es lumi.open_file report.pdf]), so the design is judged on
+        // Android's own renderer without a PC.
         if (Intent?.GetBooleanExtra("lumi.design_preview", false) == true)
         {
             var theme = Intent.GetStringExtra("lumi.theme");
+            var file = Intent.GetStringExtra("lumi.open_file");
             Avalonia.Threading.DispatcherTimer.RunOnce(() =>
             {
                 if (Avalonia.Application.Current is not App { Shell: { } shell })
@@ -103,6 +105,8 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
                         theme, ignoreCase: true, out var preference))
                     shell.Theme = preference;
                 DesignPreview.Apply(shell);
+                if (file is { Length: > 0 })
+                    DesignPreview.OpenFile(shell, file);
             }, TimeSpan.FromSeconds(1));
         }
 #endif

@@ -16,13 +16,16 @@ namespace Lumi.Mobile.Desktop;
 public partial class SimulatorWindow
 {
     /// <summary>A paired, populated app on local fixture data; see <see cref="DesignPreview"/>.</summary>
-    internal void OpenDesignPreview()
+    /// <param name="fileName">One of the design chat's files to open in its preview, or none.</param>
+    internal void OpenDesignPreview(string? fileName = null)
     {
         if (DataContext is not MobileShellViewModel shell || _shell is null)
             throw new InvalidOperationException("The mobile shell must be mounted before opening the design preview.");
 
         Title = Strings.Get("DesignPreviewTitle");
         DesignPreview.Apply(shell);
+        if (fileName is { Length: > 0 })
+            Dispatcher.UIThread.Post(() => DesignPreview.OpenFile(shell, fileName), DispatcherPriority.Loaded);
     }
 
     internal void OpenPopupPreview()

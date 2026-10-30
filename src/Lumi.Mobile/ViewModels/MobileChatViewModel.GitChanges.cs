@@ -334,6 +334,8 @@ public sealed partial class MobileChatViewModel
     {
         if (!value)
             ResetGitChanges();
+        else
+            CloseFilePreview();
     }
 
     private bool IsCurrentGitRequest(Guid chatId, long version) =>

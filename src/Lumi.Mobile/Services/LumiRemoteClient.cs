@@ -795,11 +795,17 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Downloads a file Lumi announced. A host with a download store keeps it there unless
+    /// <paramref name="preferLocalFile"/> asks for a file in this app's temporary folder, which a preview
+    /// reads from.
+    /// </summary>
     public async Task<string?> DownloadProducedFileAsync(
         Guid chatId,
         Guid messageId,
         string fileName,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool preferLocalFile = false)
     {
         if (BaseUrl is not { Length: > 0 })
             return null;
@@ -844,7 +850,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             var target = Path.Combine(folder, $"{Guid.NewGuid():N}-{safeName}");
 
             await using var source = await response.Content.ReadAsStreamAsync(deadline.Token).ConfigureAwait(false);
-            if (_downloadStore is not null)
+            if (_downloadStore is not null && !preferLocalFile)
             {
                 return await _downloadStore.StoreAsync(
                         "produced-files",

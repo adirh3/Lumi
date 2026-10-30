@@ -2830,7 +2830,7 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task BrowserNavigationWaitsForTheProducedFileBodyAndOpener(bool openerFails)
+    public async Task BrowserNavigationWaitsForThePreviewDownloadAndItsOpener(bool openerFails)
     {
         var chatId = Guid.NewGuid();
         var messageId = Guid.NewGuid();
@@ -2884,42 +2884,72 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
                 Pump(window);
                 var file = view.GetVisualDescendants().OfType<StrataFileAttachment>()
                     .Single(card => card.Classes.Contains("transcript-file"));
-                var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var opening = false;
-                shell.PropertyChanged += (_, e) =>
-                {
-                    if (opening && e.PropertyName == nameof(shell.CanApplyWebAppUpdate)
-                        && shell.CanApplyWebAppUpdate)
-                        finished.TrySetResult();
-                };
                 try
                 {
                     Assert.True(shell.CanApplyWebAppUpdate);
+                    // The chip opens the file's preview, which fetches the file at once.
                     file.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(
                         StrataFileAttachment.OpenRequestedEvent));
+                    var preview = Assert.IsType<FilePreviewViewModel>(shell.Chat.FilePreview);
+                    Assert.True(shell.IsFilePreviewCoveringChat);
                     await desktop.FileBodyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-                    opening = true;
                     shell.WebAppUpdateState = WebAppUpdateState.Ready;
                     Assert.False(shell.CanApplyWebAppUpdate);
                     Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
                     Assert.True(shell.ReloadWebAppCommand.CanExecute(null));
-                    Assert.False(opener.Started.Task.IsCompleted);
+                    Assert.True(preview.ShowLoading);
 
                     desktop.ReleaseFileBody.TrySetResult();
+                    for (var waited = 0; waited < 2000 && !preview.ShowText; waited += 20)
+                    {
+                        await Task.Delay(20);
+                        Pump(window);
+                    }
+                    Assert.Equal("A complete produced file.", preview.Text);
+                    Assert.False(shell.CanApplyWebAppUpdate, "an open preview holds the reload too");
+
+                    // Open with hands the copy the preview already has to another app.
+                    var open = Required<Button>(view, "PreviewOpenButton");
+                    Pump(window);
+                    open.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                     await opener.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                    Assert.Equal(preview.LocalPath, opener.Path);
                     Assert.Equal(desktop.ProducedFileBytes, await File.ReadAllBytesAsync(opener.Path!));
-                    Assert.False(shell.CanApplyWebAppUpdate);
-                    Assert.False(shell.CanAutomaticallyRecoverGatewaySignIn);
+                    Assert.True(preview.IsActionRunning);
 
                     if (openerFails)
                         opener.Result.TrySetException(new IOException("The fixture opener failed."));
                     else
                         opener.Result.TrySetResult(true);
+                    for (var waited = 0; waited < 2000 && preview.IsActionRunning; waited += 20)
+                    {
+                        await Task.Delay(20);
+                        Pump(window);
+                    }
+                    Assert.False(preview.IsActionRunning);
+                    Assert.Equal(openerFails ? "That file could not be opened." : null, preview.ActionMessage);
+                    Assert.True(File.Exists(opener.Path), "the preview still shows its file");
+                    Assert.False(shell.CanApplyWebAppUpdate);
+
+                    // Closing the preview gives its copy back and lets the web app update.
+                    var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    shell.PropertyChanged += (_, e) =>
+                    {
+                        if (e.PropertyName == nameof(shell.CanApplyWebAppUpdate) && shell.CanApplyWebAppUpdate)
+                            finished.TrySetResult();
+                    };
+                    shell.GoBackCommand.Execute(null);
+                    Assert.False(shell.Chat.IsFilePreviewOpen);
                     await finished.Task.WaitAsync(TimeSpan.FromSeconds(2));
                     Assert.True(shell.CanApplyWebAppUpdate);
                     Assert.True(shell.CanAutomaticallyRecoverGatewaySignIn);
+                    for (var waited = 0; waited < 2000 && File.Exists(opener.Path); waited += 20)
+                    {
+                        await Task.Delay(20);
+                        Pump(window);
+                    }
                     Assert.False(File.Exists(opener.Path));
-                    Assert.Equal(openerFails ? "That file could not be opened." : null, shell.Chat.ErrorText);
+                    Assert.Null(shell.Chat.ErrorText);
                 }
                 finally
                 {

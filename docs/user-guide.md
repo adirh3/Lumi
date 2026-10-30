@@ -1098,6 +1098,20 @@ to zoom or fit it; double-tap a diagram, or use **Fit**, to reset its view. View
 48-DIP touch targets and stay clear of the system bars, and native text editors step aside
 while a viewer is open.
 
+Tapping a file Lumi made opens it in a preview pane of its own, as the desktop's Workspace
+previews it. Images fit the pane and zoom with a pinch or a double-tap; Markdown reads as
+formatted text; code is highlighted (very long files as plain text); text wraps; CSV and TSV files
+become a table whose header stays in place while numbers line up on the right; and on Android a
+PDF shows its pages, each drawn only while it is near the screen. A file the phone can't draw
+(an Office document, an archive, media) says so and offers another app without being downloaded
+first. On a phone the preview covers the chat and Back returns to it. Where two panes fit (the
+Galaxy Z Fold7's unfolded screen, a tablet) the chat moves into the chat list's place and the
+file opens beside it, the two meeting at the fold or either side of a hinge; the composer stays
+usable, and ✕, Back or showing the chats closes the file and brings the list back. A floating
+bar offers **Open with** another app, **Share** on Android and **Save** a copy; in the browser
+app, **Download** stands for both. A long file shows its beginning (100,000 characters, 2,000
+rows or 200 pages) and says so.
+
 Preview every popup without pairing, network calls or real chat data:
 
 ```powershell
@@ -1119,10 +1133,17 @@ The device selector includes the Fold7's cover (412×960 dp), its unfolded scree
 and a larger display size (984×1092 and 750×832 dp), book and tabletop postures, and a large
 landscape tablet; the readout shows how many panes the layout uses.
 Open the fixture chat's **Plan** to try a local image and diagram in the production full-screen
-viewers without pairing or downloading anything.
+viewers without pairing or downloading anything. Its answers also made an image, a report, a
+source file, a PDF, a CSV table and a Word document: tap one, or start with one open with
+`--open-file`, to judge the file preview at every size:
+
+```powershell
+dotnet run --project src\Lumi.Mobile.Desktop\Lumi.Mobile.Desktop.csproj -- --design-preview --open-file fold-layout-metrics.csv
+```
 
 A Debug Android build opens the same preview on Android's own renderer (where the glass and the
-typeface can differ from the simulator's), for example on an emulator:
+typeface can differ from the simulator's), for example on an emulator; add
+`--es lumi.open_file fold-layout-report.pdf` to open a file, drawn by Android's PDF renderer:
 
 ```powershell
 adb shell am start -n com.lumi.mobile/crc6470d511f2159c9bd9.MainActivity --ez lumi.design_preview true --es lumi.theme Dark

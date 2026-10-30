@@ -389,7 +389,11 @@ public partial class ChatDetailView : UserControl
             IsNavigationCoveringContent: false,
             IsModalSheetPresented: false,
             IsChatActionsOpen: false,
-            HasPageOverlay: false
+            HasPageOverlay: false,
+            // A native editor draws over everything, so it waits out a preview over the chat and the
+            // pane's own movement.
+            IsFilePreviewCoveringChat: false,
+            IsFilePreviewMoving: false
         }
         && !shell.Chat.HasOpenSheet;
 
@@ -711,9 +715,13 @@ public partial class ChatDetailView : UserControl
 
         if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
             or nameof(MobileShellViewModel.CanDockDrawer)
-            or nameof(MobileShellViewModel.HasHingeGap))
+            or nameof(MobileShellViewModel.HasHingeGap)
+            or nameof(MobileShellViewModel.IsFilePreviewMoving))
         {
-            SetTranscriptMotionWidth(_shell is { IsDrawerMoving: true, CanDockDrawer: true, HasHingeGap: false });
+            // Only the surrounding canvas follows moving panes: the drawer docking beside the chat, or
+            // a file preview growing beside it. The transcript reflows once, at rest.
+            SetTranscriptMotionWidth(_shell is { IsDrawerMoving: true, CanDockDrawer: true, HasHingeGap: false }
+                                     || _shell is { IsFilePreviewMoving: true, Layout.CanShowTwoPanes: true });
         }
 
         if (e.PropertyName == nameof(MobileShellViewModel.IsDrawerMoving)
@@ -747,7 +755,9 @@ public partial class ChatDetailView : UserControl
             or nameof(MobileShellViewModel.IsNavigationCoveringContent)
             or nameof(MobileShellViewModel.IsModalSheetPresented)
             or nameof(MobileShellViewModel.IsChatActionsOpen)
-            or nameof(MobileShellViewModel.HasPageOverlay))
+            or nameof(MobileShellViewModel.HasPageOverlay)
+            or nameof(MobileShellViewModel.IsFilePreviewCoveringChat)
+            or nameof(MobileShellViewModel.IsFilePreviewMoving))
         {
             UpdateNativeComposerVisibility();
         }
@@ -1316,76 +1326,16 @@ public partial class ChatDetailView : UserControl
         }
     }
 
-    private async void OnProducedFileOpenRequested(object? sender, RoutedEventArgs e)
+    /// <summary>A file Lumi made opens in its preview, which offers another app from there.</summary>
+    private void OnProducedFileOpenRequested(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Control
-            {
-                DataContext: RemoteAttachment
-                {
-                    MessageId: { } messageId,
-                    FileName: { Length: > 0 } fileName
-                }
-            }
-            || _shell is not { } shell
-            || shell.Chat.ChatId == Guid.Empty
-            || TopLevel.GetTopLevel(this) is not { } topLevel)
+        if (sender is not Control { DataContext: RemoteAttachment { MessageId: not null, FileName.Length: > 0 } file }
+            || _shell is not { } shell)
         {
             return;
         }
 
-        string? downloadedPath = null;
-        shell.BeginPendingRemoteAction();
-        try
-        {
-            downloadedPath = await shell.DownloadProducedFileAsync(shell.Chat.ChatId, messageId, fileName);
-            if (downloadedPath is null)
-            {
-                shell.Chat.ErrorText = shell.ConnectionMessage ?? Strings.Get("DownloadFileFailed");
-                return;
-            }
-
-            if (await MobilePlatformServices.ProducedFileOpener.TryOpenAsync(
-                    downloadedPath,
-                    fileName,
-                    CancellationToken.None))
-            {
-                return;
-            }
-
-            var destination = await topLevel.StorageProvider.SaveFilePickerAsync(
-                new FilePickerSaveOptions
-                {
-                    Title = Strings.Get("SaveLumiFile"),
-                    SuggestedFileName = fileName
-                });
-            if (destination is null)
-                return;
-
-            await ProducedFileExport.CopyAndVerifyAsync(
-                downloadedPath,
-                destination.OpenWriteAsync,
-                destination.OpenReadAsync,
-                CancellationToken.None);
-
-            if (!await topLevel.Launcher.LaunchFileAsync(destination))
-                shell.Chat.ErrorText = Strings.Get("DownloadedFileCannotOpen");
-        }
-        catch (Exception ex)
-        {
-            shell.Chat.ErrorText = Strings.Get("OpenFileFailed");
-            Trace.TraceWarning($"[Mobile] Produced file launch failed: {ex}");
-        }
-        finally
-        {
-            try
-            {
-                if (downloadedPath is not null && File.Exists(downloadedPath))
-                    File.Delete(downloadedPath);
-            }
-            finally
-            {
-                shell.EndPendingRemoteAction();
-            }
-        }
+        shell.Chat.OpenFilePreviewCommand.Execute(file);
+        e.Handled = true;
     }
 }

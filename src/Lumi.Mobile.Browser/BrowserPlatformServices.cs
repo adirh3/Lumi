@@ -90,13 +90,27 @@ internal sealed class BrowserMobileSettingsStore(string origin) : IMobileSetting
 
 internal sealed class BrowserProducedFileOpener : IProducedFileOpener
 {
-    public Task<bool> TryOpenAsync(
+    /// <summary>A browser opens a file by downloading it, which already keeps a copy.</summary>
+    public bool OpensBySaving => true;
+
+    public async Task<bool> TryOpenAsync(
         string downloadedPath,
         string displayName,
         CancellationToken cancellationToken)
     {
+        // A preview keeps its copy in the app's in-memory file system; the browser downloads it from a
+        // blob URL, as it does a file fetched straight into one.
+        if (!downloadedPath.StartsWith("blob:", StringComparison.Ordinal) && File.Exists(downloadedPath))
+        {
+            var bytes = await File.ReadAllBytesAsync(downloadedPath, cancellationToken);
+            BrowserInterop.DownloadUrl(
+                BrowserInterop.CreateObjectUrl(bytes, "application/octet-stream"),
+                displayName);
+            return true;
+        }
+
         BrowserInterop.DownloadUrl(downloadedPath, displayName);
-        return Task.FromResult(true);
+        return true;
     }
 }
 

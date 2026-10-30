@@ -637,4 +637,35 @@
   <data name="EffortStandard" xml:space="preserve"><value>Estándar</value></data>
   <data name="FusionEffort" xml:space="preserve"><value>Esfuerzo de Fusion</value></data>
   <data name="FusionEffortDescription" xml:space="preserve"><value>Equilibra velocidad, coste y profundidad con el enrutamiento nativo de modelos de Fusion.</value></data>
+  <data name="FilePreviewFile" xml:space="preserve"><value>Archivo</value></data>
+  <data name="FileSizeBytes" xml:space="preserve"><value>{0} B</value></data>
+  <data name="FileSizeKilobytes" xml:space="preserve"><value>{0} KB</value></data>
+  <data name="FileSizeMegabytes" xml:space="preserve"><value>{0} MB</value></data>
+  <data name="CsvRowsOne" xml:space="preserve"><value>{0} fila</value></data>
+  <data name="CsvRowsMany" xml:space="preserve"><value>{0} filas</value></data>
+  <data name="CsvColumnsOne" xml:space="preserve"><value>{0} columna</value></data>
+  <data name="CsvColumnsMany" xml:space="preserve"><value>{0} columnas</value></data>
+  <data name="CsvColumnNamed" xml:space="preserve"><value>Columna {0}</value></data>
+  <data name="PdfPagesOne" xml:space="preserve"><value>{0} página</value></data>
+  <data name="PdfPagesMany" xml:space="preserve"><value>{0} páginas</value></data>
+  <data name="PdfPageOf" xml:space="preserve"><value>Página {0} de {1}</value></data>
+  <data name="FilePreviewPagesLimited" xml:space="preserve"><value>Se muestran las primeras {0} páginas. Abre el archivo en otra aplicación para ver el resto.</value></data>
+  <data name="FilePreviewRowsLimited" xml:space="preserve"><value>Se muestran las primeras {0} filas. Abre el archivo en otra aplicación para ver el resto.</value></data>
+  <data name="FilePreviewTruncated" xml:space="preserve"><value>Se muestra el principio de este archivo. Ábrelo en otra aplicación para verlo completo.</value></data>
+  <data name="FilePreviewInvalid" xml:space="preserve"><value>El archivo está dañado o no es lo que indica su nombre.</value></data>
+  <data name="FilePreviewUnreadable" xml:space="preserve"><value>No se pudo leer el archivo en este dispositivo.</value></data>
+  <data name="FilePreviewFailed" xml:space="preserve"><value>Algo salió mal al abrir este archivo.</value></data>
+  <data name="FilePreviewFailedTitle" xml:space="preserve"><value>No se puede mostrar este archivo</value></data>
+  <data name="FilePreviewLoading" xml:space="preserve"><value>Cargando vista previa…</value></data>
+  <data name="FilePreviewEmpty" xml:space="preserve"><value>Este archivo está vacío.</value></data>
+  <data name="FilePreviewUnsupportedTitle" xml:space="preserve"><value>No hay vista previa de este archivo</value></data>
+  <data name="FilePreviewUnsupportedDetail" xml:space="preserve"><value>Ábrelo en otra aplicación de este dispositivo o guarda una copia.</value></data>
+  <data name="FilePreviewOpenWith" xml:space="preserve"><value>Abrir con</value></data>
+  <data name="FilePreviewDownload" xml:space="preserve"><value>Descargar</value></data>
+  <data name="FilePreviewShare" xml:space="preserve"><value>Compartir</value></data>
+  <data name="FilePreviewSave" xml:space="preserve"><value>Guardar</value></data>
+  <data name="FilePreviewSaved" xml:space="preserve"><value>Copia guardada</value></data>
+  <data name="FilePreviewShareFailed" xml:space="preserve"><value>No se pudo compartir ese archivo.</value></data>
+  <data name="FilePreviewSaveFailed" xml:space="preserve"><value>No se pudo guardar ese archivo.</value></data>
+  <data name="FilePreviewClose" xml:space="preserve"><value>Cerrar vista previa</value></data>
 </root>

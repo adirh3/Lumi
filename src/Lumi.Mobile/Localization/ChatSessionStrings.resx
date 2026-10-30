@@ -637,4 +637,35 @@
   <data name="EffortStandard" xml:space="preserve"><value>Standard</value></data>
   <data name="FusionEffort" xml:space="preserve"><value>Fusion effort</value></data>
   <data name="FusionEffortDescription" xml:space="preserve"><value>Balance speed, cost and depth with Fusion's native model routing.</value></data>
+  <data name="FilePreviewFile" xml:space="preserve"><value>File</value></data>
+  <data name="FileSizeBytes" xml:space="preserve"><value>{0} B</value></data>
+  <data name="FileSizeKilobytes" xml:space="preserve"><value>{0} KB</value></data>
+  <data name="FileSizeMegabytes" xml:space="preserve"><value>{0} MB</value></data>
+  <data name="CsvRowsOne" xml:space="preserve"><value>{0} row</value></data>
+  <data name="CsvRowsMany" xml:space="preserve"><value>{0} rows</value></data>
+  <data name="CsvColumnsOne" xml:space="preserve"><value>{0} column</value></data>
+  <data name="CsvColumnsMany" xml:space="preserve"><value>{0} columns</value></data>
+  <data name="CsvColumnNamed" xml:space="preserve"><value>Column {0}</value></data>
+  <data name="PdfPagesOne" xml:space="preserve"><value>{0} page</value></data>
+  <data name="PdfPagesMany" xml:space="preserve"><value>{0} pages</value></data>
+  <data name="PdfPageOf" xml:space="preserve"><value>Page {0} of {1}</value></data>
+  <data name="FilePreviewPagesLimited" xml:space="preserve"><value>Showing the first {0} pages. Open the file in another app to see the rest.</value></data>
+  <data name="FilePreviewRowsLimited" xml:space="preserve"><value>Showing the first {0} rows. Open the file in another app to see the rest.</value></data>
+  <data name="FilePreviewTruncated" xml:space="preserve"><value>Showing the beginning of this file. Open it in another app to see all of it.</value></data>
+  <data name="FilePreviewInvalid" xml:space="preserve"><value>This file is damaged, or isn't what its name says.</value></data>
+  <data name="FilePreviewUnreadable" xml:space="preserve"><value>This file couldn't be read on this device.</value></data>
+  <data name="FilePreviewFailed" xml:space="preserve"><value>Something went wrong while opening this file.</value></data>
+  <data name="FilePreviewFailedTitle" xml:space="preserve"><value>Couldn't show this file</value></data>
+  <data name="FilePreviewLoading" xml:space="preserve"><value>Loading preview…</value></data>
+  <data name="FilePreviewEmpty" xml:space="preserve"><value>This file is empty.</value></data>
+  <data name="FilePreviewUnsupportedTitle" xml:space="preserve"><value>No preview for this file</value></data>
+  <data name="FilePreviewUnsupportedDetail" xml:space="preserve"><value>Open it in another app on this device, or save a copy.</value></data>
+  <data name="FilePreviewOpenWith" xml:space="preserve"><value>Open with</value></data>
+  <data name="FilePreviewDownload" xml:space="preserve"><value>Download</value></data>
+  <data name="FilePreviewShare" xml:space="preserve"><value>Share</value></data>
+  <data name="FilePreviewSave" xml:space="preserve"><value>Save</value></data>
+  <data name="FilePreviewSaved" xml:space="preserve"><value>Saved a copy</value></data>
+  <data name="FilePreviewShareFailed" xml:space="preserve"><value>That file could not be shared.</value></data>
+  <data name="FilePreviewSaveFailed" xml:space="preserve"><value>That file could not be saved.</value></data>
+  <data name="FilePreviewClose" xml:space="preserve"><value>Close preview</value></data>
 </root>

@@ -21,6 +21,19 @@
       <Setter Property="SheetMargin"
               Value="{Binding #SidePanelMarginProxy.Padding}" />
     </Style>
+
+    <!-- A file preview over the chat is a page of the canvas; beside it, a card raised off the canvas. -->
+    <Style Selector="Border#FilePreviewSurface">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatCanvas}" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border#FilePreviewSurface.beside">
+      <Setter Property="Background" Value="{DynamicResource Brush.GroupSurface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SheetBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Mobile.Sheet.CornerRadius}" />
+      <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Sheet}" />
+    </Style>
   </UserControl.Styles>
 
   <Panel x:Name="Root" IsEnabled="{Binding !IsWebAppUpdateRequested}">
@@ -74,7 +87,7 @@
         </Border>
       </sc:StrataNavigationDrawer.Panel>
 
-      <Grid x:Name="ShellRoot" ColumnDefinitions="Auto,Auto,*"
+      <Grid x:Name="ShellRoot" ColumnDefinitions="Auto,Auto,*,Auto,Auto"
             Height="{Binding UsableContentHeight}"
             VerticalAlignment="Top">
 
@@ -84,7 +97,7 @@
                 Background="{DynamicResource Brush.Surface0}" />
 
         <!-- Physical hinge gap on a book-posture foldable: never paint underneath it. -->
-        <Border x:Name="HingeGap" Grid.Column="1" IsVisible="{Binding HasHingeGap}"
+        <Border x:Name="HingeGap" Grid.Column="1" IsVisible="{Binding ReservesHingeForNavigation}"
                 Width="{Binding HingeGapWidth}"
                 Background="{DynamicResource Brush.Surface0}" />
 
@@ -121,6 +134,26 @@
             </MultiBinding>
           </Border.IsVisible>
         </Border>
+
+        <!-- The hinge between the chat and a file preview beside it, never painted over. -->
+        <Border x:Name="FilePreviewHingeGap" Grid.Column="3"
+                Width="{Binding FilePreviewGapWidth}"
+                IsVisible="{Binding IsFilePreviewBeside}"
+                Background="{DynamicResource Brush.Surface0}" />
+
+        <!--
+          A file Lumi made, in a pane of its own. Over the chat on one pane; beside it on two, where it
+          takes the chat list's place and the chat moves to the leading side. The view places the host
+          and plays its motion (MobileShellView.FilePreview), and keeps showing a closing file until the
+          pane is gone.
+        -->
+        <Panel x:Name="FilePreviewHost" Grid.Column="4" IsVisible="False" ClipToBounds="True">
+          <Border x:Name="FilePreviewFrame" HorizontalAlignment="Left">
+            <Border x:Name="FilePreviewSurface" Classes="file-preview-surface">
+              <views:FilePreviewView x:Name="FilePreviewPane" DataContext="{x:Null}" />
+            </Border>
+          </Border>
+        </Panel>
       </Grid>
     </sc:StrataNavigationDrawer>
 

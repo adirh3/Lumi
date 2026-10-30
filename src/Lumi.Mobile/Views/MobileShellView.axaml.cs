@@ -156,9 +156,10 @@ public partial class MobileShellView : UserControl
 
         // Resize the mounted conversation, including its native editor, rather than translating a
         // fixed-width surface and exposing its trailing edge. Only a physical hinge reserves a pane
-        // independently of motion. The layout engine coalesces updates; no visual is recreated.
+        // independently of motion, and not while a file preview has the chat on the hinge's leading
+        // side. The layout engine coalesces updates; no visual is recreated.
         spacer.Width = DataContext is MobileShellViewModel shell
-            ? shell.HasHingeGap ? shell.Layout.HingePosition
+            ? shell.ReservesHingeForNavigation ? shell.Layout.HingePosition
                 : drawer.IsModal ? 0 : drawer.PanelWidth * drawer.Progress
             : 0;
     }
@@ -378,6 +379,7 @@ public partial class MobileShellView : UserControl
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        DetachFilePreview();
         foreach (var entrance in _pageEntrances.Values)
             entrance.Dispose();
         _pageEntrances.Clear();
@@ -622,6 +624,7 @@ public partial class MobileShellView : UserControl
             shell.IsDrawerPresented = drawer.Progress > 0.001;
             shell.IsDrawerMoving = drawer.Progress is > 0.001 and < 0.999;
         }
+        AttachFilePreview(DataContext as MobileShellViewModel);
         UpdateNavigationLayout();
         UpdateSheetPresentation();
         PlaceModelSettings();
