@@ -70,6 +70,24 @@ public sealed class SystemPromptBuilderTests
         Assert.DoesNotContain("fetch_skill", prompt);
     }
 
+    [Theory]
+    [InlineData("en")]
+    [InlineData("he")]
+    public void Skills_ReuseLoadedInstructionsAndAllowNeededReloads(string language)
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = language }, agent: null, project: null,
+            allSkills: [], activeSkills: [], memories: []);
+
+        Assert.Contains("## Skill reuse", prompt);
+        Assert.Contains(
+            "Relevant skill instructions already in the current context satisfy the skill-use requirement across turns and tasks.",
+            prompt);
+        Assert.Contains(
+            "Invoke `skill` only when those instructions are missing or changed, or an explicit reload is requested.",
+            prompt);
+    }
+
     [Fact]
     public void Skills_PreloadEachLinkedAndSelectedSkillOnlyOnce()
     {

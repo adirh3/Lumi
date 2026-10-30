@@ -503,6 +503,9 @@ public static class SystemPromptBuilder
             - You may also use it to give the chat a more useful title.
             Workspace changes update Lumi immediately, but an already-running Copilot turn cannot change its own working directory. Use absolute paths for any remaining commands in that turn; Lumi rebuilds the session in the new workspace before the next turn.
 
+            ## Skill reuse
+            Relevant skill instructions already in the current context satisfy the skill-use requirement across turns and tasks. Invoke `skill` only when those instructions are missing or changed, or an explicit reload is requested.
+
             ## Managing Lumi Itself
             You also have dedicated management tools for Lumi's own data: projects, skills, Lumis, MCP servers, background jobs, and memories.
             These are only for explicit user requests about Lumi itself — for example: "create a skill from this conversation", "show my projects", "edit that Lumi", "add an MCP server", "monitor this every morning", or "delete this memory".

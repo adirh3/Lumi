@@ -74,6 +74,11 @@ through both paths. Different skills with identical text remain distinct.
 This applies to new and resumed sessions; agent tool restrictions and delegated
 agents' native skill preloads are unchanged.
 
+Instructions from an earlier native skill load are reused across turns while
+they remain in context; fresh research still uses fresh searches. A new task
+does not by itself require loading the same skill again. New skills, explicit
+reloads, edits and instructions lost to compaction still use the native loader.
+
 Installed plugin directories are supplied on both create and resume because chat
 sessions use Lumi's own Copilot configuration folder. The matching CLI `1.0.104-3`
 fixes plugin activation snapshot failures when an already-live session resumes
