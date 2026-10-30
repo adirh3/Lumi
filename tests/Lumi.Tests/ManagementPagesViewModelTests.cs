@@ -390,7 +390,7 @@ public sealed class ManagementPagesViewModelTests : IDisposable
             Memories =
             [
                 new Memory { Key = "Name", Content = "Adir", Category = "Personal" },
-                new Memory { Key = "Wife", Content = "Noy", Category = "Personal" },
+                new Memory { Key = "Partner", Content = "Sam", Category = "Personal" },
                 new Memory { Key = "Theme", Content = "Dark", Category = "Preferences" },
                 new Memory { Key = "Old", Content = "Gone", Category = "Work", Status = MemoryStatuses.Archived }
             ]

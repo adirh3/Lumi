@@ -289,21 +289,21 @@ public sealed class RemoteTransportTests
     [Fact]
     public void SecureCallerPolicyRejectsOrdinaryLanByDefault()
     {
-        var tailscaleLocal = IPAddress.Parse("100.85.249.111");
+        var tailscaleLocal = IPAddress.Parse("100.64.12.34");
         var verifiedTailscaleAddresses = new HashSet<IPAddress> { tailscaleLocal };
 
         Assert.True(LumiRemoteServer.IsAllowedCaller(
-            new IPEndPoint(IPAddress.Parse("100.85.249.111"), 47653),
+            new IPEndPoint(IPAddress.Parse("100.64.12.34"), 47653),
             new IPEndPoint(tailscaleLocal, 47653),
             allowInsecureLan: false,
             verifiedTailscaleAddresses));
         Assert.False(LumiRemoteServer.IsAllowedCaller(
-            new IPEndPoint(IPAddress.Parse("100.85.249.111"), 47653),
+            new IPEndPoint(IPAddress.Parse("100.64.12.34"), 47653),
             new IPEndPoint(IPAddress.Parse("192.168.1.10"), 47653),
             allowInsecureLan: false,
             verifiedTailscaleAddresses));
         Assert.False(LumiRemoteServer.IsAllowedCaller(
-            new IPEndPoint(IPAddress.Parse("100.85.249.111"), 47653),
+            new IPEndPoint(IPAddress.Parse("100.64.12.34"), 47653),
             new IPEndPoint(tailscaleLocal, 47653),
             allowInsecureLan: true,
             verifiedTailscaleAddresses,
@@ -331,10 +331,10 @@ public sealed class RemoteTransportTests
     [Theory]
     [InlineData("localhost:62145", "127.0.0.1", true)]
     [InlineData("127.0.0.1:62145", "127.0.0.1", true)]
-    [InlineData("100.85.249.111:62145", "100.85.249.111", true)]
+    [InlineData("100.64.12.34:62145", "100.64.12.34", true)]
     [InlineData("[fd7a:115c:a1e0::1]:62145", "fd7a:115c:a1e0::1", true)]
-    [InlineData("lighto-desktop.example.ts.net", "127.0.0.1", true)]
-    [InlineData("192.168.1.20:62145", "100.85.249.111", false)]
+    [InlineData("studio-desktop.example.ts.net", "127.0.0.1", true)]
+    [InlineData("192.168.1.20:62145", "100.64.12.34", false)]
     [InlineData("attacker.example", "127.0.0.1", false)]
     public void HostPolicyAllowsOnlyLocalAndTailscaleOrigins(
         string host,

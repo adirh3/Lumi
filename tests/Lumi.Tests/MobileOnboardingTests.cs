@@ -13,7 +13,7 @@ public sealed class MobileOnboardingTests
         var addresses = new[]
         {
             "http://172.20.0.1:62145",
-            "http://100.85.249.111:62145",
+            "http://100.64.12.34:62145",
             "http://192.168.1.42:62145"
         };
 
@@ -26,7 +26,7 @@ public sealed class MobileOnboardingTests
 
         Assert.NotNull(tailscaleEndpoint);
         Assert.Equal(MobileOnboardingTransport.Tailscale, tailscaleEndpoint.Transport);
-        Assert.Equal("http://100.85.249.111:62145", tailscaleEndpoint.BaseUrl);
+        Assert.Equal("http://100.64.12.34:62145", tailscaleEndpoint.BaseUrl);
 
         Assert.NotNull(wifiEndpoint);
         Assert.Equal(MobileOnboardingTransport.LocalNetwork, wifiEndpoint.Transport);

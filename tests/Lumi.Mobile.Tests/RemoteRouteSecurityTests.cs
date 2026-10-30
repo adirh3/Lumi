@@ -31,7 +31,7 @@ public sealed class RemoteRouteSecurityTests
             TimeSpan.FromSeconds(2),
             TimeSpan.FromSeconds(2),
             new FixedRouteVerifier(false));
-        client.Configure("http://100.85.249.111:47653", "secret-token");
+        client.Configure("http://100.64.12.34:47653", "secret-token");
 
         var snapshot = await client.GetSnapshotAsync(CancellationToken.None);
 
@@ -51,7 +51,7 @@ public sealed class RemoteRouteSecurityTests
             TimeSpan.FromSeconds(2),
             TimeSpan.FromSeconds(2),
             new FixedRouteVerifier(true));
-        client.Configure("http://100.85.249.111:47653", "secret-token");
+        client.Configure("http://100.64.12.34:47653", "secret-token");
 
         var snapshot = await client.GetSnapshotAsync(CancellationToken.None);
 
@@ -62,7 +62,7 @@ public sealed class RemoteRouteSecurityTests
     [Fact]
     public void TailscaleTopologyRequiresLocalAddressAndSpecificRoute()
     {
-        var target = IPAddress.Parse("100.85.249.111");
+        var target = IPAddress.Parse("100.64.12.34");
         var specificRoute = new RemoteNetworkRoute(IPAddress.Parse("100.64.0.0"), 10);
 
         Assert.True(RemoteRouteSecurity.IsTrustedTailscaleTopology(
@@ -78,7 +78,7 @@ public sealed class RemoteRouteSecurityTests
     [Fact]
     public void GenericFullTunnelIsNotTrustedAsTailscale()
     {
-        var target = IPAddress.Parse("100.85.249.111");
+        var target = IPAddress.Parse("100.64.12.34");
         var defaultRoute = new RemoteNetworkRoute(IPAddress.Any, 0);
 
         Assert.False(RemoteRouteSecurity.IsTrustedTailscaleTopology(

@@ -264,7 +264,7 @@ public sealed class PopulatedTemplateRenderTests
         await Run(
             shell => shell.Connect.Hosts.Add(new DiscoveredHostViewModel
             {
-                HostName = "LIGHTO-DESKTOP",
+                HostName = "STUDIO-DESKTOP",
                 UserName = "Adir",
                 BaseUrl = "http://192.168.1.20:47653"
             }),

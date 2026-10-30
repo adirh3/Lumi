@@ -39,7 +39,7 @@ public sealed class MobileSpatialDisciplineTests
             780,
             shell => shell.Connect.Hosts.Add(new DiscoveredHostViewModel
             {
-                HostName = "LIGHTO-DESKTOP",
+                HostName = "STUDIO-DESKTOP",
                 UserName = "Adir",
                 BaseUrl = "http://192.168.1.20:47653"
             }),
@@ -83,7 +83,7 @@ public sealed class MobileSpatialDisciplineTests
                 AssertInteractiveMinimum(connect, 48);
                 Assert.True(manualConnectButton.IsDefault);
 
-                shell.Connect.ManualAddress = "100.85.249.111:65534";
+                shell.Connect.ManualAddress = "100.64.12.34:65534";
                 var goArgs = new KeyEventArgs
                 {
                     RoutedEvent = InputElement.KeyDownEvent,
@@ -103,7 +103,7 @@ public sealed class MobileSpatialDisciplineTests
                     string.Join("/", findAxes.Select(value => value.ToString("0.#"))),
                     Bottom(Required<Control>(connect, "ManualConnectButton"), window));
 
-                shell.Connect.TargetHostName = "LIGHTO-DESKTOP";
+                shell.Connect.TargetHostName = "STUDIO-DESKTOP";
                 shell.Connect.PairingCode = "123456";
                 shell.Connect.Step = ConnectStep.EnterCode;
                 Pump(window);
@@ -499,7 +499,7 @@ public sealed class MobileSpatialDisciplineTests
 
     private static void PairAndOpenChat(MobileShellViewModel shell)
     {
-        shell.HostName = "LIGHTO-DESKTOP";
+        shell.HostName = "STUDIO-DESKTOP";
         shell.IsPaired = true;
         shell.Chat.Reset(Guid.NewGuid(), "Spatial discipline");
     }

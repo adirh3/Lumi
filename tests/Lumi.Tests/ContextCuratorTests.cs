@@ -437,11 +437,11 @@ public sealed class ContextCuratorTests
             Content = "For Lumi, keep deterministic component QA in the required PR gate; Extended UI QA must gate release publication.",
             Category = "Project", Scope = MemoryScopes.Project, ProjectId = lumi.Id,
         };
-        var food = new Memory { Key = "Likes burgers", Content = "Adir Hudayfi likes burgers and pizza.", Category = "Preferences" };
+        var food = new Memory { Key = "Likes burgers", Content = "Sam Carter likes burgers and pizza.", Category = "Preferences" };
         var store = new DataStore(new AppData { Projects = [lumi], Memories = [gates, food] });
-        var scope = CreateScope(store, lumi, owner: "Adir Hudayfi");
+        var scope = CreateScope(store, lumi, owner: "Sam Carter");
         const string brief = "Lumi is preparing its 1.0 release. Deterministic component QA gates PRs, and Extended UI QA gates release "
-                             + "publication. Adir Hudayfi plans the launch party with pizza.";
+                             + "publication. Sam Carter plans the launch party with pizza.";
 
         var answer = scope.UpdateBrief(brief);
         Assert.StartsWith("Brief saved.", answer);

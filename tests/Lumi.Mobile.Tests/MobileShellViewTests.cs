@@ -40,7 +40,7 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class MobileShellViewTests
 {
-    private const string Pc = "LIGHTO-DESKTOP";
+    private const string Pc = "STUDIO-DESKTOP";
 
     private static Task Run(Action<MobileShellViewModel, Window> body) =>
         RunAsync((shell, window) =>

@@ -367,7 +367,7 @@ public sealed class RemoteEndToEndTests
     [Fact]
     public Task TailscaleAvailabilityRefreshesWithoutRestartingLumi()
     {
-        var address = IPAddress.Parse("100.85.249.111");
+        var address = IPAddress.Parse("100.64.12.34");
         var available = 0;
         var probes = 0;
         IReadOnlySet<IPAddress> Provider()

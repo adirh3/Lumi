@@ -353,7 +353,7 @@ public sealed class MobileDesktopParityTests
     [InlineData("Good evening, Good", "Good", "Good evening, ", "Good", "")]
     [InlineData("Good morning, ning", "ning", "Good morning, ", "ning", "")]
     [InlineData("Good evening.", "", "Good evening.", "", "")]
-    [InlineData("Good evening, Adir", "Noy", "Good evening, Adir", "", "")]
+    [InlineData("Good evening, Adir", "Sam", "Good evening, Adir", "", "")]
     public void WelcomeGreetingAccentsOnlyTheUsersName(
         string greeting, string userName, string lead, string name, string trail) =>
         Assert.Equal(new WelcomeGreeting(lead, name, trail), WelcomeGreeting.Split(greeting, userName));

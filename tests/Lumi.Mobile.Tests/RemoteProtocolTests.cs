@@ -68,7 +68,7 @@ public class RemoteProtocolTests
     {
         var snapshot = new RemoteSnapshot
         {
-            HostName = "LIGHTO-DESKTOP",
+            HostName = "STUDIO-DESKTOP",
             IsConnected = true,
             ActiveChatId = Guid.NewGuid(),
             Chats = new RemoteChatPage

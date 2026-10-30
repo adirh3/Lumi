@@ -295,7 +295,7 @@ public sealed class MobileTransportScopeTests
             }
         };
         await using var client = CreateClient(handler);
-        client.Configure("http://100.85.249.111:47653", "token");
+        client.Configure("http://100.64.12.34:47653", "token");
         client.MarkProtocolCompatibleForTests();
         using var cancellation = new CancellationTokenSource();
         var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage).With("message", "Hello");
@@ -608,7 +608,7 @@ public sealed class MobileTransportScopeTests
         {
             DeviceId = "device",
             DeviceName = "Phone",
-            BaseUrl = "http://100.85.249.111:47653",
+            BaseUrl = "http://100.64.12.34:47653",
             Token = "token",
             HostName = "Lumi PC"
         });

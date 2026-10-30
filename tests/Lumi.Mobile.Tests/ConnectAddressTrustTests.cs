@@ -13,7 +13,7 @@ public sealed class ConnectAddressTrustTests
 {
     [Theory]
     [InlineData("100.64.0.1")]
-    [InlineData("100.85.249.111:47665")]
+    [InlineData("100.64.12.34:47665")]
     [InlineData("100.127.255.254")]
     [InlineData("[fd7a:115c:a1e0::1234]:47665")]
     public void TailscaleAddressesDoNotRequireTheLanTrustToggle(string address)
@@ -141,7 +141,7 @@ public sealed class ConnectAddressTrustTests
             TimeSpan.FromSeconds(2),
             new TrustedRouteVerifier());
         var request = new MobileConnectionLaunchRequest(
-            "http://100.85.249.111:47653");
+            "http://100.64.12.34:47653");
         var viewModel = new ConnectViewModel(
             client,
             new LumiDiscoveryClient(),
