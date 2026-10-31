@@ -1,5 +1,10 @@
 {
   "servers": {
+    "dotsight": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["dotsight"]
+    },
     "avalonia-mcp": {
       "type": "stdio",
       "command": "dotnet",

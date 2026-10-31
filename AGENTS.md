@@ -201,8 +201,9 @@ Tests must never touch the developer's real Lumi data. `TestProfile` (a module i
 
 ### Lumi MCP and UI Testing
 
-Lumi has two repo-configured MCP servers in `.vscode/mcp.json`:
+Lumi has three repo-configured MCP servers in `.vscode/mcp.json`. Run `dotnet tool restore` from the repository root to restore the pinned DotSight and Avalonia MCP versions in `dotnet-tools.json`.
 
+- `dotsight` — saved-file C# solution intelligence for symbols, references, source context, and diagnostics. Prefer loading `Lumi.slnx`; pass its absolute path when the client does not supply MCP workspace roots.
 - `lumi-mcp` — Lumi-specific Debug/E2E control surface. Prefer this first for app workflows: launch isolated Debug Lumi, open/create chats, send messages, wait for idle, read transcript/activity, navigate pages, list/configure features, and run harnesses.
 - `avalonia-mcp` — generic Avalonia UI diagnostics. Use this for visual/layout checks, control trees, bindings, focus, styles, screenshots, and interaction validation.
 
