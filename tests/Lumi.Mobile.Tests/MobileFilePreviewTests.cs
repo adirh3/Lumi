@@ -340,6 +340,9 @@ public sealed class MobileFilePreviewTests
         Assert.False(preview.ShowMarkdown);
         Assert.False(preview.ShowContentActions);
         Assert.False(preview.ShowLimitNotice);
+        // Nothing reaches a viewer, so nothing is built while the pane moves.
+        Assert.Null(preview.MarkdownSections);
+        Assert.Null(preview.MarkdownText);
 
         var changed = new List<string?>();
         preview.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
@@ -350,6 +353,15 @@ public sealed class MobileFilePreviewTests
         Assert.True(preview.ShowLimitNotice);
         Assert.Contains(nameof(FilePreviewViewModel.ShowMarkdown), changed);
         Assert.Contains(nameof(FilePreviewViewModel.ShowLoading), changed);
+        Assert.Contains(nameof(FilePreviewViewModel.MarkdownSections), changed);
+
+        // Only the markdown viewer gets the file: its sections, and its whole text for selection.
+        Assert.Equal(preview.Text, string.Join("\n", preview.MarkdownSections!.Select(section => section.Text)));
+        Assert.Equal(preview.Text, preview.MarkdownText);
+        Assert.Null(preview.CodeSections);
+        Assert.Null(preview.TextSections);
+        Assert.Null(preview.CodeText);
+        Assert.Null(preview.PlainText);
 
         // What has nothing to build says so at once: a failure, or a file the phone cannot draw.
         var failed = Preview("notes.txt", _ => Task.FromResult(new ProducedFileDownload(null, "The computer is asleep.")));
@@ -653,7 +665,7 @@ public sealed class MobileFilePreviewTests
 
             await ShowAsync("ComposerInsetTests.cs", "class ComposerInsetTests { }"u8.ToArray());
             AssertShows(view, "PreviewCodeScroll");
-            Assert.Equal("cs", Find<StrataCodeBlock>(view, "PreviewCode").Language);
+            Assert.Equal("cs", Find<ItemsControl>(view, "PreviewCode").GetVisualDescendants().OfType<StrataCodeBlock>().Single().Language);
 
             await ShowAsync("build.log", "Build succeeded."u8.ToArray());
             AssertShows(view, "PreviewTextScroll");
@@ -661,8 +673,10 @@ public sealed class MobileFilePreviewTests
             var csv = await ShowAsync("metrics.csv", "Device,Width\nFold7,984\nPixel,412\n"u8.ToArray());
             AssertShows(view, "PreviewCsvScroll");
             Assert.Equal(csv.Table!.Width, Find<DockPanel>(view, "PreviewCsvTable").Bounds.Width, 1);
-            Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(),
-                cell => cell.Classes.Contains("csv-cell") && cell.Text == "Fold7" && cell.IsEffectivelyVisible);
+            var fold = Assert.Single(view.GetVisualDescendants().OfType<CsvRowView>(), row => row.CellTexts.Contains("Fold7"));
+            Assert.True(fold.IsEffectivelyVisible && fold.Bounds.Width >= csv.Table.Width - 1);
+            Assert.Equal(["Fold7", "984"], fold.CellTexts);
+            Assert.Equal("1: Fold7, 984", fold.GetValue(Avalonia.Automation.AutomationProperties.NameProperty));
 
             await ShowAsync("fold-resume-after.png", ReadAsset("avares://Lumi.Mobile/Assets/lumi-icon.png"));
             AssertShows(view, "PreviewImage");
@@ -694,6 +708,59 @@ public sealed class MobileFilePreviewTests
             Assert.All(pdf.Pdf!.Pages, page => Assert.Null(page.Image));
             AssertNoBindingErrors(logs);
         });
+
+    [Theory]
+    [InlineData("report")]
+    [InlineData("prose")]
+    [InlineData("hebrew")]
+    public async Task ALongFileReadsInItsSectionsExactlyAsItDoesWhole(string document)
+    {
+        var text = document switch
+        {
+            "report" => FilePreviewSectionsTests.Report(sections: 6),
+            "prose" => FilePreviewSectionsTests.Prose(sections: 12),
+            _ => FilePreviewSectionsTests.Hebrew(paragraphs: 40)
+        };
+        using var files = new TempFiles();
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(async () =>
+        {
+            var preview = new FilePreviewViewModel(Attachment("report.md"), Guid.NewGuid(), Serve(files.Write("report.md", Encoding.UTF8.GetBytes(text))));
+            var view = new FilePreviewView { DataContext = preview };
+            var whole = new StrataMarkdown { Markdown = text, IsInline = true, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top };
+            // Tall enough that every section is built, beside the same file built whole.
+            var window = new Window { Width = 412, Height = 16000, Content = new Grid { Children = { view, whole } } };
+            try
+            {
+                window.Show();
+                await preview.LoadAsync();
+                ItemsControl? Sections() => view.GetVisualDescendants().OfType<ItemsControl>().SingleOrDefault(control => control.Name == "PreviewMarkdown");
+                await SettleAsync(window, () => Sections() is { ItemCount: > 0 } built && built.ItemCount == preview.MarkdownSections?.Count);
+                var list = Find<ItemsControl>(view, "PreviewMarkdown");
+                Assert.True(list.ItemCount > 2, $"{list.ItemCount} sections");
+                whole.Width = list.Bounds.Width;
+                await SettleAsync(window);
+
+                var sections = list.GetVisualDescendants().OfType<StrataMarkdown>().ToList();
+                Assert.Equal(list.ItemCount, sections.Count);
+                Assert.All(sections, section => Assert.Equal(whole.FontSize, section.FontSize));
+                // The sections stack to the whole file's height, the last keeping the space after a block. Each
+                // rounds its height to a pixel on its own; a seam that showed would be a line or a block gap off.
+                Assert.Equal(whole.Bounds.Height + StrataMarkdown.BlockSpacing, list.Bounds.Height, sections.Count * 0.5);
+                Assert.Equal(preview.Text, preview.MarkdownText);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+        failure?.Throw();
+    }
 
     [Fact]
     public Task OnAPhoneTheFileCoversTheChatAndBackSlidesItAway() =>

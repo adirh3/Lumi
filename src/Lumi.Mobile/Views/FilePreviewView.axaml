@@ -184,11 +184,14 @@
       <Setter Property="BorderThickness" Value="0,0,0,1" />
       <Setter Property="MinHeight" Value="44" />
     </Style>
-    <Style Selector="views|FilePreviewView Border.csv-row">
+    <!-- Rows draw their cells' text themselves (CsvRowView), aligned with the header's columns. -->
+    <Style Selector="views|FilePreviewView views|CsvRowView">
       <Setter Property="Height" Value="42" />
-    </Style>
-    <Style Selector="views|FilePreviewView Border.csv-row.alternate">
-      <Setter Property="Background" Value="{DynamicResource Brush.QuietField}" />
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="NumberFontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="NumberForeground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="AlternateBackground" Value="{DynamicResource Brush.QuietField}" />
     </Style>
     <Style Selector="views|FilePreviewView TextBlock.csv-cell">
       <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
@@ -254,17 +257,38 @@
                               Source="{Binding Image}"
                               IsVisible="{Binding ShowImage}" />
 
-      <!-- The ScrollViewer measures a layout container, never the markdown itself. -->
+      <!-- Text files show in sections, each built only as it nears the screen, so a long file opens at
+           once (FilePreviewSections). The ScrollViewer measures a layout container, never the text itself. -->
       <ScrollViewer x:Name="PreviewMarkdownScroll" Classes="mobile-scroll"
                     IsVisible="{Binding ShowMarkdown}"
                     HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="PreviewMarkdownContent" Classes="preview-content" MaxWidth="760">
-          <sc:StrataMarkdown x:Name="PreviewMarkdown"
-                             Markdown="{Binding Text}"
-                             InteractionLanguage="{x:Static loc:ChatSessionStrings.Language}"
-                             IsInline="True"
-                             behaviors:NativeTextSelection.IsEnabled="True"
-                             behaviors:NativeTextSelection.Text="{Binding Text}" />
+          <ItemsControl x:Name="PreviewMarkdown"
+                        behaviors:ProgressiveItems.Source="{Binding MarkdownSections}"
+                        behaviors:NativeTextSelection.IsEnabled="True"
+                        behaviors:NativeTextSelection.Text="{Binding MarkdownText}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <VirtualizingStackPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <!-- Sections sit apart as markdown's blocks do, or a blank line apart where one ends mid-text,
+                   so the seams between them don't show. -->
+              <DataTemplate x:DataType="vm:FilePreviewSection">
+                <sc:StrataMarkdown Markdown="{Binding Text}"
+                                   InteractionLanguage="{x:Static loc:ChatSessionStrings.Language}"
+                                   IsInline="True">
+                  <sc:StrataMarkdown.Margin>
+                    <MultiBinding Converter="{x:Static views:FilePreviewView.SectionSpacing}">
+                      <Binding Path="JoinsNext" />
+                      <Binding Path="FontSize" RelativeSource="{RelativeSource Self}" />
+                    </MultiBinding>
+                  </sc:StrataMarkdown.Margin>
+                </sc:StrataMarkdown>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
         </StackPanel>
       </ScrollViewer>
 
@@ -273,11 +297,23 @@
                     FlowDirection="LeftToRight"
                     HorizontalScrollBarVisibility="Auto">
         <StackPanel x:Name="PreviewCodeContent" Classes="preview-content">
-          <sc:StrataCodeBlock x:Name="PreviewCode" Classes="preview-code"
-                              Text="{Binding Text}"
-                              Language="{Binding CodeLanguage}"
-                              behaviors:NativeTextSelection.IsEnabled="True"
-                              behaviors:NativeTextSelection.Text="{Binding Text}" />
+          <ItemsControl x:Name="PreviewCode"
+                        behaviors:ProgressiveItems.Source="{Binding CodeSections}"
+                        behaviors:NativeTextSelection.IsEnabled="True"
+                        behaviors:NativeTextSelection.Text="{Binding CodeText}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <VirtualizingStackPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:FilePreviewSection">
+                <sc:StrataCodeBlock Classes="preview-code"
+                                    Text="{Binding Text}"
+                                    Language="{Binding CodeLanguage}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
         </StackPanel>
       </ScrollViewer>
 
@@ -285,14 +321,25 @@
                     IsVisible="{Binding ShowText}"
                     HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="PreviewTextContent" Classes="preview-content" MaxWidth="760">
-          <SelectableTextBlock x:Name="PreviewText"
-                               Text="{Binding Text}"
-                               TextWrapping="Wrap"
-                               FontSize="{DynamicResource Font.SizeBody}"
-                               LineHeight="{DynamicResource Font.LineHeightBody}"
-                               Foreground="{DynamicResource Brush.TextPrimary}"
-                               behaviors:NativeTextSelection.IsEnabled="True"
-                               behaviors:NativeTextSelection.Text="{Binding Text}" />
+          <ItemsControl x:Name="PreviewText"
+                        behaviors:ProgressiveItems.Source="{Binding TextSections}"
+                        behaviors:NativeTextSelection.IsEnabled="True"
+                        behaviors:NativeTextSelection.Text="{Binding PlainText}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <VirtualizingStackPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:FilePreviewSection">
+                <SelectableTextBlock Text="{Binding Text}"
+                                     TextWrapping="Wrap"
+                                     FontSize="{DynamicResource Font.SizeBody}"
+                                     LineHeight="{DynamicResource Font.LineHeightBody}"
+                                     Foreground="{DynamicResource Brush.TextPrimary}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
         </StackPanel>
       </ScrollViewer>
 
@@ -333,24 +380,7 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:CsvPreviewRow">
-                    <Border Classes="csv-row" Classes.alternate="{Binding IsAlternate}">
-                      <StackPanel Orientation="Horizontal">
-                        <TextBlock Classes="csv-number" Text="{Binding NumberText}" Width="{Binding NumberWidth}" />
-                        <ItemsControl ItemsSource="{Binding Cells}">
-                          <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                              <StackPanel Orientation="Horizontal" />
-                            </ItemsPanelTemplate>
-                          </ItemsControl.ItemsPanel>
-                          <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:CsvPreviewCell">
-                              <TextBlock Classes="csv-cell" Classes.numeric="{Binding IsNumeric}"
-                                         Width="{Binding Width}" Text="{Binding Text}" />
-                            </DataTemplate>
-                          </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                      </StackPanel>
-                    </Border>
+                    <views:CsvRowView />
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

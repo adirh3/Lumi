@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
@@ -9,6 +10,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
+using StrataTheme.Controls;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.Views;
@@ -29,6 +31,18 @@ public partial class FilePreviewView : UserControl
 
     /// <summary>The floating actions' height and gap, so the end of a file scrolls clear of them.</summary>
     private const double ActionsClearance = 96;
+
+    /// <summary>
+    /// The space below a markdown section, given whether the next one continues its text and its font size:
+    /// a blank line of that text then, else the space markdown leaves between its blocks.
+    /// </summary>
+    public static readonly FuncMultiValueConverter<object?, Thickness> SectionSpacing = new(values =>
+    {
+        var (joinsNext, fontSize) = values.ToArray() is [bool joins, double size] ? (joins, size) : (false, 0d);
+        return new Thickness(0, 0, 0, joinsNext && fontSize > 0
+            ? fontSize * StrataMarkdown.TextLineHeightRatio
+            : StrataMarkdown.BlockSpacing);
+    });
 
     private static readonly TimeSpan ActionMessageDuration = TimeSpan.FromSeconds(4);
 

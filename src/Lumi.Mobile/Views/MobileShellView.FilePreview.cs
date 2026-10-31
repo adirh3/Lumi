@@ -254,9 +254,17 @@ public partial class MobileShellView
                 return;
             }
 
-            _previewWidthMoving = false;
-            SetPreviewMoving(false);
-            completed?.Invoke();
+            // The pane has landed in this frame. What its landing sets off (the chat reflowing at its new
+            // width, the file being shown) follows once the frame is drawn, as the drawer's does.
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (version != _previewMotionVersion)
+                    return;
+
+                _previewWidthMoving = false;
+                SetPreviewMoving(false);
+                completed?.Invoke();
+            }, DispatcherPriority.Loaded);
         }
 
         topLevel.RequestAnimationFrame(Frame);

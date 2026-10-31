@@ -13,6 +13,12 @@ namespace Lumi.Mobile.ViewModels;
 /// <summary>A file Lumi made, brought over from the PC, or why it could not be.</summary>
 public readonly record struct ProducedFileDownload(string? Path, string? Error);
 
+/// <summary>
+/// Part of a file's text, built on its own as it nears the screen; code keeps its file's grammar. A markdown
+/// section that <paramref name="JoinsNext"/> ends mid-text, so the next one sits a blank line below it.
+/// </summary>
+public sealed record FilePreviewSection(string Text, string? CodeLanguage, bool JoinsNext = false);
+
 /// <summary>Narrow seam so a preview can fetch its file without owning the transport.</summary>
 public interface IRemoteProducedFileSink
 {
@@ -93,6 +99,9 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     [ObservableProperty] private string? _text;
 
+    /// <summary>The text in the sections the pane builds one at a time (<see cref="FilePreviewSections"/>).</summary>
+    [ObservableProperty] private IReadOnlyList<FilePreviewSection>? _sections;
+
     [ObservableProperty] private string? _codeLanguage;
 
     [ObservableProperty] private bool _isTruncated;
@@ -133,6 +142,30 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     public bool ShowText => CanShowContent && Kind == FilePreviewKind.Text && !string.IsNullOrEmpty(Text);
 
+    /// <summary>
+    /// The text, for the viewer that shows it and only once it does: a viewer builds whatever text it is
+    /// given, hidden or not, so the others get none and nothing is built while the pane still moves.
+    /// </summary>
+    public string? MarkdownText => ShowMarkdown ? Text : null;
+
+    /// <inheritdoc cref="MarkdownText"/>
+    public string? CodeText => ShowCode ? Text : null;
+
+    /// <inheritdoc cref="MarkdownText"/>
+    public string? PlainText => ShowText ? Text : null;
+
+    /// <summary>
+    /// The text in sections, so the pane builds only the part on screen, a section at a time. Like the
+    /// text, only the viewer that shows the file gets them, once it does.
+    /// </summary>
+    public IReadOnlyList<FilePreviewSection>? MarkdownSections => ShowMarkdown ? Sections : null;
+
+    /// <inheritdoc cref="MarkdownSections"/>
+    public IReadOnlyList<FilePreviewSection>? CodeSections => ShowCode ? Sections : null;
+
+    /// <inheritdoc cref="MarkdownSections"/>
+    public IReadOnlyList<FilePreviewSection>? TextSections => ShowText ? Sections : null;
+
     public bool ShowCsv => CanShowContent && Kind == FilePreviewKind.Csv && Table is not null;
 
     public bool ShowPdf => CanShowContent && Kind == FilePreviewKind.Pdf && Pdf is not null;
@@ -168,7 +201,9 @@ public sealed partial class FilePreviewViewModel : ObservableObject
     [
         nameof(HasError), nameof(ShowLoading), nameof(ShowImage), nameof(ShowMarkdown), nameof(ShowCode),
         nameof(ShowText), nameof(ShowCsv), nameof(ShowPdf), nameof(ShowUnsupported), nameof(ShowEmpty),
-        nameof(ShowContentActions), nameof(ShowLimitNotice), nameof(LimitNoticeText), nameof(Subtitle)
+        nameof(ShowContentActions), nameof(ShowLimitNotice), nameof(LimitNoticeText), nameof(Subtitle),
+        nameof(MarkdownText), nameof(CodeText), nameof(PlainText),
+        nameof(MarkdownSections), nameof(CodeSections), nameof(TextSections)
     ];
 
     partial void OnKindChanged(FilePreviewKind value) => NotifyState();
@@ -180,6 +215,8 @@ public sealed partial class FilePreviewViewModel : ObservableObject
     partial void OnSizeTextChanged(string? value) => OnPropertyChanged(nameof(Subtitle));
 
     partial void OnTextChanged(string? value) => NotifyState();
+
+    partial void OnSectionsChanged(IReadOnlyList<FilePreviewSection>? value) => NotifyState();
 
     partial void OnIsTruncatedChanged(bool value) => NotifyState();
 
@@ -336,10 +373,19 @@ public sealed partial class FilePreviewViewModel : ObservableObject
                 }
                 if (Kind == FilePreviewKind.Unknown)
                     Kind = FilePreviewKind.Text;
-                CodeLanguage = Kind == FilePreviewKind.Code && text.Text.Length <= FilePreviewContent.MaxHighlightedCharacters
+                var kind = Kind;
+                var language = kind == FilePreviewKind.Code && text.Text.Length <= FilePreviewContent.MaxHighlightedCharacters
                     ? FilePreviewContent.CodeLanguage(FileName)
                     : null;
+                var sections = await Task.Run(() => FilePreviewSections.Split(kind, text.Text)
+                        .Select(section => new FilePreviewSection(section.Text, language, section.JoinsNext))
+                        .ToArray(), token)
+                    .ConfigureAwait(true);
+                if (!IsCurrent(version))
+                    return;
+                CodeLanguage = language;
                 IsTruncated = text.IsTruncated;
+                Sections = sections;
                 Text = text.Text;
                 return;
         }

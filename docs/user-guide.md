@@ -1110,8 +1110,9 @@ Galaxy Z Fold7's unfolded screen, a tablet) the chat moves into the chat list's 
 file opens beside it, the two meeting at the fold or either side of a hinge; the composer stays
 usable, and ✕, Back or showing the chats closes the file and brings the list back. A floating
 bar offers **Open with** another app, **Share** on Android and **Save** a copy; in the browser
-app, **Download** stands for both. A long file shows its beginning (100,000 characters, 2,000
-rows or 200 pages) and says so.
+app, **Download** stands for both. Long text, code and Markdown are built a part at a time as they
+near the screen, so even a long report opens at once; a very long file shows its beginning
+(100,000 characters, 2,000 rows or 200 pages) and says so.
 
 Preview every popup without pairing, network calls or real chat data:
 
