@@ -1,8 +1,8 @@
 using System;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Lumi.Remote.Protocol;
 
 namespace Lumi.Services;
 
@@ -11,7 +11,7 @@ internal enum FilePreviewKind { Text, Markdown, Image, Native, Csv }
 internal sealed record FilePreviewContent(FilePreviewKind Kind, string? Text = null, bool IsTruncated = false,
     CsvPreviewData? Csv = null)
 {
-    internal const int MaxCharacters = 100_000;
+    internal const int MaxCharacters = FilePreviewText.MaxCharacters;
 
     internal static bool IsHtmlFile(string filePath)
         => Path.GetExtension(filePath).ToLowerInvariant() is ".html" or ".htm";
@@ -32,34 +32,11 @@ internal sealed record FilePreviewContent(FilePreviewKind Kind, string? Text = n
             return new(FilePreviewKind.Native);
 
         // Content detection also covers extensionless files and uncommon source-code extensions.
-        using var reader = new StreamReader(stream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: true);
-        var buffer = new char[MaxCharacters + 1];
-        var length = 0;
-        try
-        {
-            while (length < buffer.Length)
-            {
-                var read = await reader.ReadAsync(buffer.AsMemory(length), cancellationToken).ConfigureAwait(false);
-                if (read == 0)
-                    break;
-                for (var i = length; i < length + read; i++)
-                {
-                    if (char.IsControl(buffer[i]) && buffer[i] is not ('\r' or '\n' or '\t' or '\f'))
-                        return new(FilePreviewKind.Native);
-                }
-                length += read;
-            }
-        }
-        catch (DecoderFallbackException)
-        {
+        if (await FilePreviewText.ReadAsync(stream, cancellationToken).ConfigureAwait(false) is not { } content)
             return new(FilePreviewKind.Native);
-        }
 
-        var count = Math.Min(length, MaxCharacters);
-        if (count > 0 && char.IsHighSurrogate(buffer[count - 1]))
-            count--;
-        var text = new string(buffer, 0, count);
-        var isTruncated = length > MaxCharacters;
+        var text = content.Text;
+        var isTruncated = content.IsTruncated;
         if (extension is ".csv" or ".tsv")
         {
             var csv = await Task.Run(() => CsvPreviewData.Parse(text, isTruncated,

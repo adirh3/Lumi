@@ -82,6 +82,8 @@ public sealed class CsvPreviewTests
     {
         Assert.Throws<FormatException>(() => CsvPreviewData.Parse("Name,Notes\nA,\"unfinished", false));
         Assert.Throws<FormatException>(() => CsvPreviewData.Parse("Name,Notes\nA,\"closed\"unexpected\n", true));
+        var error = Assert.Throws<FormatException>(() => CsvPreviewData.Parse("sep=,\nName,Notes\nA,\"unfinished", false));
+        Assert.Equal(Loc.Get("Csv_InvalidFormat", 3), error.Message);
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         Assert.ThrowsAny<OperationCanceledException>(() =>

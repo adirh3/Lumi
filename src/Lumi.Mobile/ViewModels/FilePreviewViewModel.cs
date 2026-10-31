@@ -307,7 +307,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
                 return;
 
             case FilePreviewKind.Csv:
-                var csvText = await FilePreviewContent.ReadTextAsync(path, token).ConfigureAwait(true);
+                var csvText = await FilePreviewText.ReadAsync(path, token).ConfigureAwait(true);
                 if (!IsCurrent(version))
                     return;
                 if (csvText is null)
@@ -317,7 +317,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
                 }
                 var delimiter = Path.GetExtension(FileName).Equals(".tsv", StringComparison.OrdinalIgnoreCase)
                     ? '\t' : (char?)null;
-                var table = await Task.Run(() => CsvPreviewTable.Parse(csvText.Text, csvText.IsTruncated, delimiter), token)
+                var table = await Task.Run(() => CsvPreviewTable.Parse(csvText.Text, csvText.IsTruncated, delimiter, token), token)
                     .ConfigureAwait(true);
                 if (!IsCurrent(version))
                     return;
@@ -326,7 +326,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
                 return;
 
             default:
-                var text = await FilePreviewContent.ReadTextAsync(path, token).ConfigureAwait(true);
+                var text = await FilePreviewText.ReadAsync(path, token).ConfigureAwait(true);
                 if (!IsCurrent(version))
                     return;
                 if (text is null)
@@ -355,7 +355,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     private static string Describe(Exception ex) => ex switch
     {
-        InvalidDataException => Strings.Get("FilePreviewInvalid"),
+        InvalidDataException or CsvPreviewFormatException => Strings.Get("FilePreviewInvalid"),
         IOException or UnauthorizedAccessException => Strings.Get("FilePreviewUnreadable"),
         _ => Strings.Get("FilePreviewFailed")
     };

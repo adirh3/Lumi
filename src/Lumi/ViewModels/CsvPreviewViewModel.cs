@@ -7,6 +7,7 @@ using Avalonia.Collections;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
+using Lumi.Remote.Protocol;
 using Lumi.Services;
 
 namespace Lumi.ViewModels;
@@ -84,12 +85,9 @@ public sealed partial class CsvPreviewViewModel : ObservableObject
         {
             var header = HasHeaderRow && _data.Records.Count > 0 && column < _data.Records[0].Length
                 ? _data.Records[0][column].Trim() : "";
-            var values = _allRows.Select(row => row.Cells[column])
-                .Where(value => !string.IsNullOrWhiteSpace(value)).ToArray();
             return new CsvPreviewColumn(
                 header.Length > 0 ? header : Loc.Get("Csv_Column", column + 1),
-                values.Length > 0 && values.All(value => decimal.TryParse(value,
-                    CsvPreviewRowComparer.NumericStyles, CultureInfo.InvariantCulture, out _)));
+                CsvPreviewRecords.IsNumericColumn(_allRows.Select(row => row.Cells[column])));
         }).ToArray();
         Rows = new DataGridCollectionView(_allRows) { Filter = MatchesSearch };
         NotifySummary();
@@ -111,7 +109,7 @@ public sealed partial class CsvPreviewViewModel : ObservableObject
 
 internal sealed class CsvPreviewRowComparer(int column, bool isNumeric) : IComparer
 {
-    internal const NumberStyles NumericStyles = NumberStyles.Float | NumberStyles.AllowThousands;
+    internal const NumberStyles NumericStyles = CsvPreviewRecords.NumericStyles;
 
     public int Compare(object? x, object? y)
     {

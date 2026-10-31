@@ -61,22 +61,22 @@ public sealed class MobileFilePreviewTests
     {
         using var files = new TempFiles();
 
-        var longText = await FilePreviewContent.ReadTextAsync(
+        var longText = await FilePreviewText.ReadAsync(
             files.Write("long.txt", Encoding.UTF8.GetBytes(new string('a', FilePreviewContent.MaxCharacters + 10))),
             CancellationToken.None);
         Assert.NotNull(longText);
         Assert.True(longText.IsTruncated);
         Assert.Equal(FilePreviewContent.MaxCharacters, longText.Text.Length);
 
-        var withBom = await FilePreviewContent.ReadTextAsync(
+        var withBom = await FilePreviewText.ReadAsync(
             files.Write("bom.txt", [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("héllo\r\n\tworld")]),
             CancellationToken.None);
         Assert.Equal("héllo\r\n\tworld", withBom!.Text);
         Assert.False(withBom.IsTruncated);
 
-        Assert.Null(await FilePreviewContent.ReadTextAsync(files.Write("nul.txt", [0x48, 0x00, 0x49]), CancellationToken.None));
-        Assert.Null(await FilePreviewContent.ReadTextAsync(files.Write("bad.txt", [0x48, 0xC3, 0x28]), CancellationToken.None));
-        Assert.Equal("", (await FilePreviewContent.ReadTextAsync(files.Write("empty.txt", []), CancellationToken.None))!.Text);
+        Assert.Null(await FilePreviewText.ReadAsync(files.Write("nul.txt", [0x48, 0x00, 0x49]), CancellationToken.None));
+        Assert.Null(await FilePreviewText.ReadAsync(files.Write("bad.txt", [0x48, 0xC3, 0x28]), CancellationToken.None));
+        Assert.Equal("", (await FilePreviewText.ReadAsync(files.Write("empty.txt", []), CancellationToken.None))!.Text);
     }
 
     [Fact]
@@ -155,6 +155,28 @@ public sealed class MobileFilePreviewTests
         Assert.False(empty.HasRows);
         Assert.Empty(empty.Columns);
         Assert.False(empty.IsLimited);
+    }
+
+    [Fact]
+    public async Task CsvFilesAreReadByTheDesktopsRulesAndADamagedOneSaysSo()
+    {
+        // The rules the desktop reads a CSV by: a blank first line, a quoted header holding commas.
+        var desktopRules = CsvPreviewRecords.Parse("\r\n\"Name, with commas\";\"Price\"\nA;10", false);
+        var table = CsvPreviewTable.Parse("\r\n\"Name, with commas\";\"Price\"\nA;10", false);
+        Assert.Equal(';', desktopRules.Delimiter);
+        Assert.Equal(new[] { "Name, with commas", "Price" }, table.Columns.Select(column => column.Header));
+        Assert.Equal(new[] { "A", "10" }, table.Rows.Single().Cells.Select(cell => cell.Text));
+        Assert.True(table.Columns[1].IsNumeric);
+
+        var malformed = Assert.Throws<CsvPreviewFormatException>(() => CsvPreviewTable.Parse("Name,Notes\nA,\"unfinished", false));
+        Assert.Equal(2, malformed.LineNumber);
+
+        using var files = new TempFiles();
+        var preview = Preview("broken.csv", Serve(files.Write("broken.csv", "sep=,\nName,Notes\nA,\"closed\"unexpected\n"u8.ToArray())));
+        await preview.LoadAsync();
+        Assert.True(preview.HasError);
+        Assert.Equal("This file is damaged, or isn't what its name says.", preview.ErrorText);
+        Assert.False(preview.ShowCsv);
     }
 
     // ── The preview ─────────────────────────────────────────────────────────────────────────────

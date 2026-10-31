@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Text;
+using Lumi.Remote.Protocol;
 using Strings = Lumi.Mobile.Localization.ChatSessionStrings;
 
 namespace Lumi.Mobile.ViewModels;
@@ -66,20 +66,13 @@ public sealed class CsvPreviewTable
     /// <param name="text">The file's text, possibly cut short at the preview's character bound.</param>
     /// <param name="isTruncated">The text was cut, so its last record may be incomplete.</param>
     /// <param name="delimiter">The separator when the format fixes it (TSV); detected otherwise.</param>
-    public static CsvPreviewTable Parse(string text, bool isTruncated, char? delimiter = null)
+    /// <exception cref="CsvPreviewFormatException">A complete record cannot be read.</exception>
+    public static CsvPreviewTable Parse(
+        string text, bool isTruncated, char? delimiter = null, CancellationToken cancellationToken = default)
     {
-        // Excel's "sep=;" first line names the separator and is not data.
-        if (text.StartsWith("sep=", StringComparison.OrdinalIgnoreCase) && text.Length >= 5
-            && text[4] is ',' or ';' or '\t' or '|'
-            && (text.Length == 5 || text[5] is '\r' or '\n'))
-        {
-            delimiter = text[4];
-            text = text[5..].TrimStart('\r', '\n');
-        }
-
-        var separator = delimiter ?? DetectDelimiter(text);
-        var records = ReadRecords(text, separator, MaxRows + 1, isTruncated, out var hasMoreRecords);
-        var limited = hasMoreRecords || records.Count > MaxRows + 1;
+        // The desktop's rules read the records; the phone lays them out.
+        var records = CsvPreviewRecords.Parse(text, isTruncated, delimiter, cancellationToken).Records;
+        var limited = isTruncated;
         if (records.Count == 0)
             return new CsvPreviewTable([], [], RowNumberWidthFor(0), limited);
 
@@ -100,24 +93,13 @@ public sealed class CsvPreviewTable
                 ? header[column].Trim()
                 : Strings.Get("CsvColumnNamed", column + 1);
             var longest = name.Length;
-            var numeric = true;
-            var hasValue = false;
-            for (var row = 0; row < data.Count; row++)
-            {
-                var value = column < data[row].Length ? data[row][column] : "";
-                if (row < MeasuredRows)
-                    longest = Math.Max(longest, LongestLine(value));
-                if (string.IsNullOrWhiteSpace(value))
-                    continue;
-                hasValue = true;
-                numeric &= decimal.TryParse(value.Trim(), NumberStyles.Float | NumberStyles.AllowThousands,
-                    CultureInfo.InvariantCulture, out _);
-            }
+            for (var row = 0; row < Math.Min(data.Count, MeasuredRows); row++)
+                longest = Math.Max(longest, LongestLine(Cell(data[row], column)));
 
             columns[column] = new CsvPreviewColumn(
                 name,
                 Math.Clamp(Math.Ceiling(longest * CharacterWidth + CellPadding), MinColumnWidth, MaxColumnWidth),
-                numeric && hasValue);
+                CsvPreviewRecords.IsNumericColumn(data.Select(record => Cell(record, column))));
         }
 
         var numberWidth = RowNumberWidthFor(data.Count);
@@ -127,17 +109,16 @@ public sealed class CsvPreviewTable
             var record = data[row];
             var cells = new CsvPreviewCell[columnCount];
             for (var column = 0; column < columnCount; column++)
-            {
-                var value = column < record.Length ? record[column] : "";
                 cells[column] = new CsvPreviewCell(
-                    Flatten(value), columns[column].Width, columns[column].IsNumeric);
-            }
+                    Flatten(Cell(record, column)), columns[column].Width, columns[column].IsNumeric);
 
             rows[row] = new CsvPreviewRow(row + 1, cells, row % 2 == 1, numberWidth);
         }
 
         return new CsvPreviewTable(columns, rows, numberWidth, limited);
     }
+
+    private static string Cell(string[] record, int column) => column < record.Length ? record[column] : "";
 
     private static double RowNumberWidthFor(int rows) =>
         Math.Max(40, rows.ToString(CultureInfo.InvariantCulture).Length * 8.5 + 24);
@@ -154,107 +135,5 @@ public sealed class CsvPreviewTable
         foreach (var line in value.Split('\n'))
             longest = Math.Max(longest, line.TrimEnd('\r').Length);
         return longest;
-    }
-
-    private static char DetectDelimiter(string text)
-    {
-        ReadOnlySpan<char> candidates = [',', ';', '\t', '|'];
-        Span<int> counts = stackalloc int[candidates.Length];
-        counts.Clear();
-        var quoted = false;
-        foreach (var character in text)
-        {
-            if (character == '"')
-                quoted = !quoted;
-            else if (!quoted && character is '\r' or '\n')
-                break;
-            else if (!quoted && candidates.IndexOf(character) is var index and >= 0)
-                counts[index]++;
-        }
-
-        var best = 0;
-        for (var i = 1; i < counts.Length; i++)
-        {
-            if (counts[i] > counts[best])
-                best = i;
-        }
-
-        return candidates[best];
-    }
-
-    /// <summary>
-    /// RFC 4180 records: quoted fields may hold separators, doubled quotes and line breaks. Blank lines
-    /// are skipped, and a record the text was cut inside is dropped rather than shown half-read.
-    /// </summary>
-    private static List<string[]> ReadRecords(
-        string text, char delimiter, int maxRecords, bool isTruncated, out bool hasMore)
-    {
-        var records = new List<string[]>();
-        var fields = new List<string>();
-        var field = new StringBuilder();
-        var quoted = false;
-        var atFieldStart = true;
-        hasMore = false;
-
-        for (var i = 0; i < text.Length; i++)
-        {
-            var character = text[i];
-            if (quoted)
-            {
-                if (character != '"')
-                    field.Append(character);
-                else if (i + 1 < text.Length && text[i + 1] == '"')
-                {
-                    field.Append('"');
-                    i++;
-                }
-                else
-                    quoted = false;
-                continue;
-            }
-
-            if (character == '"' && atFieldStart)
-            {
-                quoted = true;
-                atFieldStart = false;
-            }
-            else if (character == delimiter)
-            {
-                fields.Add(field.ToString());
-                field.Clear();
-                atFieldStart = true;
-            }
-            else if (character is '\r' or '\n')
-            {
-                if (character == '\r' && i + 1 < text.Length && text[i + 1] == '\n')
-                    i++;
-                fields.Add(field.ToString());
-                field.Clear();
-                atFieldStart = true;
-                if (fields.Count > 1 || fields[0].Length > 0)
-                    records.Add([.. fields]);
-                fields.Clear();
-                if (records.Count >= maxRecords)
-                {
-                    hasMore = text.AsSpan(i + 1).Trim().Length > 0 || isTruncated;
-                    return records;
-                }
-            }
-            else
-            {
-                field.Append(character);
-                atFieldStart = false;
-            }
-        }
-
-        // The last record has no line break after it. If the text was cut, it may be cut short too.
-        if (!isTruncated && !quoted && (fields.Count > 0 || field.Length > 0))
-        {
-            fields.Add(field.ToString());
-            records.Add([.. fields]);
-        }
-
-        hasMore = isTruncated;
-        return records;
     }
 }
