@@ -31,8 +31,7 @@ internal sealed class AndroidPdfPreviewRenderer : IPdfPreviewRenderer
         private readonly ParcelFileDescriptor _descriptor;
         private readonly PdfRenderer _renderer;
         private readonly Size[] _pageSizes;
-        private bool _disposed;
-        private bool _closed;
+        private volatile bool _disposed;
 
         public Document(string path)
         {
@@ -91,9 +90,6 @@ internal sealed class AndroidPdfPreviewRenderer : IPdfPreviewRenderer
             }
             finally
             {
-                // A document disposed while its page was drawing closes once the page is done.
-                if (_disposed)
-                    Close();
                 _gate.Release();
             }
         }
@@ -149,27 +145,25 @@ internal sealed class AndroidPdfPreviewRenderer : IPdfPreviewRenderer
                 return;
 
             _disposed = true;
-            // With no page drawing, the renderer closes now; otherwise that page closes it.
-            if (!_gate.Wait(0))
-                return;
+            _ = CloseAsync();
+        }
+
+        /// <summary>
+        /// Closes the renderer once no page is drawing: at once, or when the page being drawn is done.
+        /// A page that waits its turn after this sees the document disposed and never draws.
+        /// </summary>
+        private async Task CloseAsync()
+        {
+            await _gate.WaitAsync().ConfigureAwait(false);
             try
             {
-                Close();
+                _renderer.Close();
+                _descriptor.Close();
             }
             finally
             {
                 _gate.Release();
             }
-        }
-
-        private void Close()
-        {
-            if (_closed)
-                return;
-
-            _closed = true;
-            _renderer.Close();
-            _descriptor.Close();
         }
     }
 }

@@ -194,6 +194,9 @@ public partial class FilePreviewView : UserControl
         var shell = FindShell();
         preview.IsActionRunning = true;
         preview.ActionMessage = null;
+        // The action holds the file: another file opened meanwhile closes this preview, but its copy
+        // stays until the platform has taken it.
+        preview.Retain();
         shell?.BeginPendingRemoteAction();
         try
         {
@@ -220,6 +223,7 @@ public partial class FilePreviewView : UserControl
         finally
         {
             preview.IsActionRunning = false;
+            preview.Release();
             shell?.EndPendingRemoteAction();
         }
     }

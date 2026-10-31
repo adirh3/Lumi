@@ -49,7 +49,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
     private readonly CancellationTokenSource _lifetime = new();
     private Task<ProducedFileDownload>? _downloadTask;
     private long _loadVersion;
-    private int _presenters;
+    private int _holders;
     private bool _released;
 
     public FilePreviewViewModel(
@@ -408,19 +408,22 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
     // ── Ownership ────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>A view started showing this preview; its resources stay until the view lets go.</summary>
-    internal void AttachPresenter() => _presenters++;
+    /// <summary>
+    /// Something still uses this preview: a pane showing it, or an action on its file. A closed preview
+    /// keeps its resources until the last of them lets go.
+    /// </summary>
+    internal void Retain() => _holders++;
 
-    /// <summary>A view stopped showing this preview, so a closed one can give back what it holds.</summary>
-    internal void DetachPresenter()
+    /// <summary>A pane or action let go of this preview, so a closed one can give back what it holds.</summary>
+    internal void Release()
     {
-        if (_presenters > 0)
-            _presenters--;
-        if (IsClosed && _presenters == 0)
+        if (_holders > 0)
+            _holders--;
+        if (IsClosed && _holders == 0)
             ReleaseResources();
     }
 
-    /// <summary>The preview left the chat. Work stops at once; resources go once nothing shows them.</summary>
+    /// <summary>The preview left the chat. Work stops at once; resources go once nothing uses them.</summary>
     internal void Close()
     {
         if (IsClosed)
@@ -428,7 +431,7 @@ public sealed partial class FilePreviewViewModel : ObservableObject
 
         IsClosed = true;
         _lifetime.Cancel();
-        if (_presenters == 0)
+        if (_holders == 0)
             ReleaseResources();
     }
 

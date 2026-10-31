@@ -129,9 +129,9 @@ public partial class MobileShellView
             preview.IsSettling = true;
         }
 
-        preview?.AttachPresenter();
+        preview?.Retain();
         PreviewPane.DataContext = preview;
-        previous?.DetachPresenter();
+        previous?.Release();
     }
 
     private void PlacePreview(MobileShellViewModel shell, bool beside, bool collapsed)

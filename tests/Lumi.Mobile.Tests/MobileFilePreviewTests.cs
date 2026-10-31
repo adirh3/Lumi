@@ -247,13 +247,13 @@ public sealed class MobileFilePreviewTests
         await preview.LoadAsync();
         Assert.True(preview.ShowText);
 
-        preview.AttachPresenter();
+        preview.Retain();
         preview.Close();
         Assert.True(preview.IsClosed);
         Assert.True(File.Exists(path), "a pane still sliding away keeps showing its file");
         Assert.Equal("ok", preview.Text);
 
-        preview.DetachPresenter();
+        preview.Release();
         Assert.False(File.Exists(path));
         Assert.Null((await preview.EnsureDownloadedAsync()).Path);
     }
@@ -441,10 +441,10 @@ public sealed class MobileFilePreviewTests
         Assert.Equal("Page 1 of 250", preview.Pdf.Pages[0].AccessibleName);
         Assert.Equal(842d / 595, preview.Pdf.Pages[0].AspectRatio, 3);
 
-        preview.AttachPresenter();
+        preview.Retain();
         preview.Close();
         Assert.False(renderer.Document!.IsDisposed);
-        preview.DetachPresenter();
+        preview.Release();
         Assert.True(renderer.Document.IsDisposed);
         Assert.False(File.Exists(path));
     }
@@ -707,6 +707,43 @@ public sealed class MobileFilePreviewTests
             await SettleAsync(window);
             Assert.All(pdf.Pdf!.Pages, page => Assert.Null(page.Image));
             AssertNoBindingErrors(logs);
+        });
+
+    [Fact]
+    public Task AFileActionKeepsItsCopyWhenAnotherFileReplacesThePreview() =>
+        RunViewAsync(async (view, window, logs) =>
+        {
+            using var files = new TempFiles();
+            var path = files.Write("fold-layout-report.md", "# Fold report"u8.ToArray());
+            var preview = new FilePreviewViewModel(Attachment("fold-layout-report.md"), Guid.NewGuid(), Serve(path));
+            view.DataContext = preview;
+            await preview.LoadAsync();
+            await SettleAsync(window);
+
+            var opener = new HeldOpener();
+            var previousOpener = MobilePlatformServices.ProducedFileOpener;
+            MobilePlatformServices.ProducedFileOpener = opener;
+            try
+            {
+                Tap(window, Find<Button>(view, "PreviewOpenButton"));
+                await WaitUntilAsync(() => opener.Path is not null);
+                Assert.Equal(path, opener.Path);
+
+                // Another file is tapped while the platform still copies this one for the app that opens it.
+                preview.Close();
+                view.DataContext = null;
+                await SettleAsync(window);
+                Assert.True(File.Exists(path), "the action still holds its file");
+
+                opener.Finish();
+                await WaitUntilAsync(() => !File.Exists(path));
+                Assert.False(preview.IsActionRunning);
+                AssertNoBindingErrors(logs);
+            }
+            finally
+            {
+                MobilePlatformServices.ProducedFileOpener = previousOpener;
+            }
         });
 
     [Theory]
@@ -1255,6 +1292,22 @@ public sealed class MobileFilePreviewTests
             Document = new FakePdfDocument(pages);
             return Task.FromResult<IPdfPreviewDocument>(Document);
         }
+    }
+
+    /// <summary>A platform that opens the file in another app only when the test says it has.</summary>
+    private sealed class HeldOpener : IProducedFileOpener
+    {
+        private readonly TaskCompletionSource<bool> _opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string? Path { get; private set; }
+
+        public Task<bool> TryOpenAsync(string downloadedPath, string displayName, CancellationToken cancellationToken)
+        {
+            Path = downloadedPath;
+            return _opened.Task;
+        }
+
+        public void Finish() => _opened.SetResult(true);
     }
 
     private sealed class FakePdfDocument(int pages) : IPdfPreviewDocument
